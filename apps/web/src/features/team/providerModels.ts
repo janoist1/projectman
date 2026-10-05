@@ -27,6 +27,10 @@ export const PROVIDER_MODEL_LABELS: Record<AgentProvider, Record<string, PlainMe
   claude: { ...CLAUDE_FIXED_LABELS, ...CLAUDE_ALIAS_LABELS },
   codex: CODEX_LABELS,
   gemini: GEMINI_LABELS,
+  nanogpt: { 'z-ai/glm-5.3-flash-uncensored': 'providerSettings.models.glm' } as Record<
+    string,
+    PlainMessageKey
+  >,
 };
 
 export function providerModelLabel(provider: AgentProvider, model: string): string {

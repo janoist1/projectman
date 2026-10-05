@@ -92,6 +92,8 @@ export const TaskStartWaiting = z.object({
     'full_test_pending',
     // The member's provider is not logged in (PM-324): the start continues once it is.
     'provider_not_logged_in',
+    'nanogpt_key_missing',
+    'nanogpt_setup_incomplete',
     // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
     'senior_busy',
   ]),

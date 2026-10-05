@@ -146,6 +146,8 @@ export const ERROR_CODES = [
   'not_stage_owner',
   'member_not_scheduled',
   'provider_not_logged_in',
+  'nanogpt_key_missing',
+  'nanogpt_setup_incomplete',
   'provider_unsupported',
   'nanogpt_key_rejected',
   'session_start_failed',

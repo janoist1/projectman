@@ -36,6 +36,47 @@ function loginOf(h: DomainHarness, state: { loggedIn: boolean | null | 'throws' 
 describe('a start while the provider is not logged in', () => {
   let h: DomainHarness;
   afterEach(() => h?.cleanup());
+  it.each(['no_key', 'cli_too_old', 'cli_missing', 'chatgpt_login', 'not_logged_in'] as const)(
+    'defers NanoGPT for %s and starts after readiness changes',
+    async (problem) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          const member = config.team.members.find((m) => m.handle === 'dev-1');
+          if (member?.kind === 'ai') member.provider = 'nanogpt';
+        },
+      });
+      let ready = false;
+      Object.assign(h.runner, {
+        providerStatus: async () => ({
+          provider: 'nanogpt',
+          loggedIn: ready,
+          method: 'api_key',
+          checkedAt: '2026-01-01T00:00:00.000Z',
+          ...(!ready ? { problem } : {}),
+        }),
+      });
+      const task = await h.domain.tasks.create('AR', { title: 'Fictional NanoGPT wait' }, OWNER_ACTOR);
+      await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        text: 'Start the fictional task',
+        taskKey: task.key,
+      });
+      expect(await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting)).toMatchObject({
+        reason:
+          problem === 'no_key'
+            ? 'nanogpt_key_missing'
+            : problem === 'not_logged_in'
+              ? 'provider_not_logged_in'
+              : 'nanogpt_setup_incomplete',
+        provider: 'nanogpt',
+      });
+      expect(h.runner.started).toEqual([]);
+      ready = true;
+      await h.domain.admission.retryDeferred();
+      await waitFor(() => h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key }));
+      expect(h.runner.started).toHaveLength(1);
+    },
+  );
 
   it('waits with the provider, and starts on the next retry once logged in', async () => {
     h = await createDomainHarness({ adjust: codexDev1 });

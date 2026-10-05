@@ -1,5 +1,50 @@
 # Agent providers
 
+## NanoGPT (PM-329)
+
+NanoGPT uses the interactive Codex CLI with a custom Responses model provider at
+`https://nano-gpt.com/api/v1`, not `--oss`. The default model is
+`z-ai/glm-5.3-flash-uncensored`; effort defaults to medium. Codex >= 0.159.1 is required:
+older 0.117–0.125 releases had MCP issues with custom providers (openai/codex #19871).
+The installation secret comes from PM-328's store, only at launch and resume. A dedicated
+0700 `PROJECTMAN_HOME/providers/nanogpt/codex-home` keeps transcripts separate and rejects
+`auth.json`; there is no ChatGPT fallback. The key is excluded from CLI shell environments.
+Missing keys or incomplete setup defer automatic starts; key changes refresh readiness and
+retry them. Deletion does not stop an existing session. Hook, terminal, team MCP, permission
+and resume behavior follow Codex, without a ChatGPT plan gauge. Managed VM is unsupported
+until PM-331. Real-key tool, effort and process-environment checks are performed by the owner.
+Both Codex and NanoGPT pass `-c notify=[]` so project configuration cannot install a
+notification command running outside the CLI sandbox. Acceptance of this override by
+Codex 0.159.1 remains part of the owner's manual check.
+NanoGPT startup also uses `inspectAmbientConfig` to reject override-capable settings in
+`/etc/codex`, its dedicated Codex home and the workspace's `.codex/config.toml`.
+The `nanogpt_setup_incomplete` error exposes only configuration file and key names.
+Nonempty workspace `.codex` directories and dedicated-home `hooks.json` files are refused;
+escaped quoted TOML roots fail closed in the shared inspector.
+
+NanoGPT disables plugins, remote plugins, ChatGPT apps, tool suggestions and skill-triggered
+MCP installation with per-process feature overrides. Analytics and feedback are disabled.
+Its authentication store is ephemeral; no keychain login is loaded. The environment filter
+removes `CODEX_ACCESS_TOKEN` from every provider's children, since it otherwise takes
+precedence over the selected authentication store. These settings apply on resume too.
+Codex 0.159.1 still fetches the public announcement from
+`raw.githubusercontent.com/openai/codex/main/announcement_tip.toml`: this unconditional GET
+has no authentication or provider key and has no disable setting in that release.
+Before repeating a manual probe, the owner must clear the probe home's previously downloaded
+`codex-home/.tmp` plugins. Check that no ChatGPT or plugin-marketplace request or plugin
+download remains; the public announcement request may remain.
+
+NanoGPT requests for commands outside the sandbox never receive automatic command-policy
+approval, even for reads or routine worktree steps. Publishing and in-place editing denials
+remain unconditional. This prevents installation lifecycle scripts and Git hooks from
+running outside the sandbox without an approver's decision, where they could expose the
+CLI's key. The inbox shows the command; inspect the scripts and hooks before approving it.
+Use a `human` approver for NanoGPT developers (`ai` is permitted but not recommended).
+With the default `approver: 'none'`, requested commits are refused: the shared Git index
+lock lives outside the worktree sandbox. See SECURITY.md for the unresolved same-user
+filesystem and process-environment risks; environment filtering does not isolate the
+secret file from broad Codex reads.
+
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
 on the sponsor's ChatGPT plan (decision 15). Both run as interactive TUIs in a PTY, never

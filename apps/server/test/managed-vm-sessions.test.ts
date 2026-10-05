@@ -48,7 +48,7 @@ afterAll(async () => {
 const ATTESTATION: ManagedVmAttestation = {
   profile: { name: 'managed-vm', version: 1 },
   verifiedAt: '2026-10-01T12:00:00.000Z',
-  providerVersions: { claude: ['2.1.284'], codex: ['0.159.1'] },
+  providerVersions: { claude: ['2.1.284'], codex: ['0.159.1'], nanogpt: [] },
 };
 const verified: ManagedVmBoundary = { verify: async () => ATTESTATION };
 

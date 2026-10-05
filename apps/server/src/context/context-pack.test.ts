@@ -32,6 +32,16 @@ import { describeTeamRule } from './team-rules';
 const builder = createContextPackBuilder();
 
 describe('team rules in the system prompt', () => {
+  it('describes explicit approval instead of unattended commands for NanoGPT members', () => {
+    const project = buildProject();
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'nanogpt' };
+    const prompt = builder.build(input({ project, member })).appendSystemPrompt;
+    expect(prompt).toContain('# Command permission decisions');
+    expect(prompt).toContain('The server does not automatically approve CLI permission requests');
+    expect(prompt).not.toContain('# Commands that run without asking');
+    expect(prompt).not.toContain('NANOGPT_API_KEY');
+  });
+
   it('describes every applicable rule immediately after labels without duplicate guardrails', () => {
     const project = buildProject();
     project.pipeline.labels.push(LabelDefinition.parse({ id: 'refine', name: 'Refine' }));

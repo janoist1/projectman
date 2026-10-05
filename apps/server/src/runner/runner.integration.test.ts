@@ -95,6 +95,7 @@ beforeEach(async () => {
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
   process.env.ANTHROPIC_API_KEY = 'sk-ant-must-not-leak';
+  process.env.NANOGPT_API_KEY = 'inherited-nanogpt-must-not-leak';
   // A dead proxy: the SessionStart forwarder (curl honours http_proxy) only reaches the
   // server because the runner puts the loopback hosts into no_proxy.
   process.env.http_proxy = 'http://127.0.0.1:9';
@@ -279,6 +280,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(flag('--permission-mode')).toBe('acceptEdits');
     expect(flag('-n')).toBe('Anna · fe-1');
     expect(env).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(env).not.toHaveProperty('NANOGPT_API_KEY');
     expect(env).toMatchObject({
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

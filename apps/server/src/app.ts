@@ -492,11 +492,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       machineProbe: modules.createMachineProbe
         ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
         : undefined,
-      createRunner: (broker) =>
+      createRunner: (broker, nanogptKey) =>
         makeRunner({
           claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
           codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
           codexHome: options.codexHome,
+          nanogptCodexHome: join(home, 'providers', 'nanogpt', 'codex-home'),
+          nanogptKey,
           geminiBin: options.geminiBin,
           geminiConfigDir: options.geminiConfigDir,
           claudeConfigPath: options.claudeConfigPath,

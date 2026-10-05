@@ -116,6 +116,7 @@ export function codexModel(model: string | undefined): string {
 }
 
 export interface CodexArgsInput {
+  provider?: CodexModelProvider;
   spec: StartSessionSpec;
   /** POST target of the hooks. */
   hookUrl: string;
@@ -125,6 +126,22 @@ export interface CodexArgsInput {
   /** Node binary used when curl is missing (defaults to the running Node). */
   nodePath?: string;
 }
+
+export interface CodexModelProvider {
+  id: 'nanogpt';
+  name: string;
+  baseUrl: string;
+  envKey: string;
+  wireApi: 'responses';
+}
+
+export const NANOGPT_CODEX_PROVIDER: CodexModelProvider = {
+  id: 'nanogpt',
+  name: 'NanoGPT',
+  baseUrl: 'https://nano-gpt.com/api/v1',
+  envKey: 'NANOGPT_API_KEY',
+  wireApi: 'responses',
+};
 
 /** The `hooks` value of one event. */
 export function hookGroups(command: string, timeoutS: number): unknown {
@@ -149,6 +166,31 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   const c = (key: string, value: unknown) => args.push('-c', override(key, value));
 
   c('check_for_update_on_startup', false);
+  // Project configuration must not install an unsandboxed notification command.
+  c('notify', []);
+  if (input.provider) {
+    const p = input.provider;
+    c('model_provider', p.id);
+    c(`model_providers.${p.id}`, {
+      name: p.name,
+      base_url: p.baseUrl,
+      env_key: p.envKey,
+      wire_api: p.wireApi,
+    });
+    c('shell_environment_policy.exclude', [p.envKey]);
+    // A custom provider must not load ChatGPT services or install unsandboxed plugin/MCP code.
+    for (const feature of [
+      'plugins',
+      'remote_plugin',
+      'apps',
+      'tool_suggest',
+      'skill_mcp_dependency_install',
+    ])
+      c(`features.${feature}`, false);
+    c('cli_auth_credentials_store', 'ephemeral');
+    c('analytics.enabled', false);
+    c('feedback.enabled', false);
+  }
   c('projects', { [input.realCwd]: { trust_level: 'trusted' } });
   c('project_doc_fallback_filenames', ['CLAUDE.md']);
   if (spec.appendSystemPrompt) c('developer_instructions', spec.appendSystemPrompt);
@@ -213,7 +255,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's images.
   if (writes && portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
-  args.push('--model', codexModel(spec.model));
+  args.push('--model', modelForProvider(input.provider?.id ?? 'codex', spec.model));
   c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));
 
   const positional: string[] = [];

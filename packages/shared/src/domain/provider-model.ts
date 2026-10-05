@@ -5,7 +5,10 @@ export const DEFAULT_PROVIDER_MODELS: Record<AgentProvider, string> = {
   claude: 'opus',
   codex: 'gpt-6.1-sol',
   gemini: 'gemini-3.8-flash',
+  nanogpt: 'z-ai/glm-5.3-flash-uncensored',
 };
+
+export const NANOGPT_MIN_CODEX_VERSION = '0.159.1';
 
 /**
  * The providers whose plan usage the server can measure (PM-324): the plan-usage pause and the
@@ -45,6 +48,7 @@ export const PROVIDER_PERMISSION_MODES: Record<AgentProvider, readonly Permissio
   claude: PermissionMode.options,
   codex: PermissionMode.options.filter((mode) => mode !== 'bypassPermissions'),
   gemini: PermissionMode.options.filter((mode) => mode !== 'bypassPermissions'),
+  nanogpt: PermissionMode.options.filter((mode) => mode !== 'bypassPermissions'),
 };
 
 /** What a member gets in place of a mode its provider does not allow: edits in its workspace run, the rest is asked. */

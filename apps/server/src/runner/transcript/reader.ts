@@ -20,7 +20,7 @@ export async function readTranscript(
     opts.provider ??
     (path.endsWith('/transcript_full.jsonl') ? 'gemini' : CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
   if (provider === 'gemini') return parseGeminiTranscript(text, opts);
-  if (provider === 'codex') return parseCodexTranscript(text, opts);
+  if (provider === 'codex' || provider === 'nanogpt') return parseCodexTranscript(text, opts);
   return parseTranscript(text, opts);
 }
 

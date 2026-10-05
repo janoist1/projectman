@@ -34,6 +34,16 @@ function moduleOf(h: DomainHarness): RunnerModule {
 describe('agent providers', () => {
   let h: DomainHarness;
   afterEach(() => h.cleanup());
+  it('hires NanoGPT with its open model and Codex permission modes', async () => {
+    h = await createDomainHarness();
+    const hired = await h.domain.members.hire(
+      'AR',
+      { role: 'qa', provider: 'nanogpt' },
+      { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' },
+    );
+    expect(hired).toMatchObject({ provider: 'nanogpt', model: 'z-ai/glm-5.3-flash-uncensored' });
+    expect(permissionModeFitsProvider('nanogpt', 'bypassPermissions')).toBe(false);
+  });
 
   it('hires a Codex member and shows every AI member with its provider', async () => {
     h = await createDomainHarness();

@@ -31,7 +31,7 @@ const ATTESTATION: ManagedVmAttestation = {
   profile: { name: 'managed-vm', version: 1 },
   verifiedAt: '2026-10-01T12:00:00.000Z',
   // The fake CLIs report version 0.0.0.
-  providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'] },
+  providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'], nanogpt: [] },
 };
 
 let app: FastifyInstance;

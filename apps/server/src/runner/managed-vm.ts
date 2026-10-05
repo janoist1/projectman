@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { openConfined } from './transcript/confined';
@@ -277,9 +277,13 @@ function tomlRoots(text: string): Set<string> {
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (line === '' || line.startsWith('#')) continue;
-    const header = /^\[\[?\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)/.exec(line);
-    const key = header ?? /^("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*[.=]/.exec(line);
-    if (key) roots.add(key[1]!.replace(/^["']|["']$/g, ''));
+    const header = /^\[\[?\s*("(?:\\.|[^"\\])*"|'[^']*'|[A-Za-z0-9_-]+)/.exec(line);
+    const key = header ?? /^("(?:\\.|[^"\\])*"|'[^']*'|[A-Za-z0-9_-]+)\s*[.=]/.exec(line);
+    if (key) {
+      const root = key[1]!;
+      // Escaped quoted roots require a full TOML parser to resolve. Fail closed instead.
+      roots.add(root.includes('\\') ? root : root.replace(/^["']|["']$/g, ''));
+    }
   }
   return roots;
 }
@@ -296,7 +300,9 @@ async function codexConfigIssue(
   // An administrator's file (managed config, requirements) is a rule over the CLI whatever it
   // says: any content in it counts. The user's and the project's file only when they set one of
   // the roots that change the start (Codex writes harmless bookkeeping there itself).
-  const keys = everything ? [...roots] : [...roots].filter((root) => CODEX_OVERRIDING_ROOTS.has(root));
+  const keys = everything
+    ? [...roots]
+    : [...roots].filter((root) => root.includes('\\') || CODEX_OVERRIDING_ROOTS.has(root));
   return keys.length > 0 ? { file, keys } : null;
 }
 
@@ -331,6 +337,8 @@ export async function inspectAmbientConfig(input: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   locations?: AmbientConfigLocations;
+  /** NanoGPT refuses all project Codex files; other callers inspect configuration only. */
+  projectFolder?: 'config' | 'any';
   /** A worker home (PM-140): files below it are read confined (see `readIfPresent`). */
   confineTo?: string;
 }): Promise<AmbientIssue[]> {
@@ -351,6 +359,30 @@ export async function inspectAmbientConfig(input: {
     issues.push(
       await codexConfigIssue(path.join(input.cwd, '.codex', 'config.toml'), false, input.confineTo),
     );
+    if (input.projectFolder === 'any') {
+      // Project files can register subprocesses outside the member shell's environment policy.
+      const dir = path.join(input.cwd, '.codex');
+      try {
+        const info = await lstat(dir);
+        if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(dir)).length)
+          issues.push({ file: dir, keys: ['(project codex folder)'] });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+          issues.push({ file: dir, keys: ['(unreadable)'] });
+      }
+    }
+    for (const hookFile of [
+      path.join(path.dirname(where.codexUser), 'hooks.json'),
+      path.join(input.cwd, '.codex', 'hooks.json'),
+    ]) {
+      try {
+        await lstat(hookFile);
+        issues.push({ file: hookFile, keys: ['(hooks file)'] });
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+          issues.push({ file: hookFile, keys: ['(unreadable)'] });
+      }
+    }
   }
   return issues.filter((issue): issue is AmbientIssue => issue !== null);
 }

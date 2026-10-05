@@ -566,7 +566,11 @@ export class InboxService {
       member?.kind === 'ai' && validToolCwd
         ? commandVerdict({
             config,
-            session: { cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd, role: member.role },
+            session: {
+              cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd,
+              role: member.role,
+              provider: session.provider,
+            },
             task,
             toolName: request.toolName,
             toolInput: request.toolInput,

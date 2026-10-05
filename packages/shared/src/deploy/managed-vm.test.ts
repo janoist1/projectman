@@ -27,6 +27,7 @@ describe('execution profile setting', () => {
     expect(isManagedVmProvider('claude')).toBe(true);
     expect(isManagedVmProvider('codex')).toBe(true);
     expect(isManagedVmProvider('gemini')).toBe(false);
+    expect(isManagedVmProvider('nanogpt')).toBe(false);
     expect(isManagedVmProvider('toString')).toBe(false);
   });
   it('defaults to legacy and accepts only the two known profiles', () => {

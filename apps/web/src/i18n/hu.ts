@@ -209,6 +209,8 @@ export const hu = {
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       team_paused: 'A csapat szünetelt.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
+      nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
+      nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
@@ -321,7 +323,7 @@ export const hu = {
     presence: 'Most itt: {names}',
   },
 
-  providers: { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' },
+  providers: { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', nanogpt: 'NanoGPT' },
 
   planUsage: {
     fiveHour: '5 óra',
@@ -448,6 +450,8 @@ export const hu = {
       theme_not_a_theme: 'A kiválasztott kártya nem téma.',
       theme_closed: 'A téma le van zárva: nyisd újra, vagy válassz másikat.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
+      nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
+      nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
       bad_request: 'A kérés érvénytelen.',
@@ -797,6 +801,8 @@ export const hu = {
       label_missing: '{name} munkájára vár: {labels}',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
+      nanogpt_key_missing: 'Indulásra vár: nincs NanoGPT-kulcs',
+      nanogpt_setup_incomplete: 'Indulásra vár: hiányos a NanoGPT-beállítás',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -835,6 +841,8 @@ export const hu = {
       // The drawer adds the login command (`providerSettings.loginCommands`) in a code element after it.
       provider_not_logged_in:
         'A munka magától elindul, amint belépsz; a szerver félpercenként ellenőrzi. Futtasd a szerveren:',
+      nanogpt_key_missing: 'A munka magától elindul, amint a tulajdonos megadja a NanoGPT-kulcsot.',
+      nanogpt_setup_incomplete: 'Ellenőrizd a Codex verzióját és a külön NanoGPT-beállításokat.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -2499,6 +2507,7 @@ export const hu = {
       geminiFlash: 'Gemini 3.8 Flash',
       geminiPro: 'Gemini 3.1 Pro',
       sol: 'gpt-6.1-sol — munkaló, kódolásra',
+      glm: 'GLM 5.3 Flash Uncensored',
       luna: 'gpt-6-luna — gyors, olcsó, egyszerű feladatokra',
       astra: 'gpt-6-astra — a legerősebb, drága, csak kritikus feladatra',
     },
@@ -2533,7 +2542,12 @@ export const hu = {
     cheapSubagentProfile: 'Olcsó alügynök: {model}',
     astraWarning: 'Költségfigyelmeztetés: az Astra drága, csak kritikus feladatra válaszd.',
     loginWarning: '{provider} nincs bejelentkezve. Futtasd a szerveren:',
-    loginCommands: { claude: 'claude auth login', codex: 'codex login', gemini: 'agy' },
+    loginCommands: {
+      claude: 'claude auth login',
+      codex: 'codex login',
+      gemini: 'agy',
+      nanogpt: 'A NanoGPT-kulcsot a tulajdonos adja meg.',
+    },
     statusUnknown: 'A szolgáltató bejelentkezési állapota nem ellenőrizhető.',
   },
 

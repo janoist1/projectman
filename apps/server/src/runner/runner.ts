@@ -26,6 +26,7 @@ import {
 } from './managed-vm';
 import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
+import { NanogptStartError } from './providers/nanogpt';
 import { pipeSpawn } from './pipe-spawn';
 import { AgentSession, UUID_RE } from './session';
 
@@ -84,6 +85,8 @@ export class SessionManager implements SessionRunner {
     const provider = spec.provider ?? DEFAULT_AGENT_PROVIDER;
     const adapter = this.adapters[provider];
     if (!adapter) throw new Error(`unknown agent provider: ${String(provider)}`);
+    if (provider === 'nanogpt' && (this.opts.launcher || spec.policy?.execution?.profile === 'managed_vm'))
+      throw new NanogptStartError('provider_unsupported', { profile: 'managed_vm' });
     if (!UUID_RE.test(spec.claudeSessionId))
       throw new Error(
         `invalid ${provider === 'claude' ? 'Claude' : adapter.label} session id: ${spec.claudeSessionId}`,
@@ -99,15 +102,22 @@ export class SessionManager implements SessionRunner {
       managedVm,
       instanceTag: this.opts.instanceTag,
     });
-    if (!(await cliExists(adapter.bin, env.PATH))) {
+    if (provider !== 'nanogpt' && !(await cliExists(adapter.bin, env.PATH))) {
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
     // The question-free profile starts only on a proven boundary, with a CLI it is proven for and
     // without configuration of the VM's own that would override the protected start (PM-141).
     if (managedVm) await this.assertManagedVm(spec, adapter, env);
     // A CLI without a subscription login can only sit at its login screen: do not spawn it.
-    const status = await this.providerStatus(provider);
-    if (status.loggedIn === false) throw new ProviderNotLoggedInError(adapter.label, status);
+    const status = await this.providerStatus(provider, { refresh: provider === 'nanogpt' });
+    if (status.loggedIn === false) {
+      if (provider === 'nanogpt')
+        throw new NanogptStartError(
+          status.problem === 'no_key' ? 'nanogpt_key_missing' : 'nanogpt_setup_incomplete',
+          { problem: status.problem, cliVersion: status.cliVersion, minCliVersion: status.minCliVersion },
+        );
+      throw new ProviderNotLoggedInError(adapter.label, status);
+    }
 
     const token = randomBytes(24).toString('base64url');
     const launch = await adapter.launch({
@@ -140,7 +150,7 @@ export class SessionManager implements SessionRunner {
     this.sessions.set(spec.sessionId, session);
     this.byToken.set(token, session);
     try {
-      session.spawn(launch.file, launch.args, env);
+      session.spawn(launch.file, launch.args, { ...env, ...launch.env });
     } catch (err) {
       this.sessions.delete(spec.sessionId);
       this.byToken.delete(token);
@@ -308,6 +318,7 @@ export class SessionManager implements SessionRunner {
     let pending = this.statusChecks.get(key);
     if (!pending) {
       pending = (async (): Promise<ProviderStatus> => {
+        if (provider === 'nanogpt') return adapter.checkLogin(buildChildEnv(this.opts.env ?? process.env));
         if (member && launcher && layout) {
           if (!isManagedVmProvider(provider))
             return {

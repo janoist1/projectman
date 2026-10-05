@@ -120,6 +120,8 @@ export interface LaunchInput {
 }
 
 export interface Launch {
+  /** Trusted adapter-only environment, never recorded in session data or logs. */
+  env?: Record<string, string>;
   conversationRoot?: string;
   file: string;
   args: string[];

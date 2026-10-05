@@ -70,6 +70,31 @@ const input = {
 const verdict = (command: string) => commandVerdict({ ...input, toolInput: { command } });
 
 describe('automatic command policy', () => {
+  it.each(['git status', 'cat README.md', 'npm ci', 'git add -A', 'git commit -m "Example"'])(
+    'requires an explicit NanoGPT decision for %s',
+    (command) => {
+      const request = { ...input, readableRoots: [cwd], toolInput: { command } };
+      for (const provider of ['claude', 'codex'] as const)
+        expect(commandVerdict({ ...request, session: { ...input.session, provider } })).toEqual({
+          behavior: 'allow',
+        });
+      expect(commandVerdict({ ...request, session: { ...input.session, provider: 'nanogpt' } })).toBeNull();
+    },
+  );
+
+  it.each(['git push', 'gh pr create', 'gh pr merge 12', 'sed -i s/a/b/ README.md'])(
+    'retains automatic NanoGPT denials for %s',
+    (command) => {
+      expect(
+        commandVerdict({
+          ...input,
+          session: { ...input.session, provider: 'nanogpt' },
+          toolInput: { command },
+        }),
+      ).toMatchObject({ behavior: 'deny' });
+    },
+  );
+
   it('only refuses publishing rules for a configured local-only task repository', () => {
     expect(deniedToolsFor(config, { repo: 'local' })).toEqual(LOCAL_ONLY_DENIED_TOOLS);
     for (const task of [null, { repo: null }, { repo: 'web' }, { repo: 'missing' }])

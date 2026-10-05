@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   MANAGED_VM_ACTIVATION_CHECKS,
@@ -242,6 +242,19 @@ describe("the VM's own provider configuration", () => {
     ]);
   });
 
+  it.each([
+    '["mcp\\u005fservers".x]\ncommand = "private-sentinel"',
+    '"mcp\\u005fservers".x.command = "private-sentinel"',
+    '["mcp_servers".x]\ncommand = "private-sentinel"',
+  ])('refuses quoted overriding Codex roots without reporting values', async (text) => {
+    const f = await files();
+    const user = await f.write('config.toml', text);
+    const issues = await inspect('codex', f.dir, { codexManaged: [], codexUser: user });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.file).toBe(user);
+    expect(JSON.stringify(issues)).not.toContain('private-sentinel');
+  });
+
   it("lets Codex's own bookkeeping stand", async () => {
     const f = await files();
     const user = await f.write(
@@ -249,6 +262,38 @@ describe("the VM's own provider configuration", () => {
       'model = "gpt"\n[notice]\nhide_rate_limit_model_nudge = true\n[projects."/a.b/c"]\ntrust_level = "trusted"\n',
     );
     expect(await inspect('codex', f.dir, { codexManaged: [], codexUser: user })).toEqual([]);
+  });
+
+  it.each(['home/hooks.json', 'repo/.codex/hooks.json'])(
+    'refuses the separate Codex hook file %s',
+    async (name) => {
+      const f = await files();
+      const file = await f.write(name, 'private-hook-value');
+      expect(
+        await inspect('codex', f.at('repo'), { codexManaged: [], codexUser: f.at('home/config.toml') }),
+      ).toContainEqual({ file, keys: ['(hooks file)'] });
+    },
+  );
+
+  it.each(['file', 'symlink', 'content'] as const)('refuses a project Codex %s in any mode', async (kind) => {
+    const f = await files();
+    const folder = f.at('.codex');
+    if (kind === 'file') await writeFile(folder, 'private-value');
+    else if (kind === 'symlink') {
+      await mkdir(f.at('empty'));
+      await symlink(f.at('empty'), folder);
+    } else await f.write('.codex/anything.txt', 'private-value');
+    const request = {
+      provider: 'codex' as const,
+      cwd: f.dir,
+      env: {},
+      locations: { codexManaged: [], codexUser: f.at('home/config.toml') },
+    };
+    expect(await inspectAmbientConfig({ ...request, projectFolder: 'any' })).toContainEqual({
+      file: folder,
+      keys: ['(project codex folder)'],
+    });
+    expect(await inspectAmbientConfig(request)).toEqual([]);
   });
 });
 
@@ -311,7 +356,7 @@ describe('a managed VM start through the runner (no pseudo-terminal: it is refus
   const ATTESTATION: ManagedVmAttestation = {
     profile: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION },
     verifiedAt: '2026-10-01T12:00:00.000Z',
-    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'] },
+    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'], nanogpt: [] },
   };
   const saved = { ...process.env };
   afterEach(() => {

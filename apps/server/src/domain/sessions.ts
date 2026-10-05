@@ -312,6 +312,18 @@ function errorCode(err: unknown): string | null {
 }
 
 function providerNotLoggedIn(provider: AgentProvider, details: Record<string, unknown>, detail?: string) {
+  if (provider === 'nanogpt' && details.problem === 'no_key')
+    return conflict('nanogpt_key_missing', 'NanoGPT is not ready', { provider });
+  if (
+    provider === 'nanogpt' &&
+    ['cli_missing', 'cli_too_old', 'chatgpt_login'].includes(String(details.problem))
+  )
+    return conflict('nanogpt_setup_incomplete', 'NanoGPT is not ready', {
+      provider,
+      problem: details.problem,
+      cliVersion: details.cliVersion,
+      minCliVersion: details.minCliVersion,
+    });
   return conflict(
     PROVIDER_NOT_LOGGED_IN,
     `${provider} is not logged in with a subscription${detail ? `: ${detail}` : ''}`,
@@ -1294,9 +1306,12 @@ export class SessionOrchestrator {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
-    if (provider === 'gemini' && (this.deps.executionProfile === 'managed_vm' || this.managed))
-      throw conflict('provider_unsupported', 'Gemini is not supported in the managed VM profile yet.', {
-        provider: 'gemini',
+    if (
+      (provider === 'gemini' || provider === 'nanogpt') &&
+      (this.deps.executionProfile === 'managed_vm' || this.managed)
+    )
+      throw conflict('provider_unsupported', `${provider} is not supported in the managed VM profile yet.`, {
+        provider,
         profile: 'managed_vm',
       });
     // The session's own permission settings, set by an owner, in place of the member's (PM-170):
@@ -1754,7 +1769,20 @@ export class SessionOrchestrator {
       }
       this.recomputeMemberState(projectKey, member.handle);
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
-        throw providerNotLoggedIn(provider, { sessionId: session.id }, (err as Error).message);
+        const status = (err as { status?: { problem?: string; cliVersion?: string; minCliVersion?: string } })
+          .status;
+        throw providerNotLoggedIn(provider, { sessionId: session.id, ...status }, (err as Error).message);
+      }
+      if (
+        ['nanogpt_key_missing', 'nanogpt_setup_incomplete', 'provider_unsupported'].includes(
+          errorCode(err) ?? '',
+        )
+      ) {
+        const failure = err as Error & {
+          code: 'nanogpt_key_missing' | 'nanogpt_setup_incomplete' | 'provider_unsupported';
+          details?: Record<string, unknown>;
+        };
+        throw conflict(failure.code, failure.message, failure.details);
       }
       if (errorCode(err) === MANAGED_VM_UNAVAILABLE) {
         throw managedVmUnavailable(err, { sessionId: session.id });
@@ -2108,7 +2136,16 @@ export class SessionOrchestrator {
       return;
     }
     if (status?.loggedIn === false) {
-      throw providerNotLoggedIn(provider, { method: status.method }, status.detail);
+      throw providerNotLoggedIn(
+        provider,
+        {
+          method: status.method,
+          problem: status.problem,
+          cliVersion: status.cliVersion,
+          minCliVersion: status.minCliVersion,
+        },
+        status.detail,
+      );
     }
   }
 

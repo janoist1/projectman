@@ -281,6 +281,7 @@ describe('mock provider settings', () => {
       expect.objectContaining({ provider: 'claude', loggedIn: true }),
       expect.objectContaining({ provider: 'codex', loggedIn: false }),
       expect.objectContaining({ provider: 'gemini', loggedIn: true, method: 'google' }),
+      expect.objectContaining({ provider: 'nanogpt', loggedIn: true, method: 'api_key' }),
     ]);
     backend.auth = 'login';
     expect(backend.handle('GET', '/api/providers', undefined).status).toBe(401);

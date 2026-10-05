@@ -365,7 +365,7 @@ export class MockBackend {
   attachments: Attachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
-  providerLoggedIn = { claude: true, codex: true, gemini: true };
+  providerLoggedIn = { claude: true, codex: true, gemini: true, nanogpt: true };
   nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -1376,9 +1376,11 @@ export class MockBackend {
           method: this.providerLoggedIn[provider]
             ? provider === 'claude'
               ? 'claude.ai'
-              : provider === 'gemini'
-                ? 'google'
-                : 'chatgpt'
+              : provider === 'nanogpt'
+                ? 'api_key'
+                : provider === 'gemini'
+                  ? 'google'
+                  : 'chatgpt'
             : 'none',
           checkedAt: nowIso(),
         })),

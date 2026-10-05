@@ -23,11 +23,13 @@ Documentation map:
 
 ## Hard constraints
 
-1. **Subscription, never API billing** (decisions 1, 15). Agents run as interactive TUIs in
+1. **Subscription, with a narrow NanoGPT exception** (decisions 1, 15, 34). Agents run as interactive TUIs in
    a pseudo-terminal, logged in with the sponsor's Claude or ChatGPT plan. No Agent SDK,
    `claude -p`, `codex exec` or app server for member work. The runner strips API keys and
    endpoint overrides from every session, and refuses to start a CLI that is not logged in
-   with a subscription. The app never collects or stores agent credentials.
+   with a subscription. NanoGPT alone receives the projectman-managed key from its secret
+   store, in a dedicated Codex home without ChatGPT login or OpenAI billing fallback
+   (PM-328, PM-329). The app never collects or stores subscription login credentials.
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
    (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by
@@ -860,6 +862,32 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
+  `runner/env.ts`, `app.ts`, `index.ts`
+  (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under
+  `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
+  adapter supplies the secret as trusted child environment and excludes it from CLI shell
+  commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
+  Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** the CLI,
+  home and transcripts belong on the engine; secret delivery requires an authenticated
+  launch/resume boundary, never configuration, public status or logs. The current server and
+  CLI share a machine and filesystem. A remote engine performs local version and auth-file
+  checks and returns readiness status. It never persists or returns the delivered key,
+  including in its spool; a replaced key affects only subsequent launches and resumes.
+  Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
+  `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
+  NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home
+  `hooks.json` files; escaped quoted TOML roots fail closed in the shared inspector.
+  The shared inspector checks separate project and home hook files for every Codex caller;
+  NanoGPT selects `projectFolder: 'any'`, also refusing symlinked or non-directory project folders.
+  On a remote engine this inspection must run beside the CLI, before secret delivery.
+  The engine also applies NanoGPT-only feature overrides disabling plugins, apps and
+  skill-triggered MCP installation, an ephemeral authentication store, and disabled analytics
+  and feedback. All child environments strip `CODEX_ACCESS_TOKEN`. Codex 0.159.1's public,
+  unauthenticated GitHub announcement request remains a CLI network assumption.
+  The environment filter also removes AuthManager's OAuth client-id and token-endpoint
+  overrides, so a host environment cannot redirect child subscription authentication.
+
 - **Gemini (agy) CLI, conversation directories and keychain login** —
   `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
   authenticated with the executing account's Google consumer login in its keychain. Each
@@ -880,6 +908,7 @@ workers follow the machine's size.
   until PM-331. No remote Gemini launcher is implemented by PM-326.
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
+  See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
   owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
@@ -985,7 +1014,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   is not evidence that a remote session has stopped.
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
-  (PM-340). Claude conversations live under `~/.claude/projects`; Codex rollouts under
+  (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
+  Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
   checks transcript content; managed worker reads are confined to the worker home.
   **Remote engine:** keep CLI conversation state and resume checks on its engine/account,
@@ -1036,6 +1066,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
+  See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
+  but NanoGPT rollouts never feed the ChatGPT plan gauge.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
   events. These observe the local account, not an arbitrary remote sponsor.

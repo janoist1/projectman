@@ -60,7 +60,7 @@ export const DEFAULT_NEW_MEMBER_APPROVER: Approver = 'none';
  * The agent CLI an AI member runs in, on its sponsor's subscription: Claude Code (Claude plan)
  * or OpenAI Codex CLI (ChatGPT plan).
  */
-export const AgentProvider = z.enum(['claude', 'codex', 'gemini']);
+export const AgentProvider = z.enum(['claude', 'codex', 'gemini', 'nanogpt']);
 export type AgentProvider = z.infer<typeof AgentProvider>;
 
 /** Provider of members that do not name one. */
@@ -74,6 +74,7 @@ export const PROVIDER_EFFORT_OPTIONS: Record<AgentProvider, readonly AgentEffort
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],
   codex: ['low', 'medium', 'high', 'xhigh'],
   gemini: ['low', 'medium', 'high'],
+  nanogpt: ['low', 'medium', 'high', 'xhigh'],
 };
 
 /**
@@ -88,6 +89,7 @@ export const PROVIDER_CHEAP_SUBAGENT_MODELS: Record<AgentProvider, readonly Chea
   claude: CheapSubagentModel.options,
   codex: [],
   gemini: [],
+  nanogpt: [],
 };
 
 /**

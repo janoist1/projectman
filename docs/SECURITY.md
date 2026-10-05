@@ -39,8 +39,55 @@ tenants into separate OS accounts or machines.
   validates writes before checking and stored values before session delivery. Non-regular
   secret files, including symbolic links, are refused on read.
   The `secrets` directory is already denied to member file tools through
-  `sensitivePaths` (PM-324). Session delivery belongs
-  to PM-329 and must remain restricted to NanoGPT sessions.
+  `sensitivePaths` (PM-324). Environment delivery (PM-329) is restricted to NanoGPT
+  sessions; the stored file remains readable from Codex and NanoGPT shell sandboxes.
+  The adapter excludes the key from
+  member shell environments, disables Codex notification commands, and rejects ambient
+  configuration that can override provider, permissions, hooks or MCP servers before
+  launch and resume. NanoGPT shell requests never receive automatic command-policy
+  approval; unconditional publishing and in-place editing denials still apply.
+  The inbox approver sees the requested command, not the scripts or hooks it will run.
+  Before approving `npm ci`, `npm install`, `npm run` or `git commit` outside the sandbox,
+  inspect member-controlled lifecycle scripts and Git hooks: they also run outside the
+  sandbox with network access. A human approver is recommended for NanoGPT developers;
+  with `approver: 'none'`, requested commits are refused.
+  If the approver is `ai`, an AI judgment alone decides whether these scripts or hooks
+  may run outside the sandbox and expose the key; this remains a risk, rather than a
+  verified secret-isolation boundary.
+
+  NanoGPT disables plugin loading and synchronization, ChatGPT apps and suggestions,
+  skill-triggered MCP installation, analytics and feedback. Its ephemeral authentication
+  store avoids persisted ChatGPT login and keychain credentials; `CODEX_ACCESS_TOKEN`
+  is stripped from all child environments. Children cannot inherit OAuth client-id,
+  refresh-endpoint or revoke-endpoint overrides either;
+  the filter removes `CODEX_APP_SERVER_LOGIN_CLIENT_ID`, `CODEX_REFRESH_TOKEN_URL_OVERRIDE`
+  and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
+  In the Codex 0.159.1 source, plugin requests
+  take authentication from `AuthManager`, not the custom provider's `env_key`;
+  `load_auth` reads Codex billing variables and auth storage, never `NANOGPT_API_KEY`.
+  This is source verification, not a captured network-header test. See
+  [plugin authentication](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/core-plugins/src/manager.rs)
+  and [authentication loading](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/login/src/auth/manager.rs).
+  The remaining public GitHub announcement request has no authentication attached
+  and no disable setting in 0.159.1; the request builder only supplies a URL and timeout
+  ([announcement fetch](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/tui/src/tooltips.rs)).
+  The owner's next manual probe must verify that ChatGPT requests and plugin downloads
+  are gone after clearing the probe's existing plugin cache.
+
+  The owner accepted the following temporary host risks on 2026-10-05 (decision 34,
+  PM-329; closure in PM-356):
+  the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret
+  store's file-tool denial does not prevent shell reads by processes running as the same
+  Unix user. Both Codex and NanoGPT sessions can read the secret store and the `providers`
+  directory. The accepted exposure routes are chat and team tools, or commands approved
+  by a human or an AI approver outside the sandbox; NanoGPT has no automatic command
+  approval. Also, the NanoGPT CLI process retains
+  the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
+  and CLI-controlled subprocesses outside the shell environment policy need separate
+  verification. Workspace configuration changes after the launch-time inspection are
+  not a verified isolation boundary (PM-357). Manual testing must distinguish sandboxed
+  shell commands from explicitly approved commands outside the sandbox; environment
+  filtering alone does not establish host-process isolation.
 
 - Signed, HttpOnly, SameSite=Lax cookies; Secure when HTTPS terminates at a loopback
   proxy supplying `X-Forwarded-Proto: https`. Login and invite acceptance replace

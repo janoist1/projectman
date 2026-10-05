@@ -31,7 +31,9 @@
  *   --dangerously-bypass-hook-trust: any key continues, and those hooks never run;
  * - after FAKE_CODEX_STARTUP_DELAY_MS (default 50) the history of a resumed session, then the
  *   composer: "› Ask Codex to do anything" above a footer "? for shortcuts ... 100% context
- *   left". A PROMPT argument is submitted right away. SessionStart only fires with that first
+ *   left". FAKE_CODEX_MODEL_FOOTER uses the model/effort/directory footer from the owner's
+ *   NanoGPT 0.159.1 screen instead, with three warnings and no context metadata.
+ *   A PROMPT argument is submitted right away. SessionStart only fires with that first
  *   turn, so a resumed session that is given no prompt reports nothing until someone types.
  *
  * HOOKS (`hooks.<Event> = [{hooks = [{type = "command", command, timeout}]}]`): run with
@@ -89,7 +91,7 @@
  * fake-tui.mjs.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -349,7 +351,8 @@ for (const feature of opts.disable) applyOverride(config, `features.${feature}=f
 
 const codexHome = process.env.CODEX_HOME || path.join(os.tmpdir(), 'fake-codex-home');
 
-if (process.env.FAKE_CODEX_ARGS_FILE) writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config });
+if (process.env.FAKE_CODEX_ARGS_FILE)
+  writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config, envNames: Object.keys(process.env).sort() });
 
 if (opts.version) {
   process.stdout.write(`codex-cli ${process.env.FAKE_CODEX_VERSION ?? VERSION}\n`);
@@ -592,7 +595,9 @@ async function interactive() {
   const keys = createKeyWaiter();
   let lastCtrlC = 0;
 
-  const FOOTER = '  ? for shortcuts                                              100% context left';
+  const FOOTER = process.env.FAKE_CODEX_MODEL_FOOTER
+    ? `  ${model} ${config.model_reasoning_effort ?? 'medium'} · ${realCwd}   ⚠ 3 warnings · f2 to view`
+    : '  ? for shortcuts                                              100% context left';
   function showPrompt() {
     mode = 'prompt';
     out(`\r\n› ${input.length > 0 ? input.replace(/\n/g, '\r\n  ') : 'Ask Codex to do anything'}`);
@@ -1004,7 +1009,15 @@ async function interactive() {
   line(`model: ${model} · directory: ${cwd}`);
   line();
 
-  if (process.env.FAKE_CODEX_LOGGED_OUT) {
+  if (config.model_provider === 'nanogpt' && !process.env.NANOGPT_API_KEY) {
+    line('Not logged in: NanoGPT key missing');
+    await keys.wait();
+    process.exit(1);
+  }
+  if (
+    process.env.FAKE_CODEX_LOGGED_OUT ||
+    (!config.model_provider && existsSync(path.join(codexHome, 'auth.json')))
+  ) {
     line('Sign in with ChatGPT to use Codex as part of your paid plan');
     line('› 1. Sign in with ChatGPT');
     line('  2. Provide your own API key');

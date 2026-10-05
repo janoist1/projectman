@@ -89,6 +89,30 @@ describe('provider key store', () => {
     expect(h.lines.join('')).toContain('permissions repaired');
     expect(h.lines.join('')).not.toContain('private-key');
   });
+  it('treats invalid JSON as a missing key and repairs it on save without logging contents', async () => {
+    const h = harness();
+    await h.store.setNanogpt('previous-key', 'owner');
+    writeFileSync(h.path, '{private-invalid-sentinel');
+    expect(h.store.status()).toEqual({ set: false, setAt: null });
+    expect(await h.store.nanogptKey()).toBeNull();
+    expect(h.lines.join('')).toContain('nanogpt key store is invalid');
+    expect(h.lines.join('')).not.toContain('private-invalid-sentinel');
+    await h.store.setNanogpt('replacement-key', 'owner');
+    expect(await h.store.nanogptKey()).toBe('replacement-key');
+  });
+  it('logs only the error code when the secret cannot be read', async () => {
+    const h = harness();
+    await h.store.setNanogpt('unreadable-sentinel', 'owner');
+    chmodSync(join(h.home, 'secrets'), 0o000);
+    try {
+      expect(await h.store.nanogptKey()).toBeNull();
+    } finally {
+      chmodSync(join(h.home, 'secrets'), 0o700);
+    }
+    expect(h.lines.join('')).toContain('nanogpt key store unreadable');
+    expect(h.lines.join('')).toContain('EACCES');
+    expect(h.lines.join('')).not.toContain('unreadable-sentinel');
+  });
   it.each(['abc\ndef', 'abc\rdef', 'abc\0def', 'ő', 'inner space'])(
     'refuses invalid key characters before checking or storing (%j)',
     async (key) => {

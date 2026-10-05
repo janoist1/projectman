@@ -248,3 +248,18 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     four-line message instead of running at full speed beside the others, which overloaded the
     machine. The server's own full test before review still runs without the queue and logs a
     warning, because the review must not stall on it.
+34. **NanoGPT is a narrow API-key exception.** Decided by the owner on 2026-10-04
+    (PM-319). Open models run through the interactive Codex CLI with NanoGPT as its custom
+    model provider, not through Ollama or `--oss`. The key is a projectman secret and reaches
+    only NanoGPT members' session environments. The `ANTHROPIC_*`, `OPENAI_*` and `CODEX_*` billing-key
+    prohibitions remain; there is no fallback to ChatGPT login or OpenAI billing. This
+    modifies decision 15 only for the projectman-managed NanoGPT key (PM-328, PM-329).
+    On 2026-10-05, the owner accepted the temporary residual risk on PM-329:
+    „Elfogadom átmenetileg, külön kártyán javítjuk” and „Indulhat, a lezárás később”.
+    The legacy Codex sandbox can read the NanoGPT secret file and the `providers` directory
+    from both Codex and NanoGPT sessions. The environment key is still delivered only to
+    NanoGPT sessions. The accepted exposure routes are chat and team tools, or commands
+    outside the sandbox approved by a human or an AI approver; NanoGPT has no automatic
+    command approval. Such approved commands may inspect the parent CLI's environment.
+    PM-356 will close the broad filesystem reads for all Codex CLI members. This acceptance
+    does not waive PM-329's ambient configuration checks or its manual verification.

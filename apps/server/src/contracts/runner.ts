@@ -499,6 +499,8 @@ export interface RunnerModuleOptions {
   geminiConfigDir?: string;
   /** Codex's home, where it keeps transcripts (default: $CODEX_HOME, else ~/.codex). Read only. */
   codexHome?: string;
+  nanogptCodexHome?: string;
+  nanogptKey?: () => Promise<string | null>;
   /**
    * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
    * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session

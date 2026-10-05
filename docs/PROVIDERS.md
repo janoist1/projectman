@@ -468,7 +468,8 @@ The runner resolves the real CLI file on the session PATH. If it is beneath a de
 directory, only its official `packages/standalone` installation ancestor may be reopened
 read-only, after the denials; an ancestor containing a denied path is never reopened.
 This also applies to NanoGPT's shared executable despite its different Codex home.
-Unknown installation layouts inside denied directories remain blocked. Use the official
+Unknown installation layouts inside denied directories refuse launch with `cli_location`
+in the provider's setup error; details identify the real executable path. Use the official
 standalone installer or install outside the denied directories. Git writes to the shared
 index still use the existing command-approval path (PM-131/PM-77), not a profile write grant.
 

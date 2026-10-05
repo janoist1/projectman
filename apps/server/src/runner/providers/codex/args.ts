@@ -175,13 +175,33 @@ function insidePath(candidate: string, parent: string): boolean {
 }
 
 /** The official standalone installation is the only read exception beneath denied homes. */
-export function codexCliReadRoot(cliPath: string): string | null {
+export type CodexCliReadRoot = { kind: 'none' } | { kind: 'root'; path: string } | { kind: 'misplaced' };
+
+export function codexDeniedPaths(input: Pick<CodexArgsInput, 'spec' | 'codexHome'>): string[] {
+  return [
+    ...new Set([
+      ...(input.spec.policy?.filesystem.deniedPaths ?? []),
+      ...(input.codexHome ? [input.codexHome] : []),
+    ]),
+  ];
+}
+
+export function codexCliReadRoot(cliPath: string, denied: readonly string[]): CodexCliReadRoot {
+  const paths = denied.filter((entry) => !/[*?\[\]]/.test(entry));
+  if (!paths.some((entry) => insidePath(cliPath, entry))) return { kind: 'none' };
   let root = path.dirname(cliPath);
   while (path.dirname(root) !== root) {
-    if (path.basename(root) === 'standalone' && path.basename(path.dirname(root)) === 'packages') return root;
+    if (path.basename(root) === 'standalone' && path.basename(path.dirname(root)) === 'packages') {
+      if (
+        paths.some((entry) => root !== entry && insidePath(root, entry)) &&
+        !paths.some((entry) => insidePath(entry, root))
+      )
+        return { kind: 'root', path: root };
+      return { kind: 'misplaced' };
+    }
     root = path.dirname(root);
   }
-  return null;
+  return { kind: 'misplaced' };
 }
 
 export function codexPermissionProfile(input: {
@@ -204,13 +224,8 @@ export function codexPermissionProfile(input: {
     }
   }
   for (const denied of new Set(input.deniedPaths)) filesystem[denied] = 'deny';
-  const cliReadRoot = input.cliPath ? codexCliReadRoot(input.cliPath) : null;
-  if (
-    cliReadRoot &&
-    input.deniedPaths.some((denied) => cliReadRoot !== denied && insidePath(cliReadRoot, denied)) &&
-    !input.deniedPaths.some((denied) => insidePath(denied, cliReadRoot))
-  )
-    filesystem[cliReadRoot] = 'read';
+  const cliReadRoot = input.cliPath ? codexCliReadRoot(input.cliPath, input.deniedPaths) : null;
+  if (cliReadRoot?.kind === 'root') filesystem[cliReadRoot.path] = 'read';
   return { extends: ':read-only', filesystem };
 }
 
@@ -309,10 +324,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       `permissions.${CODEX_PERMISSION_PROFILE}`,
       codexPermissionProfile({
         sandbox: writes ? 'workspace-write' : 'read-only',
-        deniedPaths: [
-          ...(spec.policy?.filesystem.deniedPaths ?? []),
-          ...(input.codexHome ? [input.codexHome] : []),
-        ],
+        deniedPaths: codexDeniedPaths(input),
         writableRoots,
         tmpDir,
         cliPath: input.cliPath,

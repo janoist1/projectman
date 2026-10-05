@@ -8,7 +8,7 @@ import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
-import { buildCodexArgs } from './args';
+import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
 import { inspectCodexMcpServers, type AmbientIssue } from '../../managed-vm';
@@ -18,7 +18,8 @@ export class CodexStartError extends Error {
   readonly code = 'codex_setup_incomplete';
   readonly details: Record<string, unknown>;
   constructor(details: {
-    problem: 'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config';
+    problem: 'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location';
+    cliPath?: string;
     cliVersion?: string;
     minCliVersion?: string;
     ambientConfig?: AmbientIssue[];
@@ -180,6 +181,12 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     inputTools: CODEX_INPUT_TOOLS,
 
     async launch({ spec, hookUrl, permissionTimeoutMs, cliPath }) {
+      if (
+        spec.policy?.execution?.profile !== 'managed_vm' &&
+        cliPath &&
+        codexCliReadRoot(cliPath, codexDeniedPaths({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
+      )
+        throw new CodexStartError({ problem: 'cli_location', cliPath });
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
       const userMcp = await inspectCodexMcpServers({ codexHome: opts.codexHome });
       if (userMcp.unresolved.length)

@@ -847,9 +847,9 @@ export const hu = {
       nanogpt_key_missing:
         'A tulajdonos a Beállítások → AI-szolgáltatók alatt adhatja meg a kulcsot; utána a munka magától elindul.',
       nanogpt_setup_incomplete:
-        'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Javítás után a munka magától elindul.',
+        'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
       codex_setup_incomplete:
-        'Frissítsd a Codexet legalább {minCliVersion} verzióra, vagy a hibában megnevezett konfigurációs fájlból vedd ki a homokozó-beállítást (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles). MCP-beállítási hibánál a felhasználói config.toml mcp_servers neveit kell egyértelművé tenni; a team név a projectmané. Javítás után a munka magától elindul.',
+        'Frissítsd a Codexet legalább {minCliVersion} verzióra, vagy a hibában megnevezett konfigurációs fájlból vedd ki a homokozó-beállítást (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles). MCP-beállítási hibánál a felhasználói config.toml mcp_servers neveit kell egyértelművé tenni; a team név a projectmané. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

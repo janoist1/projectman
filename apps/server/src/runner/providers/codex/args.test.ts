@@ -7,6 +7,7 @@ import {
   codexModel,
   codexPermissions,
   codexPermissionProfile,
+  codexCliReadRoot,
   tomlString,
   tomlValue,
   NANOGPT_CODEX_PROVIDER,
@@ -38,6 +39,9 @@ const input = {
 describe('codexPermissionProfile', () => {
   it('reopens only the standalone CLI installation, after the credential denial', () => {
     expect(
+      codexCliReadRoot('/home/.codex/packages/standalone/releases/1/bin/codex', ['/home/.codex']),
+    ).toEqual({ kind: 'root', path: '/home/.codex/packages/standalone' });
+    expect(
       tomlValue(
         codexPermissionProfile({
           sandbox: 'read-only',
@@ -65,6 +69,9 @@ describe('codexPermissionProfile', () => {
   ])(
     'does not reopen an unrelated, unknown, equal or protected installation: $cliPath',
     ({ cliPath, deniedPaths }) => {
+      expect(codexCliReadRoot(cliPath, deniedPaths)).toEqual({
+        kind: cliPath.startsWith('/outside/') ? 'none' : 'misplaced',
+      });
       const profile = codexPermissionProfile({
         sandbox: 'read-only',
         writableRoots: [],

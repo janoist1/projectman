@@ -6,7 +6,7 @@ import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts'
 import { resolveCommand, runQuietly } from '../../cli';
 import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
 import { createCodexAdapter } from '../codex';
-import { buildCodexArgs, NANOGPT_CODEX_PROVIDER } from '../codex/args';
+import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
 import type { ProviderAdapter } from '../types';
 
 export class NanogptStartError extends Error {
@@ -69,6 +69,15 @@ export function createNanogptAdapter(opts: {
       return status;
     },
     async launch(input) {
+      if (
+        input.cliPath &&
+        codexCliReadRoot(input.cliPath, codexDeniedPaths({ spec: input.spec, codexHome: opts.codexHome }))
+          .kind === 'misplaced'
+      )
+        throw new NanogptStartError('nanogpt_setup_incomplete', {
+          problem: 'cli_location',
+          cliPath: input.cliPath,
+        });
       if (input.spec.permissionMode === 'bypassPermissions')
         throw new NanogptStartError('nanogpt_setup_incomplete');
       if (input.spec.policy?.execution?.profile === 'managed_vm')

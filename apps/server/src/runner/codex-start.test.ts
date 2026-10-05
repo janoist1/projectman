@@ -42,6 +42,22 @@ async function fixture(version = '0.159.1') {
 }
 
 describe('fail-closed Codex start', () => {
+  it('refuses an unknown CLI installation inside the denied Codex home', async () => {
+    const { options, spec, home } = await fixture();
+    const adapter = createCodexAdapter({ ...options, bin: FAKE_CODEX });
+    const cliPath = path.join(home, 'tmp', 'codex');
+    await expect(
+      adapter.launch({
+        spec,
+        cliPath,
+        hookUrl: 'http://127.0.0.1:1/hooks/fictional',
+        permissionTimeoutMs: 1000,
+      }),
+    ).rejects.toMatchObject({
+      code: 'codex_setup_incomplete',
+      details: { provider: 'codex', problem: 'cli_location', cliPath },
+    });
+  });
   it.each(['0.159.0', '0.0.0', 'invalid'])(
     'refuses CLI version %s before spawning a session',
     async (version) => {

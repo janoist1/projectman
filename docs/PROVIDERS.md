@@ -438,7 +438,7 @@ Samples are in `apps/server/test/fixtures/gemini/` (secret-free: account names a
 `<account>`, work folders are `/tmp/pm-agy-probe/...`, OAuth `state`/`code_challenge` are
 redacted). Paths below are relative to it. Files named `*.RECONSTRUCTED.json` were rebuilt
 from printed summaries plus the real common fields; all others are raw captures. `screens/` is
-emulated with minor artifacts, `screens-raw/` holds the exact bytes.
+emulated with minor artifacts, `screens-raw/` holds the exact bytes of three of them (ready, logged out, trust).
 
 **Does this work on a remote engine?** The adapter's machine-dependent parts (the `agy` binary
 and its updater, the keyring login, the `--gemini_dir`, the transcript files, the PTY) would
@@ -463,11 +463,14 @@ this card (it ships no code); PM-326 adds the entries.
 5. **Hazards:** a background updater can replace `~/.local/bin/agy` on any start; a fresh
    `--gemini_dir` repeats onboarding including the data-use consent screen.
 
-Open questions to the owner, asked on PM-323 (not decisions yet): who completes the consent
-screen, or may projectman seed `cache/onboarding.json`; pin the version with
-`--release_base_url`; is a hook that holds a session for minutes acceptable while an inbox
-approval is pending (the alternative is `request-review` plus a hook `ask`, with the adapter
-pressing `1` or `4` in the dialog); run without `--sandbox`.
+Open, owner decision pending (asked on PM-323, none is decided yet):
+
+- who completes the consent screen, or may projectman seed `cache/onboarding.json`;
+- pin the version with `--release_base_url`;
+- is a hook that holds a session for minutes acceptable while an inbox approval is pending
+  (the alternative is `request-review` plus a hook `ask`, with the adapter pressing `1` or
+  `4` in the dialog);
+- run without `--sandbox`.
 
 ### Q1. Per-process configuration
 

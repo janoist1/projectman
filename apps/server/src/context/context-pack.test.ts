@@ -876,6 +876,17 @@ describe('system prompt', () => {
     expect(prompt).not.toContain('Claude Code');
     expect(prompt).not.toContain('Claude subscription');
   });
+  it('gives Gemini subscription, MCP, repository instructions and command gating guidance', () => {
+    const project = buildProject();
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'gemini' };
+    const prompt = builder.build(input({ project, member, handle: 'fe-1' })).appendSystemPrompt;
+    expect(prompt).toContain('Google AI subscription');
+    expect(prompt).toContain('using call_mcp_tool');
+    expect(prompt).toContain('Read the project CLAUDE.md at the start');
+    expect(prompt).toContain('Do not chain commands with && or |');
+    expect(prompt).not.toContain('# Your sandbox');
+    expect(prompt).not.toContain('# Your workspace');
+  });
 
   it('marks the current stage and describes the next gate', () => {
     const prompt = builder.build(input()).appendSystemPrompt;

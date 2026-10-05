@@ -4,6 +4,7 @@ import type { AgentProvider } from './member';
 export const DEFAULT_PROVIDER_MODELS: Record<AgentProvider, string> = {
   claude: 'opus',
   codex: 'gpt-6.1-sol',
+  gemini: 'gemini-3.8-flash',
 };
 
 /**
@@ -22,7 +23,11 @@ const CLAUDE_MODEL =
 
 export function modelFitsProvider(provider: AgentProvider, model: string): boolean {
   const claude = CLAUDE_MODEL.test(model.trim());
-  return Boolean(model.trim()) && (provider === 'claude' ? claude : !claude);
+  const gemini = /^gemini-/i.test(model.trim());
+  return (
+    Boolean(model.trim()) &&
+    (provider === 'claude' ? claude : provider === 'gemini' ? gemini && !claude : !claude && !gemini)
+  );
 }
 
 /** Use on hiring or changing providers, retaining compatible custom model ids. */
@@ -39,6 +44,7 @@ export function modelForProvider(provider: AgentProvider, model?: string): strin
 export const PROVIDER_PERMISSION_MODES: Record<AgentProvider, readonly PermissionMode[]> = {
   claude: PermissionMode.options,
   codex: PermissionMode.options.filter((mode) => mode !== 'bypassPermissions'),
+  gemini: PermissionMode.options.filter((mode) => mode !== 'bypassPermissions'),
 };
 
 /** What a member gets in place of a mode its provider does not allow: edits in its workspace run, the rest is asked. */

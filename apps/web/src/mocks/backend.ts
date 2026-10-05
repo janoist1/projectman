@@ -365,7 +365,7 @@ export class MockBackend {
   attachments: Attachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
-  providerLoggedIn = { claude: true, codex: true };
+  providerLoggedIn = { claude: true, codex: true, gemini: true };
   nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -2210,7 +2210,7 @@ export class MockBackend {
       if (input.model !== undefined) member.model = config.model = input.model;
       if (input.provider !== undefined && input.provider !== (config.provider ?? DEFAULT_AGENT_PROVIDER)) {
         member.provider = config.provider = input.provider;
-        member.model = config.model = modelForProvider(input.provider, config.model);
+        member.model = config.model = modelForProvider(input.provider, input.model);
       }
       if (input.effort !== undefined) {
         if (input.effort === null) {
@@ -3615,7 +3615,9 @@ export class MockBackend {
       ...(input.specialty ? { specialty: input.specialty } : {}),
       ...(input.provider ? { provider: input.provider } : {}),
       model:
-        input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
+        input.provider && input.provider !== 'claude'
+          ? modelForProvider(input.provider, input.model)
+          : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.cheapSubagent ? { cheapSubagent: input.cheapSubagent } : {}),
       permissionMode: defaults.permissionMode,

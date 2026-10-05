@@ -10,6 +10,15 @@ import {
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it('keeps Gemini models within Gemini and does not report its plan usage', () => {
+    expect(modelForProvider('gemini')).toBe('gemini-3.8-flash');
+    expect(modelForProvider('gemini', 'gemini-3.1-pro-high')).toBe('gemini-3.1-pro-high');
+    expect(modelForProvider('gemini', 'claude-opus')).toBe('gemini-3.8-flash');
+    expect(modelForProvider('codex', 'gemini-3.8-flash')).toBe('gpt-6.1-sol');
+    expect(modelForProvider('claude', 'gemini-3.8-flash')).toBe('opus');
+    expect(permissionModeFitsProvider('gemini', 'bypassPermissions')).toBe(false);
+    expect(hasPlanUsage('gemini')).toBe(false);
+  });
   it.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
     'accepts effort %s on config, hire and update',
     (effort) => {

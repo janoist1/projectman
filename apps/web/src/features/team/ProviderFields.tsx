@@ -56,9 +56,19 @@ export function ProviderFields({
         value={provider}
         onChange={(event) => {
           const next = AgentProvider.parse(event.target.value);
-          const nextModel = modelForProvider(next, model);
+          const nextModel = modelForProvider(next);
           setCustom(!Object.hasOwn(PROVIDER_MODEL_LABELS[next], nextModel));
-          onEffortChange(next === 'codex' ? (effort === 'max' ? 'xhigh' : (effort ?? 'medium')) : effort);
+          onEffortChange(
+            next === 'gemini'
+              ? effort === 'max' || effort === 'xhigh'
+                ? 'high'
+                : (effort ?? 'medium')
+              : next === 'codex'
+                ? effort === 'max'
+                  ? 'xhigh'
+                  : (effort ?? 'medium')
+                : effort,
+          );
           onProviderChange(next, nextModel);
         }}
       >
@@ -87,7 +97,7 @@ export function ProviderFields({
             </optgroup>
           </>
         ) : (
-          modelOptions(CODEX_LABELS)
+          modelOptions(PROVIDER_MODEL_LABELS[provider])
         )}
         <option value="custom">{t('providerSettings.customModel')}</option>
       </SelectField>

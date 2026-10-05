@@ -149,6 +149,8 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       cloneDependencies: cloneDependencies !== 'off',
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
+      geminiBin: env.AGY_BIN,
+      geminiConfigDir: join(home, 'providers', 'gemini'),
       codexHome: env.CODEX_HOME || undefined,
       claudeConfigPath: env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : undefined,
       agentEnv: env,

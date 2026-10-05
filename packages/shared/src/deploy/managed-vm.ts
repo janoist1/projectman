@@ -40,6 +40,10 @@ export const MANAGED_VM_PROVIDER_VERSIONS = {
   claude: ['2.1.284'],
   codex: ['0.159.1'],
 } as const satisfies Record<'claude' | 'codex', readonly string[]>;
+export type ManagedVmProvider = keyof typeof MANAGED_VM_PROVIDER_VERSIONS;
+export function isManagedVmProvider(provider: string): provider is ManagedVmProvider {
+  return Object.hasOwn(MANAGED_VM_PROVIDER_VERSIONS, provider);
+}
 
 /**
  * Checks that are only reported in the baseline readiness report (PM-137) but that the question-free

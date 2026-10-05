@@ -15,6 +15,19 @@ describe('memberships and member snapshots', () => {
   afterEach(async () => h.close());
 
   const by = { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' };
+  it('uses the new provider default unless the same request supplies a compatible model', async () => {
+    const members = h.app.projectman.domain.members;
+    const member = await members.hire('AR', { role: 'qa', provider: 'gemini' }, by);
+    expect(member.model).toBe('gemini-3.8-flash');
+    await members.update('AR', member.handle, { model: 'gemini-3.1-pro' }, by);
+    expect((await members.update('AR', member.handle, { provider: 'codex' }, by)).model).toBe('gpt-6.1-sol');
+    expect(
+      (await members.update('AR', member.handle, { provider: 'gemini', model: 'gemini-3.1-pro' }, by)).model,
+    ).toBe('gemini-3.1-pro');
+    expect(
+      (await members.update('AR', member.handle, { provider: 'claude', model: 'gemini-3.1-pro' }, by)).model,
+    ).toBe('opus');
+  });
 
   it('lists only the authenticated user’s projects and reflects changed membership roles', async () => {
     await h.app.projectman.domain.projects.create(

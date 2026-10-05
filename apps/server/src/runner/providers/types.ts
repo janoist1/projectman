@@ -7,6 +7,8 @@ import type {
 } from '../../contracts';
 import type { CommandOutput } from '../cli';
 import type { HookPayload } from '../hook-payload';
+import type { SessionPolicy } from '../../contracts';
+import type { ToolDecision } from '../tool-decision';
 
 /**
  * Provider adapters: what differs between the agent CLIs the runner drives (Claude Code,
@@ -20,6 +22,7 @@ import type { HookPayload } from '../hook-payload';
  * how hooks arrive or where plan usage comes from, is inside the adapter's own functions.)
  */
 export interface ProviderCapabilities {
+  toolGate: 'permission_request' | 'pre_tool_use';
   /**
    * The CLI takes our conversation id at launch (Claude `--session-id`). Otherwise the id is
    * learned from the first hook and reported with a `provider_session_id` event (Codex).
@@ -117,6 +120,7 @@ export interface LaunchInput {
 }
 
 export interface Launch {
+  conversationRoot?: string;
   file: string;
   args: string[];
   /** The CLI's own arguments (`args` may start with a script for a fake CLI); the launcher gets these. */
@@ -139,7 +143,9 @@ export interface ProviderAdapter {
   /** Command line of a session (after any preparation, e.g. workspace trust). */
   launch(input: LaunchInput): Promise<Launch>;
   /** A hook body, validated; null when malformed. */
-  parseHook(body: unknown): HookPayload | null;
+  parseHook(body: unknown, event?: string): HookPayload | null;
+  decideToolCall?(policy: SessionPolicy, payload: HookPayload, conversationRoot: string | null): ToolDecision;
+  turnStartOutput?(spec: StartSessionSpec): unknown;
   /** Whether a hook came from a subagent and must not change the session's state. */
   isSubagentHook(payload: HookPayload): boolean;
   /** The PermissionRequest hook answer for a broker decision. */

@@ -209,6 +209,7 @@ export const hu = {
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       team_paused: 'A csapat szünetelt.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
+      provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
       session_failed: 'A munkamenet sikertelenül zárult.',
@@ -320,7 +321,7 @@ export const hu = {
     presence: 'Most itt: {names}',
   },
 
-  providers: { claude: 'Claude', codex: 'Codex' },
+  providers: { claude: 'Claude', codex: 'Codex', gemini: 'Gemini' },
 
   planUsage: {
     fiveHour: '5 óra',
@@ -447,6 +448,7 @@ export const hu = {
       theme_not_a_theme: 'A kiválasztott kártya nem téma.',
       theme_closed: 'A téma le van zárva: nyisd újra, vagy válassz másikat.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
+      provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
       bad_request: 'A kérés érvénytelen.',
       cannot_remove_self: 'Saját magadat nem távolíthatod el.',
@@ -2494,6 +2496,8 @@ export const hu = {
     customModel: 'Egyéni modell',
     modelId: 'Modellazonosító',
     models: {
+      geminiFlash: 'Gemini 3.8 Flash',
+      geminiPro: 'Gemini 3.1 Pro',
       sol: 'gpt-6.1-sol — munkaló, kódolásra',
       luna: 'gpt-6-luna — gyors, olcsó, egyszerű feladatokra',
       astra: 'gpt-6-astra — a legerősebb, drága, csak kritikus feladatra',
@@ -2529,7 +2533,7 @@ export const hu = {
     cheapSubagentProfile: 'Olcsó alügynök: {model}',
     astraWarning: 'Költségfigyelmeztetés: az Astra drága, csak kritikus feladatra válaszd.',
     loginWarning: '{provider} nincs bejelentkezve. Futtasd a szerveren:',
-    loginCommands: { claude: 'claude auth login', codex: 'codex login' },
+    loginCommands: { claude: 'claude auth login', codex: 'codex login', gemini: 'agy' },
     statusUnknown: 'A szolgáltató bejelentkezési állapota nem ellenőrizhető.',
   },
 

@@ -860,6 +860,22 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Gemini (agy) CLI, conversation directories and keychain login** —
+  `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
+  authenticated with the executing account's Google consumer login in its keychain. Each
+  conversation has a private directory under `PROJECTMAN_HOME/providers/gemini`; it stays
+  for resume, holds hook/MCP configuration and local transcripts, and confines transcript
+  reads (`Launch.conversationRoot`). POSIX sh plus curl (Node fallback) forwards hooks to
+  loopback HTTP. Updates are disabled in launches and login probes; maintenance is manual.
+  Commands currently run without a sandbox under owner decision T4: role shell rules allow
+  listed commands, other calls use the inbox, and a missing hook answer denies the call.
+  This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
+  **Remote engine:** the binary, login/keychain, private directories, PTY, forwarder and
+  transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
+  transcript access must use the launcher with the conversation root as its confinement,
+  rather than opening engine paths on the server. Managed VM launches remain unsupported
+  until PM-331. No remote Gemini launcher is implemented by PM-326.
+
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an

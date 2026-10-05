@@ -2,6 +2,7 @@ import type { AgentProvider } from '@projectman/shared';
 import type { RunnerModuleOptions } from '../../contracts';
 import { createClaudeAdapter } from './claude';
 import { createCodexAdapter, defaultCodexHome } from './codex';
+import { createGeminiAdapter } from './gemini';
 import type { ProviderAdapter } from './types';
 
 export type ProviderAdapters = Record<AgentProvider, ProviderAdapter>;
@@ -13,6 +14,11 @@ export type ProviderAdapters = Record<AgentProvider, ProviderAdapter>;
 export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapters {
   const env = opts.env ?? process.env;
   return {
+    gemini: createGeminiAdapter({
+      bin: opts.geminiBin ?? env.AGY_BIN ?? 'agy',
+      configDir: opts.geminiConfigDir,
+      logger: opts.logger,
+    }),
     claude: createClaudeAdapter({
       bin: opts.claudeBin,
       logger: opts.logger,

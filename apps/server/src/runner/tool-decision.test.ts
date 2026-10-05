@@ -97,6 +97,28 @@ function policyFor(mode: Mode, patch: Partial<SessionPolicy> = {}): SessionPolic
     ...patch,
   };
 }
+describe('temporary Gemini shell-rule exception', () => {
+  it('only allows safe listed commands when explicitly enabled', () => {
+    const policy = policyFor('acceptEdits');
+    const call = (command: string): NormalizedToolCall => ({
+      category: 'command',
+      paths: [work],
+      command,
+      sandboxed: false,
+    });
+    expect(decideToolCall(policy, call('npm test'))).toEqual({ decision: 'ask' });
+    expect(decideToolCall(policy, call('npm test'), { shellRulesOutsideSandbox: true })).toEqual({
+      decision: 'allow',
+    });
+    for (const command of ['npm test && echo hi', 'echo hi'])
+      expect(decideToolCall(policy, call(command), { shellRulesOutsideSandbox: true })).toEqual({
+        decision: 'ask',
+      });
+    expect(
+      decideToolCall(policy, call('npm test ~/.ssh/id_ed25519'), { shellRulesOutsideSandbox: true, home }),
+    ).toEqual({ decision: 'deny', reason: 'denied_path' });
+  });
+});
 
 const reader = (mode: Mode): SessionPolicy =>
   policyFor(mode, {

@@ -159,6 +159,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     label: 'Claude Code',
     bin: opts.bin,
     capabilities: {
+      toolGate: 'permission_request',
       presetSessionId: true,
       sessionPermissionRules: true,
       readiness: 'session_start',

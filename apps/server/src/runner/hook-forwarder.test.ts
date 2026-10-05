@@ -15,6 +15,7 @@ async function forward(
   status: number,
   body: string,
   pathEnv: string,
+  fallbackOutput?: string,
 ): Promise<{ received: string; stdout: string; code: number }> {
   let received = '';
   const server = createServer((req, res) => {
@@ -30,6 +31,7 @@ async function forward(
   const command = forwarderCommand(`http://127.0.0.1:${port}/hooks/tok`, process.execPath, {
     printResponse: true,
     maxTimeS: 5,
+    fallbackOutput,
   });
   const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
     const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, stdout) =>
@@ -45,6 +47,34 @@ const DECISION =
   '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}';
 
 describe('forwarderCommand with printResponse', () => {
+  it.each([process.env.PATH ?? '/usr/bin:/bin', '/nonexistent'])(
+    'fails closed for missing, empty or error responses (%s)',
+    async (pathEnv) => {
+      const fallback = '{"decision":"deny","reason":"server unavailable"}';
+      for (const [status, body] of [
+        [200, ''],
+        [302, '{"decision":"allow"}'],
+        [500, 'error'],
+      ] as const)
+        expect(await forward(status, body, pathEnv, fallback)).toMatchObject({ stdout: fallback, code: 0 });
+      expect(await forward(201, '{"decision":"allow"}', pathEnv, fallback)).toMatchObject({
+        stdout: '{"decision":"allow"}',
+        code: 0,
+      });
+      const command = forwarderCommand('http://127.0.0.1:9/hooks/token', process.execPath, {
+        printResponse: true,
+        maxTimeS: 1,
+        fallbackOutput: fallback,
+      });
+      const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
+        const child = execFile('/bin/sh', ['-c', command], { env: { PATH: pathEnv } }, (err, stdout) =>
+          resolve({ stdout, code: err ? 1 : 0 }),
+        );
+        child.stdin!.end('{}');
+      });
+      expect(result).toEqual({ stdout: fallback, code: 0 });
+    },
+  );
   it('prints the answer with curl', async () => {
     const result = await forward(200, DECISION, process.env.PATH ?? '/usr/bin:/bin');
     expect(result).toEqual({

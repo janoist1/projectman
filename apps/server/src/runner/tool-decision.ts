@@ -37,6 +37,8 @@ export type ToolDecision =
   { decision: 'allow' } | { decision: 'ask' } | { decision: 'deny'; reason: ToolDenyReason };
 
 export interface ToolDecisionOptions {
+  /** Temporary agy exception (PM-326, owner T4); remove with PM-361 sandbox support. */
+  shellRulesOutsideSandbox?: boolean;
   /** The user's home directory, for `~` and `$HOME`; defaults to the process user's. */
   home?: string;
   /**
@@ -49,6 +51,14 @@ export interface ToolDecisionOptions {
 const CASE_INSENSITIVE_FILESYSTEM = process.platform === 'darwin' || process.platform === 'win32';
 
 const ALLOW: ToolDecision = { decision: 'allow' };
+export const TOOL_DENY_MESSAGES: Record<ToolDenyReason, string> = {
+  denied_path: 'This call accesses a path the session is forbidden to access.',
+  denied_operation: 'This operation is forbidden by the session policy.',
+  denied_host: 'This host is forbidden by the session policy.',
+  plan_mode: 'This operation is unavailable in plan mode.',
+  read_only_placement: 'This session placement permits reading only.',
+  not_granted: 'The session policy does not grant this operation.',
+};
 const ASK: ToolDecision = { decision: 'ask' };
 const deny = (reason: ToolDenyReason): ToolDecision => ({ decision: 'deny', reason });
 
@@ -853,7 +863,11 @@ export function decideToolCall(
       // 7. Shell commands.
       // A rule only vouches for a command the sandbox contains: outside it, the rule's own
       // options (`--output=`, `--write`) can still reach anything, so the command falls through.
-      if (call.sandboxed === true && matchesShellRule(policy, call.command ?? '')) return ALLOW;
+      if (
+        (call.sandboxed === true || options.shellRulesOutsideSandbox === true) &&
+        matchesShellRule(policy, call.command ?? '')
+      )
+        return ALLOW;
       if (mode === 'plan') return deny('plan_mode');
       if (mode === 'auto' && call.sandboxed === true) return ALLOW;
       if (call.sandboxed !== true && policy.outsideSandbox === 'deny') return deny('not_granted');

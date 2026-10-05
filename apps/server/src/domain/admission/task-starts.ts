@@ -1,12 +1,16 @@
 import {
   aiLabelSetters,
+  developerLevelOf,
   evaluateStart,
   isOnLeave,
   isOpenTask,
+  isSenior,
   isTheme,
   memberOf,
+  pickDeveloper,
   projectRefines,
   roleBundle,
+  seniorsOf,
   stageIndex,
   stageOwners,
   startBlock,
@@ -32,6 +36,7 @@ import type { StageChange, TaskService } from '../tasks';
 import { actorHandle, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';
 import { assertPrerequisitesClosed } from './rules';
+import type { SeniorWaits } from './senior-waits';
 
 export interface StartTaskOptions {
   /** Explicit assignee; omitted = the current assignee, else a free developer, else a temp worker. */
@@ -68,6 +73,12 @@ export interface StartTaskOptions {
    * taken from). Internal, not a contract; an explicit `assignee` is not filtered.
    */
   excludeMembers?: string[];
+  /**
+   * The start is an automatic one (a card moved into the work stage, `WorkStarts.run`), not a person's
+   * Start (PM-348): a card that waits for the Senior is refused with `senior_busy`, which the automatic
+   * start waits for. A person's Start of such a card is answered with the waiting card instead.
+   */
+  automatic?: boolean;
 }
 
 export interface StartTaskResult {
@@ -77,6 +88,8 @@ export interface StartTaskResult {
   hired: AiMemberConfig | null;
   /** The developer's start waits for these labels, which these members were started to set (PM-236). */
   awaiting?: { labels: string[]; members: string[] };
+  /** The card is recommended for the Senior and waits for one of these (PM-348); no developer is assigned. */
+  seniorWait?: { seniors: string[] };
 }
 
 export interface LabelWaitRequest {
@@ -99,6 +112,25 @@ export interface LabelWaitRequest {
 /** Keeps the developer's start that waits for labels (PM-236); called under the admission lock. */
 export interface LabelWait {
   awaitLabels(wait: LabelWaitRequest): void;
+}
+
+export interface SeniorWaitRequest {
+  projectKey: string;
+  taskKey: string;
+  /** The stage the card was in, and the work stage it is in now (a start moves it there without an assignee). */
+  from: string;
+  to: string;
+  actor: Actor;
+  /** The Seniors the card waits for. */
+  seniors: string[];
+  /** Who chose "wait on" after the question, if anyone did. */
+  waitDecidedBy?: string;
+  despitePrerequisites?: boolean;
+}
+
+/** Keeps a person's Start of a card that waits for the Senior (PM-348); called under the admission lock. */
+export interface SeniorWait {
+  awaitSenior(wait: SeniorWaitRequest): void;
 }
 
 /** What a person's Start needs of the fix round limit (PM-262): to end the hold, then let the waiting messages through. */
@@ -129,7 +161,9 @@ export class TaskStarts {
   private readonly members: MemberService;
   private readonly sessions: SessionOrchestrator;
   private readonly admission: Admission;
+  private readonly seniorWaits: SeniorWaits;
   private labelWait: LabelWait | undefined;
+  private seniorWait: SeniorWait | undefined;
   private fixLimit: FixLimitStart | undefined;
 
   constructor(deps: {
@@ -138,12 +172,14 @@ export class TaskStarts {
     members: MemberService;
     sessions: SessionOrchestrator;
     admission: Admission;
+    seniorWaits: SeniorWaits;
   }) {
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
     this.sessions = deps.sessions;
     this.admission = deps.admission;
+    this.seniorWaits = deps.seniorWaits;
   }
 
   async start(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
@@ -193,13 +229,10 @@ export class TaskStarts {
       if (waiting) return { ...skipped, task: this.tasks.get(projectKey, taskKey), awaiting: waiting };
     }
 
-    let member: MemberConfig | null = this.chooseMember(
-      config,
-      task,
-      workStage,
-      opts.assignee,
-      opts.excludeMembers ?? [],
-    );
+    const chosen = this.chooseMember(config, task, workStage, opts.assignee, opts.excludeMembers ?? []);
+    if (chosen.kind === 'senior_busy')
+      return this.waitForSenior(config, task, workStage, opts, needsMove, chosen.seniors);
+    let member: MemberConfig | null = chosen.member;
     opts.onChosen?.(member);
     const workItem = { type: 'task', taskKey } as const;
     const alreadyRunning =
@@ -214,22 +247,14 @@ export class TaskStarts {
         capacity: opts.assignee !== undefined || member?.handle !== task.assignee,
       });
 
-    if (needsMove) {
-      const evaluation = evaluateStart(task, config, workStage.id);
-      if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
-      // Again: admission and a hire waited since the first check, and labels may have changed.
-      refuseOwnStageApproval(task, evaluation);
-      if (evaluation.approvals.length > 0) {
-        const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
-        throw approvalRequestedError(result.pendingApproval);
-      }
-    }
+    // Again: admission and a hire waited since the first check, and labels may have changed.
+    if (needsMove) await this.passEntryGates(config, task, workStage, opts);
 
     const wanted = () => !opts.stillWanted || opts.stillWanted(this.tasks.get(projectKey, taskKey));
     let hired: AiMemberConfig | null = null;
     if (!member) {
       if (!wanted()) return skipped;
-      hired = await this.hireTempWorker(config, workStage, opts);
+      hired = await this.hireTempWorker(config, workStage, opts, chosen.tempAllowed);
       member = hired;
     }
 
@@ -250,6 +275,8 @@ export class TaskStarts {
       task.assignee === member.handle &&
       !!this.fixLimit?.humanStart(task, opts.actor);
     if (task.assignee !== member.handle) {
+      // Said before the assignment, which ends a wait for a Senior as "assigned".
+      if (chosen.noSenior) this.seniorWaits.noSenior(task);
       task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor);
       opts.onAssigned?.(member.handle);
     }
@@ -272,6 +299,80 @@ export class TaskStarts {
   /** Binds what keeps the start that waits for labels (it needs this class to run, so it is bound after). */
   useLabelWait(labelWait: LabelWait): void {
     this.labelWait = labelWait;
+  }
+
+  /** Binds what keeps a person's Start of a card that waits for the Senior (it needs this class to run, so it is bound after). */
+  useSeniorWait(seniorWait: SeniorWait): void {
+    this.seniorWait = seniorWait;
+  }
+
+  /**
+   * The gate of the work stage holds the move too (the labels may have changed while admission or a
+   * hire waited): refused, or the approvals it needs are requested and the start ends with that request.
+   */
+  private async passEntryGates(
+    config: ProjectConfig,
+    task: Task,
+    workStage: Stage,
+    opts: StartTaskOptions,
+  ): Promise<void> {
+    const evaluation = evaluateStart(task, config, workStage.id);
+    if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
+    refuseOwnStageApproval(task, evaluation);
+    if (evaluation.approvals.length > 0) {
+      const result = await this.tasks.moveToStage(task.projectKey, task.key, workStage.id, opts.actor);
+      throw approvalRequestedError(result.pendingApproval);
+    }
+  }
+
+  /**
+   * A card recommended for the Senior while every Senior is busy or away (PM-348): nobody is chosen,
+   * hired or assigned. The gates hold as for any start, admission checks only what needs no member
+   * (`checkWait`), and a card still in an earlier stage moves into the work stage without an assignee.
+   * The automatic start then opens the wait and is refused with `senior_busy`, which it waits for; a
+   * person's Start is not an error: the start is kept as a work start that waits (`SeniorWait`), and the
+   * result names the wait.
+   */
+  private async waitForSenior(
+    config: ProjectConfig,
+    task: Task,
+    workStage: Stage,
+    opts: StartTaskOptions,
+    needsMove: boolean,
+    seniors: string[],
+  ): Promise<StartTaskResult> {
+    const projectKey = config.project.key;
+    if (needsMove) await this.passEntryGates(config, task, workStage, opts);
+    this.admission.checkWait(config, task);
+    if (needsMove) {
+      const result = await this.tasks.moveToStage(projectKey, task.key, workStage.id, opts.actor);
+      if (!result.moved) throw approvalRequestedError(result.pendingApproval);
+    }
+    const current = this.tasks.get(projectKey, task.key);
+    if (opts.stillWanted && !opts.stillWanted(current)) return { task: current, session: null, hired: null };
+    const decision = this.seniorWaits.decisionFor(projectKey, task.key);
+    const waitDecidedBy = decision?.decision === 'wait' ? decision.by : undefined;
+    if (opts.automatic) {
+      this.seniorWaits.open(task, seniors);
+      throw conflict('senior_busy', `task ${task.key} waits for a Senior`, { seniors, waitDecidedBy });
+    }
+    this.seniorWait?.awaitSenior({
+      projectKey,
+      taskKey: task.key,
+      from: task.stageId,
+      to: workStage.id,
+      actor: opts.actor,
+      seniors,
+      waitDecidedBy,
+      despitePrerequisites: opts.despitePrerequisites,
+    });
+    this.seniorWaits.open(task, seniors);
+    return {
+      task: this.tasks.get(projectKey, task.key),
+      session: null,
+      hired: null,
+      seniorWait: { seniors },
+    };
   }
 
   /** Binds the fix round limit (PM-262), which starts cards through this class and is built after it. */
@@ -346,10 +447,12 @@ export class TaskStarts {
     config: ProjectConfig,
     workStage: Stage,
     opts: StartTaskOptions,
+    tempAllowed: boolean,
   ): Promise<AiMemberConfig> {
     const temp = config.team.limits.tempWorkers;
     const tempCount = config.team.members.filter((m) => m.kind === 'ai' && m.temp).length;
     if (
+      !tempAllowed ||
       !temp.enabled ||
       tempCount >= temp.max ||
       (workStage.duty && !roleBundle(config, temp.role).duties.includes(workStage.duty))
@@ -372,9 +475,12 @@ export class TaskStarts {
 
   /**
    * The explicit assignee (an owner of the work stage), else the current assignee if it owns
-   * the stage, else the least loaded free AI owner not on leave, else a human owner; null when
-   * nobody is free. An explicit or current assignee on leave is refused by admission
-   * (`member_on_leave`) rather than replaced.
+   * the stage, else the automatic choice (`pickDeveloper`, PM-348) among the free AI owners not on
+   * leave: a Senior card goes to a free Senior, or waits for one (`senior_busy`); any other card to the
+   * least loaded free member, a Senior last; else a human owner; null when nobody is free (a temp
+   * worker is hired, if `tempAllowed`). An explicit or current assignee on leave is refused by
+   * admission (`member_on_leave`) rather than replaced. `noSenior`: a Senior card went by the "any"
+   * rule because the work stage has no Senior.
    */
   private chooseMember(
     config: ProjectConfig,
@@ -382,23 +488,27 @@ export class TaskStarts {
     stage: Stage,
     assignee: string | undefined,
     exclude: string[],
-  ): MemberConfig | null {
+  ):
+    | { kind: 'member'; member: MemberConfig | null; tempAllowed: boolean; noSenior: boolean }
+    | { kind: 'senior_busy'; seniors: string[] } {
     const projectKey = config.project.key;
     const eligible = stageOwners(config, stage).filter(
       (handle) => assignee === handle || !exclude.includes(handle),
     );
+    const given = (member: MemberConfig) =>
+      ({ kind: 'member', member, tempAllowed: true, noSenior: false }) as const;
     if (assignee) {
       const member = memberOf(config, assignee);
       if (!member) throw notFound('member', assignee);
       if (!eligible.includes(member.handle))
         throw invalid('not_stage_owner', 'assignee must own the work stage');
-      return member;
+      return given(member);
     }
     if (task.assignee) {
       const current = memberOf(config, task.assignee);
-      if (current && eligible.includes(current.handle)) return current;
+      if (current && eligible.includes(current.handle)) return given(current);
     }
-    const candidates = config.team.members
+    const free = config.team.members
       .map((m, index) => ({ m, index }))
       .filter(
         (c): c is { m: AiMemberConfig; index: number } =>
@@ -410,11 +520,32 @@ export class TaskStarts {
           c.load < c.m.capacity &&
           !(c.m.temp && (c.load > 0 || this.admission.hasOpenAssignment(projectKey, c.m.handle))),
       )
-      .sort((a, b) => a.load - b.load || a.index - b.index);
-    return (
-      candidates[0]?.m ??
-      config.team.members.find((m) => m.kind === 'human' && eligible.includes(m.handle)) ??
-      null
-    );
+      .map((c) => ({
+        handle: c.m.handle,
+        senior: isSenior(c.m),
+        temp: !!c.m.temp,
+        load: c.load,
+        index: c.index,
+      }));
+    const level = developerLevelOf(task);
+    const seniors = seniorsOf(config, stage)
+      .map((senior) => senior.handle)
+      .filter((handle) => eligible.includes(handle));
+    const pick = pickDeveloper({
+      level,
+      anyDecided: this.seniorWaits.decisionFor(projectKey, task.key)?.decision === 'any',
+      seniors,
+      free,
+    });
+    if (pick.kind === 'senior_busy') return pick;
+    const noSenior = level === 'senior' && seniors.length === 0;
+    if (pick.kind === 'member')
+      return { kind: 'member', member: memberOf(config, pick.handle) ?? null, tempAllowed: true, noSenior };
+    return {
+      kind: 'member',
+      member: config.team.members.find((m) => m.kind === 'human' && eligible.includes(m.handle)) ?? null,
+      tempAllowed: pick.tempAllowed,
+      noSenior,
+    };
   }
 }

@@ -92,9 +92,14 @@ export const TaskStartWaiting = z.object({
     'full_test_pending',
     // The member's provider is not logged in (PM-324): the start continues once it is.
     'provider_not_logged_in',
+    // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
+    'senior_busy',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
+  /** `senior_busy`: the Seniors the card waits for; `waitDecidedBy` is who chose "wait on" after the question. */
+  seniors: z.array(MemberHandle).optional(),
+  waitDecidedBy: MemberHandle.optional(),
   /** `label_missing`: the labels the start waits for; `member` is the one who sets them. */
   labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),

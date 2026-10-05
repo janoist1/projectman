@@ -2,8 +2,10 @@ import os from 'node:os';
 import {
   canManageInstancePause,
   isOnLeave,
+  isSenior,
   memberOf,
   permissionDelegationOf,
+  seniorWaitMinutesOf,
   stageOf,
 } from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
@@ -38,6 +40,7 @@ import {
   DeferredStarts,
   MessageStarts,
   RefinementSteps,
+  SeniorWaits,
   StageHandOver,
   TaskStarts,
   WorkStarts,
@@ -96,6 +99,7 @@ export {
   DeferredStarts,
   MessageStarts,
   RefinementSteps,
+  SeniorWaits,
   StageHandOver,
   TaskStarts,
   WorkStarts,
@@ -262,6 +266,8 @@ export interface DomainOptions {
   fullTestExecutor?: FullTestExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
+  /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
+  seniorWaitMs?: number;
   /**
    * The free bytes of the disk the installation's data is on (PM-243); null: not measurable. Without
    * it nothing is measured, so no start is refused for disk space.
@@ -498,10 +504,20 @@ export function createDomain(opts: DomainOptions) {
       () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
     );
   });
-  const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
+  // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
+  const seniorWaits = new SeniorWaits({
+    ctx,
+    projects,
+    tasks,
+    inbox,
+    timeline,
+    retry: () => retryDeferredStarts(),
+  });
+  const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission, seniorWaits });
   const workStarts = new WorkStarts({ projects, tasks, sessions, admission, starts: taskStarts });
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
+  taskStarts.useSeniorWait(workStarts);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.
@@ -685,6 +701,37 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', () => {
     setImmediate(() => usage.refresh()).unref();
   });
+  // A card that waits for the Senior: the wait ends with its card's assignment, move, closure or level, or
+  // with the team's Senior, and the owners' answer to the question is kept (PM-348). These run before the
+  // listeners that retry the deferred starts, so a retry sees the wait settled.
+  const settleSeniorWait = (task: { projectKey: string; key: string }) => {
+    const config = projects.cachedConfig(task.projectKey);
+    const current = tasks.find(task.projectKey, task.key);
+    if (config && current) seniorWaits.settle(current, config);
+  };
+  events.on('task_assigned', ({ task }) => settleSeniorWait(task));
+  events.on('task_stage_changed', (change) => settleSeniorWait(change.task));
+  events.on('task_cancelled', (task) => settleSeniorWait(task));
+  events.on('task_level_changed', ({ task }) => {
+    settleSeniorWait(task);
+    retryDeferredStarts();
+  });
+  events.on('config_changed', (change) => {
+    seniorWaits.configChanged(change);
+    const { previous, next } = change;
+    const seniors = (config: typeof next) =>
+      config.team.members
+        .filter((m) => isSenior(m))
+        .map((m) => m.handle)
+        .join(',');
+    if (
+      previous &&
+      (seniors(previous) !== seniors(next) ||
+        seniorWaitMinutesOf(previous.team.limits) !== seniorWaitMinutesOf(next.team.limits))
+    )
+      retryDeferredStarts();
+  });
+  events.on('inbox_resolved', (item) => seniorWaits.decided(item));
   // Human decisions.
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
@@ -876,6 +923,7 @@ export function createDomain(opts: DomainOptions) {
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
   let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
@@ -915,6 +963,7 @@ export function createDomain(opts: DomainOptions) {
     reviewWatch,
     fullTests,
     loopWatch,
+    seniorWaits,
     fixLimit,
     disk,
     worktreeSweep,
@@ -996,6 +1045,16 @@ export function createDomain(opts: DomainOptions) {
         opts.loopWatchMs ?? 60_000,
       );
       loopWatchTimer.unref();
+      // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
+      seniorWaitTimer = setInterval(
+        () =>
+          background.run(
+            async () => seniorWaits.sweep(),
+            (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
+          ),
+        opts.seniorWaitMs ?? 60_000,
+      );
+      seniorWaitTimer.unref();
       // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
       const checkDisk = () =>
         background.run(
@@ -1034,6 +1093,7 @@ export function createDomain(opts: DomainOptions) {
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       if (loopWatchTimer) clearInterval(loopWatchTimer);
+      if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
       if (idleCloseTimer) clearInterval(idleCloseTimer);

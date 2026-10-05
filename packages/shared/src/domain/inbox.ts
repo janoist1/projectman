@@ -46,6 +46,10 @@ export const InboxResolutionRule = z.enum([
   'loop_ended',
   /** The fix round limit hold a decision was about ended by itself (PM-262): nothing is left to decide. */
   'fix_limit_ended',
+  /** A Senior took the card a decision asked about (PM-348): nothing is left to decide. */
+  'senior_took',
+  /** The card a decision asked about went on another way (PM-348): nothing is left to decide. */
+  'senior_wait_ended',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -178,6 +182,37 @@ export const FIX_ANOTHER_ROUND_OPTION: InboxOption = {
   label: 'another_round',
   style: 'primary',
 };
+
+/**
+ * `payload.seniorWait` of a `decision` item (PM-348): card `taskKey`, recommended for the Senior, has
+ * waited `minutes` minutes (since `since`) for one of the `seniors`, who are busy or away. `reason` is
+ * the reason of the recommendation. The item is closed by the system when the card goes on without an answer.
+ */
+export const SeniorWaitDecisionPayload = z.object({
+  taskKey: TaskKey,
+  since: z.string(),
+  minutes: z.number().int(),
+  seniors: z.array(MemberHandle),
+  reason: z.string().nullable(),
+});
+export type SeniorWaitDecisionPayload = z.infer<typeof SeniorWaitDecisionPayload>;
+
+/** The Senior wait a decision item asks about, or null when it is about none (or an unreadable one). */
+export function seniorWaitDecisionOf(
+  item: Pick<InboxItem, 'kind' | 'payload'>,
+): SeniorWaitDecisionPayload | null {
+  if (item.kind !== 'decision') return null;
+  const parsed = SeniorWaitDecisionPayload.safeParse(item.payload.seniorWait);
+  return parsed.success ? parsed.data : null;
+}
+
+/** The options of a Senior wait decision: wait on for the Senior, or let a free developer take the card. */
+export const SENIOR_WAIT_OPTION_WAIT = 'wait_for_senior';
+export const SENIOR_WAIT_OPTION_ANY = 'any_developer';
+export const SENIOR_WAIT_OPTIONS: InboxOption[] = [
+  { id: SENIOR_WAIT_OPTION_WAIT, label: SENIOR_WAIT_OPTION_WAIT, style: 'secondary' },
+  { id: SENIOR_WAIT_OPTION_ANY, label: SENIOR_WAIT_OPTION_ANY, style: 'primary' },
+];
 
 /** The one option of an `alert` item: the owner has seen it. The web app translates the id. */
 export const ALERT_SEEN_OPTION: InboxOption = { id: 'seen', label: 'seen', style: 'primary' };

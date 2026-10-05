@@ -139,6 +139,9 @@ export const ERROR_CODES = [
   // refused until the request says they start despite the warning.
   'prerequisite_open',
   'no_free_member',
+  // A card recommended for the Senior while every Senior is busy (PM-348): only the automatic start
+  // gets it, and waits; a person's Start is answered with the waiting card instead.
+  'senior_busy',
   'no_work_stage',
   'not_stage_owner',
   'member_not_scheduled',

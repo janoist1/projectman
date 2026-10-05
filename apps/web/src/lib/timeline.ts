@@ -418,6 +418,22 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           : t('timeline.levelSet', { level }),
       );
     }
+    case 'task_senior_wait': {
+      switch (d.phase) {
+        case 'asked':
+          return normal(t('timeline.seniorWaitAsked', { minutes: Number(d.minutes) }));
+        case 'decided':
+          return normal(
+            t(d.decision === 'any' ? 'timeline.seniorWaitDecidedAny' : 'timeline.seniorWaitDecidedWait', {
+              by: nameOf(str(d.by), ctx.members, ctx.myHandle),
+            }),
+          );
+        case 'senior_took':
+          return normal(t('timeline.seniorWaitTook'));
+        default:
+          return normal(t('timeline.seniorWaitNoSenior'));
+      }
+    }
     case 'task_prerequisite_closed': {
       const remaining = strings(d.remaining);
       return normal(

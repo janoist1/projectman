@@ -255,13 +255,14 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
   let h: DomainHarness;
   afterEach(() => h.cleanup());
 
-  async function start(approver: 'human' | 'ai' | 'none' | undefined) {
+  async function start(approver: 'human' | 'ai' | 'none' | undefined, provider?: 'nanogpt') {
     h = await createDomainHarness({
       adjust: (config) => {
         delete config.project.repos[0]!.github;
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
         if (dev?.kind === 'ai') {
           dev.permissionMode = 'auto';
+          if (provider) dev.provider = provider;
           if (approver) dev.approver = approver;
         }
       },
@@ -275,6 +276,20 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
     h.runnerModule.broker().decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, signal);
   const permissionEvents = () =>
     h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type.startsWith('permission_'));
+
+  it('routes a NanoGPT routine command to its approver and still refuses publishing', async () => {
+    const sessionId = await start('human', 'nanogpt');
+    const controller = new AbortController();
+    const pending = ask(sessionId, 'git status', controller.signal);
+    await flush();
+    const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ assignees: ['owner'], sessionId });
+    controller.abort();
+    expect((await pending).behavior).toBe('deny');
+    expect(await ask(sessionId, 'git push')).toMatchObject({ behavior: 'deny' });
+    expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+  });
 
   it('refuses a question of a member with approver none, without an inbox item, and says so on the timeline', async () => {
     const sessionId = await start('none');

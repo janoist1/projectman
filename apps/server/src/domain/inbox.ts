@@ -545,7 +545,7 @@ export class InboxService {
       member?.kind === 'ai'
         ? commandVerdict({
             config,
-            session: { cwd: session.cwd, role: member.role },
+            session: { cwd: session.cwd, role: member.role, provider: session.provider },
             task,
             toolName: request.toolName,
             toolInput: request.toolInput,

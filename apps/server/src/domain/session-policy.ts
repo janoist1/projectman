@@ -12,7 +12,7 @@ import {
   managedVmPermissions,
   placementReadsOnly,
 } from '@projectman/shared';
-import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
+import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
 import type { FullTestSandbox, SessionPolicy } from '../contracts';
 import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
@@ -445,7 +445,7 @@ export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message
  */
 function inTaskWorktree(input: {
   config: ProjectConfig;
-  session: { cwd: string; role: RoleId };
+  session: { cwd: string; role: RoleId; provider?: AgentProvider };
   task: Pick<Task, 'repo'> | null;
   worktreesRootDir?: string;
   workspacesRootDir?: string;
@@ -570,6 +570,9 @@ export function commandVerdict(input: {
   if (!parsed) return null;
   // Whoever the session is, a file is edited with the editing tools: nobody needs to be asked.
   if (editsFilesInPlace(parsed)) return { behavior: 'deny', message: IN_PLACE_EDIT_MESSAGE };
+  // NanoGPT commands require an explicit decision, including reads and routine worktree steps.
+  // Keep unconditional denials above this guard so they cannot become approval requests.
+  if (session.provider === 'nanogpt') return null;
   if (inTaskWorktree(input)) {
     const defaultBranch = repoOf(config, effectiveRepo(config, task))?.defaultBranch;
     if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch })) return { behavior: 'allow' };

@@ -40,7 +40,22 @@ tenants into separate OS accounts or machines.
   secret files, including symbolic links, are refused on read.
   The `secrets` directory is already denied to member file tools through
   `sensitivePaths` (PM-324). Session delivery belongs
-  to PM-329 and must remain restricted to NanoGPT sessions.
+  to PM-329 and is restricted to NanoGPT sessions. The adapter excludes the key from
+  member shell environments, disables Codex notification commands, and rejects ambient
+  configuration that can override provider, permissions, hooks or MCP servers before
+  launch and resume. NanoGPT shell requests never receive automatic command-policy
+  approval; unconditional publishing and in-place editing denials still apply.
+
+  Residual host risks require the owner's decision before PM-329 can pass security review:
+  the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret
+  store's file-tool denial does not prevent shell reads by processes running as the same
+  Unix user (restricted-read enforcement is PM-356). Also, the NanoGPT CLI process retains
+  the key in its environment: human-approved commands outside the sandbox may inspect it,
+  and CLI-controlled subprocesses outside the shell environment policy need separate
+  verification. Workspace configuration changes after the launch-time inspection are
+  not a verified isolation boundary (PM-357). Manual testing must distinguish sandboxed
+  shell commands from explicitly approved commands outside the sandbox; environment
+  filtering alone does not establish host-process isolation.
 
 - Signed, HttpOnly, SameSite=Lax cookies; Secure when HTTPS terminates at a loopback
   proxy supplying `X-Forwarded-Proto: https`. Login and invite acceptance replace

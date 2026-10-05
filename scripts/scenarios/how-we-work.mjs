@@ -45,6 +45,7 @@ export default async ({ open, shoot, step }) => {
   for (const [name, show] of [
     ['stage', 'stage:qa'],
     ['label', 'label:qa-ok'],
+    ['gates', 'rule:gates_in_order'],
     ['legend', 'legend'],
   ]) {
     await step(`${name} panel`, async () => {

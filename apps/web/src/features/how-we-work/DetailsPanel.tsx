@@ -30,17 +30,23 @@ export function DetailsAside({ detail, onClose }: { detail: Detail; onClose?: ()
   );
 }
 
-/** The same details inside a dialog, which has the title and the close button already: what the head adds is the kind and the meta line. */
+/**
+ * The same details inside a dialog, which has the title, the small line under it (`detail.subtitle`)
+ * and the close button already: what the body adds is the mark of the item, the label's chip and the member's handle.
+ */
 export function DetailsDialogBody({ detail }: { detail: Detail }) {
+  const head = detail.leading || detail.titleNode || detail.dialogMeta;
   return (
     <div className={styles.detail}>
-      <div className={styles.dHead}>
-        {detail.leading}
-        <div className={styles.grow}>
-          <div className={styles.eyebrow}>{detail.eyebrow}</div>
-          {detail.meta ? <div className={styles.dMeta}>{detail.meta}</div> : null}
+      {head ? (
+        <div className={styles.dHead}>
+          {detail.leading}
+          <div className={styles.grow}>
+            {detail.titleNode}
+            {detail.dialogMeta ? <div className={styles.dMeta}>{detail.dialogMeta}</div> : null}
+          </div>
         </div>
-      </div>
+      ) : null}
       {detail.body}
     </div>
   );

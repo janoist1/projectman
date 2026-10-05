@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { teamMap } from '@projectman/shared';
 import type { TeamMap } from '@projectman/shared';
 import { useConfig, useRoles } from '../../api/queries';
@@ -70,7 +70,12 @@ function HowWeWork() {
     <div className={styles.page}>
       <PageHeader className={styles.pageHead} title={t('howWeWork.title')} subtitle={t('howWeWork.subtitle')}>
         {view?.canEdit ? (
-          <ButtonLink to={`/p/${key}/settings`} variant="secondary" size="sm" icon="settings">
+          <ButtonLink
+            to={`/p/${key}/settings#settings-pipeline`}
+            variant="secondary"
+            size="sm"
+            icon="settings"
+          >
             {t('howWeWork.editInSettings')}
           </ButtonLink>
         ) : null}
@@ -114,7 +119,7 @@ function HowWeWork() {
             ) : null}
           </div>
           {!wide && selected ? (
-            <Dialog open onClose={close} title={detail.title} size="sm">
+            <Dialog open onClose={close} title={detail.title} description={detail.subtitle} size="sm">
               <DetailsDialogBody detail={detail} />
             </Dialog>
           ) : null}
@@ -180,11 +185,14 @@ function useSelection() {
   const raw = params.get('show');
   const selected = useMemo(() => parseShow(raw), [raw]);
   const value = selected ? showValue(selected) : null;
+  const navigate = useNavigate();
   const opener = useRef<HTMLElement | null>(null);
   const lastValue = useRef<string | null>(null);
+  /** Opening the panel made a history entry of its own: closing it is Back. */
+  const pushed = useRef(false);
 
   const write = useCallback(
-    (next: string | null) => {
+    (next: string | null, replace: boolean) => {
       setParams(
         (current) => {
           const copy = new URLSearchParams(current);
@@ -192,26 +200,35 @@ function useSelection() {
           else copy.set('show', next);
           return copy;
         },
-        { replace: true },
+        { replace },
       );
     },
     [setParams],
   );
   const select = useCallback(
     (target: ShowTarget, from?: HTMLElement | null) => {
-      // Moving from one item to another inside the panel keeps the first opener.
-      if (value === null && from) opener.current = from;
-      write(showValue(target));
+      // Moving from one item to another inside the panel keeps the first opener and the one entry.
+      if (value === null) {
+        if (from) opener.current = from;
+        pushed.current = true;
+      }
+      write(showValue(target), value !== null);
     },
     [value, write],
   );
-  const close = useCallback(() => write(null), [write]);
+  const close = useCallback(() => {
+    // The panel opened by a click is one step forward in the history, so Back and the phone's back
+    // gesture close it; one opened by a link has no such step, and closing it only drops the parameter.
+    if (pushed.current) void navigate(-1);
+    else write(null, true);
+  }, [navigate, write]);
 
   useEffect(() => {
     if (value !== null) {
       lastValue.current = value;
       return;
     }
+    pushed.current = false;
     if (lastValue.current === null) return;
     const shown = lastValue.current;
     lastValue.current = null;

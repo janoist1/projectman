@@ -77,14 +77,22 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
             labels: joinNames(rule.clearedOnMoveBack.map((id) => labelName(id, labels))),
           })
         : rich('howWeWork.rules.gates_in_order.line', {}),
-    panel: (rule) => (
+    panel: (rule, { map }) => (
       <>
         <p className={styles.lead}>{t('howWeWork.rules.gates_in_order.lead')}</p>
-        {rule.clearedOnMoveBack.length > 0 ? (
+        {rule.clearedOnMoveBack.length > 0 || map.blockingLabels.length > 0 ? (
           <ul className={styles.dList}>
-            <Item icon="undo">
-              {t('howWeWork.rules.gates_in_order.cleared')} <LabelLinks ids={rule.clearedOnMoveBack} />
-            </Item>
+            {rule.clearedOnMoveBack.length > 0 ? (
+              <Item icon="undo">
+                {t('howWeWork.rules.gates_in_order.cleared')} <LabelLinks ids={rule.clearedOnMoveBack} />
+              </Item>
+            ) : null}
+            {map.blockingLabels.length > 0 ? (
+              <Item icon="clock">
+                {t('howWeWork.rules.gates_in_order.moveBackBlocked')}
+                <Chips ids={map.blockingLabels} />
+              </Item>
+            ) : null}
           </ul>
         ) : null}
       </>
@@ -214,7 +222,7 @@ const RULE_TEXTS: { [K in TeamRuleId]: RuleText<RuleOf<K>> } = {
     ),
   },
   waiting_answer: {
-    icon: 'wait',
+    icon: 'clock',
     needs: true,
     title: () => t('howWeWork.rules.waiting_answer.title'),
     line: (rule, { labels }) =>

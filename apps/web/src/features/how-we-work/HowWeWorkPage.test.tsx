@@ -1,3 +1,5 @@
+import type { ReactElement } from 'react';
+import { useLocation, useNavigate } from 'react-router';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { teamRules } from '@projectman/shared';
@@ -16,8 +18,13 @@ const ADMIN = { can: { manageTeam: true, readConfig: true } };
 const VIEWER = { can: { manageTeam: false, readConfig: true } };
 const CLIENT = { can: { manageTeam: false, readConfig: false } };
 
-function renderPage(project: ReturnType<typeof mockProject>, route = '/', overrides = ADMIN) {
-  return project.render(<HowWeWorkPage />, route, overrides);
+function renderPage(
+  project: ReturnType<typeof mockProject>,
+  route = '/',
+  overrides = ADMIN,
+  ui: ReactElement = <HowWeWorkPage />,
+) {
+  return project.render(ui, route, overrides);
 }
 
 /** A flow of its own: a column of two steps, a client test, a release, a condition on a card label and a stage without an owner. */
@@ -228,6 +235,105 @@ describe('the item on show', () => {
     renderPage(viewer, '/?show=stage:dev', VIEWER);
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).queryByRole('link', { name: t('howWeWork.stage.editPipeline') })).toBeNull();
+  });
+
+  describe('the history', () => {
+    function renderWithHistory(route: string) {
+      function Probe() {
+        const location = useLocation();
+        const navigate = useNavigate();
+        return (
+          <>
+            <output data-testid="search">{location.search}</output>
+            <button type="button" onClick={() => void navigate(-1)}>
+              back
+            </button>
+          </>
+        );
+      }
+      return renderPage(
+        mockProject(),
+        route,
+        ADMIN,
+        <>
+          <HowWeWorkPage />
+          <Probe />
+        </>,
+      );
+    }
+    const search = () => decodeURIComponent(screen.getByTestId('search').textContent ?? '');
+
+    it('puts an opened panel in the history, so Back closes it and stays on the page', async () => {
+      renderWithHistory('/');
+      fireEvent.click(await screen.findByRole('button', { name: t('howWeWork.legendButton') }));
+      expect(search()).toBe('?show=legend');
+      fireEvent.click(screen.getByRole('button', { name: 'back' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(search()).toBe('');
+      expect(screen.getByRole('heading', { level: 1, name: t('howWeWork.title') })).toBeTruthy();
+    });
+
+    it('keeps one entry while the panel moves from one item to another, and Esc is Back', async () => {
+      renderWithHistory('/');
+      fireEvent.click(await screen.findByRole('button', { name: t('howWeWork.legendButton') }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(document.querySelector('[data-show="stage:dev"]')!);
+      expect(search()).toBe('?show=stage:dev');
+      expect(dialog).toBeTruthy();
+      fireEvent.keyDown(dialog, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(search()).toBe('');
+    });
+
+    it('closes a panel opened by a link by dropping the parameter', async () => {
+      renderWithHistory('/?show=stage:dev');
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.keyDown(dialog, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(search()).toBe('');
+    });
+  });
+
+  it('shows the flow as one ordered list, its columns as groups and not as landmarks', async () => {
+    const project = mockProject();
+    renderPage(project);
+    const flow = within(await screen.findByRole('region', { name: t('howWeWork.sections.flow') }));
+    expect(flow.getAllByRole('list').length).toBeGreaterThan(0);
+    expect(flow.getAllByRole('listitem').length).toBeGreaterThanOrEqual(
+      project.backend.config.pipeline.stages.length,
+    );
+    expect(screen.queryAllByRole('region', { name: /^Oszlop/ })).toHaveLength(0);
+    expect(flow.getAllByRole('group', { name: /^Oszlop/ }).length).toBeGreaterThan(0);
+  });
+
+  it('says in the gates panel that a card can be sent back with a blocking label on it', async () => {
+    const project = mockProject();
+    renderPage(project, '/?show=rule:gates_in_order');
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(t('howWeWork.rules.gates_in_order.moveBackBlocked'))).toBeTruthy();
+    const blocking = project.backend.config.pipeline.labels.filter((label) => label.blocks);
+    for (const label of blocking) expect(within(dialog).getAllByText(label.name).length).toBeGreaterThan(0);
+  });
+
+  it('gives the fix-round label its limit as a link to the rule, with no "at most"', async () => {
+    const project = mockProject();
+    renderPage(project, '/?show=label:code-review-changes');
+    const dialog = await screen.findByRole('dialog');
+    const limit = project.backend.config.team.limits.maxFixRounds ?? 3;
+    const link = within(dialog).getByRole('button', { name: t('howWeWork.label.fixRoundLimit', { limit }) });
+    expect(link.getAttribute('data-show')).toBe('rule:fix_limit');
+    expect(dialog.textContent).not.toContain('legfeljebb');
+  });
+
+  it('puts the label chip and the plain subtitle in the dialog, not the small kind line above the title', async () => {
+    renderPage(mockProject(), '/?show=label:qa-ok');
+    const dialog = await screen.findByRole('dialog');
+    expect(
+      within(dialog).getByText(
+        `${t('howWeWork.label.eyebrow')} · ${t('howWeWork.label.id', { id: 'qa-ok' })}`,
+      ),
+    ).toBeTruthy();
+    expect(dialog.querySelectorAll('[class*="eyebrow"]')).toHaveLength(0);
   });
 
   it.each(['stage:vanished', 'member:ghost', 'label:nothing'])('says an item is gone: %s', async (show) => {

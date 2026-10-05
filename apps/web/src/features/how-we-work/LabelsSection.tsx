@@ -14,7 +14,7 @@ import styles from './HowWeWork.module.css';
 const GROUPS: { id: LabelGroupId; icon: IconName | null }[] = [
   { id: 'results', icon: 'check' },
   { id: 'approvals', icon: 'user' },
-  { id: 'blocking', icon: 'wait' },
+  { id: 'blocking', icon: 'clock' },
   { id: 'other', icon: null },
 ];
 

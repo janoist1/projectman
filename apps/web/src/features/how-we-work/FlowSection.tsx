@@ -19,37 +19,49 @@ export function FlowSection({ flashed }: { flashed: ReadonlySet<string> }) {
   const flowRef = useRef<HTMLDivElement>(null);
   const columns = stageColumns(map, config.pipeline.columns);
   const returns = map.fixRounds.loops.map((loop) => ({ fromId: loop.fromStageId, toId: loop.toStageId }));
-  const first = map.stages[0];
+  // The refinement row sits under the stage the refinement leaves from: the first step of a refinement
+  // that lives in stages only (no label), else the first stage.
+  const refinementStageId = map.refinement?.label === null ? map.refinement.stageIds[0] : undefined;
+  const refinementStage = map.stages.find((entry) => entry.stage.id === refinementStageId) ?? map.stages[0];
   return (
     <div ref={flowRef} className={styles.flow}>
       <FlowLine containerRef={flowRef} returns={returns} watch={map} />
-      <StartRow />
-      {columns.map(({ column, color, stages }) => {
-        const named = stages.length > 1 || stages[0]?.stage.name !== column.name;
-        return (
-          <section
-            key={`${column.id}:${stages[0]?.stage.id}`}
-            className={styles.col}
-            style={
-              { '--col-bg': `var(--column-${color}-bg)`, '--col-fg': `var(--column-${color}-fg)` } as never
-            }
-            aria-label={t('howWeWork.flow.column', { name: column.name })}
-          >
-            {named ? (
-              <div className={styles.colName}>{t('howWeWork.flow.column', { name: column.name })}</div>
-            ) : null}
-            {stages.map((entry) => (
-              <StageRows
-                key={entry.stage.id}
-                entry={entry}
-                flash={flashed.has(entry.stage.id)}
-                withRefinement={entry === first}
-              />
-            ))}
-          </section>
-        );
-      })}
-      <StopBand />
+      <ol className={styles.flowList}>
+        <StartRow />
+        {columns.map(({ column, color, stages }) => {
+          const named = stages.length > 1 || stages[0]?.stage.name !== column.name;
+          const columnLabel = t('howWeWork.flow.column', { name: column.name });
+          return (
+            <li key={`${column.id}:${stages[0]?.stage.id}`}>
+              <div
+                className={styles.col}
+                style={
+                  {
+                    '--col-bg': `var(--column-${color}-bg)`,
+                    '--col-fg': `var(--column-${color}-fg)`,
+                  } as never
+                }
+                role={named ? 'group' : undefined}
+                aria-label={named ? columnLabel : undefined}
+              >
+                {named ? <div className={styles.colName}>{columnLabel}</div> : null}
+                <ol className={styles.stages}>
+                  {stages.map((entry) => (
+                    <li key={entry.stage.id}>
+                      <StageRows
+                        entry={entry}
+                        flash={flashed.has(entry.stage.id)}
+                        withRefinement={entry === refinementStage}
+                      />
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </li>
+          );
+        })}
+        <StopBand />
+      </ol>
     </div>
   );
 }
@@ -60,7 +72,7 @@ function StartRow() {
   const show = useShowTarget({ kind: 'rule', id: 'new_card' });
   if (rule?.id !== 'new_card') return null;
   return (
-    <div className={styles.startRow}>
+    <li className={styles.startRow}>
       <FlowStation
         glyph={
           <span className={styles.startDot} data-glyph="start">
@@ -78,7 +90,7 @@ function StartRow() {
           })}
         </span>
       </FlowStation>
-    </div>
+    </li>
   );
 }
 
@@ -174,7 +186,7 @@ function Station({ entry, flash }: { entry: TeamMapStage; flash: boolean }) {
       <span className={styles.stSub}>{sub}</span>
       {loop ? (
         <span className={styles.stLoop}>
-          <Icon name="loop" size={14} strokeWidth={2} />
+          <Icon name="undo" size={14} strokeWidth={2} />
           {t('howWeWork.flow.loop', { stage: stageName(loop.toStageId), limit: map.fixRounds.limit })}
         </span>
       ) : null}
@@ -260,9 +272,9 @@ function StopBand() {
   if (map.blockingLabels.length === 0) return null;
   const asks = map.rules.some((rule) => rule.id === 'waiting_answer');
   return (
-    <div className={styles.band}>
+    <li className={styles.band}>
       <span className={styles.bandIcon}>
-        <Icon name="wait" size={15} />
+        <Icon name="clock" size={15} />
       </span>
       <span>
         <b>{t('howWeWork.flow.stoppable')}</b>{' '}
@@ -271,6 +283,6 @@ function StopBand() {
         })}
         {asks ? <> {t('howWeWork.flow.stoppableAsk')}</> : null}
       </span>
-    </div>
+    </li>
   );
 }

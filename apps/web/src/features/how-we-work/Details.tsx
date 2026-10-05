@@ -26,6 +26,10 @@ export interface Detail {
   titleNode?: ReactNode;
   leading?: ReactNode;
   meta?: ReactNode;
+  /** What the dialog (a phone) shows under its title instead of the eyebrow and the meta line: plain text. */
+  subtitle?: string;
+  /** What the dialog's body adds to its head when a plain subtitle cannot say it (the member's handle). */
+  dialogMeta?: ReactNode;
   body: ReactNode;
 }
 
@@ -124,6 +128,12 @@ function stageDetail(id: string, view: MapView): Detail {
   const blocking = map.blockingLabels.length > 0 && entry !== map.stages[0];
   return {
     eyebrow: t('howWeWork.stage.eyebrow', { kind: t(`stageKinds.${stage.kind}`) }),
+    subtitle: [
+      t('howWeWork.stage.eyebrow', { kind: t(`stageKinds.${stage.kind}`) }),
+      column ? t('howWeWork.stage.column', { name: column.column.name }) : null,
+    ]
+      .filter(Boolean)
+      .join(' · '),
     title: stage.name,
     leading: (
       <span
@@ -176,7 +186,7 @@ function stageDetail(id: string, view: MapView): Detail {
               <Item icon="check">{t('howWeWork.stage.noEntry')}</Item>
             )}
             {blocking ? (
-              <Item icon="wait">
+              <Item icon="clock">
                 {rich('howWeWork.stage.blocking', { labels: <LabelLinks ids={map.blockingLabels} /> })}
               </Item>
             ) : null}
@@ -253,6 +263,11 @@ function memberDetail(handle: string, view: MapView): Detail {
     title: member.displayName,
     leading: <Avatar member={memberLike(member)} size="xl" />,
     meta: <MemberMeta member={member} />,
+    subtitle:
+      member.kind === 'ai'
+        ? t('howWeWork.member.eyebrowAi')
+        : t('howWeWork.member.eyebrowHuman', { access: humanRoleName(member.access) }),
+    dialogMeta: <MemberMeta member={member} />,
     body: (
       <>
         <Section title={t('howWeWork.member.roles')}>
@@ -372,7 +387,7 @@ function labelDetail(id: string, view: MapView): Detail {
   if (entry.approval) facts.push({ icon: 'user', needs: true, text: t('howWeWork.label.approval') });
   if (label.requiresComment) facts.push({ icon: 'doc', text: t('howWeWork.label.requiresComment') });
   if (entry.excludesAuthors) facts.push({ icon: 'shield', text: t('howWeWork.label.excludesAuthors') });
-  if (label.blocks) facts.push({ icon: 'wait', needs: true, text: t('howWeWork.label.blocks') });
+  if (label.blocks) facts.push({ icon: 'clock', needs: true, text: t('howWeWork.label.blocks') });
   if (label.notifyAssignee) facts.push({ icon: 'bell', text: t('howWeWork.label.notifyAssignee') });
   for (const trigger of label.clearedWhen ?? []) {
     facts.push({
@@ -413,7 +428,12 @@ function labelDetail(id: string, view: MapView): Detail {
     eyebrow: t('howWeWork.label.eyebrow'),
     title: label.name,
     titleNode: <LabelTag id={id} big />,
-    meta: t('howWeWork.label.id', { id }),
+    meta: (
+      <>
+        {t('howWeWork.label.idLead')} <span className={styles.handle}>{id}</span>
+      </>
+    ),
+    subtitle: `${t('howWeWork.label.eyebrow')} · ${t('howWeWork.label.id', { id })}`,
     body: (
       <>
         <p className={styles.lead}>
@@ -469,7 +489,7 @@ function ruleDetail(id: string, view: MapView): Detail {
   const rule = view.map.rules.find((candidate) => candidate.id === id);
   if (!rule) return goneDetail('rule');
   const { title, body } = rulePanel(rule, view);
-  return { eyebrow: t('howWeWork.rules.eyebrow'), title, body };
+  return { eyebrow: t('howWeWork.rules.eyebrow'), subtitle: t('howWeWork.rules.eyebrow'), title, body };
 }
 
 /* ---------- legend ---------- */

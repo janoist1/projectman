@@ -72,9 +72,22 @@
 /* ---------- the flow ---------- */
 .flow {
   position: relative;
+}
+
+/* The flow is an ordered list: the start, the columns (each a list of its stages) and the stop band. */
+.flowList {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .col {
@@ -505,13 +518,16 @@
   text-overflow: ellipsis;
 }
 
+/* The roles and the @handle: two lines at most, so the handle is not cut off. */
 .mMeta {
   font-size: 12px;
   color: var(--c-ink-3);
-  display: block;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
 .handle {

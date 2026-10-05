@@ -1055,6 +1055,7 @@ export const hu = {
           '**Kaput nem lehet átugrani:** előre lépéskor a kártya minden közbenső lépés kapuján átmegy. Visszaléptetéskor csak abba a lépésbe kerül, ahová visszaküldik, és lekerülnek róla: {labels}.',
         lead: 'Előre lépéskor a kártya minden lépésbe belép, amelyet útközben érint, ezért mindegyik kapujának teljesülnie kell, a célét is beleértve. Visszaléptetéskor csak annak a lépésnek a kapuja számít, ahová visszaküldik.',
         cleared: 'Visszaléptetéskor lekerülnek róla:',
+        moveBackBlocked: 'Visszaléptetni akkor is lehet, ha rajta van:',
       },
       approvals: {
         title: 'Jóváhagyások',
@@ -1160,6 +1161,7 @@ export const hu = {
     label: {
       eyebrow: 'Címke',
       id: 'Azonosító: {id}',
+      idLead: 'Azonosító:',
       noMeaning: 'Nincs leírása.',
       whoSets: 'Ki teheti fel',
       anyone: 'Bárki felteheti a csapatból.',
@@ -1187,8 +1189,8 @@ export const hu = {
       usedLacksWhen: '{stage}: nem lehet rajta a belépéskor, ha a kártyán {when} van.',
       usedAsWhenHas: '{stage}: ha rajta van, a belépéshez kell: {label}.',
       usedAsWhenLacks: '{stage}: ha rajta van, a belépéshez nem lehet rajta: {label}.',
-      fixRound: 'Javítási kör: minden felkerülése beleszámít a javítási körök határába ({limit}).',
-      fixRoundLimit: 'legfeljebb {limit} kör',
+      fixRound: 'Javítási kör: minden felkerülése egy kör; a {limit}.',
+      fixRoundLimit: 'határ {limit}',
       edit: 'Címke szerkesztése a Beállításokban',
       none: 'Ebben a projektben még nincsenek címkék. A kapuk címkékre hivatkoznak, ezért egyszerű folyamatnál ez rendben van.',
       editAll: 'Címkék a Beállításokban',

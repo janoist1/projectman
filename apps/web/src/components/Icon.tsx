@@ -106,6 +106,13 @@ const icons = {
     </>
   ),
   wait: <path d="M12 6v6.5l3.5 2" />,
+  // A clock face: `wait` is only the hands (the board's task card draws the ring around it).
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v4.8l3 1.9" />
+    </>
+  ),
   prOpen: (
     <>
       <circle cx="6.5" cy="6" r="2.2" />

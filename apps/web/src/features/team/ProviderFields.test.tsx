@@ -30,6 +30,14 @@ function Fields({ initialModel = 'opus' }: { initialModel?: string }) {
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('ProviderFields', () => {
+  it('shows provider runtime hints and clamps NanoGPT effort', () => {
+    mockProject().render(<Fields />);
+    expect(screen.getByText(t('providerSettings.runsOn.claude'))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'max' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'nanogpt' } });
+    expect(screen.getByText(t('providerSettings.runsOn.nanogpt'))).toBeTruthy();
+    expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('xhigh');
+  });
   it('offers Gemini families and resets the model and unsupported effort on provider change', () => {
     mockProject().render(<Fields />);
     fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'max' } });

@@ -1,0 +1,88 @@
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 4px 14px;
+  align-items: center;
+  padding: 10px 0;
+  border-top: 1px solid var(--c-line-soft);
+}
+.row:first-child {
+  border-top: 0;
+}
+.meta,
+.todo {
+  color: var(--c-ink-3);
+  font-size: 12px;
+}
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.todo {
+  grid-column: 1 / -1;
+}
+.todo code {
+  overflow-wrap: anywhere;
+}
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--c-ink-3);
+}
+.state[data-tone='ready'] .dot {
+  background: var(--c-ok);
+}
+.state[data-tone='needs'],
+.needs {
+  color: var(--c-needs-text);
+}
+.state[data-tone='needs'] .dot {
+  background: var(--c-needs-text);
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-mark-muted);
+  flex-shrink: 0;
+}
+.skeleton {
+  display: block;
+  width: 100px;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--c-muted) 0%, var(--c-muted-hover) 50%, var(--c-muted) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+@media (max-width: 600px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .meta {
+    grid-row: 2;
+    grid-column: 1 / -1;
+  }
+  .status {
+    grid-row: 1;
+    grid-column: 2;
+  }
+}

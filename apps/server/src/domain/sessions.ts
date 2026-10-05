@@ -311,12 +311,18 @@ function errorCode(err: unknown): string | null {
 }
 
 function providerNotLoggedIn(provider: AgentProvider, details: Record<string, unknown>, detail?: string) {
-  if (provider === 'nanogpt')
-    return conflict(
-      details.problem === 'no_key' ? 'nanogpt_key_missing' : 'nanogpt_setup_incomplete',
-      'NanoGPT is not ready',
-      { provider, ...details },
-    );
+  if (provider === 'nanogpt' && details.problem === 'no_key')
+    return conflict('nanogpt_key_missing', 'NanoGPT is not ready', { provider });
+  if (
+    provider === 'nanogpt' &&
+    ['cli_missing', 'cli_too_old', 'chatgpt_login'].includes(String(details.problem))
+  )
+    return conflict('nanogpt_setup_incomplete', 'NanoGPT is not ready', {
+      provider,
+      problem: details.problem,
+      cliVersion: details.cliVersion,
+      minCliVersion: details.minCliVersion,
+    });
   return conflict(
     PROVIDER_NOT_LOGGED_IN,
     `${provider} is not logged in with a subscription${detail ? `: ${detail}` : ''}`,

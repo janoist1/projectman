@@ -36,7 +36,7 @@ function loginOf(h: DomainHarness, state: { loggedIn: boolean | null | 'throws' 
 describe('a start while the provider is not logged in', () => {
   let h: DomainHarness;
   afterEach(() => h?.cleanup());
-  it.each(['no_key', 'cli_too_old', 'cli_missing', 'chatgpt_login'] as const)(
+  it.each(['no_key', 'cli_too_old', 'cli_missing', 'chatgpt_login', 'not_logged_in'] as const)(
     'defers NanoGPT for %s and starts after readiness changes',
     async (problem) => {
       h = await createDomainHarness({
@@ -62,7 +62,12 @@ describe('a start while the provider is not logged in', () => {
         taskKey: task.key,
       });
       expect(await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting)).toMatchObject({
-        reason: problem === 'no_key' ? 'nanogpt_key_missing' : 'nanogpt_setup_incomplete',
+        reason:
+          problem === 'no_key'
+            ? 'nanogpt_key_missing'
+            : problem === 'not_logged_in'
+              ? 'provider_not_logged_in'
+              : 'nanogpt_setup_incomplete',
         provider: 'nanogpt',
       });
       expect(h.runner.started).toEqual([]);

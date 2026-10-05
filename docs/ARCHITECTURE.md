@@ -849,14 +849,18 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
-- **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`
+- **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
+  `runner/env.ts`, `app.ts`, `index.ts`
   (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under
   `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
   Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** the CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
-  launch/resume boundary, never configuration, public status or logs.
+  launch/resume boundary, never configuration, public status or logs. The current server and
+  CLI share a machine and filesystem. A remote engine performs local version and auth-file
+  checks and returns readiness status. It never persists or returns the delivered key,
+  including in its spool; a replaced key affects only subsequent launches and resumes.
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home

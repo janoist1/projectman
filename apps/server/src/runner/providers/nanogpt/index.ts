@@ -70,7 +70,7 @@ export function createNanogptAdapter(opts: {
         await runQuietly(opts.bin, ['--version'], { ...env, CODEX_HOME: opts.codexHome }),
       );
       if (!status.loggedIn) return status;
-      if (await hasAuth()) return { ...status, loggedIn: false, problem: 'chatgpt_login' };
+      if (await hasAuth()) return { ...status, loggedIn: false, method: 'chatgpt', problem: 'chatgpt_login' };
       if (!(await opts.nanogptKey())) return { ...status, loggedIn: false, problem: 'no_key' };
       return status;
     },

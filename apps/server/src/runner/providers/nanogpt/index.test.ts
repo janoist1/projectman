@@ -56,7 +56,11 @@ describe('NanoGPT adapter', () => {
     expect(resume.env).toEqual(launch.env);
     await writeFile(path.join(h.codexHome, 'auth.json'), '{}');
     await expect(h.adapter.launch(h.input)).rejects.toMatchObject({ code: 'nanogpt_setup_incomplete' });
-    expect(await h.adapter.checkLogin({ FAKE_CODEX_VERSION: '0.159.1' })).toMatchObject({ loggedIn: false });
+    expect(await h.adapter.checkLogin({ FAKE_CODEX_VERSION: '0.159.1' })).toMatchObject({
+      loggedIn: false,
+      method: 'chatgpt',
+      problem: 'chatgpt_login',
+    });
     expect(await readFile(path.join(h.codexHome, 'auth.json'), 'utf8')).toBe('{}');
   });
   it('checks CLI version and key without running login or falling back', async () => {

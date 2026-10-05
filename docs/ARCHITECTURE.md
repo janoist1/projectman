@@ -23,11 +23,13 @@ Documentation map:
 
 ## Hard constraints
 
-1. **Subscription, never API billing** (decisions 1, 15). Agents run as interactive TUIs in
+1. **Subscription, with a narrow NanoGPT exception** (decisions 1, 15, 34). Agents run as interactive TUIs in
    a pseudo-terminal, logged in with the sponsor's Claude or ChatGPT plan. No Agent SDK,
    `claude -p`, `codex exec` or app server for member work. The runner strips API keys and
    endpoint overrides from every session, and refuses to start a CLI that is not logged in
-   with a subscription. The app never collects or stores agent credentials.
+   with a subscription. NanoGPT alone receives the projectman-managed key from its secret
+   store, in a dedicated Codex home without ChatGPT login or OpenAI billing fallback
+   (PM-328, PM-329). The app never collects or stores subscription login credentials.
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
    (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by

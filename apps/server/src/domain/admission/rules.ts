@@ -77,11 +77,17 @@ export type WaitingReason = TaskStartWaiting['reason'];
  * card into work (`AutomaticStart.defers`). `label_missing` is no refusal at all: the start of a
  * person's Start button that waits for a label (PM-236) is kept with it directly. `full_test_pending`
  * is one only for the stage hand-over (`AutomaticStart.defers`), which waits for the server's full test
- * of the pinned commit (PM-217).
+ * of the pinned commit (PM-217). `senior_busy` is one only for the start that picks its developer
+ * itself (`AutomaticStart.defers`): a card recommended for the Senior waits for one (PM-348).
  */
 type DeferrableReason = Exclude<
   WaitingReason,
-  'repo_required' | 'no_free_member' | 'prerequisite_open' | 'label_missing' | 'full_test_pending'
+  | 'repo_required'
+  | 'no_free_member'
+  | 'prerequisite_open'
+  | 'label_missing'
+  | 'full_test_pending'
+  | 'senior_busy'
 >;
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */
@@ -119,7 +125,14 @@ export function waitingOf(
   opts: { member?: string; previous?: TaskStartWaiting; at: string },
 ): TaskStartWaiting {
   const details = err.details as
-    { provider?: AgentProvider; threshold?: number; prerequisites?: string[] } | undefined;
+    | {
+        provider?: AgentProvider;
+        threshold?: number;
+        prerequisites?: string[];
+        seniors?: string[];
+        waitDecidedBy?: string;
+      }
+    | undefined;
   return {
     reason: err.code,
     member: opts.member,
@@ -128,6 +141,12 @@ export function waitingOf(
       : {}),
     ...(err.code === 'provider_not_logged_in' ? { provider: details?.provider } : {}),
     ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
+    ...(err.code === 'senior_busy'
+      ? {
+          seniors: details?.seniors,
+          ...(details?.waitDecidedBy ? { waitDecidedBy: details.waitDecidedBy } : {}),
+        }
+      : {}),
     since: opts.previous?.since ?? opts.at,
   };
 }

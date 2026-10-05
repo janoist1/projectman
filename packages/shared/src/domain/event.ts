@@ -24,6 +24,7 @@ export const TimelineEventType = z.enum([
   'task_stage_changed',
   'task_assigned',
   'task_level_changed',
+  'task_senior_wait',
   'task_check_changed',
   'task_labels_changed',
   'task_link_added',
@@ -154,6 +155,21 @@ export interface TimelineEventData {
     level: DeveloperLevel;
     reason: string | null;
     previous: { level: DeveloperLevel; reason: string | null } | null;
+  };
+  /**
+   * The wait of a Senior card for a Senior (PM-348, actor system unless `by`): `asked` the question went
+   * to the `deciders` after `minutes` minutes of waiting for the `seniors`; `decided` `by` answered it
+   * (`wait` on, or `any` free developer); `senior_took` the open question closed because a Senior got
+   * the card; `no_senior` the automatic start gave the card out as an "any" card because the team has no
+   * Senior (or the wait ended for that).
+   */
+  task_senior_wait: {
+    phase: 'asked' | 'decided' | 'senior_took' | 'no_senior';
+    minutes?: number;
+    seniors?: string[];
+    deciders?: string[];
+    decision?: 'wait' | 'any';
+    by?: string;
   };
   /** Legacy: checks were replaced by labels; old events keep this shape. */
   task_check_changed: { check: string; from: string | null; to: string };

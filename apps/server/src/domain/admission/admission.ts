@@ -8,6 +8,8 @@ import {
   isWorkingOnTask,
   isWorkPaused,
   openPrerequisites,
+  seniorsOf,
+  workStageOf,
 } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
@@ -20,7 +22,7 @@ import type { ProjectService } from '../projects';
 import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
 import { KeyedMutex } from '../util';
-import type { AutomaticStart, DeferredStarts, StartSpec } from './deferred-starts';
+import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
 import {
   assertAiEnabled,
   assertNotOnLeave,
@@ -172,6 +174,19 @@ export class Admission {
     await this.disk?.assertRoom(config);
   }
 
+  /**
+   * What a card that waits for the Senior (PM-348) needs before it may wait: no member is chosen yet,
+   * so only the checks that do not depend on one: the project's AI switch, the pause, and a
+   * repository for the role of the Seniors (the wait would never end otherwise).
+   */
+  checkWait(config: ProjectConfig, task: Task): void {
+    assertAiEnabled(config);
+    assertNotPaused(this.ctx.repos.pauses, config.project.key);
+    const stage = workStageOf(config, task);
+    const roles = new Set((stage ? seniorsOf(config, stage) : []).map((senior) => senior.role));
+    for (const role of roles) assertRepoChosen(config, role, task);
+  }
+
   /** The member's session for the work item: the running one, else one admission allows. */
   async start(
     request: AdmissionRequest & { member: AiMemberConfig; workItem: WorkItemRef },
@@ -260,11 +275,16 @@ export class Admission {
    * Retries the deferred starts that still apply; the others are dropped. A start that waits for
    * the project's master switch is left alone while the switch is off, and one that waits for a
    * member on leave while the member is away: a retry could only be refused and logged again,
-   * and turning the switch on or calling the member back retries them.
+   * and turning the switch on or calling the member back retries them. The cards that wait for a Senior
+   * go first (older first, as the others do): a Senior who frees up is not taken by an older card that
+   * waits for any free developer (PM-348).
    */
   async retryDeferred(): Promise<void> {
     const configs = new Map<string, ProjectConfig | null>();
-    for (const entry of this.deferred.list()) {
+    const entries = this.deferred.list();
+    const waitsForSenior = (entry: DeferredStart) => entry.waiting.reason === 'senior_busy';
+    const ordered = [...entries.filter(waitsForSenior), ...entries.filter((entry) => !waitsForSenior(entry))];
+    for (const entry of ordered) {
       if (!this.deferred.holds(entry)) continue;
       const { start } = entry;
       const task = this.taskOf(start);

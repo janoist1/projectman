@@ -290,6 +290,19 @@ Documentation map:
   through (the label set, or `ui` removed). A move, a cancel or an assignment ends the wait like
   for the other work starts. Only a person's start (`StartTaskOptions.startSetters`, set by the
   route) starts setters.
+  **The Senior card** (PM-348, decisions K2 and K3 of PM-338): the automatic developer choice is
+  `pickDeveloper` in `packages/shared` (a Senior card to a free Senior; any other card to the least
+  loaded free member, a Senior last; a Senior card never to a temp worker). While every Senior is busy
+  or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
+  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`); a person's Start gets a
+  normal response with that wait. `SeniorWaits` (`admission/senior-waits.ts`, table `senior_waits`, one
+  open row per card) keeps when the wait began, the question and the answer over a restart. After
+  `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision, `wait_for_senior` or
+  `any_developer`); "any" lets a free developer take it, never a temp worker. A freed Senior takes the
+  card first (`retryDeferred` tries `senior_busy` deferrals first) and the question closes
+  (`senior_took`); an assignment, move, closure, level change or the end of the team's Senior closes it
+  (`senior_wait_ended`). A team without a Senior starts the card by the "any" rule (`no_senior` event).
+  No machine-dependent part is affected.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.

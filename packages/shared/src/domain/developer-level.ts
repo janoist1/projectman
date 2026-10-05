@@ -51,3 +51,51 @@ export function isSenior(member: MemberConfig | undefined): boolean {
 export function seniorWaitMinutesOf(limits: Pick<TeamLimits, 'seniorWaitMinutes'>): number {
   return limits.seniorWaitMinutes ?? DEFAULT_SENIOR_WAIT_MINUTES;
 }
+
+/** A free AI owner of the work stage, as the automatic choice sees it (PM-348). */
+export interface DeveloperCandidate {
+  handle: string;
+  senior: boolean;
+  temp: boolean;
+  /** What the member works on now. */
+  load: number;
+  /** The member's place in the team list: the tie-break. */
+  index: number;
+}
+
+/**
+ * The outcome of the automatic choice: a member; `senior_busy` a Senior card that waits for one of
+ * the `seniors` (none is free); `none` nobody is free (a temp worker may be hired when `tempAllowed`).
+ */
+export type DeveloperPick =
+  | { kind: 'member'; handle: string }
+  | { kind: 'senior_busy'; seniors: string[] }
+  | { kind: 'none'; tempAllowed: boolean };
+
+const byLoad = (a: DeveloperCandidate, b: DeveloperCandidate) => a.load - b.load || a.index - b.index;
+
+/**
+ * The automatic choice of the developer among the free AI owners of the work stage (PM-348).
+ * A Senior card goes to the least loaded free Senior; with none free it waits (`senior_busy`),
+ * unless a person decided that any developer may take it (`anyDecided`) or the team has no Senior.
+ * Any other card, and a Senior card that does not wait, goes to the least loaded free member, a
+ * Senior last (a Senior is taken only when no other developer is free); a Senior card never goes
+ * to a temp worker. `seniors` are all the work stage's Seniors, free or not, on leave or not.
+ */
+export function pickDeveloper(input: {
+  level: DeveloperLevel;
+  /** The owners chose that a free developer may take the Senior card. */
+  anyDecided: boolean;
+  seniors: string[];
+  free: DeveloperCandidate[];
+}): DeveloperPick {
+  const { level, anyDecided, seniors, free } = input;
+  if (level === 'senior' && !anyDecided && seniors.length > 0) {
+    const senior = free.filter((c) => c.senior).sort(byLoad)[0];
+    return senior ? { kind: 'member', handle: senior.handle } : { kind: 'senior_busy', seniors };
+  }
+  const pick = free
+    .filter((c) => level !== 'senior' || !c.temp)
+    .sort((a, b) => Number(a.senior) - Number(b.senior) || byLoad(a, b))[0];
+  return pick ? { kind: 'member', handle: pick.handle } : { kind: 'none', tempAllowed: level !== 'senior' };
+}

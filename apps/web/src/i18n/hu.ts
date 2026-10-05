@@ -518,6 +518,7 @@ export const hu = {
       board_column_chronological: 'A Kész oszlop időrendben marad, abban nem lehet sorrendet változtatni.',
       unknown_column: 'Ilyen oszlop nincs a táblán.',
       no_free_member: 'Most nincs szabad fejlesztő.',
+      senior_busy: 'A kártya a Seniorra vár.',
       inbox_item_closed: 'Ezt már elintézték.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
@@ -791,6 +792,7 @@ export const hu = {
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
       prerequisite_open: 'Előfeltételre vár: {prerequisites}',
       no_free_member: 'Szabad fejlesztőre vár',
+      senior_busy: 'A Seniorra vár',
       label_missing: '{name} munkájára vár: {labels}',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
@@ -818,6 +820,8 @@ export const hu = {
         'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
       no_free_member:
         'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
+      senior_busy:
+        'A kártya a Seniornak szól, és most minden Senior foglalt. Amint felszabadul egy, megkapja; fél óra után a tulajdonosokat megkérdezzük, várjon-e tovább.',
       label_missing:
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
       full_test_pending:
@@ -1890,6 +1894,8 @@ export const hu = {
       command_policy: 'Automatikus: szabály szerint',
       loop_ended: 'Automatikus',
       fix_limit_ended: 'Automatikus',
+      senior_took: 'Automatikus: a Senior átvette',
+      senior_wait_ended: 'Automatikus: a várakozás véget ért',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -2248,6 +2254,11 @@ export const hu = {
     levelSetReason: 'Ajánlott fejlesztő: {level} – {reason}',
     levelSenior: 'Senior',
     levelAny: 'bárki',
+    seniorWaitAsked: 'A kártya {minutes} perce a Seniorra vár; a döntés a tulajdonosoknál van.',
+    seniorWaitDecidedWait: '{by}: várjon tovább a Seniorra.',
+    seniorWaitDecidedAny: '{by}: kapja meg egy szabad fejlesztő.',
+    seniorWaitTook: 'A felszabadult Senior átvette a kártyát.',
+    seniorWaitNoSenior: 'A csapatban nincs Senior, a kártya a bárki-szabály szerint indult.',
     prerequisiteDone: 'Az előfeltétel, {ref}, elkészült.',
     prerequisiteWithdrawn: 'Az előfeltételt, {ref}, visszavonták, így már nem kell rá várni.',
     prerequisiteRemaining: 'Még vár erre: {remaining}.',

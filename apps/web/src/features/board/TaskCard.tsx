@@ -10,6 +10,7 @@ import { PriorityMark } from '../../components/PriorityMark';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { seniorMarkLabel, showsSeniorMark } from '../../lib/developerLevel';
 import { loopSummary } from '../../lib/loop';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -95,6 +96,7 @@ export function TaskCard({
   // Said by the status line already when the card stands on it: never twice on one card.
   const prerequisite = state.prerequisite?.key && !state.prerequisite.inLabel ? state.prerequisite : null;
   const workerRows = cardWorkerRows(state);
+  const seniorMark = showsSeniorMark(task, pipeline);
   return (
     <Link
       to={to}
@@ -142,8 +144,17 @@ export function TaskCard({
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
-      {task.parentKey || subtasks.length || prerequisite || task.loop ? (
+      {task.parentKey || subtasks.length || prerequisite || task.loop || seniorMark ? (
         <span className={styles.meta}>
+          {seniorMark ? (
+            <span
+              className={clsx(styles.label, styles.senior)}
+              title={seniorMarkLabel(task)}
+              aria-label={seniorMarkLabel(task)}
+            >
+              {t('task.level.mark')}
+            </span>
+          ) : null}
           {task.loop ? (
             <span
               className={clsx(styles.label, styles.loop)}

@@ -1,0 +1,33 @@
+/* The editor of the "Ajánlott" row opens in place (PM-349); the 160 ms fade-in stops under reduced motion. */
+.editor {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  animation: pm-fade-in 160ms ease-out;
+}
+
+/* The two buttons keep their own width instead of stretching across the drawer, also on a phone. */
+.segments {
+  width: max-content;
+  max-width: 100%;
+}
+
+.note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.noSenior {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-needs-text);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

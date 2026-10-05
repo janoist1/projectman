@@ -88,6 +88,11 @@ function MemberIdentity({
             <>
               <Chip tone="dark">{t('common.ai')}</Chip>
               <ProviderBadge provider={member.provider} />
+              {member.senior ? (
+                <Chip tone="accent" title={t('team.seniorTitle')}>
+                  {t('team.senior')}
+                </Chip>
+              ) : null}
             </>
           ) : null}
           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}

@@ -168,7 +168,16 @@ export function MemberProfilePage() {
         title={member.displayName}
         subtitle={
           <>
-            <code>{member.handle}</code> · <span>{status.label}</span>
+            <code>{member.handle}</code> ·{' '}
+            {member.senior ? (
+              <>
+                <Chip tone="accent" title={t('team.seniorTitle')}>
+                  {t('team.senior')}
+                </Chip>{' '}
+                ·{' '}
+              </>
+            ) : null}
+            <span>{status.label}</span>
           </>
         }
       >

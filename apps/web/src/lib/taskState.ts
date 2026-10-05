@@ -264,8 +264,21 @@ function standingOnPrerequisite(wait: PrerequisiteWait | null, since: string): O
   };
 }
 
-export function startWaitingHint(task: Task): string | null {
-  return task.startWaiting ? t(`taskStatus.startHints.${task.startWaiting.reason}`) : null;
+/**
+ * What a card whose start waits needs, in a sentence. A Senior wait that someone decided to keep says who
+ * (the viewer is not named "Te" in the sentence, it reads differently).
+ */
+export function startWaitingHint(task: Task, members: MemberIndex, myHandle: string | null): string | null {
+  const waiting = task.startWaiting;
+  if (!waiting) return null;
+  if (waiting.reason === 'senior_busy' && waiting.waitDecidedBy) {
+    return waiting.waitDecidedBy === myHandle
+      ? t('taskStatus.startHints.senior_busy_decided_me')
+      : t('taskStatus.startHints.senior_busy_decided', {
+          name: nameOf(waiting.waitDecidedBy, members, myHandle),
+        });
+  }
+  return t(`taskStatus.startHints.${waiting.reason}`);
 }
 
 function startWaitingLabel(task: Task, ctx: TaskStateContext): string {

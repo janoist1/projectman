@@ -185,6 +185,47 @@ function loopEventText(d: Record<string, unknown>, ctx: TimelineContext): string
 const FIX_LIMIT_DECISIONS = ['continue', 'another_round', 'replan', 'reassign'] as const;
 const FIX_LIMIT_END_REASONS = ['decided', 'assignee_changed', 'closed'] as const;
 
+function levelName(level: unknown): string {
+  return t(level === 'senior' ? 'timeline.levelSenior' : 'timeline.levelAny');
+}
+
+/** The recommended developer of a card (PM-349): set, or changed from another level, with the reason if any. */
+function levelEventText(d: Record<string, unknown>): string {
+  const previous = record(d.previous);
+  const level = levelName(d.level);
+  const reason = str(d.reason).trim() ? t('timeline.levelReason', { reason: str(d.reason).trim() }) : '';
+  const changed = previous !== null && levelName(previous.level) !== level;
+  return (
+    (changed
+      ? t('timeline.levelChanged', { previous: levelName(previous.level), level })
+      : t('timeline.levelSet', { level })) + reason
+  );
+}
+
+/** The wait of a Senior card (PM-348): asked, decided, over because a Senior took it, or no Senior at all. */
+function seniorWaitEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
+  const deciders = strings(d.deciders);
+  switch (d.phase) {
+    case 'asked':
+      if (typeof d.minutes !== 'number' || deciders.length === 0) return t('timeline.seniorWaitOther');
+      return t('timeline.seniorWaitAsked', {
+        minutes: d.minutes,
+        names: joinNames(namesOf(deciders, ctx.members, ctx.myHandle)),
+      });
+    case 'decided':
+      if ((d.decision !== 'wait' && d.decision !== 'any') || !d.by) return t('timeline.seniorWaitOther');
+      return t(d.decision === 'any' ? 'timeline.seniorWaitDecidedAny' : 'timeline.seniorWaitDecidedWait', {
+        name: nameOf(str(d.by), ctx.members, ctx.myHandle),
+      });
+    case 'senior_took':
+      return t('timeline.seniorWaitTook');
+    case 'no_senior':
+      return t('timeline.seniorWaitNoSenior');
+    default:
+      return t('timeline.seniorWaitOther');
+  }
+}
+
 /** A card held at its fix round limit (PM-262): reached, passed on to the people, decided, or over. */
 function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
   const note = str(d.note).trim();
@@ -410,30 +451,10 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         previous ? t('timeline.themeMoved', { previous, themeKey }) : t('timeline.themeSet', { themeKey }),
       );
     }
-    case 'task_level_changed': {
-      const level = t(d.level === 'senior' ? 'timeline.levelSenior' : 'timeline.levelAny');
-      return normal(
-        d.reason
-          ? t('timeline.levelSetReason', { level, reason: str(d.reason) })
-          : t('timeline.levelSet', { level }),
-      );
-    }
-    case 'task_senior_wait': {
-      switch (d.phase) {
-        case 'asked':
-          return normal(t('timeline.seniorWaitAsked', { minutes: Number(d.minutes) }));
-        case 'decided':
-          return normal(
-            t(d.decision === 'any' ? 'timeline.seniorWaitDecidedAny' : 'timeline.seniorWaitDecidedWait', {
-              by: nameOf(str(d.by), ctx.members, ctx.myHandle),
-            }),
-          );
-        case 'senior_took':
-          return normal(t('timeline.seniorWaitTook'));
-        default:
-          return normal(t('timeline.seniorWaitNoSenior'));
-      }
-    }
+    case 'task_level_changed':
+      return normal(levelEventText(d));
+    case 'task_senior_wait':
+      return normal(seniorWaitEventText(d, ctx));
     case 'task_prerequisite_closed': {
       const remaining = strings(d.remaining);
       return normal(

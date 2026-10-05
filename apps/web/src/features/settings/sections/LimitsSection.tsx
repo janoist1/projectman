@@ -3,11 +3,13 @@ import {
   DEFAULT_LOOP_WATCH,
   DEFAULT_MAX_FIX_ROUNDS,
   DEFAULT_MIN_FREE_DISK_GB,
+  DEFAULT_SENIOR_WAIT_MINUTES,
   boundaryOwners,
   loopDeciders,
   loopWatchOf,
   loopWatchers,
   maxFixRoundsOf,
+  seniorWaitMinutesOf,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import clsx from 'clsx';
@@ -165,6 +167,19 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           </SelectField>
         </div>
       ) : null}
+      <InstantNumber
+        label={t('settings.limits.seniorWait')}
+        hint={t('settings.limits.seniorWaitHelp')}
+        min={5}
+        max={1440}
+        step={1}
+        value={seniorWaitMinutesOf(limits)}
+        onCommit={(minutes) =>
+          commit((draft) => {
+            draft.team.limits.seniorWaitMinutes = minutes ?? DEFAULT_SENIOR_WAIT_MINUTES;
+          })
+        }
+      />
       <ToggleField
         label={t('settings.limits.noTokenWarning')}
         help={t('settings.limits.noTokenWarningHelp')}
@@ -355,6 +370,10 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
                 ? t('settings.limits.minFreeDiskOff')
                 : t('settings.limits.minFreeDiskValue', { count: limits.minFreeDiskGb })}
             </dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.seniorWaitSummary')}</dt>
+            <dd>{t('settings.limits.seniorWaitValue', { minutes: seniorWaitMinutesOf(limits) })}</dd>
           </div>
           <div>
             <dt>{t('settings.limits.warnAboveSessionTokens')}</dt>

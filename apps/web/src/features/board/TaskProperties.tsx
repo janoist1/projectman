@@ -9,6 +9,7 @@ import type { TaskPhase } from '../../lib/taskState';
 import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskPrioritySelect } from './TaskPriority';
 import { TaskLabels } from './TaskLabels';
+import { TaskLevel } from './TaskLevel';
 import { TaskRepo } from './TaskRepo';
 import { TaskRelations } from './TaskRelations';
 import { TaskTheme } from './TaskTheme';
@@ -49,6 +50,7 @@ export function TaskProperties({
           </span>
         )}
       </div>
+      <TaskLevel key={`level:${task.key}`} task={task} />
       <TaskPrioritySelect key={`priority:${task.key}`} task={task} />
       <div className={styles.prop}>
         <TaskRepo key={task.key} task={task} />

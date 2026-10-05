@@ -234,6 +234,28 @@ describe('the "Ajánlott" row (PM-349)', () => {
     expect(await screen.findByText(t('task.level.noSenior'))).toBeTruthy();
   });
 
+  it('takes the reading view away while the editor is open, and brings it back on Cancel', async () => {
+    const project = seniorProject();
+    project.backend.handle('PATCH', '/api/projects/AC/members/be-1', { senior: false });
+    project.render(drawer, '/p/AC/tasks/AC-24');
+    await row();
+    await screen.findByText(t('task.level.noSenior'));
+    expect(screen.getAllByText(REASON).length).toBeGreaterThan(0);
+    fireEvent.click(await screen.findByRole('button', { name: t('task.level.edit') }));
+
+    const field = screen.getByLabelText(t('task.level.reasonSenior')) as HTMLTextAreaElement;
+    expect(field.value).toBe(REASON);
+    // The reason is in the field only, and the team-without-a-Senior line is the form's own note.
+    expect(screen.queryAllByText(REASON).filter((node) => node.tagName !== 'TEXTAREA')).toEqual([]);
+    expect(screen.queryByText(t('task.level.noSenior'))).toBeNull();
+    expect(screen.getByText(t('task.level.noSeniorEditor'), { exact: false })).toBeTruthy();
+
+    fireEvent.click(within(field.closest('form')!).getByRole('button', { name: t('common.cancel') }));
+    await waitFor(() => expect(screen.queryByLabelText(t('task.level.reasonSenior'))).toBeNull());
+    expect(screen.getAllByText(REASON).length).toBeGreaterThan(0);
+    expect(screen.getByText(t('task.level.noSenior'))).toBeTruthy();
+  });
+
   it('saves a Senior recommendation with its reason, tells it, and returns focus to the pencil', async () => {
     const project = seniorProject({ seniorCard: false });
     project.render(drawer, '/p/AC/tasks/AC-24');

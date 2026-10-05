@@ -50,13 +50,18 @@ export function TaskLevel({ task }: { task: Task }) {
   return (
     <div className={drawer.prop}>
       <span className={drawer.propLabel}>{t('task.level.label')}</span>
-      <span>
-        {level === 'senior' ? (
-          <Chip tone="accent">{t('task.level.senior')}</Chip>
-        ) : (
-          <span className={drawer.propMuted}>{t('task.level.any')}</span>
-        )}
-      </span>
+      {/* While the form is open it takes the place of the reading view: the reason would show twice. */}
+      {editing ? (
+        <span />
+      ) : (
+        <span>
+          {level === 'senior' ? (
+            <Chip tone="accent">{t('task.level.senior')}</Chip>
+          ) : (
+            <span className={drawer.propMuted}>{t('task.level.any')}</span>
+          )}
+        </span>
+      )}
       {editable && !editing ? (
         <Button
           ref={pencil}
@@ -70,8 +75,8 @@ export function TaskLevel({ task }: { task: Task }) {
       ) : (
         <span />
       )}
-      {reason ? <span className={`${drawer.propWide} ${drawer.propMuted}`}>{reason}</span> : null}
-      {noSenior ? (
+      {reason && !editing ? <span className={`${drawer.propWide} ${drawer.propMuted}`}>{reason}</span> : null}
+      {noSenior && !editing ? (
         <span className={`${drawer.propWide} ${styles.noSenior}`}>{t('task.level.noSenior')}</span>
       ) : null}
       {editing && config ? (

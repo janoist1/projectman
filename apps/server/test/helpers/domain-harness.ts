@@ -106,6 +106,8 @@ export async function createDomainHarness(
     sessionFolders?: boolean | string;
     /** Playwright's browsers directory (PM-268); absent, no browsers variable. */
     browsersDir?: string;
+    /** The machine's heavy-run queue folder (PM-332) named in the sandboxes; absent, none. */
+    heavyLockDir?: string;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -141,6 +143,7 @@ export async function createDomainHarness(
   const domain: Domain = createDomain({
     sessionFoldersDir,
     browsersDir: opts.browsersDir,
+    heavyLockDir: opts.heavyLockDir,
     boundaryAdapter: opts.boundaryAdapter,
     runtimeBoundary: opts.runtimeBoundary,
     egress: opts.egress,

@@ -100,7 +100,9 @@ One heavy run goes at a time on the machine (PM-332, `docs/ARCHITECTURE.md` "Hea
 queue"): the root `npm test`, `typecheck` and `shots` wait behind the other members' and the
 server's full test, and print who they wait for, so run them in the background. Runs inside
 one workspace (`npm test -w …`, `npx vitest related …`) do not queue; use them while working
-and the full run once before the hand-over.
+and the full run once before the hand-over. If a heavy command says its queue cannot be used
+(exit status 78), it did not run: note this on your card and ask for the command to run outside
+your sandbox; never run it another way (PM-346).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
 owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,

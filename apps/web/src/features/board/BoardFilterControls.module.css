@@ -7,6 +7,15 @@
   min-width: 0;
 }
 
+.priority {
+  animation: pm-fade-in 160ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .priority {
+    animation: none;
+  }
+}
+
 .phase {
   flex-shrink: 0;
 }

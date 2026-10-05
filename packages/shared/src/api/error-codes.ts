@@ -72,6 +72,7 @@ export const ERROR_CODES = [
   'unknown_column',
   'task_not_cancelled',
   'task_session_live',
+  'priority_humans_only',
   'subtask_self_parent',
   'subtask_parent_not_found',
   'subtask_parent_project',
@@ -142,6 +143,7 @@ export const ERROR_CODES = [
   'not_stage_owner',
   'member_not_scheduled',
   'provider_not_logged_in',
+  'nanogpt_key_rejected',
   'session_start_failed',
   // The question-free managed VM profile (PM-141): its boundary is not verified, or a CLI does not fit
   'managed_vm_unavailable',

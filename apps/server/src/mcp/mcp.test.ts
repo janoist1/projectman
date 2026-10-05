@@ -428,7 +428,7 @@ describe('team tools', () => {
     expect(out).toContain('Stage: dev · Status: active · Assignee: fe-1 · Labels: frontend');
     expect(out).toContain('Links: Branch: ar-21-login-validation in web');
     expect(out).toContain('Show an error message when the email address is invalid.');
-    expect(out).toContain('Repo: web · Visibility: internal · Priority: 2');
+    expect(out).toContain('Repo: web · Visibility: internal · Priority: high');
     expect(out).toContain('Other sessions: fe-1 (working)');
     expect(out).toContain('- 2026-09-29 09:00 UTC · owner: moved it from ready to dev');
   });
@@ -526,6 +526,22 @@ describe('team tools', () => {
     expect(text(result)).toBe(
       'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations, remove_relations, theme_key and/or developer_level.',
     );
+    expect(h.handler.calls).toEqual([]);
+  });
+
+  it('refuses AI priority writes before calling either task handler', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    for (const [name, args] of [
+      ['update_task', { task_key: 'AR-21', priority: 'high', title: 'Changed' }],
+      ['create_task', { title: 'New card', priority: null }],
+    ] as const) {
+      const result = await call(client, name, args);
+      expect(result.isError).toBe(true);
+      expect(text(result)).toContain(
+        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+      );
+    }
     expect(h.handler.calls).toEqual([]);
   });
 

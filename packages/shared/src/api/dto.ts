@@ -29,7 +29,7 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import { Task, TaskKey, TaskKind, Visibility } from '../domain/task';
+import { Task, TaskKey, TaskKind, TaskPriority, Visibility } from '../domain/task';
 
 /* ---------- auth ---------- */
 
@@ -81,7 +81,20 @@ export const ProviderLoginStatus = z.object({
   minCliVersion: z.string().optional(),
 });
 export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
-export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
+export const ProviderKeyStatus = z.object({ set: z.boolean(), setAt: z.string().nullable() });
+export type ProviderKeyStatus = z.infer<typeof ProviderKeyStatus>;
+export const ProvidersView = z.object({
+  providers: z.array(ProviderLoginStatus),
+  keys: z.object({ nanogpt: ProviderKeyStatus }),
+  canManageKeys: z.boolean(),
+});
+export const ProviderKeyValue = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1000)
+  .regex(/^[\x21-\x7E]+$/);
+export const SetProviderKeyRequest = z.strictObject({ key: ProviderKeyValue });
 export type ProvidersView = z.infer<typeof ProvidersView>;
 
 /* ---------- projects ---------- */
@@ -380,6 +393,8 @@ export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 export const UpdateTaskRequest = z.object({
   /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
   developerLevel: DeveloperLevelRequest.optional(),
+  /** People only (PM-287); null clears it. */
+  priority: TaskPriority.nullable().optional(),
   parentKey: TaskKey.nullable().optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),

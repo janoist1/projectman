@@ -69,8 +69,11 @@ export function tomlValue(value: unknown): string {
   throw new Error(`not representable in TOML: ${String(value)}`);
 }
 
+/** A TOML bare key: a name outside it cannot be a segment of a `-c` key (the key is split on dots). */
+const TOML_BARE_KEY = /^[A-Za-z0-9_-]+$/;
+
 function tomlKey(key: string): string {
-  return /^[A-Za-z0-9_-]+$/.test(key) ? key : tomlString(key);
+  return TOML_BARE_KEY.test(key) ? key : tomlString(key);
 }
 
 /** One `-c` override. */
@@ -179,8 +182,17 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     throw new Error('The managed VM profile has no inner sandbox; refusing a workspace-write policy.');
   if (!managed && permissions.sandbox === 'danger-full-access')
     throw new Error('Codex runs without its sandbox only in the managed VM profile; refusing to start.');
-  if (!spec.policy && permissions.sandbox === 'workspace-write' && spec.writableRoots?.length)
-    c('sandbox_workspace_write.writable_roots', spec.writableRoots);
+  // What our sandbox shares with Codex's own (the heavy-run queue folder, PM-346). Not in the managed VM.
+  const portable = managed ? undefined : spec.sandbox?.portable;
+  const writableRoots = [
+    ...(!spec.policy ? (spec.writableRoots ?? []) : []),
+    ...(portable?.allowWrite ?? []),
+  ];
+  if (permissions.sandbox === 'workspace-write' && writableRoots.length > 0)
+    c('sandbox_workspace_write.writable_roots', [...new Set(writableRoots)]);
+  // Every command sees them, also one run outside the sandbox after a question.
+  for (const [name, value] of Object.entries(portable?.env ?? {}))
+    if (TOML_BARE_KEY.test(name)) c(`shell_environment_policy.set.${name}`, value);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));
   c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));

@@ -1560,6 +1560,7 @@ export class SessionOrchestrator {
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
     if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
+    this.preparePortablePaths(sandbox?.portable?.allowWrite);
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
@@ -1938,6 +1939,21 @@ export class SessionOrchestrator {
         `could not prepare the session folder: ${(err as Error).message}`,
         { status: 502, details: { stage: 'session_folder', reason: errorCode(err) } },
       );
+    }
+  }
+
+  /**
+   * The writable paths a CLI with a sandbox of its own takes from ours (`AgentSandbox.portable`,
+   * PM-346), made before its process starts so it gets an existing path. A failure is logged: the
+   * start goes on.
+   */
+  private preparePortablePaths(paths: readonly string[] | undefined): void {
+    for (const dir of paths ?? []) {
+      try {
+        mkdirSync(dir, { recursive: true, mode: 0o700 });
+      } catch (err) {
+        this.ctx.logger.warn({ path: dir, err }, 'could not make a writable path of the session sandbox');
+      }
     }
   }
 

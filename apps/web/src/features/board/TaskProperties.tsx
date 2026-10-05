@@ -7,6 +7,7 @@ import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
 import { TaskAssigneeSelect } from './TaskLifecycle';
+import { TaskPrioritySelect } from './TaskPriority';
 import { TaskLabels } from './TaskLabels';
 import { TaskRepo } from './TaskRepo';
 import { TaskRelations } from './TaskRelations';
@@ -48,6 +49,7 @@ export function TaskProperties({
           </span>
         )}
       </div>
+      <TaskPrioritySelect key={`priority:${task.key}`} task={task} />
       <div className={styles.prop}>
         <TaskRepo key={task.key} task={task} />
       </div>

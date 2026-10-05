@@ -1,6 +1,8 @@
 import {
   StopOrphansRequest,
   canManageInstancePause,
+  canManageProviderKeys,
+  SetProviderKeyRequest,
   AcceptInviteRequest,
   BOARD_RANK_STEP,
   BoardMoveRequest,
@@ -50,6 +52,7 @@ import {
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
+  priorityRefusal,
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
@@ -347,6 +350,7 @@ export class MockBackend {
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
   providerLoggedIn = { claude: true, codex: true };
+  nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
@@ -1335,8 +1339,21 @@ export class MockBackend {
       }
     }
     if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
-    if (path === '/api/providers' && method === 'GET') {
+    if ((path === '/api/providers' && method === 'GET') || path === '/api/providers/nanogpt/key') {
+      const member = memberOf(this.config, this.viewerHandle);
+      const canManageKeys = canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
+      if (path === '/api/providers/nanogpt/key') {
+        if (!canManageKeys)
+          return error(403, 'insufficient_access', 'Only an owner of every project may manage provider keys');
+        if (method === 'PUT') {
+          if (!parseBody(SetProviderKeyRequest, body)) return error(400, 'invalid_request', 'Invalid key');
+          this.nanogptKeyStatus = { set: true, setAt: nowIso() };
+        } else if (method === 'DELETE') this.nanogptKeyStatus = { set: false, setAt: null };
+        else return error(404, 'not_found', 'Unknown provider key route');
+      }
       return ok({
+        keys: { nanogpt: { ...this.nanogptKeyStatus } },
+        canManageKeys,
         providers: AgentProvider.options.map((provider) => ({
           provider,
           loggedIn: this.providerLoggedIn[provider],
@@ -2418,9 +2435,18 @@ export class MockBackend {
       isTheme(task) &&
       ((input.stageId !== undefined && input.stageId !== task.stageId) ||
         (input.assignee !== undefined && input.assignee !== null) ||
-        (input.repo !== undefined && input.repo !== null))
+        (input.repo !== undefined && input.repo !== null) ||
+        (input.priority !== undefined && input.priority !== null))
     )
       return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
+    if (input.priority !== undefined) {
+      const refusal = priorityRefusal(actor);
+      if (refusal) return error(403, refusal, 'The priority of a card is set by people only');
+      if (input.priority !== task.priority) {
+        patch.priority = input.priority;
+        fields.push('priority');
+      }
+    }
     if (input.title !== undefined && input.title.trim() !== task.title) {
       patch.title = input.title.trim();
       if (!patch.title) return error(400, 'invalid_request', 'Empty title');
@@ -2517,7 +2543,12 @@ export class MockBackend {
       if (nobody) return nobody;
     }
 
-    const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null, repo: task.repo };
+    const previous = {
+      assignee: task.assignee,
+      parentKey: task.parentKey ?? null,
+      repo: task.repo,
+      priority: task.priority,
+    };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
     if (fields.length || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
       this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
@@ -2525,6 +2556,9 @@ export class MockBackend {
         this.addTimeline(task.key, actor.handle, 'task_updated', {
           fields,
           ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: previous.repo } : {}),
+          ...(patch.priority !== undefined
+            ? { priority: patch.priority, previousPriority: previous.priority }
+            : {}),
         });
       if (labelsChanged) this.recordLabels(task, labels, actor, {});
       if (patch.assignee !== undefined)

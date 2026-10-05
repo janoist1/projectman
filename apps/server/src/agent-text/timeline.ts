@@ -188,7 +188,12 @@ function describeTaskUpdate(
   // A repository change names the repositories it went from and to.
   const repos =
     'repo' in data ? ` (${repoName(data.previousRepo, style)} -> ${repoName(data.repo, style)})` : '';
-  const fields = list('fields').map((name) => (name === 'repo' ? `repo${repos}` : name));
+  const fields = list('fields').map((name) => {
+    if (name === 'repo') return `repo${repos}`;
+    if (name === 'priority' && 'priority' in data)
+      return `priority (${text('previousPriority') ?? 'none'} -> ${text('priority') ?? 'none'})`;
+    return name;
+  });
   return fields.length > 0 ? `updated ${fields.join(', ')}` : 'updated the task';
 }
 

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TaskDeveloperLevel } from './developer-level';
+import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
@@ -12,6 +13,16 @@ export type TaskKey = z.infer<typeof TaskKey>;
 
 export const TaskStatus = z.enum(['active', 'waiting', 'blocked', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
+
+/** Informational only: priority never changes ordering or starts work. */
+export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
+export type TaskPriority = z.infer<typeof TaskPriority>;
+export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
+
+/** People alone may set or clear a card's priority. */
+export function priorityRefusal(actor: Pick<Actor, 'kind'>): 'priority_humans_only' | null {
+  return actor.kind === 'human' ? null : 'priority_humans_only';
+}
 
 /**
  * `prerequisite`, `related` and `duplicate_of` relate two cards (PM-192): `ref` is the other card's
@@ -209,7 +220,8 @@ export const Task = z.object({
    * not before a person chooses one when it has several.
    */
   repo: z.string().nullable(),
-  priority: z.number().int().nullable(),
+  /** Null: not set, including on a newly created card. */
+  priority: TaskPriority.nullable(),
   /**
    * The card's place in the manual order of its board column (PM-118): ascending, shared by everyone.
    * Independent of `priority`. Only the order of two cards means something, not the value (see

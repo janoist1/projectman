@@ -15,6 +15,7 @@ export const routes = {
   /** GET (any logged-in member): whether the VM boundary is configured and ready (PM-140). */
   runtimeBoundary: () => '/api/runtime-boundary',
   providers: () => '/api/providers',
+  nanogptKey: () => '/api/providers/nanogpt/key',
   setupStatus: () => '/api/setup',
   setup: () => '/api/setup',
   login: () => '/api/auth/login',

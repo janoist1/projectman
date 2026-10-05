@@ -346,6 +346,14 @@ describe('team tools', () => {
     expect(await h.domain.teamTools.listTasks(dev, { limit: 200 })).toHaveLength(200);
   });
 
+  it('list_tasks includes named priority only on cards where it was set', async () => {
+    const other = await h.domain.tasks.create('AR', { title: 'No priority' }, OWNER_ACTOR);
+    await h.domain.tasks.update('AR', 'AR-1', { priority: 'high' }, OWNER_ACTOR);
+    const result = await h.domain.teamTools.listTasks(dev, {});
+    expect(result.find((task) => task.key === 'AR-1')).toMatchObject({ priority: 'high' });
+    expect(result.find((task) => task.key === other.key)).not.toHaveProperty('priority');
+  });
+
   it('create_task puts an unassigned task into the first stage, attributed to the member', async () => {
     const { task } = await h.domain.teamTools.createTask(dev, {
       title: '  Signup form accepts an empty email ',

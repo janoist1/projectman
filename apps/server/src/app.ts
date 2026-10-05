@@ -115,6 +115,7 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
 
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
+  nanogptKeyCheck?: import('./domain').NanogptKeyCheck;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The proof of the managed VM boundary (default: the readiness report, `vmReadinessReport`). */
   managedVmBoundary?: ManagedVmBoundary;
@@ -465,6 +466,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
         : {}),
       boundaryAdapter: modules.boundaryAdapter,
+      nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: modules.createFullTestExecutor?.({ logger: log.child({ module: 'full-test' }) }),
       repos,
       configStore,

@@ -12,6 +12,7 @@ import type {
   ProjectConfig,
   Session,
   Task,
+  TaskPriority,
   TaskDetail,
   TaskFixLimit,
   TaskLink,
@@ -26,6 +27,7 @@ import {
   isOpenTask,
   isTheme,
   memberOf,
+  priorityRefusal,
   repoOf,
   subtaskParentRefusal,
 } from '@projectman/shared';
@@ -41,7 +43,7 @@ import type { TaskPatch } from '../../db';
 import { requireHuman } from '../access';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { conflict, invalid, themeRefused } from '../errors';
+import { conflict, forbidden, invalid, themeRefused } from '../errors';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import { PullRequestRecords } from '../pull-requests';
@@ -75,6 +77,7 @@ function unknownRepo(config: ProjectConfig, repo: string) {
  * label set; the update_task team tool sends labels to add and remove and a note.
  */
 export interface TaskUpdate {
+  priority?: TaskPriority | null;
   title?: string;
   description?: string;
   visibility?: Visibility;
@@ -479,6 +482,8 @@ export class TaskService {
         throw themeRefused(task.key, 'have an assignee');
       if (change.repo !== undefined && change.repo !== null)
         throw themeRefused(task.key, 'have a repository');
+      if (change.priority !== undefined && change.priority !== null)
+        throw themeRefused(task.key, 'have a priority');
     }
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
@@ -487,6 +492,14 @@ export class TaskService {
       ? planDeveloperLevel(config, task, change.developerLevel, actor, isoNow(this.ctx))
       : null;
     if (level) patch.developerLevel = level.next;
+    if (change.priority !== undefined) {
+      const refusal = priorityRefusal(actor);
+      if (refusal) throw forbidden(refusal, 'the priority of a card is set by people only');
+      if (change.priority !== task.priority) {
+        patch.priority = change.priority;
+        fields.push('priority');
+      }
+    }
     if (change.title !== undefined && change.title.trim() !== task.title) {
       patch.title = change.title.trim();
       if (!patch.title) throw invalid('invalid_request', 'title must not be empty');
@@ -610,6 +623,9 @@ export class TaskService {
           data: {
             fields,
             ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: task.repo } : {}),
+            ...(patch.priority !== undefined
+              ? { priority: patch.priority, previousPriority: task.priority }
+              : {}),
           },
         });
       if (patch.description !== undefined)

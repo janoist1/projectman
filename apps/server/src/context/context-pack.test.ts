@@ -155,7 +155,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'active',
     assignee: 'fe-1',
     repo: 'app',
-    priority: 2,
+    priority: 'high',
     labels: ['bug', 'email'],
     links: [
       {
@@ -345,7 +345,7 @@ describe('context pack snapshots', () => {
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
     );
-    await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/developer-dev.brief.txt');
+    await expect(`${pack.initialMessage}\n`).toMatchFileSnapshot('__snapshots__/developer-dev.brief.txt');
   });
 
   it('code reviewer reviewing a pull request', async () => {
@@ -353,7 +353,9 @@ describe('context pack snapshots', () => {
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/code-review-code_review.system-prompt.txt',
     );
-    await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/code-review-code_review.brief.txt');
+    await expect(`${pack.initialMessage}\n`).toMatchFileSnapshot(
+      '__snapshots__/code-review-code_review.brief.txt',
+    );
   });
 
   // The repository's GitHub name is all that differs from the two packs above, so the snapshots of a
@@ -470,9 +472,10 @@ describe('token economy (PM-181)', () => {
   // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
   // to make room for the structural decision rule of PM-223, and again for the rule of working on the
   // same card as others (PM-249), then for targeted checks (PM-335) and shared team rules (PM-289).
+  // PM-287 names priority (high, not 2), adding three characters to the brief.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 14800, brief: 862 },
-    { name: 'code reviewer', handle: 'code-review', system: 12891, brief: 1900 },
+    { name: 'developer', handle: 'fe-1', system: 14800, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 12891, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'

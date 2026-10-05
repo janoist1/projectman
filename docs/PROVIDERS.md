@@ -409,7 +409,17 @@ stop a push from a local-only repository. The configuration refuses it (invarian
 `codex_bypass_not_allowed`), an older configuration that names it reads as `acceptEdits` (logged
 as a warning) and the runner maps it to the sandbox of `acceptEdits` should it arrive anyway.
 
-Developers' Codex sessions get no extra writable roots, and the network stays off. The
+Developers' Codex sessions get one extra writable root, the parent of the machine's heavy-run
+queue folder (`AgentSandbox.portable`, PM-346), and the queue variables
+(`PROJECTMAN_HEAVY_LOCK_DIR`, `npm_config_prefer_offline`) through
+`shell_environment_policy.set.<NAME>`, so their `npm test` waits in the queue like the Claude
+members'. Both are left out in the managed VM profile. The network stays off. Real-CLI probe of
+`sandbox_workspace_write.writable_roots` on codex-cli 0.159.1: _not run yet_ (a developer's
+sandbox cannot read `~/.codex`; the integrator or the owner runs the command on PM-346's card:
+`codex sandbox macos --full-auto -c 'sandbox_workspace_write.writable_roots=["/private/tmp/projectman-501"]' -- /bin/sh -c 'mkdir /private/tmp/projectman-501/probe-pm346 && rmdir /private/tmp/projectman-501/probe-pm346'`,
+with and without the `-c`) and its result goes here. If Codex ignores the setting, a command run
+outside its sandbox after a question still queues, and the CLI stops one that cannot use the
+queue (exit 78). The
 shared git directory is not made writable (PM-131): it never let `git commit` through, since
 Codex's sandbox denies the worktree's index lock, but it let an agent write the repository's
 hooks and configuration, which run when the host uses git there. The routine git steps

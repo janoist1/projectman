@@ -57,6 +57,12 @@ export interface AgentSandbox {
    * (the provider adapter renders the pattern, PM-188).
    */
   excludedCommands?: string[];
+  /**
+   * What an agent CLI with a sandbox of its own (Codex) takes from this one too (PM-346): its commands
+   * may also write `allowWrite` and see `env`. Every entry is in `allowWrite` / `env` above as well,
+   * which Claude Code renders; Claude Code ignores this. Absent: nothing.
+   */
+  portable?: { allowWrite: string[]; env: Record<string, string> };
 }
 
 /**

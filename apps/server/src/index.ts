@@ -10,6 +10,7 @@ import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
+import { createNanogptKeyCheck } from './domain';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -175,11 +176,13 @@ async function main(): Promise<void> {
   // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
   const app = await buildApp({
     ...config.app,
+    // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
     modules:
       config.app.executionProfile === 'managed_vm'
-        ? config.app.modules
+        ? { ...config.app.modules, nanogptKeyCheck: createNanogptKeyCheck() }
         : {
             ...config.app.modules,
+            nanogptKeyCheck: createNanogptKeyCheck(),
             createFullTestExecutor: ({ logger }) =>
               createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },

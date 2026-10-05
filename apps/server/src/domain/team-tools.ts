@@ -376,7 +376,7 @@ export class TeamToolsService implements TeamToolsHandler {
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
         .slice(0, limit)
-        .map(({ key, title, stageId, status, assignee, labels, updatedAt, kind }) => ({
+        .map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => ({
           key,
           title,
           stageId,
@@ -385,6 +385,7 @@ export class TeamToolsService implements TeamToolsHandler {
           labels,
           updatedAt,
           ...(kind === 'theme' ? { kind } : {}),
+          ...(priority !== null ? { priority } : {}),
         }));
     });
   }

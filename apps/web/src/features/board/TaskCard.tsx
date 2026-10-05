@@ -6,6 +6,7 @@ import type { Task } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
+import { PriorityMark } from '../../components/PriorityMark';
 import { StageProgress } from '../../components/StageProgress';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
@@ -114,6 +115,14 @@ export function TaskCard({
       {coverSrc ? <CardCover key={coverSrc} src={coverSrc} thumbnail={compact} /> : null}
       <span className={styles.head}>
         <span className={styles.key}>{task.key}</span>
+        {task.priority && task.status !== 'done' && task.status !== 'cancelled' ? (
+          <span title={t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}>
+            <PriorityMark priority={task.priority} />
+            <span className="visually-hidden">
+              {t('priority.markLabel', { level: t(`priority.levels.${task.priority}`) })}
+            </span>
+          </span>
+        ) : null}
         <StageProgress
           pipeline={pipeline}
           stageId={task.stageId}

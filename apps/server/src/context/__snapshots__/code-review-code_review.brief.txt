@@ -4,7 +4,7 @@ You are picking up this task at stage Code review (`code_review`).
 - Status: active
 - Assignee: `fe-1`
 - Repo: `app`
-- Priority: 2
+- Priority: high
 - Labels: `bug`, `email`
 - Visibility: shared
 

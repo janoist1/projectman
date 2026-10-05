@@ -865,6 +865,8 @@ workers follow the machine's size.
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home
   `hooks.json` files; escaped quoted TOML roots fail closed in the shared inspector.
+  The shared inspector checks separate project and home hook files for every Codex caller;
+  NanoGPT selects `projectFolder: 'any'`, also refusing symlinked or non-directory project folders.
   On a remote engine this inspection must run beside the CLI, before secret delivery.
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).

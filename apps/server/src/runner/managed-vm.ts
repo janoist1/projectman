@@ -282,11 +282,7 @@ function tomlRoots(text: string): Set<string> {
     if (key) {
       const root = key[1]!;
       // Escaped quoted roots require a full TOML parser to resolve. Fail closed instead.
-      roots.add(
-        root.startsWith('"') && root.includes('\\')
-          ? '(escaped TOML root)'
-          : root.replace(/^["']|["']$/g, ''),
-      );
+      roots.add(root.includes('\\') ? root : root.replace(/^["']|["']$/g, ''));
     }
   }
   return roots;
@@ -306,7 +302,7 @@ async function codexConfigIssue(
   // the roots that change the start (Codex writes harmless bookkeeping there itself).
   const keys = everything
     ? [...roots]
-    : [...roots].filter((root) => root === '(escaped TOML root)' || CODEX_OVERRIDING_ROOTS.has(root));
+    : [...roots].filter((root) => root.includes('\\') || CODEX_OVERRIDING_ROOTS.has(root));
   return keys.length > 0 ? { file, keys } : null;
 }
 
@@ -341,6 +337,8 @@ export async function inspectAmbientConfig(input: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   locations?: AmbientConfigLocations;
+  /** NanoGPT refuses all project Codex files; other callers inspect configuration only. */
+  projectFolder?: 'config' | 'any';
   /** A worker home (PM-140): files below it are read confined (see `readIfPresent`). */
   confineTo?: string;
 }): Promise<AmbientIssue[]> {
@@ -361,21 +359,27 @@ export async function inspectAmbientConfig(input: {
     issues.push(
       await codexConfigIssue(path.join(input.cwd, '.codex', 'config.toml'), false, input.confineTo),
     );
-    if (input.provider === 'nanogpt') {
+    if (input.projectFolder === 'any') {
       // Project files can register subprocesses outside the member shell's environment policy.
       const dir = path.join(input.cwd, '.codex');
       try {
-        if ((await readdir(dir)).length) issues.push({ file: dir, keys: ['(project Codex files)'] });
+        const info = await lstat(dir);
+        if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(dir)).length)
+          issues.push({ file: dir, keys: ['(project codex folder)'] });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
           issues.push({ file: dir, keys: ['(unreadable)'] });
       }
-      const hookFile = path.join(path.dirname(where.codexUser), 'hooks.json');
+    }
+    for (const hookFile of [
+      path.join(path.dirname(where.codexUser), 'hooks.json'),
+      path.join(input.cwd, '.codex', 'hooks.json'),
+    ]) {
       try {
         await lstat(hookFile);
-        issues.push({ file: hookFile, keys: ['(Codex hooks file)'] });
+        issues.push({ file: hookFile, keys: ['(hooks file)'] });
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
           issues.push({ file: hookFile, keys: ['(unreadable)'] });
       }
     }

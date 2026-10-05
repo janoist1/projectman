@@ -87,6 +87,7 @@ export function createNanogptAdapter(opts: {
         cwd: realCwd,
         env: { CODEX_HOME: opts.codexHome },
         locations: opts.ambientConfig,
+        projectFolder: 'any',
       });
       if (ambientConfig.length > 0)
         throw new NanogptStartError('nanogpt_setup_incomplete', { ambientConfig });

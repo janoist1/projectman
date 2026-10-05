@@ -2516,11 +2516,12 @@ export const hu = {
       astra: 'gpt-6-astra — a legerősebb, drága, csak kritikus feladatra',
     },
     geminiModels: {
-      flash38: 'gemini-3.8-flash — Flash 3.8, alapértelmezett modell',
-      flash37: 'gemini-3.7-flash — Flash 3.7, korábbi változat',
-      flash36: 'gemini-3.6-flash — Flash 3.6, korábbi változat',
-      pro31: 'gemini-3.1-pro — Pro 3.1, alacsony vagy magas erőfeszítéssel',
+      flash38: 'gemini-3.8-flash — gyors, alapértelmezett',
+      flash37: 'gemini-3.7-flash — korábbi Flash',
+      flash36: 'gemini-3.6-flash — korábbi Flash',
+      pro31: 'gemini-3.1-pro — csak Alacsony vagy Magas erőfeszítéssel',
     },
+    geminiProEffortHint: 'A Pro 3.1-nek nincs Közepes szintje, ezért Magassal fut.',
     claudeModels: {
       opus55: 'Opus 5.5 — erős, nehéz feladatokra',
       sonnet5: 'Sonnet 5 — kiegyensúlyozott, a legtöbb munkára',

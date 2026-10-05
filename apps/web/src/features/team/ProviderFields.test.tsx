@@ -30,6 +30,14 @@ function Fields({ initialModel = 'opus' }: { initialModel?: string }) {
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('ProviderFields', () => {
+  it('explains the effective high effort of Gemini Pro with medium selected', () => {
+    mockProject().render(<Fields />);
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'gemini' } });
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'gemini-3.1-pro' } });
+    expect(screen.getByText(t('providerSettings.geminiProEffortHint'))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'low' } });
+    expect(screen.queryByText(t('providerSettings.geminiProEffortHint'))).toBeNull();
+  });
   it('shows provider runtime hints and clamps NanoGPT effort', () => {
     mockProject().render(<Fields />);
     expect(screen.getByText(t('providerSettings.runsOn.claude'))).toBeTruthy();

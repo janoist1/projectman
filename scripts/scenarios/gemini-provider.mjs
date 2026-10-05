@@ -93,6 +93,9 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'gemini-hire', { widths: [1512, 390], fullPage: false });
     await page.getByRole('alert').scrollIntoViewIfNeeded();
     await shoot(page, 'gemini-hire-warning', { widths: [390], fullPage: false });
+    await page.getByLabel(hu.hire.model, { exact: true }).selectOption('gemini-3.1-pro');
+    await page.getByText(hu.providerSettings.geminiProEffortHint, { exact: true }).scrollIntoViewIfNeeded();
+    await shoot(page, 'gemini-pro-effort', { widths: [1512, 390], fullPage: false });
     await page.getByText(hu.hire.details, { exact: true }).click();
     await page
       .getByText(hu.permissionControls.providerNotes.gemini.auto, { exact: true })
@@ -108,6 +111,6 @@ export default async ({ instance, open, shoot, step, log }) => {
       .filter({ has: page.getByText(hu.profile.settings, { exact: true }) })
       .locator('summary');
     if (!(await summary.evaluate((element) => element.parentElement.open))) await summary.click();
-    await shoot(page, 'gemini-profile', { widths: [1512, 390] });
+    await shoot(page, 'gemini-profile', { widths: [1512, 390], fullPage: true });
   });
 };

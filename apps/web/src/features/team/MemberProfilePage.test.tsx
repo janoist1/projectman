@@ -30,6 +30,15 @@ async function chooseFromMenu(p: ReturnType<typeof mockProject>, handle: string,
 }
 
 describe('member profiles', () => {
+  it('explains the actual effort when a Gemini Pro member has no explicit effort', async () => {
+    const p = mockProject();
+    const member = p.backend.findMember('fe-1')!;
+    member.provider = 'gemini';
+    member.model = 'gemini-3.1-pro';
+    member.effort = undefined;
+    p.render(page(), '/team/fe-1');
+    expect(await screen.findByText(t('providerSettings.geminiProEffortHint'))).toBeTruthy();
+  });
   it('shows Gemini login steps and medium effort without a plan meter', async () => {
     const p = mockProject();
     const member = p.backend.findMember('fe-1')!;

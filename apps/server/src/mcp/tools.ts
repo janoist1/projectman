@@ -118,6 +118,8 @@ function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   readOnly: boolean;
   /** The tool removes something that cannot be brought back (default false). */
   destructive?: boolean;
+  /** Unknown parameters with a specific refusal instead of a generic schema error. */
+  refused?: Record<string, string>;
   input: Shape;
   /**
    * Rules that span several parameters (e.g. a recommendation must name one of the options).
@@ -128,7 +130,12 @@ function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   run(call: ToolRun<ToolInput<Shape>>): Promise<string>;
 }): TeamTool {
   // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
-  const schema = z.strictObject(def.input);
+  const schema = z.strictObject(def.input, {
+    error: (issue) =>
+      issue.code === 'unrecognized_keys'
+        ? issue.keys.map((key) => def.refused?.[key]).find((reason) => reason !== undefined)
+        : undefined,
+  });
   const { check } = def;
   return {
     name: def.name,
@@ -389,6 +396,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
 
   defineTool({
     name: 'update_task',
+    refused: {
+      priority:
+        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+    },
     title: 'Update a task',
     readOnly: false,
     description:
@@ -556,6 +567,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
 
   defineTool({
     name: 'create_task',
+    refused: {
+      priority:
+        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+    },
     title: 'Create a task',
     readOnly: false,
     description:

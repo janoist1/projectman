@@ -6,6 +6,7 @@ import { MemberHandle } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import { TaskKey } from './task';
+import type { TaskPriority } from './task';
 
 /** Who did something. Every step is attributed to a human, an AI member or the system. */
 export const Actor = z.object({
@@ -97,6 +98,9 @@ export interface TimelineEventData {
     /** `fields` names `repo`: the repository it was set to (null: cleared) and the one it had. */
     repo?: string | null;
     previousRepo?: string | null;
+    /** The new and previous priority when fields includes priority; null means not set. */
+    priority?: TaskPriority | null;
+    previousPriority?: TaskPriority | null;
     reason?: string;
     /** `action` is `cancelled`: the card was marked as a duplicate of this card (PM-192); `reason` says so too. */
     duplicateOf?: string;

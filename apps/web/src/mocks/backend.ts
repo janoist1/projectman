@@ -50,6 +50,7 @@ import {
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
+  priorityRefusal,
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
@@ -2418,9 +2419,18 @@ export class MockBackend {
       isTheme(task) &&
       ((input.stageId !== undefined && input.stageId !== task.stageId) ||
         (input.assignee !== undefined && input.assignee !== null) ||
-        (input.repo !== undefined && input.repo !== null))
+        (input.repo !== undefined && input.repo !== null) ||
+        (input.priority !== undefined && input.priority !== null))
     )
       return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
+    if (input.priority !== undefined) {
+      const refusal = priorityRefusal(actor);
+      if (refusal) return error(403, refusal, 'The priority of a card is set by people only');
+      if (input.priority !== task.priority) {
+        patch.priority = input.priority;
+        fields.push('priority');
+      }
+    }
     if (input.title !== undefined && input.title.trim() !== task.title) {
       patch.title = input.title.trim();
       if (!patch.title) return error(400, 'invalid_request', 'Empty title');
@@ -2517,7 +2527,12 @@ export class MockBackend {
       if (nobody) return nobody;
     }
 
-    const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null, repo: task.repo };
+    const previous = {
+      assignee: task.assignee,
+      parentKey: task.parentKey ?? null,
+      repo: task.repo,
+      priority: task.priority,
+    };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
     if (fields.length || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
       this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
@@ -2525,6 +2540,9 @@ export class MockBackend {
         this.addTimeline(task.key, actor.handle, 'task_updated', {
           fields,
           ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: previous.repo } : {}),
+          ...(patch.priority !== undefined
+            ? { priority: patch.priority, previousPriority: previous.priority }
+            : {}),
         });
       if (labelsChanged) this.recordLabels(task, labels, actor, {});
       if (patch.assignee !== undefined)

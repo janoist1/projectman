@@ -504,6 +504,7 @@ export const hu = {
       approver_unavailable: 'Ez a döntnök most nem választható.',
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
+      priority_humans_only: 'A prioritást csak ember állíthatja.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
       prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
@@ -653,6 +654,13 @@ export const hu = {
     },
   },
 
+  priority: {
+    label: 'Prioritás',
+    levels: { urgent: 'Sürgős', high: 'Magas', normal: 'Normál', low: 'Alacsony' },
+    none: 'Nincs megadva',
+    markLabel: 'Prioritás: {level}',
+    saveFailed: 'Nem sikerült menteni a prioritást. Próbáld újra.',
+  },
   board: {
     title: 'Folyamat',
     subtitle: '{count} feladat · {active} folyamatban',
@@ -666,6 +674,9 @@ export const hu = {
     /** The member and label filters of the board (PM-120). */
     filterMember: 'Felelős',
     filterLabel: 'Címke',
+    filterPriority: 'Prioritás',
+    filterPriorityValue: '{level} prioritás',
+    filterNoPriority: 'Nincs prioritás',
     filterAny: 'Mind',
     filterNoAssignee: 'Nincs felelőse',
     clearFilters: 'Szűrők törlése',
@@ -2328,7 +2339,10 @@ export const hu = {
       visibility: 'láthatóság',
       stageId: 'lépés',
       repo: 'repó',
+      priority: 'prioritás',
     },
+    priorityChange: 'prioritás: {previous} → {priority}',
+    noPriority: 'nincs megadva',
     repoChange: 'repó: {previous} → {repo}',
     noRepo: 'nincs',
   },

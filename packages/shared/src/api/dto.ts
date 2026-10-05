@@ -28,7 +28,7 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import { Task, TaskKey, TaskKind, Visibility } from '../domain/task';
+import { Task, TaskKey, TaskKind, TaskPriority, Visibility } from '../domain/task';
 
 /* ---------- auth ---------- */
 
@@ -358,6 +358,8 @@ export const CreateTaskRequest = z.object({
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
 export const UpdateTaskRequest = z.object({
+  /** People only (PM-287); null clears it. */
+  priority: TaskPriority.nullable().optional(),
   parentKey: TaskKey.nullable().optional(),
   title: z.string().min(1).optional(),
   description: z.string().optional(),

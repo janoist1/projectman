@@ -155,6 +155,34 @@ describe('the finished column on the desktop', () => {
 });
 
 describe('the member and label filters on the desktop', () => {
+  it('filters by named priority and unset, preserving the card order and describing the filter', async () => {
+    const project = mockProject();
+    project.backend.updateTask('AC-20', { priority: 'high' });
+    await renderBoard(project);
+    const before = cardKeys();
+    const priority = screen.getByLabelText(t('board.filterPriority'));
+    fireEvent.change(priority, { target: { value: 'high' } });
+    expect(cardKeys()).toEqual(before.filter((key) => project.backend.findTask(key)!.priority === 'high'));
+    expect(
+      screen.getByText(new RegExp(t('board.filterPriorityValue', { level: t('priority.levels.high') }))),
+    ).toBeTruthy();
+    fireEvent.change(priority, { target: { value: '@none' } });
+    expect(cardKeys().every((key) => project.backend.findTask(key)!.priority === null)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: t('board.clearFilters') }));
+    expect((priority as HTMLSelectElement).value).toBe('');
+  });
+
+  it('hides priority on first use, but keeps a selected filter available to clear', async () => {
+    const project = mockProject();
+    for (const task of project.backend.tasks) project.backend.updateTask(task.key, { priority: null });
+    const view = await renderBoard(project);
+    expect(screen.queryByLabelText(t('board.filterPriority'))).toBeNull();
+    view.unmount();
+    project.render(<BoardPage />, '/', {
+      boardFilters: { phase: 'all', assignee: '', label: '', priority: 'high' },
+    });
+    expect(await screen.findByLabelText(t('board.filterPriority'))).toBeTruthy();
+  });
   const member = () => screen.getByLabelText(t('board.filterMember')) as HTMLSelectElement;
   const label = () => screen.getByLabelText(t('board.filterLabel')) as HTMLSelectElement;
   const optionLabels = (select: HTMLSelectElement) => [...select.options].map((option) => option.text);
@@ -281,6 +309,27 @@ describe('the member and label filters on the desktop', () => {
 });
 
 describe('the filters on the phone', () => {
+  it('counts priority, shows a removable chip and filters by unset from the sheet', async () => {
+    phone();
+    const project = mockProject();
+    await renderBoard(project);
+    fireEvent.click(screen.getByRole('button', { name: t('board.filterButton') }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(t('board.filterPriority')), { target: { value: 'high' } });
+    expect(cardKeys()).toEqual(['AC-24']);
+    fireEvent.click(within(dialog).getByRole('button', { name: t('board.filterShow', { count: 1 }) }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('button', { name: t('board.filterButtonActive', { count: 1 }) })).toBeTruthy();
+    const value = t('board.filterPriorityValue', { level: t('priority.levels.high') });
+    fireEvent.click(screen.getByRole('button', { name: t('board.filterChipRemove', { value }) }));
+    expect(screen.getByRole('button', { name: t('board.filterButton') })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('board.filterButton') }));
+    const sheet = await screen.findByRole('dialog');
+    fireEvent.change(within(sheet).getByLabelText(t('board.filterPriority')), { target: { value: '@none' } });
+    expect(cardKeys().every((key) => project.backend.findTask(key)!.priority === null)).toBe(true);
+    fireEvent.click(within(sheet).getByRole('button', { name: t('board.clearFilters') }));
+    expect((within(sheet).getByLabelText(t('board.filterPriority')) as HTMLSelectElement).value).toBe('');
+  });
   it('puts the member and the label in a sheet behind a button, and shows what is set as chips', async () => {
     phone();
     const project = mockProject();

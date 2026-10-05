@@ -27,7 +27,7 @@ export function ProviderRow({
   actions?: ReactNode;
 }) {
   return (
-    <li className={styles.row}>
+    <li className={styles.row} data-actions={actions ? true : undefined}>
       <strong>{t(`providers.${provider}`)}</strong>
       <span className={styles.meta}>
         {t(`providerSettings.runsOn.${provider}`)} ·{' '}

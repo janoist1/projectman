@@ -242,9 +242,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
                 </div>
                 <div>
                   <dt>{t('hire.subscription')}</dt>
-                  <dd>
-                    {t(provider === 'nanogpt' ? 'providerSettings.runsOn.nanogpt' : 'hire.subscriptionYours')}
-                  </dd>
+                  <dd>{t(provider === 'nanogpt' ? 'hire.nanogptSubscription' : 'hire.subscriptionYours')}</dd>
                 </div>
               </dl>
               <TextField

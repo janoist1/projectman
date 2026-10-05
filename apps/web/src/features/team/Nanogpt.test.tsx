@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { mockProject, createMockFetch } from '../../test/mockProject';
 import { t } from '../../i18n/t';
@@ -16,6 +16,24 @@ const change = (label: string, value: string) =>
 const nanoRow = () => screen.getByText(t('providers.nanogpt'), { selector: 'strong' }).closest('li')!;
 
 describe('NanoGPT UI', () => {
+  it('consumes native cancellation without closing or submitting the parent hire dialog', async () => {
+    const p = mockProject();
+    const close = vi.fn();
+    p.render(<HireDialog open onClose={close} config={p.backend.config} />);
+    await screen.findByLabelText(t('providerSettings.provider'));
+    change(t('providerSettings.provider'), 'nanogpt');
+    fireEvent.click(await screen.findByRole('button', { name: t('nanogptKey.add') }));
+    change(t('nanogptKey.field'), 'fictional-key');
+    fireEvent(
+      screen.getByRole('dialog', { name: t('nanogptKey.title') }),
+      new Event('cancel', { bubbles: true, cancelable: true }),
+    );
+    expect(close).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: t('nanogptKey.title') })).toBeNull();
+    expect(screen.getByRole('dialog', { name: t('hire.title') })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('nanogptKey.add') }));
+    expect((screen.getByLabelText(t('nanogptKey.field')) as HTMLInputElement).value).toBe('');
+  });
   it('keeps key and delete dialogs open on denied access and shows the code', async () => {
     const p = mockProject();
     p.render(<ProvidersSection config={p.backend.config} />);

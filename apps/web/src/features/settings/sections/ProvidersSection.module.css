@@ -5,11 +5,14 @@
 }
 .row {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) auto auto;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
   gap: 4px 14px;
   align-items: center;
   padding: 10px 0;
   border-top: 1px solid var(--c-line-soft);
+}
+.row[data-actions] {
+  grid-template-columns: 110px minmax(0, 1fr) auto auto;
 }
 .row:first-child {
   border-top: 0;
@@ -97,7 +100,8 @@
   }
 }
 @media (max-width: 600px) {
-  .row {
+  .row,
+  .row[data-actions] {
     grid-template-columns: minmax(0, 1fr) auto;
   }
   .meta {

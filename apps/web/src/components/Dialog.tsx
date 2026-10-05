@@ -131,6 +131,8 @@ function DialogInner({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault();
+        // React also bubbles native dialog cancellation through a nested portal.
+        event.stopPropagation();
         onEscapeRef.current();
       }}
       onKeyDown={(event) => {

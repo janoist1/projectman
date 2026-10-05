@@ -859,6 +859,8 @@ workers follow the machine's size.
   launch/resume boundary, never configuration, public status or logs.
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
+  NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home
+  `hooks.json` files; escaped quoted TOML roots fail closed in the shared inspector.
   On a remote engine this inspection must run beside the CLI, before secret delivery.
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).

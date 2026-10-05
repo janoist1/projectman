@@ -50,7 +50,7 @@ tenants into separate OS accounts or machines.
   the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret
   store's file-tool denial does not prevent shell reads by processes running as the same
   Unix user (restricted-read enforcement is PM-356). Also, the NanoGPT CLI process retains
-  the key in its environment: human-approved commands outside the sandbox may inspect it,
+  the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
   and CLI-controlled subprocesses outside the shell environment policy need separate
   verification. Workspace configuration changes after the launch-time inspection are
   not a verified isolation boundary (PM-357). Manual testing must distinguish sandboxed

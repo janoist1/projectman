@@ -132,9 +132,31 @@ describe('NanoGPT adapter', () => {
       }
       expect(error).toMatchObject({
         code: 'nanogpt_setup_incomplete',
-        details: { provider: 'nanogpt', ambientConfig: [{ file, keys: ['notify'] }] },
+        details: { provider: 'nanogpt', ambientConfig: expect.arrayContaining([{ file, keys: ['notify'] }]) },
       });
       expect(JSON.stringify(error)).not.toContain('configuration-private-sentinel');
     },
   );
+  it.each([
+    ['config.toml', '["mcp\\u005fservers".x]\ncommand = "private-hook-sentinel"', 'user'],
+    ['config.toml', '"mcp\\u005fservers".x.command = "private-hook-sentinel"', 'user'],
+    ['config.toml', '["mcp\\u005fservers".x]\ncommand = "private-hook-sentinel"', 'project'],
+    ['anything.txt', 'private-hook-sentinel', 'project'],
+    ['hooks.json', 'private-hook-sentinel', 'user'],
+  ])('refuses %s in the %s layer on launch and resume', async (name, content, layer) => {
+    const h = await harness();
+    const dir = layer === 'project' ? path.join(h.input.spec.cwd, '.codex') : h.codexHome;
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, name), content);
+    for (const resume of [false, true]) {
+      let error: unknown;
+      try {
+        await h.adapter.launch({ ...h.input, spec: { ...h.input.spec, resume } });
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({ code: 'nanogpt_setup_incomplete' });
+      expect(JSON.stringify(error)).not.toContain('private-hook-sentinel');
+    }
+  });
 });

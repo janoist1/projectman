@@ -232,6 +232,19 @@ describe("the VM's own provider configuration", () => {
     ]);
   });
 
+  it.each([
+    '["mcp\\u005fservers".x]\ncommand = "private-sentinel"',
+    '"mcp\\u005fservers".x.command = "private-sentinel"',
+    '["mcp_servers".x]\ncommand = "private-sentinel"',
+  ])('refuses quoted overriding Codex roots without reporting values', async (text) => {
+    const f = await files();
+    const user = await f.write('config.toml', text);
+    const issues = await inspect('codex', f.dir, { codexManaged: [], codexUser: user });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.file).toBe(user);
+    expect(JSON.stringify(issues)).not.toContain('private-sentinel');
+  });
+
   it("lets Codex's own bookkeeping stand", async () => {
     const f = await files();
     const user = await f.write(

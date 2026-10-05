@@ -460,6 +460,342 @@ Codex's sandbox denies the worktree's index lock, but it let an agent write the 
 hooks and configuration, which run when the host uses git there. The routine git steps
 escalate, and the server allows them itself (see Session policy, PM-77).
 
+## Gemini (agy) (PM-323 probe)
+
+Antigravity CLI (`agy`) is the Gemini branch of PM-319. No adapter exists yet (PM-326); this
+chapter records what a real run showed, so the adapter does not guess. The probe ran on
+2026-10-05 on the owner's Mac, in the owner's presence, as 38 small runs in 19 conversations on
+`gemini-3.8-flash-low` with a logged-in Google account. The binary was **agy 1.2.17**: the
+card said 1.2.7, but the background updater had replaced it. Afterwards 98% of the five-hour
+and 99.7% of the weekly Gemini window remained.
+
+Samples are in `apps/server/test/fixtures/gemini/` (secret-free: account names are
+`<account>`, work folders are `/tmp/pm-agy-probe/...`, OAuth `state`/`code_challenge` are
+redacted). Paths below are relative to it. Files named `*.RECONSTRUCTED.json` were rebuilt
+from printed summaries plus the real common fields; all others are raw captures. `screens/` is
+emulated with minor artifacts, `screens-raw/` holds the exact bytes of three of them (ready, logged out, trust).
+
+**Does this work on a remote engine?** The adapter's machine-dependent parts (the `agy` binary
+and its updater, the keyring login, the `--gemini_dir`, the transcript files, the PTY) would
+run on the engine, like Claude Code and Codex today. Nothing crosses the server/engine
+boundary that does not already. No inventory entry in `docs/ARCHITECTURE.md` changes with
+this card (it ships no code); PM-326 adds the entries.
+
+### Summary for the adapter design
+
+1. **Per-process configuration exists: `--gemini_dir <absolute dir>`** (Q1). Hooks and MCP are
+   read from there, the Google login survives, `~/.gemini` stays untouched.
+2. **Hooks are a reliable gate** (Q4). `deny` always wins; a handler that overruns its timeout
+   is killed and the tool does not run. Proposed design: `toolPermission: always-proceed` plus a
+   blocking `PreToolUse` hook that prints `allow` or `deny` from the runner's tool decision
+   (PM-325). The hook is the single gate.
+3. **`--sandbox` is too strict for development** (Q8): no network, no `ps`, no shell writes to
+   the workspace. Gemini members would run unsandboxed with the hook as the gate (the same
+   "reads everything" exposure as Codex today, PM-356). Commands get the full parent
+   environment plus agy's own `ANTIGRAVITY_CSRF_TOKEN` and friends.
+4. **Instructions** (Q11): `AGENTS.md` and `GEMINI.md` are read, `CLAUDE.md` is not; there is no
+   system-prompt flag; a `PreInvocation` hook can inject an ephemeral message.
+5. **Hazards:** a background updater can replace `~/.local/bin/agy` on any start; a fresh
+   `--gemini_dir` repeats onboarding including the data-use consent screen.
+
+Open, owner decision pending (asked on PM-323, none is decided yet):
+
+- who completes the consent screen, or may projectman seed `cache/onboarding.json`;
+- pin the version with `--release_base_url`;
+- is a hook that holds a session for minutes acceptable while an inbox approval is pending
+  (the alternative is `request-review` plus a hook `ask`, with the adapter pressing `1` or
+  `4` in the dialog);
+- run without `--sandbox`.
+
+### Q1. Per-process configuration
+
+```
+agy --app_data_dir /abs --log-file L models        -> "Failed to start: must not be absolute", exit 1
+agy --app_data_dir ../../../private/tmp/.../app1   -> models listed, but rewrote config/projects/default-cli-project.json in the real ~/.gemini
+agy --gemini_dir /abs/gd1 --log-file L models      -> models listed, exit 0, ~/.gemini unchanged
+HOME=/abs/home1 agy models                         -> exit 1 "Please sign in"
+XDG_CONFIG_HOME=/abs/xdg agy --gemini_dir gd4 models -> nothing created in the XDG dir
+agy --foo_bar models                               -> "flags provided but not defined" (so --gemini_dir is a real flag)
+```
+
+- `--gemini_dir <absolute dir>` is a hidden flag that replaces `~/.gemini` for that process.
+  Hooks come from `<dir>/config/hooks.json`, MCP servers from `<dir>/config/mcp_config.json`;
+  settings, transcripts, conversations and caches go to `<dir>/antigravity-cli/` (Q9).
+- The login survives: the token is in the macOS keyring, and the log shows `keyringAuth: loaded
+token ... authenticated via keyring ... Auth succeeded` even for an empty `--gemini_dir`.
+  Overriding `HOME` loses it; `XDG_CONFIG_HOME` is ignored.
+- Do **not** use `--app_data_dir`: it only takes a path relative to `~/.gemini` and still writes
+  the global `config/projects/default-cli-project.json`.
+- Whether the keyring login works on a Linux server (no macOS keyring) was not probed; see Q2.
+
+**Where hooks are read from** (evidence: the startup log line `hooks_manager: loaded N named
+hooks from M hooks.json file(s)`, and `agy -p "/hooks"`, which lists each hook's source file):
+
+| Location                           | Result                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `<dir>/config/hooks.json`          | loaded                                                                       |
+| `<dir>/antigravity-cli/hooks.json` | also loaded                                                                  |
+| `<workspace>/.agents/hooks.json`   | loaded when a conversation starts, and in print mode even if not yet trusted |
+
+A member's agent can write its own workspace `hooks.json`; a global `deny` beat a workspace
+`allow`, and on a name clash `/hooks` listed the global one. So the gate lives in the
+`--gemini_dir`, which the member's session does not write.
+
+**`hooks.json` format.** The top-level key is the hook _name_. `PreToolUse` and `PostToolUse`
+need a `matcher` wrapper (`"matcher": ""` matches all); `PreInvocation`, `PostInvocation` and
+`Stop` are flat lists. Handlers run through `sh -c` with the cwd set to the folder that holds
+`hooks.json`. Sample: `config/hooks.capture.json`.
+
+**MCP.** `config/mcp_config.http.json`:
+`{"mcpServers":{"probe":{"url":"http://127.0.0.1:47123/mcp","headers":{"Authorization":"Bearer <token>"}}}}`.
+The static headers go on every request. agy connects at **every** start, even for `agy models`:
+`POST server/discover`, `POST initialize` (clientInfo `antigravity-client`), `GET` for SSE,
+`notifications/initialized`, two `/.well-known/oauth-protected-resource` probes, `tools/list`
+(`mcp/client-handshake.sample.jsonl`). The model calls every MCP tool through one built-in tool,
+`call_mcp_tool{ServerName,ToolName,Arguments}`.
+
+**Trust.** In the TUI an untrusted workspace asks "Do you trust the contents of this project?"
+(`screens/trust-folder.txt`); Yes adds the exact path to `trustedWorkspaces` in
+`<dir>/antigravity-cli/settings.json` (`config/settings.json`). Print mode never asks. Pre-seed
+`trustedWorkspaces` to skip the dialog. _Not verified:_ whether a trusted parent covers its
+children.
+
+### Q2. Login detection
+
+| Check                                | Logged in             | Logged out                                                                                                                                 |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `agy models`                         | exit 0, TSV on stdout | exit 1, empty stdout, stderr `Error: Please sign in to view available models. Launch the CLI without arguments to sign in.`                |
+| `agy -p "<anything>"`                | normal                | does not exit; stderr `Authentication required. Please visit the URL to log in: https://accounts.google.com/...` and it tries `open <url>` |
+| `-p ... --output-format stream-json` | normal events         | after the timeout `{"event":"result","result":{"status":"ERROR","error":"authentication failed or timed out"}}`                            |
+
+- **Machine check: the exit code of `agy models`.** Always wrap `-p` in a timeout.
+- The login _mode_ shows only in the CLI log (`authMethod=consumer`) and in the TUI header
+  (`screens/ready.txt`: account line, plan `Google AI Pro`). There is no machine-readable status
+  command like `claude auth status`.
+- Login screen: `Select login method:` with `1. Google OAuth` and `2. Use a Google Cloud
+project` (`screens/login-method.txt`). It prints an OAuth URL; the redirect is
+  `https://antigravity.google/oauth-callback`.
+- The legacy gemini-cli files in `~/.gemini` (`oauth_creds.json`, ...) are not used by agy.
+- _Not tested:_ a real sign-in, and handing the code back on a headless server. The expected
+  step on the UI is: start `agy` on the server in a PTY and choose the Google account (as for
+  the Claude and Codex logins, see Login and plan usage).
+
+Samples: `quota-login/loggedout-*.{err,exit,out}`.
+
+### Q3. Models
+
+`agy models` prints `slug<TAB>display name` (`quota-login/agy-models.tsv`; the first line may
+repeat the default):
+
+- `gemini-3.8-flash-{high,medium,low}`, `gemini-3.7-flash-*`, `gemini-3.6-flash-*`,
+  `gemini-3.1-pro-{high,low}`;
+- `claude-opus-5-5-{low,medium,high}`, `claude-sonnet-5-5-{low,medium,high}`,
+  `gpt-oss-120b-medium`.
+
+Only the Gemini slugs start with `gemini`; the Claude and GPT-OSS models are in a separate quota
+group. The output has no default flag and no `--effort` column: the **effort is the slug
+suffix**, and `--model <family> --effort X` resolves to `<family>-X`. Without `--model` the run
+used `gemini-3.8-flash-high`. `-p "/model" --output-format stream-json` returns
+`{"id","label","effort","is_default"}` (`print-mode/slash-model.tsv`). Errors
+(`print-mode/effort-resolution.txt`): a full slug plus a different `--effort` gives
+`conflicts with --effort=high`; an effort the family lacks gives `gemini-3.1-pro has no
+"medium" effort (available: low, high)`; `xhigh` and `max` are not accepted for flash; an
+unknown model gives `model bogus-model is not recognized`.
+
+### Q4. Hooks
+
+Real stdin payloads are in `hooks/stdin/`, stdout answers in `hooks/stdout/`.
+
+**Fields.** Common: `conversationId`, `workspacePaths`, `transcriptPath` (it points at
+`transcript_full.jsonl`), `artifactDirectoryPath`, `modelName`. `PreInvocation` and
+`PostInvocation` add `invocationNum`, `initialNumSteps`. `PreToolUse` adds `stepIdx` (equal to
+the transcript `step_index` of the tool result step) and `toolCall{name,args}`; `PostToolUse`
+the same plus `error` (`""` on success; the tool output is **not** included). `Stop` adds
+`executionNum`, `terminationReason` (observed `NO_TOOL_CALL`), `error`, `fullyIdle`.
+
+**Tools observed** (the args also carry the UI strings `toolAction` and `toolSummary`):
+`view_file{AbsolutePath}`, `write_to_file{TargetFile,CodeContent,Overwrite,Description}`,
+`run_command{CommandLine,Cwd,WaitMsBeforeAsync}`, `call_mcp_tool{ServerName,ToolName,Arguments}`,
+`read_url_content{Url}`. Edit-in-place and browser tools (`browser_*`) were not exercised (no
+browser session).
+
+**Answers.** `PreToolUse` prints `{"decision":"allow|deny|ask|force_ask","reason":"..."}`
+(`hooks/stdout/observed-PreToolUse.*.json`); the other events print `{}` or, for
+`PreInvocation`, `{"injectSteps":[{"ephemeralMessage":"..."}]}`.
+
+| Test                                                | Result                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `deny` (even with `--dangerously-skip-permissions`) | `tool call denied by pre-tool hook: <reason>`; no PostToolUse; the model repeats the reason       |
+| `ask`, headless                                     | auto-denied: `permission check failed ... user denied permission`; `denied_actions` in the result |
+| `ask`, TUI                                          | dialog with a `Reason:` line; key `4` declines, key `1` runs                                      |
+| `allow`, TUI, `request-review`                      | the built-in dialog still appears                                                                 |
+| `always-proceed` + `allow`                          | runs, no prompt                                                                                   |
+| `always-proceed` + `ask` / `force_ask`              | ignored; the command ran                                                                          |
+| `always-proceed` + `deny`                           | denied                                                                                            |
+| timeout 2 s, handler sleeps 5 s                     | `JSON hook "..." failed: command failed: signal: killed`; the tool did **not** run (fail-closed)  |
+| timeout 3600, handler sleeps 100 s                  | worked; the step took 100.73 s                                                                    |
+| global `deny` + workspace `allow`                   | denied                                                                                            |
+| workspace-only `deny`                               | denied                                                                                            |
+
+- `PreToolUse` also fires for MCP calls (as `call_mcp_tool`), in the TUI and in print mode.
+- The timeout is a field of the handler (`timeout`, default 30 s); 3600 was accepted. Waits
+  beyond about 100 s were not tried.
+- **Consequence:** with `toolPermission: always-proceed` the hook alone decides; `ask` cannot be
+  used for an inbox question there. The inbox question is answered inside the blocking hook.
+- _Not tested_ (documented examples only, `hooks/stdout/documented-*`): `overwrite` (argument
+  rewrite), `PostInvocation.terminationBehavior`, `Stop` with `decision: "continue"`, the
+  `userMessage` and `toolCall` inject steps.
+- There is no `UserPromptSubmit` or `PermissionRequest` hook.
+
+### Q5. Screens in the PTY
+
+Captured with a Python pty driver and a VT emulator at 120x40, `TERM=xterm-256color`, an `open`
+stub first in `PATH`. The TUI uses the alternate screen, bracketed paste and the kitty keyboard
+protocol; it queries OSC 11 and needs no reply.
+
+| State             | What is on screen (sample)                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ready             | prompt box `>` between `────` rules; footer `? for shortcuts` left, `Gemini 3.8 Flash · low` right (`screens/ready.txt`)                                                                                                       |
+| Working           | braille spinner and `Generating...`; footer `esc to cancel` (`screens/working-generating.txt`)                                                                                                                                 |
+| Permission dialog | `Run this command?` with `1. Yes, run command`, `2. Yes, and always allow in this conversation ...`, `3. ... (Persist to settings.json)`, `4. No, cancel`; a `Reason:` line when a hook asked (`screens/permission-ask-*.txt`) |
+| Tool declined     | `screens/tool-declined.txt`                                                                                                                                                                                                    |
+| Trust             | `Do you trust the contents of this project?` / `Yes, I trust this folder` / `No, exit`                                                                                                                                         |
+| Login             | `Select login method:`                                                                                                                                                                                                         |
+| First run         | `Choose your color scheme:`, then `Terms of Service & Data Use` with a checked consent box and `[Previous]  [Done]` (`screens/onboarding-*.txt`)                                                                               |
+
+**Pitfalls.** A transient "Welcome ... You are currently not signed in." and "Signing in..."
+appears in the first frame even when logged in; do not read it as logged out (the later frames
+show the account). An announcement card ("... esc to dismiss",
+`screens/ready-with-announcement-banner.txt`) can sit above the prompt; `Esc` on an empty
+prompt dismisses it.
+
+**Input.** `write("text\r")` submits. A bracketed paste of two lines does **not** submit
+(`screens/prompt-multiline-paste.txt`), so a pasted brief needs a separate Enter. Ctrl-J,
+Alt-Enter and Shift-Enter (`ESC[13;2u`) insert a newline. In the permission dialog a digit acts
+at once, without Enter.
+
+_Not seen:_ an update screen (updates run in the background), an out-of-quota screen,
+cancelling a turn.
+
+### Q6. Resume
+
+`--conversation <id>` works in print mode and in the TUI: the id is echoed, step indices
+continue, the TUI replays the history (`print-mode/resume-conversation.ndjson`,
+`screens/resumed-conversation.txt`). The `conversationId` first appears
+
+- in print mode: in the first stream event `{"event":"init","conversation_id":...}`;
+- in the TUI: in the first `PreInvocation` hook payload, which also creates
+  `antigravity-cli/brain/<id>/`.
+
+`cache/last_conversations.json` maps a workspace to its last id. So, like Codex, the id is
+learned from the first hook rather than set by us. _Not tested:_ `--continue`, and
+`--input-format stream-json` (multi-turn over stdin, a possible alternative to scraping the PTY).
+
+### Q7. Transcript
+
+`<gemini_dir>/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`, one JSON
+object per line (`transcript/`):
+
+- **Fields:** `step_index`, `source` (`USER_EXPLICIT`, `MODEL`, `SYSTEM_SDK`), `type`
+  (`USER_INPUT`, `PLANNER_RESPONSE`, `GENERIC` for tool results, `EPHEMERAL_MESSAGE`), `status`,
+  `created_at`, `content`; model lines add `tool_calls[{name,args}]`.
+- **Tokens: yes.** `PLANNER_RESPONSE` lines carry `input_tokens`, `cache_read_tokens` and
+  `output_tokens` (including thinking). A trivial prompt costs about 12k input tokens.
+- **Two variants:** `transcript.jsonl` holds the tool args as JSON-encoded strings;
+  `transcript_full.jsonl` (the hooks' `transcriptPath`) holds native JSON and adds `thinking`.
+- `-p ... --output-format stream-json` reports `usage{input_tokens,output_tokens,thinking_tokens,
+cache_read_tokens,total_tokens}` per step and in the result (`print-mode/ok.ndjson`).
+- Tool names are the lower-case step types: `run_command`, `view_file`, `write_to_file`,
+  `call_mcp_tool`, `read_url_content`, `browser_*`.
+- `conversations/<id>.db` (SQLite) sits beside; the transcript is the simpler source.
+
+### Q8. `--sandbox` and `--mode`
+
+`--sandbox` alone does not auto-approve commands; that needs `toolPermission:
+"proceed-in-sandbox"`. Presets: `request-review` (default), `proceed-in-sandbox`,
+`always-proceed`, `strict`. Probe results (`sandbox/result-under-agy-sandbox.txt`,
+`sandbox/sandbox-test.sh`):
+
+| Probe                                | Without sandbox | With `--sandbox`                                                                                                                     |
+| ------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| read outside the workspace/add-dir   | OK              | FAIL (`Operation not permitted`)                                                                                                     |
+| read inside an `--add-dir`           | OK              | OK                                                                                                                                   |
+| write to the workspace               | OK              | FAIL (the workspace was under `/private/tmp`; may be location-related, not retested)                                                 |
+| write to an `--add-dir`              | OK              | FAIL                                                                                                                                 |
+| write to `/tmp`                      | OK              | OK                                                                                                                                   |
+| read `~/.gemini`                     | OK              | FAIL                                                                                                                                 |
+| network (`curl https://example.com`) | OK              | FAIL                                                                                                                                 |
+| `ps -A`                              | 532 processes   | 0 visible                                                                                                                            |
+| environment                          | 59 variables    | the full parent env plus 10 `ANTIGRAVITY_*` (`ANTIGRAVITY_CSRF_TOKEN`, `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CONVERSATION_ID`, ...) |
+
+Under `--sandbox` commands still get the **full** parent environment plus ten `ANTIGRAVITY_*`
+variables that agy adds itself, among them `ANTIGRAVITY_CSRF_TOKEN`. The runner strips billing
+variables before the start (`BILLING_ENV_VARS`) but cannot remove what agy adds; whether the
+unsandboxed run sees the same variables was not compared, and the adapter should treat the
+CSRF token as visible to every command. `--mode` accepts `accept-edits` and `plan`; other values warn and the run
+continues (the log shows `applying agent mode plan`). Its effect on prompts was not exercised.
+
+### Q9. Writes under the gemini dir
+
+Everything follows `--gemini_dir` (`config/gemini_dir.tree.txt`): conversations
+(`antigravity-cli/brain/<id>/`, `conversations/<id>.db`), indexes and state
+(`conversation_summaries.db`, `jetbox_summaries_proto.pb`, `jetski_state.pbtxt`,
+`history.jsonl`), `cache/{onboarding.json,last_conversations.json,...}`, `installation_id`,
+`updater/`, `builtin/skills/`, `presence/`, `implicit/`, `annotations/`, `crashes/`, `mcp/`, and
+`config/{hooks.json,mcp_config.json,projects/default-cli-project.json}`. `--log-file <path>`
+redirects the CLI log.
+
+**Auto-update.** Each start spawns a background updater, at most once per 15 minutes per gemini
+dir, which can replace `~/.local/bin/agy`. The env vars `DISABLE_AUTO_UPDATE`,
+`AGY_DISABLE_AUTO_UPDATE` and `ANTIGRAVITY_DISABLE_AUTO_UPDATE` had no effect. The hidden
+`--release_base_url http://127.0.0.1:9` makes the update fail harmlessly ("Update failed, please
+install from website"), which would pin the version.
+
+**The owner's real `~/.gemini` changed in two places during the probe;** no credential file was
+read or touched: `config/projects/default-cli-project.json` was rewritten (130 to 87 bytes) by
+the one `--app_data_dir` test, and `antigravity-cli/cache/CHANGELOG.md` (133 KB release notes)
+was created by `agy changelog` and is safe to delete.
+
+### Q10. Out of quota
+
+`-p "/usage"` and `-p "/quota"` cost no model turn. Output is tab-separated: group, window
+`... Remaining`, percent, reset time (`print-mode/slash-usage.tsv`, `quota-login/usage.tsv`):
+
+```
+Gemini Models	Five Hour Limit Remaining	98%	2026-10-05T12:40:52Z
+Claude and GPT models	Weekly Limit Remaining	100%	2026-10-12T07:57:13Z
+```
+
+Groups: "Gemini Models" and "Claude and GPT models", each with a weekly and a five-hour window.
+`json` or `stream-json` output gives `groups[].buckets[]{id,name,window,remaining_fraction,
+reset_time,description}` (`print-mode/slash-usage.json-and-stream-json.txt`). Other model-free
+commands: `/model`, `/hooks`, `/permissions`, `/help`, `/config`, `/changelog`.
+
+**Out-of-quota text was not reproduced** (it would burn quota). From release notes and binary
+strings only: the CLI says "Your AI credits balance is too low to continue."; headless runs that
+end on a model or agent error exit with code 3 and print `AGY_ERROR: {...}` JSON on stderr.
+
+### Q11. Context and instructions
+
+Setup: `AGENTS.md` (marker word PINEAPPLE), `GEMINI.md` (MANGO) and `CLAUDE.md` (KIWI) in the
+workspace, plus a `PreInvocation` ephemeral message (ZEBRA). The answers ended with "PINEAPPLE
+MANGO" and ZEBRA appeared in the thinking; KIWI never appeared. So **`AGENTS.md` and `GEMINI.md`
+are read, `CLAUDE.md` is not**. Rule files are capped at 24 KB each, with a 20,000-token rules
+budget. There is no system or developer prompt flag (`--agent <name>` exists, untested). A
+`PreInvocation` hook can add `{"injectSteps":[{"ephemeralMessage":"..."}]}` and the model
+followed it; the transcript stores it as `{"type":"EPHEMERAL_MESSAGE","source":"SYSTEM_SDK"}`
+(`transcript/transcript_full.ephemeral-and-thinking.sample.jsonl`,
+`print-mode/rules-and-ephemeral-injection.ndjson`). Role instructions can therefore go in the
+workspace `AGENTS.md` or in a `PreInvocation` hook of the `--gemini_dir`; a global rules file
+under `<gemini_dir>/config/` (a tamper-proof place) was not tested.
+
+### Not tested
+
+Temp `HOME` with the real keychain (blocked by the permission classifier); browser-tool hooks;
+`--continue`; `--input-format stream-json`; `--mode` effect on prompts; global `config/AGENTS.md`;
+stdio MCP; hook waits beyond about 100 s; the out-of-quota and update screens; a real sign-in
+(credentials were off limits).
+
 ## Session policy
 
 The session policy (`apps/server/src/domain/session-policy.ts`) is the union of the member's

@@ -1,0 +1,20 @@
+{
+  "artifactDirectoryPath": "/tmp/pm-agy-probe/gd2/antigravity-cli/brain/05d4a6ce-ca76-4cf2-8487-9d94557688ae",
+  "conversationId": "05d4a6ce-ca76-4cf2-8487-9d94557688ae",
+  "modelName": "gemini-3.8-flash-low",
+  "stepIdx": 2,
+  "toolCall": {
+    "args": {
+      "CommandLine": "echo tui-ask-test",
+      "Cwd": "/tmp/pm-agy-probe/ws",
+      "WaitMsBeforeAsync": 5000,
+      "toolAction": "Running echo command",
+      "toolSummary": "Run echo test"
+    },
+    "name": "run_command"
+  },
+  "transcriptPath": "/tmp/pm-agy-probe/gd2/antigravity-cli/brain/05d4a6ce-ca76-4cf2-8487-9d94557688ae/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/pm-agy-probe/ws"
+  ]
+}

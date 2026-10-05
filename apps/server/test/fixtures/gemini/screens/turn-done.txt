@@ -1,0 +1,32 @@
+    ▀▀▀▀▀▀▀▀
+   ▄▀▀    ▀▀▄
+  ▄▀▀      ▀▀▄
+
+  Antigravity CLI 1.2.17
+  <account> (Google AI Pro)
+  Gemini 3.8 Flash (Low)
+  /tmp/pm-agy-probe/ws
+
+────────────────────────────────────────────────────────────
+> Use run_command to run: echo tui-ask-test
+  Then reply with the single word DONE.
+  A3
+  B4
+  C5
+
+● Bash(echo tui-ask-test) (ctrl+o to expand)
+
+Command
+  ⎿  User declined the tool call
+
+────────────────────────────────────────────────────────────
+> Use run_command to run: echo tui-allow-test . Then reply with the single word DONE.
+
+● Bash(echo tui-allow-test) (ctrl+o to expand)
+
+  DONE
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                   Gemini 3.8 Flash · low

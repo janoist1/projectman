@@ -1,0 +1,7 @@
+{
+  "decision": "allow",
+  "reason": "projectman approved",
+  "permissionOverrides": [
+    "command(echo override-test)"
+  ]
+}

@@ -1,0 +1,34 @@
+Accessing workspace:
+
+/tmp/pm-agy-probe/ws
+
+Do you trust the contents of this project?
+
+Antigravity CLI requires permission to read, edit, and execute files here.
+
+> Yes, I trust this folder
+  No, exit
+
+  ↑/↓ Navigate · enter Confirm
+                                                                                                 Gemini 3.8 Flash · high
+
+      ▄▀▀▄
+     ▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀
+   ▄▀▀    ▀▀▄
+  ▄▀▀      ▀▀▄
+
+  Antigravity CLI 1.2.17
+  <account>
+  Gemini 3.8 Flash ( (Google AI Pro)
+  /tmp/pm-agy-probe/ws
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ ┃ Gemini 3.6 & 3.7 Flash Deprecation───────────────────────────────────────────────────────────────────────────────────
+ ┃ Make sure you are using Gemini 3.8 Flash! We will be turning down Gemini 3.6 Flash and Gemini 3.7 Flash shortly.
+ ┃ esc to dismiss
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                  Gemini 3.8 Flash · high

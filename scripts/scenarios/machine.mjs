@@ -3,7 +3,9 @@ const WIDTHS = [1600, 1512, 1440, 1280, 1200, 800, 390];
 
 export default async ({ instance, open, shoot, step, log }) => {
   const members = await instance.api('/api/projects/AC/members');
-  const developers = members.filter((member) => member.kind === 'ai').slice(0, 2);
+  const developers = members
+    .filter((member) => member.kind === 'ai' && member.role === 'developer')
+    .slice(0, 2);
   for (const [index, member] of developers.entries()) {
     const id = await instance.startSession('AC', index === 0 ? 'AC-1' : 'AC-2', member.handle);
     await instance.waitIdle('AC', id);

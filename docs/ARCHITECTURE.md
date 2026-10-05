@@ -481,6 +481,7 @@ changes) belong in `packages/shared`, so the server and the web's test fake use 
 ```
 db.sqlite                 runtime state
 secret                    cookie signing key
+secrets/nanogpt.json       installation NanoGPT key (0700 directory, 0600 file; PM-328)
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
 worktrees/<KEY>/…         git worktrees created for tasks
@@ -840,6 +841,14 @@ workers follow the machine's size.
   script itself.
 
 ## Machine-dependent parts (PM-341)
+
+- **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
+  The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
+  with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
+  owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
+  **Remote engine:** storage and validation remain on the server; this card does not send
+  the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
+  server/engine boundary, without configuration, database or logging persistence on either side.
 
 This is a living inventory of assumptions that tie execution to a machine, account or OS.
 The current local mode usually places the server and agent CLIs on the same host; the managed

@@ -1,6 +1,8 @@
 import {
   StopOrphansRequest,
   canManageInstancePause,
+  canManageProviderKeys,
+  SetProviderKeyRequest,
   AcceptInviteRequest,
   BOARD_RANK_STEP,
   BoardMoveRequest,
@@ -347,6 +349,7 @@ export class MockBackend {
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
   providerLoggedIn = { claude: true, codex: true };
+  nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
@@ -1335,8 +1338,21 @@ export class MockBackend {
       }
     }
     if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
-    if (path === '/api/providers' && method === 'GET') {
+    if ((path === '/api/providers' && method === 'GET') || path === '/api/providers/nanogpt/key') {
+      const member = memberOf(this.config, this.viewerHandle);
+      const canManageKeys = canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
+      if (path === '/api/providers/nanogpt/key') {
+        if (!canManageKeys)
+          return error(403, 'insufficient_access', 'Only an owner of every project may manage provider keys');
+        if (method === 'PUT') {
+          if (!parseBody(SetProviderKeyRequest, body)) return error(400, 'invalid_request', 'Invalid key');
+          this.nanogptKeyStatus = { set: true, setAt: nowIso() };
+        } else if (method === 'DELETE') this.nanogptKeyStatus = { set: false, setAt: null };
+        else return error(404, 'not_found', 'Unknown provider key route');
+      }
       return ok({
+        keys: { nanogpt: { ...this.nanogptKeyStatus } },
+        canManageKeys,
         providers: AgentProvider.options.map((provider) => ({
           provider,
           loggedIn: this.providerLoggedIn[provider],

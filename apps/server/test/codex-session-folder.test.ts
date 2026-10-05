@@ -7,6 +7,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -225,6 +226,21 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       expect(((h!.log.errors[0] as unknown[])[0] as { err: Error }).err.message).toContain('overlap');
       h!.log.errors.length = 0;
     }
+  });
+
+  it('sees the overlap through a link: a queue folder given by a link to the temporary root’s parent', async () => {
+    // The sandboxes canonicalize paths: `<base>/link/heavy` is `<base>/heavy`, so `<base>` is written.
+    symlinkSync(realpathSync(base), join(base, 'link'));
+    await start({
+      mode: 'acceptEdits',
+      tmp: join(realpathSync(base), 'projectman-501-tmp', 'abcd'),
+      heavyLockDir: join(base, 'link', 'heavy'),
+    });
+    expect(h!.runner.lastStarted().sandbox!.portable?.tmpDir).toBeUndefined();
+    expect(h!.log.errors).toHaveLength(1);
+    expect(((h!.log.errors[0] as unknown[])[0] as { err: Error }).err.message).toContain('overlap');
+    expect(existsSync(join(realpathSync(base), 'projectman-501-tmp'))).toBe(false);
+    h!.log.errors.length = 0;
   });
 
   it('removes the temporary directories a dead server left when the server starts', async () => {

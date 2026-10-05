@@ -73,7 +73,12 @@ import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
 import { isWithin } from './command-paths';
-import { prepareSessionFoldersRoot, prepareSessionTmpRoot, SessionFolders } from './session-folders';
+import {
+  prepareSessionFoldersRoot,
+  prepareSessionTmpRoot,
+  realpathOfNearest,
+  SessionFolders,
+} from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
@@ -356,12 +361,16 @@ export function createDomain(opts: DomainOptions) {
         try {
           // The queue folder's parent is writable for every member's commands: a tmp root in it (or
           // above it) would be too.
+          // Compared as written and canonically: a link (or macOS `/tmp` -> `/private/tmp`) must not hide it.
           const queueParent = opts.heavyLockDir ? path.dirname(opts.heavyLockDir) : undefined;
-          if (
-            queueParent &&
-            (isWithin(queueParent, opts.sessionTmpDir) || isWithin(opts.sessionTmpDir, queueParent))
-          )
-            throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
+          if (queueParent) {
+            const overlaps = (a: string, b: string) => isWithin(a, b) || isWithin(b, a);
+            if (
+              overlaps(queueParent, opts.sessionTmpDir) ||
+              overlaps(realpathOfNearest(queueParent), realpathOfNearest(opts.sessionTmpDir))
+            )
+              throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
+          }
           prepareSessionTmpRoot(opts.sessionTmpDir);
           tmpRoot = opts.sessionTmpDir;
         } catch (err) {

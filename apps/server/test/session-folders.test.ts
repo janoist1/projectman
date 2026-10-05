@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -18,6 +19,7 @@ import {
   defaultSessionTmpRoot,
   prepareSessionFoldersRoot,
   prepareSessionTmpRoot,
+  realpathOfNearest,
   SessionFolders,
 } from '../src/domain/session-folders';
 
@@ -33,6 +35,17 @@ describe('session folders (PM-268)', () => {
     prepareSessionFoldersRoot(root);
     return new SessionFolders(root);
   };
+
+  it('resolves a path that is not there through the nearest existing ancestor, links followed', () => {
+    const real = realpathSync(base);
+    mkdirSync(join(base, 'dir'));
+    symlinkSync(join(real, 'dir'), join(base, 'link'));
+    expect(realpathOfNearest(join(base, 'link', 'a', 'b'))).toBe(join(real, 'dir', 'a', 'b'));
+    expect(realpathOfNearest(join(base, 'dir'))).toBe(join(real, 'dir'));
+    // Not a directory: the file's own path is kept, what is "below" it is appended.
+    writeFileSync(join(base, 'file'), 'x');
+    expect(realpathOfNearest(join(base, 'file', 'x'))).toBe(join(real, 'file', 'x'));
+  });
 
   it('names a new folder below the root at every call, and refuses an id that could leave it', () => {
     const folders = new SessionFolders('/r');

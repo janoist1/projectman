@@ -890,7 +890,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
   and a sibling of the heavy-run queue's parent `projectman-<uid>`, never below or above it (that
   parent is writable for every member's commands, so a path there could be pre-empted or read by a
-  member; an overlap leaves Codex without a folder); a directory is new at every start and made
+  member; an overlap, compared as written and by canonical path through links, leaves Codex without a folder); a directory is new at every start and made
   without `recursive`, so a link put there beforehand stops the start. The path is short because a Unix
   socket's is limited to 104 bytes. The Codex adapter then closes the shared `/tmp` and the CLI's
   `$TMPDIR` for its commands.

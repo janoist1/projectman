@@ -89,6 +89,27 @@ export function defaultSessionTmpRoot(): string {
 }
 
 /**
+ * The canonical path of `target`, which need not exist: the nearest existing ancestor is resolved
+ * (links followed, macOS `/tmp` is `/private/tmp`) and the rest is appended. The sandboxes
+ * canonicalize the paths they are given, so overlaps are compared on these.
+ */
+export function realpathOfNearest(target: string): string {
+  const missing: string[] = [];
+  let current = path.resolve(target);
+  for (;;) {
+    try {
+      return path.join(realpathSync(current), ...missing.reverse());
+    } catch (err) {
+      const parent = path.dirname(current);
+      // Only a path that is not there (or not a directory) is climbed past; anything else is a real error.
+      if (parent === current || (code(err) !== 'ENOENT' && code(err) !== 'ENOTDIR')) throw err;
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
  * Makes an installation's temporary directories root (`<defaultSessionTmpRoot()>/<instance>`, both
  * 0700) and checks it and the folder above it: real directories of the server's user, none a link.
  * Throws with the reason.

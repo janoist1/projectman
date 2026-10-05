@@ -440,7 +440,7 @@ by the server before the process starts and removed with the session:
   long path would not allow. The root is a sibling of the queue folder's parent `/tmp/projectman-<uid>`, never
   below it or above it: that parent is writable for every member's commands (PM-346), so a path in it could be
   pre-empted or read by any member (the domain leaves Codex without a folder, and logs an error, when
-  `PROJECTMAN_HEAVY_LOCK_DIR` makes them overlap). The root is 0700 and no member's sandbox names it. The
+  `PROJECTMAN_HEAVY_LOCK_DIR` makes them overlap, also through a link: the paths are compared canonically). The root is 0700 and no member's sandbox names it. The
   directory is new at every start (random name, made by `SessionFolders.make` without `recursive`, so a link
   or directory put there beforehand is an error that stops the start), because the Seatbelt rule covers the
   path itself: a process of an earlier run could re-make a removed path, even as a link. It is removed when

@@ -39,8 +39,9 @@ tenants into separate OS accounts or machines.
   validates writes before checking and stored values before session delivery. Non-regular
   secret files, including symbolic links, are refused on read.
   The `secrets` directory is already denied to member file tools through
-  `sensitivePaths` (PM-324). Session delivery belongs
-  to PM-329 and is restricted to NanoGPT sessions. The adapter excludes the key from
+  `sensitivePaths` (PM-324). Environment delivery (PM-329) is restricted to NanoGPT
+  sessions; the stored file remains readable from Codex and NanoGPT shell sandboxes.
+  The adapter excludes the key from
   member shell environments, disables Codex notification commands, and rejects ambient
   configuration that can override provider, permissions, hooks or MCP servers before
   launch and resume. NanoGPT shell requests never receive automatic command-policy
@@ -54,10 +55,14 @@ tenants into separate OS accounts or machines.
   may run outside the sandbox and expose the key; this remains a risk, rather than a
   verified secret-isolation boundary.
 
-  Residual host risks require the owner's decision before PM-329 can pass security review:
+  The owner accepted the following temporary host risks on 2026-10-05 (decision 34,
+  PM-329; closure in PM-356):
   the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret
   store's file-tool denial does not prevent shell reads by processes running as the same
-  Unix user (restricted-read enforcement is PM-356). Also, the NanoGPT CLI process retains
+  Unix user. Both Codex and NanoGPT sessions can read the secret store and the `providers`
+  directory. The accepted exposure routes are chat and team tools, or commands approved
+  by a human or an AI approver outside the sandbox; NanoGPT has no automatic command
+  approval. Also, the NanoGPT CLI process retains
   the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
   and CLI-controlled subprocesses outside the shell environment policy need separate
   verification. Workspace configuration changes after the launch-time inspection are

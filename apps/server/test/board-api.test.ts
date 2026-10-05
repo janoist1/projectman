@@ -121,12 +121,12 @@ describe('board API', () => {
 
   it('uses the runner’s per-provider plan usage for snapshots and fetched events', async () => {
     const module = h.runnerModule.createWithBroker(h.runnerModule.broker());
-    const values = { claude: planUsage(12), codex: planUsage(34), nanogpt: null };
+    const values = { claude: planUsage(12), codex: planUsage(34) };
     const calls: AgentProvider[] = [];
     module.planUsageFor = (provider) => ({
       get: async () => {
         calls.push(provider);
-        return values[provider];
+        return provider === 'nanogpt' ? null : values[provider];
       },
     });
     await h.app.projectman.domain.members.hire('AR', { role: 'qa', provider: 'codex' }, by);

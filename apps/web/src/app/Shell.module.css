@@ -184,6 +184,10 @@
   color: var(--c-ink-4);
 }
 
+.topbar > :first-child {
+  flex-shrink: 0;
+}
+
 .search:focus-within {
   border-color: var(--c-accent);
   outline: 2px solid var(--c-accent);

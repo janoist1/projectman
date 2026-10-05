@@ -118,6 +118,7 @@
   --c-blocked: #b42318;
   --c-blocked-text: #8f1d14;
   --c-blocked-bg: #fdecea;
+  --c-blocked-border: #f4b5b0;
 
   /* diff-ish tones for mono text */
   --c-mono-add: #0f5c55;
@@ -263,6 +264,7 @@
     --c-blocked: #f1706a;
     --c-blocked-text: #fca5a1;
     --c-blocked-bg: #3a1c1a;
+    --c-blocked-border: #773a36;
 
     --c-mono-add: #82dccd;
     --c-mono-del: #fca5a1;

@@ -1,4 +1,6 @@
 import {
+  StopOrphansRequest,
+  canManageInstancePause,
   AcceptInviteRequest,
   BOARD_RANK_STEP,
   BoardMoveRequest,
@@ -139,6 +141,7 @@ import {
   measureClosedCard,
 } from '@projectman/shared';
 import type {
+  MachineView,
   Actor,
   FixRounds,
   TaskFixLimit,
@@ -377,6 +380,9 @@ export class MockBackend {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
   planUsage = clone(fixtures.planUsage);
+  /** A fixed sample can be supplied by UI tests; otherwise use the fixture sessions. */
+  machine: MachineView | null = null;
+  orphanStopOutcomes: Record<number, 'stopped' | 'gone' | 'refused' | 'failed'> = {};
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
@@ -1308,6 +1314,26 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
+      if (!this.me().instanceOwner) return error(403, 'insufficient_access', 'Instance owner required');
+      if (path === '/api/machine' && method === 'GET') return ok(this.machine ?? this.machineView());
+      if (path === '/api/machine/orphans/stop' && method === 'POST') {
+        const input = parseBody(StopOrphansRequest, body);
+        if (!input) return error(400, 'invalid_request', 'Invalid orphan identities');
+        const results = input.orphans.map((identity) => {
+          const exists = this.machine?.orphans?.some(
+            (row) => row.pid === identity.pid && row.startedAt === identity.startedAt,
+          );
+          const outcome = this.orphanStopOutcomes[identity.pid] ?? (exists ? 'stopped' : 'gone');
+          if ((outcome === 'stopped' || outcome === 'gone') && this.machine?.orphans)
+            this.machine.orphans = this.machine.orphans.filter(
+              (row) => row.pid !== identity.pid || row.startedAt !== identity.startedAt,
+            );
+          return { ...identity, outcome };
+        });
+        return ok({ results });
+      }
+    }
     if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
     if (path === '/api/providers' && method === 'GET') {
       return ok({
@@ -1357,6 +1383,7 @@ export class MockBackend {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
+      instanceOwner: canManageInstancePause([member?.kind === 'human' ? member.access : null]),
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
       projects:
         member?.kind === 'human'
@@ -1369,6 +1396,50 @@ export class MockBackend {
               },
             ]
           : [],
+    };
+  }
+
+  private machineView(): MachineView {
+    const live = this.sessions.filter((session) => this.isLive(session));
+    return {
+      sampledAt: nowIso(),
+      intervalMs: 15000,
+      summary: {
+        cpuPercent: 34,
+        cores: 8,
+        memoryUsedBytes: 6 * 1024 ** 3,
+        memoryTotalBytes: 16 * 1024 ** 3,
+        memoryPressure: 'normal',
+        swapUsedBytes: 0,
+        swapTotalBytes: 0,
+        sessionsRunning: live.length,
+        sessionsWorking: live.filter((session) => session.state === 'working' || session.state === 'starting')
+          .length,
+      },
+      sessions: live.map((session, index) => ({
+        sessionId: session.id,
+        projectKey: session.projectKey,
+        memberHandle: session.member,
+        member: this.members.find((member) => member.handle === session.member) ?? null,
+        workItem: session.workItem,
+        taskTitle:
+          session.workItem.type === 'task' ? (this.findTask(session.workItem.taskKey)?.title ?? null) : null,
+        state: session.state,
+        stateSince: session.stateSince ?? session.lastActivityAt,
+        paused: !!session.pause,
+        pid: 1000 + index,
+        processStartedAt: session.startedAt,
+        cpuPercent: 8,
+        memoryBytes: (640 + index * 100) * 1024 ** 2,
+        processCount: 1,
+        top: [],
+      })),
+      orphans: [],
+      others: [
+        { kind: 'server', name: 'projectman', cpuPercent: 2, memoryBytes: 120 * 1024 ** 2, processCount: 1 },
+      ],
+      rest: { cpuPercent: 10, memoryBytes: 1024 ** 3 },
+      closedSessions: this.sessions.filter((session) => !this.isLive(session)).length,
     };
   }
 
@@ -3759,6 +3830,13 @@ export class MockBackend {
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
     this.closeSession(sessionId, { kind: 'manual', by: this.viewerActor() });
+    if (this.machine?.sessions.some((row) => row.sessionId === sessionId)) {
+      const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
+      this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);
+      this.machine.summary.sessionsRunning--;
+      if (row.state === 'working' || row.state === 'starting') this.machine.summary.sessionsWorking--;
+      this.machine.closedSessions++;
+    }
     return ok();
   }
 

@@ -177,6 +177,33 @@ describe('take_screenshots', () => {
     await expect(service.take(ctx, input)).resolves.toBeDefined();
   });
 
+  it('starts one run only when the session calls in parallel', async () => {
+    const { service, calls } = runs({ pollMs: 20 });
+    const results = await Promise.allSettled([service.take(ctx, input), service.take(ctx, input)]);
+    expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(calls).toHaveLength(1);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect((rejected as PromiseRejectedResult).reason).toMatchObject({ code: 'invalid' });
+  });
+
+  it('frees the session when the scenario of the first call is refused', async () => {
+    const { service, calls } = runs({ pollMs: 20 });
+    const err = await refusal(service.take(ctx, { scenario: 'shots/none.mjs' }));
+    expect(err.code).toBe('invalid');
+    expect(calls).toHaveLength(0);
+    // No run is left behind: the session may start one.
+    await expect(service.take(ctx, input)).resolves.toBeDefined();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('does not start a run whose session ended while the scenario was checked', async () => {
+    const { service, calls } = runs();
+    const taking = service.take(ctx, input);
+    service.stopSession(ctx.sessionId);
+    await expect(taking).resolves.toMatchObject({ status: 'failed', failure: 'stopped' });
+    expect(calls).toHaveLength(0);
+  });
+
   it('is forbidden without a scope or off macOS, and starts nothing', async () => {
     const noScope = runs();
     scope = undefined;

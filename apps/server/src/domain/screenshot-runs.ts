@@ -105,8 +105,19 @@ export class ScreenshotRuns {
         'invalid',
         `A screenshot run of this session is still going: ${active.id}. Wait for it with get_screenshot_run.`,
       );
-    const scenario = await scenarioPath(scope, input.scenario);
-    const run = this.start(ctx, scope, [scenario, ...screenshotArgs(input)]);
+    // The run is registered before the first await, so a parallel call of the session sees it as active.
+    const run = this.register(ctx, scope);
+    let scenario: string;
+    try {
+      scenario = await scenarioPath(scope, input.scenario);
+    } catch (err) {
+      this.runs.delete(run.id);
+      run.ending = true;
+      run.settle();
+      throw err;
+    }
+    // The session ended while the scenario was checked: the run is already over.
+    if (!run.ending) this.launch(ctx, run, [scenario, ...screenshotArgs(input)]);
     await this.waitFor(run);
     return view(run);
   }
@@ -136,7 +147,7 @@ export class ScreenshotRuns {
       this.stopSession(sessionId);
   }
 
-  private start(ctx: ToolContext, scope: ScreenshotScope, args: string[]): Run {
+  private register(ctx: ToolContext, scope: ScreenshotScope): Run {
     const now = this.now();
     let settle = (): void => undefined;
     const over = new Promise<void>((resolve) => {
@@ -156,6 +167,11 @@ export class ScreenshotRuns {
       settle,
     };
     this.runs.set(run.id, run);
+    return run;
+  }
+
+  private launch(ctx: ToolContext, run: Run, args: string[]): void {
+    const scope = run.scope;
     const label = `shots ${ctx.taskKey ?? ctx.sessionId} ${ctx.member}`;
     void this.deps.executor
       .run(
@@ -185,7 +201,6 @@ export class ScreenshotRuns {
           });
         },
       );
-    return run;
   }
 
   /**

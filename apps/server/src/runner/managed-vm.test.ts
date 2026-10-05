@@ -25,7 +25,7 @@ import {
   CODEX_OVERRIDING_ROOTS,
   CODEX_SANDBOX_ROOTS,
   inspectCodexSandboxConfig,
-  codexUserMcpServers,
+  inspectCodexMcpServers,
 } from './managed-vm';
 import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
 
@@ -40,6 +40,7 @@ describe('local Codex configuration checks', () => {
     const project = path.join(cwd, '.codex', 'config.toml');
     return {
       cwd,
+      codexHome: home,
       admin,
       user,
       project,
@@ -84,7 +85,7 @@ describe('local Codex configuration checks', () => {
       input.user,
       '[mcp_servers.node_repl]\ncommand = "fictional-private"\n[mcp_servers.other.env]\nVALUE = "fictional-private"\nmcp_servers.third.enabled = true\n[mcp_servers.node_repl.env]\n',
     );
-    expect(await codexUserMcpServers(input)).toEqual({
+    expect(await inspectCodexMcpServers(input)).toEqual({
       names: ['node_repl', 'other', 'third'],
       unresolved: [],
     });
@@ -101,7 +102,7 @@ describe('local Codex configuration checks', () => {
   ])('fails closed on ambiguous user MCP configuration %#', async (text) => {
     const input = await fixture();
     await writeFile(input.user, text);
-    const result = await codexUserMcpServers(input);
+    const result = await inspectCodexMcpServers(input);
     expect(result.unresolved).toHaveLength(1);
     expect(result.unresolved[0]?.file).toBe(input.user);
     expect(JSON.stringify(result)).not.toContain('fictional-private');
@@ -109,9 +110,9 @@ describe('local Codex configuration checks', () => {
 
   it('reports an unreadable user config and accepts a missing one', async () => {
     const input = await fixture();
-    expect(await codexUserMcpServers(input)).toEqual({ names: [], unresolved: [] });
+    expect(await inspectCodexMcpServers(input)).toEqual({ names: [], unresolved: [] });
     await mkdir(input.user);
-    expect(await codexUserMcpServers(input)).toEqual({
+    expect(await inspectCodexMcpServers(input)).toEqual({
       names: [],
       unresolved: [{ file: input.user, keys: ['(unreadable)'] }],
     });

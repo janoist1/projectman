@@ -42,8 +42,6 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
       bin: opts.codexBin ?? env.CODEX_BIN ?? 'codex',
       codexHome: opts.codexHome ?? defaultCodexHome(env),
       logger: opts.logger,
-      env,
-      ambientConfig: opts.ambientConfig,
     }),
   };
 }

@@ -360,11 +360,8 @@ export interface CodexUserMcpServers {
 }
 
 /** User MCP names only; ambiguous spellings cannot safely receive dotted CLI overrides. */
-export async function codexUserMcpServers(input: {
-  env: NodeJS.ProcessEnv;
-  locations?: AmbientConfigLocations;
-}): Promise<CodexUserMcpServers> {
-  const file = input.locations?.codexUser ?? defaultLocations(input.env).codexUser;
+export async function inspectCodexMcpServers(input: { codexHome: string }): Promise<CodexUserMcpServers> {
+  const file = path.join(input.codexHome, 'config.toml');
   const text = await readIfPresent(file);
   if (text === null) return { names: [], unresolved: [] };
   if (text === '\u0000unreadable') return { names: [], unresolved: [{ file, keys: ['(unreadable)'] }] };

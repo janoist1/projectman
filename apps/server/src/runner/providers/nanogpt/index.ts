@@ -4,7 +4,7 @@ import { cliVersionAtLeast, NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared
 import type { FastifyBaseLogger } from 'fastify';
 import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
-import { codexUserMcpServers, inspectAmbientConfig } from '../../managed-vm';
+import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
 import { createCodexAdapter } from '../codex';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER } from '../codex/args';
 import type { ProviderAdapter } from '../types';
@@ -85,10 +85,7 @@ export function createNanogptAdapter(opts: {
       });
       if (ambientConfig.length > 0)
         throw new NanogptStartError('nanogpt_setup_incomplete', { ambientConfig });
-      const userMcp = await codexUserMcpServers({
-        env: { CODEX_HOME: opts.codexHome },
-        locations: opts.ambientConfig,
-      });
+      const userMcp = await inspectCodexMcpServers({ codexHome: opts.codexHome });
       if (userMcp.unresolved.length)
         throw new NanogptStartError('nanogpt_setup_incomplete', {
           problem: 'mcp_config',

@@ -263,3 +263,11 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     command approval. Such approved commands may inspect the parent CLI's environment.
     PM-356 will close the broad filesystem reads for all Codex CLI members. This acceptance
     does not waive PM-329's ambient configuration checks or its manual verification.
+35. **Every live release gets a git tag and a GitHub release.** Decided by the owner on
+    2026-10-05 („minden release-t git taggel kéne csinálni meg valami egyszerűbb release-t
+    githubon ilyen összefoglalóval - persze ezt angolul”). The tag is the UTC date the build
+    went live, `vYYYY.M.D`, and `vYYYY.M.D.N` for the N-th release of that day; it points at the
+    merge commit the live instance runs. The GitHub release has the same name and a short English
+    summary of what changed, with the card keys. The integrator creates both after the switch,
+    once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
+    switch backups, without GitHub releases.

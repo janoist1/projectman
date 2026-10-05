@@ -184,7 +184,16 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     c('feedback.enabled', false);
   }
   // User plugins must never install tools outside a member's sandbox, for any Codex provider.
-  for (const feature of ['plugins', 'remote_plugin', 'apps', 'tool_suggest', 'skill_mcp_dependency_install'])
+  for (const feature of [
+    'plugins',
+    'remote_plugin',
+    'apps',
+    'tool_suggest',
+    'skill_mcp_dependency_install',
+    'computer_use',
+    'browser_use',
+    'browser_use_external',
+  ])
     c(`features.${feature}`, false);
   for (const name of input.disabledMcpServers ?? []) {
     if (!TOML_BARE_KEY.test(name) || name === 'team')

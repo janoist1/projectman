@@ -1066,7 +1066,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
   setting names through `codex_setup_incomplete`. User MCP names are resolved beside the CLI;
   ambiguous names refuse startup. `runner/providers/codex/args.ts` disables each user server
-  and the five plugin/app features for every Codex provider. The restricted-read profile
+  and the eight plugin/app/computer/browser features for every Codex provider. The restricted-read profile
   itself remains pending the native CLI probe recorded on PM-356.
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac

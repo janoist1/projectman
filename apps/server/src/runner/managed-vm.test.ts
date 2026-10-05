@@ -97,6 +97,7 @@ describe('local Codex configuration checks', () => {
     '[mcp_servers.team]\ncommand = "fictional-private"',
     String.raw`["mcp_\u0073ervers".hidden]`,
     '[mcp_servers]\nhidden = { command = "fictional-private" }',
+    '[[mcp_servers.example]]\ncommand = "fictional-private"',
   ])('fails closed on ambiguous user MCP configuration %#', async (text) => {
     const input = await fixture();
     await writeFile(input.user, text);

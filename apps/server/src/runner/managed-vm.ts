@@ -380,6 +380,10 @@ export async function codexUserMcpServers(input: {
     }
     const root = /^(?:\[\[?\s*)?(?:mcp_servers|"mcp_servers"|'mcp_servers')(?=\s*[.=\]])/.exec(line);
     if (!root) continue;
+    if (line.startsWith('[[')) {
+      problems.add('mcp_servers');
+      continue;
+    }
     const suffix = line.slice(root[0].length);
     const name = /^\s*\.\s*([A-Za-z0-9_-]+)\s*(?=[.\]=])/.exec(suffix)?.[1];
     if (!name || name === 'team') problems.add(name === 'team' ? 'mcp_servers.team' : 'mcp_servers');

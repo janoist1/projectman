@@ -55,6 +55,9 @@ describe('TOML values', () => {
         'apps',
         'tool_suggest',
         'skill_mcp_dependency_install',
+        'computer_use',
+        'browser_use',
+        'browser_use_external',
       ])
         expect(c.get(`features.${feature}`)).toBe('false');
     }
@@ -148,6 +151,9 @@ describe('buildCodexArgs', () => {
         'features.apps': 'false',
         'features.tool_suggest': 'false',
         'features.skill_mcp_dependency_install': 'false',
+        'features.computer_use': 'false',
+        'features.browser_use': 'false',
+        'features.browser_use_external': 'false',
         cli_auth_credentials_store: '"ephemeral"',
         'analytics.enabled': 'false',
         'feedback.enabled': 'false',
@@ -328,6 +334,9 @@ describe('buildCodexArgs', () => {
         'apps',
         'tool_suggest',
         'skill_mcp_dependency_install',
+        'computer_use',
+        'browser_use',
+        'browser_use_external',
       ])
         expect(c.get(`features.${feature}`)).toBe('false');
     });

@@ -369,6 +369,9 @@ TMPDIR="$probe_root/cli-tmp" codex --ask-for-approval never \
   -c features.apps=false \
   -c features.tool_suggest=false \
   -c features.skill_mcp_dependency_install=false \
+  -c features.computer_use=false \
+  -c features.browser_use=false \
+  -c features.browser_use_external=false \
   -c mcp_servers.node_repl.enabled=false \
   -c 'default_permissions="projectman"' \
   -c "permissions.projectman=$probe_write" \
@@ -378,12 +381,12 @@ TMPDIR="$probe_root/cli-tmp" codex --ask-for-approval never \
 Before the filesystem checks, perform these two checks with the owner's **actual
 ChatGPT-subscribed Codex home** (`~/.codex`, unless `CODEX_HOME` already selects another).
 Do not replace it with the fictional home: that would not test inherited desktop settings.
-Keep all six overrides above, and any additional user MCP disable overrides, for every
+Keep all nine disable overrides above, and any additional user MCP disable overrides, for every
 writer, reader, precedence and snapshot repeat.
 
 1. **Plugins disabled:** inspect the interactive CLI's available tools and effective feature
    settings. No computer-use/cua or browser plugin tools may be offered. Ask only for the tool
-   inventory, never for a call to such a tool. Record tool names and whether each of the five
+   inventory, never for a call to such a tool. Record tool names and whether each of the eight
    feature overrides is accepted. Do not test disabling by operating a real browser.
 2. **User MCP disabled:** inspect the MCP status/tool inventory and sanitized startup logs.
    `node_repl` must be disabled, must offer no tools, and must not start a new MCP process for
@@ -455,6 +458,8 @@ boundary for **both a Codex and a NanoGPT member**. Record their CLI versions an
 arguments, denied `cat <development app home>/secret` and `ls <development app home>/secrets`,
 and successful worktree operations, attachment reads, npm-cache writes and
 `npm run heavy -- true`. Use no live app home, live port, real secret or computer-control tool.
+The development session's `/mcp` must show only `team`; no `js`, `cua`, computer-use or browser
+tool may be available. Record the tool inventory without invoking any disabled tool.
 This later run is a separate acceptance prerequisite, not established by the standalone probe.
 
 ## Acceptance record and alternatives

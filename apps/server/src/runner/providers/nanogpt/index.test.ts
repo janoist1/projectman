@@ -26,7 +26,7 @@ describe('NanoGPT adapter', () => {
         provider: 'nanogpt' as const,
         displayName: 'test',
         mcpUrl: 'http://localhost/mcp',
-        appendSystemPrompt: null,
+        appendSystemPrompt: '',
         allowedTools: [],
         permissionMode: 'auto' as const,
         initialMessage: 'TEAM',

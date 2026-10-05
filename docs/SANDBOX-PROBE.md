@@ -349,8 +349,12 @@ the CLI itself must still authenticate. Do not print login files or environment 
 Before launching, privately check that loaded user, project and administrator configuration
 has no legacy sandbox setting or permission profile. Record only conflicting file/key names.
 If normal settings conflict, use a disposable account with a subscription login; do not
-edit normal user settings for the experiment. Inherited plugins and MCP servers must be off;
-use no browser or computer-control tools during this probe.
+edit normal user settings for the experiment. The launch below disables inherited plugins
+and the owner's known `node_repl` MCP server. Privately identify any other user MCP server
+names and add `-c mcp_servers.<name>.enabled=false` for each to **every** launch. Record names
+only, never config values. If a name cannot be represented as `[A-Za-z0-9_-]+`, or a user
+server is called `team`, stop and report the ambiguity; the runner will refuse it rather
+than guess. Use no browser or computer-control tools during this probe.
 
 In that same terminal build the exact inline profiles (fixture paths must contain no double
 quotes or backslashes). `:read-only` deliberately supplies no inherited temporary writes:
@@ -360,10 +364,39 @@ probe_denials="\"$probe_root/fake-live/secret\"=\"deny\",\"$probe_root/fake-live
 probe_write="{extends=\":read-only\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials}}"
 probe_read="{extends=\":read-only\",filesystem={\":root\"=\"read\",$probe_denials}}"
 TMPDIR="$probe_root/cli-tmp" codex --ask-for-approval never \
+  -c features.plugins=false \
+  -c features.remote_plugin=false \
+  -c features.apps=false \
+  -c features.tool_suggest=false \
+  -c features.skill_mcp_dependency_install=false \
+  -c mcp_servers.node_repl.enabled=false \
   -c 'default_permissions="projectman"' \
   -c "permissions.projectman=$probe_write" \
   -c "shell_environment_policy.set.TMPDIR=\"$probe_tmp\""
 ```
+
+Before the filesystem checks, perform these two checks with the owner's **actual
+ChatGPT-subscribed Codex home** (`~/.codex`, unless `CODEX_HOME` already selects another).
+Do not replace it with the fictional home: that would not test inherited desktop settings.
+Keep all six overrides above, and any additional user MCP disable overrides, for every
+writer, reader, precedence and snapshot repeat.
+
+1. **Plugins disabled:** inspect the interactive CLI's available tools and effective feature
+   settings. No computer-use/cua or browser plugin tools may be offered. Ask only for the tool
+   inventory, never for a call to such a tool. Record tool names and whether each of the five
+   feature overrides is accepted. Do not test disabling by operating a real browser.
+2. **User MCP disabled:** inspect the MCP status/tool inventory and sanitized startup logs.
+   `node_repl` must be disabled, must offer no tools, and must not start a new MCP process for
+   this session. Existing Codex desktop processes are not evidence of a new session process;
+   correlate any host process observation with this launch. Repeat for other configured user
+   servers. A missing tool alone does not establish that the process never started. Record
+   startup evidence or mark that part unverified; never invoke the server to test it.
+
+If Codex 0.159.1 rejects or ignores `enabled=false`, or plugin tools remain available, stop
+and send the version and sanitized evidence to `claude` on PM-356. A separate ChatGPT Codex
+home is a possible fallback requiring an owner decision about authentication; do not copy
+credentials or invent a workaround. These two checks are prerequisites alongside the
+filesystem checks, per the lead developer's scope decision of 2026-10-06.
 
 Ask the CLI to perform each operation separately, report the actual tool, exit status and
 denial, and never retry outside the sandbox. Give it the resolved fixture paths from above.

@@ -249,7 +249,7 @@ function EditMemberForm({
             />
             <ScheduleFields value={schedule} onChange={setSchedule} showErrors={scheduleError} />
             {/* These save at once, apart from the form's own button: show the current roster entry. */}
-            <PermissionLevelControl member={members.get(member.handle) ?? member} />
+            <PermissionLevelControl member={members.get(member.handle) ?? member} provider={provider} />
           </>
         )}
       </form>

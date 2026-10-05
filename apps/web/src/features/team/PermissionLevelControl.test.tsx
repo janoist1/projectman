@@ -50,6 +50,41 @@ const select = (row: ReturnType<typeof within>, label: string) =>
   row.getByLabelText(label) as HTMLSelectElement;
 
 describe('the permission settings in the member profile of a member', () => {
+  it.each([true, false])('uses the draft provider for permission notes: owner %s', (isOwner) => {
+    for (const [savedProvider, draftProvider] of [
+      ['claude', 'gemini'],
+      ['gemini', 'codex'],
+    ] as const) {
+      const project = mockProject();
+      const member = project.backend.findMember('fe-1')!;
+      member.provider = savedProvider;
+      member.permissionMode = 'auto';
+      const ui = project.render(<PermissionLevelControl member={member} provider={draftProvider} />, '/', {
+        isOwner,
+      });
+      const note = screen.queryByText(t('permissionControls.providerNotes.gemini.auto'));
+      if (draftProvider === 'gemini') expect(note).toBeTruthy();
+      else expect(note).toBeNull();
+      expect(project.requests.filter((request) => request.method === 'PATCH')).toHaveLength(0);
+      ui.unmount();
+    }
+  });
+
+  it.each([true, false])('does not explain Auto for legacy Gemini modes: owner %s', (isOwner) => {
+    for (const permissionMode of [undefined, 'auto', 'bypassPermissions'] as const) {
+      const project = mockProject();
+      const member = project.backend.findMember('fe-1')!;
+      member.provider = 'gemini';
+      member.permissionMode = permissionMode;
+      member.permissionLegacy = true;
+      const ui = project.render(<PermissionLevelControl member={member} />, '/', { isOwner });
+      expect(screen.getByText(t('permissionControls.legacyHint'))).toBeTruthy();
+      expect(screen.queryByText(t('permissionControls.providerNotes.gemini.auto'))).toBeNull();
+      expect(screen.queryByText(t('permissionControls.providerNotes.gemini.plan'))).toBeNull();
+      ui.unmount();
+    }
+  });
+
   it.each([true, false])('explains Gemini auto and plan to owners and readers: %s', async (isOwner) => {
     for (const permissionMode of ['default', 'acceptEdits', 'auto', 'plan'] as const) {
       const project = mockProject();

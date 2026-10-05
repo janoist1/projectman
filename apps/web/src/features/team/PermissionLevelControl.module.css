@@ -24,3 +24,12 @@
   font-size: 0.8125rem;
   color: var(--c-needs-text);
 }
+
+.providerNote {
+  display: block;
+  max-width: 60ch;
+  margin: 4px 0 12px;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--c-ink-4);
+}

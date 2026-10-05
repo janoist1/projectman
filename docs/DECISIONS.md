@@ -242,3 +242,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     whole instance or one project, not a single member; and every stop of the server pauses the team
     first and the next start resumes it, so that an update loses no session's place. PM-219 builds it
     on the server (`PauseService`, the control socket), PM-220 the app.
+33. **When the machine's heavy-run queue cannot be used, a member's heavy command does not run.**
+    Decided by the owner on 2026-10-05 (PM-346; the architect's question, answer: „Álljon le”). The
+    full test, the type check and the screenshot runs of a member stop with exit status 78 and a
+    four-line message instead of running at full speed beside the others, which overloaded the
+    machine. The server's own full test before review still runs without the queue and logs a
+    warning, because the review must not stall on it.

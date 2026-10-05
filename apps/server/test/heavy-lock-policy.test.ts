@@ -35,9 +35,18 @@ describe('the heavy-run queue in the sandbox of a worktree session', () => {
     });
   });
 
+  it('hands the same folder and variables to a CLI with a sandbox of its own (PM-346)', () => {
+    const sandbox = sessionSandbox(developer(), { ...paths, heavyLockDir })!;
+    expect(sandbox.portable).toEqual({
+      allowWrite: ['/fictional/tmp/projectman-501'],
+      env: { PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir, npm_config_prefer_offline: 'true' },
+    });
+  });
+
   it('is unchanged without a folder', () => {
     const sandbox = sessionSandbox(developer(), paths)!;
     expect(sandbox.allowWrite).toEqual([]);
+    expect(sandbox.portable).toBeUndefined();
     expect(sandbox.env).not.toHaveProperty('PROJECTMAN_HEAVY_LOCK_DIR');
     expect(sandbox.env).not.toHaveProperty('npm_config_prefer_offline');
   });
@@ -51,6 +60,7 @@ describe('the heavy-run queue in the sandbox of a worktree session', () => {
     ]) {
       const sandbox = sessionSandbox(developer(), { ...paths, heavyLockDir: dir })!;
       expect(sandbox.allowWrite, dir).toEqual([]);
+      expect(sandbox.portable, dir).toBeUndefined();
       expect(sandbox.env, dir).not.toHaveProperty('PROJECTMAN_HEAVY_LOCK_DIR');
     }
   });
@@ -67,9 +77,18 @@ describe('the heavy-run queue in the sandbox of a reader', () => {
     });
   });
 
+  it('hands the same folder and variables to a CLI with a sandbox of its own (PM-346)', () => {
+    const sandbox = sessionSandbox(reader(), { heavyLockDir })!;
+    expect(sandbox.portable).toEqual({
+      allowWrite: ['/fictional/tmp/projectman-501'],
+      env: { PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir, npm_config_prefer_offline: 'true' },
+    });
+  });
+
   it('is unchanged without a folder', () => {
     const sandbox = sessionSandbox(reader(), {})!;
     expect(sandbox.allowWrite).toEqual([]);
+    expect(sandbox.portable).toBeUndefined();
     expect(sandbox.env).not.toHaveProperty('PROJECTMAN_HEAVY_LOCK_DIR');
   });
 });

@@ -10,6 +10,8 @@ import type { HeavyLock, HeavyLockEntry } from '../../apps/server/src/full-test/
 
 /** Exit status of a `--max-wait` that ran out (EX_TEMPFAIL). */
 export const EXIT_QUEUE_TIMEOUT = 75;
+/** Exit status of a command that did not run because the queue folder cannot be used (EX_CONFIG, PM-346). */
+export const EXIT_QUEUE_UNAVAILABLE = 78;
 const EXIT_USAGE = 2;
 const EXIT_NOT_FOUND = 127;
 const LABEL_MAX = 120;
@@ -92,6 +94,7 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
   }
   const [file, ...rest] = parsed.command as [string, ...string[]];
   const childEnv = { ...run.env, [HELD_VARIABLE]: '1' };
+  const label = (parsed.label ?? `${basename(run.cwd)}: ${parsed.command.join(' ')}`).slice(0, LABEL_MAX);
 
   // A signal while waiting ends the wait; once the command runs it is passed on to it.
   const abort = new AbortController();
@@ -115,7 +118,7 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
       try {
         lock = await acquireHeavyLock({
           dir: run.env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
-          label: (parsed.label ?? `${basename(run.cwd)}: ${parsed.command.join(' ')}`).slice(0, LABEL_MAX),
+          label,
           cwd: run.cwd,
           ...(run.env.PROJECTMAN_SESSION_ID ? { sessionId: run.env.PROJECTMAN_SESSION_ID } : {}),
           ...(parsed.maxWaitSeconds !== undefined ? { maxWaitMs: parsed.maxWaitSeconds * 1000 } : {}),
@@ -132,9 +135,16 @@ export async function runHeavy(run: HeavyRun): Promise<number> {
           run.stderr(`heavy: ${err.message}\n`);
           return EXIT_QUEUE_TIMEOUT;
         }
-        // Nothing is ever held back because of the lock: without it the command runs.
-        if (err instanceof HeavyLockError) run.stderr(`heavy: ${err.message}; running without the queue\n`);
-        else throw err;
+        // A queue that cannot be used stops the command (owner's decision, PM-346): without it a member's
+        // full test would run beside the others and overload the machine.
+        if (!(err instanceof HeavyLockError)) throw err;
+        run.stderr(
+          `heavy: the machine's heavy-run queue cannot be used, so this did not run: ${label}\n` +
+            `heavy: ${err.message}\n` +
+            'heavy: running it without the queue would overload the machine; do not run it another way.\n' +
+            'heavy: note this on your task, and ask for the command to run outside your sandbox, where the queue works.\n',
+        );
+        return EXIT_QUEUE_UNAVAILABLE;
       }
     }
     return await new Promise<number>((resolve) => {

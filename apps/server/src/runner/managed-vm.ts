@@ -149,7 +149,7 @@ export function assertProviderVersion(
   installed: string | null,
   attestation: ManagedVmAttestation,
 ): void {
-  const allowed = attestation.providerVersions[provider];
+  const allowed = attestation.providerVersions[provider] ?? [];
   if (installed === null || !allowed.includes(installed)) {
     throw new ManagedVmUnavailableError(
       'provider_version',

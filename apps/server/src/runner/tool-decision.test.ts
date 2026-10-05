@@ -97,6 +97,71 @@ function policyFor(mode: Mode, patch: Partial<SessionPolicy> = {}): SessionPolic
     ...patch,
   };
 }
+describe('temporary Gemini shell-rule exception', () => {
+  it('confines command working directories and resolves denied paths from the actual directory', () => {
+    const policy = policyFor('acceptEdits');
+    const check = (cwd: string, command = 'npm test') =>
+      decideToolCall(
+        policy,
+        { category: 'command', paths: [cwd], cwd, command, sandboxed: false },
+        { shellRulesOutsideSandbox: true, home, caseInsensitive: false },
+      );
+    for (const cwd of [outside, extra, join(work, 'outside-link'), '../outside'])
+      expect(check(cwd)).toEqual({ decision: 'deny', reason: 'cwd_outside_workspace' });
+    expect(check(join(work, 'src'))).toEqual({ decision: 'allow' });
+    policy.filesystem.writableRoots.push(extra);
+    expect(check(extra)).toEqual({ decision: 'allow' });
+    policy.filesystem.deniedPaths!.push(join(work, 'private'));
+    expect(check(join(work, 'src'), 'cat ../private/key')).toEqual({
+      decision: 'deny',
+      reason: 'denied_path',
+    });
+    policy.access = 'read_only';
+    expect(check(extra)).toEqual({ decision: 'deny', reason: 'cwd_outside_workspace' });
+  });
+
+  it.each(['read_only', 'review_copy'] as const)(
+    'does not bypass approval for unsandboxed %s commands',
+    (access) => {
+      const policy = policyFor('acceptEdits', { access });
+      policy.tools.shell = [...REVIEW_SHELL_TOOLS];
+      for (const command of [
+        'git diff --output=/outside/file',
+        'npx prettier --check --write .',
+        'npm test --node-options=--require=/session/x.cjs',
+        'npx vitest run --config /session/v.mjs',
+      ])
+        expect(
+          decideToolCall(
+            policy,
+            { category: 'command', paths: [work], cwd: work, command, sandboxed: false },
+            { shellRulesOutsideSandbox: true },
+          ),
+        ).toEqual({ decision: 'ask' });
+    },
+  );
+
+  it('only allows safe listed commands when explicitly enabled', () => {
+    const policy = policyFor('acceptEdits');
+    const call = (command: string): NormalizedToolCall => ({
+      category: 'command',
+      paths: [work],
+      command,
+      sandboxed: false,
+    });
+    expect(decideToolCall(policy, call('npm test'))).toEqual({ decision: 'ask' });
+    expect(decideToolCall(policy, call('npm test'), { shellRulesOutsideSandbox: true })).toEqual({
+      decision: 'allow',
+    });
+    for (const command of ['npm test && echo hi', 'echo hi'])
+      expect(decideToolCall(policy, call(command), { shellRulesOutsideSandbox: true })).toEqual({
+        decision: 'ask',
+      });
+    expect(
+      decideToolCall(policy, call('npm test ~/.ssh/id_ed25519'), { shellRulesOutsideSandbox: true, home }),
+    ).toEqual({ decision: 'deny', reason: 'denied_path' });
+  });
+});
 
 const reader = (mode: Mode): SessionPolicy =>
   policyFor(mode, {

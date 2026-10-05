@@ -4,6 +4,7 @@ import {
   managedVmPermissions,
   MANAGED_VM_ACTIVATION_CHECKS,
   parseExecutionProfile,
+  isManagedVmProvider,
 } from './managed-vm';
 import { VM_CHECKS, VM_PROFILE_NAME, VM_PROFILE_VERSION, VmReadinessReport } from './vm-readiness';
 
@@ -22,6 +23,12 @@ function report(status: Record<string, 'pass' | 'fail' | 'unverified'> = {}) {
 }
 
 describe('execution profile setting', () => {
+  it('includes only providers proven for the VM', () => {
+    expect(isManagedVmProvider('claude')).toBe(true);
+    expect(isManagedVmProvider('codex')).toBe(true);
+    expect(isManagedVmProvider('gemini')).toBe(false);
+    expect(isManagedVmProvider('toString')).toBe(false);
+  });
   it('defaults to legacy and accepts only the two known profiles', () => {
     expect(parseExecutionProfile(undefined)).toBe('legacy');
     expect(parseExecutionProfile('')).toBe('legacy');

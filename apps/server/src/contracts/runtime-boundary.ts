@@ -1,4 +1,4 @@
-import type { AgentProvider, RuntimeBoundaryMode, RuntimeBoundaryStatus } from '@projectman/shared';
+import type { ManagedVmProvider, RuntimeBoundaryMode, RuntimeBoundaryStatus } from '@projectman/shared';
 
 /**
  * The VM boundary (PM-140), owned by src/runtime-boundary. In the managed VM profile the server
@@ -33,7 +33,7 @@ export interface LaunchSessionRequest {
   /** The AI member; the launcher runs the session as its worker account. */
   member: string;
   /** The launcher runs this provider's pinned CLI; the caller never names a file. */
-  provider: AgentProvider;
+  provider: ManagedVmProvider;
   /** Arguments of the CLI (no shell). */
   args: string[];
   /** The working directory, inside the member's worker home. */

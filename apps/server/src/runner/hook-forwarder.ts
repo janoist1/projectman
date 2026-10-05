@@ -51,6 +51,7 @@ const NODE_FORWARDER_PRINT =
   'r.on("error",()=>{});r.on("timeout",()=>r.destroy());r.end(Buffer.concat(c));});';
 
 export interface ForwarderOptions {
+  fallbackOutput?: string;
   /** Print the server's answer (a PermissionRequest decision) instead of discarding it. */
   printResponse?: boolean;
   /** How long to wait for the server, in seconds (default 10). */
@@ -69,6 +70,14 @@ export function forwarderCommand(
 ): string {
   const maxTime = Math.max(1, Math.ceil(opts.maxTimeS ?? FAST_HOOK_TIMEOUT_S));
   const post = `-X POST -H 'Content-Type: application/json' --data-binary @- ${shellQuote(url)}`;
+  if (opts.fallbackOutput !== undefined) {
+    const fallback = opts.fallbackOutput;
+    const script =
+      'const u=process.argv[1],t=Number(process.argv[2])*1000,f=process.argv[3];let done=false;const finish=(s)=>{if(done)return;done=true;clearTimeout(timer);process.stdout.write(s||f);};const timer=setTimeout(()=>{finish(f);r.destroy();},t);const c=[];process.stdin.on("data",d=>c.push(d));const m=require(u.startsWith("https:")?"https":"http");const r=m.request(u,{method:"POST",headers:{"content-type":"application/json"}},s=>{let b="";s.on("data",d=>b+=d);s.on("end",()=>finish(s.statusCode>=200&&s.statusCode<300?b:f));s.on("error",()=>finish(f));s.on("aborted",()=>finish(f));});r.on("error",()=>finish(f));process.stdin.on("end",()=>r.end(Buffer.concat(c)));';
+    const curl = `if out=$(curl -q --noproxy '*' -sS -m ${maxTime} -w 'PROJECTMAN_HTTP_STATUS:%{http_code}' ${post}); then status=\${out##*PROJECTMAN_HTTP_STATUS:}; body=\${out%PROJECTMAN_HTTP_STATUS:*}; case "$status" in 2[0-9][0-9]) if [ -n "$body" ]; then printf '%s' "$body"; else printf '%s' ${shellQuote(fallback)}; fi ;; *) printf '%s' ${shellQuote(fallback)} ;; esac; else printf '%s' ${shellQuote(fallback)}; fi`;
+    const node = `${shellQuote(nodePath)} -e ${shellQuote(script)} ${shellQuote(url)} ${maxTime} ${shellQuote(fallback)}`;
+    return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi 2>/dev/null; exit 0`;
+  }
   if (!opts.printResponse) {
     // The Node fallback of a silent forwarder keeps its own fixed 10 s timeout.
     const curl = `curl -q --noproxy '*' -sS -m ${maxTime} -o /dev/null ${post}`;

@@ -1,5 +1,6 @@
+import { mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
 import type { PermissionDecision } from '../src/contracts';
 import { DomainError } from '../src/domain';
@@ -217,6 +218,52 @@ describe('inbox: automatic permission decisions', () => {
       controller.abort();
       expect((await pending).behavior).toBe('deny');
     }
+  });
+
+  it('uses the tool working directory and never auto-approves malformed working directories', async () => {
+    const ownCwd = h.repos.sessions.get(sessionId)!.cwd!;
+    mkdirSync(ownCwd, { recursive: true });
+    const otherWorktree = join(h.dir, 'other-task-worktree');
+    mkdirSync(otherWorktree);
+    const link = join(ownCwd, 'foreign-link');
+    symlinkSync(otherWorktree, link);
+    for (const cwd of [otherWorktree, link, join(ownCwd, 'missing'), '/elsewhere', 'relative', null, 42]) {
+      const controller = new AbortController();
+      const pending = h.runnerModule.broker().decide(
+        {
+          sessionId,
+          toolName: 'Bash',
+          toolInput: { command: 'npm ci', cwd },
+          raw: {},
+        },
+        controller.signal,
+      );
+      await flush();
+      await vi.waitFor(() => expect(h.domain.inbox.list('AR', { state: 'open' })).toHaveLength(1));
+      const items = h.domain.inbox.list('AR', { state: 'open' });
+      expect(items).toHaveLength(1);
+      expect(items[0]!.payload).toMatchObject({ toolInput: { cwd } });
+      if (typeof cwd === 'string' && cwd.startsWith('/')) expect(items[0]!.title).toContain(`${cwd}$ npm ci`);
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+    }
+  });
+
+  it('auto-approves a read from a real subdirectory using that directory as the base', async () => {
+    const ownCwd = h.repos.sessions.get(sessionId)!.cwd!;
+    const cwd = join(ownCwd, 'src');
+    mkdirSync(cwd, { recursive: true });
+    const decision = await h.runnerModule.broker().decide(
+      {
+        sessionId,
+        toolName: 'Bash',
+        toolInput: { command: 'git status', cwd },
+        raw: {},
+      },
+      new AbortController().signal,
+    );
+    expect(decision.behavior).toBe('allow');
+    expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
   });
 
   it('still asks for a rewriting commit, a merge of another branch and a chain with a second command', async () => {

@@ -181,6 +181,8 @@ export interface BuildAppOptions {
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
   codexHome?: string;
+  geminiBin?: string;
+  geminiConfigDir?: string;
   /** Claude Code's global config file, where workspace trust is recorded (default: ~/.claude.json). */
   claudeConfigPath?: string;
   /**
@@ -495,6 +497,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
           codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
           codexHome: options.codexHome,
+          geminiBin: options.geminiBin,
+          geminiConfigDir: options.geminiConfigDir,
           claudeConfigPath: options.claudeConfigPath,
           env: options.agentEnv,
           terminal: options.terminal,

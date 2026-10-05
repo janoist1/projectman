@@ -17,6 +17,10 @@ export const FAKE_CODEX = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../test/fixtures/fake-codex.mjs',
 );
+export const FAKE_GEMINI = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../test/fixtures/fake-gemini.mjs',
+);
 
 /** A logger that drops everything. */
 export function silentLogger(): FastifyBaseLogger {

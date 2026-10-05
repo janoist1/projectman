@@ -45,7 +45,7 @@ export function createRunnerModule(opts: RunnerModuleOptions): RunnerModule {
     registerHookRoutes(app) {
       registerHookRoutes(app, {
         sessionForToken: (token) => runner.sessionForToken(token),
-        parse: (session, body) => session.parseHook(body),
+        parse: (session, body, event) => session.parseHook(body, event),
         logger: opts.logger,
       });
     },

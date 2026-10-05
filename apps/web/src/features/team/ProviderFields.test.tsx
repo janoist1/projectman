@@ -30,6 +30,14 @@ function Fields({ initialModel = 'opus' }: { initialModel?: string }) {
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('ProviderFields', () => {
+  it('offers Gemini families and resets the model and unsupported effort on provider change', () => {
+    mockProject().render(<Fields />);
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'max' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'gemini' } });
+    expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gemini-3.8-flash');
+    expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('high');
+    expect(screen.getByRole('option', { name: t('providerSettings.models.geminiPro') })).toBeTruthy();
+  });
   it('groups fixed Claude versions and latest aliases with translated labels and custom ids', () => {
     mockProject().render(<Fields />);
     for (const [group, labels] of [

@@ -462,8 +462,17 @@ escalate, and the server allows them itself (see Session policy, PM-77).
 
 ## Gemini (agy) (PM-323 probe)
 
-Antigravity CLI (`agy`) is the Gemini branch of PM-319. No adapter exists yet (PM-326); this
-chapter records what a real run showed, so the adapter does not guess. The probe ran on
+Antigravity CLI (`agy`) is the Gemini branch of PM-319. The adapter (PM-326) lives in
+`runner/providers/gemini`: interactive PTY, per-conversation configuration, PreInvocation
+instruction injection, fail-closed PreToolUse decisions, subscription login checks and
+`transcript_full.jsonl` parsing. It uses `AGY_BIN` (default `agy`) and an explicit
+`PROJECTMAN_HOME/providers/gemini` root, without changing HOME or workspace `.agents` files.
+The initial brief is typed after screen readiness; continuation uses `--conversation`.
+Owner decisions T1–T4 prefill onboarding, disable self-updates, wait for inbox decisions,
+and temporarily allow role shell rules without a sandbox (PM-361). Managed VM support is
+deferred to PM-331. The fake CLI covers this protocol without running real agy.
+
+This chapter records what a real run showed, so the adapter does not guess. The probe ran on
 2026-10-05 on the owner's Mac, in the owner's presence, as 38 small runs in 19 conversations on
 `gemini-3.8-flash-low` with a logged-in Google account. The binary was **agy 1.2.17**: the
 card said 1.2.7, but the background updater had replaced it. Afterwards 98% of the five-hour

@@ -66,11 +66,20 @@ export class PermissionGate {
    * Waits for the decision on one request and returns the hook answer, or null when nobody
    * waits for an answer any more. `withdrawn` aborts when the CLI stops waiting.
    */
-  async request(payload: HookPayload, activity: string, withdrawn: AbortSignal): Promise<unknown> {
+  async request(
+    payload: HookPayload,
+    activity: string,
+    withdrawn: AbortSignal,
+    tracking: { onAllowed?: () => void; trackState?: boolean } = {},
+  ): Promise<unknown> {
+    if (withdrawn.aborted || this.closed) return null;
     const { opts } = this;
     const toolName = payload.tool_name ?? 'unknown';
     const allowKey = opts.remembersSessionAllows ? sessionAllowKey(payload) : null;
-    if (allowKey && this.sessionAllows.has(allowKey)) return opts.answer({ behavior: 'allow' }, payload);
+    if (allowKey && this.sessionAllows.has(allowKey)) {
+      tracking.onAllowed?.();
+      return opts.answer({ behavior: 'allow' }, payload);
+    }
 
     const controller = new AbortController();
     const entry: { end: PermissionEnd | null } = { end: null };
@@ -84,7 +93,7 @@ export class PermissionGate {
     const onWithdrawn = () => end('withdrawn');
     if (withdrawn.aborted) onWithdrawn();
     else withdrawn.addEventListener('abort', onWithdrawn, { once: true });
-    opts.onWaiting(activity);
+    if (tracking.trackState !== false) opts.onWaiting(activity);
 
     try {
       const decision = await new Promise<PermissionDecision>((resolve, reject) => {
@@ -101,6 +110,7 @@ export class PermissionGate {
         this.sessionAllows.add(allowKey);
       }
       if (decision.behavior === 'deny') opts.onDenied?.(payload);
+      else tracking.onAllowed?.();
       return opts.answer(decision, payload);
     } catch (err) {
       if (entry.end === 'timeout') {
@@ -115,7 +125,7 @@ export class PermissionGate {
       clearTimeout(timeout);
       withdrawn.removeEventListener('abort', onWithdrawn);
       this.waiting.delete(controller);
-      opts.onSettled(this.waiting.size);
+      if (tracking.trackState !== false) opts.onSettled(this.waiting.size);
     }
   }
 

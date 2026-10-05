@@ -1294,6 +1294,11 @@ export class SessionOrchestrator {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    if (provider === 'gemini' && (this.deps.executionProfile === 'managed_vm' || this.managed))
+      throw conflict('provider_unsupported', 'Gemini is not supported in the managed VM profile yet.', {
+        provider: 'gemini',
+        profile: 'managed_vm',
+      });
     // The session's own permission settings, set by an owner, in place of the member's (PM-170):
     // a resume keeps them (same row), a new session has none. The member's stay as they are.
     const permissions = effectiveSessionPermissions(member, existing ?? {});

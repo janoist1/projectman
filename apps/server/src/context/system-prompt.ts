@@ -59,6 +59,9 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
 function isCodex(member: ContextPackInput['member']): boolean {
   return member.provider === 'codex';
 }
+function isGemini(member: ContextPackInput['member']): boolean {
+  return member.provider === 'gemini';
+}
 
 function boundarySection({ project }: ContextPackInput): string {
   if (!project.team.boundary?.enabled) return '';
@@ -68,7 +71,11 @@ function boundarySection({ project }: ContextPackInput): string {
 function identitySection({ project, member }: ContextPackInput): string {
   const sponsor = project.team.members.find((m) => m.handle === member.sponsor);
   const specialty = member.specialty ? ` (${member.specialty})` : '';
-  const plan = isCodex(member) ? 'ChatGPT subscription (Codex)' : 'Claude subscription';
+  const plan = isGemini(member)
+    ? 'Google AI subscription'
+    : isCodex(member)
+      ? 'ChatGPT subscription (Codex)'
+      : 'Claude subscription';
   const lines = [
     '# Who you are',
     `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role, project.team.roles)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s ${plan}.`,
@@ -155,12 +162,14 @@ function teamSection(input: ContextPackInput): string {
  */
 function teamworkSection({ project, member }: ContextPackInput): string {
   const language = project.project.language;
-  const cli = isCodex(member) ? 'Codex' : 'Claude Code';
+  const cli = isGemini(member) ? 'Gemini' : isCodex(member) ? 'Codex' : 'Claude Code';
   const rules = isCodex(member) ? "The project's AGENTS.md (or CLAUDE.md)" : "The project's CLAUDE.md";
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
+    isGemini(member)
+      ? '- Work with the others through the team tools on the MCP server "team", using call_mcp_tool. Each tool description says when and how to use it. Read the project CLAUDE.md at the start: this CLI does not load it automatically.'
+      : `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
     '- Message only when someone has something to do, and send humans only what needs their decision or action.',
@@ -332,6 +341,8 @@ function unattendedCommandsSection({
   sandbox,
 }: ContextPackInput): string {
   const repo = repoOf(project, effectiveRepo(project, task));
+  if (isGemini(member))
+    return '# Commands\nYour role commands and reading commands within the allowed roots run immediately; other commands wait for a permission decision in the inbox. Do not chain commands with && or |. Use file tools for reading. Never retry a refused command in another form.';
   // A Claude member in the CLI's own sandbox (PM-167) is told its boundary instead: nothing there
   // waits for a human, whatever the work item. Codex's text does not change.
   if (sandbox && !isCodex(member) && sessionPolicy) {
@@ -415,6 +426,7 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
  * for this task, so that a resumed session knows it too (the system prompt is rebuilt on resume).
  */
 function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackInput): string {
+  if (isGemini(member)) return '';
   const placement = policy?.placement;
   // The commit handed over with the task's current review or test stage (PM-183).
   const pin = task?.reviewPin;

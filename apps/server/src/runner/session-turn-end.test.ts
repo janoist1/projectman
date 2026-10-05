@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { RunnerEvent, StartSessionSpec } from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { createClaudeAdapter } from './providers/claude';
+import { createGeminiAdapter } from './providers/gemini';
+import { geminiSpec } from './providers/gemini/test-helpers';
 import { AgentSession, type PtyProcess } from './session';
 import { silentLogger, tempDirs } from './test-helpers';
 
@@ -36,7 +38,7 @@ afterEach(async () => {
   await dirs.cleanup();
 });
 
-async function start(graceMs = GRACE_MS) {
+async function start(graceMs = GRACE_MS, gemini = false) {
   const home = await dirs.make();
   const transcript = path.join(home, 'conversation.jsonl');
   await writeFile(transcript, '');
@@ -54,13 +56,16 @@ async function start(graceMs = GRACE_MS) {
     },
   };
   const claude = createClaudeAdapter({ bin: 'claude', logger: silentLogger() });
+  const adapter = gemini ? createGeminiAdapter({ bin: 'unused', logger: silentLogger() }) : claude;
   const session = new AgentSession({
-    spec,
+    spec: gemini ? geminiSpec('/work', { initialMessage: null }) : spec,
     hookToken: 'tok',
-    adapter: { ...claude, timing: { ...claude.timing, turnEndGraceMs: graceMs } },
+    adapter: { ...adapter, timing: { ...adapter.timing, turnEndGraceMs: graceMs } },
     deps: {
       logger: silentLogger(),
-      broker: { decide: () => new Promise(() => undefined) },
+      broker: {
+        decide: () => (gemini ? Promise.resolve({ behavior: 'allow' }) : new Promise(() => undefined)),
+      },
       permissionTimeoutMs: 60_000,
       emit: (event) => events.push(event),
       onExited: () => undefined,
@@ -74,12 +79,23 @@ async function start(graceMs = GRACE_MS) {
   const assistant = (uuid: string, stopReason: string | null, content: unknown[], at: Date = new Date()) =>
     appendFile(
       transcript,
-      `${JSON.stringify({
-        type: 'assistant',
-        uuid,
-        timestamp: at.toISOString(),
-        message: { id: `msg-${uuid}`, role: 'assistant', stop_reason: stopReason, content },
-      })}\n`,
+      `${JSON.stringify(
+        gemini
+          ? {
+              type: 'PLANNER_RESPONSE',
+              step_index: 1,
+              created_at: at.toISOString(),
+              content: 'Done.',
+              input_tokens: 1,
+              output_tokens: 1,
+            }
+          : {
+              type: 'assistant',
+              uuid,
+              timestamp: at.toISOString(),
+              message: { id: `msg-${uuid}`, role: 'assistant', stop_reason: stopReason, content },
+            },
+      )}\n`,
     );
   const states = () =>
     events
@@ -100,6 +116,23 @@ const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
 describe('a turn the transcript ended (PM-343)', () => {
+  it('still decides late Gemini calls without reopening the ended turn', async () => {
+    const { session, hook, assistant, states } = await start(GRACE_MS, true);
+    await assistant('gm1', 'end_turn', ENDING);
+    await hook({ hook_event_name: 'Stop' });
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const call = (command: string): HookPayload => ({
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command },
+      gemini_tool: 'run_command',
+      gemini_args: { CommandLine: command, Cwd: '/work' },
+    });
+    expect(await hook(call('npm test'))).toEqual({ decision: 'allow' });
+    expect(await hook(call('echo ask'))).toEqual({ decision: 'allow' });
+    expect(session.state.state).toBe('idle');
+    expect(states().slice(-1)).toEqual(['idle']);
+  });
   it('is closed when the Stop hook never comes', async () => {
     const { session, assistant } = await start();
     expect(session.state.state).toBe('working');

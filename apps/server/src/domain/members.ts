@@ -271,7 +271,9 @@ export class MemberService {
         ...(req.specialty ? { specialty: req.specialty } : {}),
         ...(req.provider ? { provider: req.provider } : {}),
         model:
-          req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
+          req.provider && req.provider !== 'claude'
+            ? modelForProvider(req.provider, req.model)
+            : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
         ...(req.cheapSubagent ? { cheapSubagent: req.cheapSubagent } : {}),
         permissionMode: defaults.permissionMode,
@@ -371,7 +373,7 @@ export class MemberService {
         }
         if (req.provider !== undefined && req.provider !== (member.provider ?? DEFAULT_AGENT_PROVIDER)) {
           member.provider = req.provider;
-          member.model = modelForProvider(req.provider, member.model);
+          member.model = modelForProvider(req.provider, req.model);
           fields.push('provider');
         }
         if (req.effort !== undefined) {

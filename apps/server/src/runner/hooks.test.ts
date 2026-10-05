@@ -40,6 +40,36 @@ function appWith(session: AgentSession, sessionForToken?: (token: string) => Age
 }
 
 describe('POST /hooks/:token', () => {
+  it('passes validated URL events through the same local guards', async () => {
+    const { session, calls } = fakeSession(async () => ({ decision: 'allow' }));
+    const app = Fastify({ logger: false });
+    apps.push(app);
+    registerHookRoutes(app, {
+      sessionForToken: (token) => (token === 'good' ? session : undefined),
+      parse: (_s, body, event) => ({ hook_event_name: event!, ...(body as object) }),
+      logger: silentLogger(),
+    });
+    expect((await app.inject({ method: 'POST', url: '/hooks/good/PreToolUse', payload: {} })).json()).toEqual(
+      { decision: 'allow' },
+    );
+    expect(calls[0]!.hook_event_name).toBe('PreToolUse');
+    expect((await app.inject({ method: 'POST', url: '/hooks/good/Bad123', payload: {} })).statusCode).toBe(
+      404,
+    );
+    expect((await app.inject({ method: 'POST', url: '/hooks/missing/Stop', payload: {} })).statusCode).toBe(
+      404,
+    );
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/hooks/good/Stop',
+          headers: { host: 'evil.example' },
+          payload: {},
+        })
+      ).statusCode,
+    ).toBe(403);
+  });
   it('passes the payload to the session and answers no-ops with an empty 200', async () => {
     const { session, calls } = fakeSession(async () => null);
     const app = appWith(session);

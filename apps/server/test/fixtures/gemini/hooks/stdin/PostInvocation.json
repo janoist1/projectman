@@ -1,0 +1,11 @@
+{
+  "artifactDirectoryPath": "/tmp/pm-agy-probe/gd2/antigravity-cli/brain/05d4a6ce-ca76-4cf2-8487-9d94557688ae",
+  "conversationId": "05d4a6ce-ca76-4cf2-8487-9d94557688ae",
+  "initialNumSteps": 4,
+  "invocationNum": 0,
+  "modelName": "gemini-3.8-flash-low",
+  "transcriptPath": "/tmp/pm-agy-probe/gd2/antigravity-cli/brain/05d4a6ce-ca76-4cf2-8487-9d94557688ae/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/pm-agy-probe/ws"
+  ]
+}

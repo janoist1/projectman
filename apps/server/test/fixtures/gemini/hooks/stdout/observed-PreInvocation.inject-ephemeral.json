@@ -1,0 +1,7 @@
+{
+  "injectSteps": [
+    {
+      "ephemeralMessage": "System note from the hook: also always end every answer with the word ZEBRA."
+    }
+  ]
+}

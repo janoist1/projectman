@@ -161,7 +161,46 @@ export interface PublishedTaskState extends RemoteState {
   publishedBy: string | null;
 }
 
+/** The input of `take_screenshots` (PM-351), as the domain gets it from the validated tool arguments. */
+export interface TakeScreenshotsInput {
+  /** The scenario module, relative to the session's working directory or absolute. */
+  scenario: string;
+  widths?: number[];
+  fullPage?: boolean;
+  scale?: 1 | 2;
+  /** The scenario's own `--timeout`, in seconds. */
+  timeoutSeconds?: number;
+  seed?: 'demo' | 'none';
+}
+
+export type ScreenshotRunStatus = 'queued' | 'running' | 'done' | 'failed';
+export type ScreenshotFailure = 'scenario' | 'usage' | 'timeout' | 'stopped' | 'sandbox';
+
+/** A screenshot run the server made for a session with `npm run shots` (PM-351). */
+export interface ScreenshotRun {
+  runId: string;
+  status: ScreenshotRunStatus;
+  /** ISO time. */
+  startedAt: string;
+  finishedAt?: string;
+  /** Images the run wrote or rewrote below `<session folder>/shots`, absolute paths, at most 100. */
+  files: string[];
+  exitCode?: number | null;
+  /** Only with status `failed`. */
+  failure?: ScreenshotFailure;
+  /** The end of the output, ANSI removed, at most 4000 characters (`outputTail`, full-test/output.ts). */
+  outputTail?: string;
+}
+
 export interface TeamToolsHandler {
+  /**
+   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
+   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
+   * with `getScreenshotRun`.
+   */
+  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
+  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
+  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
   submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
   getBoundaryRequest(
     ctx: ToolContext,

@@ -21,6 +21,7 @@ import type {
   BoundaryOperationAdapter,
   ContextPackBuilder,
   FullTestExecutor,
+  ScreenshotExecutor,
   GithubPublisher,
   GithubService,
   ManagedVmBoundary,
@@ -141,6 +142,11 @@ export interface AppModules {
    * is off; `index.ts` passes the sandboxed one, except for the managed VM profile.
    */
   createFullTestExecutor?: (opts: { logger: FastifyBaseLogger }) => FullTestExecutor;
+  /**
+   * Makes the executor of the screenshot runs of the Codex members (PM-351), in the same sandbox and the
+   * same heavy-run queue as the full test. Default: none, so `take_screenshots` is refused.
+   */
+  createScreenshotExecutor?: (opts: { logger: FastifyBaseLogger }) => ScreenshotExecutor;
   /**
    * Makes what the machine display measures with (PM-320). Default: the operating system's; `index.ts`
    * passes the fixed-data probe of the screenshot mode, tests a fake.
@@ -473,6 +479,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: modules.createFullTestExecutor?.({ logger: log.child({ module: 'full-test' }) }),
+      screenshotExecutor: modules.createScreenshotExecutor?.({
+        logger: log.child({ module: 'screenshots' }),
+      }),
       repos,
       configStore,
       logger: log.child({ module: 'domain' }),

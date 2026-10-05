@@ -31,6 +31,7 @@ import {
   formatPublished,
   formatQuestionAsked,
   formatRemoteState,
+  formatScreenshotRun,
   formatSentMessage,
   formatTaskCreated,
   formatTaskDetail,
@@ -69,6 +70,8 @@ export const TEAM_TOOL_NAMES = [
   'list_attachments',
   'read_attachment',
   'attach_file',
+  'take_screenshots',
+  'get_screenshot_run',
   'delete_attachment',
 ] as const;
 export type TeamToolName = (typeof TEAM_TOOL_NAMES)[number];
@@ -1001,6 +1004,78 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const { attachment } = await handler.attachFile(ctx, { taskKey: args.task_key, path: args.path });
       return formatAttached(args.task_key, attachment);
+    },
+  }),
+
+  defineTool({
+    name: 'take_screenshots',
+    title: 'Take screenshots',
+    readOnly: false,
+    description:
+      'Take screenshots with `npm run shots` (docs/SCREENSHOTS.md): the server runs the scenario of your working ' +
+      'directory in its own sandbox, where the browser starts (it does not in yours). The images go to the ' +
+      "'shots' folder of your session folder; open one with your image viewing tool and attach it with " +
+      'attach_file. The call waits up to 40 seconds: if the run is not over then, it answers `running`, and ' +
+      'you ask for its end with get_screenshot_run. One run at a time per session.',
+    input: {
+      scenario: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .describe(
+          "The scenario module (an ES module, e.g. 'scripts/scenarios/card-with-question.mjs'): relative to your " +
+            'working directory, or an absolute path inside it or inside your session folder.',
+        ),
+      widths: z
+        .array(z.number().int().min(200).max(4000))
+        .min(1)
+        .max(8)
+        .optional()
+        .describe('Widths of the images in pixels (default 1512, 800, 390, 375).'),
+      full_page: z.boolean().optional().describe('Capture the whole page by default.'),
+      scale: z
+        .union([z.literal(1), z.literal(2)])
+        .optional()
+        .describe('Device pixel ratio, 1 (default) or 2.'),
+      timeout_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(600)
+        .optional()
+        .describe("The scenario's own time limit in seconds, instance start included (default 240)."),
+      seed: z
+        .enum(['demo', 'none'])
+        .optional()
+        .describe('demo (default: the Acme webshop with four cards) or none (an empty instance).'),
+    },
+    async run({ ctx, args, handler }) {
+      const run = await handler.takeScreenshots(ctx, {
+        scenario: args.scenario,
+        ...(args.widths ? { widths: args.widths } : {}),
+        ...(args.full_page !== undefined ? { fullPage: args.full_page } : {}),
+        ...(args.scale !== undefined ? { scale: args.scale } : {}),
+        ...(args.timeout_seconds !== undefined ? { timeoutSeconds: args.timeout_seconds } : {}),
+        ...(args.seed !== undefined ? { seed: args.seed } : {}),
+      });
+      return formatScreenshotRun(run);
+    },
+  }),
+
+  defineTool({
+    name: 'get_screenshot_run',
+    title: 'Get a screenshot run',
+    readOnly: true,
+    description:
+      'The state of a screenshot run you started with take_screenshots: while it is not over it waits up to ' +
+      '40 seconds for its end, then answers its state. The answer lists the images it wrote and the end of its ' +
+      'output.',
+    input: {
+      run_id: z.string().trim().min(1).max(64).describe('The run id, e.g. "shr_…".'),
+    },
+    async run({ ctx, args, handler }) {
+      return formatScreenshotRun(await handler.getScreenshotRun(ctx, args.run_id));
     },
   }),
 

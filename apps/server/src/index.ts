@@ -7,7 +7,7 @@ import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
 import { defaultSessionTmpRoot } from './domain/session-folders';
-import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
+import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
@@ -192,6 +192,8 @@ async function main(): Promise<void> {
             nanogptKeyCheck: createNanogptKeyCheck(),
             createFullTestExecutor: ({ logger }) =>
               createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
+            createScreenshotExecutor: ({ logger }) =>
+              createScreenshotExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },
   });
   if (config.app.executionProfile === 'managed_vm')

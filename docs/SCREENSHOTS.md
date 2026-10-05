@@ -45,6 +45,34 @@ npm run shots -- <scenario.mjs> [--out <dir>] [--widths 1512,800,390,375] [--ful
 | `--keep-data` | Keep the instance's data folder (its path is printed) instead of removing it                                                 |
 | `--machine`   | A JSON file of a fixed machine for the machine display (see below), e.g. `scripts/fixtures/machine/busy.json`                |
 
+### Codex members: the server makes the images (PM-351)
+
+Chromium does not start in the Codex sandbox, so a Codex member does not run `npm run shots`. It
+calls the `take_screenshots` tool, and the server runs the command in the member's worktree,
+inside projectman's own `srt` sandbox (the one of the server full test), as the member's session:
+
+```
+take_screenshots scenario=shots/card-question.mjs widths=[1512,390] full_page=true scale=1 seed=demo
+get_screenshot_run run_id=shr_…
+```
+
+- `scenario` is the scenario file, relative to the working directory or absolute; it must be a file
+  inside the working directory or the session folder (links are resolved). `widths` (1–8 numbers,
+  200–4000), `full_page`, `scale` (1 or 2), `timeout_seconds` (1–600) and `seed` (`demo` or `none`)
+  are the options above. `--out`, `--keep-data` and `--machine` cannot be given: the images always go
+  to `$PROJECTMAN_SESSION_DIR/shots/<scenario name>`.
+- The tool waits at most 40 s. A run that is still going is answered as `running` with its `run_id`;
+  ask again with `get_screenshot_run` (it waits 40 s more). The run takes its turn in the machine's
+  heavy-run queue (the wait is not part of its time), and its time limit is 15 minutes.
+- An ended run lists the images it wrote (absolute paths in the session folder), the exit code and
+  the end of the output. A failure says why: `scenario` (the scenario failed, exit code 1), `usage`
+  (wrong options or no browser installed, exit code 2), `timeout`, `stopped` (the session ended) or
+  `sandbox` (the sandbox did not start). Open an image with the image tool, and attach it with
+  `attach_file` as below.
+- One run at a time per session; the server keeps an ended run for an hour (the last five).
+- The tools exist for sessions with a session folder in a worktree (Codex in `acceptEdits` mode or
+  more), on macOS with `srt`; otherwise they answer `forbidden`.
+
 ### A fixed machine for the machine display
 
 The machine display (PM-300) measures the real machine with `ps`, which a member's sandbox does not

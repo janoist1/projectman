@@ -5,6 +5,14 @@ import type { FullTestSpec } from '../contracts';
 export const FULL_TEST_GIT_CONFIG =
   '[user]\n\tname = projectman full test\n\temail = full-test@projectman.invalid\n[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n';
 
+/** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
+export const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
+
+/** One word of a shell command, in single quotes: nothing in it is expanded. */
+export function quoteShellWord(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * The longest Unix socket path the sandbox can open, a little below macOS's limit (104 bytes with the
  * terminating NUL), and the longest socket name `srt` makes in the sandbox's TMPDIR

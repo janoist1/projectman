@@ -12,9 +12,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
+import type { ScreenshotExecutor, ScreenshotRunSpec } from '../src/contracts';
 import { buildCodexArgs } from '../src/runner/providers/codex/args';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -46,6 +47,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     mode?: string;
     tmp?: boolean | string;
     heavyLockDir?: string;
+    screenshots?: ScreenshotExecutor;
     persistent?: boolean;
     adjust?: (config: ProjectConfig) => void;
   }) => {
@@ -56,6 +58,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       sessionFolders: true,
       sessionTmp: options.tmp ?? true,
       heavyLockDir: options.heavyLockDir,
+      screenshotExecutor: options.screenshots,
       persistent: options.persistent,
       adjust: (config) => {
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
@@ -171,6 +174,102 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(text).toContain('sandbox_workspace_write.exclude_slash_tmp=true');
     expect(text).toContain('sandbox_workspace_write.exclude_tmpdir_env_var=true');
     expect(text).toContain('tools.view_image=true');
+  });
+
+  it('keeps the screenshot scope of a session with a folder in its worktree until the session ends (PM-351)', async () => {
+    const { session } = await start({ mode: 'acceptEdits' });
+    const spec = h!.runner.lastStarted();
+    const folder = portable().env.PROJECTMAN_SESSION_DIR!;
+    const scope = h!.domain.sessions.screenshotScope(session.id);
+    expect(scope).toMatchObject({ cwd: spec.cwd, sessionDir: folder });
+    expect(scope!.sandbox.allowWrite).toContain(folder);
+    expect(scope!.sandbox.allowRead).toContain(spec.cwd);
+
+    // The run stops before the folder goes.
+    const seen: boolean[] = [];
+    h!.domain.sessions.onFolderRemoved((id) => seen.push(id === session.id && existsSync(folder)));
+    await h!.runner.stop(session.id);
+    expect(seen).toEqual([true]);
+    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
+    expect(existsSync(folder)).toBe(false);
+  });
+
+  it('has no screenshot scope for a session without a folder, or one that only reads (PM-351)', async () => {
+    const { session } = await start({});
+    expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
+  });
+
+  describe('take_screenshots and get_screenshot_run (PM-351)', () => {
+    /** A fake server executor: it records the run and ends when the test says so, or when it is stopped. */
+    const fake = () => {
+      const specs: ScreenshotRunSpec[] = [];
+      const signals: AbortSignal[] = [];
+      let end: () => void = () => undefined;
+      const executor: ScreenshotExecutor = {
+        run: (spec, signal, started) =>
+          new Promise((resolve) => {
+            specs.push(spec);
+            signals.push(signal);
+            started();
+            end = () => resolve({ exitCode: 0, timedOut: false, aborted: false, output: 'done' });
+            signal.addEventListener('abort', () =>
+              resolve({ exitCode: null, timedOut: false, aborted: true, output: '' }),
+            );
+          }),
+      };
+      return { executor, specs, signals, end: () => end() };
+    };
+    const tools = () => h!.domain.teamTools;
+
+    it.runIf(process.platform === 'darwin')(
+      'makes a run in the session worktree with the session folder, and stops it when the session ends',
+      async () => {
+        const f = fake();
+        const { session } = await start({ mode: 'acceptEdits', screenshots: f.executor });
+        const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+        mkdirSync(join(session.cwd, 'shots'), { recursive: true });
+        writeFileSync(join(session.cwd, 'shots', 'login.mjs'), 'export default {};');
+
+        const taking = tools().takeScreenshots(ctx, { scenario: 'shots/login.mjs', widths: [390] });
+        await vi.waitFor(() => expect(f.specs).toHaveLength(1));
+        const folder = portable().env.PROJECTMAN_SESSION_DIR!;
+        expect(f.specs[0]).toMatchObject({
+          cwd: session.cwd,
+          sessionDir: folder,
+          args: [join(realpathSync(session.cwd), 'shots', 'login.mjs'), '--widths', '390'],
+        });
+        // It runs with the session's own limits: it writes the folder, and nothing outward.
+        expect(f.specs[0]!.sandbox.allowWrite).toContain(folder);
+        f.end();
+        const run = await taking;
+        expect(run).toMatchObject({ status: 'done', exitCode: 0 });
+        await expect(tools().getScreenshotRun(ctx, run.runId)).resolves.toMatchObject({ status: 'done' });
+
+        // A second run, stopped with the session: the signal aborts before the folder goes.
+        const second = tools().takeScreenshots(ctx, { scenario: 'shots/login.mjs' });
+        await vi.waitFor(() => expect(f.specs).toHaveLength(2));
+        await h!.runner.stop(session.id);
+        expect(f.signals[1]!.aborted).toBe(true);
+        expect(await second).toMatchObject({ status: 'failed', failure: 'stopped' });
+        expect(existsSync(folder)).toBe(false);
+      },
+    );
+
+    it('is forbidden for a session without a folder (read-only sandbox)', async () => {
+      const f = fake();
+      const { session } = await start({ screenshots: f.executor });
+      const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+      const err = await rejection(tools().takeScreenshots(ctx, { scenario: 'a.mjs' }), TeamToolError);
+      expect(err.code).toBe('forbidden');
+      expect(f.specs).toHaveLength(0);
+    });
+
+    it('is forbidden when the server has no screenshot executor', async () => {
+      const { session } = await start({ mode: 'acceptEdits' });
+      const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+      const err = await rejection(tools().getScreenshotRun(ctx, 'shr_x'), TeamToolError);
+      expect(err.code).toBe('forbidden');
+    });
   });
 
   it('gives a default-mode session (read-only sandbox) neither', async () => {

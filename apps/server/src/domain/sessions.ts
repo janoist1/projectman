@@ -59,6 +59,7 @@ import type {
   RelatedSession,
   RunnerEvent,
   RuntimeBoundary,
+  ScreenshotScope,
   SessionPolicy,
   SessionRunner,
   SourceHead,
@@ -96,7 +97,7 @@ import {
   usesWorktree,
   withSessionFolders,
 } from './session-policy';
-import { SESSION_DIR_VARIABLE } from './session-folders';
+import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
 import type { SessionFolders } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -438,6 +439,10 @@ export class SessionOrchestrator {
    * reaches it first.
    */
   private readonly stopReasons = new Map<string, SessionStop>();
+  /** What a screenshot run of each live session with a folder in its worktree needs (PM-351). */
+  private readonly screenshotScopes = new Map<string, ScreenshotScope>();
+  /** Told when a session's folder is removed (the session ended), before it is (PM-351). */
+  private readonly folderListeners = new Set<(sessionId: string) => void>();
   private readonly unsubscribe: () => void;
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
@@ -1572,6 +1577,21 @@ export class SessionOrchestrator {
     // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
     // that exists (a link). `make` makes it new, with the folder.
     this.preparePortablePaths(sandbox?.portable?.allowWrite);
+    if (sessionFolder && sandbox && policy.access === 'task_worktree') {
+      const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
+      this.screenshotScopes.set(sessionId, {
+        cwd,
+        sessionDir: sessionFolder,
+        ...(browsers ? { browsersDir: browsers } : {}),
+        sandbox: {
+          allowWrite: [...sandbox.allowWrite],
+          denyWrite: [...(sandbox.denyWrite ?? [])],
+          denyRead: [...(sandbox.denyRead ?? [])],
+          // The run reads the worktree it runs in, whatever the home's closure says.
+          allowRead: [...new Set([cwd, ...(sandbox.allowRead ?? [])])],
+        },
+      });
+    }
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
@@ -1767,6 +1787,23 @@ export class SessionOrchestrator {
       messagesSent: messages.length,
       firstInput,
     };
+  }
+
+  /**
+   * What a screenshot run of the session needs (PM-351): its worktree, its own folder and the limits of
+   * its sandbox. Undefined when the session has no folder of its own or does not work in a worktree.
+   */
+  screenshotScope(sessionId: string): ScreenshotScope | undefined {
+    return this.screenshotScopes.get(sessionId);
+  }
+
+  /**
+   * `listener` is called with the id of a session whose folder is about to be removed (it ended, or its
+   * start failed): a run that uses the folder stops first. Returns the function that removes it.
+   */
+  onFolderRemoved(listener: (sessionId: string) => void): () => void {
+    this.folderListeners.add(listener);
+    return () => this.folderListeners.delete(listener);
   }
 
   /**
@@ -1976,6 +2013,14 @@ export class SessionOrchestrator {
    * it; a failure is logged and never stops the caller.
    */
   private removeSessionFolderOf(sessionId: string): void {
+    this.screenshotScopes.delete(sessionId);
+    for (const listener of this.folderListeners) {
+      try {
+        listener(sessionId);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId }, 'a listener of the session folder removal failed');
+      }
+    }
     try {
       this.deps.sessionFolders?.remove(sessionId);
     } catch (err) {

@@ -921,9 +921,16 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Playwright loads local Chromium binaries from the configured browser directory (default
   `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
-  and writes images to local output storage.
+  and writes images to local output storage. For a Codex member, whose sandbox cannot start
+  Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
+  PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
+  member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
+  the session folder as the output; it queues in the machine's heavy-run queue and is off in the
+  managed VM profile and off macOS.
   **Remote engine:** provision a compatible browser on the engine, preserve the disposable
-  instance's network fence and read-only browser access, and return images as artifacts.
+  instance's network fence and read-only browser access, and return images as artifacts. The
+  screenshot run belongs on the engine that owns the member's worktree and session folder (the
+  server cannot run it against a remote path); the server keeps only the tool and the run record.
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
   `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
@@ -1008,8 +1015,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   helper does so as the worker, for that worker's home and local repository path.
   **Remote engine:** prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
-- **Server full test before review** — `domain/full-tests.ts`, `full-test/{index,sandbox}.ts`
-  (PM-217, PM-336). The executor runs the pinned checkout on the server host, using local
+- **Server full test before review** — `domain/full-tests.ts`,
+  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336; PM-351 shares the spawn with the
+  screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
   it is unavailable without macOS/`srt` and is off in the managed VM profile.
   **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent

@@ -53,21 +53,23 @@ tests use the SDK's own client, which behaves the same way here):
 
 ## Tools
 
-| Tool                | Input                                                                                                                                         | Handler call                                                                                            |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `send_message`      | `to` (handles, 1–20), `text`, `task_key?`                                                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                              |
-| `list_members`      | none                                                                                                                                          | `listMembers(ctx)`                                                                                      |
-| `list_tasks`        | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                    | `listTasks(ctx, args)`                                                                                  |
-| `get_task`          | `task_key`                                                                                                                                    | `getTask(ctx, { taskKey })`                                                                             |
-| `update_task`       | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`, `repo?` (name or `null`)       | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description?, repo? })` |
-| `create_task`       | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                            |
-| `link_pull_request` | `task_key`, `repo` (`owner/name`), `number`                                                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                       |
-| `ask_human`         | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?` | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to? })`   |
-| `save_memory`       | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                             |
-| `list_attachments`  | `task_key`, `offset?` (default 0), `limit?` (1–200, default 50)                                                                               | `listAttachments(ctx, { taskKey, offset, limit })`                                                      |
-| `read_attachment`   | `task_key`, `attachment_id`                                                                                                                   | `readAttachment(ctx, { taskKey, attachmentId })`                                                        |
-| `attach_file`       | `task_key`, `path` (relative to the session's working directory, or absolute inside it or inside the session folder)                          | `attachFile(ctx, { taskKey, path })`                                                                    |
-| `delete_attachment` | `task_key`, `attachment_id`                                                                                                                   | `deleteAttachment(ctx, { taskKey, attachmentId })`                                                      |
+| Tool                 | Input                                                                                                                                         | Handler call                                                                                            |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `send_message`       | `to` (handles, 1–20), `text`, `task_key?`                                                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                              |
+| `list_members`       | none                                                                                                                                          | `listMembers(ctx)`                                                                                      |
+| `list_tasks`         | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                    | `listTasks(ctx, args)`                                                                                  |
+| `get_task`           | `task_key`                                                                                                                                    | `getTask(ctx, { taskKey })`                                                                             |
+| `update_task`        | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`, `repo?` (name or `null`)       | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description?, repo? })` |
+| `create_task`        | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                            |
+| `link_pull_request`  | `task_key`, `repo` (`owner/name`), `number`                                                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                       |
+| `ask_human`          | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?` | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to? })`   |
+| `save_memory`        | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                             |
+| `list_attachments`   | `task_key`, `offset?` (default 0), `limit?` (1–200, default 50)                                                                               | `listAttachments(ctx, { taskKey, offset, limit })`                                                      |
+| `read_attachment`    | `task_key`, `attachment_id`                                                                                                                   | `readAttachment(ctx, { taskKey, attachmentId })`                                                        |
+| `attach_file`        | `task_key`, `path` (relative to the session's working directory, or absolute inside it or inside the session folder)                          | `attachFile(ctx, { taskKey, path })`                                                                    |
+| `delete_attachment`  | `task_key`, `attachment_id`                                                                                                                   | `deleteAttachment(ctx, { taskKey, attachmentId })`                                                      |
+| `take_screenshots`   | `scenario` (1–500 chars), `widths?` (1–8 × 200–4000), `full_page?`, `scale?` (1 or 2), `timeout_seconds?` (1–600), `seed?` (`demo` or `none`) | `takeScreenshots(ctx, { scenario, widths?, fullPage?, scale?, timeoutSeconds?, seed? })`                |
+| `get_screenshot_run` | `run_id` (1–64 chars)                                                                                                                         | `getScreenshotRun(ctx, runId)`                                                                          |
 
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
   silently dropped. Handles, task keys, stage ids, task statuses and visibility reuse the
@@ -108,6 +110,15 @@ tests use the SDK's own client, which behaves the same way here):
   directory from the session the token names (and, for an absolute path inside it, the session's
   own folder, PM-268) and opens the file with `openWorkspaceFile`
   (`domain/attachments/workspace-file.ts`). `delete_attachment` deletes only the caller's own.
+- Screenshots (PM-351) are for the members whose own sandbox cannot start Chromium (Codex).
+  `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
+  sandbox (`domain/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run
+  still going is answered as `running`, and `get_screenshot_run` waits another 40 s. The arguments
+  are built from the validated fields only: `--out`, `--keep-data` and `--machine` cannot be given,
+  and the scenario must be a file inside the working directory or the session folder (real path).
+  The images land in `shots/` of the session folder; the answer lists their paths, to open with the
+  agent's image tool or to `attach_file`. One run at a time per session; both tools are refused
+  (`forbidden`) for a session without a folder in a worktree and off macOS. The answer is text only.
 - `get_task` includes the parent and one-level subtasks with keys, titles, stages and statuses.
   Its `Repo:` line is the repository the work happens in (the task's own, else the project's only
   one), or says that none is chosen yet (the project has several) or that the work is in the

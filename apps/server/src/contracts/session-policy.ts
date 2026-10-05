@@ -87,6 +87,17 @@ export interface SessionPolicy {
      * sandbox (`denyRead`, PM-167), not by these. Absent in the managed VM profile.
      */
     deniedPaths?: string[];
+    /**
+     * The session's own folder (PM-268, `PROJECTMAN_SESSION_DIR`): the file tools read and change it
+     * without asking. Not a working directory (`--add-dir`). Legacy Claude sessions only.
+     */
+    sessionFolder?: string;
+    /**
+     * The root of this instance's session folders (PM-333), the parent of `sessionFolder`: the file
+     * tools read every member's folder below it without asking and change nothing through it.
+     * Present only with `sessionFolder`.
+     */
+    sessionFoldersRoot?: string;
   };
   deniedOperations: DeniedSessionOperation[];
   network: {

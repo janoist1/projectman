@@ -4,16 +4,18 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import { SessionFolders } from '../src/domain/session-folders';
+import { buildSettings } from '../src/runner/providers/claude/args';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
@@ -50,10 +52,33 @@ describe('the session folder of a session (PM-268)', () => {
       userHome: home,
       appHome,
       browsersDir: browsers,
-      sessionFolders: true,
+      // The real shape: `<realpath(tmpdir)>/projectman-sessions/<12 hex>` (macOS: `/private/var/folders/…`).
+      sessionFolders: join(realpathSync(base), 'projectman-sessions', '0123456789ab'),
       persistent,
       adjust,
     });
+  /** The settings the Claude adapter hands the CLI for the latest start: what really decides the asking. */
+  const allowRules = () => {
+    const spec = h!.runner.lastStarted();
+    return buildSettings({
+      hookUrl: 'http://127.0.0.1/hooks/x',
+      permissionTimeoutMs: 1000,
+      allowedTools: spec.allowedTools,
+      deniedTools: spec.deniedTools,
+      policy: spec.policy,
+      sandbox: spec.sandbox,
+    }).permissions.allow;
+  };
+  /** The folder rules in the CLI's settings: the own folder read and written, the root read only. */
+  const expectFolderRules = (dir: string) => {
+    const allow = allowRules();
+    const root = dirname(dir);
+    expect(allow).toEqual(
+      expect.arrayContaining([`Read(/${root}/**)`, `Read(/${dir}/**)`, `Edit(/${dir}/**)`]),
+    );
+    expect(allow).not.toContain(`Edit(/${root}/**)`);
+    expect(root).toMatch(/\/projectman-sessions\/[0-9a-f]{12}$/);
+  };
 
   it('gives a developer its folder in the sandbox, in the tool rules and on the disk', async () => {
     h = await withFolders();
@@ -71,8 +96,15 @@ describe('the session folder of a session (PM-268)', () => {
     });
     expect(spec.sandbox!.allowWrite).toContain(dir);
     expect(spec.sandbox!.allowWrite).not.toContain(browsers);
-    expect(spec.sandbox!.allowRead).toEqual(expect.arrayContaining([dir, browsers]));
-    expect(spec.allowedTools).toEqual(expect.arrayContaining([`Read(/${dir}/**)`, `Edit(/${dir}/**)`]));
+    // Every member's folder is read (PM-333): the root is re-opened, only the own folder is written.
+    expect(spec.sandbox!.allowRead).toEqual(expect.arrayContaining([dirname(dir), browsers]));
+    expect(spec.sandbox!.denyRead).not.toContain(dirname(dir));
+    expect(spec.policy!.filesystem).toMatchObject({
+      sessionFolder: dir,
+      sessionFoldersRoot: h.sessionFoldersDir,
+    });
+    // The rules in what the CLI is given, not the legacy list the adapter drops beside a policy.
+    expectFolderRules(dir);
   });
 
   it('gives a reader its own folder to write, and the browsers variable', async () => {
@@ -89,7 +121,7 @@ describe('the session folder of a session (PM-268)', () => {
       PROJECTMAN_SESSION_DIR: dir,
       PLAYWRIGHT_BROWSERS_PATH: browsers,
     });
-    expect(spec.allowedTools).toEqual(expect.arrayContaining([`Read(/${dir}/**)`, `Edit(/${dir}/**)`]));
+    expectFolderRules(dir);
   });
 
   it('gives a Codex member no folder and no variable', async () => {
@@ -102,6 +134,8 @@ describe('the session folder of a session (PM-268)', () => {
     const spec = h.runner.lastStarted();
     expect(spec.sandbox?.env ?? {}).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
     expect(spec.sandbox?.env ?? {}).not.toHaveProperty('PLAYWRIGHT_BROWSERS_PATH');
+    expect(spec.policy!.filesystem).not.toHaveProperty('sessionFolder');
+    expect(spec.policy!.filesystem).not.toHaveProperty('sessionFoldersRoot');
     expect(readdirSync(h.sessionFoldersDir!)).toEqual([]);
   });
 
@@ -155,6 +189,9 @@ describe('the session folder of a session (PM-268)', () => {
     expect(readdirSync(dir)).toEqual([]);
     expect(existsSync(old)).toBe(false);
     expect(readdirSync(h.sessionFoldersDir!)).toEqual([dir.slice(h.sessionFoldersDir!.length + 1)]);
+    // The new process's settings name the new folder, not the old one.
+    expectFolderRules(dir);
+    expect(allowRules()).not.toContain(`Read(/${old}/**)`);
   });
 
   it('does not take an old run’s path, or what a survivor of it put there, into the new sandbox', async () => {

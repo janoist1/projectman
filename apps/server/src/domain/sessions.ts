@@ -92,9 +92,9 @@ import {
   SANDBOX_GIT_CONFIG,
   SANDBOX_GIT_CONFIG_FILE,
   sensitivePaths,
-  sessionFolderToolRules,
   sessionSandbox,
   usesWorktree,
+  withSessionFolders,
 } from './session-policy';
 import { SESSION_DIR_VARIABLE } from './session-folders';
 import type { SessionFolders } from './session-folders';
@@ -1499,6 +1499,15 @@ export class SessionOrchestrator {
             // A reader changes no checkout of the project or the installation (PM-188).
             readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
           });
+    // The folder the sandbox kept and its root go into the policy: the adapter renders the file-tool
+    // rules from it, and drops the legacy allow list beside a policy (PM-333).
+    const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
+    const startPolicy = withSessionFolders(
+      policy,
+      sessionFolder && this.deps.sessionFolders
+        ? { own: sessionFolder, root: this.deps.sessionFolders.root }
+        : undefined,
+    );
     const pack = this.deps.contextBuilder.build({
       ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
@@ -1510,7 +1519,7 @@ export class SessionOrchestrator {
       timeline: task ? this.deps.timeline.list(projectKey, { taskKey: task.key, limit: 30 }) : [],
       team: this.deps.members.rosterFor(config),
       memory,
-      sessionPolicy: policy,
+      sessionPolicy: startPolicy,
       ...(sandbox ? { sandbox } : {}),
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parentAttachments ? { parentAttachments } : {}),
@@ -1550,7 +1559,6 @@ export class SessionOrchestrator {
     }
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
-    const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
     if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
@@ -1656,16 +1664,10 @@ export class SessionOrchestrator {
         ...(compactFirst ? { compactFirst } : {}),
         firstUserOrigin: openingTurnOrigin(workItem),
         mcpUrl: `${this.deps.publicBaseUrl}${routes.mcp(token)}`,
-        policy,
+        policy: startPolicy,
         // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
         // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
-        allowedTools: vm
-          ? []
-          : [
-              ...allowedToolsFor(member.role, config),
-              ...attachmentRules.allow,
-              ...sessionFolderToolRules(sessionFolder ?? null).allow,
-            ],
+        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes

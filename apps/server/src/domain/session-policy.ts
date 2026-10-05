@@ -244,7 +244,8 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...own.map((dir) => dir.path),
     ...(gitConfig ? [gitConfig] : []),
     ...(gitDir ? [gitDir] : []),
-    ...(sessionDir ? [sessionDir] : []),
+    // The instance's whole folder root: every member's folder is read, only its own is written (PM-333).
+    ...(sessionDir ? [path.dirname(sessionDir)] : []),
     ...(browsersDir ? [browsersDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
     // Never the home or a directory above it, whatever the config says.
@@ -260,13 +261,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ],
     ...(gitDir && defaultBranch ? { denyWrite: sharedGitDenials(gitDir, defaultBranch) } : {}),
     denyRead: [
-      ...new Set([
-        userHome,
-        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
-        // The folders of the other sessions, as the other worktrees: only this session's own is read.
-        ...(sessionDir ? [path.dirname(sessionDir)] : []),
-        ...denied,
-      ]),
+      ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
     ],
     allowRead: [...new Set(allowRead)],
     env: {
@@ -503,14 +498,23 @@ export function attachmentToolRules(dir: string | null): { allow: string[]; deny
 }
 
 /**
- * Claude Code rules for the session folder (PM-268): its files are read and written without
- * asking (a screenshot is looked at with Read). Not an extra working directory (`--add-dir`). A
- * path with characters that mean something in a rule gets no rules.
+ * The policy with the session folder the sandbox kept (PM-268) and its root (PM-333); unchanged
+ * without one. The adapter renders the file-tool rules from them (`claudeToolRules`). A folder
+ * that is not directly below the root gets no root: only its own is then read and written.
  */
-export function sessionFolderToolRules(dir: string | null): { allow: string[] } {
-  const paths = dir ? directoryRulePaths(dir) : null;
-  if (!paths) return { allow: [] };
-  return { allow: paths.flatMap((p) => [`Read(${p})`, `Edit(${p})`]) };
+export function withSessionFolders(
+  policy: SessionPolicy,
+  folders: { own: string; root: string } | undefined,
+): SessionPolicy {
+  if (!folders) return policy;
+  return {
+    ...policy,
+    filesystem: {
+      ...policy.filesystem,
+      sessionFolder: folders.own,
+      ...(path.dirname(folders.own) === folders.root ? { sessionFoldersRoot: folders.root } : {}),
+    },
+  };
 }
 
 /**

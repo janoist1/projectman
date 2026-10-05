@@ -874,9 +874,18 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333). Legacy Claude sessions
   receive a per-process writable folder below the server's real `tmpdir`; the server makes,
   sweeps and removes it. These folders are not supplied to Codex or managed VM sessions.
+  Every Claude session reads all the folders below the instance's root
+  (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
+  renders (`filesystem.sessionFolder`, `sessionFoldersRoot`; `claudeToolRules`) and a developer's
+  sandbox `allowRead`; it writes only its own folder. A resumed session gets a new folder, and its
+  system prompt says that the old paths are gone and the card's attachments stay. Another
+  instance's root (another home hash) gets no rule.
   **Remote engine:** allocate and clean up on the executing host, generate its sandbox paths
   there, and transfer output through an authenticated attachment path rather than reading a
-  remote absolute path on the server.
+  remote absolute path on the server. The root is a property of the engine (the PM-312 host's
+  file system), not of the server; the policy carries the two paths to the host that runs the
+  CLI. A member reads only the folders of sessions on its own engine; images move between
+  machines through `attach_file` → `read_attachment`.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270).
   Playwright loads local Chromium binaries from the configured browser directory (default

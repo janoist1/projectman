@@ -303,9 +303,23 @@ describe('describeSandbox: the session folder and the browsers', () => {
     expect(out).toContain('only the temp directory (`$TMPDIR`) and your session folder');
     expect(out).toContain(`Your session folder: \`${sessionDir}\` (\`$PROJECTMAN_SESSION_DIR\`)`);
     expect(out).toContain('`attach_file` takes their absolute path');
-    expect(out).toContain("deleted when this session's process stops");
+    expect(out).toContain("deleted when its session's process stops");
     expect(out).toContain(`Playwright's are in \`${browsers}\` (\`PLAYWRIGHT_BROWSERS_PATH\`), read-only`);
     expect(out).toContain('npm run browsers -- install');
+  });
+
+  it('says the other members’ folders are read, and that a resumed session gets a new one (PM-333)', () => {
+    const out = text({ ...base, env: { PROJECTMAN_SESSION_DIR: sessionDir } });
+    const line = out.split('\n').find((l) => l.startsWith('- Your session folder'))!;
+    expect(line).toContain('Only you write it');
+    expect(line).toContain(
+      "the other members' session folders next to it (below `/fictional/tmp/projectman-sessions/abc`)",
+    );
+    expect(line).toContain('you read without asking');
+    expect(line).toContain('A resumed session gets a new folder');
+    expect(line).toContain('no longer exist');
+    expect(line).toContain('`read_attachment`');
+    expect(line).not.toContain('yours alone');
   });
 
   it('keeps the two out of the line about the member’s own npm cache', () => {

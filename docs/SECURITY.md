@@ -233,8 +233,10 @@ in it for a link while the removal walks it. A process group left running is not
 runner stops the main process only; a separate card). The root is checked before use: a real directory (not
 a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
 server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
-the predictable path at; a symbolic link in it is removed as a link). A developer's sandbox reads
-no other session's folder (the root is in `denyRead`, its own folder re-opened). Codex and the
+the predictable path at; a symbolic link in it is removed as a link). Every Claude session of the
+instance reads every member's folder below the root, and writes only its own (PM-333, the owner's
+decision): nothing secret goes into a session folder. Another instance's root (another home hash)
+is not opened. Codex and the
 managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
 (`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 

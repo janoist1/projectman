@@ -505,6 +505,64 @@ describe('row 4: read', () => {
   });
 });
 
+describe('the session folders (PM-333)', () => {
+  const folders = join(root, 'projectman-sessions', '0123456789ab');
+  const own = join(folders, 'ses_one.0123456789abcdef');
+  const other = join(folders, 'ses_two.fedcba9876543210');
+  const withFolders = (policy: SessionPolicy): SessionPolicy => ({
+    ...policy,
+    filesystem: { ...policy.filesystem, sessionFolder: own, sessionFoldersRoot: folders },
+  });
+
+  for (const mode of MODES) {
+    describe(mode, () => {
+      for (const [name, base] of [
+        ['a working placement', policyFor(mode)],
+        ['a reading placement', reader(mode)],
+      ] as const) {
+        const policy = withFolders(base);
+
+        it(`reads every member's folder, the own one too (${name})`, () => {
+          expect(decide(policy, read(join(own, 'shots', 'a.png')))).toEqual(ALLOW);
+          expect(decide(policy, read(join(other, 'shots', 'a.png')))).toEqual(ALLOW);
+        });
+
+        it(`asks for another instance's folders (${name})`, () => {
+          const elsewhere = join(root, 'projectman-sessions', 'ffffffffffff', 'ses_x.0123456789abcdef');
+          expect(decide(policy, read(join(elsewhere, 'a.png')))).toEqual(ASK);
+          expect(decide(policy, read(join(root, 'projectman-sessions', 'a.png')))).toEqual(ASK);
+        });
+
+        it(`never frees another member's folder for writing (${name})`, () => {
+          expect(decide(policy, edit(join(other, 'a.png')))).not.toEqual(ALLOW);
+          expect(decide(policy, edit(join(folders, 'a.png')))).not.toEqual(ALLOW);
+        });
+      }
+
+      if (mode !== 'plan') {
+        it('writes the own folder without asking, as the rule does', () => {
+          expect(decide(withFolders(policyFor(mode)), edit(join(own, 'a.png')))).toEqual(ALLOW);
+          expect(decide(withFolders(reader(mode)), edit(join(own, 'a.png')))).toEqual(ALLOW);
+        });
+      }
+    });
+  }
+
+  it('asks for another member’s folder to be written in the modes that free the worktree', () => {
+    for (const mode of ['acceptEdits', 'auto'] as const) {
+      expect(decide(withFolders(policyFor(mode)), edit(join(other, 'a.png')))).toEqual(ASK);
+    }
+  });
+
+  it('reads only the folder it has without the root', () => {
+    const policy = policyFor('default', {
+      filesystem: { ...policyFor('default').filesystem, sessionFolder: own },
+    });
+    expect(decide(policy, read(join(own, 'a.png')))).toEqual(ALLOW);
+    expect(decide(policy, read(join(other, 'a.png')))).toEqual(ASK);
+  });
+});
+
 describe('the macOS firmlink prefix', () => {
   const data = '/System/Volumes/Data';
   it('reads a root through the prefix', () => {

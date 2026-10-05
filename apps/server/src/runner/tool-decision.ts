@@ -159,6 +159,12 @@ function rootForms(cwd: string, roots: readonly string[], home: string): string[
 const underAny = (path: string, roots: readonly string[], caseInsensitive = false): boolean =>
   roots.some((root) => isUnder(path, root, caseInsensitive));
 
+/** The session folders a session reads without asking (PM-333): the root of this instance's, else its own. */
+const sessionFolderRoots = (policy: SessionPolicy): string[] => {
+  const { sessionFolder, sessionFoldersRoot } = policy.filesystem;
+  return [...(sessionFoldersRoot ? [sessionFoldersRoot] : []), ...(sessionFolder ? [sessionFolder] : [])];
+};
+
 // ---------------------------------------------------------------------------------------------
 // Shell command lines
 // ---------------------------------------------------------------------------------------------
@@ -800,6 +806,8 @@ export function decideToolCall(
           ...policy.filesystem.readableRoots,
           ...policy.filesystem.writableRoots,
           ...(policy.filesystem.readOnlyPaths ?? []),
+          // Every member's session folder of this instance (PM-333), the session's own included.
+          ...sessionFolderRoots(policy),
         ],
         home,
       );
@@ -819,6 +827,13 @@ export function decideToolCall(
     case 'edit': {
       // 6. Changing files.
       if (mode === 'plan') return deny('plan_mode');
+      // The session's own folder (PM-268): written without asking, a reader's too, in any mode but plan.
+      const ownFolder = rootForms(
+        cwd,
+        policy.filesystem.sessionFolder ? [policy.filesystem.sessionFolder] : [],
+        home,
+      );
+      if (paths.length > 0 && paths.every((path) => underAny(path, ownFolder, caseInsensitive))) return ALLOW;
       const readOnly = rootForms(cwd, policy.filesystem.readOnlyPaths ?? [], home);
       const reading = placementReadsOnly(policy.access, {
         mode: policy.reviewCopyMode,

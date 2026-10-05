@@ -3,8 +3,8 @@ import type { SessionPolicy } from '../src/contracts';
 import {
   buildSessionPolicy,
   sensitivePaths,
-  sessionFolderToolRules,
   sessionSandbox,
+  withSessionFolders,
 } from '../src/domain/session-policy';
 import { testConfig } from './helpers/test-template';
 
@@ -35,12 +35,13 @@ const paths = { userHome, appHome, defaultBranch: 'main' };
 /** The session folder and the browsers of a session (PM-268), as the sandboxes hand them out. */
 describe('the session folder and the browsers in the sandbox (PM-268)', () => {
   describe('a developer', () => {
-    it('writes and reads its own folder, reads no other session’s, and gets the variable', () => {
+    it('writes its own folder, reads every session’s of the instance, and gets the variable', () => {
       const sandbox = sessionSandbox(developer(), { ...paths, sessionDir })!;
       expect(sandbox.allowWrite).toEqual([sessionDir]);
-      expect(sandbox.allowRead).toContain(sessionDir);
-      // The folders of the other sessions: the parent is closed, the own folder re-opened (the narrower path wins).
-      expect(sandbox.denyRead).toContain(root);
+      // PM-333: the whole root is read (a teammate names a screenshot), only the own folder is written.
+      expect(sandbox.allowRead).toContain(root);
+      expect(sandbox.denyRead).not.toContain(root);
+      expect(sandbox.denyRead).not.toContain(sessionDir);
       expect(sandbox.env).toMatchObject({ PROJECTMAN_SESSION_DIR: sessionDir });
     });
 
@@ -136,11 +137,25 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
     expect(sessionSandbox(vm, { ...paths, sessionDir, browsersDir: browsers })).toBeUndefined();
   });
 
-  it('names the folder in Read and Edit rules, and none for a path with rule syntax', () => {
-    expect(sessionFolderToolRules(sessionDir)).toEqual({
-      allow: [`Read(/${sessionDir}/**)`, `Edit(/${sessionDir}/**)`],
+  describe('withSessionFolders', () => {
+    it('gives the policy the folder and its root', () => {
+      const base = developer();
+      const withFolders = withSessionFolders(base, { own: sessionDir, root });
+      expect(withFolders.filesystem).toMatchObject({ sessionFolder: sessionDir, sessionFoldersRoot: root });
+      // The rest of the policy is the same, and the input is not changed.
+      expect({ ...withFolders, filesystem: base.filesystem }).toEqual(base);
+      expect(base.filesystem).not.toHaveProperty('sessionFolder');
     });
-    expect(sessionFolderToolRules(null)).toEqual({ allow: [] });
-    expect(sessionFolderToolRules('/fictional/tmp/*')).toEqual({ allow: [] });
+
+    it('is unchanged without folders', () => {
+      const base = developer();
+      expect(withSessionFolders(base, undefined)).toBe(base);
+    });
+
+    it('gives no root to a folder that is not directly below it', () => {
+      const nested = withSessionFolders(developer(), { own: `${sessionDir}/deeper`, root });
+      expect(nested.filesystem.sessionFolder).toBe(`${sessionDir}/deeper`);
+      expect(nested.filesystem).not.toHaveProperty('sessionFoldersRoot');
+    });
   });
 });

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
 import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
@@ -131,7 +132,7 @@ export function describeSandbox(input: {
     // PM-268: the member's own folder for what it attaches, and the shared browsers.
     ...(sessionFolder
       ? [
-          `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}), yours alone: put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path. It is deleted when this session's process stops (a stop, a restart), so attach what should stay before you end your turn.`,
+          `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path. Only you write it; the other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) you read without asking, for example a screenshot a teammate names. A folder is deleted when its session's process stops (a stop, a restart), so attach what should stay before you end your turn. A resumed session gets a new folder: folder paths from earlier in this conversation no longer exist, while the files attached to cards stay (${code('list_attachments')}, ${code('read_attachment')}).`,
         ]
       : []),
     ...(browsers

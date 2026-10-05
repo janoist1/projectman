@@ -603,6 +603,76 @@ describe('the built-in tools and skills of a member session (PM-221)', () => {
   });
 });
 
+describe('the session folder rules (PM-333)', () => {
+  const root = '/private/var/folders/ab/cd/T/projectman-sessions/0123456789ab';
+  const dir = `${root}/ses_one.0123456789abcdef`;
+  const policyWith = (
+    filesystem: Partial<NonNullable<StartSessionSpec['policy']>['filesystem']>,
+  ): NonNullable<StartSessionSpec['policy']> => ({
+    version: 1,
+    enforcement: 'legacy',
+    access: 'task_worktree',
+    placement: { kind: 'task_worktree', path: '/work' },
+    tools: { team: { all: true, names: [] }, files: [], shell: [] },
+    filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [], ...filesystem },
+    deniedOperations: [],
+    network: { allowedDomains: [], allowLocalBinding: false },
+    outsideSandbox: 'deny',
+    permissions: { claude: 'default', sandbox: 'workspace-write', approval: 'on-request' },
+  });
+  const rulesOf = (filesystem: Parameters<typeof policyWith>[0]) =>
+    buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      policy: policyWith(filesystem),
+    }).permissions;
+
+  it('reads the root and the own folder, and changes only the own folder', () => {
+    const { allow, deny = [] } = rulesOf({ sessionFolder: dir, sessionFoldersRoot: root });
+    expect(allow).toEqual(
+      expect.arrayContaining([`Read(/${root}/**)`, `Read(/${dir}/**)`, `Edit(/${dir}/**)`]),
+    );
+    expect(allow).toContain('Read(//private/var/folders/ab/cd/T/projectman-sessions/0123456789ab/**)');
+    // Nothing writes through the root, and no deny rule: it would beat the own folder's allow.
+    expect(allow).not.toContain(`Edit(/${root}/**)`);
+    expect(deny.filter((rule) => rule.includes('projectman-sessions'))).toEqual([]);
+  });
+
+  it('names no other instance’s folders and no wildcard over all of them', () => {
+    const { allow } = rulesOf({ sessionFolder: dir, sessionFoldersRoot: root });
+    const rules = allow.filter((rule) => rule.includes('projectman-sessions'));
+    expect(rules).toHaveLength(3);
+    for (const rule of rules) expect(rule).toContain('/projectman-sessions/0123456789ab/');
+    expect(rules).not.toContain('Read(//private/var/folders/ab/cd/T/projectman-sessions/**)');
+  });
+
+  it('reads and changes only the own folder when it has no root', () => {
+    const { allow } = rulesOf({ sessionFolder: dir });
+    expect(allow).toEqual(expect.arrayContaining([`Read(/${dir}/**)`, `Edit(/${dir}/**)`]));
+    expect(allow).not.toContain(`Read(/${root}/**)`);
+  });
+
+  it('gives no folder rule for a path with rule syntax, nor without the two fields', () => {
+    const starred = rulesOf({ sessionFolder: `${root}/*`, sessionFoldersRoot: '/fictional/*' }).allow;
+    expect(
+      starred.filter((rule) => rule.includes('fictional') || rule.includes('projectman-sessions')),
+    ).toEqual([]);
+    const none = rulesOf({}).allow;
+    expect(none.filter((rule) => rule.startsWith('Read(/') || rule.startsWith('Edit('))).toEqual([]);
+  });
+
+  it('forbids writing another session’s folder in the Auto mode classifier', () => {
+    const settings = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      policy: policyWith({ sessionFolder: dir, sessionFoldersRoot: root }),
+    });
+    expect(settings.autoMode?.hard_deny.join('\n')).toContain("another session's folder");
+  });
+});
+
 describe('buildMcpConfig', () => {
   it('points the team server at the session endpoint over HTTP', () => {
     expect(buildMcpConfig('http://x/mcp/1').mcpServers.team.type).toBe('http');

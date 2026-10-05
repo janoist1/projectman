@@ -22,6 +22,7 @@ it(
   'runs Gemini hooks, MCP, permissions, transcript and resume through the app',
   { timeout: 90000 },
   async () => {
+    vi.stubEnv('NANOGPT_API_KEY', 'fictional-nanogpt-isolation-sentinel');
     h = await createAppHarness({ runner: 'fake-cli', real: { mcp: true } });
     const { app, home, userHome } = h;
     const argsFile = join(home, 'gemini-args.json');
@@ -66,6 +67,7 @@ it(
     await vi.waitFor(async () => expect((await chat()).some((i) => i.kind === 'assistant_text')).toBe(true), {
       timeout: 20000,
     });
+    expect(JSON.parse(readFileSync(argsFile, 'utf8')).env).not.toHaveProperty('NANOGPT_API_KEY');
     const send = async (text: string) => {
       expect(
         (
@@ -113,6 +115,7 @@ it(
     await start();
     await waitFor(() => JSON.parse(readFileSync(argsFile, 'utf8')).argv.includes('--conversation'));
     expect(JSON.parse(readFileSync(argsFile, 'utf8')).argv).toContain(conversation);
+    expect(JSON.parse(readFileSync(argsFile, 'utf8')).env).not.toHaveProperty('NANOGPT_API_KEY');
     await expect(access(join(userHome, '.gemini'))).rejects.toThrow();
   },
 );

@@ -151,6 +151,14 @@ owner's logged-in browser). Every session, new or resumed, therefore also gets
 For Codex members the owner's `~/.codex` configuration is not read or checked here (see the
 PM-208 note on what a Codex session reaches).
 
+**Prompt suggestions (PM-345).** Claude Code's prompt suggestion runs a "suggestion mode" step after
+a turn that can put an `AskUserQuestion` ("Topic: Suggestion") at the terminal, which the runner
+would forward as the member's own question (PM-199) and hold the card with `waiting-answer`. Every
+session therefore starts with `promptSuggestionEnabled: false` in `--settings` (the setting that
+`/config` shows as "Prompt suggestions", also `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION`; found in
+Claude Code 2.1.287). It also saves the extra model call. No detection of such a call is
+kept: no structural mark that tells it from a member's question is known, and its text is not reliable.
+
 **Built-in tools and skills (PM-221).** A tool's description and the skill list are read in every
 step (a fresh member session started at 44.4k tokens after PM-208), and several built-in tools act
 with the owner's account or reach their other sessions. Every session, new or resumed, therefore

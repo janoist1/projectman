@@ -63,6 +63,9 @@
  *     agent_type "Explore" and agent_transcript_path.
  *   - always: assistant text "Echo: <first line of the prompt>" (a thinking entry first, with the
  *     same message id and a placeholder output count of 1), then the Stop hook.
+ *   - FAKE_CLAUDE_SUGGESTION_MODE set and `promptSuggestionEnabled` not false in --settings: after
+ *     the Stop hook the CLI's prompt suggestion asks an AskUserQuestion ("Suggestion", PM-345), the
+ *     same way as "ASK" (a refusing PreToolUse hook: no dialog; else it waits for a key).
  *   Every response's usage: input 10 (or FAKE_CLAUDE_INPUT_TOKENS), output 5, cache read 100,
  *   cache write 20, model --model (default "claude-fake").
  * - "/clear": SessionEnd (reason "clear"), a new session id and transcript file, then
@@ -924,6 +927,46 @@ async function interactive() {
     progress(false);
     line();
     showPrompt();
+    if (process.env.FAKE_CLAUDE_SUGGESTION_MODE && settings?.promptSuggestionEnabled !== false)
+      await suggestionMode(myTurn);
+  }
+
+  /**
+   * Claude Code's prompt suggestion (PM-345): after a turn it asks the model for the user's next
+   * message, and the model answers with an AskUserQuestion at the terminal. Only with the setting
+   * `promptSuggestionEnabled` left on, and only when FAKE_CLAUDE_SUGGESTION_MODE is set.
+   */
+  async function suggestionMode(myTurn) {
+    const toolUseId = `toolu_fake_${myTurn}_suggest`;
+    const toolInput = {
+      questions: [
+        {
+          header: 'Suggestion',
+          question: "I'm in suggestion mode. Would you like me to suggest a follow-up?",
+          options: [{ label: 'Stay silent' }, { label: 'Suggest a follow-up' }],
+        },
+      ],
+    };
+    const outputs = await runHooks(
+      'PreToolUse',
+      { tool_name: 'AskUserQuestion', tool_input: toolInput, tool_use_id: toolUseId },
+      'AskUserQuestion',
+    );
+    const refused = outputs.some(
+      (o) =>
+        o.hookSpecificOutput?.hookEventName === 'PreToolUse' &&
+        o.hookSpecificOutput.permissionDecision === 'deny',
+    );
+    if (refused || turn !== myTurn) return;
+    line("I'm in suggestion mode. 1. Stay silent  2. Suggest a follow-up");
+    mode = 'question';
+    await keys.wait();
+    mode = 'prompt';
+    await runHooks(
+      'PostToolUse',
+      { tool_name: 'AskUserQuestion', tool_input: toolInput, tool_use_id: toolUseId, tool_response: {} },
+      'AskUserQuestion',
+    );
   }
 
   function interrupt() {

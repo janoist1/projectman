@@ -475,6 +475,32 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await assistantSaid(s.sessionId, 'Echo: after the question');
   });
 
+  it("keeps the CLI's own prompt suggestion out of the inbox and still forwards a real question (PM-345)", async () => {
+    forwardResult = true;
+    process.env.FAKE_CLAUDE_SUGGESTION_MODE = '1';
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+
+    // The CLI is started with its prompt suggestions off: no suggestion question after a turn.
+    await runner.runner.sendUserMessage(s.sessionId, 'plain turn');
+    await assistantSaid(s.sessionId, 'Echo: plain turn');
+    await waitState(s.sessionId, 'idle');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(forwarded).toEqual([]);
+    expect(statesOf(s.sessionId)).not.toContain('waiting_input');
+
+    // The member's own question still goes to the inbox (PM-199).
+    await runner.runner.sendUserMessage(s.sessionId, 'ASK me something');
+    await assistantSaid(s.sessionId, 'Echo: ASK me something');
+    await waitState(s.sessionId, 'idle');
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]!.toolInput).toEqual({
+      questions: [{ question: 'Which option?', options: [{ label: 'One' }, { label: 'Two' }] }],
+    });
+  });
+
   it('leaves the question to the terminal when the broker cannot take it', async () => {
     forwardResult = false;
     await setup();

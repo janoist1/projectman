@@ -11,9 +11,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { prepareSessionFoldersRoot, SessionFolders } from '../src/domain/session-folders';
+import {
+  defaultSessionTmpRoot,
+  prepareSessionFoldersRoot,
+  prepareSessionTmpRoot,
+  SessionFolders,
+} from '../src/domain/session-folders';
 
 describe('session folders (PM-268)', () => {
   let base: string;
@@ -182,6 +187,94 @@ describe('session folders (PM-268)', () => {
       expect(folders.sweep(() => false)).toEqual(['ses_link.0123456789abcdef']);
       expect(readdirSync(folders.root)).toEqual([]);
       expect(existsSync(join(outside, 'precious.txt'))).toBe(true);
+    });
+  });
+
+  describe('the temporary directories of the sessions (PM-339)', () => {
+    const tmpFolders = (warn?: (err: unknown, dir: string) => void) => {
+      const root = join(base, 'projectman-sessions', 'abc');
+      const tmpRoot = join(base, 'projectman-501', 'tmp', '0123abcd');
+      prepareSessionFoldersRoot(root);
+      prepareSessionTmpRoot(tmpRoot);
+      return { folders: new SessionFolders(root, tmpRoot, warn), tmpRoot };
+    };
+
+    it('names `<tmpRoot>/<sessionId>`, refuses an id that could leave it, and has none without a root', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      expect(folders.tmpPath('ses_a1-B2')).toBe(join(tmpRoot, 'ses_a1-B2'));
+      for (const id of ['../x', 'a/b', '', '..', 'a b'])
+        expect(() => folders.tmpPath(id)).toThrow(/Not a session id/);
+      expect(new SessionFolders('/r').tmpPath('ses_a')).toBeUndefined();
+    });
+
+    it('makes the root and the folders above it 0700 and refuses a link or a folder of another kind there', () => {
+      const { tmpRoot } = tmpFolders();
+      expect(mode(tmpRoot)).toBe(0o700);
+      expect(mode(dirname(tmpRoot))).toBe(0o700);
+      expect(mode(dirname(dirname(tmpRoot)))).toBe(0o700);
+      const target = join(base, 'target');
+      mkdirSync(target);
+      symlinkSync(target, join(base, 'linked'));
+      expect(() => prepareSessionTmpRoot(join(base, 'linked', 'tmp', 'x'))).toThrow(/symbolic link/);
+      expect(existsSync(join(target, 'tmp'))).toBe(false);
+    });
+
+    it('removes the session’s temporary directory with its content when the session’s folder is removed', () => {
+      const { folders } = tmpFolders();
+      folders.make('ses_one', folders.allocate('ses_one'));
+      const tmp = folders.tmpPath('ses_one')!;
+      mkdirSync(join(tmp, 'a', 'b'), { recursive: true });
+      writeFileSync(join(tmp, 'a', 'b', 'x'), 'x');
+      folders.remove('ses_one');
+      expect(existsSync(tmp)).toBe(false);
+      expect(readdirSync(dirname(tmp))).toEqual([]);
+      expect(() => folders.remove('ses_one')).not.toThrow();
+    });
+
+    it('removes the previous run’s temporary directory when a restart makes the new folder', () => {
+      const { folders } = tmpFolders();
+      folders.make('ses_one', folders.allocate('ses_one'));
+      const tmp = folders.tmpPath('ses_one')!;
+      mkdirSync(tmp);
+      folders.make('ses_one', folders.allocate('ses_one'));
+      expect(existsSync(tmp)).toBe(false);
+    });
+
+    it('logs a temporary directory it cannot remove and goes on with the folder', () => {
+      const warned: string[] = [];
+      const { folders, tmpRoot } = tmpFolders((_err, dir) => warned.push(dir));
+      const dir = folders.allocate('ses_one');
+      folders.make('ses_one', dir);
+      // The rename into the root fails when the root cannot be written.
+      mkdirSync(join(tmpRoot, 'ses_one'));
+      chmodSync(tmpRoot, 0o500);
+      try {
+        expect(() => folders.remove('ses_one')).not.toThrow();
+      } finally {
+        chmodSync(tmpRoot, 0o700);
+      }
+      expect(existsSync(dir)).toBe(false);
+      // Running as root the removal succeeds, so the failure is not seen.
+      if (process.getuid?.() !== 0) expect(warned).toEqual([join(tmpRoot, 'ses_one')]);
+    });
+
+    it('sweeps the temporary directories of sessions that are gone, and keeps a kept session’s', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      folders.make('ses_keep', folders.allocate('ses_keep'));
+      mkdirSync(folders.tmpPath('ses_keep')!);
+      mkdirSync(join(tmpRoot, 'ses_dead'));
+      writeFileSync(join(tmpRoot, 'stray'), 'x');
+      folders.sweep((id) => id === 'ses_keep');
+      expect(readdirSync(tmpRoot)).toEqual(['ses_keep']);
+    });
+
+    it('has a default root that leaves room for a Unix socket in the temporary directory', () => {
+      const root = join(defaultSessionTmpRoot(), '0123abcd');
+      expect(root).toMatch(/\/projectman-(\d+|user)\/tmp\/0123abcd$/);
+      // The longest session id the server makes is 26 characters; tools add a name like `tsx-501/12345.pipe`.
+      expect(Buffer.byteLength(join(root, 'ses_' + 'x'.repeat(22), 'tsx-501', '12345.pipe'))).toBeLessThan(
+        104,
+      );
     });
   });
 });

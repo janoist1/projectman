@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
+import { defaultSessionTmpRoot } from './domain/session-folders';
 import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
@@ -133,6 +134,12 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
         realpathSync(tmpdir()),
         'projectman-sessions',
         createHash('sha256').update(home).digest('hex').slice(0, 12),
+      ),
+      // The Codex sessions' own TMPDIR root (PM-339): short, because a Unix socket's path may be 104
+      // bytes at most; a folder per installation, like the session folders above.
+      sessionTmpDir: join(
+        defaultSessionTmpRoot(),
+        createHash('sha256').update(home).digest('hex').slice(0, 8),
       ),
       browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
       heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),

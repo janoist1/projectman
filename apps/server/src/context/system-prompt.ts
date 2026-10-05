@@ -11,7 +11,12 @@ import {
 import type { DutyId } from '@projectman/shared';
 import { roleLabel } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
-import { describeSandbox, describeUnattendedCommands } from '../domain';
+import {
+  describeSandbox,
+  describeSessionFolder,
+  describeSessionTmpDir,
+  describeUnattendedCommands,
+} from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
@@ -39,6 +44,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     sessionPolicySection(input),
     workspaceSection(input),
     unattendedCommandsSection(input),
+    codexSessionFolderSection(input),
     boundarySection(input),
     cheapSubagentSection(input.member),
     guardrailsSection(input),
@@ -293,6 +299,23 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
     'The kick-off brief (description, labels, links, attachments, recent timeline) is the first message of this session; get_task gives the latest state.',
   );
   return lines.join('\n');
+}
+
+/**
+ * A Codex member's own session folder and temporary directory (PM-339), when its sandbox has them
+ * (`portable.env` carries the folder: only a writing Codex sandbox outside the managed VM gets
+ * one). No browsers and no screenshots yet: the image-making path comes with its own card.
+ */
+function codexSessionFolderSection({ member, sandbox }: ContextPackInput): string {
+  if (!isCodex(member)) return '';
+  const folder = sandbox?.portable?.env['PROJECTMAN_SESSION_DIR'];
+  if (!folder) return '';
+  const tmpDir = sandbox?.portable?.tmpDir;
+  return [
+    '# Your session folder',
+    describeSessionFolder(folder, 'codex'),
+    ...(tmpDir ? [describeSessionTmpDir(tmpDir)] : []),
+  ].join('\n');
 }
 
 /**

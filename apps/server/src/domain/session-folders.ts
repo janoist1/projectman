@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -50,6 +50,47 @@ export function prepareSessionFoldersRoot(root: string): void {
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
 /**
+ * Removes `dir` (a direct child of `root`) with everything in it. It is renamed away first, inside
+ * the root and to a name that is no session's, so a command of the old run that is still writing
+ * in it cannot swap a directory for a link while the removal walks it; its sandbox rule does not
+ * reach the new name.
+ */
+function removeTree(root: string, dir: string): void {
+  const trash = path.join(root, `.trash-${randomBytes(8).toString('hex')}`);
+  try {
+    renameSync(dir, trash);
+  } catch (err) {
+    if (code(err) === 'ENOENT') return;
+    rmSync(dir, { recursive: true, force: true });
+    return;
+  }
+  rmSync(trash, { recursive: true, force: true });
+}
+
+/**
+ * The parent of the sessions' own temporary directories (PM-339): a short path below the real
+ * `/tmp` (macOS: `/private/tmp/...`), beside the heavy-run queue folder, whose parent the sandbox
+ * of the members' commands writes anyway. An installation's root is a folder of its own in it
+ * (like its session folders root: one's sweep must not remove another's).
+ */
+export function defaultSessionTmpRoot(): string {
+  return path.join(realpathSync('/tmp'), `projectman-${process.getuid?.() ?? 'user'}`, 'tmp');
+}
+
+/**
+ * Makes an installation's temporary directories root (`<defaultSessionTmpRoot()>/<instance>`) and
+ * checks it and the two folders above it (`projectman-<uid>`, `tmp`): real directories of the
+ * server's user, none a link. Throws with the reason.
+ */
+export function prepareSessionTmpRoot(root: string): void {
+  const parents = [path.dirname(path.dirname(root)), path.dirname(root)];
+  for (const dir of parents) assertOwnDirectory(dir);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  for (const dir of parents) assertOwnDirectory(dir, true);
+  prepareSessionFoldersRoot(root);
+}
+
+/**
  * The session folders below one checked root. A folder lives for one process: every start gets a
  * new, unpredictable name (`<sessionId>.<random>`) and the server remembers which folder belongs to
  * which session. A command of an earlier run of the session that outlived its process (a detached
@@ -59,9 +100,28 @@ const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException
 export class SessionFolders {
   private readonly folders = new Map<string, string>();
   readonly root: string;
+  /** The root of the sessions' own temporary directories (Codex, PM-339), a short path; absent: none. */
+  readonly tmpRoot: string | undefined;
 
-  constructor(root: string) {
+  private readonly warn: ((err: unknown, dir: string) => void) | undefined;
+
+  /** `warn` gets a temporary directory that could not be removed (the removal goes on). */
+  constructor(root: string, tmpRoot?: string, warn?: (err: unknown, dir: string) => void) {
     this.root = root;
+    this.tmpRoot = tmpRoot;
+    this.warn = warn;
+  }
+
+  /**
+   * The session's own temporary directory, `<tmpRoot>/<sessionId>`; nothing is made (the caller
+   * does, 0700, before the start). Not inside the folder: a Unix socket's path may be 104 bytes at
+   * most, and the tools open sockets in their TMPDIR. Removed with the folder (`remove`). Throws
+   * for an id that could leave the root; `undefined` without a `tmpRoot`.
+   */
+  tmpPath(sessionId: string): string | undefined {
+    if (!this.tmpRoot) return undefined;
+    if (!SESSION_ID.test(sessionId)) throw new Error(`Not a session id: ${JSON.stringify(sessionId)}`);
+    return path.join(this.tmpRoot, sessionId);
   }
 
   /** A path no folder has had: `<root>/<sessionId>.<random>`; nothing is made. Throws for an id that could leave the root. */
@@ -97,18 +157,22 @@ export class SessionFolders {
    * a link while the removal walks it; its sandbox rule does not reach the new name.
    */
   remove(sessionId: string): void {
+    this.removeTmp(sessionId);
     const dir = this.folders.get(sessionId);
     if (!dir) return;
     this.folders.delete(sessionId);
-    const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
+    removeTree(this.root, dir);
+  }
+
+  /** The session's temporary directory goes the same way; a failure is reported to `warn`, never thrown. */
+  private removeTmp(sessionId: string): void {
+    let dir: string | undefined;
     try {
-      renameSync(dir, trash);
+      dir = this.tmpPath(sessionId);
+      if (dir) removeTree(this.tmpRoot!, dir);
     } catch (err) {
-      if (code(err) === 'ENOENT') return;
-      rmSync(dir, { recursive: true, force: true });
-      return;
+      this.warn?.(err, dir ?? sessionId);
     }
-    rmSync(trash, { recursive: true, force: true });
   }
 
   /**
@@ -127,6 +191,20 @@ export class SessionFolders {
       rmSync(path.join(this.root, name), { recursive: true, force: true });
       removed.push(name);
     }
+    this.sweepTmp(new Set([...this.folders.keys()]));
     return removed;
+  }
+
+  /** The temporary directories of sessions that are gone (the root's own entries, a link as a link). */
+  private sweepTmp(keptSessions: ReadonlySet<string>): void {
+    if (!this.tmpRoot) return;
+    try {
+      for (const name of readdirSync(this.tmpRoot)) {
+        if (keptSessions.has(name)) continue;
+        rmSync(path.join(this.tmpRoot, name), { recursive: true, force: true });
+      }
+    } catch (err) {
+      if (code(err) !== 'ENOENT') this.warn?.(err, this.tmpRoot);
+    }
   }
 }

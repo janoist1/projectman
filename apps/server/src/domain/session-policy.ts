@@ -100,12 +100,38 @@ function heavyLockAccess(
 }
 
 /** The part of a sandbox every provider's own sandbox takes (`AgentSandbox.portable`, PM-346). */
-function portableOf(heavy: {
+function portableOf(shared: {
   allowWrite: string[];
   env: Record<string, string>;
+  tmpDir?: string;
 }): Pick<AgentSandbox, 'portable'> {
-  if (heavy.allowWrite.length === 0) return {};
-  return { portable: { allowWrite: [...heavy.allowWrite], env: { ...heavy.env } } };
+  if (shared.allowWrite.length === 0 && !shared.tmpDir) return {};
+  return {
+    portable: {
+      allowWrite: [...shared.allowWrite],
+      env: { ...shared.env },
+      ...(shared.tmpDir ? { tmpDir: shared.tmpDir } : {}),
+    },
+  };
+}
+
+/**
+ * What the CLIs' own sandboxes take besides the heavy-run queue (PM-339): the session's folder and
+ * Playwright's browsers, and the commands' own temporary directory.
+ */
+function portableShared(
+  heavy: { allowWrite: string[]; env: Record<string, string> },
+  own: { sessionDir?: string; browsersDir?: string; tmpDir?: string },
+): Parameters<typeof portableOf>[0] {
+  return {
+    allowWrite: [...heavy.allowWrite, ...(own.sessionDir ? [own.sessionDir] : [])],
+    env: {
+      ...heavy.env,
+      ...(own.sessionDir ? { [SESSION_DIR_VARIABLE]: own.sessionDir } : {}),
+      ...(own.browsersDir ? { [BROWSERS_PATH_VARIABLE]: own.browsersDir } : {}),
+    },
+    ...(own.tmpDir ? { tmpDir: own.tmpDir } : {}),
+  };
 }
 
 /**
@@ -207,6 +233,12 @@ export interface SandboxPaths {
   browsersDir?: string;
   /** The machine's heavy-run queue folder (`PROJECTMAN_HEAVY_LOCK_DIR`, PM-332): its parent is writable. */
   heavyLockDir?: string;
+  /**
+   * The commands' own temporary directory (`SessionFolders.tmpPath`, PM-339; Codex only): writable
+   * for them and their TMPDIR in the CLI's own sandbox, which closes the shared `/tmp`. Made by the
+   * caller before the start (`AgentSandbox.portable.allowWrite` is made, and so is it).
+   */
+  tmpDir?: string;
 }
 
 /**
@@ -284,7 +316,13 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
-    ...portableOf(heavy),
+    ...portableOf(
+      portableShared(heavy, {
+        sessionDir,
+        browsersDir,
+        tmpDir: paths.tmpDir && !isWithinAny(denied, paths.tmpDir) ? paths.tmpDir : undefined,
+      }),
+    ),
   };
 }
 
@@ -362,7 +400,16 @@ export function sessionSandbox(
       ...heavy.env,
     },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
-    ...portableOf(heavy),
+    ...portableOf(
+      portableShared(heavy, {
+        sessionDir,
+        browsersDir,
+        tmpDir:
+          options.tmpDir && !isWithinAny(denied, options.tmpDir) && !isWithinAny(denyWrite, options.tmpDir)
+            ? options.tmpDir
+            : undefined,
+      }),
+    ),
   };
 }
 

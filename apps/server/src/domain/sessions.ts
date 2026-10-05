@@ -1476,12 +1476,19 @@ export class SessionOrchestrator {
         ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
         : undefined;
     const excludesFile = userExcludesFile(userHome);
-    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268); Codex and
-    // the managed VM neither.
-    const ownFolders = !vm && !this.managed && provider === 'claude';
+    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268), a Codex
+    // session its own folder when its sandbox writes (PM-339): a read-only Codex sandbox takes no
+    // writable root, and the mode changes only with a restart. Codex also needs the short TMPDIR
+    // root: without it the shared `/tmp` stays open, so no folder either. The managed VM neither.
+    const codexWrites =
+      provider === 'codex' &&
+      policy.permissions.sandbox === 'workspace-write' &&
+      !!this.deps.sessionFolders?.tmpRoot;
+    const ownFolders = !vm && !this.managed && (provider === 'claude' || codexWrites);
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
     const sessionDir =
       ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
+    const tmpDir = codexWrites && sessionDir ? this.deps.sessionFolders?.tmpPath(sessionId) : undefined;
     const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
@@ -1490,6 +1497,7 @@ export class SessionOrchestrator {
             userHome,
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(sessionDir ? { sessionDir } : {}),
+            ...(tmpDir ? { tmpDir } : {}),
             ...(browsersDir ? { browsersDir } : {}),
             ...(this.deps.heavyLockDir ? { heavyLockDir: this.deps.heavyLockDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
@@ -1560,7 +1568,10 @@ export class SessionOrchestrator {
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
     if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
-    this.preparePortablePaths(sandbox?.portable?.allowWrite);
+    this.preparePortablePaths([
+      ...(sandbox?.portable?.allowWrite ?? []),
+      ...(sandbox?.portable?.tmpDir ? [sandbox.portable.tmpDir] : []),
+    ]);
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.

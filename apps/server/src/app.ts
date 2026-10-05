@@ -206,6 +206,11 @@ export interface BuildAppOptions {
    */
   sessionFoldersDir?: string;
   /**
+   * The root of the Codex sessions' own temporary directories (PM-339), a short path. Absent
+   * (tests): Codex sessions get no folder.
+   */
+  sessionTmpDir?: string;
+  /**
    * Playwright's browsers (PM-268), read-only for the members' commands in `PLAYWRIGHT_BROWSERS_PATH`.
    * Absent (tests): the variable is not set.
    */
@@ -503,6 +508,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       appHome: home,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
+      sessionTmpDir: options.sessionTmpDir,
       browsersDir: options.browsersDir,
       heavyLockDir: options.heavyLockDir,
       memberWorkspaces,

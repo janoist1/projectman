@@ -104,6 +104,11 @@ export async function createDomainHarness(
      * test's own (an unsafe one); absent, no session folders.
      */
     sessionFolders?: boolean | string;
+    /**
+     * The root of the Codex sessions' own temporary directories (PM-339): `true` for the real shape
+     * `<dir>/projectman-501/tmp/<8 hex>`, or a path of the test's own; absent, Codex gets no folder.
+     */
+    sessionTmp?: boolean | string;
     /** Playwright's browsers directory (PM-268); absent, no browsers variable. */
     browsersDir?: string;
     /** The machine's heavy-run queue folder (PM-332) named in the sandboxes; absent, none. */
@@ -140,8 +145,16 @@ export async function createDomainHarness(
           join(realpathSync(dir), 'session-folders', 'root')
         : undefined;
 
+  const sessionTmpDir =
+    typeof opts.sessionTmp === 'string'
+      ? opts.sessionTmp
+      : opts.sessionTmp
+        ? join(realpathSync(dir), 'projectman-501', 'tmp', '0123abcd')
+        : undefined;
+
   const domain: Domain = createDomain({
     sessionFoldersDir,
+    sessionTmpDir,
     browsersDir: opts.browsersDir,
     heavyLockDir: opts.heavyLockDir,
     boundaryAdapter: opts.boundaryAdapter,
@@ -224,6 +237,7 @@ export async function createDomainHarness(
     liveProcesses,
     workspacesDir,
     sessionFoldersDir,
+    sessionTmpDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */

@@ -116,6 +116,7 @@ describe('provider key API', () => {
   it('returns safe validation and JSON errors', async () => {
     const { owner, check } = await setup();
     for (const payload of [
+      ...['abc\ndef', 'abc\0def', 'ő', 'inner space'].map((key) => ({ key })),
       { key: '' },
       { key: 'x'.repeat(1001) },
       { key: 'secret', 'sentinel-secret': true },

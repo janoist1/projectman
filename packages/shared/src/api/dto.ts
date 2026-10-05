@@ -87,7 +87,13 @@ export const ProvidersView = z.object({
   keys: z.object({ nanogpt: ProviderKeyStatus }),
   canManageKeys: z.boolean(),
 });
-export const SetProviderKeyRequest = z.strictObject({ key: z.string().trim().min(1).max(1000) });
+export const ProviderKeyValue = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1000)
+  .regex(/^[\x21-\x7E]+$/);
+export const SetProviderKeyRequest = z.strictObject({ key: ProviderKeyValue });
 export type ProvidersView = z.infer<typeof ProvidersView>;
 
 /* ---------- projects ---------- */

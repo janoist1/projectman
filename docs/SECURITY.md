@@ -27,6 +27,21 @@ tenants into separate OS accounts or machines.
 
 ## Protection
 
+- NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
+  decision 1; PM-328). The server stores the key only in
+  `PROJECTMAN_HOME/secrets/nanogpt.json`: directory 0700, file 0600, atomic replacement
+  through a private temporary file. Only a human who owns every project may set,
+  replace or clear it. Public status contains only whether it is set and when it was
+  set; the value, suffix and length never appear in configuration, SQLite, logs,
+  API responses or errors. Save-time checking inspects only NanoGPT's HTTP status,
+  without reading or recording balances.
+  Key values must be printable ASCII without internal whitespace; the shared schema
+  validates writes before checking and stored values before session delivery. Non-regular
+  secret files, including symbolic links, are refused on read.
+  The `secrets` directory is already denied to member file tools through
+  `sensitivePaths` (PM-324). Session delivery belongs
+  to PM-329 and must remain restricted to NanoGPT sessions.
+
 - Signed, HttpOnly, SameSite=Lax cookies; Secure when HTTPS terminates at a loopback
   proxy supplying `X-Forwarded-Proto: https`. Login and invite acceptance replace
   the presented session. Tokens have 256 random bits, are stored as SHA-256 hashes,

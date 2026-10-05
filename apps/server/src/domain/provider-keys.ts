@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyBaseLogger as Logger } from 'fastify';
 import { z } from 'zod';
+import { ProviderKeyValue } from '@projectman/shared';
 import { invalid } from './errors';
 
 export interface ProviderKeyStatus {
@@ -12,7 +21,7 @@ export interface ProviderKeyStatus {
 export type NanogptKeyCheck = (key: string) => Promise<'accepted' | 'rejected' | 'unknown'>;
 const StoredKey = z.strictObject({
   version: z.literal(1),
-  key: z.string().min(1),
+  key: ProviderKeyValue,
   setAt: z.iso.datetime(),
   setBy: z.string(),
 });
@@ -30,13 +39,23 @@ export class ProviderKeys {
   }
   private read(): z.infer<typeof StoredKey> | null {
     try {
-      const mode = statSync(this.path).mode & 0o777;
+      const stat = lstatSync(this.path);
+      if (!stat.isFile()) {
+        this.deps.logger.warn('nanogpt key store is not a regular file');
+        return null;
+      }
+      const mode = stat.mode & 0o777;
       chmodSync(this.directory, 0o700);
       if (mode !== 0o600) {
         chmodSync(this.path, 0o600);
         this.deps.logger.warn('nanogpt key file permissions repaired');
       }
-      return StoredKey.parse(JSON.parse(readFileSync(this.path, 'utf8')));
+      const stored = StoredKey.safeParse(JSON.parse(readFileSync(this.path, 'utf8')));
+      if (!stored.success) {
+        this.deps.logger.warn('nanogpt key store is invalid');
+        return null;
+      }
+      return stored.data;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       // Parsing errors can contain the input: never propagate or log them.
@@ -51,6 +70,9 @@ export class ProviderKeys {
     return this.read()?.key ?? null;
   }
   async setNanogpt(key: string, by: string): Promise<ProviderKeyStatus> {
+    const parsed = ProviderKeyValue.safeParse(key);
+    if (!parsed.success) throw invalid('invalid_request', 'the request is invalid');
+    key = parsed.data;
     let result: Awaited<ReturnType<NanogptKeyCheck>>;
     try {
       result = await this.deps.check(key);

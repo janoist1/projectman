@@ -1,4 +1,14 @@
-import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pino from 'pino';
@@ -76,6 +86,45 @@ describe('provider key store', () => {
     expect(statSync(join(h.home, 'secrets')).mode & 0o777).toBe(0o700);
     expect(h.lines.join('')).toContain('permissions repaired');
     expect(h.lines.join('')).not.toContain('private-key');
+  });
+  it.each(['abc\ndef', 'abc\rdef', 'abc\0def', 'ő', 'inner space'])(
+    'refuses invalid key characters before checking or storing (%j)',
+    async (key) => {
+      const h = harness();
+      await expect(h.store.setNanogpt(key, 'owner')).rejects.toMatchObject({ code: 'invalid_request' });
+      expect(h.check).not.toHaveBeenCalled();
+      expect(h.store.status()).toEqual({ set: false, setAt: null });
+      expect(readdirSync(h.home)).toEqual([]);
+    },
+  );
+  it('normalizes direct writes and refuses invalid stored values and symbolic links on read', async () => {
+    const h = harness();
+    await h.store.setNanogpt('  valid-key  ', 'owner');
+    expect(h.check).toHaveBeenCalledWith('valid-key');
+    expect(await h.store.nanogptKey()).toBe('valid-key');
+    writeFileSync(
+      h.path,
+      JSON.stringify({
+        version: 1,
+        key: 'invalid\nsecret',
+        setAt: h.deps.now().toISOString(),
+        setBy: 'owner',
+      }),
+    );
+    expect(await h.store.nanogptKey()).toBeNull();
+    expect(h.store.status().set).toBe(false);
+    expect(h.lines.join('')).not.toContain('invalid\nsecret');
+    unlinkSync(h.path);
+    const target = join(h.home, 'target');
+    writeFileSync(
+      target,
+      JSON.stringify({ version: 1, key: 'linked-secret', setAt: h.deps.now().toISOString(), setBy: 'owner' }),
+      { mode: 0o644 },
+    );
+    symlinkSync(target, h.path);
+    expect(await h.store.nanogptKey()).toBeNull();
+    expect(statSync(target).mode & 0o777).toBe(0o644);
+    expect(h.lines.join('')).not.toContain('linked-secret');
   });
   it('preserves the previous key on rejection and stores unknown checks without logging their errors', async () => {
     const h = harness();

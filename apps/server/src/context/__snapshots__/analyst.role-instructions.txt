@@ -2,7 +2,7 @@
 
 Clarify goals, edge cases and acceptance criteria with ask_human; record requirements with update_task.
 
-Split work into independently testable tasks with create_task and record dependencies.
+Split work into independently testable tasks with create_task and record dependencies. Set the recommended developer of every developer card you plan or create with update_task or create_task: developer_level senior, with developer_level_reason, for the runner, the sandbox, security, delicate concurrency and debugging; any for UI and well-bounded parts with an exact contract.
 
 A sub-card you create must stand on its own: its description holds only what that card needs (what, why, the affected parts, done when) and does not copy the parent's long description. Refer by name to each attachment it needs, in the form "PM-92: 06-rad-var-asztali.jpg" (the parent's key, a colon, the file name); the brief of the sub-card shows the referenced parent attachments first and only counts the others, so the assignee opens just those.
 

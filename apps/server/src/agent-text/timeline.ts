@@ -83,6 +83,15 @@ export function describeEvent(
       const verb = event.type === 'task_relation_added' ? 'added' : 'removed';
       return `${verb} the relation: this card ${relationPhrase(text('kind') ?? '')} ${text('ref') ?? '?'}`;
     }
+    case 'task_level_changed': {
+      const reason = text('reason');
+      const previous = data.previous;
+      const before =
+        previous && typeof previous === 'object' && 'level' in previous && typeof previous.level === 'string'
+          ? ` (was ${previous.level})`
+          : '';
+      return `set the recommended developer to ${text('level') ?? '?'}${reason ? ` — ${reason}` : ''}${before}`;
+    }
     case 'task_theme_changed': {
       const next = text('themeKey');
       const previous = text('previous');

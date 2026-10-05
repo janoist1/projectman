@@ -390,6 +390,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         previous ? t('timeline.themeMoved', { previous, themeKey }) : t('timeline.themeSet', { themeKey }),
       );
     }
+    case 'task_level_changed': {
+      const level = t(d.level === 'senior' ? 'timeline.levelSenior' : 'timeline.levelAny');
+      return normal(
+        d.reason
+          ? t('timeline.levelSetReason', { level, reason: str(d.reason) })
+          : t('timeline.levelSet', { level }),
+      );
+    }
     case 'task_prerequisite_closed': {
       const remaining = strings(d.remaining);
       return normal(

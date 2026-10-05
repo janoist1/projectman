@@ -683,5 +683,12 @@ export const migrations: Migration[] = [
     // answer. NULL for every other message and for the answers sent before this.
     sql: 'ALTER TABLE team_messages ADD COLUMN answer TEXT;',
   },
+  {
+    version: 35,
+    name: 'task developer level',
+    // PM-347: the recommended developer of the card, a JSON `TaskDeveloperLevel`; NULL: no
+    // recommendation (which counts as `any`), as on every card from before it.
+    sql: 'ALTER TABLE tasks ADD COLUMN developer_level TEXT;',
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

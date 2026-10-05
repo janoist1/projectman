@@ -1304,6 +1304,24 @@ describe('kick-off brief', () => {
     expect(brief.length).toBeLessThan(14_000);
   });
 
+  it('names the recommended developer only when the card has one (PM-347)', () => {
+    const line = (task: Task) =>
+      (builder.build(input({ task })).initialMessage ?? '')
+        .split('\n')
+        .find((l) => l.startsWith('- Recommended developer: '));
+    expect(line(makeTask({}))).toBeUndefined();
+    const set = {
+      level: 'senior' as const,
+      reason: 'the runner',
+      setBy: 'arch',
+      setAt: '2026-10-05T06:00:00Z',
+    };
+    expect(line(makeTask({ developerLevel: set }))).toBe('- Recommended developer: senior (the runner)');
+    expect(line(makeTask({ developerLevel: { ...set, level: 'any', reason: null } }))).toBe(
+      '- Recommended developer: any',
+    );
+  });
+
   describe('repository', () => {
     const briefLine = (project: ProjectConfig, repo: string | null) =>
       (builder.build(input({ project, task: makeTask({ repo }) })).initialMessage ?? '')

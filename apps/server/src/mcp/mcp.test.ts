@@ -524,7 +524,7 @@ describe('team tools', () => {
 
     expect(result.isError).toBe(true);
     expect(text(result)).toBe(
-      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations, remove_relations and/or theme_key.',
+      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations, remove_relations, theme_key and/or developer_level.',
     );
     expect(h.handler.calls).toEqual([]);
   });
@@ -598,6 +598,88 @@ describe('team tools', () => {
       method: 'createTask',
       args: { title: 'Follow-up', relations: [{ kind: 'prerequisite', key: 'AR-21' }] },
     });
+  });
+
+  it('update_task passes the recommended developer on and reports it (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      developer_level: 'senior',
+      developer_level_reason: 'the runner',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'updateTask',
+      ctx: devContext,
+      args: { taskKey: 'AR-21', developerLevel: { level: 'senior', reason: 'the runner' } },
+    });
+    expect(text(result)).toContain('Recommended developer: senior — the runner');
+
+    // The level alone is a level without a reason (any needs none).
+    const any = await call(client, 'update_task', { task_key: 'AR-21', developer_level: 'any' });
+    expect(any.isError).toBeFalsy();
+    expect(h.handler.calls[1]).toMatchObject({ args: { developerLevel: { level: 'any' } } });
+    expect(text(any)).toContain('Recommended developer: any');
+  });
+
+  it('update_task and create_task refuse a reason without a level, or a bad level or reason (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const alone = await call(client, 'update_task', { task_key: 'AR-21', developer_level_reason: 'why' });
+    expect(alone.isError).toBe(true);
+    expect(text(alone)).toBe('Error [invalid]: developer_level_reason needs developer_level: pass both.');
+    const aloneCreate = await call(client, 'create_task', { title: 'Card', developer_level_reason: 'why' });
+    expect(aloneCreate.isError).toBe(true);
+    expect(text(aloneCreate)).toContain('developer_level_reason needs developer_level');
+    for (const bad of [
+      { developer_level: 'boss' },
+      { developer_level: 'senior', developer_level_reason: '' },
+      { developer_level: 'senior', developer_level_reason: 'x'.repeat(301) },
+    ]) {
+      const result = await call(client, 'update_task', { task_key: 'AR-21', ...bad });
+      expect(result.isError, JSON.stringify(bad)).toBe(true);
+      expect(text(result)).toContain('Input validation error');
+    }
+    expect(h.handler.calls).toEqual([]);
+  });
+
+  it('create_task passes the recommended developer on (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'create_task', {
+      title: 'Planned',
+      developer_level: 'senior',
+      developer_level_reason: 'the sandbox',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toMatchObject({
+      method: 'createTask',
+      args: { title: 'Planned', developerLevel: { level: 'senior', reason: 'the sandbox' } },
+    });
+    expect(text(result)).toContain('Recommended developer: senior — the sandbox');
+  });
+
+  it('get_task shows the recommended developer only when one is set (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain(
+      'Recommended developer',
+    );
+    await call(client, 'update_task', {
+      task_key: 'AR-21',
+      developer_level: 'senior',
+      developer_level_reason: 'the runner',
+    });
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).toContain(
+      'Recommended developer: senior (the runner)',
+    );
   });
 
   it('update_task passes the theme on, and null removes it (PM-192)', async () => {

@@ -1,4 +1,4 @@
-import { isCardLink, isTheme } from '@projectman/shared';
+import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   cardQuestionLines,
@@ -164,6 +164,7 @@ export function formatTaskDetail(
     theme
       ? `Visibility: ${task.visibility}`
       : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
@@ -294,6 +295,8 @@ export function formatTaskUpdate(
     relations?: { add: Array<{ kind: string; key: string }>; remove: Array<{ kind: string; key: string }> };
     /** The theme the call set (null: removed); undefined when it did not touch it. */
     themeKey?: string | null | undefined;
+    /** The call set the recommended developer (PM-347); the line shows what the card has now. */
+    developerLevel?: boolean;
   },
 ): string {
   const done: string[] = [];
@@ -314,7 +317,15 @@ export function formatTaskUpdate(
     done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
   if (change.stageId) done.push(`moved to ${change.stageId}`);
-  return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;
+  const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
+  return [`Updated ${task.key}: ${done.join('; ')}.`, ...level, `Now: ${taskStatusLine(task)}`].join('\n');
+}
+
+/** `Recommended developer: senior — <reason>`; a card without a recommendation reads `any`. */
+function recommendedDeveloperLine(task: Pick<Task, 'developerLevel'>): string {
+  const level = task.developerLevel;
+  const reason = level?.reason ? ` — ${oneLine(level.reason, 300)}` : '';
+  return `Recommended developer: ${level?.level ?? 'any'}${reason}`;
 }
 
 /** What the call did; what happens next with the task is in the tool's description. */
@@ -327,7 +338,8 @@ export function formatTaskCreated(task: Task): string {
     );
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
-    `(visibility ${task.visibility}${labels}).`
+    `(visibility ${task.visibility}${labels}).` +
+    (task.developerLevel ? `\n${recommendedDeveloperLine(task)}` : '')
   );
 }
 

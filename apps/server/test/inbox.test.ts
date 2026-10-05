@@ -277,18 +277,30 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
   const permissionEvents = () =>
     h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type.startsWith('permission_'));
 
-  it('routes a NanoGPT routine command to its approver and still refuses publishing', async () => {
-    const sessionId = await start('human', 'nanogpt');
-    const controller = new AbortController();
-    const pending = ask(sessionId, 'git status', controller.signal);
-    await flush();
-    const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ assignees: ['owner'], sessionId });
-    controller.abort();
-    expect((await pending).behavior).toBe('deny');
-    expect(await ask(sessionId, 'git push')).toMatchObject({ behavior: 'deny' });
-    expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+  it.each(['git status', 'npm ci'])(
+    'routes NanoGPT %s to its approver and still refuses publishing',
+    async (command) => {
+      const sessionId = await start('human', 'nanogpt');
+      const controller = new AbortController();
+      const pending = ask(sessionId, command, controller.signal);
+      await flush();
+      const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ assignees: ['owner'], sessionId });
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+      expect(await ask(sessionId, 'git push')).toMatchObject({ behavior: 'deny' });
+      expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+    },
+  );
+
+  it('refuses NanoGPT npm ci with no approver and records the refusal', async () => {
+    const sessionId = await start('none', 'nanogpt');
+    expect(await ask(sessionId, 'npm ci')).toEqual({ behavior: 'deny', message: APPROVER_NONE_REFUSAL });
+    expect(h.domain.inbox.list('AR', {})).toEqual([]);
+    expect(permissionEvents()).toMatchObject([
+      { type: 'permission_refused', sessionId, data: { summary: 'npm ci', by: 'approver_none' } },
+    ]);
   });
 
   it('refuses a question of a member with approver none, without an inbox item, and says so on the timeline', async () => {

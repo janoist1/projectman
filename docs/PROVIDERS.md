@@ -19,6 +19,19 @@ Codex 0.159.1 remains part of the owner's manual check.
 NanoGPT startup also uses `inspectAmbientConfig` to reject override-capable settings in
 `/etc/codex`, its dedicated Codex home and the workspace's `.codex/config.toml`.
 The `nanogpt_setup_incomplete` error exposes only configuration file and key names.
+Nonempty workspace `.codex` directories and dedicated-home `hooks.json` files are refused;
+escaped quoted TOML roots fail closed in the shared inspector.
+
+NanoGPT requests for commands outside the sandbox never receive automatic command-policy
+approval, even for reads or routine worktree steps. Publishing and in-place editing denials
+remain unconditional. This prevents installation lifecycle scripts and Git hooks from
+running outside the sandbox without an approver's decision, where they could expose the
+CLI's key. The inbox shows the command; inspect the scripts and hooks before approving it.
+Use a `human` approver for NanoGPT developers (`ai` is permitted but not recommended).
+With the default `approver: 'none'`, requested commits are refused: the shared Git index
+lock lives outside the worktree sandbox. See SECURITY.md for the unresolved same-user
+filesystem and process-environment risks; environment filtering does not isolate the
+secret file from broad Codex reads.
 
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**

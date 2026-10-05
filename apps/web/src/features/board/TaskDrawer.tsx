@@ -3,7 +3,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
-  canSeeAllTeamMessages,
   canSeeTeamMessage,
   cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,

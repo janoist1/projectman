@@ -445,7 +445,7 @@ export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message
  */
 function inTaskWorktree(input: {
   config: ProjectConfig;
-  session: { cwd: string; role: RoleId; provider?: AgentProvider };
+  session: { cwd: string; role: RoleId };
   task: Pick<Task, 'repo'> | null;
   worktreesRootDir?: string;
   workspacesRootDir?: string;
@@ -546,7 +546,7 @@ export function withSessionFolders(
  */
 export function commandVerdict(input: {
   config: ProjectConfig;
-  session: { cwd: string; role: RoleId };
+  session: { cwd: string; role: RoleId; provider?: AgentProvider };
   task: Pick<Task, 'repo'> | null;
   toolName: string;
   toolInput: unknown;

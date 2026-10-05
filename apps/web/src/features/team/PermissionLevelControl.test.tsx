@@ -8,6 +8,7 @@ import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { MemberProfilePage } from './MemberProfilePage';
 import { TeamPage } from './TeamPage';
+import { PermissionLevelControl } from './PermissionLevelControl';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
@@ -49,6 +50,26 @@ const select = (row: ReturnType<typeof within>, label: string) =>
   row.getByLabelText(label) as HTMLSelectElement;
 
 describe('the permission settings in the member profile of a member', () => {
+  it.each([true, false])('explains Gemini auto and plan to owners and readers: %s', async (isOwner) => {
+    for (const permissionMode of ['default', 'acceptEdits', 'auto', 'plan'] as const) {
+      const project = mockProject();
+      const member = project.backend.findMember('fe-1')!;
+      member.provider = 'gemini';
+      member.permissionMode = permissionMode;
+      const ui = project.render(<PermissionLevelControl member={member} />, '/', { isOwner });
+      if (permissionMode === 'auto' || permissionMode === 'plan') {
+        expect(screen.getByText(t(`permissionControls.providerNotes.gemini.${permissionMode}`))).toBeTruthy();
+      } else {
+        expect(screen.queryByText(t('permissionControls.providerNotes.gemini.auto'))).toBeNull();
+        expect(screen.queryByText(t('permissionControls.providerNotes.gemini.plan'))).toBeNull();
+      }
+      if (isOwner) {
+        expect((screen.getByLabelText(modeLabel()) as HTMLSelectElement).options).toHaveLength(4);
+        expect(screen.queryByRole('option', { name: mode('bypassPermissions') })).toBeNull();
+      }
+      ui.unmount();
+    }
+  });
   it('shows the mode of today’s members unchanged, and asks like a person', async () => {
     const project = mockProject();
     aiConfig(project, 'devops').permissionMode = 'auto';

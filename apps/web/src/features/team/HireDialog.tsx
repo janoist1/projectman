@@ -21,6 +21,7 @@ import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
 import { previewFor } from './hirePreview';
 import { ProviderFields } from './ProviderFields';
+import { PermissionProviderNote } from './PermissionLevelControl';
 import styles from './HireDialog.module.css';
 import form from './memberForm.module.css';
 
@@ -218,7 +219,10 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
               <dl className={styles.facts}>
                 <div>
                   <dt>{t('hire.permissionMode')}</dt>
-                  <dd>{t(`permissionModes.${preview.permissionMode}`)}</dd>
+                  <dd>
+                    {t(`permissionModes.${preview.permissionMode}`)}
+                    <PermissionProviderNote provider={provider} mode={preview.permissionMode} />
+                  </dd>
                 </div>
                 <div>
                   <dt>{t('hire.approver')}</dt>

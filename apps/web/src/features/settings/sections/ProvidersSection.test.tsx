@@ -8,6 +8,21 @@ import { LimitsSection } from './LimitsSection';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 describe('provider settings', () => {
+  it('shows Gemini login steps with member emphasis and recovers silently', async () => {
+    const p = mockProject();
+    const member = p.backend.config.team.members.find((entry) => entry.kind === 'ai')!;
+    if (member.kind === 'ai') member.provider = 'gemini';
+    p.backend.providerStatus.gemini = { loggedIn: false, problem: 'not_logged_in' };
+    const ui = p.render(<ProvidersSection config={p.backend.config} />);
+    await screen.findByText('agy');
+    const row = screen.getByText(t('providers.gemini')).closest('li')!;
+    expect(row.querySelector('[data-tone="needs"]')).toBeTruthy();
+    expect(within(row).getByText(t('providerSettings.loginSteps.gemini'))).toBeTruthy();
+    p.backend.providerStatus.gemini = { loggedIn: true };
+    await ui.client.invalidateQueries({ queryKey: ['providers'] });
+    await within(row).findByText(t('providerSettings.ready'));
+    expect(within(row).queryByText('agy')).toBeNull();
+  });
   it('renders ready, login missing with and without members, incomplete and unknown rows', async () => {
     const p = mockProject();
     for (const member of p.backend.config.team.members) {

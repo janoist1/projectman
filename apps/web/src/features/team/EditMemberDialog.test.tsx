@@ -10,6 +10,35 @@ import { EditMemberDialog } from './EditMemberDialog';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('EditMemberDialog', () => {
+  it('switches to Gemini with a custom model, clamped effort and disabled compaction', async () => {
+    const project = mockProject();
+    const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;
+    if (config.kind !== 'ai') throw new Error('Expected AI fixture');
+    config.effort = 'xhigh';
+    project.render(
+      <EditMemberDialog
+        member={project.backend.findMember('qa')!}
+        config={project.backend.config}
+        roles={builtInRoles}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'gemini' } });
+    expect((screen.getByLabelText(t('memberEdit.autoCompactWindow')) as HTMLInputElement).disabled).toBe(
+      true,
+    );
+    expect(
+      screen.getByText(t('memberEdit.autoCompactWindowCodex', { provider: t('providers.gemini') })),
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'custom' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.modelId')), {
+      target: { value: 'gemini-future' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() =>
+      expect(config).toMatchObject({ provider: 'gemini', model: 'gemini-future', effort: 'high' }),
+    );
+  });
   it('saves Claude effort and clears it when the default is selected', async () => {
     const project = mockProject();
     const config = project.backend.config.team.members.find((member) => member.handle === 'qa')!;

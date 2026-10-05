@@ -1,5 +1,5 @@
 import { Approver, SelectablePermissionMode } from '@projectman/shared';
-import type { MemberView, UpdateMemberRequest } from '@projectman/shared';
+import type { AgentProvider, PermissionMode, MemberView, UpdateMemberRequest } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
@@ -8,6 +8,19 @@ import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './PermissionLevelControl.module.css';
+
+/** Explain provider-specific behavior for the selected mode, including read-only views. */
+export function PermissionProviderNote({
+  provider,
+  mode,
+}: {
+  provider?: AgentProvider;
+  mode?: PermissionMode;
+}) {
+  return provider === 'gemini' && (mode === 'auto' || mode === 'plan') ? (
+    <span className={styles.note}>{t(`permissionControls.providerNotes.gemini.${mode}`)}</span>
+  ) : null;
+}
 
 /** The two permission settings as everyone but an owner sees them: no way to change them. */
 function PermissionText({ member }: { member: MemberView }) {
@@ -26,6 +39,7 @@ function PermissionText({ member }: { member: MemberView }) {
       {member.permissionLegacy ? (
         <span className={styles.note}>{t('permissionControls.legacyHint')}</span>
       ) : null}
+      <PermissionProviderNote provider={member.provider} mode={member.permissionMode} />
     </span>
   );
 }
@@ -79,6 +93,7 @@ export function PermissionLevelControl({ member }: { member: MemberView }) {
           </option>
         ))}
       </SelectField>
+      <PermissionProviderNote provider={member.provider} mode={member.permissionMode ?? 'auto'} />
       {member.permissionLegacy ? (
         <span className={styles.note}>{t('permissionControls.legacyHint')}</span>
       ) : null}

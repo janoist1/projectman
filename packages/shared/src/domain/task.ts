@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TaskDeveloperLevel } from './developer-level';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { LabelId } from './label';
@@ -188,6 +189,8 @@ export const Task = z.object({
   themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
+  /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
+  developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
   reviewPin: TaskReviewPin.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */

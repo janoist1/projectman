@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
@@ -22,6 +23,7 @@ export const TimelineEventType = z.enum([
   'task_updated',
   'task_stage_changed',
   'task_assigned',
+  'task_level_changed',
   'task_check_changed',
   'task_labels_changed',
   'task_link_added',
@@ -146,6 +148,12 @@ export interface TimelineEventData {
     previous?: string | null;
     reason?: 'member_removed' | 'handover';
     from?: string;
+  };
+  /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
+  task_level_changed: {
+    level: DeveloperLevel;
+    reason: string | null;
+    previous: { level: DeveloperLevel; reason: string | null } | null;
   };
   /** Legacy: checks were replaced by labels; old events keep this shape. */
   task_check_changed: { check: string; from: string | null; to: string };

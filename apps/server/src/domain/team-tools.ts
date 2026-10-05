@@ -25,6 +25,7 @@ import type {
   WorkDoing,
   WorkItemRef,
   AddRelationRef,
+  DeveloperLevelRequest,
   RelationsChange,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
@@ -581,6 +582,7 @@ export class TeamToolsService implements TeamToolsHandler {
       repo?: string | null;
       relations?: RelationsChange;
       themeKey?: string | null;
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -611,6 +613,7 @@ export class TeamToolsService implements TeamToolsHandler {
             repo: args.repo,
             ...(args.relations ? { relations: args.relations } : {}),
             ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
+            ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
             addLabels: args.addLabels,
             removeLabels: args.removeLabels,
             note: args.note,
@@ -646,6 +649,7 @@ export class TeamToolsService implements TeamToolsHandler {
       relations?: AddRelationRef[];
       kind?: TaskKind;
       themeKey?: string;
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -665,6 +669,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(args.relations?.length ? { relations: args.relations } : {}),
           ...(args.kind ? { kind: args.kind } : {}),
           ...(args.themeKey ? { themeKey: args.themeKey } : {}),
+          ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
         },
         aiActor(ctx.member),
         { sessionId: ctx.sessionId },

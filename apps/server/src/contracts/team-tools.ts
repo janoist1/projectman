@@ -2,6 +2,7 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
   AddRelationRef,
   Attachment,
+  DeveloperLevelRequest,
   MemberHandle,
   RelationsChange,
   TaskRelation,
@@ -231,6 +232,8 @@ export interface TeamToolsHandler {
       relations?: RelationsChange;
       /** The theme the card belongs to (PM-192); null removes it. */
       themeKey?: string | null;
+      /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }>;
   /**
@@ -251,6 +254,8 @@ export interface TeamToolsHandler {
       kind?: TaskKind;
       /** The theme the new card belongs to. */
       themeKey?: string;
+      /** The recommended developer (PM-347). */
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }>;
   /** link_pull_request: attach a GitHub PR to the task. */

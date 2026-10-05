@@ -8,9 +8,9 @@ import {
   projectRefines,
   roleBundle,
   stageIndex,
-  stageOf,
   stageOwners,
   startBlock,
+  workStageOf,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -105,12 +105,6 @@ export interface LabelWait {
 export interface FixLimitStart {
   humanStart(task: Task, actor: Actor): boolean;
   releaseMessages(task: Task): void;
-}
-
-/** The task's work stage: the one it is in, else the pipeline's first. */
-function workStageOf(config: ProjectConfig, task: Task): Stage | undefined {
-  const current = stageOf(config, task.stageId);
-  return current?.kind === 'work' ? current : config.pipeline.stages.find((s) => s.kind === 'work');
 }
 
 /**

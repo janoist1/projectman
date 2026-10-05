@@ -102,6 +102,10 @@ export const ERROR_CODES = [
   'approval_requested',
   'label_not_allowed',
   'comment_required',
+  // The recommended developer of a card (PM-347)
+  'developer_level_forbidden',
+  'developer_level_reason_required',
+  'senior_not_allowed',
   'self_review_forbidden',
   'release_four_eyes',
   // The handed-over work has uncommitted changes (PM-183)

@@ -4,6 +4,8 @@ import {
   AttachmentId,
   BoundaryId,
   BoundaryReason,
+  DEVELOPER_LEVEL_REASON_MAX,
+  DeveloperLevel,
   MemberHandle,
   questionChoices,
   StageId,
@@ -15,6 +17,7 @@ import {
   WORK_DOING_SUMMARY_MAX,
   WorkDoing,
 } from '@projectman/shared';
+import type { DeveloperLevelRequest } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 import {
@@ -82,6 +85,36 @@ export const TEAM_INSTRUCTIONS =
 
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_NOTE_CHARS = 10_000;
+
+const developerLevelInput = DeveloperLevel.optional().describe(
+  'The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is ' +
+    'required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses ' +
+    'requirements, may set it; it can be changed on a card that has started too, and it does not replace the ' +
+    'developer who already carries the card.',
+);
+const developerLevelReasonInput = z
+  .string()
+  .trim()
+  .min(1)
+  .max(DEVELOPER_LEVEL_REASON_MAX)
+  .optional()
+  .describe(
+    `Why the card is recommended for that developer, at most ${DEVELOPER_LEVEL_REASON_MAX} characters; ` +
+      'required with developer_level senior, and only with developer_level.',
+  );
+
+/** The recommended developer the call asked for; a reason without a level is refused. */
+function developerLevelArg(args: {
+  developer_level?: DeveloperLevel | undefined;
+  developer_level_reason?: string | undefined;
+}): DeveloperLevelRequest | undefined {
+  if (args.developer_level === undefined) {
+    if (args.developer_level_reason !== undefined)
+      throw new TeamToolError('invalid', 'developer_level_reason needs developer_level: pass both.');
+    return undefined;
+  }
+  return { level: args.developer_level, reason: args.developer_level_reason ?? null };
+}
 const MAX_TITLE_CHARS = 200;
 const MAX_LABEL_CHARS = 40;
 const MAX_REPO_CHARS = 64;
@@ -418,9 +451,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a ' +
       'theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, ' +
       'a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or ' +
-      'moved.',
+      'moved. developer_level (with developer_level_reason) sets the recommended developer of the card.',
     input: {
       task_key: taskKeyInput,
+      developer_level: developerLevelInput,
+      developer_level_reason: developerLevelReasonInput,
       stage_id: StageId.optional().describe(
         'Id of the stage to move the task to (the pipeline is in your instructions).',
       ),
@@ -519,9 +554,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         remove_relations: removeRelations,
         theme_key: themeKey,
       } = args;
+      const developerLevel = developerLevelArg(args);
       if (
         !stageId &&
         themeKey === undefined &&
+        !developerLevel &&
         !addLabels?.length &&
         !removeLabels?.length &&
         !note &&
@@ -534,7 +571,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         throw new TeamToolError(
           'invalid',
           'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-            'add_relations, remove_relations and/or theme_key.',
+            'add_relations, remove_relations, theme_key and/or developer_level.',
         );
       }
       const relations = {
@@ -552,9 +589,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(repo !== undefined ? { repo } : {}),
         ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
         ...(themeKey !== undefined ? { themeKey } : {}),
+        ...(developerLevel ? { developerLevel } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
+        ...(developerLevel ? { developerLevel: true } : {}),
         ...(themeKey !== undefined ? { themeKey } : {}),
         labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
         note: !!note,
@@ -621,10 +660,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
             ADDED_RELATIONS_HELP +
             ' One refused relation refuses the creation.',
         ),
+      developer_level: developerLevelInput,
+      developer_level_reason: developerLevelReasonInput,
     },
     async run({ ctx, args, handler }) {
+      const developerLevel = developerLevelArg(args);
       const { task } = await handler.createTask(ctx, {
         title: args.title,
+        ...(developerLevel ? { developerLevel } : {}),
         ...(args.relations?.length
           ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
           : {}),

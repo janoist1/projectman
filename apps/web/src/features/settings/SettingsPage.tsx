@@ -21,6 +21,7 @@ import { ProjectSection } from './sections/ProjectSection';
 import { ReposSection } from './sections/ReposSection';
 import { SettingsSection } from './sections/SettingsSection';
 import { TeamSection } from './sections/TeamSection';
+import { ProvidersSection } from './sections/ProvidersSection';
 
 /** Project configuration with section editors, version history and owner-only revert. */
 export function SettingsPage() {
@@ -69,6 +70,7 @@ export function SettingsPage() {
                 version={config.data.version}
               />
               <TeamSection config={config.data.config} />
+              <ProvidersSection config={config.data.config} />
               <LimitsSection config={config.data.config} />
               <ReposSection config={config.data.config} />
             </SettingsEditingProvider>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   AgentEffort,
   AgentProvider,
+  effortForProvider,
   CheapSubagentModel,
   modelForProvider,
   PROVIDER_CHEAP_SUBAGENT_MODELS,
@@ -17,6 +18,7 @@ import {
   PROVIDER_MODEL_LABELS,
 } from './providerModels';
 import styles from './memberForm.module.css';
+import { ProviderWarning } from './ProviderWarning';
 
 /** Shared AI settings for hiring and editing, with live subscription login warnings. */
 export function ProviderFields({
@@ -53,22 +55,13 @@ export function ProviderFields({
     <>
       <SelectField
         label={t('providerSettings.provider')}
+        hint={t(`providerSettings.runsOn.${provider}`)}
         value={provider}
         onChange={(event) => {
           const next = AgentProvider.parse(event.target.value);
           const nextModel = modelForProvider(next);
           setCustom(!Object.hasOwn(PROVIDER_MODEL_LABELS[next], nextModel));
-          onEffortChange(
-            next === 'gemini'
-              ? effort === 'max' || effort === 'xhigh'
-                ? 'high'
-                : (effort ?? 'medium')
-              : next === 'codex'
-                ? effort === 'max'
-                  ? 'xhigh'
-                  : (effort ?? 'medium')
-                : effort,
-          );
+          onEffortChange(effortForProvider(next, effort));
           onProviderChange(next, nextModel);
         }}
       >
@@ -157,12 +150,7 @@ export function ProviderFields({
           {t('providerSettings.astraWarning')}
         </p>
       ) : null}
-      {status?.loggedIn === false ? (
-        <p className={styles.warning} role="alert">
-          {t('providerSettings.loginWarning', { provider: t(`providers.${provider}`) })}{' '}
-          <code>{t(`providerSettings.loginCommands.${provider}`)}</code>
-        </p>
-      ) : null}
+      <ProviderWarning provider={provider} status={status} inDialog />
       {status?.loggedIn === null || providers.isError ? (
         <p className={styles.warning} role="status">
           {t('providerSettings.statusUnknown')}

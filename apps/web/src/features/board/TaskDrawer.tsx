@@ -5,7 +5,6 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   canSeeTeamMessage,
   cardWorkerSessions,
-  DEFAULT_AGENT_PROVIDER,
   developerLevelOf,
   fixLimitDecisionOf,
   hasActiveSenior,
@@ -437,14 +436,11 @@ export function TaskDrawer() {
         {task.startWaiting ? (
           <p className={drawer.section}>
             {startWaitingHint(task, members, myHandle)}
-            {task.startWaiting.reason === 'provider_not_logged_in' ? (
+            {task.startWaiting.reason === 'provider_not_logged_in' &&
+            task.startWaiting.provider !== 'nanogpt' ? (
               <>
                 {' '}
-                <code>
-                  {t(
-                    `providerSettings.loginCommands.${task.startWaiting.provider ?? DEFAULT_AGENT_PROVIDER}`,
-                  )}
-                </code>
+                <code>{t(`providerSettings.loginCommands.${task.startWaiting.provider ?? 'claude'}`)}</code>
               </>
             ) : null}
           </p>

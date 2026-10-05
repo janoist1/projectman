@@ -121,6 +121,7 @@ export function InstantNumber({
 /** A slider that saves when it is released, not while it is dragged. */
 export function InstantRange({
   label,
+  hint,
   value,
   min,
   max,
@@ -129,6 +130,7 @@ export function InstantRange({
   onCommit,
 }: {
   label: string;
+  hint?: string;
   value: number;
   min: number;
   max: number;
@@ -155,6 +157,7 @@ export function InstantRange({
         <input
           id={id}
           type="range"
+          aria-describedby={hint ? `${id}-hint` : undefined}
           min={min}
           max={max}
           value={local}
@@ -166,6 +169,11 @@ export function InstantRange({
         />
         <output htmlFor={id}>{format(local)}</output>
       </div>
+      {hint ? (
+        <p id={`${id}-hint`} className={shared.help}>
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

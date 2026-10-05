@@ -77,6 +77,18 @@ export const PROVIDER_EFFORT_OPTIONS: Record<AgentProvider, readonly AgentEffort
   nanogpt: ['low', 'medium', 'high', 'xhigh'],
 };
 
+/** Keep allowed effort, otherwise use the highest; unset means medium except on Claude. */
+export function effortForProvider(
+  provider: AgentProvider,
+  effort: AgentEffort | undefined,
+): AgentEffort | undefined {
+  const options = PROVIDER_EFFORT_OPTIONS[provider];
+  if (!options.length) return undefined;
+  if (provider === 'claude') return effort;
+  if (!effort) return 'medium';
+  return options.includes(effort) ? effort : options[options.length - 1];
+}
+
 /**
  * The cheaper model of an AI member's "cheap subagent" (PM-179), a Claude Code alias: the member
  * hands text-heavy, logic-light work (long logs, wide searches, summaries) to a subagent on it.

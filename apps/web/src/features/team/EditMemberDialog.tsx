@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   DEFAULT_AGENT_PROVIDER,
+  effortForProvider,
   DEFAULT_PROVIDER_MODELS,
   holdersAllow,
   HumanAccess,
@@ -56,7 +57,7 @@ function EditMemberForm({
     ai?.provider ?? member.provider ?? DEFAULT_AGENT_PROVIDER,
   );
   const [effort, setEffort] = useState<AgentEffort | undefined>(
-    ai?.effort ?? member.effort ?? (provider === 'codex' ? 'medium' : undefined),
+    effortForProvider(provider, ai?.effort ?? member.effort),
   );
   const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>(
     ai?.cheapSubagent ?? member.cheapSubagent,
@@ -227,6 +228,7 @@ function EditMemberForm({
                 provider === 'claude'
                   ? 'memberEdit.autoCompactWindowHint'
                   : 'memberEdit.autoCompactWindowCodex',
+                { provider: t(`providers.${provider}`) },
               )}
               type="number"
               min={100_000}

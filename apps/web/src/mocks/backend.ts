@@ -1,3 +1,4 @@
+import type { ProviderLoginStatus } from '@projectman/shared';
 import {
   StopOrphansRequest,
   canManageInstancePause,
@@ -366,6 +367,15 @@ export class MockBackend {
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
   providerLoggedIn = { claude: true, codex: true, gemini: true, nanogpt: true };
+  /** Per-provider overrides of the /api/providers rows (PM-327, PM-330). */
+  providerStatus: Partial<
+    Record<
+      AgentProvider,
+      Partial<Pick<ProviderLoginStatus, 'loggedIn' | 'method' | 'problem' | 'cliVersion' | 'minCliVersion'>>
+    >
+  > = {};
+  /** While set, GET /api/providers fails. */
+  providersFail = false;
   nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -1356,6 +1366,8 @@ export class MockBackend {
     }
     if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
     if ((path === '/api/providers' && method === 'GET') || path === '/api/providers/nanogpt/key') {
+      if (path === '/api/providers' && this.providersFail)
+        return error(503, 'internal_error', 'Providers unavailable');
       const member = memberOf(this.config, this.viewerHandle);
       const canManageKeys = canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
       if (path === '/api/providers/nanogpt/key') {
@@ -1383,6 +1395,8 @@ export class MockBackend {
                   : 'chatgpt'
             : 'none',
           checkedAt: nowIso(),
+          problem: this.providerLoggedIn[provider] ? undefined : 'not_logged_in',
+          ...this.providerStatus[provider],
         })),
       });
     }

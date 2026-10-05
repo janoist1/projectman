@@ -67,7 +67,9 @@ describe('EditMemberDialog', () => {
     // A Codex member's conversation is not compacted by this setting: the field says so.
     fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'codex' } });
     expect(field.disabled).toBe(true);
-    expect(screen.getByText(t('memberEdit.autoCompactWindowCodex'))).toBeTruthy();
+    expect(
+      screen.getByText(t('memberEdit.autoCompactWindowCodex', { provider: t('providers.codex') })),
+    ).toBeTruthy();
   });
 
   it('saves the cheap subagent of a Claude member and switches it off (PM-179)', async () => {

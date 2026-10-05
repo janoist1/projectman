@@ -30,6 +30,31 @@ async function chooseFromMenu(p: ReturnType<typeof mockProject>, handle: string,
 }
 
 describe('member profiles', () => {
+  it('shows a NanoGPT account usage note, medium default effort and no plan meter', async () => {
+    const p = mockProject();
+    const member = p.backend.findMember('fe-1')!;
+    member.provider = 'nanogpt';
+    member.effort = undefined;
+    p.backend.providerStatus.nanogpt = { loggedIn: false, problem: 'no_key' };
+    p.render(page(), '/team/fe-1');
+    await screen.findByText(t('profile.noPlanUsage.nanogpt'));
+    expect(screen.queryByRole('meter')).toBeNull();
+    expect(
+      screen.getByText((text) => text.endsWith(`· ${t('providerSettings.efforts.medium')}`)),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(t('providerSettings.notReadyWarning', { provider: t('providers.nanogpt') })),
+    ).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('keeps the Codex plan meter', async () => {
+    const p = mockProject();
+    p.backend.findMember('fe-1')!.provider = 'codex';
+    p.backend.providerPlanUsage.codex = { ...p.backend.planUsage };
+    p.render(page(), '/team/fe-1');
+    const group = await screen.findByRole('group', { name: t('providers.codex') });
+    expect(within(group).getAllByRole('meter')).toHaveLength(2);
+  });
   it('has one main button, the rest sits in the menu', async () => {
     const p = mockProject();
     p.render(page(), '/team/fe-1');

@@ -177,6 +177,12 @@
   z-index: 1;
 }
 
+/* Provider tooltips must receive taps above the stretched profile link. */
+.card [role='group'][aria-describedby] {
+  position: relative;
+  z-index: 1;
+}
+
 /* The state and the task share one line: "● Pihen · nincs feladata". */
 .cardState {
   display: flex;

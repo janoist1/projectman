@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import type { InboxItem, MemberView, RoleView } from '@projectman/shared';
+import type { InboxItem, MemberView, RoleView, ProviderLoginStatus } from '@projectman/shared';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Chip, StatusDot } from '../../components/Chip';
@@ -14,6 +14,7 @@ import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
 export interface RosterProps {
+  providers?: readonly ProviderLoginStatus[];
   members: readonly MemberView[];
   inbox: readonly InboxItem[] | undefined;
   roles: readonly RoleView[] | undefined;
@@ -65,9 +66,11 @@ function MemberIdentity({
   roles,
   stretched = false,
   compact = false,
+  providers,
 }: {
   member: MemberView;
   status: ReturnType<typeof memberStatusView>['status'];
+  providers?: RosterProps['providers'];
   roles: RosterProps['roles'];
   /** The profile link covers its whole card (the card's other controls stay on top of it). */
   stretched?: boolean;
@@ -87,7 +90,10 @@ function MemberIdentity({
           {member.kind === 'ai' ? (
             <>
               <Chip tone="dark">{t('common.ai')}</Chip>
-              <ProviderBadge provider={member.provider} />
+              <ProviderBadge
+                provider={member.provider}
+                status={providers?.find((entry) => entry.provider === (member.provider ?? 'claude'))}
+              />
               {member.senior ? (
                 <Chip tone="accent" title={t('team.seniorTitle')}>
                   {t('team.senior')}
@@ -175,7 +181,7 @@ function useSponsorNote(members: readonly MemberView[]) {
 }
 
 /** The roster as a table (desktop and tablet). */
-export function RosterTable({ members, inbox, roles, titles, actions }: RosterProps) {
+export function RosterTable({ members, inbox, roles, titles, actions, providers }: RosterProps) {
   const { myHandle } = useProject();
   const pausedRows = usePausedRows();
   const sponsor = useSponsorNote(members);
@@ -203,7 +209,7 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
             return (
               <tr key={member.handle}>
                 <td>
-                  <MemberIdentity member={member} status={view.status} roles={roles} />
+                  <MemberIdentity member={member} status={view.status} roles={roles} providers={providers} />
                 </td>
                 <td>
                   <span className={styles.statusCell} data-status={view.status}>
@@ -231,7 +237,7 @@ export function RosterTable({ members, inbox, roles, titles, actions }: RosterPr
 }
 
 /** The roster as cards (phones). */
-export function RosterCards({ members, inbox, roles, titles, actions }: RosterProps) {
+export function RosterCards({ members, inbox, roles, titles, actions, providers }: RosterProps) {
   const { myHandle } = useProject();
   const pausedRows = usePausedRows();
   const sponsor = useSponsorNote(members);
@@ -244,7 +250,14 @@ export function RosterCards({ members, inbox, roles, titles, actions }: RosterPr
         return (
           <li key={member.handle} className={styles.card}>
             <div className={styles.cardHead}>
-              <MemberIdentity member={member} status={view.status} roles={roles} stretched compact />
+              <MemberIdentity
+                member={member}
+                status={view.status}
+                roles={roles}
+                providers={providers}
+                stretched
+                compact
+              />
               {menu}
             </div>
             <div className={styles.cardState}>

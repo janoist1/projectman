@@ -916,7 +916,8 @@ describe('settings section editors', () => {
     expect((await stage.findByRole('alert')).textContent).toBe(t('settings.issues.too_small'));
   });
 
-  it.each(['client', 'viewer'] as const)('hides edit buttons for %s access', async (access) => {
+  // A client does not get the configuration at all (it is refused), so only a viewer reaches the sections.
+  it.each(['viewer'] as const)('hides edit buttons for %s access', async (access) => {
     const project = mockProject();
     const member = project.backend.config.team.members.find((member) => member.handle === 'owner')!;
     if (member.kind === 'human') member.access = access;

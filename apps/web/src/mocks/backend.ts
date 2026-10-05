@@ -1759,6 +1759,10 @@ export class MockBackend {
 
     if (rest === '/config') {
       if (method === 'PATCH') return this.patchConfig(body);
+      // The server gives the configuration to every member but a client.
+      const reader = memberOf(this.config, this.viewerHandle);
+      if (reader?.kind === 'human' && reader.access === 'client')
+        return error(403, 'insufficient_access', 'Requires internal access');
       return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
     }
     if (rest === '/config/revert' && method === 'POST') {

@@ -1075,6 +1075,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `runner/cli.ts` resolves the real executable on the session PATH; the profile reopens
   only its `packages/standalone` installation ancestor read-only beneath a denied path,
   provided that ancestor contains no denied path. Unknown layouts stay closed.
+  macOS MDM-managed Codex preferences are not inspected yet (PM-375).
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax.

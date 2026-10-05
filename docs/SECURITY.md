@@ -358,6 +358,8 @@ session PATH, then grants only its `packages/standalone` ancestor, never the who
 inside denied directories remain blocked; install outside them or use the official standalone
 layout. The shared Git directory also stays read-only: routine Git writes still go through
 the existing command-approval path (PM-131/PM-77). No Git write grant is added by this profile.
+macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
+checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
 **Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
 directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer

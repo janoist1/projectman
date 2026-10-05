@@ -65,6 +65,7 @@ describe('child environment', () => {
       'AGY_ADC_AUTH',
       'AGY_BUSINESS_PAYGO_TIER',
       'NANOGPT_API_KEY',
+      'CODEX_ACCESS_TOKEN',
       'GEMINI_CLI',
       'ANTIGRAVITY_SESSION',
       'ANTIGRAVITY_CLI_ALPHA',

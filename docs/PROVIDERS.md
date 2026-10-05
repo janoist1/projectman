@@ -22,6 +22,18 @@ The `nanogpt_setup_incomplete` error exposes only configuration file and key nam
 Nonempty workspace `.codex` directories and dedicated-home `hooks.json` files are refused;
 escaped quoted TOML roots fail closed in the shared inspector.
 
+NanoGPT disables plugins, remote plugins, ChatGPT apps, tool suggestions and skill-triggered
+MCP installation with per-process feature overrides. Analytics and feedback are disabled.
+Its authentication store is ephemeral; no keychain login is loaded. The environment filter
+removes `CODEX_ACCESS_TOKEN` from every provider's children, since it otherwise takes
+precedence over the selected authentication store. These settings apply on resume too.
+Codex 0.159.1 still fetches the public announcement from
+`raw.githubusercontent.com/openai/codex/main/announcement_tip.toml`: this unconditional GET
+has no authentication or provider key and has no disable setting in that release.
+Before repeating a manual probe, the owner must clear the probe home's previously downloaded
+`codex-home/.tmp` plugins. Check that no ChatGPT or plugin-marketplace request or plugin
+download remains; the public announcement request may remain.
+
 NanoGPT requests for commands outside the sandbox never receive automatic command-policy
 approval, even for reads or routine worktree steps. Publishing and in-place editing denials
 remain unconditional. This prevents installation lifecycle scripts and Git hooks from

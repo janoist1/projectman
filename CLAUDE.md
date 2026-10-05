@@ -17,7 +17,7 @@ made. A choice of your own that the owner should confirm goes to them as a quest
 
 ## Subscription rule
 
-- Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `GEMINI_API_KEY`,
+- Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `GEMINI_API_KEY`,
   `GOOGLE_API_KEY` or other API-billing variables. The runner strips them
   from the environment of every session (`BILLING_ENV_VARS` in `apps/server/src/runner/env.ts`).
   The sole exception is the projectman-managed `NANOGPT_API_KEY` from

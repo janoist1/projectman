@@ -868,6 +868,10 @@ workers follow the machine's size.
   The shared inspector checks separate project and home hook files for every Codex caller;
   NanoGPT selects `projectFolder: 'any'`, also refusing symlinked or non-directory project folders.
   On a remote engine this inspection must run beside the CLI, before secret delivery.
+  The engine also applies NanoGPT-only feature overrides disabling plugins, apps and
+  skill-triggered MCP installation, an ephemeral authentication store, and disabled analytics
+  and feedback. All child environments strip `CODEX_ACCESS_TOKEN`. Codex 0.159.1's public,
+  unauthenticated GitHub announcement request remains a CLI network assumption.
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.

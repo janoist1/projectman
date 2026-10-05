@@ -55,6 +55,21 @@ tenants into separate OS accounts or machines.
   may run outside the sandbox and expose the key; this remains a risk, rather than a
   verified secret-isolation boundary.
 
+  NanoGPT disables plugin loading and synchronization, ChatGPT apps and suggestions,
+  skill-triggered MCP installation, analytics and feedback. Its ephemeral authentication
+  store avoids persisted ChatGPT login and keychain credentials; `CODEX_ACCESS_TOKEN`
+  is stripped from all child environments. In the Codex 0.159.1 source, plugin requests
+  take authentication from `AuthManager`, not the custom provider's `env_key`;
+  `load_auth` reads Codex billing variables and auth storage, never `NANOGPT_API_KEY`.
+  This is source verification, not a captured network-header test. See
+  [plugin authentication](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/core-plugins/src/manager.rs)
+  and [authentication loading](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/login/src/auth/manager.rs).
+  The remaining public GitHub announcement request has no authentication attached
+  and no disable setting in 0.159.1; the request builder only supplies a URL and timeout
+  ([announcement fetch](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/tui/src/tooltips.rs)).
+  The owner's next manual probe must verify that ChatGPT requests and plugin downloads
+  are gone after clearing the probe's existing plugin cache.
+
   The owner accepted the following temporary host risks on 2026-10-05 (decision 34,
   PM-329; closure in PM-356):
   the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret

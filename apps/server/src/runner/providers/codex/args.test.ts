@@ -116,6 +116,30 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
+  it.each([false, true])('disables ChatGPT services only for NanoGPT with resume=%s', (resume) => {
+    const settings: Record<string, string> = {
+      'features.plugins': 'false',
+      'features.remote_plugin': 'false',
+      'features.apps': 'false',
+      'features.tool_suggest': 'false',
+      'features.skill_mcp_dependency_install': 'false',
+      cli_auth_credentials_store: '"ephemeral"',
+      'analytics.enabled': 'false',
+      'feedback.enabled': 'false',
+    };
+    const ordinary = overrides(buildCodexArgs({ ...input, spec: { ...spec, resume } }).args);
+    const nanogpt = overrides(
+      buildCodexArgs({
+        ...input,
+        spec: { ...spec, provider: 'nanogpt', resume },
+        provider: NANOGPT_CODEX_PROVIDER,
+      }).args,
+    );
+    for (const [key, value] of Object.entries(settings)) {
+      expect(nanogpt.get(key), key).toBe(value);
+      expect(ordinary.has(key), key).toBe(false);
+    }
+  });
   it.each([false, true])('maps max to xhigh with resume=%s', (resume) => {
     const args = buildCodexArgs({ ...input, spec: { ...spec, resume, effort: 'max' } }).args;
     expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify('xhigh'));

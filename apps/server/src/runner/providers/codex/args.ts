@@ -178,6 +178,18 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       wire_api: p.wireApi,
     });
     c('shell_environment_policy.exclude', [p.envKey]);
+    // A custom provider must not load ChatGPT services or install unsandboxed plugin/MCP code.
+    for (const feature of [
+      'plugins',
+      'remote_plugin',
+      'apps',
+      'tool_suggest',
+      'skill_mcp_dependency_install',
+    ])
+      c(`features.${feature}`, false);
+    c('cli_auth_credentials_store', 'ephemeral');
+    c('analytics.enabled', false);
+    c('feedback.enabled', false);
   }
   c('projects', { [input.realCwd]: { trust_level: 'trusted' } });
   c('project_doc_fallback_filenames', ['CLAUDE.md']);

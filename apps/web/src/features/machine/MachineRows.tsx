@@ -107,6 +107,23 @@ export function Usage({
   );
 }
 
+function CompactUsage({
+  cpu,
+  memory,
+  delayed,
+}: {
+  cpu: number | null;
+  memory: number | null;
+  delayed: boolean;
+}) {
+  return (
+    <span className={styles.compactUsage}>
+      {delayed || cpu === null ? t('planUsage.unknown') : formatPercent(cpu)} ·{' '}
+      {formatMemory(delayed ? null : memory)}
+    </span>
+  );
+}
+
 export function SessionRow({
   row,
   controls,
@@ -135,6 +152,9 @@ export function SessionRow({
   const [error, setError] = useState(false);
   const toast = useToast();
   const state = t(`sessionState.${row.paused ? 'paused' : row.state}`);
+  const elapsed = now - Date.parse(row.stateSince);
+  const since =
+    elapsed < 60000 ? t('machine.stateNow') : t('machine.since', { duration: formatDuration(elapsed) });
   const submit = () => {
     controls.cancel();
     setError(false);
@@ -165,7 +185,10 @@ export function SessionRow({
             if (phone && !(event.target instanceof Element && event.target.closest('button,a')))
               controls.toggle(row.sessionId);
           }}
-          className={leaving ? styles.leaving : stop.isPending ? styles.stopping : undefined}
+          className={[
+            styles.processRow,
+            leaving ? styles.leaving : stop.isPending ? styles.stopping : '',
+          ].join(' ')}
         >
           <td>
             <div className={styles.who}>
@@ -183,24 +206,37 @@ export function SessionRow({
                 size="sm"
               />
               <strong>{name}</strong>
+              {phone && <CompactUsage cpu={row.cpuPercent} memory={row.memoryBytes} delayed={delayed} />}
             </div>
-            <Work row={row} onClose={onClose} />
+            {phone ? (
+              <div className={styles.subline}>
+                <span>
+                  <i data-state={row.paused ? 'paused' : row.state} />
+                  {state} · {since} ·
+                </span>
+                <Work row={row} onClose={onClose} />
+              </div>
+            ) : (
+              <Work row={row} onClose={onClose} />
+            )}
           </td>
-          <td className={styles.state}>
-            <span>
-              <i data-state={row.paused ? 'paused' : row.state} />
-              {state}
-            </span>
-            <small>
-              {t('machine.since', { duration: formatDuration(now - Date.parse(row.stateSince)) })}
-            </small>
-          </td>
-          <td className={styles.age}>
-            {delayed || row.processStartedAt === null
-              ? t('planUsage.unknown')
-              : formatDuration(now - Date.parse(row.processStartedAt))}
-          </td>
-          <Usage cpu={row.cpuPercent} memory={row.memoryBytes} total={total} delayed={delayed} />
+          {!phone && (
+            <>
+              <td className={styles.state}>
+                <span>
+                  <i data-state={row.paused ? 'paused' : row.state} />
+                  {state}
+                </span>
+                <small>{since}</small>
+              </td>
+              <td className={styles.age}>
+                {delayed || row.processStartedAt === null
+                  ? t('planUsage.unknown')
+                  : formatDuration(now - Date.parse(row.processStartedAt))}
+              </td>
+              <Usage cpu={row.cpuPercent} memory={row.memoryBytes} total={total} delayed={delayed} />
+            </>
+          )}
           <td className={styles.stopCell}>
             {stop.isPending ? (
               t('machine.stopping')
@@ -318,7 +354,7 @@ export function OrphanRow({
         </tr>
       ) : (
         <tr
-          className={leaving ? styles.leaving : pending ? styles.stopping : undefined}
+          className={[styles.processRow, leaving ? styles.leaving : pending ? styles.stopping : ''].join(' ')}
           onClick={(event) => {
             if (phone && !(event.target instanceof Element && event.target.closest('button,a')))
               controls.toggle(id);
@@ -335,14 +371,28 @@ export function OrphanRow({
                 <Icon name={controls.expanded.has(id) ? 'chevronDown' : 'chevronRight'} size={14} />
               </button>
               <code>{row.name}</code>
+              {phone && <CompactUsage cpu={row.cpuPercent} memory={row.memoryBytes} delayed={delayed} />}
             </div>
-            <small>{source}</small>
+            {phone ? (
+              <div className={`${styles.subline} ${styles.orphanSubline}`}>
+                <span>{t('machine.orphan')} ·</span>
+                <span className={styles.origin} title={source}>
+                  {source}
+                </span>
+              </div>
+            ) : (
+              <small>{source}</small>
+            )}
           </td>
-          <td className={styles.state}>{t('machine.orphan')}</td>
-          <td className={styles.age}>
-            {delayed ? t('planUsage.unknown') : formatDuration(now - Date.parse(row.startedAt))}
-          </td>
-          <Usage cpu={row.cpuPercent} memory={row.memoryBytes} total={total} delayed={delayed} />
+          {!phone && (
+            <>
+              <td className={styles.state}>{t('machine.orphan')}</td>
+              <td className={styles.age}>
+                {delayed ? t('planUsage.unknown') : formatDuration(now - Date.parse(row.startedAt))}
+              </td>
+              <Usage cpu={row.cpuPercent} memory={row.memoryBytes} total={total} delayed={delayed} />
+            </>
+          )}
           <td className={styles.stopCell}>
             {pending
               ? t('machine.stopping')
@@ -352,7 +402,7 @@ export function OrphanRow({
                     size="sm"
                     variant="ghost"
                     icon="stop"
-                    aria-label={t('machine.stopLabel', { name: row.name, work: t('machine.orphan') })}
+                    aria-label={t('machine.stopOrphanLabel', { process: row.name })}
                     onClick={() => controls.ask(id, () => button.current?.focus())}
                   >
                     <span className={styles.stopText}>{t('session.stop')}</span>
@@ -361,18 +411,10 @@ export function OrphanRow({
           </td>
         </tr>
       )}
-      {outcome && (
+      {(outcome === 'refused' || outcome === 'failed') && (
         <tr>
-          <td colSpan={6} className={styles.error}>
-            {t(
-              outcome === 'refused'
-                ? 'machine.refused'
-                : outcome === 'failed'
-                  ? 'machine.stopFailed'
-                  : outcome === 'gone'
-                    ? 'machine.gone'
-                    : 'machine.stopped',
-            )}
+          <td colSpan={6} className={outcome === 'failed' ? styles.error : styles.neutral}>
+            {t(outcome === 'refused' ? 'machine.refused' : 'machine.stopFailed')}
           </td>
         </tr>
       )}

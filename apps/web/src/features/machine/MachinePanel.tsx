@@ -209,7 +209,6 @@ export function MachinePanel({
                         ? 'machine.refused'
                         : 'machine.stopFailed',
                 );
-          setNotice(message);
           toast.show(message, done === orphans.length ? 'ok' : 'error');
         },
         onError: () => {
@@ -237,7 +236,7 @@ export function MachinePanel({
         >
           <button onClick={() => chooseSort(value)}>
             {t(`machine.${value}`)}
-            {sort === value && (ascending ? ' ↑' : ' ↓')}
+            {sort === value && <span aria-hidden="true">{ascending ? ' ↑' : ' ↓'}</span>}
           </button>
         </th>
       ))}
@@ -266,7 +265,13 @@ export function MachinePanel({
   );
   const updated = data?.sampledAt ? Math.max(0, Math.floor((now - Date.parse(data.sampledAt)) / 1000)) : 0;
   const freshness = delayed
-    ? t('machine.delayed', { ago: data?.sampledAt ? formatAgo(data.sampledAt) : t('planUsage.unknown') })
+    ? t('machine.delayed', {
+        ago: data?.sampledAt
+          ? updated < 60
+            ? t('machine.secondsAgo', { seconds: updated })
+            : formatAgo(data.sampledAt, new Date(now))
+          : t('planUsage.unknown'),
+      })
     : updated < 5
       ? t('machine.updatedNow')
       : t('machine.updated', { seconds: updated });
@@ -319,9 +324,10 @@ export function MachinePanel({
                 label: t('machine.cpu'),
                 value: summary.cpuPercent,
                 display: undefined,
-                detail: t('machine.cores', {
-                  count: delayed ? t('planUsage.unknown') : (summary.cores ?? t('planUsage.unknown')),
-                }),
+                detail:
+                  delayed || summary.cores === null
+                    ? t('planUsage.unknown')
+                    : t('machine.cores', { count: summary.cores }),
                 level: levels.cpu,
               },
               {
@@ -329,25 +335,27 @@ export function MachinePanel({
                 value: percent(summary.memoryUsedBytes, summary.memoryTotalBytes),
                 display: undefined,
                 detail:
-                  t('machine.memoryAmount', {
-                    used: formatMemory(delayed ? null : summary.memoryUsedBytes),
-                    total: formatMemory(delayed ? null : summary.memoryTotalBytes),
-                  }) +
-                  (!delayed && (summary.memoryPressure === 'warn' || summary.memoryPressure === 'critical')
-                    ? ` · ${t(summary.memoryPressure === 'warn' ? 'machine.pressureHigh' : 'machine.pressureCritical')}`
-                    : ''),
+                  delayed || summary.memoryUsedBytes === null || summary.memoryTotalBytes === null
+                    ? t('planUsage.unknown')
+                    : t('machine.memoryAmount', {
+                        used: formatMemory(summary.memoryUsedBytes),
+                        total: formatMemory(summary.memoryTotalBytes),
+                      }) +
+                      (summary.memoryPressure === 'warn' || summary.memoryPressure === 'critical'
+                        ? ` · ${t(summary.memoryPressure === 'warn' ? 'machine.pressureHigh' : 'machine.pressureCritical')}`
+                        : ''),
                 level: levels.memory,
               },
               {
                 label: t('machine.swap'),
                 value: percent(summary.swapUsedBytes, summary.memoryTotalBytes),
                 display: formatMemory(delayed ? null : summary.swapUsedBytes),
-                detail: t('machine.swapRatio', {
-                  percent:
-                    delayed || percent(summary.swapUsedBytes, summary.memoryTotalBytes) === null
-                      ? t('planUsage.unknown')
-                      : Math.round(percent(summary.swapUsedBytes, summary.memoryTotalBytes)!),
-                }),
+                detail:
+                  delayed || percent(summary.swapUsedBytes, summary.memoryTotalBytes) === null
+                    ? t('planUsage.unknown')
+                    : t('machine.swapRatio', {
+                        percent: Math.round(percent(summary.swapUsedBytes, summary.memoryTotalBytes)!),
+                      }),
                 level: levels.swap,
               },
               {
@@ -356,7 +364,7 @@ export function MachinePanel({
                 display: delayed
                   ? t('planUsage.unknown')
                   : `${summary.sessionsWorking} / ${summary.sessionsRunning}`,
-                detail: t('machine.workingRunning'),
+                detail: delayed ? t('planUsage.unknown') : t('machine.workingRunning'),
                 level: delayed ? null : ('ok' as const),
               },
             ].map((tile) => (
@@ -485,7 +493,7 @@ export function MachinePanel({
                     {others.map((row) => (
                       <tr key={otherKey(row)}>
                         <td>
-                          <code>{row.kind === 'server' ? t('machine.server') : row.name}</code>
+                          {row.kind === 'server' ? t('machine.server') : <code>{row.name}</code>}
                           {row.kind === 'server' && <small>{t('machine.instance')}</small>}
                         </td>
                         <td className={styles.state} />

@@ -21,6 +21,34 @@ export default async ({ instance, open, shoot, step, log }) => {
       log(`${width}px: machine indicators visible=${await indicator().count()}`);
     }
     await shoot(page, 'topbar', { widths: WIDTHS });
+    await page.setViewportSize({ width: 1600, height: 900 });
+    const search = page.getByRole('search');
+    const original = await search.evaluate((element) => {
+      const name = element.parentElement.firstElementChild.querySelector('button > span:nth-child(2)');
+      const value = name.textContent;
+      name.textContent = Array(6).fill(value).join(' ');
+      return value;
+    });
+    for (const width of [1600, 1512, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.waitForTimeout(100);
+      const fits = await search.evaluate((element) => {
+        const header = element.parentElement;
+        const boxes = [...header.children]
+          .map((child) => child.getBoundingClientRect())
+          .filter((box) => box.width > 0);
+        return (
+          element.getBoundingClientRect().width >= 139.5 &&
+          boxes.every((box, index) => index === 0 || box.left >= boxes[index - 1].right - 0.5) &&
+          boxes.at(-1).right <= header.getBoundingClientRect().right
+        );
+      });
+      if (!fits) throw new Error(`Top bar overlaps with the maximum project name at ${width}px.`);
+    }
+    await shoot(page, 'topbar-long-name', { widths: [1600, 1512, 1280] });
+    await search.evaluate((element, value) => {
+      element.parentElement.firstElementChild.querySelector('button > span:nth-child(2)').textContent = value;
+    }, original);
   });
   await step('desktop and phone panels', async () => {
     for (const width of [1512, 390]) {
@@ -72,6 +100,27 @@ export default async ({ instance, open, shoot, step, log }) => {
       await page.unroute('**/api/machine*', threeOrphans);
     }
     await page.keyboard.press('Escape');
+  });
+  await step('orphan refusal and failure', async () => {
+    await page.route('**/api/machine/orphans/stop', async (route) => {
+      const { orphans } = route.request().postDataJSON();
+      await route.fulfill({
+        json: {
+          results: orphans.map((row, index) => ({ ...row, outcome: index === 0 ? 'refused' : 'failed' })),
+        },
+      });
+    });
+    await indicator().click();
+    const all = panel().getByRole('button', { name: 'Mind leállítása' });
+    if (await all.count()) {
+      await all.click();
+      await panel().getByRole('button', { name: 'Mind leállítása' }).last().click();
+      await panel().getByText('Ezt a folyamatot már nem lehet innen leállítani.').waitFor();
+      await panel().getByText('Nem sikerült leállítani. Próbáld újra.').waitFor();
+      await shoot(page, 'orphan-outcomes', { widths: [1512] });
+    }
+    await page.keyboard.press('Escape');
+    await page.unroute('**/api/machine/orphans/stop');
   });
   await step('delayed sample', async () => {
     await page.route('**/api/machine*', async (route) => {

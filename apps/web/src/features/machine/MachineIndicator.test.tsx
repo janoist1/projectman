@@ -106,12 +106,19 @@ describe('machine display', () => {
     const dialog = await open();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mind leállítása' }));
     fireEvent.click(within(dialog).getAllByRole('button', { name: 'Mind leállítása' }).at(-1)!);
-    expect(await within(dialog).findByText('1 folyamat leállt, 2 nem.')).toBeTruthy();
+    await waitFor(() => expect(show).toHaveBeenCalledWith('1 folyamat leállt, 2 nem.', 'error'));
+    expect(within(dialog).queryByText('1 folyamat leállt, 2 nem.')).toBeNull();
     await waitFor(() => expect(within(dialog).queryByText('vitest-1')).toBeNull());
     expect(within(dialog).getByText('vitest-2')).toBeTruthy();
     expect(within(dialog).getByText('vitest-3')).toBeTruthy();
-    expect(within(dialog).queryByRole('button', { name: 'Leállítás: vitest-2, Gazdátlan' })).toBeNull();
-    expect(within(dialog).getByRole('button', { name: 'Leállítás: vitest-3, Gazdátlan' })).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: 'Leállítás: vitest-2 folyamat' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Leállítás: vitest-3 folyamat' })).toBeTruthy();
+    expect(
+      within(dialog).getByText('Ezt a folyamatot már nem lehet innen leállítani.').closest('td')?.className,
+    ).toContain('neutral');
+    expect(
+      within(dialog).getByText('Nem sikerült leállítani. Próbáld újra.').closest('td')?.className,
+    ).toContain('error');
     expect(show).toHaveBeenCalledWith('1 folyamat leállt, 2 nem.', 'error');
   });
 
@@ -182,7 +189,7 @@ describe('machine display', () => {
     await waitFor(() => expect(ids()).toEqual([first.sessionId, second.sessionId]));
     expect(orphanNames()).toEqual(['Folyamatok: orphan-3', 'Folyamatok: orphan-2', 'Folyamatok: orphan-1']);
     expect(dialog.querySelector('th[aria-sort="descending"]')?.textContent).toContain('Memória');
-    fireEvent.click(within(dialog).getByRole('button', { name: /Processzor/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Processzor' }));
     expect(dialog.querySelector('th[aria-sort="descending"]')?.textContent).toContain('Processzor');
   });
 
@@ -251,7 +258,8 @@ describe('machine display', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mind leállítása' }));
     expect(within(dialog).getByText('Mind a 3 leáll?')).toBeTruthy();
     fireEvent.click(within(dialog).getAllByRole('button', { name: 'Mind leállítása' }).at(-1)!);
-    expect(await within(dialog).findByText('3 folyamat leállt.')).toBeTruthy();
+    await waitFor(() => expect(show).toHaveBeenCalledWith('3 folyamat leállt.', 'ok'));
+    expect(within(dialog).queryByText('3 folyamat leállt.')).toBeNull();
     const requests = project.requests.filter(
       (row) => row.method === 'POST' && row.path === '/api/machine/orphans/stop',
     );
@@ -284,17 +292,18 @@ describe('machine display', () => {
       </ToastContext.Provider>,
     );
     const dialog = await open();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Leállítás: vitest, Gazdátlan' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Leállítás: vitest folyamat' }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Leállítás' }));
     await waitFor(() => expect(show).toHaveBeenCalled());
     if (outcome === 'gone') {
       expect(show).toHaveBeenCalledWith('A folyamat közben már leállt.', 'ok');
+      expect(within(dialog).queryByText('A folyamat közben már leállt.')).toBeNull();
       await waitFor(() => expect(within(dialog).queryByText('vitest')).toBeNull());
     }
     if (outcome === 'refused')
-      expect(within(dialog).queryByRole('button', { name: 'Leállítás: vitest, Gazdátlan' })).toBeNull();
+      expect(within(dialog).queryByRole('button', { name: 'Leállítás: vitest folyamat' })).toBeNull();
     if (outcome === 'failed')
-      expect(within(dialog).getByRole('button', { name: 'Leállítás: vitest, Gazdátlan' })).toBeTruthy();
+      expect(within(dialog).getByRole('button', { name: 'Leállítás: vitest folyamat' })).toBeTruthy();
   });
 
   it('shows delayed neutral measurements, unavailable lists and the empty state', async () => {
@@ -314,6 +323,46 @@ describe('machine display', () => {
     expect(
       screen.getByRole('button', { name: /Gép: processzor n. a./ }).getAttribute('data-level'),
     ).toBeNull();
+  });
+
+  it('shows seconds for a delayed sample and plain unknown tile details', async () => {
+    const project = setup();
+    project.sample.sampledAt = new Date(Date.now() - 45000).toISOString();
+    project.sample.intervalMs = 5000;
+    project.render(<MachineIndicator />);
+    const dialog = await open();
+    expect(within(dialog).getByText(/A mérés késik · utoljára 4\d mp-e/)).toBeTruthy();
+    expect(within(dialog).queryByText(/utoljára most|n\. a\. mag|a memória n\. a\.%/)).toBeNull();
+    const details = [...dialog.querySelectorAll('[class*="tile"] small')];
+    expect(details.map((node) => node.textContent)).toEqual(['n. a.', 'n. a.', 'n. a.', 'n. a.']);
+  });
+
+  it('keeps only a request failure in the orphan section header', async () => {
+    const project = setup();
+    project.sample.orphans = [
+      {
+        pid: 123,
+        startedAt: project.sample.sampledAt!,
+        name: 'vite',
+        command: 'vite',
+        cpuPercent: 1,
+        memoryBytes: 1024,
+        processCount: 1,
+        origin: null,
+      },
+    ];
+    const fetch = createMockFetch(project.backend, project.requests);
+    setFetchImplementation((path, init) =>
+      path.endsWith('/orphans/stop')
+        ? Promise.resolve(new Response('{}', { status: 500 }))
+        : fetch(path, init),
+    );
+    project.render(<MachineIndicator />);
+    const dialog = await open();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Leállítás: vite folyamat' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Leállítás' }));
+    expect(await within(dialog).findByText('Nem sikerült leállítani. Próbáld újra.')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Leállítás: vite folyamat' })).toBeTruthy();
   });
 
   it('offers retry after a failed GET and uses a neutral indicator', async () => {
@@ -365,5 +414,7 @@ it('formats binary memory and compact duration', () => {
   expect(formatMemory(640 * 1024 ** 2)).toBe('640 MB');
   expect(formatDuration(12 * 60000)).toBe('12 p');
   expect(formatDuration(192 * 60000)).toBe('3 ó 12 p');
+  expect(formatDuration(4 * 3600000)).toBe('4 ó');
+  expect(formatDuration(45000)).toBe('<1 p');
   expect(formatDuration(48 * 3600000)).toBe('2 nap');
 });

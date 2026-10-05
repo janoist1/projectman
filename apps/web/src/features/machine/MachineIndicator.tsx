@@ -119,18 +119,21 @@ function OwnerIndicator({ phone }: { phone: boolean }) {
                 decorative
               />
             )}
-            <MiniMeter
-              label={t('machine.aiShort')}
-              value={summary ? percent(summary.sessionsWorking, summary.sessionsRunning) : null}
-              displayValue={
-                summary ? `${summary.sessionsWorking}/${summary.sessionsRunning}` : t('planUsage.unknown')
-              }
-              level="ok"
-              pauseAbove={0}
-              decorative
-              bar={false}
-            />
-            <Icon name="chevronDown" size={12} />
+            <span className={styles.aiMeter}>
+              <MiniMeter
+                label={t('machine.aiShort')}
+                value={summary ? percent(summary.sessionsWorking, summary.sessionsRunning) : null}
+                displayValue={
+                  summary ? `${summary.sessionsWorking}/${summary.sessionsRunning}` : t('planUsage.unknown')
+                }
+                level="ok"
+                pauseAbove={0}
+                decorative
+              />
+            </span>
+            <span className={styles.chevron}>
+              <Icon name="chevronDown" size={12} />
+            </span>
           </>
         )}
       </button>

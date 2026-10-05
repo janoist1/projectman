@@ -261,7 +261,7 @@ const icons = {
   ),
   play: <path d="M8 5.5v13l10.5-6.5z" />,
   pause: <path d="M9 6v12M15 6v12" />,
-  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" />,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" />,
   undo: (
     <>
       <path d="M9 5L4.5 9.5 9 14" />

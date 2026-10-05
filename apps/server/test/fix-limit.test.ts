@@ -123,6 +123,18 @@ describe('fix round limit', () => {
       expect(items()).toEqual([]);
     });
 
+    it("tells an AI sender that the assignee's message is held back (PM-144)", async () => {
+      await prepare();
+      await round('First fix');
+      await round('Second fix');
+      const { recipients } = await h.domain.messaging.sendReporting('AR', 'cr', {
+        to: ['dev-1'],
+        text: 'One more thing',
+        taskKey: 'AR-1',
+      });
+      expect(recipients).toEqual([{ handle: 'dev-1', delivery: 'held', hold: 'fix_limit' }]);
+    });
+
     it('lets a person write to the assignee while the card is held', async () => {
       await prepare();
       await round('First fix');

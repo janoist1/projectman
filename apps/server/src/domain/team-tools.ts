@@ -38,6 +38,7 @@ import type {
   LocatedAttachmentForTool,
   MemberMemoryStore,
   NetworkDenial,
+  SentMessageRecipient,
   TaskSummary,
   TaskToolDetail,
   TeamToolsHandler,
@@ -324,6 +325,7 @@ export class TeamToolsService implements TeamToolsHandler {
   ): Promise<{
     messageId: string;
     deliveredTo: string[];
+    recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
@@ -331,8 +333,8 @@ export class TeamToolsService implements TeamToolsHandler {
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       // Humans have it in their messages now; AI recipients get it typed into their session
       // for the work item as soon as that session is idle (queued, never awaited here).
-      const message = await this.messaging
-        .send(
+      const { message, recipients } = await this.messaging
+        .sendReporting(
           ctx.projectKey,
           ctx.member,
           { to: args.to, text: args.text, taskKey },
@@ -344,7 +346,12 @@ export class TeamToolsService implements TeamToolsHandler {
       const routed = (message.receipts ?? []).flatMap((r) =>
         r.route ? [{ handle: r.handle, workItem: r.route }] : [],
       );
-      return { messageId: message.id, deliveredTo: message.to, ...(routed.length > 0 ? { routed } : {}) };
+      return {
+        messageId: message.id,
+        deliveredTo: message.to,
+        recipients,
+        ...(routed.length > 0 ? { routed } : {}),
+      };
     });
   }
 
@@ -432,6 +439,14 @@ export class TeamToolsService implements TeamToolsHandler {
         },
         // The timeline shows excerpts: a message that is on its way says so (PM-180).
         undeliveredMessageIds: this.ctx.repos.messages.pending(ctx.projectKey, ctx.member).map((m) => m.id),
+        // The caller's own messages on this card that are not typed in for every AI recipient yet (PM-144).
+        pendingSentMessages: this.ctx.repos.messages
+          .pendingFrom(ctx.projectKey, ctx.member, taskKey)
+          .flatMap((m) => {
+            const waiting = (m.receipts ?? []).filter((r) => r.kind === 'ai' && !r.deliveredAt);
+            const handles = m.to.filter((handle) => waiting.some((r) => r.handle === handle));
+            return handles.length > 0 ? [{ messageId: m.id, handles }] : [];
+          }),
       };
     });
   }

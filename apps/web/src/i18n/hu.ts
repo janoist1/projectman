@@ -211,7 +211,7 @@ export const hu = {
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
-      provider_unsupported: 'A szolgáltató ebben a környezetben nem támogatott.',
+      provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
       session_failed: 'A munkamenet sikertelenül zárult.',
@@ -323,7 +323,7 @@ export const hu = {
     presence: 'Most itt: {names}',
   },
 
-  providers: { claude: 'Claude', codex: 'Codex', nanogpt: 'NanoGPT' },
+  providers: { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', nanogpt: 'NanoGPT' },
 
   planUsage: {
     fiveHour: '5 óra',
@@ -452,7 +452,7 @@ export const hu = {
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
-      provider_unsupported: 'A szolgáltató ebben a környezetben nem támogatott.',
+      provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
       bad_request: 'A kérés érvénytelen.',
       cannot_remove_self: 'Saját magadat nem távolíthatod el.',
@@ -516,10 +516,14 @@ export const hu = {
       prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',
       task_closed: 'Ez a feladat már lezárult.',
+      developer_level_forbidden: 'Az ajánlást nem módosíthatod.',
+      developer_level_reason_required: 'A Senior ajánláshoz indok kell (legfeljebb 300 karakter).',
+      senior_not_allowed: 'Senior csak AI-fejlesztő tag lehet.',
       board_stale: 'A tábla közben változott, frissítettük. Próbáld újra.',
       board_column_chronological: 'A Kész oszlop időrendben marad, abban nem lehet sorrendet változtatni.',
       unknown_column: 'Ilyen oszlop nincs a táblán.',
       no_free_member: 'Most nincs szabad fejlesztő.',
+      senior_busy: 'A kártya a Seniorra vár.',
       inbox_item_closed: 'Ezt már elintézték.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
@@ -793,6 +797,7 @@ export const hu = {
       workspace_fetch_failed: 'Indulásra vár: a friss alapágat nem sikerült letölteni',
       prerequisite_open: 'Előfeltételre vár: {prerequisites}',
       no_free_member: 'Szabad fejlesztőre vár',
+      senior_busy: 'A Seniorra vár',
       label_missing: '{name} munkájára vár: {labels}',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
@@ -822,6 +827,13 @@ export const hu = {
         'A munka magától elindul, amikor az utolsó előfeltétel is lezárul (kész vagy visszavont). Ember az Indítás gombbal előbb is elindíthatja.',
       no_free_member:
         'Most nincs szabad fejlesztő. A feladat magától elindul, amint felszabadul egy, vagy ha a Beállítások → Keretek alatt engedélyezed a beugrókat; addig kézzel is hozzárendelhetsz valakit.',
+      senior_busy:
+        'Senior-feladat, ezért megvárja, amíg egy Senior felszabadul. Ha sokáig vár, a beérkezőben megkérdezzük, megkaphatja-e más. Addig kézzel is kioszthatod.',
+      /** After "Várjon tovább": by someone else, or by the viewer ("Te" does not fit the sentence). */
+      senior_busy_decided:
+        '{name} döntése: a kártya megvárja a Seniort. Erről többet nem kérdezünk; kézzel bármikor kioszthatod.',
+      senior_busy_decided_me:
+        'Úgy döntöttél, hogy a kártya megvárja a Seniort. Erről többet nem kérdezünk; kézzel bármikor kioszthatod.',
       label_missing:
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
       full_test_pending:
@@ -1054,7 +1066,36 @@ export const hu = {
       suggestion: 'Dolgoztasd ki a Kidolgozás gombbal.',
     },
     assigneeLabel: 'Ki vigye?',
-    assigneeAuto: 'Automatikusan: az első szabad fejlesztő',
+    assigneeAuto: 'Automatikusan: a legkevésbé terhelt fejlesztő',
+    /** The "Ki vigye?" of a Senior card (PM-349): the default row and the hint under the field. */
+    assigneeAutoSenior: 'Automatikusan: Senior (ajánlott)',
+    assigneeHintSenior: 'Senior-feladat: {reason}. Ha a Senior foglalt, a kártya megvárja.',
+    assigneeHintSeniorNoReason: 'Senior-feladat. Ha a Senior foglalt, a kártya megvárja.',
+    assigneeHintNoSenior: 'Senior-feladat, de nincs Senior a csapatban: bármelyik fejlesztő viheti.',
+    /** The Start of a Senior card that went to wait for a Senior instead of starting (PM-349). */
+    startedSeniorWait: 'A(z) {key} a Seniorra vár.',
+    /** The "Ajánlott" row of a card (PM-349): the recommended developer, and its editor. */
+    level: {
+      label: 'Ajánlott',
+      senior: 'Senior-feladat',
+      any: 'Bármelyik fejlesztő',
+      mark: 'Senior',
+      markLabel: 'Senior-feladat: {reason}',
+      markLabelNoReason: 'Senior-feladat',
+      noSenior: 'Nincs Senior a csapatban, ezért bármelyik fejlesztő viheti.',
+      edit: 'Ajánlás módosítása',
+      choice: 'Ki illik hozzá?',
+      reasonSenior: 'Miért Senior-feladat?',
+      reasonAny: 'Megjegyzés (nem kötelező)',
+      reasonPlaceholder: 'Pl. több modult érint, kényes a migráció',
+      reasonRequired: 'Írd le röviden, miért Senior-feladat.',
+      noSeniorEditor: 'Még nincs Senior a csapatban.',
+      noSeniorLink: 'Jelölj ki egyet a Csapat oldalon.',
+      keepsAssignee: 'A mostani fejlesztőt nem cseréli le; a következő automatikus kiosztásra hat.',
+      save: 'Mentés',
+      saving: 'Mentés…',
+      saved: 'Ajánlás mentve: {level}',
+    },
     /** The Start while AI work is switched off (PM-291): disabled, with this note. */
     aiOffStart: 'Az AI-munka ki van kapcsolva, ezért most nem indítható. Bekapcsolás: Beállítások → Keretek.',
     /** In place of the Start while the card's start is being worked out (PM-291). */
@@ -1593,6 +1634,8 @@ export const hu = {
       'Üresen hagyva a projekt értéke érvényes (a projekt korlátainál, alapból 200 000). 100 000 és 1 000 000 között adható meg.',
     autoCompactWindowCodex: 'Csak a Claude-tagoknál hat; a Codex-tagok beszélgetését ez nem tömöríti.',
     autoCompactWindowPlaceholder: 'a projekt értéke',
+    senior: 'Senior fejlesztő',
+    seniorHint: 'Ő kapja a Senior-feladatokat. Egyszerű kártyát csak akkor, ha más fejlesztő nem szabad.',
     save: 'Mentés',
     saved: 'A tag adatai mentve.',
   },
@@ -1681,6 +1724,13 @@ export const hu = {
     groupRow: '{key}: {keys}',
     confirm: 'Indítás mégis',
     moveAndWait: 'Áthelyezés, várjon',
+  },
+  /** The confirmation before a non-Senior member starts a Senior card (PM-349). */
+  seniorWarning: {
+    title: 'Senior-feladat',
+    description: 'Ez a kártya Senior-feladat ({reason}). Biztosan {name} kapja?',
+    descriptionNoReason: 'Ez a kártya Senior-feladat. Biztosan {name} kapja?',
+    confirm: 'Igen, ő kapja',
   },
   taskLifecycle: {
     title: 'További műveletek',
@@ -1786,6 +1836,26 @@ export const hu = {
       replan: 'Pontosabb terv kell',
       reassign: 'Más fejlesztő vigye',
       another_round: 'Még egy kör mehet',
+      wait_for_senior: 'Várjon tovább',
+      any_developer: 'Kapja meg egy szabad fejlesztő',
+    },
+    /** A Senior card that has waited too long for a Senior (PM-348/PM-349): wait on, or any free developer. */
+    seniorWait: {
+      heading: 'Seniorra vár egy kártya',
+      subject: 'Seniorra vár: {key}',
+      body: 'A(z) {key} {minutes} perce vár, mert Senior-feladat, és {names} most nem szabad.{reason}',
+      reason: ' Az ajánlás indoka: „{reason}”',
+      consequence: {
+        wait_for_senior:
+          'A Seniorra vár; erről az indításról többet nem kérdezünk. Kézzel bármikor kioszthatod.',
+        any_developer:
+          'Az első szabad fejlesztő kapja; a Senior csak akkor, ha más nem ér rá. Ha most senki sem szabad, az elsőre vár.',
+      },
+      footer: 'Ha közben felszabadul a Senior, ő kapja, és ez a tétel magától lezárul.',
+      toast: {
+        wait_for_senior: 'Rendben, a(z) {key} vár a Seniorra.',
+        any_developer: 'A(z) {key} kártyát egy szabad fejlesztő kapja.',
+      },
     },
     /** A card held at its fix round limit (PM-262): a decision for the people. */
     fixLimit: {
@@ -1890,12 +1960,18 @@ export const hu = {
       replan: 'Pontosabb terv kérve',
       reassign: 'Más fejlesztő kapta',
       another_round: 'Még egy kör',
+      wait_for_senior: 'Vár a Seniorra',
+      any_developer: 'Szabad fejlesztő kapja',
+      senior_took: 'Magától lezárult: a Senior megkapta',
+      senior_wait_ended: 'Magától lezárult: a kártya másként folytatódott',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
       command_policy: 'Automatikus: szabály szerint',
       loop_ended: 'Automatikus',
       fix_limit_ended: 'Automatikus',
+      senior_took: 'Automatikus',
+      senior_wait_ended: 'Automatikus',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -2250,6 +2326,19 @@ export const hu = {
     themeSet: 'Téma beállítva: {themeKey}',
     themeMoved: 'Téma módosítva: {previous} → {themeKey}',
     themeRemoved: 'Téma eltávolítva: {previous}',
+    /** The recommended developer of a card (PM-349): "Ajánlás: bármelyik fejlesztő → Senior-feladat – „indok”". */
+    levelSet: 'Ajánlás: {level}',
+    levelChanged: 'Ajánlás: {previous} → {level}',
+    levelReason: ' – „{reason}”',
+    levelSenior: 'Senior-feladat',
+    levelAny: 'bármelyik fejlesztő',
+    seniorWaitAsked: 'A kártya {minutes} perce vár a Seniorra; megkérdeztük: {names}.',
+    seniorWaitDecidedWait: '{name}: várjon tovább a Seniorra.',
+    seniorWaitDecidedAny: '{name}: kapja meg egy szabad fejlesztő.',
+    seniorWaitTook: 'A Senior felszabadult, a kérdés lezárult.',
+    seniorWaitNoSenior: 'Nincs Senior a csapatban, ezért bármelyik fejlesztő viheti.',
+    /** An unknown phase or a missing field of a Senior wait event. */
+    seniorWaitOther: 'A Seniorra várás állapota változott.',
     prerequisiteDone: 'Az előfeltétel, {ref}, elkészült.',
     prerequisiteWithdrawn: 'Az előfeltételt, {ref}, visszavonták, így már nem kell rá várni.',
     prerequisiteRemaining: 'Még vár erre: {remaining}.',
@@ -2380,6 +2469,8 @@ export const hu = {
       ai: 'AI',
     },
     roster: 'Tagok',
+    senior: 'Senior',
+    seniorTitle: 'Senior fejlesztő: ő kapja a Senior-feladatokat.',
     columns: {
       member: 'Tag',
       status: 'Állapot',
@@ -2413,6 +2504,8 @@ export const hu = {
     customModel: 'Egyéni modell',
     modelId: 'Modellazonosító',
     models: {
+      geminiFlash: 'Gemini 3.8 Flash',
+      geminiPro: 'Gemini 3.1 Pro',
       sol: 'gpt-6.1-sol — munkaló, kódolásra',
       glm: 'GLM 5.3 Flash Uncensored',
       luna: 'gpt-6-luna — gyors, olcsó, egyszerű feladatokra',
@@ -2452,6 +2545,7 @@ export const hu = {
     loginCommands: {
       claude: 'claude auth login',
       codex: 'codex login',
+      gemini: 'agy',
       nanogpt: 'A NanoGPT-kulcsot a tulajdonos adja meg.',
     },
     statusUnknown: 'A szolgáltató bejelentkezési állapota nem ellenőrizhető.',
@@ -2816,6 +2910,11 @@ export const hu = {
       tempWorkers: 'Beugrók',
       tempWorkersOn: 'be · legfeljebb {max} · {role}',
       tempWorkersOff: 'ki',
+      seniorWait: 'Senior-várakozás (perc)',
+      seniorWaitSummary: 'Senior-várakozás',
+      seniorWaitHelp:
+        'Ennyi perc után kérdezünk, megkaphatja-e egy szabad fejlesztő a Seniorra váró kártyát.',
+      seniorWaitValue: '{minutes} perc',
       range: 'Adj meg egy egész számot {min} és {max} között.',
       locked:
         'Egy másik részben mentetlen módosítás van; mentsd vagy vesd el, utána a keretek újra módosíthatók.',

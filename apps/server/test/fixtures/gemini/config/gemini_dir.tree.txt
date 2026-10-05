@@ -1,0 +1,16 @@
+<gemini_dir>/                         (agy --gemini_dir <abs path>; default ~/.gemini)
+  config/hooks.json                   global hooks (discovered)
+  config/mcp_config.json              global MCP servers (discovered; static `headers` honoured)
+  config/projects/*.json              project registry (default-cli-project.json is (re)written on start)
+  config/.migrated
+  antigravity-cli/                    app data dir (default for --app_data_dir; relative path under <gemini_dir>)
+    settings.json                     toolPermission, permissions.allow, trustedWorkspaces, colorScheme, ...
+    hooks.json                        ALSO discovered here (counted as a hooks.json file)
+    cache/onboarding.json             first-run onboarding state (colour scheme + terms screens until complete)
+    cache/last_conversations.json     {"<workspace>": "<conversationId>"} used by --continue
+    brain/<conversationId>/.system_generated/logs/{transcript.jsonl,transcript_full.jsonl,chunks/}
+    brain/<conversationId>/{scratch,.user_uploaded}/
+    conversations/<conversationId>.db SQLite
+    conversation_summaries.db(+wal,shm), jetbox_summaries_proto.pb, jetski_state.pbtxt, history.jsonl (TUI prompts)
+    installation_id, last_check.timestamp, updater/{update.lock,update_status.json}, builtin/skills/*, presence/, implicit/, annotations/, crashes/, mcp/
+    (no log/ directory when --log-file is given)

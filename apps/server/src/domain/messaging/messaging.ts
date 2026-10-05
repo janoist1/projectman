@@ -23,6 +23,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
+import type { SentMessageRecipient } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
 import { DomainError, invalid } from '../errors';
@@ -118,6 +119,16 @@ export class Messaging {
     input: { to: string[]; text: string; taskKey?: string | null },
     opts: SendOptions = {},
   ): Promise<TeamMessage> {
+    return (await this.sendReporting(projectKey, from, input, opts)).message;
+  }
+
+  /** `send`, and what happens to the message for each recipient (PM-144), in the order of `input.to`. */
+  async sendReporting(
+    projectKey: string,
+    from: string,
+    input: { to: string[]; text: string; taskKey?: string | null },
+    opts: SendOptions = {},
+  ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
     const config = await this.projects.config(projectKey);
     const text = input.text.trim();
     if (!text) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
@@ -161,13 +172,9 @@ export class Messaging {
     const placed = recipients
       .filter((handle) => !humans.includes(handle))
       .map((handle) => {
-        if (
-          this.heldForTurn(config, task, handle, opts) ||
-          this.heldForFixLimit(config, task, from, handle) ||
-          this.heldForFullTest(config, task, from, handle)
-        )
-          return { handle, held: true, workItem: routeFor(taskKey), running: null };
-        return { handle, held: false, ...this.place(projectKey, config, handle, workItem) };
+        const hold = this.holdOf(config, task, from, handle, opts);
+        if (hold) return { handle, hold, workItem: routeFor(taskKey), running: null };
+        return { handle, hold: null, ...this.place(projectKey, config, handle, workItem) };
       });
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
@@ -185,9 +192,19 @@ export class Messaging {
       routes,
       answer: opts.answer,
     });
-    for (const { handle, workItem: where, running, held } of placed)
-      if (!held) this.deliverOrWake(projectKey, handle, where, running, message);
-    return message;
+    const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
+    for (const { handle, workItem: where, running, hold } of placed)
+      decided.set(
+        handle,
+        hold ? { delivery: 'held', hold } : this.deliverOrWake(projectKey, handle, where, running, message),
+      );
+    return {
+      message,
+      recipients: recipients.map((handle) => ({
+        handle,
+        ...(decided.get(handle) ?? { delivery: 'inbox' as const }),
+      })),
+    };
   }
 
   /**
@@ -425,6 +442,20 @@ export class Messaging {
     return latest ? { workItem: latest.workItem, running: latest } : { workItem, running: null };
   }
 
+  /** Why a message to AI member `handle` is held back when it is sent (PM-144), in the order the holds are checked. */
+  private holdOf(
+    config: ProjectConfig,
+    task: Task | null,
+    from: string,
+    handle: string,
+    opts: SendOptions,
+  ): 'refinement_turn' | 'fix_limit' | 'full_test' | null {
+    if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
+    if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
+    if (this.heldForFullTest(config, task, from, handle)) return 'full_test';
+    return null;
+  }
+
   /**
    * Whether a message about `task` waits for its AI recipient's turn (PM-255): the card is being
    * refined and the recipient is not the member whose turn it is (nobody's turn counts too). Looks at
@@ -517,23 +548,29 @@ export class Messaging {
     });
   }
 
-  /** A running recipient gets the message typed in; otherwise it waits for a wake-up. */
+  /** A running recipient gets the message typed in; otherwise it waits for a wake-up. Returns what was decided. */
   private deliverOrWake(
     projectKey: string,
     handle: string,
     workItem: WorkItemRef,
     running: Session | null,
     message: TeamMessage,
-  ): void {
+  ): Omit<SentMessageRecipient, 'handle'> {
     // A reviewer still in a turn of a round that is over gets it after its restart on the new commit,
     // and so does a session that waits for its restart into a new permission mode (PM-170).
     if (running && (this.sessions.reviewRoundDue(running) || this.sessions.permissionRestartDue(running)))
-      return;
+      return { delivery: 'held', hold: 'restart' };
     // A paused session takes it when the pause is over (PM-219); the message is stored meanwhile.
-    if (running && this.sessions.isPaused(running)) this.delivery.holdForPause(running, message);
-    else if (running) this.delivery.deliver(running, message);
-    else
-      void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+    if (running && this.sessions.isPaused(running)) {
+      this.delivery.holdForPause(running, message);
+      return { delivery: 'held', hold: 'pause' };
+    }
+    if (running) {
+      this.delivery.deliver(running, message);
+      return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
+    }
+    void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+    return { delivery: 'wake' };
   }
 }
 

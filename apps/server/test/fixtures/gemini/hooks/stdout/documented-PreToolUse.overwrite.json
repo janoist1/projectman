@@ -1,0 +1,6 @@
+{
+  "decision": "allow",
+  "overwrite": {
+    "CommandLine": "ls -la"
+  }
+}

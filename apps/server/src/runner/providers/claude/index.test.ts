@@ -118,6 +118,7 @@ describe('Claude Code login failures', () => {
       presetSessionId: true,
       sessionPermissionRules: true,
       readiness: 'session_start',
+      toolGate: 'permission_request',
     });
   });
 });

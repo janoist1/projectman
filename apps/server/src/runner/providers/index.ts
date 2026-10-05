@@ -4,6 +4,7 @@ import { createClaudeAdapter } from './claude';
 import { createCodexAdapter, defaultCodexHome } from './codex';
 import { createNanogptAdapter } from './nanogpt';
 import path from 'node:path';
+import { createGeminiAdapter } from './gemini';
 import type { ProviderAdapter } from './types';
 
 export type ProviderAdapters = Record<AgentProvider, ProviderAdapter>;
@@ -22,6 +23,11 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
         path.join(path.dirname(opts.codexHome ?? defaultCodexHome(env)), 'projectman-nanogpt-codex-home'),
       nanogptKey: opts.nanogptKey ?? (async () => null),
       ambientConfig: opts.ambientConfig,
+      logger: opts.logger,
+    }),
+    gemini: createGeminiAdapter({
+      bin: opts.geminiBin ?? env.AGY_BIN ?? 'agy',
+      configDir: opts.geminiConfigDir,
       logger: opts.logger,
     }),
     claude: createClaudeAdapter({

@@ -136,6 +136,17 @@ import {
   fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
+  canSetDeveloperLevel,
+  DEVELOPER_LEVEL_REASON_MAX,
+  developerLevelOf,
+  isSenior,
+  pickDeveloper,
+  seniorWaitDecisionOf,
+  seniorWaitMinutesOf,
+  seniorsOf,
+  SENIOR_WAIT_OPTIONS,
+  SENIOR_WAIT_OPTION_ANY,
+  SENIOR_WAIT_OPTION_WAIT,
   FIX_ANOTHER_ROUND_OPTION,
   FIX_REASSIGN_OPTION,
   FIX_REPLAN_OPTION,
@@ -345,11 +356,16 @@ export class MockBackend {
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   /** Where each card's fix rounds are counted from and the rounds people let it have (PM-262). */
   private fixLimitState = new Map<string, { countedFrom: string | null; extraRounds: number }>();
+  /** The cards that wait for a Senior (PM-348): since when, the question asked and the answer given. */
+  private seniorWaits = new Map<
+    string,
+    { since: string; itemId?: string; decision?: { decision: 'wait' | 'any'; by: string } }
+  >();
   scheduleRuns: ScheduleRun[] = [];
   attachments: Attachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
-  providerLoggedIn = { claude: true, codex: true, nanogpt: true };
+  providerLoggedIn = { claude: true, codex: true, gemini: true, nanogpt: true };
   nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -1362,7 +1378,9 @@ export class MockBackend {
               ? 'claude.ai'
               : provider === 'nanogpt'
                 ? 'api_key'
-                : 'chatgpt'
+                : provider === 'gemini'
+                  ? 'google'
+                  : 'chatgpt'
             : 'none',
           checkedAt: nowIso(),
         })),
@@ -2142,6 +2160,9 @@ export class MockBackend {
     const member = this.findMember(handle);
     const config = memberOf(this.config, handle);
     if (!member || !config) return error(404, 'not_found', 'Unknown member');
+    // Like the server: only an AI member that is no stand-in can be the Senior (PM-347).
+    if (input.senior !== undefined && (config.kind === 'human' || config.temp))
+      return error(400, 'senior_not_allowed', 'Only a permanent AI member can be the Senior');
     if (input.roles !== undefined) {
       if (config.kind !== 'human') return error(400, 'not_human_member', 'Not a human member');
       for (const role of input.roles) {
@@ -2193,7 +2214,7 @@ export class MockBackend {
       if (input.model !== undefined) member.model = config.model = input.model;
       if (input.provider !== undefined && input.provider !== (config.provider ?? DEFAULT_AGENT_PROVIDER)) {
         member.provider = config.provider = input.provider;
-        member.model = config.model = modelForProvider(input.provider, config.model);
+        member.model = config.model = modelForProvider(input.provider, input.model);
       }
       if (input.effort !== undefined) {
         if (input.effort === null) {
@@ -2214,6 +2235,13 @@ export class MockBackend {
           delete config.cheapSubagent;
         } else member.cheapSubagent = config.cheapSubagent = input.cheapSubagent;
       }
+      if (input.senior !== undefined) {
+        if (input.senior) member.senior = config.senior = true;
+        else {
+          delete member.senior;
+          delete config.senior;
+        }
+      }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
@@ -2233,6 +2261,7 @@ export class MockBackend {
     }
     this.commitConfig(`Update member ${handle}`);
     this.memberChanged(handle);
+    this.settleSeniorWaits();
     return ok(clone(member));
   }
 
@@ -2441,6 +2470,31 @@ export class MockBackend {
         (input.priority !== undefined && input.priority !== null))
     )
       return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
+    // Like the server (`planDeveloperLevel`): who may, theme, closed, then the reason; the same level and reason is no change.
+    let levelEvent: TimelineEventData['task_level_changed'] | null = null;
+    if (input.developerLevel) {
+      if (!canSetDeveloperLevel(this.config, this.viewerHandle))
+        return error(403, 'developer_level_forbidden', 'Not allowed to set the recommended developer');
+      if (isTheme(task)) return error(409, 'task_is_theme', 'A theme has no recommended developer');
+      if (!isOpenTask(task)) return error(409, 'task_closed', `Task ${task.key} is ${task.status}`);
+      const reason = input.developerLevel.reason?.trim() || null;
+      if (reason && reason.length > DEVELOPER_LEVEL_REASON_MAX)
+        return error(400, 'invalid_request', 'The reason is too long');
+      if (input.developerLevel.level === 'senior' && !reason)
+        return error(400, 'developer_level_reason_required', 'A Senior task needs a reason');
+      const before = task.developerLevel
+        ? { level: task.developerLevel.level, reason: task.developerLevel.reason }
+        : null;
+      if (!(before && before.level === input.developerLevel.level && before.reason === reason)) {
+        patch.developerLevel = {
+          level: input.developerLevel.level,
+          reason,
+          setBy: this.viewerHandle,
+          setAt: nowIso(),
+        };
+        levelEvent = { level: input.developerLevel.level, reason, previous: before };
+      }
+    }
     if (input.priority !== undefined) {
       const refusal = priorityRefusal(actor);
       if (refusal) return error(403, refusal, 'The priority of a card is set by people only');
@@ -2552,8 +2606,15 @@ export class MockBackend {
       priority: task.priority,
     };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
-    if (fields.length || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
+    if (
+      fields.length ||
+      patch.assignee !== undefined ||
+      patch.themeKey !== undefined ||
+      labelsChanged ||
+      levelEvent
+    ) {
       this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
+      if (levelEvent) this.addTimeline(task.key, actor.handle, 'task_level_changed', { ...levelEvent });
       if (fields.length)
         this.addTimeline(task.key, actor.handle, 'task_updated', {
           fields,
@@ -2571,6 +2632,7 @@ export class MockBackend {
       if (patch.parentKey !== undefined)
         this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
       if (patch.themeKey !== undefined) this.recordThemeChange(task.key, ownTheme, themeAfter);
+      this.settleSeniorWaits();
     }
     if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
     this.syncSubtaskThemes();
@@ -3266,10 +3328,15 @@ export class MockBackend {
     const developers = this.members.filter(
       (member) => eligible.includes(member.handle) && member.status !== 'retired' && !member.onLeave,
     );
-    const assignee =
-      input.assignee ??
-      [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ??
-      null;
+    let assignee: string | null = input.assignee ?? null;
+    if (!assignee && workStage) {
+      // The automatic choice is the shared rule (PM-348): a Senior card goes to a free Senior or waits for one.
+      const pick = this.pickAutomatic(task, workStage, developers);
+      if (pick.kind === 'senior_busy') return this.waitForSenior(task, workStage, pick.seniors);
+      if (pick.kind === 'member') assignee = pick.handle;
+    }
+    assignee ??=
+      [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ?? null;
     if (!assignee) return error(409, 'no_free_member', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
@@ -3292,12 +3359,188 @@ export class MockBackend {
     if (this.findMember(assignee)?.kind === 'ai' && !running && this.pauses.isPaused())
       return error(409, 'team_paused', 'The team is paused');
     const from = task.stageId;
-    this.updateTask(task.key, { assignee, stageId: workStage?.id ?? task.stageId, status: 'active' });
+    this.updateTask(task.key, {
+      assignee,
+      stageId: workStage?.id ?? task.stageId,
+      status: 'active',
+      startWaiting: undefined,
+    });
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
-    if (workStage) this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    if (workStage && from !== workStage.id)
+      this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    this.settleSeniorWaits();
     if (this.findMember(assignee)?.kind === 'human' || running) return ok(this.taskDetail(task));
     this.openTaskSession(task, assignee);
     return ok(this.taskDetail(task));
+  }
+
+  /** The automatic choice of the developer (the shared rule, PM-348) among the free AI owners of the work stage. */
+  private pickAutomatic(task: Task, workStage: Stage, developers: readonly MemberView[]) {
+    const eligible = new Set(developers.map((member) => member.handle));
+    const free = this.config.team.members.flatMap((member, index) =>
+      member.kind === 'ai' && eligible.has(member.handle) && this.memberLoad(member.handle) < member.capacity
+        ? [
+            {
+              handle: member.handle,
+              senior: isSenior(member),
+              temp: !!member.temp,
+              load: this.memberLoad(member.handle),
+              index,
+            },
+          ]
+        : [],
+    );
+    return pickDeveloper({
+      level: developerLevelOf(task),
+      anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
+      seniors: seniorsOf(this.config, workStage)
+        .map((member) => member.handle)
+        .filter((handle) => stageOwners(this.config, workStage).includes(handle)),
+      free,
+    });
+  }
+
+  /** A card recommended for the Senior while every Senior is busy: it moves into the work stage and waits, with no assignee. */
+  private waitForSenior(task: Task, workStage: Stage, seniors: string[]): MockResponse {
+    const from = task.stageId;
+    const wait = this.seniorWaits.get(task.key) ?? { since: nowIso() };
+    this.seniorWaits.set(task.key, wait);
+    this.updateTask(task.key, {
+      stageId: workStage.id,
+      status: 'active',
+      startWaiting: {
+        reason: 'senior_busy',
+        seniors,
+        ...(wait.decision?.decision === 'wait' ? { waitDecidedBy: wait.decision.by } : {}),
+        since: wait.since,
+      },
+    });
+    if (from !== workStage.id)
+      this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    return ok(this.taskDetail(this.findTask(task.key)!));
+  }
+
+  /**
+   * The wait limit has passed: the owners get one question about the card (the server asks from its timer, after
+   * `seniorWaitMinutes`). Asks once per wait; a decided or already asked wait is left alone.
+   */
+  askSeniorWait(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    const wait = this.seniorWaits.get(taskKey);
+    if (!task || !wait || wait.itemId || wait.decision || task.startWaiting?.reason !== 'senior_busy') return;
+    const deciders = this.config.team.members
+      .filter((member) => member.kind === 'human' && member.access === 'owner')
+      .map((member) => member.handle);
+    const minutes = seniorWaitMinutesOf(this.config.team.limits);
+    const seniors = task.startWaiting.seniors ?? [];
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'decision',
+      assignees: deciders,
+      source: 'system',
+      sessionId: null,
+      taskKey,
+      title: `${taskKey} waits for the Senior`,
+      body: null,
+      payload: {
+        seniorWait: {
+          taskKey,
+          since: wait.since,
+          minutes,
+          seniors,
+          reason: task.developerLevel?.reason ?? null,
+        },
+      },
+      options: clone(SENIOR_WAIT_OPTIONS),
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    wait.itemId = item.id;
+    this.upsertInbox(item);
+    this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'asked', minutes, seniors, deciders });
+  }
+
+  /** What a person answered about a card that waits for the Senior: kept for the start, which tries again. */
+  private afterSeniorWaitDecision(item: InboxItem): void {
+    const wait = item.taskKey ? this.seniorWaits.get(item.taskKey) : undefined;
+    const optionId = item.resolution?.optionId;
+    const decision =
+      optionId === SENIOR_WAIT_OPTION_WAIT ? 'wait' : optionId === SENIOR_WAIT_OPTION_ANY ? 'any' : null;
+    if (!item.taskKey || !wait || !decision || !item.resolution) return;
+    wait.decision = { decision, by: item.resolution.by };
+    this.addTimeline(item.taskKey, null, 'task_senior_wait', {
+      phase: 'decided',
+      decision,
+      by: item.resolution.by,
+    });
+    const task = this.findTask(item.taskKey);
+    if (task?.startWaiting?.reason === 'senior_busy')
+      this.updateTask(task.key, {
+        startWaiting: {
+          ...task.startWaiting,
+          ...(decision === 'wait' ? { waitDecidedBy: item.resolution.by } : {}),
+        },
+      });
+    this.settleSeniorWaits();
+  }
+
+  /**
+   * The cards that wait for a Senior are looked at again, as the server does when a session ends, a card or the
+   * roster changes: a free Senior (or a free developer after the "any" answer) starts the card, and a wait whose
+   * card went another way ends, closing its open question by itself.
+   */
+  private settleSeniorWaits(): void {
+    for (const [taskKey, wait] of [...this.seniorWaits]) {
+      const task = this.findTask(taskKey);
+      const stage = task ? stageOf(this.config, task.stageId) : undefined;
+      let ended: 'senior' | 'ended' | null = null;
+      if (!task || !isOpenTask(task) || stage?.kind !== 'work') ended = 'ended';
+      else if (task.assignee) ended = isSenior(memberOf(this.config, task.assignee)) ? 'senior' : 'ended';
+      else if (developerLevelOf(task) !== 'senior') ended = 'ended';
+      else if (seniorsOf(this.config, stage).length === 0) ended = 'ended';
+      if (ended) {
+        this.endSeniorWait(taskKey, wait, ended === 'senior');
+        // A card that lost its Senior wait goes to any developer; the start tries again.
+        if (task && !task.assignee && task.startWaiting?.reason === 'senior_busy' && stage?.kind === 'work') {
+          if (seniorsOf(this.config, stage).length === 0)
+            this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'no_senior' });
+          this.startDeveloper(task, {});
+        }
+        continue;
+      }
+      if (task?.startWaiting?.reason === 'senior_busy' && stage) {
+        const developers = this.members.filter(
+          (member) =>
+            stageOwners(this.config, stage).includes(member.handle) &&
+            member.status !== 'retired' &&
+            !member.onLeave,
+        );
+        if (this.pickAutomatic(task, stage, developers).kind === 'member') this.startDeveloper(task, {});
+      }
+    }
+  }
+
+  /** The wait is over: the card no longer waits, and its open question closes by itself. */
+  private endSeniorWait(taskKey: string, wait: { itemId?: string }, senior: boolean): void {
+    this.seniorWaits.delete(taskKey);
+    if (this.findTask(taskKey)?.startWaiting?.reason === 'senior_busy')
+      this.updateTask(taskKey, { startWaiting: undefined });
+    const item = this.inbox.find((entry) => entry.id === wait.itemId && entry.state === 'open');
+    if (!item) return;
+    this.upsertInbox({
+      ...item,
+      state: 'resolved',
+      resolution: {
+        optionId: 'ended',
+        by: 'system',
+        at: nowIso(),
+        note: null,
+        rule: senior ? 'senior_took' : 'senior_wait_ended',
+      },
+    });
+    if (senior) this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'senior_took' });
   }
 
   /** Starts the member's session on the card, unless one is live. */
@@ -3376,7 +3619,9 @@ export class MockBackend {
       ...(input.specialty ? { specialty: input.specialty } : {}),
       ...(input.provider ? { provider: input.provider } : {}),
       model:
-        input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
+        input.provider && input.provider !== 'claude'
+          ? modelForProvider(input.provider, input.model)
+          : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.cheapSubagent ? { cheapSubagent: input.cheapSubagent } : {}),
       permissionMode: defaults.permissionMode,
@@ -3899,6 +4144,8 @@ export class MockBackend {
       );
     }
     this.setMemberState(session.member, 'idle', null);
+    // A Senior who has finished takes the card that waited for one.
+    this.settleSeniorWaits();
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
@@ -4073,6 +4320,10 @@ export class MockBackend {
     }
     if (fixLimitDecisionOf(item)) {
       this.afterFixLimitDecision(item);
+      return;
+    }
+    if (seniorWaitDecisionOf(item)) {
+      this.afterSeniorWaitDecision(item);
       return;
     }
     if (item.kind === 'permission') {

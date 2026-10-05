@@ -154,6 +154,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     label: 'Codex',
     bin: opts.bin,
     capabilities: {
+      toolGate: 'permission_request',
       presetSessionId: false,
       sessionPermissionRules: false,
       readiness: 'screen',

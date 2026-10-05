@@ -7,6 +7,7 @@ import type {
   TimelineEvent,
   CancelTaskRequest,
   CreateTaskRequest,
+  DeveloperLevelRequest,
   InboxItem,
   ProjectConfig,
   Session,
@@ -51,6 +52,8 @@ import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';
 import { BoardOrder } from './board-order';
 import { BoardGroupMove } from './group-move';
+import { planDeveloperLevel } from './developer-level';
+import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
 import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
@@ -99,6 +102,8 @@ export interface TaskUpdate {
   themeKey?: string | null;
   /** A person moves the card into the work stage despite open prerequisites (PM-204). */
   despitePrerequisites?: boolean;
+  /** The recommended developer (PM-347); a change goes to the timeline and is told to the listeners. */
+  developerLevel?: DeveloperLevelRequest;
 }
 
 /**
@@ -240,7 +245,11 @@ export class TaskService {
         parentKey: req.parentKey ?? (req.relations?.some((r) => r.kind === 'part_of') ? '-' : null),
       });
     const at = req.importedAt ?? isoNow(this.ctx);
+    if (kind === 'theme' && req.developerLevel)
+      throw invalid('task_is_theme', 'a theme has no recommended developer: leave developerLevel out');
+    const level = req.developerLevel ? planDeveloperLevel(config, null, req.developerLevel, actor, at) : null;
     const task: Task = {
+      ...(level ? { developerLevel: level.next } : {}),
       ...(kind === 'theme' ? { kind } : {}),
       ...(req.themeKey ? { themeKey: req.themeKey } : {}),
       parentKey: req.parentKey ?? null,
@@ -299,6 +308,7 @@ export class TaskService {
         data: { title, ...(req.importedAt !== undefined ? { imported: true } : {}) },
         createdAt: at,
       });
+      if (level) this.recordDeveloperLevel(task, level, actor, opts.sessionId ?? null, effects);
       if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
       if (task.themeKey) {
         this.themes.record(task, null, task.themeKey, actor, opts.sessionId ?? null);
@@ -478,6 +488,10 @@ export class TaskService {
     // Validate the whole change against the task as it will be.
     const patch: TaskPatch = {};
     const fields: string[] = [];
+    const level = change.developerLevel
+      ? planDeveloperLevel(config, task, change.developerLevel, actor, isoNow(this.ctx))
+      : null;
+    if (level) patch.developerLevel = level.next;
     if (change.priority !== undefined) {
       const refusal = priorityRefusal(actor);
       if (refusal) throw forbidden(refusal, 'the priority of a card is set by people only');
@@ -587,7 +601,13 @@ export class TaskService {
     // Apply it.
     let next = task;
     const labelsChanged = labelsChange(labels);
-    if (fields.length > 0 || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
+    if (
+      fields.length > 0 ||
+      patch.assignee !== undefined ||
+      patch.themeKey !== undefined ||
+      patch.developerLevel !== undefined ||
+      labelsChanged
+    ) {
       next = this.store.write(task, {
         ...patch,
         ...(labelsChanged ? { labels: labels.labels } : {}),
@@ -610,6 +630,7 @@ export class TaskService {
         });
       if (patch.description !== undefined)
         effects.push(() => this.ctx.events.emit('task_description_changed', { task: next, actor }));
+      if (level) this.recordDeveloperLevel(next, level, actor, sessionId, effects);
       if (labelsChanged)
         this.labels.record(config, next, labels, actor, { comment: note, sessionId }, effects);
       if (patch.assignee !== undefined) {
@@ -650,6 +671,25 @@ export class TaskService {
       despitePrerequisites: change.despitePrerequisites,
     });
     return moved.moved ? { task: moved.task } : { task: moved.task, pendingApproval: moved.pendingApproval };
+  }
+
+  /** Puts a change of the recommended developer on the timeline and tells the listeners once it committed. */
+  private recordDeveloperLevel(
+    task: Task,
+    level: DeveloperLevelChange,
+    actor: Actor,
+    sessionId: string | null,
+    effects: Effect[],
+  ): void {
+    this.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      sessionId,
+      actor,
+      type: 'task_level_changed',
+      data: level.event,
+    });
+    effects.push(() => this.ctx.events.emit('task_level_changed', { task, actor }));
   }
 
   /** A live session of the task, if any: one that has not ended, whoever runs it. */

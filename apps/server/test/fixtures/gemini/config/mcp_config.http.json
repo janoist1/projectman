@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "probe": {
+      "url": "http://127.0.0.1:47123/mcp",
+      "headers": {
+        "Authorization": "Bearer <token>",
+        "X-Probe": "1"
+      }
+    }
+  }
+}

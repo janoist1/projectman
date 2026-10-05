@@ -292,6 +292,19 @@ Documentation map:
   through (the label set, or `ui` removed). A move, a cancel or an assignment ends the wait like
   for the other work starts. Only a person's start (`StartTaskOptions.startSetters`, set by the
   route) starts setters.
+  **The Senior card** (PM-348, decisions K2 and K3 of PM-338): the automatic developer choice is
+  `pickDeveloper` in `packages/shared` (a Senior card to a free Senior; any other card to the least
+  loaded free member, a Senior last; a Senior card never to a temp worker). While every Senior is busy
+  or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
+  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`); a person's Start gets a
+  normal response with that wait. `SeniorWaits` (`admission/senior-waits.ts`, table `senior_waits`, one
+  open row per card) keeps when the wait began, the question and the answer over a restart. After
+  `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision, `wait_for_senior` or
+  `any_developer`); "any" lets a free developer take it, never a temp worker. A freed Senior takes the
+  card first (`retryDeferred` tries `senior_busy` deferrals first) and the question closes
+  (`senior_took`); an assignment, move, closure, level change or the end of the team's Senior closes it
+  (`senior_wait_ended`). A team without a Senior starts the card by the "any" rule (`no_senior` event).
+  No machine-dependent part is affected.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
@@ -875,6 +888,25 @@ workers follow the machine's size.
   The environment filter also removes AuthManager's OAuth client-id and token-endpoint
   overrides, so a host environment cannot redirect child subscription authentication.
 
+- **Gemini (agy) CLI, conversation directories and keychain login** —
+  `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
+  authenticated with the executing account's Google consumer login in its keychain. Each
+  conversation has a private directory under `PROJECTMAN_HOME/providers/gemini`; it stays
+  for resume, holds hook/MCP configuration and local transcripts, and confines transcript
+  reads (`Launch.conversationRoot`). POSIX sh plus curl (Node fallback) forwards hooks to
+  loopback HTTP. Updates are disabled in launches and login probes; maintenance is manual.
+  Commands currently run without a sandbox under owner decision T4: role shell rules allow
+  listed developer commands, other calls use the inbox, and a missing hook answer denies the call.
+  A command's actual working directory must stay in the session placement/writable roots;
+  denied relative paths are resolved there. Read-only placements cannot use the unsandboxed
+  shell-rule exception: commands pass through the inbox's existing read-only rules instead.
+  This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
+  **Remote engine:** the binary, login/keychain, private directories, PTY, forwarder and
+  transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
+  transcript access must use the launcher with the conversation root as its confinement,
+  rather than opening engine paths on the server. Managed VM launches remain unsupported
+  until PM-331. No remote Gemini launcher is implemented by PM-326.
+
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
@@ -919,9 +951,20 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and with it the `StartSessionSpec.sandbox.portable` paths; its runner renders the Codex
   arguments and makes the folder (PM-311, PM-312).
 - **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
-  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333). Legacy Claude sessions
-  receive a per-process writable folder below the server's real `tmpdir`; the server makes,
-  sweeps and removes it. These folders are not supplied to Codex or managed VM sessions.
+  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339). Legacy Claude
+  sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
+  writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
+  folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
+  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<session id>.<6 random hex>`
+  (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
+  removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
+  and a sibling of the heavy-run queue's parent `projectman-<uid>`, never below or above it (that
+  parent is writable for every member's commands, so a path there could be pre-empted or read by a
+  member; an overlap, compared as written and by canonical path through links, leaves Codex without a folder); a directory is new at every start and made
+  without `recursive`, so a link put there beforehand stops the start. The path is short because a Unix
+  socket's is limited to 104 bytes. The Codex adapter then closes the shared `/tmp` and the CLI's
+  `$TMPDIR` for its commands.
+  The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
   renders (`filesystem.sessionFolder`, `sessionFoldersRoot`; `claudeToolRules`) and a developer's
@@ -939,9 +982,16 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Playwright loads local Chromium binaries from the configured browser directory (default
   `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
-  and writes images to local output storage.
+  and writes images to local output storage. For a Codex member, whose sandbox cannot start
+  Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
+  PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
+  member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
+  the session folder as the output; it queues in the machine's heavy-run queue and is off in the
+  managed VM profile and off macOS.
   **Remote engine:** provision a compatible browser on the engine, preserve the disposable
-  instance's network fence and read-only browser access, and return images as artifacts.
+  instance's network fence and read-only browser access, and return images as artifacts. The
+  screenshot run belongs on the engine that owns the member's worktree and session folder (the
+  server cannot run it against a remote path); the server keeps only the tool and the run record.
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
   `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
@@ -1006,7 +1056,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333).
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
-  Codex has its own permission mapping in `runner/providers/codex/args.ts`.
+  Codex has its own permission mapping in `runner/providers/codex/args.ts`; its `workspace-write`
+  sandbox writes the roots of `AgentSandbox.portable` (the queue's parent, the session folder and
+  the own tmp, PM-339) and no longer the shared `/tmp` or the CLI's `$TMPDIR`
+  (`exclude_slash_tmp`, `exclude_tmpdir_env_var`; the queue's parent, a sibling of the tmp root, stays writable).
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax.
@@ -1026,8 +1079,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   helper does so as the worker, for that worker's home and local repository path.
   **Remote engine:** prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
-- **Server full test before review** — `domain/full-tests.ts`, `full-test/{index,sandbox}.ts`
-  (PM-217, PM-336). The executor runs the pinned checkout on the server host, using local
+- **Server full test before review** — `domain/full-tests.ts`,
+  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336; PM-351 shares the spawn with the
+  screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
   it is unavailable without macOS/`srt` and is off in the managed VM profile.
   **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent

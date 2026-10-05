@@ -20,6 +20,7 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './pro
 import { nextState, type SessionSignal, type StateSnapshot } from './state';
 import { HeadlessScreen } from './terminal';
 import { toolActivity } from './tools';
+import { TOOL_DENY_MESSAGES } from './tool-decision';
 import { readTranscriptText } from './transcript/reader';
 import { TranscriptTailer } from './transcript/tailer';
 
@@ -281,8 +282,8 @@ export class AgentSession {
   }
 
   /** Parses a hook body for this session's CLI; null when malformed. */
-  parseHook(body: unknown): HookPayload | null {
-    return this.adapter.parseHook(body);
+  parseHook(body: unknown, event?: string): HookPayload | null {
+    return this.adapter.parseHook(body, event);
   }
 
   // ---------------------------------------------------------------- terminal
@@ -677,7 +678,10 @@ export class AgentSession {
    * `withdrawn` aborts when the caller stops waiting (the HTTP request closed).
    */
   async handleHook(payload: HookPayload, withdrawn: AbortSignal): Promise<unknown> {
-    if (this.hasExited) return null;
+    if (this.hasExited)
+      return this.adapter.capabilities.toolGate === 'pre_tool_use' && payload.hook_event_name === 'PreToolUse'
+        ? this.adapter.denyOutput('The session has exited.')
+        : null;
     const subagent = this.adapter.isSubagentHook(payload);
     this.noteTranscript(payload);
     if (payload.hook_event_name === 'SubagentStop' && payload.agent_transcript_path) {
@@ -687,7 +691,9 @@ export class AgentSession {
     const authError = this.adapter.hookAuthError(payload);
     if (authError) {
       this.authFailed(authError);
-      return null;
+      return this.adapter.capabilities.toolGate === 'pre_tool_use' && payload.hook_event_name === 'PreToolUse'
+        ? this.adapter.denyOutput(authError)
+        : null;
     }
     // A subagent's approval still needs an answer; its other hooks say nothing about the session.
     if (subagent && !['PermissionRequest', 'PermissionDenied'].includes(payload.hook_event_name)) return null;
@@ -701,6 +707,19 @@ export class AgentSession {
         this.apply({ kind: 'session_start', source: payload.source ?? null, first });
         return null;
       }
+      case 'PreInvocation':
+        if (
+          this.current.state !== 'working' &&
+          this.current.state !== 'waiting_permission' &&
+          this.current.state !== 'waiting_input'
+        ) {
+          this.markReady();
+          this.promptSeen = true;
+          this.lastPromptAt = Date.now();
+          this.input.submitted();
+          this.apply({ kind: 'prompt_submit' });
+        }
+        return this.adapter.turnStartOutput?.(this.spec) ?? null;
       case 'UserPromptSubmit':
         this.markReady();
         this.promptSeen = true;
@@ -710,6 +729,48 @@ export class AgentSession {
         return null;
       case 'PreToolUse': {
         const name = payload.tool_name ?? 'tool';
+        if (this.adapter.capabilities.toolGate === 'pre_tool_use') {
+          const halted = this.haltingAnswer(payload, 'before_tool', name);
+          if (halted !== undefined) return halted;
+          if (!this.spec.policy) return this.adapter.denyOutput('No session policy is available.');
+          const decision = this.adapter.decideToolCall?.(
+            this.spec.policy,
+            payload,
+            this.deps.transcriptRoot ?? null,
+          );
+          if (!decision) return this.adapter.denyOutput('No tool decision is available.');
+          if (decision.decision === 'deny') {
+            this.log.info({ sessionId: this.id, tool: name, reason: decision.reason }, 'tool call denied');
+            return this.adapter.denyOutput(TOOL_DENY_MESSAGES[decision.reason]);
+          }
+          const late = this.turnEnded;
+          let allowed = decision.decision === 'allow';
+          let output: unknown = this.adapter.permissionOutput({ behavior: 'allow' }, payload);
+          if (!allowed) {
+            if (!late) this.waitingTool = name;
+            output = await this.permissions.request(
+              payload,
+              toolActivity(name, payload.tool_input, this.spec.cwd),
+              withdrawn,
+              {
+                onAllowed: () => {
+                  allowed = true;
+                },
+                trackState: !late,
+              },
+            );
+            output ??= this.adapter.denyOutput('The permission request ended before approval.');
+          }
+          if (allowed && !late && !this.turnEnded) {
+            this.noteToolStart(payload, name);
+            this.apply({
+              kind: 'pre_tool',
+              activity: toolActivity(name, payload.tool_input, this.spec.cwd),
+              needsInput: false,
+            });
+          }
+          return output;
+        }
         // A late call after the turn ended (e.g. the CLI loading a deferred tool) must not reopen it.
         if (this.turnEnded && !this.adapter.inputTools.has(name)) {
           this.noteLateTool(payload, name);

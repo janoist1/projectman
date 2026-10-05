@@ -5,6 +5,7 @@ import {
   loopDecisionOf,
   permissionDelegationOf,
   questionPayloadOf,
+  seniorWaitDecisionOf,
 } from '@projectman/shared';
 import type { InboxItem, InboxOption, LabelView, WorkItemRef } from '@projectman/shared';
 import { formatStamp, formatTokens } from '../i18n/format';
@@ -33,6 +34,8 @@ const BUILT_IN_OPTIONS = [
   'replan',
   'reassign',
   'another_round',
+  'wait_for_senior',
+  'any_developer',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -53,6 +56,7 @@ export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'boundary') return t('boundary.heading');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
+  if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
@@ -312,16 +316,39 @@ export function fixLimitDecisionText(
   });
 }
 
+/**
+ * What a Senior wait decision says (PM-349): the card, how long it has waited, which Seniors are busy,
+ * and the reason of the recommendation when there is one. Null for an item that is no such decision.
+ */
+export function seniorWaitDecisionText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const wait = seniorWaitDecisionOf(item);
+  if (!wait) return null;
+  const reason = wait.reason?.trim();
+  return t('inbox.seniorWait.body', {
+    key: wait.taskKey,
+    minutes: wait.minutes,
+    names: joinNames(namesOf(wait.seniors, members, myHandle)),
+    reason: reason ? t('inbox.seniorWait.reason', { reason }) : '',
+  });
+}
+
 const LOOP_OPTIONS = ['stop_work', 'let_run'];
 const FIX_LIMIT_OPTIONS = ['replan', 'reassign', 'another_round'];
+const SENIOR_WAIT_OPTION_IDS = ['wait_for_senior', 'any_developer'];
 
-/** The options of a loop or fix round limit decision with what each one leads to; other items keep theirs. */
+/** The options of a loop, fix round limit or Senior wait decision with what each one leads to; other items keep theirs. */
 export function withConsequences(item: InboxItem, options: readonly InboxOption[]): InboxOption[] {
   const group = loopDecisionOf(item)
     ? { ids: LOOP_OPTIONS, scope: 'loop' }
     : fixLimitDecisionOf(item)
       ? { ids: FIX_LIMIT_OPTIONS, scope: 'fixLimit' }
-      : null;
+      : seniorWaitDecisionOf(item)
+        ? { ids: SENIOR_WAIT_OPTION_IDS, scope: 'seniorWait' }
+        : null;
   if (!group) return [...options];
   return options.map((option) =>
     group.ids.includes(option.id)
@@ -350,6 +377,8 @@ export function decisionSubject(item: InboxItem): string {
   if (loop) return t('inbox.loop.subject', { key: loop.taskKey });
   const fixLimit = fixLimitDecisionOf(item);
   if (fixLimit) return t('inbox.fixLimit.subject', { key: fixLimit.taskKey });
+  const seniorWait = seniorWaitDecisionOf(item);
+  if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   return item.title;
 }
 
@@ -470,6 +499,8 @@ export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
+  if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
+  if (item.resolution?.rule === 'senior_wait_ended') return t('inbox.resolutions.senior_wait_ended');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
@@ -488,6 +519,11 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
   if (fixLimit && FIX_LIMIT_OPTIONS.includes(optionId))
     return t(`inbox.fixLimit.toast.${optionId as 'replan' | 'reassign' | 'another_round'}`, {
       key: fixLimit.taskKey,
+    });
+  const seniorWait = seniorWaitDecisionOf(item);
+  if (seniorWait && SENIOR_WAIT_OPTION_IDS.includes(optionId))
+    return t(`inbox.seniorWait.toast.${optionId as 'wait_for_senior' | 'any_developer'}`, {
+      key: seniorWait.taskKey,
     });
   return resolutionLabel({
     ...item,

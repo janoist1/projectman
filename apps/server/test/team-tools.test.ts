@@ -49,6 +49,57 @@ describe('team tools', () => {
     );
   });
 
+  describe('what send_message says per recipient (PM-144)', () => {
+    const task = { type: 'task', taskKey: 'AR-1' } as const;
+    const send = (to: string[]) => h.domain.teamTools.sendMessage(dev, { to, text: 'Please take a look' });
+
+    it('says typed_now for an idle session, after_turn for one in a turn, wake without a session, inbox for a person', async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
+      h.runner.setState(session.id, 'idle');
+      expect((await send(['dev-2', 'owner', 'cr'])).recipients).toEqual([
+        { handle: 'dev-2', delivery: 'typed_now' },
+        { handle: 'owner', delivery: 'inbox' },
+        { handle: 'cr', delivery: 'wake' },
+      ]);
+      await flush();
+      for (const state of ['working', 'waiting_permission'] as const) {
+        h.runner.setState(session.id, state);
+        expect((await send(['dev-2'])).recipients).toEqual([{ handle: 'dev-2', delivery: 'after_turn' }]);
+      }
+    });
+
+    it('says held/restart for a session that waits for its restart into a new permission mode', async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
+      h.runner.setState(session.id, 'working');
+      h.repos.sessions.update(session.id, { permissionRestartPending: true });
+      expect((await send(['dev-2'])).recipients).toEqual([
+        { handle: 'dev-2', delivery: 'held', hold: 'restart' },
+      ]);
+    });
+
+    it('says held/pause while the team is paused', async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
+      h.runner.setState(session.id, 'idle');
+      await h.domain.pauses.pause({ scope: 'project', projectKey: 'AR' }, { userId: null, source: 'system' });
+      expect((await send(['dev-2'])).recipients).toEqual([
+        { handle: 'dev-2', delivery: 'held', hold: 'pause' },
+      ]);
+    });
+
+    it("lists the caller's messages not typed in yet in get_task, until they are typed in", async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
+      // The fake runner types at once; a session that waits for its restart keeps the message.
+      h.repos.sessions.update(session.id, { permissionRestartPending: true });
+      const { messageId } = await send(['dev-2', 'owner']);
+      expect((await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).pendingSentMessages).toEqual([
+        { messageId, handles: ['dev-2'] },
+      ]);
+
+      h.domain.messages.markRecipientDelivered(messageId, 'dev-2');
+      expect((await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).pendingSentMessages).toEqual([]);
+    });
+  });
+
   it('update_task adds labels before moving, so one call can pass the gate', async () => {
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
     const reviewer: ToolContext = { ...dev, member: 'cr', sessionId: 'ses_cr' };

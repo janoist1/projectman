@@ -14,6 +14,15 @@ leave headroom for builds and the project's own tools. Limit concurrency in team
 
 ## Account and build
 
+Gemini members use Antigravity CLI `agy` (tested version 1.2.17; `AGY_BIN` may select the
+binary). Log in as the executing account by starting `agy` and choosing a Google account.
+Projectman disables agy's automatic updates on session launches and login checks with
+`--release_base_url http://127.0.0.1:9`. Update it manually during maintenance, then verify
+login, a tool approval and conversation resume before restarting member work. A manual
+`agy` login without this flag can itself update the binary. Conversation configuration and
+transcripts stay under `PROJECTMAN_HOME/providers/gemini`; do not delete them if resume is
+needed. The managed VM profile refuses Gemini until PM-331.
+
 Run the app and its CLIs as a dedicated, trusted-team Unix account, `projectman`,
 with login home `/var/lib/projectman`. Keep repositories accessible to that account.
 Agent and terminal users share its filesystem and credentials; see [SECURITY.md](SECURITY.md).

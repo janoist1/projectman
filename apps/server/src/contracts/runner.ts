@@ -62,7 +62,15 @@ export interface AgentSandbox {
    * may also write `allowWrite` and see `env`. Every entry is in `allowWrite` / `env` above as well,
    * which Claude Code renders; Claude Code ignores this. Absent: nothing.
    */
-  portable?: { allowWrite: string[]; env: Record<string, string> };
+  portable?: {
+    allowWrite: string[];
+    env: Record<string, string>;
+    /**
+     * The commands' own temporary directory (PM-339): writable and their TMPDIR, while the shared
+     * ones (`/tmp`, the CLI's own TMPDIR) are no longer writable. Absent: the CLI's default.
+     */
+    tmpDir?: string;
+  };
 }
 
 /**
@@ -275,7 +283,7 @@ export interface ManagedVmAttestation {
   /** When the proof was made (ISO time). */
   verifiedAt: string;
   /** The CLI versions the question-free settings are proven for, per provider. */
-  providerVersions: Record<AgentProvider, readonly string[]>;
+  providerVersions: Partial<Record<AgentProvider, readonly string[]>>;
 }
 
 /**
@@ -487,6 +495,8 @@ export interface RunnerModuleOptions {
   trustWorkspaces?: boolean;
   /** Path or name of the OpenAI Codex CLI (default: $CODEX_BIN, else "codex"). Tests pass a fake CLI. */
   codexBin?: string;
+  geminiBin?: string;
+  geminiConfigDir?: string;
   /** Codex's home, where it keeps transcripts (default: $CODEX_HOME, else ~/.codex). Read only. */
   codexHome?: string;
   nanogptCodexHome?: string;

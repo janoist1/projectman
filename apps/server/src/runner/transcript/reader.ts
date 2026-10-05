@@ -4,6 +4,7 @@ import type { AgentProvider, ChatItem } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
 import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
 import { parseTranscript, type TranscriptParserOptions } from '../providers/claude/transcript';
+import { parseGeminiTranscript } from '../providers/gemini/transcript';
 
 /**
  * Reads a whole transcript of `provider`'s CLI; a missing file is an empty conversation.
@@ -15,7 +16,10 @@ export async function readTranscript(
   opts: TranscriptParserOptions & { provider?: AgentProvider; confineTo?: string } = {},
 ): Promise<ChatItem[]> {
   const text = await readTranscriptText(path, opts.confineTo);
-  const provider = opts.provider ?? (CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
+  const provider =
+    opts.provider ??
+    (path.endsWith('/transcript_full.jsonl') ? 'gemini' : CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
+  if (provider === 'gemini') return parseGeminiTranscript(text, opts);
   if (provider === 'codex' || provider === 'nanogpt') return parseCodexTranscript(text, opts);
   return parseTranscript(text, opts);
 }

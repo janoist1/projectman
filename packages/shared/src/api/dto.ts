@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { BoardPlacement } from '../domain/board-order';
+import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
@@ -173,6 +174,11 @@ export const MemberView = z.object({
   cheapSubagent: CheapSubagentModel.optional(),
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
   onLeave: z.boolean().optional(),
+  /**
+   * The team's Senior (PM-347, `isSenior`): an AI member marked so, and not a temp worker. The server
+   * always fills it in; a missing value (an older server, a test fake) is `false`.
+   */
+  senior: z.boolean().optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;
 
@@ -222,6 +228,8 @@ export const UpdateMemberRequest = z.object({
   schedule: MemberSchedule.nullable().optional(),
   /** AI only; true sends the member on leave, false calls it back. */
   onLeave: z.boolean().optional(),
+  /** AI only, not a temp worker (PM-347); true marks the member as the team's Senior, false removes the mark. */
+  senior: z.boolean().optional(),
   /** AI only; the member's own instructions (English prompt text); an empty string clears them. */
   instructions: z.string().optional(),
   /** AI only, owners only: the CLI permission mode (not `bypassPermissions`). */
@@ -358,7 +366,19 @@ export const TaskDetail = z.object({
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
+/**
+ * The recommended developer in a request (PM-347). The reason is required for `senior` (checked by the
+ * server: `developer_level_reason_required`); an empty one counts as none.
+ */
+export const DeveloperLevelRequest = z.object({
+  level: DeveloperLevel,
+  reason: z.string().trim().max(DEVELOPER_LEVEL_REASON_MAX).nullable().optional(),
+});
+export type DeveloperLevelRequest = z.infer<typeof DeveloperLevelRequest>;
+
 export const CreateTaskRequest = z.object({
+  /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
+  developerLevel: DeveloperLevelRequest.optional(),
   parentKey: TaskKey.optional(),
   importedAt: z.string().datetime().optional(),
   title: z.string().min(1),
@@ -377,6 +397,8 @@ export const CreateTaskRequest = z.object({
 export type CreateTaskRequest = z.infer<typeof CreateTaskRequest>;
 
 export const UpdateTaskRequest = z.object({
+  /** The developer the card is recommended for (PM-347); only whoever `canSetDeveloperLevel` may send it. */
+  developerLevel: DeveloperLevelRequest.optional(),
   /** People only (PM-287); null clears it. */
   priority: TaskPriority.nullable().optional(),
   parentKey: TaskKey.nullable().optional(),

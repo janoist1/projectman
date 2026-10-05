@@ -1,0 +1,19 @@
+{
+  "artifactDirectoryPath": "/tmp/pm-agy-probe/gd1/antigravity-cli/brain/e5067b4c-681e-42bd-9287-940c833b2a14",
+  "conversationId": "e5067b4c-681e-42bd-9287-940c833b2a14",
+  "modelName": "gemini-3.8-flash-low",
+  "transcriptPath": "/tmp/pm-agy-probe/gd1/antigravity-cli/brain/e5067b4c-681e-42bd-9287-940c833b2a14/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/pm-agy-probe/ws"
+  ],
+  "stepIdx": 2,
+  "toolCall": {
+    "args": {
+      "AbsolutePath": "/tmp/pm-agy-probe/ws/README.md",
+      "toolAction": "Viewing README.md",
+      "toolSummary": "View README.md"
+    },
+    "name": "view_file"
+  },
+  "error": ""
+}

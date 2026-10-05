@@ -10,6 +10,22 @@ import {
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it('rejects Gemini models for NanoGPT while retaining open model ids', () => {
+    expect(modelForProvider('nanogpt', 'gemini-3.8-flash')).toBe('z-ai/glm-5.3-flash-uncensored');
+    expect(modelForProvider('nanogpt', 'claude-opus')).toBe('z-ai/glm-5.3-flash-uncensored');
+    expect(modelForProvider('nanogpt', 'fictional/open-model')).toBe('fictional/open-model');
+    expect(modelForProvider('gemini', 'z-ai/glm-5.3-flash-uncensored')).toBe('gemini-3.8-flash');
+    expect(hasPlanUsage('nanogpt')).toBe(false);
+  });
+  it('keeps Gemini models within Gemini and does not report its plan usage', () => {
+    expect(modelForProvider('gemini')).toBe('gemini-3.8-flash');
+    expect(modelForProvider('gemini', 'gemini-3.1-pro-high')).toBe('gemini-3.1-pro-high');
+    expect(modelForProvider('gemini', 'claude-opus')).toBe('gemini-3.8-flash');
+    expect(modelForProvider('codex', 'gemini-3.8-flash')).toBe('gpt-6.1-sol');
+    expect(modelForProvider('claude', 'gemini-3.8-flash')).toBe('opus');
+    expect(permissionModeFitsProvider('gemini', 'bypassPermissions')).toBe(false);
+    expect(hasPlanUsage('gemini')).toBe(false);
+  });
   it.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
     'accepts effort %s on config, hire and update',
     (effort) => {
@@ -77,7 +93,7 @@ describe('permission modes per provider', () => {
   });
 
   it('has a fallback every provider allows', () => {
-    for (const provider of ['claude', 'codex'] as const) {
+    for (const provider of ['claude', 'codex', 'gemini', 'nanogpt'] as const) {
       expect(permissionModeFitsProvider(provider, FALLBACK_PERMISSION_MODE)).toBe(true);
     }
   });

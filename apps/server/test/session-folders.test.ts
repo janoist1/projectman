@@ -5,15 +5,23 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { prepareSessionFoldersRoot, SessionFolders } from '../src/domain/session-folders';
+import { defaultHeavyLockDir } from '../src/full-test/heavy-lock';
+import {
+  defaultSessionTmpRoot,
+  prepareSessionFoldersRoot,
+  prepareSessionTmpRoot,
+  realpathOfNearest,
+  SessionFolders,
+} from '../src/domain/session-folders';
 
 describe('session folders (PM-268)', () => {
   let base: string;
@@ -27,6 +35,17 @@ describe('session folders (PM-268)', () => {
     prepareSessionFoldersRoot(root);
     return new SessionFolders(root);
   };
+
+  it('resolves a path that is not there through the nearest existing ancestor, links followed', () => {
+    const real = realpathSync(base);
+    mkdirSync(join(base, 'dir'));
+    symlinkSync(join(real, 'dir'), join(base, 'link'));
+    expect(realpathOfNearest(join(base, 'link', 'a', 'b'))).toBe(join(real, 'dir', 'a', 'b'));
+    expect(realpathOfNearest(join(base, 'dir'))).toBe(join(real, 'dir'));
+    // Not a directory: the file's own path is kept, what is "below" it is appended.
+    writeFileSync(join(base, 'file'), 'x');
+    expect(realpathOfNearest(join(base, 'file', 'x'))).toBe(join(real, 'file', 'x'));
+  });
 
   it('names a new folder below the root at every call, and refuses an id that could leave it', () => {
     const folders = new SessionFolders('/r');
@@ -182,6 +201,169 @@ describe('session folders (PM-268)', () => {
       expect(folders.sweep(() => false)).toEqual(['ses_link.0123456789abcdef']);
       expect(readdirSync(folders.root)).toEqual([]);
       expect(existsSync(join(outside, 'precious.txt'))).toBe(true);
+    });
+  });
+
+  describe('the temporary directories of the sessions (PM-339)', () => {
+    const tmpFolders = (warn?: (err: unknown, dir: string) => void) => {
+      const root = join(base, 'projectman-sessions', 'abc');
+      const tmpRoot = join(base, 'projectman-501-tmp', '0123abcd');
+      prepareSessionFoldersRoot(root);
+      prepareSessionTmpRoot(tmpRoot);
+      return { folders: new SessionFolders(root, tmpRoot, warn), tmpRoot };
+    };
+    /** A session with its folder and its made temporary directory. */
+    const startedSession = (folders: SessionFolders, id: string) => {
+      const tmp = folders.allocateTmp(id)!;
+      folders.make(id, folders.allocate(id), tmp);
+      return tmp;
+    };
+
+    it('names `<tmpRoot>/<sessionId>.<6 hex>`, new at every call, and refuses an id that could leave it', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      const first = folders.allocateTmp('ses_a1-B2')!;
+      expect(first).toMatch(new RegExp(`^${tmpRoot}/ses_a1-B2\\.[0-9a-f]{6}$`));
+      expect(folders.allocateTmp('ses_a1-B2')).not.toBe(first);
+      for (const id of ['../x', 'a/b', '', '..', 'a b'])
+        expect(() => folders.allocateTmp(id)).toThrow(/Not a session id/);
+      expect(new SessionFolders('/r').allocateTmp('ses_a')).toBeUndefined();
+    });
+
+    it('makes 0700 only a path `allocateTmp` gave out', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      const tmp = startedSession(folders, 'ses_one');
+      expect(mode(tmp)).toBe(0o700);
+      const dir = folders.allocate('ses_two');
+      expect(() => folders.make('ses_two', dir, join(tmpRoot, 'x', 'ses_two.abcdef'))).toThrow(
+        /not a temporary/,
+      );
+      expect(() => folders.make('ses_two', dir, join(tmpRoot, 'ses_one.abcdef'))).toThrow(/not a temporary/);
+      expect(() => folders.make('ses_two', dir, join(base, 'elsewhere'))).toThrow(/not a temporary/);
+      expect(() => new SessionFolders('/r').make('ses_two', undefined, '/r/abc')).toThrow(/not a temporary/);
+      // Refused before anything is made or removed.
+      expect(existsSync(dir)).toBe(false);
+      expect(existsSync(tmp)).toBe(true);
+    });
+
+    it('does not use a link or a directory that is already at the path, and makes nothing behind it', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      const target = join(base, 'target');
+      mkdirSync(target);
+      const planted = join(tmpRoot, 'ses_one.012345');
+      symlinkSync(target, planted);
+      expect(() => folders.make('ses_one', folders.allocate('ses_one'), planted)).toThrow(/EEXIST/);
+      expect(readdirSync(target)).toEqual([]);
+      // The link is left to the sweep, which removes it as a link, never its target.
+      folders.remove('ses_one');
+      expect(existsSync(planted)).toBe(true);
+      folders.sweep(() => false);
+      expect(existsSync(planted)).toBe(false);
+      expect(existsSync(target)).toBe(true);
+      const real = join(tmpRoot, 'ses_two.ba9876');
+      mkdirSync(real);
+      expect(() => folders.make('ses_two', undefined, real)).toThrow(/EEXIST/);
+    });
+
+    it('makes a temporary directory alone, without a folder', () => {
+      const { folders } = tmpFolders();
+      const tmp = folders.allocateTmp('ses_one')!;
+      folders.make('ses_one', undefined, tmp);
+      expect(existsSync(tmp)).toBe(true);
+      expect(folders.of('ses_one')).toBeUndefined();
+      folders.remove('ses_one');
+      expect(existsSync(tmp)).toBe(false);
+    });
+
+    it('makes the root and the folder above it 0700 and refuses a link or a folder of another kind there', () => {
+      const { tmpRoot } = tmpFolders();
+      expect(mode(tmpRoot)).toBe(0o700);
+      expect(mode(dirname(tmpRoot))).toBe(0o700);
+      // A folder that somebody made with more rights is tightened.
+      chmodSync(dirname(tmpRoot), 0o755);
+      prepareSessionTmpRoot(tmpRoot);
+      expect(mode(dirname(tmpRoot))).toBe(0o700);
+      const target = join(base, 'target');
+      mkdirSync(target);
+      symlinkSync(target, join(base, 'linked'));
+      expect(() => prepareSessionTmpRoot(join(base, 'linked', 'x'))).toThrow(/symbolic link/);
+      expect(existsSync(join(target, 'x'))).toBe(false);
+      writeFileSync(join(base, 'plain'), '');
+      expect(() => prepareSessionTmpRoot(join(base, 'plain', 'x'))).toThrow(/not a directory/);
+    });
+
+    it('removes the session’s temporary directory with its content when the session’s folder is removed', () => {
+      const { folders } = tmpFolders();
+      const tmp = startedSession(folders, 'ses_one');
+      mkdirSync(join(tmp, 'a', 'b'), { recursive: true });
+      writeFileSync(join(tmp, 'a', 'b', 'x'), 'x');
+      folders.remove('ses_one');
+      expect(existsSync(tmp)).toBe(false);
+      expect(readdirSync(dirname(tmp))).toEqual([]);
+      expect(() => folders.remove('ses_one')).not.toThrow();
+    });
+
+    it('removes the previous run’s temporary directory when a restart makes the new one', () => {
+      const { folders } = tmpFolders();
+      const first = startedSession(folders, 'ses_one');
+      const second = startedSession(folders, 'ses_one');
+      expect(second).not.toBe(first);
+      expect(existsSync(first)).toBe(false);
+      expect(existsSync(second)).toBe(true);
+    });
+
+    it('logs a temporary directory it cannot remove and goes on with the folder', () => {
+      const warned: string[] = [];
+      const { folders, tmpRoot } = tmpFolders((_err, dir) => warned.push(dir));
+      const dir = folders.allocate('ses_one');
+      const tmp = folders.allocateTmp('ses_one')!;
+      folders.make('ses_one', dir, tmp);
+      // The rename into the root fails when the root cannot be written.
+      chmodSync(tmpRoot, 0o500);
+      try {
+        expect(() => folders.remove('ses_one')).not.toThrow();
+      } finally {
+        chmodSync(tmpRoot, 0o700);
+      }
+      expect(existsSync(dir)).toBe(false);
+      // Running as root the removal succeeds, so the failure is not seen.
+      if (process.getuid?.() !== 0) expect(warned).toEqual([tmp]);
+    });
+
+    it('sweeps the temporary directories of sessions that are gone, and keeps a kept session’s', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      const kept = startedSession(folders, 'ses_keep');
+      startedSession(folders, 'ses_gone');
+      mkdirSync(join(tmpRoot, 'ses_stray.abcdef'));
+      writeFileSync(join(tmpRoot, 'stray'), 'x');
+      folders.sweep((id) => id === 'ses_keep');
+      expect(readdirSync(tmpRoot)).toEqual([basename(kept)]);
+    });
+
+    it('removes an empty root at the stop and leaves one that holds a session’s directory', () => {
+      const { folders, tmpRoot } = tmpFolders();
+      startedSession(folders, 'ses_one');
+      folders.releaseTmpRoot();
+      expect(existsSync(tmpRoot)).toBe(true);
+      folders.remove('ses_one');
+      folders.releaseTmpRoot();
+      expect(existsSync(tmpRoot)).toBe(false);
+      expect(() => folders.releaseTmpRoot()).not.toThrow();
+      expect(() => new SessionFolders('/r').releaseTmpRoot()).not.toThrow();
+    });
+
+    it('has a default root beside the heavy-run queue folder, never below it, and room for a Unix socket', () => {
+      const root = join(defaultSessionTmpRoot(), '0123abcd');
+      expect(root).toMatch(/\/projectman-(\d+|user)-tmp\/0123abcd$/);
+      // The members' sandboxes write `/tmp/projectman-<uid>`: the root is not that folder or below it.
+      const queueParent = defaultHeavyLockDir().replace(/\/[^/]+$/, '');
+      expect(queueParent).toMatch(/\/projectman-(\d+|user)$/);
+      expect(`${root}/`.startsWith(`${queueParent}/`)).toBe(false);
+      expect(`${queueParent}/`.startsWith(`${root}/`)).toBe(false);
+      // The directory is `<session id>.<6 hex>` (an id is `ses_` and 18 characters); tools add a name like
+      // `tsx-501/12345.pipe` (a socket's path may be 104 bytes).
+      const tmp = join(root, `ses_${'x'.repeat(18)}.abcdef`);
+      expect(Buffer.byteLength(tmp)).toBeLessThanOrEqual(72);
+      expect(Buffer.byteLength(join(tmp, 'tsx-501', '12345.pipe'))).toBeLessThan(104);
     });
   });
 });

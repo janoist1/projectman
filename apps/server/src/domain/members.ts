@@ -4,6 +4,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
   holdersAllow,
+  isSenior,
   MemberHandle,
   memberDuties,
   memberOf,
@@ -145,6 +146,7 @@ export class MemberService {
           currentTaskKeys,
           sponsor: null,
           temp: false,
+          senior: false,
         };
       }
       const state = states.get(m.handle);
@@ -169,6 +171,7 @@ export class MemberService {
         ...(m.cheapSubagent ? { cheapSubagent: m.cheapSubagent } : {}),
         ...permissionView(config, m),
         ...(m.onLeave ? { onLeave: true } : {}),
+        senior: isSenior(m),
       };
     });
   }
@@ -268,7 +271,7 @@ export class MemberService {
         ...(req.specialty ? { specialty: req.specialty } : {}),
         ...(req.provider ? { provider: req.provider } : {}),
         model:
-          req.provider === 'codex' || req.provider === 'nanogpt'
+          req.provider && req.provider !== 'claude'
             ? modelForProvider(req.provider, req.model)
             : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
@@ -316,6 +319,14 @@ export class MemberService {
       const member = memberOf(draft, handle);
       if (!member) throw notFound('member', handle);
       const fields: string[] = [];
+      // Only an AI member that is no stand-in can be the Senior (PM-347).
+      if (req.senior !== undefined && (member.kind === 'human' || member.temp))
+        throw invalid(
+          'senior_not_allowed',
+          member.kind === 'human'
+            ? 'a person cannot be the Senior: only an AI member can'
+            : 'a temp worker cannot be the Senior',
+        );
       if (member.kind === 'human') {
         if (req.access !== undefined) {
           member.access = req.access;
@@ -362,7 +373,7 @@ export class MemberService {
         }
         if (req.provider !== undefined && req.provider !== (member.provider ?? DEFAULT_AGENT_PROVIDER)) {
           member.provider = req.provider;
-          member.model = modelForProvider(req.provider, member.model);
+          member.model = modelForProvider(req.provider, req.model);
           fields.push('provider');
         }
         if (req.effort !== undefined) {
@@ -413,6 +424,11 @@ export class MemberService {
           if (req.onLeave) member.onLeave = true;
           else delete member.onLeave;
           fields.push(req.onLeave ? 'sent on leave' : 'called back from leave');
+        }
+        if (req.senior !== undefined) {
+          if (req.senior) member.senior = true;
+          else delete member.senior;
+          fields.push(req.senior ? 'marked as the Senior' : 'no longer the Senior');
         }
       }
       if (req.displayName !== undefined) {

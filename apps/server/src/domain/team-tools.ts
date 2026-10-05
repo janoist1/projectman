@@ -25,6 +25,7 @@ import type {
   WorkDoing,
   WorkItemRef,
   AddRelationRef,
+  DeveloperLevelRequest,
   RelationsChange,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
@@ -38,6 +39,9 @@ import type {
   LocatedAttachmentForTool,
   MemberMemoryStore,
   NetworkDenial,
+  ScreenshotRun,
+  SentMessageRecipient,
+  TakeScreenshotsInput,
   TaskSummary,
   TaskToolDetail,
   TeamToolsHandler,
@@ -60,6 +64,7 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
+import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionFolders } from './session-folders';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
@@ -267,6 +272,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly attachments: AttachmentOperations;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly sessionFolders: Pick<SessionFolders, 'of'> | undefined;
+  private readonly screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 
   constructor(deps: {
     boundary: BoundaryService;
@@ -295,7 +301,10 @@ export class TeamToolsService implements TeamToolsHandler {
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
     /** The session folders (PM-268): `attach_file` takes files from the caller's own folder too. */
     sessionFolders?: Pick<SessionFolders, 'of'>;
+    /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
+    screenshots?: Pick<ScreenshotRuns, 'take' | 'get'>;
   }) {
+    this.screenshots = deps.screenshots;
     this.sessionFolders = deps.sessionFolders;
     this.boundary = deps.boundary;
     this.egress = deps.egress ?? null;
@@ -324,6 +333,7 @@ export class TeamToolsService implements TeamToolsHandler {
   ): Promise<{
     messageId: string;
     deliveredTo: string[];
+    recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
@@ -331,8 +341,8 @@ export class TeamToolsService implements TeamToolsHandler {
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       // Humans have it in their messages now; AI recipients get it typed into their session
       // for the work item as soon as that session is idle (queued, never awaited here).
-      const message = await this.messaging
-        .send(
+      const { message, recipients } = await this.messaging
+        .sendReporting(
           ctx.projectKey,
           ctx.member,
           { to: args.to, text: args.text, taskKey },
@@ -344,7 +354,12 @@ export class TeamToolsService implements TeamToolsHandler {
       const routed = (message.receipts ?? []).flatMap((r) =>
         r.route ? [{ handle: r.handle, workItem: r.route }] : [],
       );
-      return { messageId: message.id, deliveredTo: message.to, ...(routed.length > 0 ? { routed } : {}) };
+      return {
+        messageId: message.id,
+        deliveredTo: message.to,
+        recipients,
+        ...(routed.length > 0 ? { routed } : {}),
+      };
     });
   }
 
@@ -432,6 +447,14 @@ export class TeamToolsService implements TeamToolsHandler {
         },
         // The timeline shows excerpts: a message that is on its way says so (PM-180).
         undeliveredMessageIds: this.ctx.repos.messages.pending(ctx.projectKey, ctx.member).map((m) => m.id),
+        // The caller's own messages on this card that are not typed in for every AI recipient yet (PM-144).
+        pendingSentMessages: this.ctx.repos.messages
+          .pendingFrom(ctx.projectKey, ctx.member, taskKey)
+          .flatMap((m) => {
+            const waiting = (m.receipts ?? []).filter((r) => r.kind === 'ai' && !r.deliveredAt);
+            const handles = m.to.filter((handle) => waiting.some((r) => r.handle === handle));
+            return handles.length > 0 ? [{ messageId: m.id, handles }] : [];
+          }),
       };
     });
   }
@@ -527,6 +550,26 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
+  async takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      return this.screenshotRuns().take(ctx, input);
+    });
+  }
+
+  async getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      return this.screenshotRuns().get(ctx, runId);
+    });
+  }
+
+  private screenshotRuns(): Pick<ScreenshotRuns, 'take' | 'get'> {
+    if (!this.screenshots)
+      throw new TeamToolError('forbidden', 'This server makes no screenshots for members (no sandbox here).');
+    return this.screenshots;
+  }
+
   async deleteAttachment(
     ctx: ToolContext,
     args: { taskKey: string; attachmentId: string },
@@ -566,6 +609,7 @@ export class TeamToolsService implements TeamToolsHandler {
       repo?: string | null;
       relations?: RelationsChange;
       themeKey?: string | null;
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -596,6 +640,7 @@ export class TeamToolsService implements TeamToolsHandler {
             repo: args.repo,
             ...(args.relations ? { relations: args.relations } : {}),
             ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
+            ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
             addLabels: args.addLabels,
             removeLabels: args.removeLabels,
             note: args.note,
@@ -631,6 +676,7 @@ export class TeamToolsService implements TeamToolsHandler {
       relations?: AddRelationRef[];
       kind?: TaskKind;
       themeKey?: string;
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
@@ -650,6 +696,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(args.relations?.length ? { relations: args.relations } : {}),
           ...(args.kind ? { kind: args.kind } : {}),
           ...(args.themeKey ? { themeKey: args.themeKey } : {}),
+          ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
         },
         aiActor(ctx.member),
         { sessionId: ctx.sessionId },

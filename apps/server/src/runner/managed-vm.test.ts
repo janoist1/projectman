@@ -17,6 +17,7 @@ import { buildSessionPolicy } from '../domain';
 import { createRunnerModule } from './index';
 import {
   assertManagedVmPolicy,
+  assertProviderVersion,
   createReadinessBoundary,
   inspectAmbientConfig,
   ManagedVmUnavailableError,
@@ -25,6 +26,15 @@ import {
 import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
 
 const dirs = tempDirs();
+it('fails closed when an attestation has no version for a provider', () => {
+  expect(() =>
+    assertProviderVersion('gemini', '1.2.17', {
+      profile: { name: 'vm', version: 1 },
+      verifiedAt: '2026-10-05T00:00:00Z',
+      providerVersions: { claude: ['2.1.284'] },
+    }),
+  ).toThrow('not a version');
+});
 afterEach(() => dirs.cleanup());
 
 type Status = 'pass' | 'fail' | 'unverified';

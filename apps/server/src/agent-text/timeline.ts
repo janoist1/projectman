@@ -24,6 +24,7 @@ export function describeEvent(
   textLimit: number,
   style: TextStyle = PLAIN_STYLE,
   undelivered?: ReadonlySet<string>,
+  pendingSent?: ReadonlyMap<string, readonly string[]>,
 ): string {
   const data = event.data;
   const text = (key: string): string | null => {
@@ -83,6 +84,15 @@ export function describeEvent(
       const verb = event.type === 'task_relation_added' ? 'added' : 'removed';
       return `${verb} the relation: this card ${relationPhrase(text('kind') ?? '')} ${text('ref') ?? '?'}`;
     }
+    case 'task_level_changed': {
+      const reason = text('reason');
+      const previous = data.previous;
+      const before =
+        previous && typeof previous === 'object' && 'level' in previous && typeof previous.level === 'string'
+          ? ` (was ${previous.level})`
+          : '';
+      return `set the recommended developer to ${text('level') ?? '?'}${reason ? ` — ${reason}` : ''}${before}`;
+    }
     case 'task_theme_changed': {
       const next = text('themeKey');
       const previous = text('previous');
@@ -108,7 +118,11 @@ export function describeEvent(
       const recipients = to.length > 0 ? ` to ${to.map((h) => style.code(h)).join(', ')}` : '';
       const line = `message${recipients}: ${text('excerpt') ?? ''}`.trimEnd();
       const id = typeof data.messageId === 'string' ? data.messageId : null;
-      return id && undelivered?.has(id) ? `${line} ${NOT_DELIVERED_YET}` : line;
+      const marked = id && undelivered?.has(id) ? `${line} ${NOT_DELIVERED_YET}` : line;
+      const waiting = id ? pendingSent?.get(id) : undefined;
+      return waiting && waiting.length > 0
+        ? `${marked} (not typed in yet for ${waiting.join(', ')}; it is on its way, do not resend it)`
+        : marked;
     }
     case 'question_asked':
       return `asked a human: ${text('question') ?? ''}`.trimEnd();
@@ -226,9 +240,10 @@ export function timelineLine(
   textLimit: number,
   style: TextStyle = PLAIN_STYLE,
   undelivered?: ReadonlySet<string>,
+  pendingSent?: ReadonlyMap<string, readonly string[]>,
 ): string {
   const actor = event.actor.handle ? style.code(event.actor.handle) : event.actor.kind;
-  const line = `- ${formatTimestamp(event.createdAt)} · ${actor}: ${describeEvent(event, textLimit, style, undelivered)}`;
+  const line = `- ${formatTimestamp(event.createdAt)} · ${actor}: ${describeEvent(event, textLimit, style, undelivered, pendingSent)}`;
   const full = eventFullText(event);
   const length = full ? Array.from(full.replace(/\s+/g, ' ')).length : 0;
   return length > textLimit ? `${line} (cut, ${length} chars; read it whole: ${eventReadHint(event)})` : line;
@@ -244,6 +259,8 @@ export interface TimelineOptions {
   skip?: ReadonlySet<string>;
   /** Ids of the team messages for the reader that were not typed into its session yet. */
   undelivered?: ReadonlySet<string>;
+  /** The reader's own messages not typed into every AI recipient's session yet: message id to the handles still waiting (PM-144). */
+  pendingSent?: ReadonlyMap<string, readonly string[]>;
 }
 
 export interface RecentTimeline {
@@ -259,7 +276,9 @@ export function recentTimeline(events: readonly TimelineEvent[], opts: TimelineO
     .filter((e) => !opts.skip?.has(e.type))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   return {
-    lines: kept.slice(-opts.limit).map((e) => timelineLine(e, opts.textLimit, opts.style, opts.undelivered)),
+    lines: kept
+      .slice(-opts.limit)
+      .map((e) => timelineLine(e, opts.textLimit, opts.style, opts.undelivered, opts.pendingSent)),
     total: kept.length,
   };
 }

@@ -2,6 +2,7 @@ import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import type {
   AddRelationRef,
   Attachment,
+  DeveloperLevelRequest,
   MemberHandle,
   RelationsChange,
   TaskRelation,
@@ -31,6 +32,22 @@ import type { PullRequestInfo, RemoteState } from './github';
  * desktop app's SendMessage. Tool names seen by Claude: mcp__team__<tool>.
  * The MCP transport lives in src/mcp; the behaviour is implemented by the domain.
  */
+
+/** Why a sent team message waits before it reaches an AI recipient (PM-144). */
+export type SentMessageHold = 'refinement_turn' | 'fix_limit' | 'full_test' | 'pause' | 'restart';
+
+/** What happens to a sent team message for one recipient, decided when it is sent (PM-144). */
+export interface SentMessageRecipient {
+  handle: MemberHandle;
+  /**
+   * inbox: a person, who reads it in the app. typed_now: the AI recipient's session is idle and gets it now.
+   * after_turn: its session is in a turn (starting, working, waiting_permission, waiting_input) and gets it when the turn ends.
+   * wake: no session runs for it; one starts or resumes with it (admission may defer that). held: kept back, `hold` says why.
+   */
+  delivery: 'inbox' | 'typed_now' | 'after_turn' | 'wake' | 'held';
+  /** Only with delivery 'held'. */
+  hold?: SentMessageHold;
+}
 
 export interface ToolContext {
   sessionId: string;
@@ -76,6 +93,11 @@ export interface TaskToolDetail extends TaskDetail {
    * timeline lines say that the full text is on its way (PM-180).
    */
   undeliveredMessageIds?: string[];
+  /**
+   * The caller's own messages on this card that are not typed into every AI recipient's session yet
+   * (PM-144), with the recipients still waiting, in the order the message names them.
+   */
+  pendingSentMessages?: { messageId: string; handles: MemberHandle[] }[];
   /** The timeline event asked for by id (get_task event_id): its whole text is shown instead of the task. */
   event?: TimelineEvent;
   /** The task's relations to other cards, both directions (PM-192); omitted by handlers that know none. */
@@ -139,7 +161,46 @@ export interface PublishedTaskState extends RemoteState {
   publishedBy: string | null;
 }
 
+/** The input of `take_screenshots` (PM-351), as the domain gets it from the validated tool arguments. */
+export interface TakeScreenshotsInput {
+  /** The scenario module, relative to the session's working directory or absolute. */
+  scenario: string;
+  widths?: number[];
+  fullPage?: boolean;
+  scale?: 1 | 2;
+  /** The scenario's own `--timeout`, in seconds. */
+  timeoutSeconds?: number;
+  seed?: 'demo' | 'none';
+}
+
+export type ScreenshotRunStatus = 'queued' | 'running' | 'done' | 'failed';
+export type ScreenshotFailure = 'scenario' | 'usage' | 'timeout' | 'stopped' | 'sandbox';
+
+/** A screenshot run the server made for a session with `npm run shots` (PM-351). */
+export interface ScreenshotRun {
+  runId: string;
+  status: ScreenshotRunStatus;
+  /** ISO time. */
+  startedAt: string;
+  finishedAt?: string;
+  /** Images the run wrote or rewrote below `<session folder>/shots`, absolute paths, at most 100. */
+  files: string[];
+  exitCode?: number | null;
+  /** Only with status `failed`. */
+  failure?: ScreenshotFailure;
+  /** The end of the output, ANSI removed, at most 4000 characters (`outputTail`, full-test/output.ts). */
+  outputTail?: string;
+}
+
 export interface TeamToolsHandler {
+  /**
+   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
+   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
+   * with `getScreenshotRun`.
+   */
+  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
+  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
+  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
   submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
   getBoundaryRequest(
     ctx: ToolContext,
@@ -176,6 +237,8 @@ export interface TeamToolsHandler {
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];
+    /** What happens to the message for each recipient, in the order of `to` (PM-144). */
+    recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
   }>;
@@ -208,6 +271,8 @@ export interface TeamToolsHandler {
       relations?: RelationsChange;
       /** The theme the card belongs to (PM-192); null removes it. */
       themeKey?: string | null;
+      /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }>;
   /**
@@ -228,6 +293,8 @@ export interface TeamToolsHandler {
       kind?: TaskKind;
       /** The theme the new card belongs to. */
       themeKey?: string;
+      /** The recommended developer (PM-347). */
+      developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }>;
   /** link_pull_request: attach a GitHub PR to the task. */

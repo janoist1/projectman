@@ -282,6 +282,82 @@ describe('attachment tools', () => {
     expect(h.handler.calls.filter((c) => c.method === 'attachFile')).toHaveLength(1);
   });
 
+  it('take_screenshots passes only the validated fields, and shows the images of the run', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const result = await call(client, 'take_screenshots', {
+      scenario: 'scripts/scenarios/card.mjs',
+      widths: [1512, 390],
+      full_page: true,
+      scale: 2,
+      timeout_seconds: 120,
+      seed: 'none',
+    });
+    expect(text(result)).toBe(
+      [
+        'Screenshot run shr_fake0001 is done (finished 2026-10-05T09:00:20.000Z, exit code 0).',
+        'Images (1); open one with your image viewing tool, attach it with attach_file:',
+        '- /sessions/ses_dev/shots/card/card-1512.png',
+        'Output (the end):',
+        'shot /sessions/ses_dev/shots/card/card-1512.png 1512x982',
+      ].join('\n'),
+    );
+    expect(h.handler.calls.at(-1)).toEqual({
+      method: 'takeScreenshots',
+      ctx: devContext,
+      args: {
+        scenario: 'scripts/scenarios/card.mjs',
+        widths: [1512, 390],
+        fullPage: true,
+        scale: 2,
+        timeoutSeconds: 120,
+        seed: 'none',
+      },
+    });
+    // Only the scenario is required.
+    await call(client, 'take_screenshots', { scenario: 'a.mjs' });
+    expect(h.handler.calls.at(-1)?.args).toEqual({ scenario: 'a.mjs' });
+  });
+
+  it('take_screenshots refuses what is out of bounds, and an output folder or a command of the caller’s', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const refusals: Record<string, unknown>[] = [
+      { scenario: '' },
+      { scenario: 'a'.repeat(501) },
+      { scenario: 'a.mjs', widths: [] },
+      { scenario: 'a.mjs', widths: [199] },
+      { scenario: 'a.mjs', widths: [4001] },
+      { scenario: 'a.mjs', widths: [300, 400, 500, 600, 700, 800, 900, 1000, 1100] },
+      { scenario: 'a.mjs', scale: 3 },
+      { scenario: 'a.mjs', timeout_seconds: 0 },
+      { scenario: 'a.mjs', timeout_seconds: 601 },
+      { scenario: 'a.mjs', seed: 'other' },
+      { scenario: 'a.mjs', out: '/tmp/x' },
+      { scenario: 'a.mjs', keep_data: true },
+      { scenario: 'a.mjs', machine: 'm.json' },
+      { scenario: 'a.mjs', args: ['--out', '/'] },
+    ];
+    for (const args of refusals) {
+      const refused = await call(client, 'take_screenshots', args);
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+    }
+    expect(h.handler.calls.filter((c) => c.method === 'takeScreenshots')).toHaveLength(0);
+  });
+
+  it('get_screenshot_run shows a run that goes on, and an unknown run as an error', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    expect(text(await call(client, 'get_screenshot_run', { run_id: 'shr_fake0001' }))).toBe(
+      'Screenshot run shr_fake0001 is running (started 2026-10-05T09:00:00.000Z). Ask again with get_screenshot_run run_id=shr_fake0001.',
+    );
+    const unknown = await call(client, 'get_screenshot_run', { run_id: 'shr_other' });
+    expect(unknown.isError).toBe(true);
+    expect(text(unknown)).toBe('Error [not_found]: This session has no screenshot run shr_other.');
+    expect((await call(client, 'get_screenshot_run', { run_id: '' })).isError).toBe(true);
+    expect((await call(client, 'get_screenshot_run', { run_id: 'x'.repeat(65) })).isError).toBe(true);
+  });
+
   it('delete_attachment deletes the caller’s own attachment and reports the refusal of others’', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');
@@ -334,7 +410,9 @@ describe('team tools', () => {
         args: { to: ['cr', 'owner'], text: 'Ready for review ✅ — naïve café', taskKey: 'AR-21' },
       },
     ]);
-    expect(text(result)).toBe('Message msg_1 about AR-21 sent to cr, owner.');
+    expect(text(result)).toBe(
+      'Message msg_1 about AR-21 sent to cr, owner.\n- cr: typed into their session now.\n- owner: typed into their session now.',
+    );
   });
 
   it('send_message refuses a message addressed only to the caller', async () => {
@@ -353,7 +431,7 @@ describe('team tools', () => {
     const client = await connect(h, 'token-qa');
 
     expect(text(await call(client, 'send_message', { to: ['fe-1'], text: 'Hi' }))).toBe(
-      'Message msg_1 sent to fe-1.',
+      'Message msg_1 sent to fe-1.\n- fe-1: typed into their session now.',
     );
     await call(client, 'send_message', { to: ['fe-1'], text: 'About the login', task_key: 'AR-21' });
 
@@ -524,7 +602,7 @@ describe('team tools', () => {
 
     expect(result.isError).toBe(true);
     expect(text(result)).toBe(
-      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations, remove_relations and/or theme_key.',
+      'Error [invalid]: Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, add_relations, remove_relations, theme_key and/or developer_level.',
     );
     expect(h.handler.calls).toEqual([]);
   });
@@ -614,6 +692,89 @@ describe('team tools', () => {
       method: 'createTask',
       args: { title: 'Follow-up', relations: [{ kind: 'prerequisite', key: 'AR-21' }] },
     });
+  });
+
+  it('update_task passes the recommended developer on and reports it (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'update_task', {
+      task_key: 'AR-21',
+      developer_level: 'senior',
+      developer_level_reason: 'the runner',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toEqual({
+      method: 'updateTask',
+      ctx: devContext,
+      args: { taskKey: 'AR-21', developerLevel: { level: 'senior', reason: 'the runner' } },
+    });
+    expect(text(result).split('\n')[0]).toBe('Updated AR-21: recommended developer set.');
+    expect(text(result)).toContain('Recommended developer: senior — the runner');
+
+    // The level alone is a level without a reason (any needs none).
+    const any = await call(client, 'update_task', { task_key: 'AR-21', developer_level: 'any' });
+    expect(any.isError).toBeFalsy();
+    expect(h.handler.calls[1]).toMatchObject({ args: { developerLevel: { level: 'any' } } });
+    expect(text(any)).toContain('Recommended developer: any');
+  });
+
+  it('update_task and create_task refuse a reason without a level, or a bad level or reason (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const alone = await call(client, 'update_task', { task_key: 'AR-21', developer_level_reason: 'why' });
+    expect(alone.isError).toBe(true);
+    expect(text(alone)).toBe('Error [invalid]: developer_level_reason needs developer_level: pass both.');
+    const aloneCreate = await call(client, 'create_task', { title: 'Card', developer_level_reason: 'why' });
+    expect(aloneCreate.isError).toBe(true);
+    expect(text(aloneCreate)).toContain('developer_level_reason needs developer_level');
+    for (const bad of [
+      { developer_level: 'boss' },
+      { developer_level: 'senior', developer_level_reason: '' },
+      { developer_level: 'senior', developer_level_reason: 'x'.repeat(301) },
+    ]) {
+      const result = await call(client, 'update_task', { task_key: 'AR-21', ...bad });
+      expect(result.isError, JSON.stringify(bad)).toBe(true);
+      expect(text(result)).toContain('Input validation error');
+    }
+    expect(h.handler.calls).toEqual([]);
+  });
+
+  it('create_task passes the recommended developer on (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'create_task', {
+      title: 'Planned',
+      developer_level: 'senior',
+      developer_level_reason: 'the sandbox',
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toMatchObject({
+      method: 'createTask',
+      args: { title: 'Planned', developerLevel: { level: 'senior', reason: 'the sandbox' } },
+    });
+    expect(text(result)).toContain('Recommended developer: senior — the sandbox');
+  });
+
+  it('get_task shows the recommended developer only when one is set (PM-347)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).not.toContain(
+      'Recommended developer',
+    );
+    await call(client, 'update_task', {
+      task_key: 'AR-21',
+      developer_level: 'senior',
+      developer_level_reason: 'the runner',
+    });
+    expect(text(await call(client, 'get_task', { task_key: 'AR-21' }))).toContain(
+      'Recommended developer: senior (the runner)',
+    );
   });
 
   it('update_task passes the theme on, and null removes it (PM-192)', async () => {

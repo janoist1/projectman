@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { stat } from 'node:fs/promises';
 import type { FastifyBaseLogger } from 'fastify';
-import { DEFAULT_AGENT_PROVIDER, type AgentProvider } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, isManagedVmProvider, type AgentProvider } from '@projectman/shared';
 import {
   PROVIDER_NOT_LOGGED_IN,
   type PauseOptions,
@@ -131,6 +131,7 @@ export class SessionManager implements SessionRunner {
       adapter,
       initialMessageSent: launch.initialMessageSent,
       deps: {
+        ...(launch.conversationRoot ? { transcriptRoot: launch.conversationRoot } : {}),
         logger: this.log,
         broker: this.opts.broker,
         permissionTimeoutMs: this.opts.permissionTimeoutMs,
@@ -174,6 +175,8 @@ export class SessionManager implements SessionRunner {
     provider: AgentProvider,
     launcher: SessionLauncher,
   ): Promise<RunningSessionInfo> {
+    if (!isManagedVmProvider(provider))
+      throw new Error('This provider is not supported by the managed VM launcher.');
     const adapter = this.adapters[provider];
     const layout = this.opts.workerLayout;
     if (!spec.member || !spec.egressToken || !layout)
@@ -218,7 +221,7 @@ export class SessionManager implements SessionRunner {
         emit: (event) => this.emit(event),
         onExited: (exited) => this.retire(exited),
         onAuthError: () => this.statuses.delete(`${provider}:${spec.member}`),
-        transcriptRoot: home,
+        transcriptRoot: launch.conversationRoot ?? home,
       },
     });
     const previous = this.finished.get(spec.sessionId);
@@ -317,6 +320,14 @@ export class SessionManager implements SessionRunner {
       pending = (async (): Promise<ProviderStatus> => {
         if (provider === 'nanogpt') return adapter.checkLogin(buildChildEnv(this.opts.env ?? process.env));
         if (member && launcher && layout) {
+          if (!isManagedVmProvider(provider))
+            return {
+              provider,
+              loggedIn: null,
+              method: null,
+              checkedAt: new Date().toISOString(),
+              detail: 'This provider is not supported by the managed VM launcher.',
+            };
           const out = await launcher
             .run({
               member,
@@ -335,6 +346,7 @@ export class SessionManager implements SessionRunner {
           return adapter.parseLogin(out);
         }
         const env = buildChildEnv(this.opts.env ?? process.env);
+        if (provider === 'gemini') return adapter.checkLogin(env);
         if (!(await cliExists(adapter.bin, env.PATH))) {
           return {
             provider,

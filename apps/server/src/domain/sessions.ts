@@ -59,6 +59,7 @@ import type {
   RelatedSession,
   RunnerEvent,
   RuntimeBoundary,
+  ScreenshotScope,
   SessionPolicy,
   SessionRunner,
   SourceHead,
@@ -96,7 +97,7 @@ import {
   usesWorktree,
   withSessionFolders,
 } from './session-policy';
-import { SESSION_DIR_VARIABLE } from './session-folders';
+import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
 import type { SessionFolders } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -450,6 +451,10 @@ export class SessionOrchestrator {
    * reaches it first.
    */
   private readonly stopReasons = new Map<string, SessionStop>();
+  /** What a screenshot run of each live session with a folder in its worktree needs (PM-351). */
+  private readonly screenshotScopes = new Map<string, ScreenshotScope>();
+  /** Told when a session's folder is removed (the session ended), before it is (PM-351). */
+  private readonly folderListeners = new Set<(sessionId: string) => void>();
   private readonly unsubscribe: () => void;
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
@@ -1301,8 +1306,11 @@ export class SessionOrchestrator {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
-    if (provider === 'nanogpt' && this.managed)
-      throw conflict('provider_unsupported', 'NanoGPT is not supported in the managed VM', {
+    if (
+      (provider === 'gemini' || provider === 'nanogpt') &&
+      (this.deps.executionProfile === 'managed_vm' || this.managed)
+    )
+      throw conflict('provider_unsupported', `${provider} is not supported in the managed VM profile yet.`, {
         provider,
         profile: 'managed_vm',
       });
@@ -1493,12 +1501,19 @@ export class SessionOrchestrator {
         ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
         : undefined;
     const excludesFile = userExcludesFile(userHome);
-    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268); Codex and
-    // the managed VM neither.
-    const ownFolders = !vm && !this.managed && provider === 'claude';
+    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268), a Codex
+    // session its own folder when its sandbox writes (PM-339): a read-only Codex sandbox takes no
+    // writable root, and the mode changes only with a restart. Codex also needs the short TMPDIR
+    // root: without it the shared `/tmp` stays open, so no folder either. The managed VM neither.
+    const codexWrites =
+      provider === 'codex' &&
+      policy.permissions.sandbox === 'workspace-write' &&
+      !!this.deps.sessionFolders?.tmpRoot;
+    const ownFolders = !vm && !this.managed && (provider === 'claude' || codexWrites);
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
     const sessionDir =
       ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
+    const tmpDir = codexWrites && sessionDir ? this.deps.sessionFolders?.allocateTmp(sessionId) : undefined;
     const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
@@ -1507,6 +1522,7 @@ export class SessionOrchestrator {
             userHome,
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(sessionDir ? { sessionDir } : {}),
+            ...(tmpDir ? { tmpDir } : {}),
             ...(browsersDir ? { browsersDir } : {}),
             ...(this.deps.heavyLockDir ? { heavyLockDir: this.deps.heavyLockDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
@@ -1576,8 +1592,26 @@ export class SessionOrchestrator {
     }
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
-    if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
+    const sessionTmpDir = sandbox?.portable?.tmpDir;
+    if (sessionFolder || sessionTmpDir) this.prepareSessionFolder(sessionId, sessionFolder, sessionTmpDir);
+    // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
+    // that exists (a link). `make` makes it new, with the folder.
     this.preparePortablePaths(sandbox?.portable?.allowWrite);
+    if (sessionFolder && sandbox && policy.access === 'task_worktree') {
+      const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
+      this.screenshotScopes.set(sessionId, {
+        cwd,
+        sessionDir: sessionFolder,
+        ...(browsers ? { browsersDir: browsers } : {}),
+        sandbox: {
+          allowWrite: [...sandbox.allowWrite],
+          denyWrite: [...(sandbox.denyWrite ?? [])],
+          denyRead: [...(sandbox.denyRead ?? [])],
+          // The run reads the worktree it runs in, whatever the home's closure says.
+          allowRead: [...new Set([cwd, ...(sandbox.allowRead ?? [])])],
+        },
+      });
+    }
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
@@ -1789,6 +1823,23 @@ export class SessionOrchestrator {
   }
 
   /**
+   * What a screenshot run of the session needs (PM-351): its worktree, its own folder and the limits of
+   * its sandbox. Undefined when the session has no folder of its own or does not work in a worktree.
+   */
+  screenshotScope(sessionId: string): ScreenshotScope | undefined {
+    return this.screenshotScopes.get(sessionId);
+  }
+
+  /**
+   * `listener` is called with the id of a session whose folder is about to be removed (it ended, or its
+   * start failed): a run that uses the folder stops first. Returns the function that removes it.
+   */
+  onFolderRemoved(listener: (sessionId: string) => void): () => void {
+    this.folderListeners.add(listener);
+    return () => this.folderListeners.delete(listener);
+  }
+
+  /**
    * The running sessions that work on the card now (PM-249): see `cardWorkerSessions` for who counts and
    * in which order.
    */
@@ -1959,10 +2010,13 @@ export class SessionOrchestrator {
     return dir;
   }
 
-  /** The session's own folder (PM-268), made before its process starts. */
-  private prepareSessionFolder(sessionId: string, dir: string): void {
+  /**
+   * The session's own folder (PM-268) and, for Codex, its temporary directory (PM-339), made before
+   * its process starts. A path that exists already stops the start.
+   */
+  private prepareSessionFolder(sessionId: string, dir: string | undefined, tmpDir?: string): void {
     try {
-      this.deps.sessionFolders!.make(sessionId, dir);
+      this.deps.sessionFolders!.make(sessionId, dir, tmpDir);
     } catch (err) {
       throw new DomainError(
         'session_start_failed',
@@ -1992,6 +2046,14 @@ export class SessionOrchestrator {
    * it; a failure is logged and never stops the caller.
    */
   private removeSessionFolderOf(sessionId: string): void {
+    this.screenshotScopes.delete(sessionId);
+    for (const listener of this.folderListeners) {
+      try {
+        listener(sessionId);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId }, 'a listener of the session folder removal failed');
+      }
+    }
     try {
       this.deps.sessionFolders?.remove(sessionId);
     } catch (err) {

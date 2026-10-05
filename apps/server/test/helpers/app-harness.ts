@@ -11,7 +11,7 @@ import type { BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contra
 import { createTemplateRegistry, humanActor } from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain';
 import { createRunnerModule } from '../../src/runner';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort } from '../../src/runner/test-helpers';
+import { FAKE_CLAUDE, FAKE_CODEX, FAKE_GEMINI, freePort } from '../../src/runner/test-helpers';
 import {
   createFakeMcp,
   createFakeRunnerModule,
@@ -168,6 +168,8 @@ export async function createAppHarness(
         ? {
             claudeBin: FAKE_CLAUDE,
             codexBin: FAKE_CODEX,
+            geminiBin: FAKE_GEMINI,
+            geminiConfigDir: join(home, 'providers', 'gemini'),
             codexHome,
             claudeConfigPath: claudeConfig,
             publicBaseUrl: `http://127.0.0.1:${port}`,

@@ -214,6 +214,30 @@ describe('formatTaskDetail', () => {
     expect(formatTaskDetail(detail)).not.toContain('not delivered');
   });
 
+  it("marks the reader's own sent messages that are not typed in for every recipient yet (PM-144)", () => {
+    const sent: TimelineEvent = {
+      ...note(0, ''),
+      id: 'evt_s1',
+      actor: { kind: 'ai', handle: 'fe-1' },
+      type: 'team_message',
+      data: { messageId: 'msg_s1', from: 'fe-1', to: ['qa', 'cr'], excerpt: 'Please review…' },
+    };
+    const detail = sampleTaskDetail();
+    detail.timeline = [sent];
+    const out = formatTaskDetail({
+      ...detail,
+      pendingSentMessages: [{ messageId: 'msg_s1', handles: ['qa', 'cr'] }],
+    });
+    expect(
+      out
+        .trimEnd()
+        .endsWith(
+          'message to qa, cr: Please review… (not typed in yet for qa, cr; it is on its way, do not resend it)',
+        ),
+    ).toBe(true);
+    expect(formatTaskDetail(detail)).not.toContain('not typed in yet');
+  });
+
   it('shows a description as long as update_task accepts whole, and keeps timeline text short', () => {
     const detail = sampleTaskDetail();
     detail.task.description = `${'x'.repeat(19_999)}Z`;
@@ -406,8 +430,46 @@ describe('themes in the tool results (PM-192)', () => {
 describe('formatSentMessage', () => {
   it('reports recipients the message did not reach', () => {
     expect(
-      formatSentMessage({ messageId: 'msg_1', requested: ['qa', 'cr'], deliveredTo: ['qa'], taskKey: null }),
-    ).toBe('Message msg_1 sent to qa. Not delivered to: cr.');
+      formatSentMessage({
+        messageId: 'msg_1',
+        requested: ['qa', 'cr'],
+        deliveredTo: ['qa'],
+        recipients: [{ handle: 'qa', delivery: 'typed_now' }],
+        taskKey: null,
+      }),
+    ).toBe('Message msg_1 sent to qa. Not delivered to: cr.\n- qa: typed into their session now.');
+  });
+
+  it('says per recipient what happens to the message (PM-144)', () => {
+    const text = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['p', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+      deliveredTo: ['p', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+      recipients: [
+        { handle: 'p', delivery: 'inbox' },
+        { handle: 'a', delivery: 'typed_now' },
+        { handle: 'b', delivery: 'after_turn' },
+        { handle: 'c', delivery: 'wake' },
+        { handle: 'd', delivery: 'held', hold: 'refinement_turn' },
+        { handle: 'e', delivery: 'held', hold: 'fix_limit' },
+        { handle: 'f', delivery: 'held', hold: 'full_test' },
+        { handle: 'g', delivery: 'held', hold: 'pause' },
+        { handle: 'h', delivery: 'held', hold: 'restart' },
+      ],
+      taskKey: 'PM-9',
+    });
+    expect(text.split('\n')).toEqual([
+      'Message msg_1 about PM-9 sent to p, a, b, c, d, e, f, g, h.',
+      '- p: a person; they read it in the app.',
+      '- a: typed into their session now.',
+      '- b: their session is busy; it gets the full text when its current turn ends. Do not resend it.',
+      '- c: no session of theirs is running; one starts or resumes with the full text (it may wait for a free slot, a usage limit or a pause). Do not resend it.',
+      '- d: held: PM-9 is being refined and it is not their turn; they get it on their turn or when the refinement ends.',
+      '- e: held: PM-9 reached its fix round limit; they get it once that is decided.',
+      "- f: held until the server's full test of PM-9's pinned commit has a result.",
+      '- g: held: their session is paused; they get it when the pause ends.',
+      '- h: held: their session restarts first (a new review round or permission mode); they get it in its first input.',
+    ]);
   });
 
   it('says where a message went when it did not go to its own card (PM-182)', () => {
@@ -416,14 +478,18 @@ describe('formatSentMessage', () => {
         messageId: 'msg_x',
         requested: ['dev', 'claude'],
         deliveredTo: ['dev', 'claude'],
+        recipients: [
+          { handle: 'dev', delivery: 'typed_now' },
+          { handle: 'claude', delivery: 'wake' },
+        ],
         taskKey: 'PM-164',
         routed: [
           { handle: 'claude', workItem: { type: 'general' } },
           { handle: 'dev', workItem: { type: 'task', taskKey: 'PM-162' } },
         ],
       }),
-    ).toBe(
-      'Message msg_x about PM-164 sent to dev, claude. claude gets it in their general chat, because PM-164 is closed. ' +
+    ).toContain(
+      'claude gets it in their general chat, because PM-164 is closed. ' +
         'dev gets it in their running session on PM-162, a card of the same family as PM-164.',
     );
   });

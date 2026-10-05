@@ -42,9 +42,15 @@ describe('provider API', () => {
         checkedAt: '2026-01-01T00:00:00.000Z',
         detail: 'Not logged in',
       },
+      { provider: 'gemini', loggedIn: false, method: 'none', checkedAt: '2026-01-01T00:00:00.000Z' },
       { provider: 'nanogpt', loggedIn: false, method: 'none', checkedAt: '2026-01-01T00:00:00.000Z' },
     ]);
-    expect(providerStatus.mock.calls.map(([provider]) => provider)).toEqual(['claude', 'codex', 'nanogpt']);
+    expect(providerStatus.mock.calls.map(([provider]) => provider)).toEqual([
+      'claude',
+      'codex',
+      'gemini',
+      'nanogpt',
+    ]);
   });
 
   it('reports unknown when a runner has no login checks', async () => {
@@ -53,6 +59,7 @@ describe('provider API', () => {
     expect(ProvidersView.parse(response.json()).providers).toEqual([
       expect.objectContaining({ provider: 'claude', loggedIn: null }),
       expect.objectContaining({ provider: 'codex', loggedIn: null }),
+      expect.objectContaining({ provider: 'gemini', loggedIn: null }),
       expect.objectContaining({ provider: 'nanogpt', loggedIn: null }),
     ]);
   });

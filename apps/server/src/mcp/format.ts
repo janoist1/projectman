@@ -1,4 +1,4 @@
-import { isCardLink, isTheme } from '@projectman/shared';
+import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   cardQuestionLines,
@@ -25,6 +25,9 @@ import type {
   LocatedAttachmentForTool,
   PublishedTaskBranch,
   PublishedTaskState,
+  ScreenshotFailure,
+  ScreenshotRun,
+  SentMessageRecipient,
   TaskToolDetail,
 } from '../contracts';
 
@@ -73,11 +76,16 @@ export function taskStatusLine(task: Task): string {
   ].join(' · ');
 }
 
-function timelineLines(events: TimelineEvent[], undelivered: string[] = []): string[] {
+function timelineLines(
+  events: TimelineEvent[],
+  undelivered: string[] = [],
+  pendingSent: { messageId: string; handles: string[] }[] = [],
+): string[] {
   const { lines, total } = recentTimeline(events, {
     limit: MAX_TIMELINE_EVENTS,
     textLimit: MAX_EVENT_TEXT_CHARS,
     undelivered: new Set(undelivered),
+    pendingSent: new Map(pendingSent.map((m) => [m.messageId, m.handles])),
   });
   if (total === 0) return ['Timeline: no events yet.'];
   const header =
@@ -164,6 +172,7 @@ export function formatTaskDetail(
     theme
       ? `Visibility: ${task.visibility}`
       : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
@@ -210,7 +219,7 @@ export function formatTaskDetail(
     lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
   if (detail.cardQuestions?.length)
     lines.push('', 'Questions to people on this card:', ...cardQuestionLines(detail.cardQuestions, task.key));
-  lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds));
+  lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds, detail.pendingSentMessages));
   return lines.join('\n');
 }
 
@@ -272,6 +281,44 @@ export function formatAttached(taskKey: string, attachment: Attachment): string 
   );
 }
 
+const SCREENSHOT_FAILURES: Record<ScreenshotFailure, string> = {
+  scenario: 'the scenario (or the disposable instance) failed',
+  usage: 'wrong use of the shots command, or no browser installed',
+  timeout: 'the run took too long and was stopped',
+  stopped: 'your session was stopped',
+  sandbox: 'the sandbox did not start, or its process was killed',
+};
+
+/** A screenshot run (take_screenshots, get_screenshot_run): its state, the images, and the end of the output. */
+export function formatScreenshotRun(run: ScreenshotRun): string {
+  const lines: string[] = [];
+  if (run.status === 'queued' || run.status === 'running') {
+    lines.push(
+      `Screenshot run ${run.runId} is ${run.status === 'queued' ? "waiting for its turn in the machine's queue" : 'running'} ` +
+        `(started ${run.startedAt}). Ask again with get_screenshot_run run_id=${run.runId}.`,
+    );
+  } else if (run.status === 'done') {
+    lines.push(
+      `Screenshot run ${run.runId} is done (finished ${run.finishedAt ?? run.startedAt}, exit code ${run.exitCode ?? 'none'}).`,
+    );
+  } else {
+    lines.push(
+      `Screenshot run ${run.runId} failed: ${run.failure ? SCREENSHOT_FAILURES[run.failure] : 'unknown reason'}` +
+        ` (exit code ${run.exitCode ?? 'none'}).`,
+    );
+  }
+  if (run.status !== 'queued' && run.status !== 'running') {
+    if (run.files.length > 0)
+      lines.push(
+        `Images (${run.files.length}); open one with your image viewing tool, attach it with attach_file:`,
+        ...run.files.map((file) => `- ${file}`),
+      );
+    else lines.push('No new image was written.');
+  }
+  if (run.outputTail) lines.push('Output (the end):', run.outputTail);
+  return lines.join('\n');
+}
+
 export function formatAttachmentDeleted(
   taskKey: string,
   result: { attachmentId: string; fileName: string | null },
@@ -294,6 +341,8 @@ export function formatTaskUpdate(
     relations?: { add: Array<{ kind: string; key: string }>; remove: Array<{ kind: string; key: string }> };
     /** The theme the call set (null: removed); undefined when it did not touch it. */
     themeKey?: string | null | undefined;
+    /** The call set the recommended developer (PM-347); the line shows what the card has now. */
+    developerLevel?: boolean;
   },
 ): string {
   const done: string[] = [];
@@ -314,7 +363,16 @@ export function formatTaskUpdate(
     done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
   if (change.stageId) done.push(`moved to ${change.stageId}`);
-  return `Updated ${task.key}: ${done.join('; ')}.\nNow: ${taskStatusLine(task)}`;
+  if (change.developerLevel) done.push('recommended developer set');
+  const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
+  return [`Updated ${task.key}: ${done.join('; ')}.`, ...level, `Now: ${taskStatusLine(task)}`].join('\n');
+}
+
+/** `Recommended developer: senior — <reason>`; a card without a recommendation reads `any`. */
+function recommendedDeveloperLine(task: Pick<Task, 'developerLevel'>): string {
+  const level = task.developerLevel;
+  const reason = level?.reason ? ` — ${oneLine(level.reason, 300)}` : '';
+  return `Recommended developer: ${level?.level ?? 'any'}${reason}`;
 }
 
 /** What the call did; what happens next with the task is in the tool's description. */
@@ -327,7 +385,8 @@ export function formatTaskCreated(task: Task): string {
     );
   return (
     `Created ${task.key} "${oneLine(task.title, 200)}" in stage ${task.stageId}, unassigned ` +
-    `(visibility ${task.visibility}${labels}).`
+    `(visibility ${task.visibility}${labels}).` +
+    (task.developerLevel ? `\n${recommendedDeveloperLine(task)}` : '')
   );
 }
 
@@ -380,6 +439,8 @@ export function formatSentMessage(result: {
   messageId: string;
   requested: string[];
   deliveredTo: string[];
+  /** What happens to the message for each recipient (PM-144). */
+  recipients: SentMessageRecipient[];
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
@@ -392,17 +453,48 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
+  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
+  const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
-      parts.push(
+      routed.push(
         `${handle} gets it in their general chat${result.taskKey ? `, because ${result.taskKey} is closed` : ''}.`,
       );
     else if (workItem.type === 'task')
-      parts.push(
+      routed.push(
         `${handle} gets it in their running session on ${workItem.taskKey}, a card of the same family${result.taskKey ? ` as ${result.taskKey}` : ''}.`,
       );
   }
-  return parts.join(' ');
+  return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
+}
+
+/** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
+function recipientLine({ handle, delivery, hold }: SentMessageRecipient, taskKey: string | null): string {
+  const card = taskKey ?? 'the card';
+  switch (delivery) {
+    case 'inbox':
+      return `${handle}: a person; they read it in the app.`;
+    case 'typed_now':
+      return `${handle}: typed into their session now.`;
+    case 'after_turn':
+      return `${handle}: their session is busy; it gets the full text when its current turn ends. Do not resend it.`;
+    case 'wake':
+      return `${handle}: no session of theirs is running; one starts or resumes with the full text (it may wait for a free slot, a usage limit or a pause). Do not resend it.`;
+    case 'held':
+      switch (hold) {
+        case 'refinement_turn':
+          return `${handle}: held: ${card} is being refined and it is not their turn; they get it on their turn or when the refinement ends.`;
+        case 'fix_limit':
+          return `${handle}: held: ${card} reached its fix round limit; they get it once that is decided.`;
+        case 'full_test':
+          return `${handle}: held until the server's full test of ${card}'s pinned commit has a result.`;
+        case 'pause':
+          return `${handle}: held: their session is paused; they get it when the pause ends.`;
+        case 'restart':
+        default:
+          return `${handle}: held: their session restarts first (a new review round or permission mode); they get it in its first input.`;
+      }
+  }
 }
 
 /** A question longer than this gets the hint to move detail into `details`. */

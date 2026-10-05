@@ -4,3 +4,4 @@ coverage
 package-lock.json
 .research/
 .demo/
+apps/server/test/fixtures/gemini/

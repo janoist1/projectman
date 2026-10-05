@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TaskDeveloperLevel } from './developer-level';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { LabelId } from './label';
@@ -93,9 +94,14 @@ export const TaskStartWaiting = z.object({
     'provider_not_logged_in',
     'nanogpt_key_missing',
     'nanogpt_setup_incomplete',
+    // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
+    'senior_busy',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
+  /** `senior_busy`: the Seniors the card waits for; `waitDecidedBy` is who chose "wait on" after the question. */
+  seniors: z.array(MemberHandle).optional(),
+  waitDecidedBy: MemberHandle.optional(),
   /** `label_missing`: the labels the start waits for; `member` is the one who sets them. */
   labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),
@@ -190,6 +196,8 @@ export const Task = z.object({
   themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
+  /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
+  developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
   reviewPin: TaskReviewPin.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */

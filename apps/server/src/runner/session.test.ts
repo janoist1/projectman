@@ -5,6 +5,8 @@ import type { HookPayload } from './hook-payload';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL } from './pause';
 import { CLAUDE_TIMING, createClaudeAdapter } from './providers/claude';
 import { CODEX_TIMING, createCodexAdapter } from './providers/codex';
+import { createGeminiAdapter } from './providers/gemini';
+import { geminiSpec } from './providers/gemini/test-helpers';
 import type { ProviderAdapter } from './providers/types';
 import { AgentSession, type PtyProcess, type PtySpawnOptions } from './session';
 import { silentLogger } from './test-helpers';
@@ -52,6 +54,73 @@ class FakePty implements PtyProcess {
 }
 
 const PERMISSION_TIMEOUT_MS = 60_000;
+describe('Gemini pre-tool gate', () => {
+  const adapter = () => createGeminiAdapter({ bin: 'unused', logger: silentLogger() });
+  const payload = (command: string): HookPayload => ({
+    hook_event_name: 'PreToolUse',
+    tool_name: 'Bash',
+    tool_input: { command, cwd: '/work' },
+    gemini_tool: 'run_command',
+    gemini_args: { CommandLine: command, Cwd: '/work' },
+    tool_use_id: 'tool1',
+  });
+  it('allows role commands and denies forbidden operations without the broker', async () => {
+    const decide = vi.fn();
+    const gs = geminiSpec();
+    gs.policy!.deniedOperations = ['git_push'];
+    const s = start({ adapter: adapter(), spec: gs, broker: { decide } });
+    await s.hook({ hook_event_name: 'PreInvocation' });
+    expect(await s.hook(payload('npm test'))).toEqual({ decision: 'allow' });
+    expect(s.session.state.activity).toContain('npm test');
+    expect(await s.hook(payload('git push'))).toMatchObject({ decision: 'deny', reason: expect.any(String) });
+    expect(decide).not.toHaveBeenCalled();
+  });
+  it('asks, returns approval, and remembers session allowances', async () => {
+    let resolve!: (decision: PermissionDecision) => void;
+    const decide = vi.fn(
+      () =>
+        new Promise<PermissionDecision>((r) => {
+          resolve = r;
+        }),
+    );
+    const s = start({ adapter: adapter(), spec: geminiSpec(), broker: { decide } });
+    await s.hook({ hook_event_name: 'PreInvocation' });
+    const request = s.hook(payload('echo unknown'));
+    expect(s.session.state.state).toBe('waiting_permission');
+    resolve({ behavior: 'allow', rememberForSession: true });
+    expect(await request).toEqual({ decision: 'allow' });
+    expect(s.session.state.state).toBe('working');
+    expect(await s.hook(payload('echo unknown'))).toEqual({ decision: 'allow' });
+    expect(decide).toHaveBeenCalledTimes(1);
+  });
+  it('denies timeout, withdrawn requests and missing policy', async () => {
+    const s = start({ adapter: adapter(), spec: geminiSpec() });
+    await s.hook({ hook_event_name: 'PreInvocation' });
+    const request = s.hook(payload('echo unknown'));
+    await vi.advanceTimersByTimeAsync(PERMISSION_TIMEOUT_MS);
+    expect(await request).toMatchObject({ decision: 'deny' });
+    const controller = new AbortController();
+    const withdrawn = s.session.handleHook(payload('echo another'), controller.signal);
+    controller.abort();
+    expect(await withdrawn).toMatchObject({ decision: 'deny' });
+    const noPolicy = start({ adapter: adapter() });
+    expect(await noPolicy.hook(payload('npm test'))).toMatchObject({ decision: 'deny' });
+  });
+  it('injects each invocation without submitting another prompt inside a turn', async () => {
+    const s = start({ adapter: adapter(), spec: geminiSpec() });
+    expect(await s.hook({ hook_event_name: 'PreInvocation' })).toMatchObject({
+      injectSteps: [{ ephemeralMessage: 'Member instructions' }],
+    });
+    await s.hook(payload('npm test'));
+    const activity = s.session.state.activity;
+    await s.hook({ hook_event_name: 'PreInvocation' });
+    expect(s.session.state.activity).toBe(activity);
+    const paused = s.session.pause();
+    expect(await s.hook(payload('npm test'))).toMatchObject({ decision: 'deny' });
+    await s.hook({ hook_event_name: 'Stop' });
+    await paused;
+  });
+});
 /** Time to type a one-piece message and press Enter. */
 const TYPE_MS = CLAUDE_TIMING.stepDelayMs + CLAUDE_TIMING.enterDelayMs;
 

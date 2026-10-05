@@ -9,6 +9,7 @@ import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
   FullTestExecutor,
+  ScreenshotExecutor,
   GithubPublisher,
   ManagedVmBoundary,
   MemberWorkspaceManager,
@@ -99,11 +100,18 @@ export async function createDomainHarness(
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
     fullTestExecutor?: FullTestExecutor;
+    /** The server's screenshots for members whose sandbox has no browser (PM-351); absent, the tools are off. */
+    screenshotExecutor?: ScreenshotExecutor;
     /**
      * The root of the session folders (PM-268) below the harness directory, or a path of the
      * test's own (an unsafe one); absent, no session folders.
      */
     sessionFolders?: boolean | string;
+    /**
+     * The root of the Codex sessions' own temporary directories (PM-339): `true` for the real shape
+     * `<dir>/projectman-501-tmp/<8 hex>`, or a path of the test's own; absent, Codex gets no folder.
+     */
+    sessionTmp?: boolean | string;
     /** Playwright's browsers directory (PM-268); absent, no browsers variable. */
     browsersDir?: string;
     /** The machine's heavy-run queue folder (PM-332) named in the sandboxes; absent, none. */
@@ -140,8 +148,16 @@ export async function createDomainHarness(
           join(realpathSync(dir), 'session-folders', 'root')
         : undefined;
 
+  const sessionTmpDir =
+    typeof opts.sessionTmp === 'string'
+      ? opts.sessionTmp
+      : opts.sessionTmp
+        ? join(realpathSync(dir), 'projectman-501-tmp', '0123abcd')
+        : undefined;
+
   const domain: Domain = createDomain({
     sessionFoldersDir,
+    sessionTmpDir,
     browsersDir: opts.browsersDir,
     heavyLockDir: opts.heavyLockDir,
     boundaryAdapter: opts.boundaryAdapter,
@@ -158,6 +174,7 @@ export async function createDomainHarness(
     appHome: opts.appHome,
     inputStallMs: opts.inputStallMs,
     fullTestExecutor: opts.fullTestExecutor,
+    screenshotExecutor: opts.screenshotExecutor,
     contextBuilder,
     memory,
     worktrees,
@@ -186,6 +203,8 @@ export async function createDomainHarness(
     reviewWatchMs: 3_600_000,
     // Likewise the loop watch's sweep: tests call `domain.loopWatch.sweep()`.
     loopWatchMs: 3_600_000,
+    // Tests call `domain.seniorWaits.sweep()` after moving the clock.
+    seniorWaitMs: 3_600_000,
     // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
     diskCheckMs: 3_600_000,
     worktreeSweepMs: 3_600_000,
@@ -224,6 +243,7 @@ export async function createDomainHarness(
     liveProcesses,
     workspacesDir,
     sessionFoldersDir,
+    sessionTmpDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */

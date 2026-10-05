@@ -19,9 +19,14 @@ export const CODEX_LABELS: Record<string, PlainMessageKey> = {
   'gpt-6-luna': 'providerSettings.models.luna',
   'gpt-6-astra': 'providerSettings.models.astra',
 };
-export const PROVIDER_MODEL_LABELS = {
+export const GEMINI_LABELS: Record<string, PlainMessageKey> = {
+  'gemini-3.8-flash': 'providerSettings.models.geminiFlash',
+  'gemini-3.1-pro': 'providerSettings.models.geminiPro',
+};
+export const PROVIDER_MODEL_LABELS: Record<AgentProvider, Record<string, PlainMessageKey>> = {
   claude: { ...CLAUDE_FIXED_LABELS, ...CLAUDE_ALIAS_LABELS },
   codex: CODEX_LABELS,
+  gemini: GEMINI_LABELS,
   nanogpt: { 'z-ai/glm-5.3-flash-uncensored': 'providerSettings.models.glm' } as Record<
     string,
     PlainMessageKey

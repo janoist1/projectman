@@ -124,7 +124,7 @@ describe('temporary Gemini shell-rule exception', () => {
     'does not bypass approval for unsandboxed %s commands',
     (access) => {
       const policy = policyFor('acceptEdits', { access });
-      policy.tools.shell = REVIEW_SHELL_TOOLS;
+      policy.tools.shell = [...REVIEW_SHELL_TOOLS];
       for (const command of [
         'git diff --output=/outside/file',
         'npx prettier --check --write .',

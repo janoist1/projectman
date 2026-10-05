@@ -41,6 +41,8 @@ export interface ParseResult {
   interruptedAt: string | null;
   /** For an assistant entry of the main conversation: whether it ended the turn (`end_turn`). */
   turnEnded?: boolean;
+  /** Timestamp of that assistant entry. */
+  turnAt?: string;
 }
 
 /** Tags of messages Claude Code writes as user entries for its own bookkeeping. */
@@ -97,6 +99,7 @@ export class TranscriptParser {
     const usage: TokenUsage[] = [];
     let interruptedAt: string | null = null;
     let turnEnded: boolean | undefined;
+    let turnAt: string | undefined;
     for (const line of lines) {
       if (!line.trim()) continue;
       let entry: unknown;
@@ -108,7 +111,10 @@ export class TranscriptParser {
       const result = this.parseEntry(entry);
       items.push(...result.items);
       if (result.interruptedAt) interruptedAt = result.interruptedAt;
-      if (result.turnEnded !== undefined) turnEnded = result.turnEnded;
+      if (result.turnEnded !== undefined) {
+        turnEnded = result.turnEnded;
+        turnAt = result.turnAt;
+      }
       // Older Claude Code versions wrote a subagent's conversation into the main transcript.
       const used = this.usage.add(entry, rec(entry)?.isSidechain === true ? 'subagent' : 'main');
       if (used) usage.push(used);
@@ -117,7 +123,7 @@ export class TranscriptParser {
     return {
       items,
       interruptedAt,
-      ...(turnEnded !== undefined ? { turnEnded } : {}),
+      ...(turnEnded !== undefined ? { turnEnded, ...(turnAt ? { turnAt } : {}) } : {}),
       usage: mergeTokenUsage(usage),
       ...(contextTokens !== null ? { contextTokens } : {}),
     };
@@ -145,6 +151,7 @@ export class TranscriptParser {
           items: this.assistantEntry(entry, id, ts),
           interruptedAt: null,
           turnEnded: rec(entry.message)?.stop_reason === 'end_turn',
+          turnAt: ts,
         };
       case 'system':
         if (entry.subtype === 'compact_boundary') {

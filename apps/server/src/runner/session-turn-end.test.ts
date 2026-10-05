@@ -71,13 +71,13 @@ async function start(graceMs = GRACE_MS) {
   session.spawn('claude', [], {});
   const hook = (payload: Omit<HookPayload, 'hook_event_name'> & { hook_event_name: string }) =>
     session.handleHook({ transcript_path: transcript, ...payload }, new AbortController().signal);
-  const assistant = (uuid: string, stopReason: string | null, content: unknown[]) =>
+  const assistant = (uuid: string, stopReason: string | null, content: unknown[], at: Date = new Date()) =>
     appendFile(
       transcript,
       `${JSON.stringify({
         type: 'assistant',
         uuid,
-        timestamp: new Date().toISOString(),
+        timestamp: at.toISOString(),
         message: { id: `msg-${uuid}`, role: 'assistant', stop_reason: stopReason, content },
       })}\n`,
     );
@@ -140,6 +140,17 @@ describe('a turn the transcript ended (PM-343)', () => {
     await assistant('a3', 'end_turn', ENDING);
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'next' });
     await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 't4' });
+    expect(session.state.state).toBe('working');
+  });
+
+  it('is not a turn end of the running turn when the entry is older than its prompt', async () => {
+    const { session, hook, assistant, events } = await start();
+    await hook({ hook_event_name: 'Stop' });
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'next' });
+    await assistant('a1', 'end_turn', ENDING, new Date(Date.now() - 60_000));
+    expect(await waitFor(() => events.some((e) => e.type === 'chat'))).toBe(true);
+    await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 't1' });
+    await new Promise((resolve) => setTimeout(resolve, GRACE_MS * 2));
     expect(session.state.state).toBe('working');
   });
 

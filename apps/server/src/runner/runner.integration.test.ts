@@ -744,6 +744,61 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     ).toEqual(['Your session was restarted.', 'A message queued during the restart']);
   });
 
+  describe('a tool hook after the turn ended (PM-343)', () => {
+    const noteCount = (id: string) =>
+      chatOf(id).filter((i) => i.kind === 'system_note' && i.text === 'Interrupted by user').length;
+
+    it('does not reopen a turn closed by its Stop hook', async () => {
+      process.env.FAKE_CLAUDE_LATE_TOOL = 'after_stop';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'hello');
+      await assistantSaid(s.sessionId, 'Echo: hello');
+      await waitState(s.sessionId, 'idle');
+      // The fake sends its late PreToolUse of ToolSearch 300 ms after the Stop hook.
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(statesOf(s.sessionId).slice(-3)).toEqual(['idle', 'working', 'idle']);
+    });
+
+    it('closes a turn whose Stop hook never came, and is not reopened by the late hook', async () => {
+      process.env.FAKE_CLAUDE_LATE_TOOL = 'no_stop';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'hello');
+      await assistantSaid(s.sessionId, 'Echo: hello');
+      await waitState(s.sessionId, 'idle');
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(statesOf(s.sessionId).slice(-3)).toEqual(['idle', 'working', 'idle']);
+    });
+
+    it('lets a forced pause take the session whose turn ended as stopped, without an Esc', async () => {
+      process.env.FAKE_CLAUDE_LATE_TOOL = 'no_stop';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'hello');
+      await assistantSaid(s.sessionId, 'Echo: hello');
+      // The late hook came after the answer; the session still works, as the Stop hook never came.
+      await waitSnapshot(s.sessionId, 'Echo: hello');
+      await expect(runner.runner.pause(s.sessionId, { forceAfterMs: 0 })).resolves.toEqual(
+        expect.objectContaining({ point: expect.stringMatching(/^(turn_end|idle|interrupted)$/) }),
+      );
+      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(noteCount(s.sessionId)).toBe(0);
+      expect(runner.runner.release(s.sessionId)).toBe(true);
+    });
+  });
+
   describe('compaction (PM-213)', () => {
     const compactionEvents = (id: string) =>
       events.flatMap((e) =>

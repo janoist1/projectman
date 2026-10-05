@@ -970,7 +970,8 @@ export class AgentSession {
 
   private onTranscriptLines(parser: TranscriptLineParser, lines: string[]): void {
     if (parser !== this.parser) return;
-    const { items, interruptedAt, turnEnded, authError, usage, contextTokens } = parser.parseLines(lines);
+    const { items, interruptedAt, turnEnded, turnAt, authError, usage, contextTokens } =
+      parser.parseLines(lines);
     if (items.length > 0) this.deps.emit({ type: 'chat', sessionId: this.id, items });
     if (usage?.length || contextTokens !== undefined) {
       this.deps.emit({
@@ -989,13 +990,15 @@ export class AgentSession {
       this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
     }
-    if (turnEnded !== undefined && !this.hasExited) this.noteTranscriptTurnEnd(turnEnded);
+    // An entry older than the latest prompt (the transcript read late) belongs to the turn before.
+    const stale = turnAt !== undefined && Date.parse(turnAt) < this.lastPromptAt;
+    if (turnEnded !== undefined && !stale && !this.hasExited) this.noteTranscriptTurnEnd(turnEnded);
   }
 
   /**
    * The transcript's latest assistant entry ended the turn, or went on (PM-343). The Stop hook
    * normally follows within moments; if the session still works after `turnEndGraceMs` it is
-   * closed here, unless the screen shows work.
+   * closed here: the transcript says nothing is left to do, whatever the screen shows.
    */
   private noteTranscriptTurnEnd(ended: boolean): void {
     this.turnEnded = ended;
@@ -1015,10 +1018,6 @@ export class AgentSession {
     // A compaction asked for after the turn works on its own; a message being typed starts a new turn.
     if ((compaction && compaction.phase !== 'queued') || this.input.isTyping || this.input.isAwaitingSubmit)
       return;
-    if (this.adapter.workingVisible(this.screen.screenText(DIALOG_ROWS))) {
-      this.timer(() => this.checkTurnEndClosed(), this.timing.turnEndGraceMs);
-      return;
-    }
     this.log.warn(
       { sessionId: this.id },
       'the turn ended in the transcript but no Stop hook followed: closing it',

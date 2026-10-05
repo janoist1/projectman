@@ -58,6 +58,9 @@
  *   - A PreToolUse answer with `continue: false` (a pause, PM-218) turns the call away: it does not
  *     run, its tool_result is an error with the `stopReason`, and the turn ends with a Stop hook. A
  *     PostToolUse answer with `continue: false` ends the turn after the result, also with a Stop.
+ *   - FAKE_CLAUDE_LATE_TOOL ("after_stop" | "no_stop", PM-343): after the final answer a PreToolUse
+ *     of ToolSearch follows FAKE_CLAUDE_LATE_TOOL_MS (default 300) later; with "no_stop" the Stop
+ *     hook is never sent.
  *   - contains "ASK": tool_use AskUserQuestion, PreToolUse, waits for a key in the terminal (a
  *     PreToolUse hook that answers permissionDecision "deny" turns the call away: no dialog).
  *   - contains "SUBAGENT": a subagent's own transcript
@@ -942,12 +945,30 @@ async function interactive() {
     assistantEntry([{ type: 'thinking', thinking: '', signature: 'fake' }], { id: replyId, outputTokens: 1 });
     assistantEntry([{ type: 'text', text: reply }], { id: replyId });
     line(`● ${reply}`);
-    await runHooks('Stop', { stop_hook_active: false, last_assistant_message: reply });
+    // FAKE_CLAUDE_LATE_TOOL (PM-343): "after_stop" or "no_stop" (the Stop hook never comes); a
+    // PreToolUse of ToolSearch (no tool_use in the transcript) comes after the turn ended.
+    const lateTool = process.env.FAKE_CLAUDE_LATE_TOOL;
+    if (lateTool !== 'no_stop')
+      await runHooks('Stop', { stop_hook_active: false, last_assistant_message: reply });
     if (turn !== myTurn) return;
     busy = false;
     progress(false);
     line();
     showPrompt();
+    if (lateTool) {
+      await sleep(Number(process.env.FAKE_CLAUDE_LATE_TOOL_MS ?? 300));
+      await runHooks(
+        'PreToolUse',
+        {
+          tool_name: 'ToolSearch',
+          tool_input: { query: 'select:Late' },
+          tool_use_id: `toolu_fake_${myTurn}_late`,
+        },
+        'ToolSearch',
+      );
+      // The spinner of the late call stays on the screen: the screen alone cannot say the turn is over.
+      line('✻ Loading tool… (esc to interrupt)');
+    }
     if (process.env.FAKE_CLAUDE_SUGGESTION_MODE && settings?.promptSuggestionEnabled !== false)
       await suggestionMode(myTurn);
   }

@@ -89,6 +89,8 @@ export interface TranscriptParseResult {
    * (`true`, Claude Code's `end_turn`) or went on (`false`); absent when there was none (PM-343).
    */
   turnEnded?: boolean;
+  /** The timestamp of that entry: one from before the latest prompt belongs to the turn before. */
+  turnAt?: string;
   /** A login failure the transcript recorded, e.g. "Login expired · Please run /login". */
   authError?: string | null;
   /** Tokens these lines add to the session's usage (PM-178), per model and scope. */

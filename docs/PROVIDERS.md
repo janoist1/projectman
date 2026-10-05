@@ -517,6 +517,24 @@ Owner decisions T1–T4 prefill onboarding, disable self-updates, wait for inbox
 and temporarily allow role shell rules without a sandbox (PM-361). Managed VM support is
 deferred to PM-331. The fake CLI covers this protocol without running real agy.
 
+### Permission modes in projectman (PM-327)
+
+The projectman `PreToolUse` hook enforces these modes; agy's `--mode` flag is not the gate.
+Commands currently run without a sandbox (PM-326, owner decision T4).
+
+| Mode                | Hook behavior                                                                                                                                                                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default`           | Reads inside allowed roots run; edits ask. Role-approved commands run; other commands ask.                                                                                                                                                         |
+| `acceptEdits`       | Workspace edits run; commands behave as above.                                                                                                                                                                                                     |
+| `auto`              | Behaves as `acceptEdits`: there is no classifier or sandbox. Commands outside the role's allowlist ask, using the member's approver setting.                                                                                                       |
+| `plan`              | File edits are denied. Currently, role-approved commands of workspace roles can still run without a sandbox, because the shell allowlist is checked before the plan denial. Reading placements deny all commands. PM-367 corrects this limitation. |
+| `bypassPermissions` | Not selectable.                                                                                                                                                                                                                                    |
+
+The UI explains the `auto` and `plan` limitations beside the selected mode, including read-only
+profile settings and the hiring preview. `default` and `acceptEdits` need no provider note.
+
+### Probe findings
+
 This chapter records what a real run showed, so the adapter does not guess. The probe ran on
 2026-10-05 on the owner's Mac, in the owner's presence, as 38 small runs in 19 conversations on
 `gemini-3.8-flash-low` with a logged-in Google account. The binary was **agy 1.2.17**: the

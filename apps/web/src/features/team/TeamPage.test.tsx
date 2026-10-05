@@ -33,6 +33,23 @@ afterEach(() => {
 });
 
 describe('TeamPage role catalogue', () => {
+  it('shows a Gemini readiness badge and restores it after login', async () => {
+    const project = mockProject();
+    project.backend.findMember('fe-1')!.provider = 'gemini';
+    project.backend.providerStatus.gemini = { loggedIn: false, problem: 'not_logged_in' };
+    const ui = project.render(<TeamPage />);
+    const badge = await screen.findByRole('group', {
+      name: t('providerSettings.badgeNotReady', { provider: t('providers.gemini') }),
+    });
+    fireEvent.focus(badge);
+    expect(screen.getByRole('tooltip').textContent).toBe(
+      t('providerSettings.badgeLoginHelp', { provider: t('providers.gemini') }),
+    );
+    project.backend.providerStatus.gemini = { loggedIn: true };
+    await ui.client.invalidateQueries({ queryKey: ['providers'] });
+    await waitFor(() => expect(screen.queryByRole('tooltip')).toBeNull());
+    expect(screen.getByText(t('providers.gemini'))).toBeTruthy();
+  });
   it.each([true, false])(
     'shows disabled AI to every member, with an admin settings link (%s)',
     async (manageTeam) => {

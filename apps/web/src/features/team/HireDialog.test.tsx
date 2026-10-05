@@ -9,6 +9,30 @@ import { HireDialog } from './HireDialog';
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('HireDialog', () => {
+  it('hires Gemini with medium effort and login steps without a cheap subagent', async () => {
+    const project = mockProject();
+    project.backend.providerStatus.gemini = { loggedIn: false, problem: 'not_logged_in' };
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.change(await screen.findByLabelText(t('providerSettings.provider')), {
+      target: { value: 'gemini' },
+    });
+    expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('medium');
+    expect((screen.getByLabelText(t('providerSettings.cheapSubagent')) as HTMLSelectElement).disabled).toBe(
+      true,
+    );
+    expect((await screen.findByRole('alert')).textContent).toContain(t('providerSettings.loginSteps.gemini'));
+    expect(screen.getByText('agy').tagName).toBe('CODE');
+    expect(screen.getByText(t('permissionControls.providerNotes.gemini.auto'))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.backend.config.team.members.at(-1)).toMatchObject({
+        provider: 'gemini',
+        model: 'gemini-3.8-flash',
+        effort: 'medium',
+      }),
+    );
+    expect(project.backend.config.team.members.at(-1)).not.toHaveProperty('cheapSubagent');
+  });
   it('hires Claude with a fixed model and max effort', async () => {
     const project = mockProject();
     project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);

@@ -106,7 +106,11 @@ export function ProviderFields({
       ) : null}
       <SelectField
         label={t('providerSettings.effort')}
-        hint={t('providerSettings.effortHint')}
+        hint={
+          provider === 'gemini' && model.trim() === 'gemini-3.1-pro' && (!effort || effort === 'medium')
+            ? t('providerSettings.geminiProEffortHint')
+            : t('providerSettings.effortHint')
+        }
         value={effort ?? ''}
         onChange={(event) =>
           onEffortChange(event.target.value ? AgentEffort.parse(event.target.value) : undefined)

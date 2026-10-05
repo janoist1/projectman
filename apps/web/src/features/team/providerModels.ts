@@ -20,8 +20,10 @@ export const CODEX_LABELS: Record<string, PlainMessageKey> = {
   'gpt-6-astra': 'providerSettings.models.astra',
 };
 export const GEMINI_LABELS: Record<string, PlainMessageKey> = {
-  'gemini-3.8-flash': 'providerSettings.models.geminiFlash',
-  'gemini-3.1-pro': 'providerSettings.models.geminiPro',
+  'gemini-3.8-flash': 'providerSettings.geminiModels.flash38',
+  'gemini-3.7-flash': 'providerSettings.geminiModels.flash37',
+  'gemini-3.6-flash': 'providerSettings.geminiModels.flash36',
+  'gemini-3.1-pro': 'providerSettings.geminiModels.pro31',
 };
 export const PROVIDER_MODEL_LABELS: Record<AgentProvider, Record<string, PlainMessageKey>> = {
   claude: { ...CLAUDE_FIXED_LABELS, ...CLAUDE_ALIAS_LABELS },

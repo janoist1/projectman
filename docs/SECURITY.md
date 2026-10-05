@@ -50,6 +50,9 @@ tenants into separate OS accounts or machines.
   inspect member-controlled lifecycle scripts and Git hooks: they also run outside the
   sandbox with network access. A human approver is recommended for NanoGPT developers;
   with `approver: 'none'`, requested commits are refused.
+  If the approver is `ai`, an AI judgment alone decides whether these scripts or hooks
+  may run outside the sandbox and expose the key; this remains a risk, rather than a
+  verified secret-isolation boundary.
 
   Residual host risks require the owner's decision before PM-329 can pass security review:
   the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret

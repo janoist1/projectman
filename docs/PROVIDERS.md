@@ -13,6 +13,9 @@ Missing keys or incomplete setup defer automatic starts; key changes refresh rea
 retry them. Deletion does not stop an existing session. Hook, terminal, team MCP, permission
 and resume behavior follow Codex, without a ChatGPT plan gauge. Managed VM is unsupported
 until PM-331. Real-key tool, effort and process-environment checks are performed by the owner.
+Both Codex and NanoGPT pass `-c notify=[]` so project configuration cannot install a
+notification command running outside the CLI sandbox. Acceptance of this override by
+Codex 0.159.1 remains part of the owner's manual check.
 
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**

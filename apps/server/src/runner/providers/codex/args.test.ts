@@ -8,6 +8,7 @@ import {
   codexPermissions,
   tomlString,
   tomlValue,
+  NANOGPT_CODEX_PROVIDER,
 } from './args';
 
 const spec: StartSessionSpec = {
@@ -45,6 +46,12 @@ function overrides(args: string[]): Map<string, string> {
 }
 
 describe('TOML values', () => {
+  it('disables ambient notification commands for Codex and NanoGPT launches', () => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const command = buildCodexArgs({ ...input, provider });
+      expect(overrides(command.args).get('notify')).toBe('[]');
+    }
+  });
   it('escapes strings for TOML basic strings', () => {
     expect(tomlString('a"b\\c\nd\te\r')).toBe('"a\\"b\\\\c\\nd\\te\\r"');
     expect(tomlString('bell\u0007 del\u007f')).toBe('"bell\\u0007 del\\u007f"');

@@ -166,6 +166,8 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   const c = (key: string, value: unknown) => args.push('-c', override(key, value));
 
   c('check_for_update_on_startup', false);
+  // Project configuration must not install an unsandboxed notification command.
+  c('notify', []);
   if (input.provider) {
     const p = input.provider;
     c('model_provider', p.id);

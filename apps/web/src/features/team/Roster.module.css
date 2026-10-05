@@ -219,6 +219,12 @@
   gap: 8px;
 }
 
+/* On a phone card the name's chips wrap instead of running under the menu. */
+.card .memberName {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
 /* The focus ring on the name shows on the card: the whole card is the target. */
 .card:has(.profileLink:focus-visible) {
   outline: 2px solid var(--c-accent);

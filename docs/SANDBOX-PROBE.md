@@ -320,8 +320,17 @@ credential and no live data:
 
 ## PM-356: restricted-read Codex permission profile
 
-**Pending owner verification.** This is the prerequisite for implementing PM-356, not a
-passing result for Codex 0.159.1. Run interactively on the subscription in a normal terminal.
+**Native result recorded on PM-356, 2026-10-06.** The owner-authorized integrator ran
+Codex 0.159.1 on macOS 14.6 arm64. The profile denied secret/credential/database-glob
+reads and symlink traversal, allowed worktree and own-tmp edits, and kept protected
+workspace directories and shared temp roots closed. `view_image` respected the denial.
+The standalone CLI needed a read exception for its installation beneath `~/.codex/packages`;
+the shared Git index lock remained blocked. The five original feature overrides and
+named MCP disabling passed; the three additional computer/browser flags need supplementary
+startup acceptance. This is evidence for that platform/version and deny list, not full
+strict isolation. See PROVIDERS.md and the task's integrator note for limits.
+
+Run repeat verification interactively on the subscription in a normal terminal.
 Do not use `codex exec`, copy login files, or run these commands through a member session.
 Use only the fictional fixture below; never substitute the live projectman home.
 
@@ -339,6 +348,7 @@ printf 'fictional SHM\n' > "$probe_root/fake-live/db.sqlite-shm"
 printf 'fictional journal\n' > "$probe_root/fake-live/db.sqlite-journal"
 node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64"))' "$probe_home/blocked.png"
 cd "$probe_root/fake-live/worktrees/T/T-1-repo"
+probe_work="$(pwd -P)"
 mkdir -p .codex .agents
 codex --version
 ```
@@ -359,10 +369,19 @@ than guess. Use no browser or computer-control tools during this probe.
 In that same terminal build the exact inline profiles (fixture paths must contain no double
 quotes or backslashes). `:read-only` deliberately supplies no inherited temporary writes:
 
+Resolve the executable's symbolic links first. If its real file is inside the denied
+Codex home and beneath `packages/standalone`, set `probe_cli_exception` to the read-only
+entry shown below using that resolved installation root. Otherwise leave it empty.
+Never reopen `packages` or the whole home. Unknown installations beneath a denied home
+remain unsupported; do not broaden the exception to make them start.
+
 ```sh
+probe_cli_exception=""
+# Only for the verified standalone layout; use its resolved root, not an assumed path:
+# probe_cli_exception=",\"$HOME/.codex/packages/standalone\"=\"read\""
 probe_denials="\"$probe_root/fake-live/secret\"=\"deny\",\"$probe_root/fake-live/db.sqlite*\"=\"deny\",\"$probe_root/fake-live/customization\"=\"deny\",\"$probe_root/outside\"=\"deny\",\"$probe_home\"=\"deny\",\"$HOME/.ssh\"=\"deny\",\"${CODEX_HOME:-$HOME/.codex}\"=\"deny\""
-probe_write="{extends=\":read-only\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials}}"
-probe_read="{extends=\":read-only\",filesystem={\":root\"=\"read\",$probe_denials}}"
+probe_write="{extends=\":read-only\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials$probe_cli_exception}}"
+probe_read="{extends=\":read-only\",filesystem={\":root\"=\"read\",$probe_denials$probe_cli_exception}}"
 TMPDIR="$probe_root/cli-tmp" codex --ask-for-approval never \
   -c features.plugins=false \
   -c features.remote_plugin=false \
@@ -373,6 +392,8 @@ TMPDIR="$probe_root/cli-tmp" codex --ask-for-approval never \
   -c features.browser_use=false \
   -c features.browser_use_external=false \
   -c mcp_servers.node_repl.enabled=false \
+  -c check_for_update_on_startup=false \
+  -c "projects={\"$probe_work\"={trust_level=\"trusted\"}}" \
   -c 'default_permissions="projectman"' \
   -c "permissions.projectman=$probe_write" \
   -c "shell_environment_policy.set.TMPDIR=\"$probe_tmp\""
@@ -426,7 +447,7 @@ Record and reject those requests. If own-file editing asks, repeat with the foll
 and otherwise identical arguments, retaining both results:
 
 ```sh
-probe_workspace_write="{extends=\":workspace\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials}}"
+probe_workspace_write="{extends=\":workspace\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials$probe_cli_exception}}"
 ```
 
 Use `permissions.projectman=$probe_workspace_write` for that repeat. If neither base permits

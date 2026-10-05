@@ -167,12 +167,12 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(spec.policy!.permissions.sandbox).toBe('workspace-write');
     expect(text).toContain(`shell_environment_policy.set.TMPDIR="${tmpDir}"`);
     expect(text).toContain(`shell_environment_policy.set.PROJECTMAN_SESSION_DIR="${folder}"`);
-    expect(text).toMatch(/sandbox_workspace_write\.writable_roots=\[[^\]]*\]/);
-    const roots = /writable_roots=\[([^\]]*)\]/.exec(text)![1]!;
-    expect(roots).toContain(`"${folder}"`);
-    expect(roots).toContain(`"${tmpDir}"`);
-    expect(text).toContain('sandbox_workspace_write.exclude_slash_tmp=true');
-    expect(text).toContain('sandbox_workspace_write.exclude_tmpdir_env_var=true');
+    const profile = args.find((arg) => arg.startsWith('permissions.projectman='))!;
+    expect(profile).toContain(`"${folder}"="write"`);
+    expect(profile).toContain(`"${tmpDir}"="write"`);
+    expect(profile).not.toContain(':slash_tmp');
+    expect(profile).not.toContain(':tmpdir');
+    expect(text).not.toContain('sandbox_workspace_write');
     expect(text).toContain('tools.view_image=true');
   });
 

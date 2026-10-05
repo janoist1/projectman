@@ -20,7 +20,7 @@ export const DEFAULT_PROVIDER_MODELS: Record<AgentProvider, string> = {
 };
 
 export const NANOGPT_MIN_CODEX_VERSION = '0.159.1';
-/** Candidate minimum; native permission-profile verification is recorded on PM-356. */
+/** Native permission-profile verification: PM-356, macOS 14.6 arm64, 2026-10-06. */
 export const CODEX_PERMISSION_PROFILE_MIN_VERSION = '0.159.1';
 
 /** Compare complete numeric CLI versions; malformed or prerelease versions fail closed. */

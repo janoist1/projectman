@@ -6,6 +6,7 @@ import {
   CODEX_HOOK_EVENTS,
   codexModel,
   codexPermissions,
+  codexPermissionProfile,
   tomlString,
   tomlValue,
   NANOGPT_CODEX_PROVIDER,
@@ -33,6 +34,101 @@ const input = {
   realCwd: '/Users/anna/.projectman/worktrees/AR/AR-1',
   nodePath: '/usr/local/bin/node',
 };
+
+describe('codexPermissionProfile', () => {
+  it('reopens only the standalone CLI installation, after the credential denial', () => {
+    expect(
+      tomlValue(
+        codexPermissionProfile({
+          sandbox: 'read-only',
+          writableRoots: [],
+          deniedPaths: ['/home/.codex'],
+          cliPath: '/home/.codex/packages/standalone/releases/1/bin/codex',
+        }),
+      ),
+    ).toBe(
+      '{extends=":read-only",filesystem={":root"="read","/home/.codex"="deny","/home/.codex/packages/standalone"="read"}}',
+    );
+  });
+
+  it.each([
+    { cliPath: '/outside/packages/standalone/bin/codex', deniedPaths: ['/home/.codex'] },
+    { cliPath: '/home/.codex/tmp/bin/codex', deniedPaths: ['/home/.codex'] },
+    {
+      cliPath: '/home/.codex/packages/standalone/bin/codex',
+      deniedPaths: ['/home/.codex/packages/standalone'],
+    },
+    {
+      cliPath: '/home/.codex/packages/standalone/bin/codex',
+      deniedPaths: ['/home/.codex', '/home/.codex/packages/standalone/private'],
+    },
+  ])(
+    'does not reopen an unrelated, unknown, equal or protected installation: $cliPath',
+    ({ cliPath, deniedPaths }) => {
+      const profile = codexPermissionProfile({
+        sandbox: 'read-only',
+        writableRoots: [],
+        deniedPaths,
+        cliPath,
+      });
+      expect(
+        Object.entries(profile.filesystem).filter(([key, value]) => key !== ':root' && value === 'read'),
+      ).toEqual([]);
+    },
+  );
+  it('renders a reader with quoted glob and credential paths in order', () => {
+    expect(
+      tomlValue(
+        codexPermissionProfile({
+          sandbox: 'read-only',
+          writableRoots: ['/ignored'],
+          deniedPaths: ['/home/.ssh', '/app/db.sqlite*', '/home/.codex', '/home/.ssh'],
+        }),
+      ),
+    ).toBe(
+      '{extends=":read-only",filesystem={":root"="read","/home/.ssh"="deny","/app/db.sqlite*"="deny","/home/.codex"="deny"}}',
+    );
+  });
+
+  it('renders workspace protections and explicit writes without shared temporary directories', () => {
+    expect(
+      tomlValue(
+        codexPermissionProfile({
+          sandbox: 'workspace-write',
+          writableRoots: ['/cache', '/cache', '/secret/child', '/secret', '/secret-sibling'],
+          tmpDir: '/own-tmp',
+          deniedPaths: ['/secret'],
+        }),
+      ),
+    ).toBe(
+      '{extends=":read-only",filesystem={":root"="read",":workspace_roots"={"."="write",".git"="read",".codex"="read",".agents"="read"},"/cache"="write","/secret-sibling"="write","/own-tmp"="write","/secret"="deny"}}',
+    );
+  });
+
+  it('preserves the legacy temporary directory writes when there is no own tmpDir', () => {
+    expect(
+      tomlValue(codexPermissionProfile({ sandbox: 'workspace-write', writableRoots: [], deniedPaths: [] })),
+    ).toBe(
+      '{extends=":read-only",filesystem={":root"="read",":workspace_roots"={"."="write",".git"="read",".codex"="read",".agents"="read"},":tmpdir"="write",":slash_tmp"="write"}}',
+    );
+  });
+
+  it.each(['default', 'acceptEdits'])(
+    'renders the own Codex home deny and no legacy sandbox settings for %s',
+    (permissionMode) => {
+      const args = buildCodexArgs({
+        ...input,
+        codexHome: '/isolated/.codex',
+        spec: { ...spec, permissionMode },
+      }).args;
+      expect(args).not.toContain('--sandbox');
+      expect(args.some((arg) => arg.startsWith('sandbox_'))).toBe(false);
+      expect(args).toContain('default_permissions="projectman"');
+      expect(overrides(args).get('permissions.projectman')).toContain('"/isolated/.codex"="deny"');
+      expect(args).toContain('--ask-for-approval');
+    },
+  );
+});
 
 /** The `-c` overrides of an argument list, as key -> raw value. */
 function overrides(args: string[]): Map<string, string> {
@@ -190,7 +286,8 @@ describe('buildCodexArgs', () => {
         const c = overrides(
           buildCodexArgs({ ...input, spec: { ...spec, resume, permissionMode, writableRoots } }).args,
         );
-        expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue(writableRoots));
+        for (const root of writableRoots)
+          expect(c.get('permissions.projectman')).toContain(`${tomlValue(root)}="write"`);
         expect(c.has('sandbox_workspace_write.network_access')).toBe(false);
       }
       for (const permissionMode of ['default', 'plan']) {
@@ -221,9 +318,7 @@ describe('buildCodexArgs', () => {
       'hooks',
       '-c',
     ]);
-    expect(args.slice(-10)).toEqual([
-      '--sandbox',
-      'read-only',
+    expect(args.slice(-8)).toEqual([
       '--ask-for-approval',
       'on-request',
       '--model',
@@ -396,7 +491,7 @@ describe('buildCodexArgs', () => {
 
     it('makes the queue folder writable and names it, also with a policy', () => {
       const c = build({ policy: withPolicy('workspace-write'), sandbox });
-      expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue([lockParent]));
+      expect(c.get('permissions.projectman')).toContain(`${tomlValue(lockParent)}="write"`);
       expect(c.get(ENV_KEY)).toBe(tomlValue(lockDir));
       expect(c.get('shell_environment_policy.set.npm_config_prefer_offline')).toBe(tomlValue('true'));
     });
@@ -424,8 +519,8 @@ describe('buildCodexArgs', () => {
         writableRoots: ['/workspace/.git', lockParent],
         sandbox,
       });
-      expect(c.get('sandbox_workspace_write.writable_roots')).toBe(
-        tomlValue(['/workspace/.git', lockParent]),
+      expect(c.get('permissions.projectman')).toContain(
+        `"/workspace/.git"="write",${tomlValue(lockParent)}="write"`,
       );
     });
 
@@ -462,19 +557,24 @@ describe('buildCodexArgs', () => {
 
       it('writes the folder and the tmp, sets TMPDIR and the folder variables, closes /tmp and the CLI’s TMPDIR, opens view_image', () => {
         const c = build({ policy: withPolicy('workspace-write'), sandbox: withFolder });
-        expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue([lockParent, folder, tmpDir]));
+        expect(c.get('permissions.projectman')).toContain(
+          `${tomlValue(lockParent)}="write",${tomlValue(folder)}="write",${tomlValue(tmpDir)}="write"`,
+        );
         expect(c.get(`${SET}.TMPDIR`)).toBe(tomlValue(tmpDir));
         expect(c.get(`${SET}.PROJECTMAN_SESSION_DIR`)).toBe(tomlValue(folder));
         expect(c.get(`${SET}.PLAYWRIGHT_BROWSERS_PATH`)).toBe(tomlValue('/fictional/browsers'));
-        expect(c.get('sandbox_workspace_write.exclude_slash_tmp')).toBe('true');
-        expect(c.get('sandbox_workspace_write.exclude_tmpdir_env_var')).toBe('true');
+        expect(c.get('permissions.projectman')).not.toContain(':slash_tmp');
+        expect(c.get('permissions.projectman')).not.toContain(':tmpdir');
         expect(c.get('tools.view_image')).toBe('true');
       });
 
       it('lists a root once when the tmp is already one', () => {
         const same = { ...withFolder, portable: { ...withFolder.portable, allowWrite: [tmpDir, folder] } };
         const c = build({ policy: withPolicy('workspace-write'), sandbox: same });
-        expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue([tmpDir, folder]));
+        expect(c.get('permissions.projectman')).toContain(
+          `${tomlValue(tmpDir)}="write",${tomlValue(folder)}="write"`,
+        );
+        expect(c.get('permissions.projectman')?.split(`${tomlValue(tmpDir)}="write"`)).toHaveLength(2);
       });
 
       it('opens the viewer for a folder without a tmp, and closes nothing', () => {
@@ -532,9 +632,10 @@ describe('buildCodexArgs', () => {
     expect(args).not.toContain('danger-full-access');
     expect(c.has('notice.hide_full_access_warning')).toBe(false);
     expect(c.get('mcp_servers.team')).toBe('{url="http://127.0.0.1:4700/mcp/tok"}');
-    expect(args.slice(args.indexOf('--sandbox'), args.indexOf('--sandbox') + 6)).toEqual([
-      '--sandbox',
-      'workspace-write',
+    expect(args).not.toContain('--sandbox');
+    expect(c.get('default_permissions')).toBe('"projectman"');
+    expect(c.get('permissions.projectman')).toContain('":workspace_roots"={"."="write"');
+    expect(args.slice(args.indexOf('--ask-for-approval'), args.indexOf('--ask-for-approval') + 4)).toEqual([
       '--ask-for-approval',
       'on-request',
       '--model',

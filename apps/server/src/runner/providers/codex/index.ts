@@ -179,7 +179,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,
 
-    async launch({ spec, hookUrl, permissionTimeoutMs }) {
+    async launch({ spec, hookUrl, permissionTimeoutMs, cliPath }) {
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
       const userMcp = await inspectCodexMcpServers({ codexHome: opts.codexHome });
       if (userMcp.unresolved.length)
@@ -189,6 +189,8 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
         hookUrl,
         permissionTimeoutMs,
         realCwd,
+        codexHome: opts.codexHome,
+        cliPath,
         disabledMcpServers: userMcp.names,
       });
       return { ...resolveCommand(opts.bin, args), cliArgs: args, initialMessageSent };

@@ -64,7 +64,7 @@ it(
         () =>
           existsSync(file) &&
           (JSON.parse(readFileSync(file, 'utf8')) as Started).argv.includes(
-            provider === 'codex' ? '--sandbox' : '--settings',
+            provider === 'codex' ? '--ask-for-approval' : '--settings',
           ),
         { what: `the ${member} session to start` },
       );
@@ -164,7 +164,13 @@ it(
       return 'Run the reviewer on Codex';
     });
     const codexArgs = await start('cr', 'codex');
-    expect(option(codexArgs, '--sandbox')).toBe('read-only');
+    expect(codexArgs).not.toContain('--sandbox');
+    expect(codexArgs).toContain('default_permissions="projectman"');
+    expect(
+      codexArgs.some(
+        (arg) => arg.startsWith('permissions.projectman=') && arg.includes('extends=":read-only"'),
+      ),
+    ).toBe(true);
     expect(option(codexArgs, '--ask-for-approval')).toBe('on-request');
     expect(JSON.stringify(codexArgs)).not.toContain('sandbox_workspace_write');
     expect(JSON.stringify(codexArgs)).not.toContain('denyWrite');

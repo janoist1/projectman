@@ -68,7 +68,8 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
       realCwd: spec.cwd,
     });
     const text = args.join('\n');
-    expect(text).toContain(`sandbox_workspace_write.writable_roots=["${lockParent}"]`);
+    expect(text).toContain(`"${lockParent}"="write"`);
+    expect(text).not.toContain('sandbox_workspace_write');
     expect(text).toContain(`shell_environment_policy.set.PROJECTMAN_HEAVY_LOCK_DIR="${lockDir}"`);
   });
 

@@ -20,7 +20,7 @@ import {
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
-import { cliExists, runQuietly } from './cli';
+import { cliExists, resolveCliPath, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
 import {
@@ -138,6 +138,9 @@ export class SessionManager implements SessionRunner {
 
     const token = randomBytes(24).toString('base64url');
     const launch = await adapter.launch({
+      ...(!managedVm && (provider === 'codex' || provider === 'nanogpt')
+        ? { cliPath: (await resolveCliPath(adapter.bin, env.PATH)) ?? undefined }
+        : {}),
       spec,
       hookUrl: hookUrlFor(this.opts.publicBaseUrl, token),
       permissionTimeoutMs: this.opts.permissionTimeoutMs,

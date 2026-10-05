@@ -98,6 +98,7 @@ export function createNanogptAdapter(opts: {
       const command = buildCodexArgs({
         ...input,
         realCwd,
+        codexHome: opts.codexHome,
         provider: NANOGPT_CODEX_PROVIDER,
         disabledMcpServers: userMcp.names,
       });

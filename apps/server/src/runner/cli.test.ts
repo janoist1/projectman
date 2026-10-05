@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { cliExists, resolveCommand, runQuietly } from './cli';
+import { mkdtemp, mkdir, writeFile, symlink, realpath, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { cliExists, resolveCliPath, resolveCommand, runQuietly } from './cli';
 import { FAKE_CLAUDE } from './test-helpers';
 
 describe('resolveCommand', () => {
@@ -21,6 +24,28 @@ describe('cliExists', () => {
     expect(await cliExists('sh', '/nonexistent')).toBe(false);
     expect(await cliExists('/bin/sh', '')).toBe(true);
     expect(await cliExists('/etc', '')).toBe(false);
+  });
+});
+
+describe('resolveCliPath', () => {
+  it('resolves the first executable on PATH through a symlink chain and keeps scripts supported', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'pm-cli-path-'));
+    try {
+      const dir = await realpath(tmp);
+      await mkdir(path.join(dir, 'bin'));
+      const executable = path.join(dir, 'codex-real');
+      await writeFile(executable, '#!/bin/sh\n', { mode: 0o700 });
+      await symlink(executable, path.join(dir, 'link'));
+      await symlink(path.join(dir, 'link'), path.join(dir, 'bin', 'codex'));
+      expect(await resolveCliPath('codex', path.join(dir, 'bin'))).toBe(executable);
+      expect(await resolveCliPath(path.join(dir, 'link'), '')).toBe(executable);
+      const script = path.join(dir, 'fake.mjs');
+      await writeFile(script, '', { mode: 0o600 });
+      expect(await resolveCliPath(script, '')).toBe(script);
+      expect(await resolveCliPath('missing', path.join(dir, 'bin'))).toBeNull();
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 });
 

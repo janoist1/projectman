@@ -510,16 +510,16 @@ describe('provider-neutral session policy', () => {
       hookUrl: 'http://fake/hooks',
       permissionTimeoutMs: 1000,
     }).args;
-    expect(codex.slice(codex.indexOf('--sandbox'), codex.indexOf('--sandbox') + 4)).toEqual([
-      '--sandbox',
-      'read-only',
-      '--ask-for-approval',
-      'on-request',
-    ]);
+    expect(codex).not.toContain('--sandbox');
+    expect(codex.slice(codex.indexOf('--ask-for-approval'), codex.indexOf('--ask-for-approval') + 2)).toEqual(
+      ['--ask-for-approval', 'on-request'],
+    );
     const c = codexOverrides(
       buildCodexArgs({ spec: s, realCwd: s.cwd, hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000 })
         .args,
     );
+    expect(c.get('default_permissions')).toBe('"projectman"');
+    expect(c.get('permissions.projectman')).toContain('extends=":read-only"');
     expect(c.get('mcp_servers.team')).toBe(
       tomlValue({
         url: s.mcpUrl,

@@ -40,7 +40,8 @@ tenants into separate OS accounts or machines.
   secret files, including symbolic links, are refused on read.
   The `secrets` directory is already denied to member file tools through
   `sensitivePaths` (PM-324). Environment delivery (PM-329) is restricted to NanoGPT
-  sessions; the stored file remains readable from Codex and NanoGPT shell sandboxes.
+  sessions. The local Codex/NanoGPT permission profile denies these paths to sandboxed
+  commands as well (PM-356); explicitly approved host commands remain outside that boundary.
   The adapter excludes the key from
   member shell environments, disables Codex notification commands, and rejects ambient
   configuration that can override provider, permissions, hooks or MCP servers before
@@ -76,12 +77,13 @@ tenants into separate OS accounts or machines.
 
   The owner accepted the following temporary host risks on 2026-10-05 (decision 34,
   PM-329; closure in PM-356):
-  the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret
-  store's file-tool denial does not prevent shell reads by processes running as the same
-  Unix user. Both Codex and NanoGPT sessions can read the secret store and the `providers`
-  directory. The accepted exposure routes are chat and team tools, or commands approved
-  by a human or an AI approver outside the sandbox; NanoGPT has no automatic command
-  approval. Also, the NanoGPT CLI process retains
+  PM-356 closes the legacy shell-read exposure of `sensitivePaths`, including the secret
+  store and the `providers` directory, using a restricted-read permission profile.
+  The native Codex 0.159.1 probe on macOS 14.6 arm64 (2026-10-06) denied credentials,
+  secrets, database glob matches and symlink traversal; `view_image` also respected the denial.
+  The profile is a deny list: other members' worktrees remain readable (PM-360).
+  Commands approved by a human or an AI approver outside the sandbox still execute as
+  the host user; NanoGPT has no automatic command approval. The NanoGPT CLI process retains
   the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
   and CLI-controlled subprocesses outside the shell environment policy need separate
   verification. Workspace configuration changes after the launch-time inspection are
@@ -341,12 +343,21 @@ are neither written nor read.
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
 that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
-Codex member is not bound by the Claude rules at all before the VM; its own sandbox (`read-only`
-for a reader) is its limit. A developer's file tools have no such `Edit` deny rules outside its
+Codex member uses its own permission profile before the VM: it denies `sensitivePaths`
+and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
+A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
 owner's machine in the PM-167 manual run; its result and what is still to run (PM-153) are in
 PROVIDERS.md.
+
+The official Codex standalone installation beneath a denied home is reopened read-only
+so the CLI can re-execute its binary (PM-356). The runner resolves the executable on the
+session PATH, then grants only its `packages/standalone` ancestor, never the whole
+`packages` or home. A root containing a denied path gets no exception. Unknown installations
+inside denied directories remain blocked; install outside them or use the official standalone
+layout. The shared Git directory also stays read-only: routine Git writes still go through
+the existing command-approval path (PM-131/PM-77). No Git write grant is added by this profile.
 
 **Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
 directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer

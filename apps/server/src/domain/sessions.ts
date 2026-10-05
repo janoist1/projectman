@@ -1488,7 +1488,7 @@ export class SessionOrchestrator {
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
     const sessionDir =
       ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
-    const tmpDir = codexWrites && sessionDir ? this.deps.sessionFolders?.tmpPath(sessionId) : undefined;
+    const tmpDir = codexWrites && sessionDir ? this.deps.sessionFolders?.allocateTmp(sessionId) : undefined;
     const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
@@ -1567,11 +1567,11 @@ export class SessionOrchestrator {
     }
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
-    if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
-    this.preparePortablePaths([
-      ...(sandbox?.portable?.allowWrite ?? []),
-      ...(sandbox?.portable?.tmpDir ? [sandbox.portable.tmpDir] : []),
-    ]);
+    const sessionTmpDir = sandbox?.portable?.tmpDir;
+    if (sessionFolder || sessionTmpDir) this.prepareSessionFolder(sessionId, sessionFolder, sessionTmpDir);
+    // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
+    // that exists (a link). `make` makes it new, with the folder.
+    this.preparePortablePaths(sandbox?.portable?.allowWrite);
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
@@ -1940,10 +1940,13 @@ export class SessionOrchestrator {
     return dir;
   }
 
-  /** The session's own folder (PM-268), made before its process starts. */
-  private prepareSessionFolder(sessionId: string, dir: string): void {
+  /**
+   * The session's own folder (PM-268) and, for Codex, its temporary directory (PM-339), made before
+   * its process starts. A path that exists already stops the start.
+   */
+  private prepareSessionFolder(sessionId: string, dir: string | undefined, tmpDir?: string): void {
     try {
-      this.deps.sessionFolders!.make(sessionId, dir);
+      this.deps.sessionFolders!.make(sessionId, dir, tmpDir);
     } catch (err) {
       throw new DomainError(
         'session_start_failed',

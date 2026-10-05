@@ -127,7 +127,7 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
   });
 
   describe('what a CLI with a sandbox of its own takes (`portable`, PM-339)', () => {
-    const tmpDir = '/fictional/tmp/projectman-501/tmp/0123abcd/ses_one';
+    const tmpDir = '/fictional/tmp/projectman-501-tmp/0123abcd/ses_one.abcdef';
     const heavyLockDir = '/fictional/tmp/projectman-501/heavy';
 
     it('hands a developer’s folder, browsers, queue and tmp over, and the folder as a writable path', () => {

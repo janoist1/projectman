@@ -2530,7 +2530,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
       deniedPaths: ['/home/anna/.ssh', '/pm/secret'],
     });
     const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
-    const tmpDir = '/tmp/projectman-501/tmp/0123abcd/ses_1';
+    const tmpDir = '/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
     const prompt = builder.build(
       input({
         project,

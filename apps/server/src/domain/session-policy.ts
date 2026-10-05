@@ -234,9 +234,10 @@ export interface SandboxPaths {
   /** The machine's heavy-run queue folder (`PROJECTMAN_HEAVY_LOCK_DIR`, PM-332): its parent is writable. */
   heavyLockDir?: string;
   /**
-   * The commands' own temporary directory (`SessionFolders.tmpPath`, PM-339; Codex only): writable
+   * The commands' own temporary directory (`SessionFolders.allocateTmp`, PM-339; Codex only): writable
    * for them and their TMPDIR in the CLI's own sandbox, which closes the shared `/tmp`. Made by the
-   * caller before the start (`AgentSandbox.portable.allowWrite` is made, and so is it).
+   * caller before the start, as a new directory (`SessionFolders.make`), never below a path another
+   * member's sandbox writes.
    */
   tmpDir?: string;
 }

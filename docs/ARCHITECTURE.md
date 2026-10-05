@@ -885,11 +885,15 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
-  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>/tmp/<home hash>/<sessionId>`
-  (`defaultSessionTmpRoot`, `SessionFolders.tmpPath`; its parent is the heavy-run queue's), its
-  `TMPDIR` and a writable root, removed and swept with the folder; without a safe tmp root Codex
-  gets no folder. The path is short because a Unix socket's is limited to 104 bytes. The Codex
-  adapter then closes the shared `/tmp` and the CLI's `$TMPDIR` for its commands.
+  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<session id>.<6 random hex>`
+  (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
+  removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
+  and a sibling of the heavy-run queue's parent `projectman-<uid>`, never below or above it (that
+  parent is writable for every member's commands, so a path there could be pre-empted or read by a
+  member; an overlap leaves Codex without a folder); a directory is new at every start and made
+  without `recursive`, so a link put there beforehand stops the start. The path is short because a Unix
+  socket's is limited to 104 bytes. The Codex adapter then closes the shared `/tmp` and the CLI's
+  `$TMPDIR` for its commands.
   The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy

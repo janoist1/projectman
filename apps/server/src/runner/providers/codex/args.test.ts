@@ -369,7 +369,7 @@ describe('buildCodexArgs', () => {
 
     describe('the session folder and the own temporary directory (PM-339)', () => {
       const folder = '/fictional/sessions/abc/ses_1.0123456789abcdef';
-      const tmpDir = '/fictional/tmp/projectman-501/tmp/0123abcd/ses_1';
+      const tmpDir = '/fictional/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
       const withFolder = {
         ...sandbox,
         allowWrite: [lockParent, folder],

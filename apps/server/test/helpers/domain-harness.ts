@@ -106,7 +106,7 @@ export async function createDomainHarness(
     sessionFolders?: boolean | string;
     /**
      * The root of the Codex sessions' own temporary directories (PM-339): `true` for the real shape
-     * `<dir>/projectman-501/tmp/<8 hex>`, or a path of the test's own; absent, Codex gets no folder.
+     * `<dir>/projectman-501-tmp/<8 hex>`, or a path of the test's own; absent, Codex gets no folder.
      */
     sessionTmp?: boolean | string;
     /** Playwright's browsers directory (PM-268); absent, no browsers variable. */
@@ -149,7 +149,7 @@ export async function createDomainHarness(
     typeof opts.sessionTmp === 'string'
       ? opts.sessionTmp
       : opts.sessionTmp
-        ? join(realpathSync(dir), 'projectman-501', 'tmp', '0123abcd')
+        ? join(realpathSync(dir), 'projectman-501-tmp', '0123abcd')
         : undefined;
 
   const domain: Domain = createDomain({

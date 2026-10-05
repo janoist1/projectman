@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -42,7 +43,8 @@ describe('the session folder and the temporary directory of a Codex session (PM-
 
   const start = async (options: {
     mode?: string;
-    tmp?: boolean;
+    tmp?: boolean | string;
+    heavyLockDir?: string;
     persistent?: boolean;
     adjust?: (config: ProjectConfig) => void;
   }) => {
@@ -52,6 +54,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       browsersDir: join(appHome, 'browsers'),
       sessionFolders: true,
       sessionTmp: options.tmp ?? true,
+      heavyLockDir: options.heavyLockDir,
       persistent: options.persistent,
       adjust: (config) => {
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
@@ -75,6 +78,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
       appHome,
       sessionFolders: true,
       sessionTmp: true,
+      heavyLockDir: join(base, 'projectman-501', 'heavy'),
       adjust: (config) => {
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
         if (dev?.kind === 'ai') {
@@ -102,7 +106,10 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const folder = env.PROJECTMAN_SESSION_DIR!;
     expect(seen).toEqual([{ folder: true, tmp: true, tmpMode: 0o700 }]);
     expect(folder).toMatch(new RegExp(`^${h.sessionFoldersDir}/${session.id}\\.[0-9a-f]{16}$`));
-    expect(tmpDir).toBe(`${h.sessionTmpDir}/${session.id}`);
+    expect(tmpDir).toMatch(new RegExp(`^${h.sessionTmpDir}/${session.id}\\.[0-9a-f]{6}$`));
+    // The root is no writable path of any session: not the queue folder's parent either.
+    expect(allowWrite).toContain(join(base, 'projectman-501'));
+    expect(allowWrite.some((dir) => `${h!.sessionTmpDir}/`.startsWith(`${dir}/`))).toBe(false);
     expect(allowWrite).toContain(folder);
     expect(mode(folder)).toBe(0o700);
     expect(mode(h.sessionTmpDir!)).toBe(0o700);
@@ -113,6 +120,32 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(existsSync(tmpDir!)).toBe(false);
     expect(readdirSync(h.sessionFoldersDir!)).toEqual([]);
     expect(readdirSync(h.sessionTmpDir!)).toEqual([]);
+  });
+
+  it('does not start the session when its temporary directory cannot be made', async () => {
+    h = await createDomainHarness({
+      userHome: home,
+      appHome,
+      sessionFolders: true,
+      sessionTmp: true,
+      adjust: (config) => {
+        const dev = config.team.members.find((m) => m.handle === 'dev-1');
+        if (dev?.kind === 'ai') {
+          dev.provider = 'codex';
+          dev.permissionMode = 'acceptEdits';
+        }
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
+    // Running as root the directory can be made after all.
+    if (process.getuid?.() === 0) return;
+    chmodSync(h.sessionTmpDir!, 0o500);
+    try {
+      const err = await rejection(h.domain.sessions.ensureSession('AR', 'dev-1', task));
+      expect(err.message).toMatch(/could not prepare the session folder/);
+    } finally {
+      chmodSync(h.sessionTmpDir!, 0o700);
+    }
   });
 
   it('puts the folder and the temporary directory into what Codex is started with', async () => {
@@ -178,9 +211,25 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     expect(readdirSync(h!.sessionFoldersDir!)).toEqual([]);
   });
 
+  it('gives no folder when the temporary root overlaps the queue folder’s parent, which every sandbox writes', async () => {
+    const parent = join(base, 'projectman-501');
+    // Below the parent, and above it.
+    for (const tmp of [join(parent, 'tmp', 'abcd'), base]) {
+      await h?.cleanup();
+      await start({ mode: 'acceptEdits', tmp, heavyLockDir: join(parent, 'heavy') });
+      const { env } = h!.runner.lastStarted().sandbox!;
+      expect(env).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
+      expect(h!.runner.lastStarted().sandbox!.portable?.tmpDir).toBeUndefined();
+      // The refusal is logged as an error, which the harness would fail on.
+      expect(h!.log.errors).toHaveLength(1);
+      expect(((h!.log.errors[0] as unknown[])[0] as { err: Error }).err.message).toContain('overlap');
+      h!.log.errors.length = 0;
+    }
+  });
+
   it('removes the temporary directories a dead server left when the server starts', async () => {
     await start({ mode: 'acceptEdits', persistent: true });
-    const stale = join(h!.sessionTmpDir!, 'ses_dead');
+    const stale = join(h!.sessionTmpDir!, 'ses_dead.abcdef');
     mkdirSync(stale);
     writeFileSync(join(stale, 'old'), 'x');
     h = await restartDomainHarness(h!, { userHome: home, appHome, sessionFolders: true, sessionTmp: true });

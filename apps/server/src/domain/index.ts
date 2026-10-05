@@ -1,4 +1,5 @@
 import os from 'node:os';
+import path from 'node:path';
 import {
   canManageInstancePause,
   isOnLeave,
@@ -71,6 +72,7 @@ import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
+import { isWithin } from './command-paths';
 import { prepareSessionFoldersRoot, prepareSessionTmpRoot, SessionFolders } from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
@@ -352,6 +354,14 @@ export function createDomain(opts: DomainOptions) {
       let tmpRoot: string | undefined;
       if (opts.sessionTmpDir) {
         try {
+          // The queue folder's parent is writable for every member's commands: a tmp root in it (or
+          // above it) would be too.
+          const queueParent = opts.heavyLockDir ? path.dirname(opts.heavyLockDir) : undefined;
+          if (
+            queueParent &&
+            (isWithin(queueParent, opts.sessionTmpDir) || isWithin(opts.sessionTmpDir, queueParent))
+          )
+            throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
           prepareSessionTmpRoot(opts.sessionTmpDir);
           tmpRoot = opts.sessionTmpDir;
         } catch (err) {
@@ -1050,6 +1060,7 @@ export function createDomain(opts: DomainOptions) {
       await background.stop();
       pauses.dispose();
       sessions.dispose();
+      sessionFolders?.releaseTmpRoot();
       await machine.stop();
       await drained;
     },

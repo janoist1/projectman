@@ -62,6 +62,11 @@ describe('Gemini hooks', () => {
         root,
       );
     expect(check('run_command', { CommandLine: 'npm test', Cwd: '/work' }).decision).toBe('allow');
+    for (const Cwd of ['/foreign', 'relative', '', undefined])
+      expect(check('run_command', { CommandLine: 'npm test', Cwd })).toEqual({
+        decision: 'deny',
+        reason: 'cwd_outside_workspace',
+      });
     expect(check('run_command', { CommandLine: 'echo hello', Cwd: '/work' }).decision).toBe('ask');
     expect(check('run_command', { CommandLine: 'npm test && echo hello', Cwd: '/work' }).decision).toBe(
       'ask',

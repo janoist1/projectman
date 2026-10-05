@@ -1,3 +1,5 @@
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, resolve, sep } from 'node:path';
 import {
   approvalRefusal,
   DELEGATED_INPUT_LIMIT,
@@ -79,7 +81,7 @@ export interface Resolver {
 }
 
 /** One-line summary of a tool call for humans, e.g. the Bash command or the edited file. */
-function summarizeToolInput(input: unknown): string {
+function summarizeToolInput(input: unknown, sessionCwd?: string | null): string {
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
   for (const key of [
     'command',
@@ -92,7 +94,13 @@ function summarizeToolInput(input: unknown): string {
     'prompt',
   ]) {
     const value = obj[key];
-    if (typeof value === 'string' && value.trim()) return excerpt(value, 200);
+    if (typeof value === 'string' && value.trim()) {
+      const prefix =
+        key === 'command' && typeof obj.cwd === 'string' && isAbsolute(obj.cwd) && obj.cwd !== sessionCwd
+          ? `${obj.cwd}$ `
+          : '';
+      return excerpt(`${prefix}${value}`, 200);
+    }
   }
   try {
     return excerpt(JSON.stringify(input) ?? '', 200);
@@ -520,7 +528,7 @@ export class InboxService {
     if (this.ctx.repos.sessions.executionProfile(session.id) === 'managed_vm')
       return { behavior: 'deny', message: MANAGED_VM_NO_LOCAL_APPROVAL };
     const config = await this.projects.config(session.projectKey);
-    const summary = summarizeToolInput(request.toolInput);
+    const summary = summarizeToolInput(request.toolInput, session.cwd);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
     const member = memberOf(config, session.member);
     const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
@@ -541,11 +549,24 @@ export class InboxService {
       attachmentsDir,
       parentAttachmentsDir,
     });
+    const input = request.toolInput;
+    const toolCwd = input && typeof input === 'object' && 'cwd' in input ? input.cwd : undefined;
+    let validToolCwd = toolCwd === undefined;
+    if (typeof toolCwd === 'string' && isAbsolute(toolCwd) && session.cwd) {
+      const under = (p: string, root: string) => p === root || p.startsWith(`${root}${sep}`);
+      try {
+        validToolCwd =
+          under(resolve(toolCwd), resolve(session.cwd)) &&
+          under(await realpath(toolCwd), await realpath(session.cwd));
+      } catch {
+        validToolCwd = false;
+      }
+    }
     const verdict =
-      member?.kind === 'ai'
+      member?.kind === 'ai' && validToolCwd
         ? commandVerdict({
             config,
-            session: { cwd: session.cwd, role: member.role },
+            session: { cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd, role: member.role },
             task,
             toolName: request.toolName,
             toolInput: request.toolInput,

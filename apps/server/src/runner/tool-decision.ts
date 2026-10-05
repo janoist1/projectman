@@ -19,6 +19,8 @@ export interface NormalizedToolCall {
   paths: string[];
   /** The shell command line (command). */
   command?: string;
+  /** The command's actual working directory, when supplied by the provider. */
+  cwd?: string;
   /**
    * True when the CLI runs this command in its own sandbox that keeps writes inside
    * policy.filesystem.writableRoots and keeps the denied paths unreadable (command).
@@ -31,7 +33,13 @@ export interface NormalizedToolCall {
 }
 
 export type ToolDenyReason =
-  'denied_path' | 'denied_operation' | 'denied_host' | 'plan_mode' | 'read_only_placement' | 'not_granted';
+  | 'denied_path'
+  | 'denied_operation'
+  | 'denied_host'
+  | 'plan_mode'
+  | 'read_only_placement'
+  | 'not_granted'
+  | 'cwd_outside_workspace';
 
 export type ToolDecision =
   { decision: 'allow' } | { decision: 'ask' } | { decision: 'deny'; reason: ToolDenyReason };
@@ -58,6 +66,7 @@ export const TOOL_DENY_MESSAGES: Record<ToolDenyReason, string> = {
   plan_mode: 'This operation is unavailable in plan mode.',
   read_only_placement: 'This session placement permits reading only.',
   not_granted: 'The session policy does not grant this operation.',
+  cwd_outside_workspace: 'The command working directory must be inside this session workspace.',
 };
 const ASK: ToolDecision = { decision: 'ask' };
 const deny = (reason: ToolDenyReason): ToolDecision => ({ decision: 'deny', reason });
@@ -794,7 +803,9 @@ export function decideToolCall(
   if (
     parsed &&
     denied.length > 0 &&
-    commandTouchesDenied(cwd, home, denied, call.command ?? '', parsed, caseInsensitive)
+    toolPathForms(cwd, call.cwd ?? cwd, home).some((base) =>
+      commandTouchesDenied(base, home, denied, call.command ?? '', parsed, caseInsensitive),
+    )
   ) {
     return deny('denied_path');
   }
@@ -861,10 +872,22 @@ export function decideToolCall(
     }
     case 'command': {
       // 7. Shell commands.
+      const reading = placementReadsOnly(policy.access, {
+        mode: policy.reviewCopyMode,
+        enforcement: policy.enforcement,
+      });
+      if (call.cwd !== undefined) {
+        const ownRoots = rootForms(cwd, reading ? [cwd] : [cwd, ...policy.filesystem.writableRoots], home);
+        if (
+          !isAbsolute(call.cwd) ||
+          !toolPathForms(cwd, call.cwd, home).every((base) => underAny(base, ownRoots, caseInsensitive))
+        )
+          return deny('cwd_outside_workspace');
+      }
       // A rule only vouches for a command the sandbox contains: outside it, the rule's own
       // options (`--output=`, `--write`) can still reach anything, so the command falls through.
       if (
-        (call.sandboxed === true || options.shellRulesOutsideSandbox === true) &&
+        (call.sandboxed === true || (options.shellRulesOutsideSandbox === true && !reading)) &&
         matchesShellRule(policy, call.command ?? '')
       )
         return ALLOW;

@@ -40,6 +40,7 @@ export function mapGeminiTool(
       input = { command: args.CommandLine, cwd: args.Cwd };
       category = 'command';
       call.command = str(args.CommandLine);
+      call.cwd = str(args.Cwd);
       call.paths = str(args.Cwd) ? [args.Cwd as string] : [];
       break;
     case 'view_file':
@@ -152,6 +153,8 @@ export function decideGeminiToolCall(
   root: string | null,
 ): ToolDecision {
   const call = mapGeminiTool(str(payload.gemini_tool) ?? '', object(payload.gemini_args)).call;
+  if (call.category === 'command' && (!call.cwd || !path.isAbsolute(call.cwd)))
+    return { decision: 'deny', reason: 'cwd_outside_workspace' };
   const under = (p: string, r: string) => p === r || p.startsWith(`${r}/`);
   let decision: ToolDecision;
   const id = payload.session_id;

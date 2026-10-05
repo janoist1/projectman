@@ -868,7 +868,10 @@ workers follow the machine's size.
   reads (`Launch.conversationRoot`). POSIX sh plus curl (Node fallback) forwards hooks to
   loopback HTTP. Updates are disabled in launches and login probes; maintenance is manual.
   Commands currently run without a sandbox under owner decision T4: role shell rules allow
-  listed commands, other calls use the inbox, and a missing hook answer denies the call.
+  listed developer commands, other calls use the inbox, and a missing hook answer denies the call.
+  A command's actual working directory must stay in the session placement/writable roots;
+  denied relative paths are resolved there. Read-only placements cannot use the unsandboxed
+  shell-rule exception: commands pass through the inbox's existing read-only rules instead.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine:** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;

@@ -1,4 +1,4 @@
-import { formatInjectedTeamMessage, routes } from '@projectman/shared';
+import { routes } from '@projectman/shared';
 import type { ChatItem, Task, TaskDetail } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
 import { waitFor } from '../src/runner/test-helpers';
@@ -30,7 +30,15 @@ const LONG_BODY = [
   'End of the review.',
 ].join('\n\n');
 
-const userTexts = (chat: ChatItem[]) => chat.flatMap((i) => (i.kind === 'user_text' ? [i.text] : []));
+/** What the session was told, in order: a human's turn as its text, a team message as `from: body`. */
+const told = (chat: ChatItem[]) =>
+  chat.flatMap((i) =>
+    i.kind === 'user_text'
+      ? [i.text]
+      : i.kind === 'team_message' && i.direction === 'in'
+        ? [`${i.from}: ${i.text}`]
+        : [],
+  );
 
 it(
   'types a long team message into an idle and into a busy Codex session in full, and tells the sender which',
@@ -86,13 +94,14 @@ it(
 
     // The sender is another AI member; its session does not matter to the delivery.
     const sender = { sessionId: 'ses_sender', projectKey: 'AR', member: 'dev-1', taskKey: key };
-    const injected = formatInjectedTeamMessage('dev-1', LONG_BODY, key);
+    // The transcript parser turns the `[team message from …]` prefix into an incoming team message.
+    const arrived = `dev-1: ${LONG_BODY}`;
 
     // (a) An idle session gets it now, whole.
     const toIdle = await domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: LONG_BODY });
     expect(toIdle.recipients).toEqual([{ handle: 'dev-2', delivery: 'typed_now' }]);
     await vi.waitFor(
-      async () => expect(userTexts(await chatOf()).filter((text) => text === injected)).toHaveLength(1),
+      async () => expect(told(await chatOf()).filter((text) => text === arrived)).toHaveLength(1),
       { timeout: 30_000 },
     );
     await idle();
@@ -109,10 +118,10 @@ it(
     const toBusy = await domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: LONG_BODY });
     expect(toBusy.recipients).toEqual([{ handle: 'dev-2', delivery: 'after_turn' }]);
     await vi.waitFor(
-      async () => expect(userTexts(await chatOf()).filter((text) => text === injected)).toHaveLength(2),
+      async () => expect(told(await chatOf()).filter((text) => text === arrived)).toHaveLength(2),
       { timeout: 30_000 },
     );
     await idle();
-    expect(userTexts(await chatOf()).slice(-2)).toEqual(['SLOW first task', injected]);
+    expect(told(await chatOf()).slice(-2)).toEqual(['SLOW first task', arrived]);
   },
 );

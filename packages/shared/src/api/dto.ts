@@ -80,7 +80,20 @@ export const ProviderLoginStatus = z.object({
   minCliVersion: z.string().optional(),
 });
 export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
-export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });
+export const ProviderKeyStatus = z.object({ set: z.boolean(), setAt: z.string().nullable() });
+export type ProviderKeyStatus = z.infer<typeof ProviderKeyStatus>;
+export const ProvidersView = z.object({
+  providers: z.array(ProviderLoginStatus),
+  keys: z.object({ nanogpt: ProviderKeyStatus }),
+  canManageKeys: z.boolean(),
+});
+export const ProviderKeyValue = z
+  .string()
+  .trim()
+  .min(1)
+  .max(1000)
+  .regex(/^[\x21-\x7E]+$/);
+export const SetProviderKeyRequest = z.strictObject({ key: ProviderKeyValue });
 export type ProvidersView = z.infer<typeof ProvidersView>;
 
 /* ---------- projects ---------- */

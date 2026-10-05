@@ -447,6 +447,7 @@ export const hu = {
       theme_not_a_theme: 'A kiválasztott kártya nem téma.',
       theme_closed: 'A téma le van zárva: nyisd újra, vagy válassz másikat.',
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
+      nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
       bad_request: 'A kérés érvénytelen.',
       cannot_remove_self: 'Saját magadat nem távolíthatod el.',
       invalid_json: 'A kérés adatai nem olvashatók.',

@@ -26,6 +26,7 @@ import { testTemplate } from './test-template';
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
 
 export interface AppHarnessOptions {
+  nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); default: none. */
   runtimeBoundary?: RuntimeBoundary;
@@ -45,6 +46,7 @@ export interface AppHarnessOptions {
     | 'freeDiskBytes'
     | 'controlSocket'
     | 'shutdownPauseMs'
+    | 'logger'
   >;
 }
 
@@ -114,6 +116,7 @@ export async function createAppHarness(
   const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
   const real = opts.real ?? {};
   const modules: AppModules = {
+    nanogptKeyCheck: opts.nanogptKeyCheck,
     boundaryAdapter: opts.boundaryAdapter,
     runtimeBoundary: opts.runtimeBoundary,
     createRunnerModule: (o) => runnerModule.create(o),

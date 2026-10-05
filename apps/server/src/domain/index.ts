@@ -165,7 +165,13 @@ export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
+import { ProviderKeys } from './provider-keys';
+export { ProviderKeys } from './provider-keys';
+export type { NanogptKeyCheck } from './provider-keys';
+export { createNanogptKeyCheck } from './nanogpt-key-check';
+
 export interface DomainOptions {
+  nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
   runtimeBoundary?: RuntimeBoundary;
@@ -292,6 +298,14 @@ export function createDomain(opts: DomainOptions) {
   const { events } = ctx;
   const templates = opts.templates ?? defaultTemplateRegistry;
   const background = new BackgroundTasks();
+  const providerKeys = opts.appHome
+    ? new ProviderKeys({
+        home: opts.appHome,
+        now,
+        logger: opts.logger,
+        check: opts.nanogptKeyCheck ?? (async () => 'unknown'),
+      })
+    : null;
 
   const timeline = new TimelineService(ctx);
   const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
@@ -877,6 +891,7 @@ export function createDomain(opts: DomainOptions) {
     egress,
     runtimeBoundary: opts.runtimeBoundary ?? null,
     runnerModule,
+    providerKeys,
     presence,
     messages,
     messaging,

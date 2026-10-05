@@ -2566,7 +2566,9 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('`/tmp/projectman-sessions/abc123`');
     expect(text).toContain(`\`$TMPDIR\` (\`${tmpDir}\`) is your own, deleted with the session`);
     expect(text).toContain('The shared `/tmp` is not writable');
-    // Its commands section stays; the screenshot paths come with their own card.
+    // The screenshots are the server's (PM-351): the tools, never a shell command or the sandbox paths.
+    expect(text).toContain('`take_screenshots`');
+    expect(text).toContain('`get_screenshot_run`');
     expect(prompt).toContain('# Commands that run without asking');
     expect(prompt).not.toContain('npm run shots');
     expect(prompt).not.toContain('# Your sandbox');

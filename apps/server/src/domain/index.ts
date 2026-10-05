@@ -19,6 +19,7 @@ import type {
   ContextPackBuilder,
   EventBus,
   FullTestExecutor,
+  ScreenshotExecutor,
   GithubPublisher,
   GithubService,
   MachineProbe,
@@ -84,6 +85,7 @@ import {
 } from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
+import { ScreenshotRuns } from './screenshot-runs';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
@@ -279,6 +281,11 @@ export interface DomainOptions {
    * (tests, the managed VM, a platform without the sandbox), the feature is off.
    */
   fullTestExecutor?: FullTestExecutor;
+  /**
+   * Runs `npm run shots` for a member whose own sandbox cannot start the browser (Codex, PM-351) in the
+   * server's sandbox. Absent, `take_screenshots` is refused.
+   */
+  screenshotExecutor?: ScreenshotExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
   /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
@@ -657,7 +664,13 @@ export function createDomain(opts: DomainOptions) {
     memberWorkspaces: opts.memberWorkspaces,
   });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
+  // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
+  const screenshotRuns = opts.screenshotExecutor
+    ? new ScreenshotRuns({ executor: opts.screenshotExecutor, sessions, logger: opts.logger })
+    : undefined;
+  if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const teamTools = new TeamToolsService({
+    screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
     boundary,
@@ -1141,6 +1154,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await screenshotRuns?.stop();
       await background.stop();
       pauses.dispose();
       sessions.dispose();

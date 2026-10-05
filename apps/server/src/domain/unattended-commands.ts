@@ -79,7 +79,7 @@ export const PROJECT_CHECK_COMMANDS: readonly string[] = [
 export function describeSessionFolder(sessionFolder: string, provider: AgentProvider): string {
   const putThere =
     provider === 'codex'
-      ? `put images and other files to attach there; ${code('attach_file')} takes their absolute path, and an image there opens with ${code('view_image')} (the shell does not show images).`
+      ? `put images and other files to attach there; ${code('attach_file')} takes their absolute path, and an image there opens with ${code('view_image')} (the shell does not show images). Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}.`
       : `put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path.`;
   return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): ${putThere} Only you write it; the other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) you read without asking, for example a screenshot a teammate names. A folder is deleted when its session's process stops (a stop, a restart), so attach what should stay before you end your turn. A resumed session gets a new folder: folder paths from earlier in this conversation no longer exist, while the files attached to cards stay (${code('list_attachments')}, ${code('read_attachment')}).`;
 }

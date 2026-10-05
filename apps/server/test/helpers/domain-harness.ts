@@ -9,6 +9,7 @@ import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
   FullTestExecutor,
+  ScreenshotExecutor,
   GithubPublisher,
   ManagedVmBoundary,
   MemberWorkspaceManager,
@@ -99,6 +100,8 @@ export async function createDomainHarness(
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
     fullTestExecutor?: FullTestExecutor;
+    /** The server's screenshots for members whose sandbox has no browser (PM-351); absent, the tools are off. */
+    screenshotExecutor?: ScreenshotExecutor;
     /**
      * The root of the session folders (PM-268) below the harness directory, or a path of the
      * test's own (an unsafe one); absent, no session folders.
@@ -171,6 +174,7 @@ export async function createDomainHarness(
     appHome: opts.appHome,
     inputStallMs: opts.inputStallMs,
     fullTestExecutor: opts.fullTestExecutor,
+    screenshotExecutor: opts.screenshotExecutor,
     contextBuilder,
     memory,
     worktrees,

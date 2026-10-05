@@ -49,11 +49,12 @@ export function failedFiles(output: string): string[] {
 
 /**
  * The output of a failed run for people and the developer: ANSI removed, vitest's "Failed Tests"
- * section from its start if there is one, else the end of the output; at most `OUTPUT_TAIL_CHARS`.
+ * section from its start if there is one, else the end of the output; at most `limit` characters
+ * (default `OUTPUT_TAIL_CHARS`).
  */
-export function outputTail(output: string): string {
+export function outputTail(output: string, limit = OUTPUT_TAIL_CHARS): string {
   const text = stripAnsi(output).replace(/\r\n/g, '\n').trim();
   const marker = /^.*Failed Tests.*$/m.exec(text);
-  if (marker) return text.slice(marker.index, marker.index + OUTPUT_TAIL_CHARS);
-  return text.length > OUTPUT_TAIL_CHARS ? text.slice(-OUTPUT_TAIL_CHARS) : text;
+  if (marker) return text.slice(marker.index, marker.index + limit);
+  return text.length > limit ? text.slice(-limit) : text;
 }

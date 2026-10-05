@@ -282,6 +282,82 @@ describe('attachment tools', () => {
     expect(h.handler.calls.filter((c) => c.method === 'attachFile')).toHaveLength(1);
   });
 
+  it('take_screenshots passes only the validated fields, and shows the images of the run', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const result = await call(client, 'take_screenshots', {
+      scenario: 'scripts/scenarios/card.mjs',
+      widths: [1512, 390],
+      full_page: true,
+      scale: 2,
+      timeout_seconds: 120,
+      seed: 'none',
+    });
+    expect(text(result)).toBe(
+      [
+        'Screenshot run shr_fake0001 is done (finished 2026-10-05T09:00:20.000Z, exit code 0).',
+        'Images (1); open one with your image viewing tool, attach it with attach_file:',
+        '- /sessions/ses_dev/shots/card/card-1512.png',
+        'Output (the end):',
+        'shot /sessions/ses_dev/shots/card/card-1512.png 1512x982',
+      ].join('\n'),
+    );
+    expect(h.handler.calls.at(-1)).toEqual({
+      method: 'takeScreenshots',
+      ctx: devContext,
+      args: {
+        scenario: 'scripts/scenarios/card.mjs',
+        widths: [1512, 390],
+        fullPage: true,
+        scale: 2,
+        timeoutSeconds: 120,
+        seed: 'none',
+      },
+    });
+    // Only the scenario is required.
+    await call(client, 'take_screenshots', { scenario: 'a.mjs' });
+    expect(h.handler.calls.at(-1)?.args).toEqual({ scenario: 'a.mjs' });
+  });
+
+  it('take_screenshots refuses what is out of bounds, and an output folder or a command of the caller’s', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const refusals: Record<string, unknown>[] = [
+      { scenario: '' },
+      { scenario: 'a'.repeat(501) },
+      { scenario: 'a.mjs', widths: [] },
+      { scenario: 'a.mjs', widths: [199] },
+      { scenario: 'a.mjs', widths: [4001] },
+      { scenario: 'a.mjs', widths: [300, 400, 500, 600, 700, 800, 900, 1000, 1100] },
+      { scenario: 'a.mjs', scale: 3 },
+      { scenario: 'a.mjs', timeout_seconds: 0 },
+      { scenario: 'a.mjs', timeout_seconds: 601 },
+      { scenario: 'a.mjs', seed: 'other' },
+      { scenario: 'a.mjs', out: '/tmp/x' },
+      { scenario: 'a.mjs', keep_data: true },
+      { scenario: 'a.mjs', machine: 'm.json' },
+      { scenario: 'a.mjs', args: ['--out', '/'] },
+    ];
+    for (const args of refusals) {
+      const refused = await call(client, 'take_screenshots', args);
+      expect(refused.isError, JSON.stringify(args)).toBe(true);
+    }
+    expect(h.handler.calls.filter((c) => c.method === 'takeScreenshots')).toHaveLength(0);
+  });
+
+  it('get_screenshot_run shows a run that goes on, and an unknown run as an error', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    expect(text(await call(client, 'get_screenshot_run', { run_id: 'shr_fake0001' }))).toBe(
+      'Screenshot run shr_fake0001 is running (started 2026-10-05T09:00:00.000Z). Ask again with get_screenshot_run run_id=shr_fake0001.',
+    );
+    const unknown = await call(client, 'get_screenshot_run', { run_id: 'shr_other' });
+    expect(unknown.isError).toBe(true);
+    expect(text(unknown)).toBe('Error [not_found]: This session has no screenshot run shr_other.');
+    expect((await call(client, 'get_screenshot_run', { run_id: '' })).isError).toBe(true);
+    expect((await call(client, 'get_screenshot_run', { run_id: 'x'.repeat(65) })).isError).toBe(true);
+  });
+
   it('delete_attachment deletes the caller’s own attachment and reports the refusal of others’', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');

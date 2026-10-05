@@ -39,7 +39,9 @@ import type {
   LocatedAttachmentForTool,
   MemberMemoryStore,
   NetworkDenial,
+  ScreenshotRun,
   SentMessageRecipient,
+  TakeScreenshotsInput,
   TaskSummary,
   TaskToolDetail,
   TeamToolsHandler,
@@ -62,6 +64,7 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
+import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionFolders } from './session-folders';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
@@ -269,6 +272,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly attachments: AttachmentOperations;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly sessionFolders: Pick<SessionFolders, 'of'> | undefined;
+  private readonly screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 
   constructor(deps: {
     boundary: BoundaryService;
@@ -297,7 +301,10 @@ export class TeamToolsService implements TeamToolsHandler {
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
     /** The session folders (PM-268): `attach_file` takes files from the caller's own folder too. */
     sessionFolders?: Pick<SessionFolders, 'of'>;
+    /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
+    screenshots?: Pick<ScreenshotRuns, 'take' | 'get'>;
   }) {
+    this.screenshots = deps.screenshots;
     this.sessionFolders = deps.sessionFolders;
     this.boundary = deps.boundary;
     this.egress = deps.egress ?? null;
@@ -541,6 +548,26 @@ export class TeamToolsService implements TeamToolsHandler {
         await file.close();
       }
     });
+  }
+
+  async takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      return this.screenshotRuns().take(ctx, input);
+    });
+  }
+
+  async getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun> {
+    return this.guard(async () => {
+      await this.caller(ctx);
+      return this.screenshotRuns().get(ctx, runId);
+    });
+  }
+
+  private screenshotRuns(): Pick<ScreenshotRuns, 'take' | 'get'> {
+    if (!this.screenshots)
+      throw new TeamToolError('forbidden', 'This server makes no screenshots for members (no sandbox here).');
+    return this.screenshots;
   }
 
   async deleteAttachment(

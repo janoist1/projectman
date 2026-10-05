@@ -25,6 +25,8 @@ import type {
   LocatedAttachmentForTool,
   PublishedTaskBranch,
   PublishedTaskState,
+  ScreenshotFailure,
+  ScreenshotRun,
   SentMessageRecipient,
   TaskToolDetail,
 } from '../contracts';
@@ -277,6 +279,44 @@ export function formatAttached(taskKey: string, attachment: Attachment): string 
     `Attached "${oneLine(attachment.fileName, 120)}" to ${taskKey} in your name as ${attachment.id} ` +
     `(${attachment.mediaType}, ${formatBytes(attachment.size)}).`
   );
+}
+
+const SCREENSHOT_FAILURES: Record<ScreenshotFailure, string> = {
+  scenario: 'the scenario (or the disposable instance) failed',
+  usage: 'wrong use of the shots command, or no browser installed',
+  timeout: 'the run took too long and was stopped',
+  stopped: 'your session was stopped',
+  sandbox: 'the sandbox did not start, or its process was killed',
+};
+
+/** A screenshot run (take_screenshots, get_screenshot_run): its state, the images, and the end of the output. */
+export function formatScreenshotRun(run: ScreenshotRun): string {
+  const lines: string[] = [];
+  if (run.status === 'queued' || run.status === 'running') {
+    lines.push(
+      `Screenshot run ${run.runId} is ${run.status === 'queued' ? "waiting for its turn in the machine's queue" : 'running'} ` +
+        `(started ${run.startedAt}). Ask again with get_screenshot_run run_id=${run.runId}.`,
+    );
+  } else if (run.status === 'done') {
+    lines.push(
+      `Screenshot run ${run.runId} is done (finished ${run.finishedAt ?? run.startedAt}, exit code ${run.exitCode ?? 'none'}).`,
+    );
+  } else {
+    lines.push(
+      `Screenshot run ${run.runId} failed: ${run.failure ? SCREENSHOT_FAILURES[run.failure] : 'unknown reason'}` +
+        ` (exit code ${run.exitCode ?? 'none'}).`,
+    );
+  }
+  if (run.status !== 'queued' && run.status !== 'running') {
+    if (run.files.length > 0)
+      lines.push(
+        `Images (${run.files.length}); open one with your image viewing tool, attach it with attach_file:`,
+        ...run.files.map((file) => `- ${file}`),
+      );
+    else lines.push('No new image was written.');
+  }
+  if (run.outputTail) lines.push('Output (the end):', run.outputTail);
+  return lines.join('\n');
 }
 
 export function formatAttachmentDeleted(

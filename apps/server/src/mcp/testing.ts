@@ -505,6 +505,26 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { attachment };
     },
 
+    async takeScreenshots(ctx, input) {
+      await enter('takeScreenshots', ctx, input);
+      return {
+        runId: 'shr_fake0001',
+        status: 'done',
+        startedAt: '2026-10-05T09:00:00.000Z',
+        finishedAt: '2026-10-05T09:00:20.000Z',
+        files: ['/sessions/ses_dev/shots/card/card-1512.png'],
+        exitCode: 0,
+        outputTail: 'shot /sessions/ses_dev/shots/card/card-1512.png 1512x982',
+      };
+    },
+
+    async getScreenshotRun(ctx, runId) {
+      await enter('getScreenshotRun', ctx, runId);
+      if (runId !== 'shr_fake0001')
+        throw new TeamToolError('not_found', `This session has no screenshot run ${runId}.`);
+      return { runId, status: 'running', startedAt: '2026-10-05T09:00:00.000Z', files: [] };
+    },
+
     async deleteAttachment(ctx, args) {
       await enter('deleteAttachment', ctx, args);
       const attachment = findAttachment(args.taskKey, args.attachmentId);

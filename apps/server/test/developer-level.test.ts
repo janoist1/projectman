@@ -66,12 +66,23 @@ describe('the recommended developer of a card', () => {
     });
   });
 
-  it('is set by the owner, any needs no reason, and any without a reason on a bare card changes nothing', async () => {
+  it('is set by the owner, and any needs no reason', async () => {
     const task = await create();
-    expect((await setLevel(task.key, 'any', null, OWNER_ACTOR)).developerLevel).toBeUndefined();
-    expect(levelEvents(task.key)).toHaveLength(0);
     const updated = await setLevel(task.key, 'any', 'a UI part', OWNER_ACTOR);
     expect(updated.developerLevel).toMatchObject({ level: 'any', reason: 'a UI part', setBy: 'owner' });
+  });
+
+  it('stores an explicit any on a bare card with one event, and the same again changes nothing', async () => {
+    const task = await create();
+    const first = await setLevel(task.key, 'any', null, OWNER_ACTOR);
+    expect(first.developerLevel).toMatchObject({ level: 'any', reason: null, setBy: 'owner' });
+    expect(h.domain.tasks.get('AR', task.key).developerLevel).toEqual(first.developerLevel);
+    expect(levelEvents(task.key).map((event) => event.data)).toEqual([
+      { level: 'any', reason: null, previous: null },
+    ]);
+    const again = await setLevel(task.key, 'any', '  ', ARCHITECT);
+    expect(again.developerLevel).toEqual(first.developerLevel);
+    expect(levelEvents(task.key)).toHaveLength(1);
   });
 
   it('refuses a Senior card without a reason, whether it is missing, empty or blank', async () => {
@@ -151,6 +162,15 @@ describe('the recommended developer of a card', () => {
     );
     expect(task.developerLevel).toMatchObject({ level: 'senior', reason: 'the sandbox', setBy: 'arch' });
     expect(levelEvents(task.key)).toHaveLength(1);
+    const plain = await h.domain.tasks.create(
+      'AR',
+      { title: 'Plain', developerLevel: { level: 'any' } },
+      ARCHITECT,
+    );
+    expect(plain.developerLevel).toMatchObject({ level: 'any', reason: null, setBy: 'arch' });
+    expect(levelEvents(plain.key).map((event) => event.data)).toEqual([
+      { level: 'any', reason: null, previous: null },
+    ]);
     await expect(
       h.domain.tasks.create('AR', { title: 'Nope', developerLevel: { level: 'any' } }, DEV),
     ).rejects.toMatchObject({ code: 'developer_level_forbidden' });

@@ -317,6 +317,7 @@ export function formatTaskUpdate(
     done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
   if (change.stageId) done.push(`moved to ${change.stageId}`);
+  if (change.developerLevel) done.push('recommended developer set');
   const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
   return [`Updated ${task.key}: ${done.join('; ')}.`, ...level, `Now: ${taskStatusLine(task)}`].join('\n');
 }

@@ -1,5 +1,4 @@
-import { taskSeq } from '@projectman/shared';
-import { TaskDeveloperLevel } from '@projectman/shared';
+import { TaskDeveloperLevel, taskSeq } from '@projectman/shared';
 import type { RankedCard, Task, TaskLink } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';

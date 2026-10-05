@@ -18,8 +18,9 @@ export interface DeveloperLevelChange {
 
 /**
  * Checks a request to set the recommended developer of a card (PM-347) and says what it changes, or
- * null when it changes nothing (same level and reason: no event, nothing written). `task` is null
- * while the card is created. A card without a recommendation counts as `any` with no reason.
+ * null when it changes nothing (the card already has this level and reason: no event, nothing
+ * written). `task` is null while the card is created. A card without a recommendation counts as
+ * `any` when read, but an explicit `any` is a decision and is stored (`previous: null` = none before).
  */
 export function planDeveloperLevel(
   config: Pick<ProjectConfig, 'team'>,
@@ -50,7 +51,7 @@ export function planDeveloperLevel(
   const previous = task?.developerLevel
     ? { level: task.developerLevel.level, reason: task.developerLevel.reason }
     : null;
-  if ((previous?.level ?? 'any') === request.level && (previous?.reason ?? null) === reason) return null;
+  if (previous && previous.level === request.level && previous.reason === reason) return null;
   return {
     next: { level: request.level, reason, setBy: handle, setAt: at },
     event: { level: request.level, reason, previous },

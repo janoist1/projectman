@@ -155,8 +155,10 @@ export const MemberView = z.object({
   cheapSubagent: CheapSubagentModel.optional(),
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
   onLeave: z.boolean().optional(),
-  /** The team's Senior (PM-347, `isSenior`): an AI member marked so, and not a temp worker. */
-  /** An AI member marked as the team's Senior (PM-347); a missing value is `false`. */
+  /**
+   * The team's Senior (PM-347, `isSenior`): an AI member marked so, and not a temp worker. The server
+   * always fills it in; a missing value (an older server, a test fake) is `false`.
+   */
   senior: z.boolean().optional(),
 });
 export type MemberView = z.infer<typeof MemberView>;

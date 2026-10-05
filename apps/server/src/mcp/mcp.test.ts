@@ -616,6 +616,7 @@ describe('team tools', () => {
       ctx: devContext,
       args: { taskKey: 'AR-21', developerLevel: { level: 'senior', reason: 'the runner' } },
     });
+    expect(text(result).split('\n')[0]).toBe('Updated AR-21: recommended developer set.');
     expect(text(result)).toContain('Recommended developer: senior — the runner');
 
     // The level alone is a level without a reason (any needs none).

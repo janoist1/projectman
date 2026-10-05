@@ -1,5 +1,5 @@
 import { Approver, SelectablePermissionMode, approverBlocksProvider } from '@projectman/shared';
-import type { AgentProvider, MemberView, UpdateMemberRequest } from '@projectman/shared';
+import type { AgentProvider, PermissionMode, MemberView, UpdateMemberRequest } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
@@ -8,6 +8,19 @@ import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './PermissionLevelControl.module.css';
+
+/** Explain provider-specific behavior for the selected mode, including read-only views. */
+export function PermissionProviderNote({
+  provider,
+  mode,
+}: {
+  provider?: AgentProvider;
+  mode?: PermissionMode;
+}) {
+  return provider === 'gemini' && (mode === 'auto' || mode === 'plan') ? (
+    <span className={styles.providerNote}>{t(`permissionControls.providerNotes.gemini.${mode}`)}</span>
+  ) : null;
+}
 
 /** The two permission settings as everyone but an owner sees them: no way to change them. */
 function PermissionText({ member, provider }: { member: MemberView; provider?: AgentProvider }) {
@@ -28,6 +41,9 @@ function PermissionText({ member, provider }: { member: MemberView; provider?: A
       ) : null}
       {approverBlocksProvider({ provider, approver: member.approver }) ? (
         <span className={styles.warning}>{t('permissionControls.nanogptApproverNone')}</span>
+      ) : null}
+      {!member.permissionLegacy ? (
+        <PermissionProviderNote provider={provider} mode={member.permissionMode} />
       ) : null}
     </span>
   );
@@ -88,6 +104,9 @@ export function PermissionLevelControl({
           </option>
         ))}
       </SelectField>
+      {!member.permissionLegacy ? (
+        <PermissionProviderNote provider={provider} mode={member.permissionMode ?? 'auto'} />
+      ) : null}
       {member.permissionLegacy ? (
         <span className={styles.note}>{t('permissionControls.legacyHint')}</span>
       ) : null}

@@ -30,6 +30,30 @@ async function chooseFromMenu(p: ReturnType<typeof mockProject>, handle: string,
 }
 
 describe('member profiles', () => {
+  it('explains the actual effort when a Gemini Pro member has no explicit effort', async () => {
+    const p = mockProject();
+    const member = p.backend.findMember('fe-1')!;
+    member.provider = 'gemini';
+    member.model = 'gemini-3.1-pro';
+    member.effort = undefined;
+    p.render(page(), '/team/fe-1');
+    expect(await screen.findByText(t('providerSettings.geminiProEffortHint'))).toBeTruthy();
+  });
+  it('shows Gemini login steps and medium effort without a plan meter', async () => {
+    const p = mockProject();
+    const member = p.backend.findMember('fe-1')!;
+    member.provider = 'gemini';
+    member.effort = undefined;
+    p.backend.providerStatus.gemini = { loggedIn: false, problem: 'not_logged_in' };
+    p.render(page(), '/team/fe-1');
+    await screen.findByText(t('profile.noPlanUsage.gemini'));
+    expect(screen.queryByRole('meter')).toBeNull();
+    expect(
+      screen.getByText((text) => text.endsWith(`· ${t('providerSettings.efforts.medium')}`)),
+    ).toBeTruthy();
+    expect(await screen.findByText('agy')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
   it('shows a NanoGPT account usage note, medium default effort and no plan meter', async () => {
     const p = mockProject();
     const member = p.backend.findMember('fe-1')!;

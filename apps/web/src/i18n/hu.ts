@@ -1773,6 +1773,12 @@ export const hu = {
     nanogptApproverNone:
       'NanoGPT-tagnál a homokozón kívüli parancsokat (pl. commit, npm ci) csak ember hagyhatja jóvá. „Senki” mellett ezek elutasítódnak, így fejlesztőként a tag nem tud commitolni.',
     mode: 'Mód',
+    providerNotes: {
+      gemini: {
+        auto: 'A Gemini-tagnál az Auto úgy működik, mint a „Szerkesztést elfogad”: a szerepkör engedélyezett parancsain kívül minden parancsot megkérdez, és a „Ha kérdez” beállítás szerint döntünk róla.',
+        plan: 'A Gemini-tagnál a Tervezés csak a fájlszerkesztést tiltja: a munkafán dolgozó szerepkörök előre engedélyezett parancsai (például git commit, npm install) sandbox nélkül lefutnak.',
+      },
+    },
     approver: 'Ha kérdez, ki dönt',
     modeHints: {
       default: 'Minden lépés előtt kérdez.',
@@ -2508,8 +2514,6 @@ export const hu = {
     customModel: 'Egyéni modell',
     modelId: 'Modellazonosító',
     models: {
-      geminiFlash: 'Gemini 3.8 Flash',
-      geminiPro: 'Gemini 3.1 Pro',
       sol: 'gpt-6.1-sol — munkaló, kódolásra',
       glm: 'z-ai/glm-5.3-flash-uncensored — nyílt modell, kevesebb beépített korláttal',
       glmUncensored: 'z-ai/glm-5.3-uncensored — nagy nyílt modell, kevesebb beépített korláttal',
@@ -2517,6 +2521,13 @@ export const hu = {
       luna: 'gpt-6-luna — gyors, olcsó, egyszerű feladatokra',
       astra: 'gpt-6-astra — a legerősebb, drága, csak kritikus feladatra',
     },
+    geminiModels: {
+      flash38: 'gemini-3.8-flash — gyors, alapértelmezett',
+      flash37: 'gemini-3.7-flash — korábbi Flash',
+      flash36: 'gemini-3.6-flash — korábbi Flash',
+      pro31: 'gemini-3.1-pro — csak Alacsony vagy Magas erőfeszítéssel',
+    },
+    geminiProEffortHint: 'A Pro 3.1-nek nincs Közepes szintje, ezért Magassal fut.',
     claudeModels: {
       opus55: 'Opus 5.5 — erős, nehéz feladatokra',
       sonnet5: 'Sonnet 5 — kiegyensúlyozott, a legtöbb munkára',

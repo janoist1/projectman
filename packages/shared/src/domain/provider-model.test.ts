@@ -16,9 +16,11 @@ describe('provider settings contracts', () => {
     expect(usesCodexCli('nanogpt')).toBe(true);
     expect(usesCodexCli('codex')).toBe(true);
     expect(usesCodexCli('gemini')).toBe(false);
+    expect(usesCodexCli(undefined)).toBe(false);
     expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'none' })).toBe(true);
     expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'human' })).toBe(false);
     expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'ai' })).toBe(false);
+    expect(approverBlocksProvider({ provider: 'nanogpt' })).toBe(false);
     expect(approverBlocksProvider({ provider: 'codex', approver: 'none' })).toBe(false);
   });
   it('rejects Gemini models for NanoGPT while retaining open model ids', () => {

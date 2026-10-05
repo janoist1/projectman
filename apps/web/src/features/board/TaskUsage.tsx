@@ -1,4 +1,10 @@
-import { tokenTotal, usageTotal, weightedTokensByModel, usesCodexCli } from '@projectman/shared';
+import {
+  AgentProvider,
+  tokenTotal,
+  usageTotal,
+  weightedTokensByModel,
+  usesCodexCli,
+} from '@projectman/shared';
 import type { CardRounds, Session } from '@projectman/shared';
 import { TokenUsageList, WeightedTokensList } from '../../components/TokenUsage';
 import { formatTokens } from '../../i18n/format';
@@ -85,9 +91,10 @@ export function TaskUsage({
     const total = tokenTotal(usageTotal(session.usage!.rows));
     perMember.set(session.member, (perMember.get(session.member) ?? 0) + total);
   }
-  const codex = sessions.some((session) =>
-    usesCodexCli(session.provider ?? members.get(session.member)?.provider),
-  );
+  const codex = sessions.some((session) => {
+    const provider = AgentProvider.safeParse(session.provider ?? members.get(session.member)?.provider);
+    return provider.success && usesCodexCli(provider.data);
+  });
   return (
     <section className={drawer.section} aria-labelledby="task-usage">
       <h3 id="task-usage" className={drawer.sectionTitle}>

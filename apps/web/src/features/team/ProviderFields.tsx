@@ -110,7 +110,11 @@ export function ProviderFields({
         <SelectField
           label={t('providerSettings.effort')}
           hint={t(
-            provider === 'nanogpt' ? 'providerSettings.nanogptEffortHint' : 'providerSettings.effortHint',
+            provider === 'nanogpt'
+              ? 'providerSettings.nanogptEffortHint'
+              : provider === 'gemini' && model.trim() === 'gemini-3.1-pro' && (!effort || effort === 'medium')
+                ? 'providerSettings.geminiProEffortHint'
+                : 'providerSettings.effortHint',
           )}
           value={effort ?? ''}
           onChange={(event) =>

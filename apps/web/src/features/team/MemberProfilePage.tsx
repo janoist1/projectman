@@ -361,6 +361,11 @@ export function MemberProfilePage() {
                 · {effort ? t(`providerSettings.efforts.${effort}`) : t('providerSettings.defaultEffort')}
               </span>
             </div>
+            {provider === 'gemini' &&
+            member.model?.trim() === 'gemini-3.1-pro' &&
+            (!effort || effort === 'medium') ? (
+              <p className={styles.quiet}>{t('providerSettings.geminiProEffortHint')}</p>
+            ) : null}
             <ProviderWarning provider={provider} status={providerStatus} />
             {cheapSubagent ? (
               <p>

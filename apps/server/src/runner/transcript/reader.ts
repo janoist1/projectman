@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises';
 import { MAX_CONFINED_TRANSCRIPT_BYTES, openConfined } from './confined';
 import type { AgentProvider, ChatItem } from '@projectman/shared';
+import { usesCodexCli } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
 import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
 import { parseTranscript, type TranscriptParserOptions } from '../providers/claude/transcript';
@@ -20,7 +21,7 @@ export async function readTranscript(
     opts.provider ??
     (path.endsWith('/transcript_full.jsonl') ? 'gemini' : CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
   if (provider === 'gemini') return parseGeminiTranscript(text, opts);
-  if (provider === 'codex' || provider === 'nanogpt') return parseCodexTranscript(text, opts);
+  if (usesCodexCli(provider)) return parseCodexTranscript(text, opts);
   return parseTranscript(text, opts);
 }
 

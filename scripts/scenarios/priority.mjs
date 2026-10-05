@@ -53,6 +53,20 @@ export default async ({ instance, open, shoot, step, log }) => {
       ),
     );
   });
+  await step('open native priority picker', async () => {
+    for (const width of [1512, 390]) {
+      page = await open({ path: cardPath('high'), width });
+      const picker = select(drawer());
+      await picker.waitFor();
+      await picker.scrollIntoViewIfNeeded();
+      // Prepare the layout before opening the native picker: resizing can dismiss it.
+      const [file] = await shoot(page, 'priority-drawer-picker', { widths: [width] });
+      await picker.click();
+      await page.screenshot({ path: file, fullPage: false, animations: 'disabled', caret: 'hide' });
+      await picker.press('Escape');
+      log(`Native priority picker captured at ${width}px; inspect native popup visibility`);
+    }
+  });
   await step('large view', async () => {
     page = await open({ path: `${cardPath('normal')}?size=large` });
     await select(page.getByRole('dialog', { name: ui.task.drawerLabel })).waitFor();

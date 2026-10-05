@@ -162,7 +162,7 @@ npm run shots -- scripts/scenarios/card-with-question.mjs
 
 ### PM-287: card priority
 
-Run `npm run shots -- scripts/scenarios/card-priority.mjs --timeout 300` on the final PM-287 branch.
+Run `npm run shots -- scripts/scenarios/priority.mjs --timeout 300` on the final PM-287 branch.
 The integrator captures and inspects these images; Chromium is not run in the Codex sandbox.
 The scenario creates fictional cards in the disposable instance and reads UI wording from `hu.ts`.
 
@@ -171,6 +171,7 @@ The scenario creates fictional cards in the disposable instance and reads UI wor
 | `priority-first-use` (1512, 390)                                                | No priority filter before an open card has a level.                                                            |
 | `priority-board` (1512, 800, 390, 375), `priority-board-dark` (1512, 390)       | Four distinct 14px shapes after the key; space for stage progress; readable light/dark tokens.                 |
 | `priority-drawer-saved` (1512, 390)                                             | Priority below assignee, saved High value, board mark and timeline change; clearing is exercised afterwards.   |
+| `priority-drawer-picker` (1512, 390)                                            | Native priority picker opened in the drawer after the viewport is settled.                                     |
 | `priority-large` (1512, 800), `priority-large-dark` (1512)                      | PM-283 uses the same priority property in both large layouts.                                                  |
 | `priority-save-failed` (1512, 390)                                              | Simulated PATCH failure: Normal remains stored, the select regains focus, the localized alert appears.         |
 | `priority-filter-high`, `priority-filter-unset`, `priority-filter-empty` (1512) | Correct matching, subtitle and empty state; selected filter remains available after its last match is cleared. |
@@ -181,6 +182,9 @@ The scenario creates fictional cards in the disposable instance and reads UI wor
 Check keyboard focus, overflow at 375px, and reduced-motion behavior during visual review.
 The automated card tests verify that done/cancelled cards have no board mark; priority filters still
 use their stored value. The scenario's deliberate error affects only its disposable instance.
+Inspect the two picker images before attaching them: Chromium may omit an operating-system native
+popup from a page screenshot. If the options are missing, capture the open native picker manually
+at the same widths; keep the real select rather than replacing it with a simulated menu.
 
 ### Widths
 

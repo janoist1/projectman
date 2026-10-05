@@ -11,6 +11,24 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../ty
 import { buildCodexArgs } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
+import { codexUserMcpServers, type AmbientIssue } from '../../managed-vm';
+import type { AmbientConfigLocations } from '../../../contracts';
+
+/** A fail-closed local Codex start; details contain version and setting names, never values. */
+export class CodexStartError extends Error {
+  readonly code = 'codex_setup_incomplete';
+  readonly details: Record<string, unknown>;
+  constructor(details: {
+    problem: 'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config';
+    cliVersion?: string;
+    minCliVersion?: string;
+    ambientConfig?: AmbientIssue[];
+  }) {
+    super('Codex is not ready');
+    this.name = 'CodexStartError';
+    this.details = { provider: 'codex', ...details };
+  }
+}
 
 /**
  * OpenAI Codex CLI (codex-cli 0.159.1) in its interactive TUI, on the owner's ChatGPT login.
@@ -145,6 +163,8 @@ export interface CodexAdapterOptions {
   bin: string;
   codexHome: string;
   logger: FastifyBaseLogger;
+  env?: NodeJS.ProcessEnv;
+  ambientConfig?: AmbientConfigLocations;
 }
 
 export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
@@ -164,7 +184,19 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
 
     async launch({ spec, hookUrl, permissionTimeoutMs }) {
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
-      const { args, initialMessageSent } = buildCodexArgs({ spec, hookUrl, permissionTimeoutMs, realCwd });
+      const userMcp = await codexUserMcpServers({
+        env: { ...opts.env, CODEX_HOME: opts.codexHome },
+        locations: opts.ambientConfig,
+      });
+      if (userMcp.unresolved.length)
+        throw new CodexStartError({ problem: 'mcp_config', ambientConfig: userMcp.unresolved });
+      const { args, initialMessageSent } = buildCodexArgs({
+        spec,
+        hookUrl,
+        permissionTimeoutMs,
+        realCwd,
+        disabledMcpServers: userMcp.names,
+      });
       return { ...resolveCommand(opts.bin, args), cliArgs: args, initialMessageSent };
     },
 

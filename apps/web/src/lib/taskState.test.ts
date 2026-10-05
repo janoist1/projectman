@@ -1,3 +1,4 @@
+import { CODEX_PERMISSION_PROFILE_MIN_VERSION } from '@projectman/shared';
 import type { InboxItem, MemberView, Stage, Task, WorkDoing } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { t } from '../i18n/t';
@@ -12,6 +13,17 @@ const base = mockIndexes();
 const config = buildConfig();
 
 describe('NanoGPT waiting cards', () => {
+  it('shows a Codex setup wait with a resolved minimum version in its hint', () => {
+    const ctx = contextWith([]);
+    const task: Task = {
+      ...tasks[0]!,
+      startWaiting: { reason: 'codex_setup_incomplete', provider: 'codex', since: new Date().toISOString() },
+    };
+    expect(deriveTaskState(task, ctx).label).toBe(t('taskStatus.startWaiting.codex_setup_incomplete'));
+    const hint = startWaitingHint(task, ctx.members, 'owner');
+    expect(hint).toContain(CODEX_PERMISSION_PROFILE_MIN_VERSION);
+    expect(hint).not.toContain('{minCliVersion}');
+  });
   it.each(['nanogpt_key_missing', 'nanogpt_setup_incomplete'] as const)(
     'renders a mock card waiting for %s',
     (reason) => {

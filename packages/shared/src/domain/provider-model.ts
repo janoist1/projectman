@@ -20,6 +20,21 @@ export const DEFAULT_PROVIDER_MODELS: Record<AgentProvider, string> = {
 };
 
 export const NANOGPT_MIN_CODEX_VERSION = '0.159.1';
+/** Candidate minimum; native permission-profile verification is recorded on PM-356. */
+export const CODEX_PERMISSION_PROFILE_MIN_VERSION = '0.159.1';
+
+/** Compare complete numeric CLI versions; malformed or prerelease versions fail closed. */
+export function cliVersionAtLeast(installed: string, minimum: string): boolean {
+  const versionPattern = /^\d+\.\d+\.\d+$/;
+  if (!versionPattern.test(installed) || !versionPattern.test(minimum)) return false;
+  const version = installed.split('.').map(Number);
+  const floor = minimum.split('.').map(Number);
+  if (![...version, ...floor].every(Number.isSafeInteger)) return false;
+  for (let i = 0; i < version.length; i++) {
+    if (version[i]! !== floor[i]!) return version[i]! > floor[i]!;
+  }
+  return true;
+}
 
 /**
  * The providers whose plan usage the server can measure (PM-324): the plan-usage pause and the

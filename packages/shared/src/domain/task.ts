@@ -94,6 +94,7 @@ export const TaskStartWaiting = z.object({
     'provider_not_logged_in',
     'nanogpt_key_missing',
     'nanogpt_setup_incomplete',
+    'codex_setup_incomplete',
     // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
     'senior_busy',
   ]),

@@ -46,6 +46,29 @@ function overrides(args: string[]): Map<string, string> {
 }
 
 describe('TOML values', () => {
+  it('disables plugins for Codex and NanoGPT starts', () => {
+    for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
+      const c = overrides(buildCodexArgs({ ...input, provider }).args);
+      for (const feature of [
+        'plugins',
+        'remote_plugin',
+        'apps',
+        'tool_suggest',
+        'skill_mcp_dependency_install',
+      ])
+        expect(c.get(`features.${feature}`)).toBe('false');
+    }
+  });
+  it('disables named user MCP servers in order before installing the team server', () => {
+    const args = buildCodexArgs({ ...input, disabledMcpServers: ['node_repl', 'other-server'] }).args;
+    expect([...overrides(args)].filter(([key]) => key.startsWith('mcp_servers'))).toEqual([
+      ['mcp_servers.node_repl.enabled', 'false'],
+      ['mcp_servers.other-server.enabled', 'false'],
+      ['mcp_servers.team', '{url="http://127.0.0.1:4700/mcp/tok"}'],
+    ]);
+    for (const name of ['team', 'quoted.name', 'bad name'])
+      expect(() => buildCodexArgs({ ...input, disabledMcpServers: [name] })).toThrow('Invalid user MCP');
+  });
   it('disables ambient notification commands for Codex and NanoGPT launches', () => {
     for (const provider of [undefined, NANOGPT_CODEX_PROVIDER]) {
       const command = buildCodexArgs({ ...input, provider });
@@ -116,30 +139,34 @@ describe('Codex settings from the member', () => {
 });
 
 describe('buildCodexArgs', () => {
-  it.each([false, true])('disables ChatGPT services only for NanoGPT with resume=%s', (resume) => {
-    const settings: Record<string, string> = {
-      'features.plugins': 'false',
-      'features.remote_plugin': 'false',
-      'features.apps': 'false',
-      'features.tool_suggest': 'false',
-      'features.skill_mcp_dependency_install': 'false',
-      cli_auth_credentials_store: '"ephemeral"',
-      'analytics.enabled': 'false',
-      'feedback.enabled': 'false',
-    };
-    const ordinary = overrides(buildCodexArgs({ ...input, spec: { ...spec, resume } }).args);
-    const nanogpt = overrides(
-      buildCodexArgs({
-        ...input,
-        spec: { ...spec, provider: 'nanogpt', resume },
-        provider: NANOGPT_CODEX_PROVIDER,
-      }).args,
-    );
-    for (const [key, value] of Object.entries(settings)) {
-      expect(nanogpt.get(key), key).toBe(value);
-      expect(ordinary.has(key), key).toBe(false);
-    }
-  });
+  it.each([false, true])(
+    'disables plugins for both providers and ChatGPT services only for NanoGPT with resume=%s',
+    (resume) => {
+      const settings: Record<string, string> = {
+        'features.plugins': 'false',
+        'features.remote_plugin': 'false',
+        'features.apps': 'false',
+        'features.tool_suggest': 'false',
+        'features.skill_mcp_dependency_install': 'false',
+        cli_auth_credentials_store: '"ephemeral"',
+        'analytics.enabled': 'false',
+        'feedback.enabled': 'false',
+      };
+      const ordinary = overrides(buildCodexArgs({ ...input, spec: { ...spec, resume } }).args);
+      const nanogpt = overrides(
+        buildCodexArgs({
+          ...input,
+          spec: { ...spec, provider: 'nanogpt', resume },
+          provider: NANOGPT_CODEX_PROVIDER,
+        }).args,
+      );
+      for (const [key, value] of Object.entries(settings)) {
+        expect(nanogpt.get(key), key).toBe(value);
+        if (key.startsWith('features.')) expect(ordinary.get(key), key).toBe('false');
+        else expect(ordinary.has(key), key).toBe(false);
+      }
+    },
+  );
   it.each([false, true])('maps max to xhigh with resume=%s', (resume) => {
     const args = buildCodexArgs({ ...input, spec: { ...spec, resume, effort: 'max' } }).args;
     expect(overrides(args).get('model_reasoning_effort')).toBe(JSON.stringify('xhigh'));
@@ -295,6 +322,14 @@ describe('buildCodexArgs', () => {
       for (const event of CODEX_HOOK_EVENTS) expect(c.has(`hooks.${event}`)).toBe(true);
       expect(c.get('mcp_servers.team')).toContain('default_tools_approval_mode="approve"');
       expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+      for (const feature of [
+        'plugins',
+        'remote_plugin',
+        'apps',
+        'tool_suggest',
+        'skill_mcp_dependency_install',
+      ])
+        expect(c.get(`features.${feature}`)).toBe('false');
     });
 
     it('keeps a research-only member read-only, also without questions', () => {

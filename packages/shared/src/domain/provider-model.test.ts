@@ -9,9 +9,30 @@ import {
   permissionModeFitsProvider,
   usesCodexCli,
   approverBlocksProvider,
+  cliVersionAtLeast,
+  CODEX_PERMISSION_PROFILE_MIN_VERSION,
+  NANOGPT_MIN_CODEX_VERSION,
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it.each([
+    ['0.159.1', true],
+    ['0.159.0', false],
+    ['0.160.0', true],
+    ['1.0.0', true],
+    ['0.9.99', false],
+    ['0.159.1-beta', false],
+    ['bad', false],
+    ['0.159', false],
+    ['0.159.1.2', false],
+    ['99999999999999999999.0.0', false],
+  ])('compares CLI version %s numerically', (version, expected) => {
+    expect(cliVersionAtLeast(version as string, '0.159.1')).toBe(expected);
+    expect(cliVersionAtLeast('0.159.1', 'invalid')).toBe(false);
+  });
+  it('keeps the NanoGPT minimum at least as strict as the shared profile minimum', () => {
+    expect(cliVersionAtLeast(NANOGPT_MIN_CODEX_VERSION, CODEX_PERMISSION_PROFILE_MIN_VERSION)).toBe(true);
+  });
   it('shares Codex CLI capabilities and explains only the NanoGPT none approver', () => {
     expect(usesCodexCli('nanogpt')).toBe(true);
     expect(usesCodexCli('codex')).toBe(true);

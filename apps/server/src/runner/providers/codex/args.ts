@@ -116,6 +116,7 @@ export function codexModel(model: string | undefined): string {
 }
 
 export interface CodexArgsInput {
+  disabledMcpServers?: readonly string[];
   provider?: CodexModelProvider;
   spec: StartSessionSpec;
   /** POST target of the hooks. */
@@ -178,18 +179,17 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
       wire_api: p.wireApi,
     });
     c('shell_environment_policy.exclude', [p.envKey]);
-    // A custom provider must not load ChatGPT services or install unsandboxed plugin/MCP code.
-    for (const feature of [
-      'plugins',
-      'remote_plugin',
-      'apps',
-      'tool_suggest',
-      'skill_mcp_dependency_install',
-    ])
-      c(`features.${feature}`, false);
     c('cli_auth_credentials_store', 'ephemeral');
     c('analytics.enabled', false);
     c('feedback.enabled', false);
+  }
+  // User plugins must never install tools outside a member's sandbox, for any Codex provider.
+  for (const feature of ['plugins', 'remote_plugin', 'apps', 'tool_suggest', 'skill_mcp_dependency_install'])
+    c(`features.${feature}`, false);
+  for (const name of input.disabledMcpServers ?? []) {
+    if (!TOML_BARE_KEY.test(name) || name === 'team')
+      throw new Error('Invalid user MCP server name; refusing to start.');
+    c(`mcp_servers.${name}.enabled`, false);
   }
   c('projects', { [input.realCwd]: { trust_level: 'trusted' } });
   c('project_doc_fallback_filenames', ['CLAUDE.md']);

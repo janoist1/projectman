@@ -126,6 +126,65 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
     });
   });
 
+  describe('what a CLI with a sandbox of its own takes (`portable`, PM-339)', () => {
+    const tmpDir = '/fictional/tmp/projectman-501-tmp/0123abcd/ses_one.abcdef';
+    const heavyLockDir = '/fictional/tmp/projectman-501/heavy';
+
+    it('hands a developer’s folder, browsers, queue and tmp over, and the folder as a writable path', () => {
+      const sandbox = sessionSandbox(developer(), {
+        ...paths,
+        sessionDir,
+        browsersDir: browsers,
+        heavyLockDir,
+        tmpDir,
+      })!;
+      expect(sandbox.portable).toEqual({
+        allowWrite: ['/fictional/tmp/projectman-501', sessionDir],
+        env: {
+          PROJECTMAN_HEAVY_LOCK_DIR: heavyLockDir,
+          npm_config_prefer_offline: 'true',
+          PROJECTMAN_SESSION_DIR: sessionDir,
+          PLAYWRIGHT_BROWSERS_PATH: browsers,
+        },
+        tmpDir,
+      });
+      // Claude Code's own rules are as before: the tmp is the CLI's own business, not an srt path.
+      expect(sandbox.allowWrite).not.toContain(tmpDir);
+    });
+
+    it('makes `portable` for a folder alone, and for a tmp alone', () => {
+      expect(sessionSandbox(developer(), { ...paths, sessionDir })!.portable).toEqual({
+        allowWrite: [sessionDir],
+        env: { PROJECTMAN_SESSION_DIR: sessionDir },
+      });
+      expect(sessionSandbox(developer(), { ...paths, tmpDir })!.portable).toEqual({
+        allowWrite: [],
+        env: {},
+        tmpDir,
+      });
+    });
+
+    it('has none without any of them', () => {
+      expect(sessionSandbox(developer(), paths)!.portable).toBeUndefined();
+      expect(sessionSandbox(reader(), {})!.portable).toBeUndefined();
+    });
+
+    it('gives a reader its folder and tmp too, but not a tmp inside a path it must not write', () => {
+      const sandbox = sessionSandbox(reader(), { sessionDir, browsersDir: browsers, tmpDir })!;
+      expect(sandbox.portable).toEqual({
+        allowWrite: [sessionDir],
+        env: { PROJECTMAN_SESSION_DIR: sessionDir, PLAYWRIGHT_BROWSERS_PATH: browsers },
+        tmpDir,
+      });
+      expect(sessionSandbox(reader(), { tmpDir: `${source}/tmp` })!.portable).toBeUndefined();
+    });
+
+    it('leaves out a tmp or a folder in a denied path', () => {
+      const denied = [tmpDir, sessionDir];
+      expect(sessionSandbox(developer(denied), { ...paths, sessionDir, tmpDir })!.portable).toBeUndefined();
+    });
+  });
+
   it('gives the managed VM profile no sandbox at all', () => {
     const vm = buildSessionPolicy({
       config: testConfig(),

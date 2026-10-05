@@ -184,15 +184,34 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     throw new Error('Codex runs without its sandbox only in the managed VM profile; refusing to start.');
   // What our sandbox shares with Codex's own (the heavy-run queue folder, PM-346). Not in the managed VM.
   const portable = managed ? undefined : spec.sandbox?.portable;
+  const writes = permissions.sandbox === 'workspace-write';
+  // The commands' own temporary directory (PM-339): their TMPDIR and a writable root, while the
+  // shared ones (`/tmp`, the CLI's TMPDIR) are closed. Only where the sandbox writes.
+  const tmpDir = writes ? portable?.tmpDir : undefined;
   const writableRoots = [
     ...(!spec.policy ? (spec.writableRoots ?? []) : []),
     ...(portable?.allowWrite ?? []),
+    ...(tmpDir ? [tmpDir] : []),
   ];
-  if (permissions.sandbox === 'workspace-write' && writableRoots.length > 0)
+  if (writes && writableRoots.length > 0)
     c('sandbox_workspace_write.writable_roots', [...new Set(writableRoots)]);
+  if (tmpDir) {
+    c('sandbox_workspace_write.exclude_tmpdir_env_var', true);
+    c('sandbox_workspace_write.exclude_slash_tmp', true);
+  }
   // Every command sees them, also one run outside the sandbox after a question.
-  for (const [name, value] of Object.entries(portable?.env ?? {}))
+  // The session folder and the browsers belong to a writing sandbox: a read-only one has no folder.
+  const folderVariables = ['PROJECTMAN_SESSION_DIR', 'PLAYWRIGHT_BROWSERS_PATH'];
+  const shellEnv = {
+    ...Object.fromEntries(
+      Object.entries(portable?.env ?? {}).filter(([name]) => writes || !folderVariables.includes(name)),
+    ),
+    ...(tmpDir ? { TMPDIR: tmpDir } : {}),
+  };
+  for (const [name, value] of Object.entries(shellEnv))
     if (TOML_BARE_KEY.test(name)) c(`shell_environment_policy.set.${name}`, value);
+  // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's images.
+  if (writes && portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
   args.push('--sandbox', permissions.sandbox, '--ask-for-approval', permissions.approval);
   args.push('--model', codexModel(spec.model));
   c('model_reasoning_effort', spec.effort === 'max' ? 'xhigh' : (spec.effort ?? DEFAULT_CODEX_EFFORT));

@@ -2533,6 +2533,65 @@ describe("the CLI's own sandbox (PM-167)", () => {
     ).appendSystemPrompt;
     expect(prompt).toContain('# Commands that run without asking');
     expect(prompt).not.toContain('# Your sandbox');
+    // No folder in its sandbox (a read-only one has none): no folder text.
+    expect(prompt).not.toContain('# Your session folder');
+  });
+
+  it('tells a Codex developer its session folder and its own TMPDIR (PM-339)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const developerPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'acceptEdits',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+      deniedPaths: ['/home/anna/.ssh', '/pm/secret'],
+    });
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const tmpDir = '/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
+    const prompt = builder.build(
+      input({
+        project,
+        member,
+        handle: 'fe-1',
+        task,
+        sessionPolicy: developerPolicy,
+        sandbox: sessionSandbox(developerPolicy, { ...sandboxPaths, sessionDir: folder, tmpDir })!,
+      }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Your session folder');
+    expect(text).toContain(`Your session folder: \`${folder}\` (\`$PROJECTMAN_SESSION_DIR\`)`);
+    expect(text).toContain('`attach_file`');
+    expect(text).toContain('`view_image`');
+    expect(text).toContain('`/tmp/projectman-sessions/abc123`');
+    expect(text).toContain(`\`$TMPDIR\` (\`${tmpDir}\`) is your own, deleted with the session`);
+    expect(text).toContain('The shared `/tmp` is not writable');
+    // Its commands section stays; the screenshot paths come with their own card.
+    expect(prompt).toContain('# Commands that run without asking');
+    expect(prompt).not.toContain('npm run shots');
+    expect(prompt).not.toContain('# Your sandbox');
+    expect(prompt).not.toContain('Browsers:');
+  });
+
+  it('does not give a Claude developer the Codex folder section', () => {
+    const developerPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'auto',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+    });
+    const prompt = builder.build(
+      input({
+        project,
+        handle: 'fe-1',
+        task,
+        sessionPolicy: developerPolicy,
+        sandbox: sessionSandbox(developerPolicy, { ...sandboxPaths, sessionDir: '/tmp/s/ses_1.0123' })!,
+      }),
+    ).appendSystemPrompt;
+    expect(prompt).not.toContain('# Your session folder');
+    expect(section(prompt, '# Your sandbox')).toContain('put screenshots and other files to attach there');
   });
 });
 

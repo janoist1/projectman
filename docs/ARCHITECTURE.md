@@ -890,9 +890,20 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and with it the `StartSessionSpec.sandbox.portable` paths; its runner renders the Codex
   arguments and makes the folder (PM-311, PM-312).
 - **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
-  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333). Legacy Claude sessions
-  receive a per-process writable folder below the server's real `tmpdir`; the server makes,
-  sweeps and removes it. These folders are not supplied to Codex or managed VM sessions.
+  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339). Legacy Claude
+  sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
+  writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
+  folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
+  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<session id>.<6 random hex>`
+  (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
+  removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
+  and a sibling of the heavy-run queue's parent `projectman-<uid>`, never below or above it (that
+  parent is writable for every member's commands, so a path there could be pre-empted or read by a
+  member; an overlap, compared as written and by canonical path through links, leaves Codex without a folder); a directory is new at every start and made
+  without `recursive`, so a link put there beforehand stops the start. The path is short because a Unix
+  socket's is limited to 104 bytes. The Codex adapter then closes the shared `/tmp` and the CLI's
+  `$TMPDIR` for its commands.
+  The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
   renders (`filesystem.sessionFolder`, `sessionFoldersRoot`; `claudeToolRules`) and a developer's
@@ -976,7 +987,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333).
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
-  Codex has its own permission mapping in `runner/providers/codex/args.ts`.
+  Codex has its own permission mapping in `runner/providers/codex/args.ts`; its `workspace-write`
+  sandbox writes the roots of `AgentSandbox.portable` (the queue's parent, the session folder and
+  the own tmp, PM-339) and no longer the shared `/tmp` or the CLI's `$TMPDIR`
+  (`exclude_slash_tmp`, `exclude_tmpdir_env_var`; the queue's parent, a sibling of the tmp root, stays writable).
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax.

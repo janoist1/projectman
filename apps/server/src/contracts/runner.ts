@@ -62,7 +62,15 @@ export interface AgentSandbox {
    * may also write `allowWrite` and see `env`. Every entry is in `allowWrite` / `env` above as well,
    * which Claude Code renders; Claude Code ignores this. Absent: nothing.
    */
-  portable?: { allowWrite: string[]; env: Record<string, string> };
+  portable?: {
+    allowWrite: string[];
+    env: Record<string, string>;
+    /**
+     * The commands' own temporary directory (PM-339): writable and their TMPDIR, while the shared
+     * ones (`/tmp`, the CLI's own TMPDIR) are no longer writable. Absent: the CLI's default.
+     */
+    tmpDir?: string;
+  };
 }
 
 /**

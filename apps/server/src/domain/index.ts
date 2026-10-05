@@ -1,4 +1,5 @@
 import os from 'node:os';
+import path from 'node:path';
 import {
   canManageInstancePause,
   isOnLeave,
@@ -71,7 +72,13 @@ import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
-import { prepareSessionFoldersRoot, SessionFolders } from './session-folders';
+import { isWithin } from './command-paths';
+import {
+  prepareSessionFoldersRoot,
+  prepareSessionTmpRoot,
+  realpathOfNearest,
+  SessionFolders,
+} from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
@@ -148,6 +155,8 @@ export type { ScheduleTimer } from './schedules';
 export * from './session-policy';
 export {
   describeSandbox,
+  describeSessionFolder,
+  describeSessionTmpDir,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
@@ -221,6 +230,12 @@ export interface DomainOptions {
    * the folders off. Absent: no folders.
    */
   sessionFoldersDir?: string;
+  /**
+   * The root of the Codex sessions' own temporary directories (PM-339), a short path (a Unix
+   * socket's is 104 bytes at most): each gets one below it, the TMPDIR of its commands, removed with
+   * its folder. Checked here (`prepareSessionTmpRoot`). Absent or unsafe: Codex gets no folder.
+   */
+  sessionTmpDir?: string;
   /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
   /** The machine's heavy-run queue folder (PM-332): its parent is writable for the members' commands. */
@@ -355,7 +370,33 @@ export function createDomain(opts: DomainOptions) {
     try {
       prepareSessionFoldersRoot(opts.sessionFoldersDir);
       // One registry for the sessions (which make the folders) and the team tools (which attach from them).
-      sessionFolders = new SessionFolders(opts.sessionFoldersDir);
+      let tmpRoot: string | undefined;
+      if (opts.sessionTmpDir) {
+        try {
+          // The queue folder's parent is writable for every member's commands: a tmp root in it (or
+          // above it) would be too.
+          // Compared as written and canonically: a link (or macOS `/tmp` -> `/private/tmp`) must not hide it.
+          const queueParent = opts.heavyLockDir ? path.dirname(opts.heavyLockDir) : undefined;
+          if (queueParent) {
+            const overlaps = (a: string, b: string) => isWithin(a, b) || isWithin(b, a);
+            if (
+              overlaps(queueParent, opts.sessionTmpDir) ||
+              overlaps(realpathOfNearest(queueParent), realpathOfNearest(opts.sessionTmpDir))
+            )
+              throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
+          }
+          prepareSessionTmpRoot(opts.sessionTmpDir);
+          tmpRoot = opts.sessionTmpDir;
+        } catch (err) {
+          opts.logger.error(
+            { err, dir: opts.sessionTmpDir },
+            'the Codex session folders are off: their temporary root is not a safe directory',
+          );
+        }
+      }
+      sessionFolders = new SessionFolders(opts.sessionFoldersDir, tmpRoot, (err, dir) =>
+        opts.logger.warn({ err, dir }, 'could not remove a temporary directory of a session'),
+      );
     } catch (err) {
       opts.logger.error(
         { err, dir: opts.sessionFoldersDir },
@@ -1043,6 +1084,7 @@ export function createDomain(opts: DomainOptions) {
       await background.stop();
       pauses.dispose();
       sessions.dispose();
+      sessionFolders?.releaseTmpRoot();
       await machine.stop();
       await drained;
     },

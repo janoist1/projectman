@@ -419,7 +419,42 @@ sandbox cannot read `~/.codex`; the integrator or the owner runs the command on 
 `codex sandbox macos --full-auto -c 'sandbox_workspace_write.writable_roots=["/private/tmp/projectman-501"]' -- /bin/sh -c 'mkdir /private/tmp/projectman-501/probe-pm346 && rmdir /private/tmp/projectman-501/probe-pm346'`,
 with and without the `-c`) and its result goes here. If Codex ignores the setting, a command run
 outside its sandbox after a question still queues, and the CLI stops one that cannot use the
-queue (exit 78). The
+queue (exit 78).
+
+A Codex session whose sandbox writes (`workspace-write`, a developer's own placement, outside the
+managed VM; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
+by the server before the process starts and removed with the session:
+
+- the folder (`$PROJECTMAN_SESSION_DIR`, as for a Claude member; `PLAYWRIGHT_BROWSERS_PATH` with it) is
+  a writable root, so the member can put an image there, open it with the built-in `view_image`
+  (`tools.view_image = true`: not a sandboxed command, so it asks nothing) and `attach_file` it;
+- the temporary directory (`SessionFolders.allocateTmp`, `<tmpRoot>/<session id>.<6 random hex digits>`,
+  `AgentSandbox.portable.tmpDir`) is a writable root and every command's `TMPDIR`
+  (`shell_environment_policy.set.TMPDIR`), while `sandbox_workspace_write.exclude_slash_tmp` and
+  `exclude_tmpdir_env_var` close the shared `/tmp` and the CLI's own `$TMPDIR`. Under both lay the other
+  members' session folders, the server's full-test run directories and the Claude members' `/tmp/claude-<uid>`,
+  which a Codex member could write otherwise. The path is short on purpose
+  (`/tmp/projectman-<uid>-tmp/<instance hash>/<session id>.<6 hex>`, about 72 bytes on macOS, about 91 with a
+  `tsx` socket's `/tsx-<uid>/<pid>.pipe`): a Unix
+  socket's path is 104 bytes at most and tools such as `tsx` open one in `TMPDIR`, which the session folder's
+  long path would not allow. The root is a sibling of the queue folder's parent `/tmp/projectman-<uid>`, never
+  below it or above it: that parent is writable for every member's commands (PM-346), so a path in it could be
+  pre-empted or read by any member (the domain leaves Codex without a folder, and logs an error, when
+  `PROJECTMAN_HEAVY_LOCK_DIR` makes them overlap, also through a link: the paths are compared canonically). The root is 0700 and no member's sandbox names it. The
+  directory is new at every start (random name, made by `SessionFolders.make` without `recursive`, so a link
+  or directory put there beforehand is an error that stops the start), because the Seatbelt rule covers the
+  path itself: a process of an earlier run could re-make a removed path, even as a link. It is removed when
+  the process ends, swept at the server's start, and the empty root is removed at the server's stop.
+
+A read-only session (the default mode, `plan`) gets neither: Codex's read-only sandbox takes no
+writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
+after the closing; give it a targeted writable root, do not reopen `/tmp`. Real-CLI probe on codex-cli
+0.159.1: _not run yet_ (the integrator runs it once, with a real Codex session: `touch
+"$PROJECTMAN_SESSION_DIR/x"` works; another member's folder, `/tmp` and the CLI's original `TMPDIR` are
+not writable; `echo $TMPDIR` shows the own directory; `npx vitest related`, `npm run typecheck` and `git
+commit` work; a png in the folder opens with `view_image` without a question) and its result goes here.
+
+The
 shared git directory is not made writable (PM-131): it never let `git commit` through, since
 Codex's sandbox denies the worktree's index lock, but it let an agent write the repository's
 hooks and configuration, which run when the host uses git there. The routine git steps

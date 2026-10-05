@@ -18,8 +18,11 @@ made. A choice of your own that the owner should confirm goes to them as a quest
 ## Subscription rule
 
 - Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `GEMINI_API_KEY`,
-  `GOOGLE_API_KEY`, `NANOGPT_API_KEY` or other API-billing variables. The runner strips them
+  `GOOGLE_API_KEY` or other API-billing variables. The runner strips them
   from the environment of every session (`BILLING_ENV_VARS` in `apps/server/src/runner/env.ts`).
+  The sole exception is the projectman-managed `NANOGPT_API_KEY` from
+  `secrets/nanogpt.json`, passed only to NanoGPT member sessions (decision 34, PM-319).
+  It never permits ChatGPT login fallback or OpenAI API billing.
 - Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
   `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
   `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.

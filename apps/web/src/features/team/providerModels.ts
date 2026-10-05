@@ -22,6 +22,10 @@ export const CODEX_LABELS: Record<string, PlainMessageKey> = {
 export const PROVIDER_MODEL_LABELS = {
   claude: { ...CLAUDE_FIXED_LABELS, ...CLAUDE_ALIAS_LABELS },
   codex: CODEX_LABELS,
+  nanogpt: { 'z-ai/glm-5.3-flash-uncensored': 'providerSettings.models.glm' } as Record<
+    string,
+    PlainMessageKey
+  >,
 };
 
 export function providerModelLabel(provider: AgentProvider, model: string): string {

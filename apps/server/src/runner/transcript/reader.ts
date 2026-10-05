@@ -16,7 +16,7 @@ export async function readTranscript(
 ): Promise<ChatItem[]> {
   const text = await readTranscriptText(path, opts.confineTo);
   const provider = opts.provider ?? (CODEX_ROLLOUT_FILE.test(path) ? 'codex' : 'claude');
-  if (provider === 'codex') return parseCodexTranscript(text, opts);
+  if (provider === 'codex' || provider === 'nanogpt') return parseCodexTranscript(text, opts);
   return parseTranscript(text, opts);
 }
 

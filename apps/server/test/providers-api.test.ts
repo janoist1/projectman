@@ -13,7 +13,7 @@ describe('provider API', () => {
     await h.close();
   });
 
-  it('requires login and returns both runner statuses to a viewer', async () => {
+  it('requires login and returns every runner status to a viewer', async () => {
     const providerStatus = vi.fn(async (provider: AgentProvider) => ({
       provider,
       loggedIn: provider === 'claude',
@@ -42,8 +42,9 @@ describe('provider API', () => {
         checkedAt: '2026-01-01T00:00:00.000Z',
         detail: 'Not logged in',
       },
+      { provider: 'nanogpt', loggedIn: false, method: 'none', checkedAt: '2026-01-01T00:00:00.000Z' },
     ]);
-    expect(providerStatus.mock.calls.map(([provider]) => provider)).toEqual(['claude', 'codex']);
+    expect(providerStatus.mock.calls.map(([provider]) => provider)).toEqual(['claude', 'codex', 'nanogpt']);
   });
 
   it('reports unknown when a runner has no login checks', async () => {
@@ -52,6 +53,7 @@ describe('provider API', () => {
     expect(ProvidersView.parse(response.json()).providers).toEqual([
       expect.objectContaining({ provider: 'claude', loggedIn: null }),
       expect.objectContaining({ provider: 'codex', loggedIn: null }),
+      expect.objectContaining({ provider: 'nanogpt', loggedIn: null }),
     ]);
   });
 

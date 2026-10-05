@@ -268,7 +268,9 @@ export class MemberService {
         ...(req.specialty ? { specialty: req.specialty } : {}),
         ...(req.provider ? { provider: req.provider } : {}),
         model:
-          req.provider === 'codex' ? modelForProvider('codex', req.model) : (req.model ?? defaults.model),
+          req.provider === 'codex' || req.provider === 'nanogpt'
+            ? modelForProvider(req.provider, req.model)
+            : (req.model ?? defaults.model),
         ...(req.effort ? { effort: req.effort } : {}),
         ...(req.cheapSubagent ? { cheapSubagent: req.cheapSubagent } : {}),
         permissionMode: defaults.permissionMode,

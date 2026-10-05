@@ -89,7 +89,7 @@
  * fake-tui.mjs.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -349,7 +349,8 @@ for (const feature of opts.disable) applyOverride(config, `features.${feature}=f
 
 const codexHome = process.env.CODEX_HOME || path.join(os.tmpdir(), 'fake-codex-home');
 
-if (process.env.FAKE_CODEX_ARGS_FILE) writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config });
+if (process.env.FAKE_CODEX_ARGS_FILE)
+  writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config, envNames: Object.keys(process.env).sort() });
 
 if (opts.version) {
   process.stdout.write(`codex-cli ${process.env.FAKE_CODEX_VERSION ?? VERSION}\n`);
@@ -1004,7 +1005,15 @@ async function interactive() {
   line(`model: ${model} · directory: ${cwd}`);
   line();
 
-  if (process.env.FAKE_CODEX_LOGGED_OUT) {
+  if (config.model_provider === 'nanogpt' && !process.env.NANOGPT_API_KEY) {
+    line('Not logged in: NanoGPT key missing');
+    await keys.wait();
+    process.exit(1);
+  }
+  if (
+    process.env.FAKE_CODEX_LOGGED_OUT ||
+    (!config.model_provider && existsSync(path.join(codexHome, 'auth.json')))
+  ) {
     line('Sign in with ChatGPT to use Codex as part of your paid plan');
     line('› 1. Sign in with ChatGPT');
     line('  2. Provide your own API key');

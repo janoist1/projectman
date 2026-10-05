@@ -301,7 +301,7 @@ describe('a managed VM start through the runner (no pseudo-terminal: it is refus
   const ATTESTATION: ManagedVmAttestation = {
     profile: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION },
     verifiedAt: '2026-10-01T12:00:00.000Z',
-    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'] },
+    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'], nanogpt: [] },
   };
   const saved = { ...process.env };
   afterEach(() => {

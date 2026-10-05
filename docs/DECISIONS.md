@@ -248,3 +248,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     four-line message instead of running at full speed beside the others, which overloaded the
     machine. The server's own full test before review still runs without the queue and logs a
     warning, because the review must not stall on it.
+34. **NanoGPT is a narrow API-key exception.** Decided by the owner on 2026-10-04
+    (PM-319). Open models run through the interactive Codex CLI with NanoGPT as its custom
+    model provider, not through Ollama or `--oss`. The key is a projectman secret and reaches
+    only NanoGPT members' sessions. The `ANTHROPIC_*`, `OPENAI_*` and `CODEX_*` billing-key
+    prohibitions remain; there is no fallback to ChatGPT login or OpenAI billing. This
+    modifies decision 15 only for the projectman-managed NanoGPT key (PM-328, PM-329).

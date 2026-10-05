@@ -215,7 +215,7 @@ describe('a question-free session (PM-141) through the launcher', () => {
   const attestation: ManagedVmAttestation = {
     profile: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION },
     verifiedAt: '2026-10-01T12:00:00.000Z',
-    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'] },
+    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'], nanogpt: [] },
   };
   const managedSpec = (provider: AgentProvider = 'claude') =>
     spec({

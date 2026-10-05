@@ -183,7 +183,7 @@ export interface DomainOptions {
   /** Base URL the claude CLI reaches this server at (MCP endpoint), e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
   /** Creates the runner module once the permission broker (the inbox) exists. */
-  createRunner: (broker: PermissionBroker) => RunnerModule;
+  createRunner: (broker: PermissionBroker, nanogptKey?: () => Promise<string | null>) => RunnerModule;
   github: GithubService;
   /**
    * The VM's GitHub publishing identity (PM-142): without it `publish_task_branch` refuses. It is
@@ -320,11 +320,14 @@ export function createDomain(opts: DomainOptions) {
     attachmentDirectory,
   });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
-  const runnerModule = opts.createRunner({
-    ...inbox.broker,
-    forwardQuestion: ({ sessionId, toolName, toolInput }) =>
-      agentQuestions.forward(sessionId, toolName, toolInput),
-  });
+  const runnerModule = opts.createRunner(
+    {
+      ...inbox.broker,
+      forwardQuestion: ({ sessionId, toolName, toolInput }) =>
+        agentQuestions.forward(sessionId, toolName, toolInput),
+    },
+    () => providerKeys?.nanogptKey() ?? Promise.resolve(null),
+  );
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
@@ -431,6 +434,12 @@ export function createDomain(opts: DomainOptions) {
     disk,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
+  providerKeys?.onChange(() => {
+    void runnerModule.runner
+      .providerStatus?.('nanogpt', { refresh: true })
+      .then(() => admission.retryDeferred())
+      .catch(() => ctx.logger.warn('could not refresh NanoGPT readiness'));
+  });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
   const sessionCloser = new SessionCloser({

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProvidersView } from '@projectman/shared';
@@ -38,6 +38,17 @@ describe('provider key API', () => {
       headers: { cookie },
       ...(payload ? { payload } : {}),
     });
+  it('returns missing key status for corrupt secret JSON without exposing its contents', async () => {
+    const { owner } = await setup();
+    await call(owner, 'PUT', { key: 'test-key' });
+    writeFileSync(join(h.home, 'secrets', 'nanogpt.json'), '{invalid-private-sentinel');
+    const response = await call(owner, 'GET');
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ keys: { nanogpt: { set: false } } });
+    expect(await h.app.projectman.domain.providerKeys!.nanogptKey()).toBeNull();
+    expect(logs.join('')).not.toContain('invalid-private-sentinel');
+    expect((await call(owner, 'PUT', { key: 'replacement' })).statusCode).toBe(200);
+  });
   it('lets the installation owner save, replace and clear without leaking into responses, configuration or database bytes', async () => {
     const { owner, check } = await setup();
     const secret = 'pm328-unique-private-sentinel';

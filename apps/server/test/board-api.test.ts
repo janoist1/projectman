@@ -121,7 +121,7 @@ describe('board API', () => {
 
   it('uses the runner’s per-provider plan usage for snapshots and fetched events', async () => {
     const module = h.runnerModule.createWithBroker(h.runnerModule.broker());
-    const values = { claude: planUsage(12), codex: planUsage(34) };
+    const values = { claude: planUsage(12), codex: planUsage(34), nanogpt: null };
     const calls: AgentProvider[] = [];
     module.planUsageFor = (provider) => ({
       get: async () => {

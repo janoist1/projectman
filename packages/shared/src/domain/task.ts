@@ -91,6 +91,8 @@ export const TaskStartWaiting = z.object({
     'full_test_pending',
     // The member's provider is not logged in (PM-324): the start continues once it is.
     'provider_not_logged_in',
+    'nanogpt_key_missing',
+    'nanogpt_setup_incomplete',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),

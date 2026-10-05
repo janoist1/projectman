@@ -51,7 +51,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
 
 /** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */
 function isCodex(member: ContextPackInput['member']): boolean {
-  return member.provider === 'codex';
+  return member.provider === 'codex' || member.provider === 'nanogpt';
 }
 
 function boundarySection({ project }: ContextPackInput): string {
@@ -62,7 +62,12 @@ function boundarySection({ project }: ContextPackInput): string {
 function identitySection({ project, member }: ContextPackInput): string {
   const sponsor = project.team.members.find((m) => m.handle === member.sponsor);
   const specialty = member.specialty ? ` (${member.specialty})` : '';
-  const plan = isCodex(member) ? 'ChatGPT subscription (Codex)' : 'Claude subscription';
+  const plan =
+    member.provider === 'nanogpt'
+      ? 'Codex CLI'
+      : isCodex(member)
+        ? 'ChatGPT subscription (Codex)'
+        : 'Claude subscription';
   const lines = [
     '# Who you are',
     `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role, project.team.roles)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s ${plan}.`,

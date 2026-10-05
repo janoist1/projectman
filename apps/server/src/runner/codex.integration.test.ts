@@ -53,13 +53,21 @@ const broker: PermissionBroker = {
   },
 };
 
-async function setup(options: { permissionTimeoutMs?: number } = {}): Promise<void> {
+async function setup(
+  options: {
+    permissionTimeoutMs?: number;
+    nanogptKey?: () => Promise<string | null>;
+    nanogptCodexHome?: string;
+  } = {},
+): Promise<void> {
   const port = await freePort();
   app = Fastify({ logger: false });
   runner = createRunnerModule({
     claudeBin: FAKE_CLAUDE,
     codexBin: FAKE_CODEX,
     codexHome,
+    nanogptKey: options.nanogptKey,
+    nanogptCodexHome: options.nanogptCodexHome,
     publicBaseUrl: `http://127.0.0.1:${port}`,
     broker,
     permissionTimeoutMs: options.permissionTimeoutMs ?? 10_000,
@@ -84,6 +92,7 @@ beforeEach(async () => {
   process.env.OPENAI_API_KEY = 'sk-openai-must-not-leak';
   process.env.CODEX_API_KEY = 'sk-codex-must-not-leak';
   process.env.ANTHROPIC_API_KEY = 'sk-ant-must-not-leak';
+  process.env.NANOGPT_API_KEY = 'inherited-nanogpt-must-not-leak';
   process.env.CODEX_THREAD_ID = 'parent-thread';
   process.env.CODEX_INTERNAL_ORIGINATOR_OVERRIDE = 'parent';
   // A dead proxy: the forwarder (curl honours http_proxy) only reaches the server because the
@@ -158,6 +167,61 @@ const providerIdOf = (id: string) =>
   )?.providerSessionId;
 
 describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
+  it('runs NanoGPT hooks, team tools, permissions and resume in its own home without exposing the key', async () => {
+    const nanoHome = await dirs.make('nano-home-');
+    process.env.FAKE_CODEX_VERSION = '0.159.1';
+    process.env.NANOGPT_API_KEY = 'inherited-must-not-leak';
+    let key: string | null = 'nanogpt-private-sentinel';
+    await setup({ nanogptKey: async () => key, nanogptCodexHome: nanoHome });
+    const s = spec({ provider: 'nanogpt', initialMessage: 'TEAM' });
+    await runner.runner.start(s);
+    await assistantSaid(s.sessionId, 'Echo: TEAM');
+    await waitState(s.sessionId, 'idle');
+    answers.push({ behavior: 'allow' });
+    await runner.runner.sendUserMessage(s.sessionId, 'PERMISSION');
+    await assistantSaid(s.sessionId, 'Echo: PERMISSION');
+    await waitState(s.sessionId, 'idle');
+    expect(requests).toHaveLength(1);
+    expect(chatOf(s.sessionId)).toContainEqual(
+      expect.objectContaining({ kind: 'team_message', direction: 'out', text: 'Ready for review' }),
+    );
+    const diagnostics = JSON.parse(await readFile(argsFile, 'utf8'));
+    expect(diagnostics.config.model_provider).toBe('nanogpt');
+    expect(diagnostics.env.NANOGPT_API_KEY).toBe('<set>');
+    expect(diagnostics.env.CODEX_HOME).toBe(nanoHome);
+    expect(diagnostics.env.OPENAI_API_KEY).toBeUndefined();
+    const transcript = events.find((e) => e.type === 'transcript_path') as Extract<
+      RunnerEvent,
+      { type: 'transcript_path' }
+    >;
+    expect(transcript.path.startsWith(nanoHome)).toBe(true);
+    expect(await runner.transcripts.read(transcript.path, { provider: 'nanogpt', self: 'fe-1' })).toEqual(
+      chatOf(s.sessionId),
+    );
+    expect(await readFile(transcript.path, 'utf8')).not.toContain(key!);
+    expect(JSON.stringify(events)).not.toContain(key!);
+    expect(await runner.planUsageFor!('nanogpt').get()).toBeNull();
+    expect(await runner.planUsageFor!('codex').get()).toBeNull();
+    const learned = providerIdOf(s.sessionId)!;
+    key = null;
+    await runner.runner.sendUserMessage(s.sessionId, 'still running');
+    await assistantSaid(s.sessionId, 'Echo: still running');
+    await runner.runner.stop(s.sessionId);
+    await expect(runner.runner.start(spec({ provider: 'nanogpt' }))).rejects.toMatchObject({
+      code: 'nanogpt_key_missing',
+    });
+    key = 'replacement-test-key';
+    const resumed = spec({
+      provider: 'nanogpt',
+      resume: true,
+      claudeSessionId: learned,
+      initialMessage: 'resume test',
+    });
+    await runner.runner.start(resumed);
+    await assistantSaid(resumed.sessionId, 'Echo: resume test');
+    expect(JSON.parse(await readFile(argsFile, 'utf8')).argv).toContain(learned);
+    expect(await readFile(transcript.path, 'utf8')).toContain('resume test');
+  });
   it('passes the brief on the command line, learns the session id and follows the turn', async () => {
     await setup();
     const s = spec({ initialMessage: 'Hello from the brief' });
@@ -230,6 +294,7 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       'OPENAI_API_KEY',
       'CODEX_API_KEY',
       'ANTHROPIC_API_KEY',
+      'NANOGPT_API_KEY',
       'CODEX_THREAD_ID',
       'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
     ]) {

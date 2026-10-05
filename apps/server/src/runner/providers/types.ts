@@ -117,6 +117,8 @@ export interface LaunchInput {
 }
 
 export interface Launch {
+  /** Trusted adapter-only environment, never recorded in session data or logs. */
+  env?: Record<string, string>;
   file: string;
   args: string[];
   /** The CLI's own arguments (`args` may start with a script for a fake CLI); the launcher gets these. */

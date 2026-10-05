@@ -311,6 +311,12 @@ function errorCode(err: unknown): string | null {
 }
 
 function providerNotLoggedIn(provider: AgentProvider, details: Record<string, unknown>, detail?: string) {
+  if (provider === 'nanogpt')
+    return conflict(
+      details.problem === 'no_key' ? 'nanogpt_key_missing' : 'nanogpt_setup_incomplete',
+      'NanoGPT is not ready',
+      { provider, ...details },
+    );
   return conflict(
     PROVIDER_NOT_LOGGED_IN,
     `${provider} is not logged in with a subscription${detail ? `: ${detail}` : ''}`,
@@ -1289,6 +1295,11 @@ export class SessionOrchestrator {
     assertRepoChosen(config, member.role, task);
     const projectKey = config.project.key;
     const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+    if (provider === 'nanogpt' && this.managed)
+      throw conflict('provider_unsupported', 'NanoGPT is not supported in the managed VM', {
+        provider,
+        profile: 'managed_vm',
+      });
     // The session's own permission settings, set by an owner, in place of the member's (PM-170):
     // a resume keeps them (same row), a new session has none. The member's stay as they are.
     const permissions = effectiveSessionPermissions(member, existing ?? {});
@@ -1718,7 +1729,20 @@ export class SessionOrchestrator {
       }
       this.recomputeMemberState(projectKey, member.handle);
       if (errorCode(err) === PROVIDER_NOT_LOGGED_IN) {
-        throw providerNotLoggedIn(provider, { sessionId: session.id }, (err as Error).message);
+        const status = (err as { status?: { problem?: string; cliVersion?: string; minCliVersion?: string } })
+          .status;
+        throw providerNotLoggedIn(provider, { sessionId: session.id, ...status }, (err as Error).message);
+      }
+      if (
+        ['nanogpt_key_missing', 'nanogpt_setup_incomplete', 'provider_unsupported'].includes(
+          errorCode(err) ?? '',
+        )
+      ) {
+        const failure = err as Error & {
+          code: 'nanogpt_key_missing' | 'nanogpt_setup_incomplete' | 'provider_unsupported';
+          details?: Record<string, unknown>;
+        };
+        throw conflict(failure.code, failure.message, failure.details);
       }
       if (errorCode(err) === MANAGED_VM_UNAVAILABLE) {
         throw managedVmUnavailable(err, { sessionId: session.id });
@@ -2044,7 +2068,16 @@ export class SessionOrchestrator {
       return;
     }
     if (status?.loggedIn === false) {
-      throw providerNotLoggedIn(provider, { method: status.method }, status.detail);
+      throw providerNotLoggedIn(
+        provider,
+        {
+          method: status.method,
+          problem: status.problem,
+          cliVersion: status.cliVersion,
+          minCliVersion: status.minCliVersion,
+        },
+        status.detail,
+      );
     }
   }
 

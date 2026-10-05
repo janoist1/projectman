@@ -65,7 +65,13 @@ export type SetupStatus = z.infer<typeof SetupStatus>;
 /* ---------- providers ---------- */
 
 /** Why a provider is not usable (PM-324); only with `loggedIn === false`. */
-export const ProviderProblem = z.enum(['not_logged_in', 'no_key', 'cli_too_old', 'cli_missing']);
+export const ProviderProblem = z.enum([
+  'not_logged_in',
+  'no_key',
+  'cli_too_old',
+  'cli_missing',
+  'chatgpt_login',
+]);
 export type ProviderProblem = z.infer<typeof ProviderProblem>;
 
 /** Subscription login status of each supported runner provider. */

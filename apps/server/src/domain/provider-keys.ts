@@ -58,8 +58,13 @@ export class ProviderKeys {
       return stored.data;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      // Parsing errors can contain the input: never propagate or log them.
-      throw new Error('Could not read NanoGPT key store');
+      if (error instanceof SyntaxError) this.deps.logger.warn('nanogpt key store is invalid');
+      else
+        this.deps.logger.warn(
+          { code: (error as NodeJS.ErrnoException).code },
+          'nanogpt key store unreadable',
+        );
+      return null;
     }
   }
   status(): ProviderKeyStatus {

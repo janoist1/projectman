@@ -847,7 +847,17 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`
+  (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under
+  `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
+  adapter supplies the secret as trusted child environment and excludes it from CLI shell
+  commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
+  Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** the CLI,
+  home and transcripts belong on the engine; secret delivery requires an authenticated
+  launch/resume boundary, never configuration, public status or logs.
+
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
+  See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
   owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
@@ -935,7 +945,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   is not evidence that a remote session has stopped.
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
-  (PM-340). Claude conversations live under `~/.claude/projects`; Codex rollouts under
+  (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
+  Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
   checks transcript content; managed worker reads are confined to the worker home.
   **Remote engine:** keep CLI conversation state and resume checks on its engine/account,
@@ -983,6 +994,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
+  See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
+  but NanoGPT rollouts never feed the ChatGPT plan gauge.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
   events. These observe the local account, not an arbitrary remote sponsor.

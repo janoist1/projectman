@@ -1,5 +1,19 @@
 # Agent providers
 
+## NanoGPT (PM-329)
+
+NanoGPT uses the interactive Codex CLI with a custom Responses model provider at
+`https://nano-gpt.com/api/v1`, not `--oss`. The default model is
+`z-ai/glm-5.3-flash-uncensored`; effort defaults to medium. Codex >= 0.159.1 is required:
+older 0.117–0.125 releases had MCP issues with custom providers (openai/codex #19871).
+The installation secret comes from PM-328's store, only at launch and resume. A dedicated
+0700 `PROJECTMAN_HOME/providers/nanogpt/codex-home` keeps transcripts separate and rejects
+`auth.json`; there is no ChatGPT fallback. The key is excluded from CLI shell environments.
+Missing keys or incomplete setup defer automatic starts; key changes refresh readiness and
+retry them. Deletion does not stop an existing session. Hook, terminal, team MCP, permission
+and resume behavior follow Codex, without a ChatGPT plan gauge. Managed VM is unsupported
+until PM-331. Real-key tool, effort and process-environment checks are performed by the owner.
+
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
 on the sponsor's ChatGPT plan (decision 15). Both run as interactive TUIs in a PTY, never

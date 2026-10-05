@@ -68,6 +68,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     log(`retry focus: ${await box.locator('ul').evaluate((element) => element === document.activeElement)}`);
   });
   await step('roster badge tooltip by touch and focus', async () => {
+    await page.setViewportSize({ width: 1512, height: 982 });
     await page.goto(`${instance.webUrl}/p/AC/team`);
     const badge = page
       .getByRole('group', {

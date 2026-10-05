@@ -376,6 +376,7 @@ export class MockBackend {
   > = {};
   /** While set, GET /api/providers fails. */
   providersFail = false;
+  canManageKeys: boolean | undefined;
   nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
@@ -1369,33 +1370,51 @@ export class MockBackend {
       if (path === '/api/providers' && this.providersFail)
         return error(503, 'internal_error', 'Providers unavailable');
       const member = memberOf(this.config, this.viewerHandle);
-      const canManageKeys = canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
+      const canManageKeys =
+        this.canManageKeys ?? canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
       if (path === '/api/providers/nanogpt/key') {
         if (!canManageKeys)
           return error(403, 'insufficient_access', 'Only an owner of every project may manage provider keys');
         if (method === 'PUT') {
-          if (!parseBody(SetProviderKeyRequest, body)) return error(400, 'invalid_request', 'Invalid key');
+          const input = parseBody(SetProviderKeyRequest, body);
+          if (!input) return error(400, 'invalid_request', 'Invalid key');
+          if (input.key === 'rejected') return error(400, 'nanogpt_key_rejected', 'Provider rejected key');
           this.nanogptKeyStatus = { set: true, setAt: nowIso() };
-        } else if (method === 'DELETE') this.nanogptKeyStatus = { set: false, setAt: null };
-        else return error(404, 'not_found', 'Unknown provider key route');
+          if (this.providerStatus.nanogpt?.problem === 'no_key') delete this.providerStatus.nanogpt;
+        } else if (method === 'DELETE') {
+          this.nanogptKeyStatus = { set: false, setAt: null };
+          if (
+            this.providerStatus.nanogpt?.loggedIn === true ||
+            this.providerStatus.nanogpt?.problem === 'no_key'
+          )
+            delete this.providerStatus.nanogpt;
+        } else return error(404, 'not_found', 'Unknown provider key route');
       }
       return ok({
         keys: { nanogpt: { ...this.nanogptKeyStatus } },
         canManageKeys,
         providers: AgentProvider.options.map((provider) => ({
           provider,
-          loggedIn: this.providerLoggedIn[provider],
-          method: this.providerLoggedIn[provider]
-            ? provider === 'claude'
-              ? 'claude.ai'
-              : provider === 'nanogpt'
-                ? 'api_key'
-                : provider === 'gemini'
-                  ? 'google'
-                  : 'chatgpt'
-            : 'none',
+          loggedIn: provider === 'nanogpt' ? this.nanogptKeyStatus.set : this.providerLoggedIn[provider],
+          method:
+            provider === 'nanogpt'
+              ? 'api_key'
+              : this.providerLoggedIn[provider]
+                ? provider === 'claude'
+                  ? 'claude.ai'
+                  : provider === 'gemini'
+                    ? 'google'
+                    : 'chatgpt'
+                : 'none',
           checkedAt: nowIso(),
-          problem: this.providerLoggedIn[provider] ? undefined : 'not_logged_in',
+          problem:
+            provider === 'nanogpt'
+              ? this.nanogptKeyStatus.set
+                ? undefined
+                : 'no_key'
+              : this.providerLoggedIn[provider]
+                ? undefined
+                : 'not_logged_in',
           ...this.providerStatus[provider],
         })),
       });
@@ -3861,6 +3880,11 @@ export class MockBackend {
     )
       return 'ai_limit_reached';
     // Like the server: after the AI limit, before the plan usage (PM-324).
+    if (provider === 'nanogpt') {
+      const status = this.providerStatus.nanogpt;
+      if (status?.loggedIn === false && status.problem !== 'no_key') return 'nanogpt_setup_incomplete';
+      if (!this.nanogptKeyStatus.set) return 'nanogpt_key_missing';
+    }
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
     if (
       hasPlanUsage(provider) &&

@@ -841,8 +841,10 @@ export const hu = {
       // The drawer adds the login command (`providerSettings.loginCommands`) in a code element after it.
       provider_not_logged_in:
         'A munka magától elindul, amint belépsz; a szerver félpercenként ellenőrzi. Futtasd a szerveren:',
-      nanogpt_key_missing: 'A munka magától elindul, amint a tulajdonos megadja a NanoGPT-kulcsot.',
-      nanogpt_setup_incomplete: 'Ellenőrizd a Codex verzióját és a külön NanoGPT-beállításokat.',
+      nanogpt_key_missing:
+        'A tulajdonos a Beállítások → AI-szolgáltatók alatt adhatja meg a kulcsot; utána a munka magától elindul.',
+      nanogpt_setup_incomplete:
+        'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Javítás után a munka magától elindul.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -1768,6 +1770,8 @@ export const hu = {
 
   /** The two permission settings of an AI member: the mode, and who answers when it asks. */
   permissionControls: {
+    nanogptApproverNone:
+      'NanoGPT-tagnál a homokozón kívüli parancsokat (pl. commit, npm ci) csak ember hagyhatja jóvá. „Senki” mellett ezek elutasítódnak, így fejlesztőként a tag nem tud commitolni.',
     mode: 'Mód',
     providerNotes: {
       gemini: {
@@ -2456,7 +2460,7 @@ export const hu = {
   team: {
     title: 'Csapat',
     subtitle: '{humans} ember és {ai} AI-tag, {tasks} feladaton',
-    subscriptionYours: 'az AI-tagok a te előfizetéseiden futnak (Claude, ChatGPT)',
+    subscriptionYours: 'az AI-tagok a te előfizetéseiddel vagy szolgáltatói API-kulcsoddal futnak',
     subscriptionOther: 'az AI-tagok {name} előfizetésén futnak',
     subscriptionMajority: 'az AI-tagok többsége {name} előfizetésén fut; ahol más, a tagnál áll',
     subscriptionMajorityYours: 'az AI-tagok többsége a te előfizetéseden fut; ahol más, a tagnál áll',
@@ -2511,7 +2515,9 @@ export const hu = {
     modelId: 'Modellazonosító',
     models: {
       sol: 'gpt-6.1-sol — munkaló, kódolásra',
-      glm: 'GLM 5.3 Flash Uncensored',
+      glm: 'z-ai/glm-5.3-flash-uncensored — nyílt modell, kevesebb beépített korláttal',
+      glmUncensored: 'z-ai/glm-5.3-uncensored — nagy nyílt modell, kevesebb beépített korláttal',
+      glmCybersecurity: 'z-ai/glm-5.3-flash-cybersecurity — kiberbiztonságra hangolt nyílt modell',
       luna: 'gpt-6-luna — gyors, olcsó, egyszerű feladatokra',
       astra: 'gpt-6-astra — a legerősebb, drága, csak kritikus feladatra',
     },
@@ -2544,6 +2550,33 @@ export const hu = {
       max: 'Maximális',
     },
     effortHint: 'A nagyobb erőfeszítés több előfizetési keretet használ és lassabb lehet.',
+    nanogptOption: 'NanoGPT (nyílt modell)',
+    nanogptModelHint: 'A NanoGPT modellazonosítója. Csak eszközhívást tudó modell működik.',
+    nanogptEffortHint:
+      'A nagyobb erőfeszítés több tokent használ, és lassabb lehet. Nem minden modell veszi figyelembe.',
+    nanogptNoKey: 'Nincs NanoGPT-kulcs, ezért a tag munkamenete nem indul.',
+    nanogptIncomplete: 'A NanoGPT-beállítás hiányos, ezért a tag munkamenete nem indul: {reason}',
+    nanogptOwnerSettings: 'A tulajdonos adhatja meg a Beállításokban.',
+    nanogptOwner: 'A kulcsot a tulajdonos adhatja meg.',
+    nanogptFirstUse: 'A NanoGPT-tagok munkameneteihez kell; a kulcs mentés után nem látható.',
+    nanogptNoKeyState: 'Nincs kulcs',
+    nanogptIncompleteState: 'Hiányos beállítás',
+    nanogptSet: 'Kulcs megadva',
+    nanogptSetAt: 'Kulcs megadva · {date}',
+    nanogptBadgeNoKey: 'Nincs NanoGPT-kulcs, ezért a tag új munkái indulásra várnak.',
+    nanogptBadgeIncomplete: 'A NanoGPT-beállítás hiányos, ezért a tag új munkái indulásra várnak.',
+    nanogptProblems: {
+      no_key: 'nincs NanoGPT-kulcs.',
+      cli_too_old: 'a szerveren lévő Codex túl régi ({cliVersion}); legalább {minCliVersion} kell.',
+      cli_missing: 'a szerveren nincs Codex CLI.',
+      chatgpt_login: 'a NanoGPT saját Codex-mappájában ChatGPT-belépés van.',
+    },
+    nanogptFixes: {
+      cli_too_old: 'Frissítsd a szerveren a Codex CLI-t: most {cliVersion}, legalább {minCliVersion} kell.',
+      cli_missing: 'Telepítsd a szerveren a Codex CLI-t (legalább {minCliVersion}).',
+      chatgpt_login:
+        'Töröld a szerveren a ChatGPT-belépést a NanoGPT saját Codex-mappájából (a projectman adatmappájában):',
+    },
     cheapSubagent: 'Olcsó alügynök',
     cheapSubagentOff: 'Ki',
     cheapSubagentModels: { sonnet: 'Sonnet', haiku: 'Haiku' },
@@ -2588,6 +2621,10 @@ export const hu = {
   },
 
   hire: {
+    nanogptApproverNone:
+      'Az új tag jóváhagyója „Senki” lesz, így a homokozón kívüli parancsai (pl. commit, npm ci) elutasítódnak, és fejlesztőként nem tud commitolni.',
+    nanogptApproverOwner: 'Felvétel után a profilján állítsd a „Ha kérdez, ki dönt” mezőt „Ember”-re.',
+    nanogptApproverOther: 'A tulajdonos a profilján „Ember”-re állíthatja.',
     title: 'Új AI-tag',
     intro: 'Sablonból indulsz, és testre szabod. A beállítás azonnal él, visszavonható.',
     roles: 'Szerep',
@@ -2605,6 +2642,7 @@ export const hu = {
     capacityValue: '{count} munka',
     subscription: 'Előfizetés',
     subscriptionYours: 'a tiéd',
+    nanogptSubscription: 'a NanoGPT API-kulcsoddal, a nano-gpt.com egyenlegedből',
     instructions: 'Utasítások',
     instructionsNote: 'Az utasítások angolul vannak; a tag a projekt nyelvén kommunikál.',
     instructionsDefault: 'A szerep alapértelmezett utasításaival indul.',
@@ -2613,6 +2651,29 @@ export const hu = {
     hired: 'Felvéve: {name}',
   },
 
+  nanogptKey: {
+    title: 'NanoGPT-kulcs megadása',
+    replaceTitle: 'NanoGPT-kulcs cseréje',
+    replaceDescription:
+      'A futó munkamenetek a régi kulccsal mennek tovább; az újat a következő indulásukkor kapják.',
+    field: 'API-kulcs',
+    hint: 'A nano-gpt.com fiókodban, az API-kulcsoknál találod. Mentés után nem látható, csak cserélhető vagy törölhető. Csak a NanoGPT-tagok munkamenetei kapják meg.',
+    required: 'Add meg a kulcsot.',
+    save: 'Mentés',
+    saving: 'Mentés…',
+    saved: 'NanoGPT-kulcs mentve.',
+    replaced: 'NanoGPT-kulcs lecserélve.',
+    deleted: 'NanoGPT-kulcs törölve.',
+    add: 'Kulcs megadása',
+    replace: 'Csere',
+    delete: 'Törlés',
+    deleting: 'Törlés…',
+    replaceLabel: 'NanoGPT-kulcs cseréje',
+    deleteLabel: 'NanoGPT-kulcs törlése',
+    deleteTitle: 'Törlöd a NanoGPT-kulcsot?',
+    deleteDescription:
+      'A NanoGPT-tagok új munkamenete nem indul, amíg új kulcsot nem adsz meg. A már futók nem állnak le.',
+  },
   retire: {
     title: 'Elbocsátás: {name}',
     body: 'A lépései és a futó feladatai átkerülnek, az előzményei megmaradnak. Kire szálljanak át?',

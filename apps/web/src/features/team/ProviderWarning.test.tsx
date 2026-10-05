@@ -37,9 +37,7 @@ describe('ProviderWarning', () => {
         }}
       />,
     );
-    expect(
-      screen.getByText(t('providerSettings.notReadyWarning', { provider: t('providers.nanogpt') })),
-    ).toBeTruthy();
+    expect(screen.getByText(t('providerSettings.nanogptNoKey'))).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(document.querySelector('code')).toBeNull();
   });

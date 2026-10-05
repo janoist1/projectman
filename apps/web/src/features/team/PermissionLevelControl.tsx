@@ -1,4 +1,4 @@
-import { Approver, SelectablePermissionMode } from '@projectman/shared';
+import { Approver, SelectablePermissionMode, approverBlocksProvider } from '@projectman/shared';
 import type { AgentProvider, PermissionMode, MemberView, UpdateMemberRequest } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
@@ -38,6 +38,9 @@ function PermissionText({ member, provider }: { member: MemberView; provider?: A
       </span>
       {member.permissionLegacy ? (
         <span className={styles.note}>{t('permissionControls.legacyHint')}</span>
+      ) : null}
+      {approverBlocksProvider({ provider, approver: member.approver }) ? (
+        <span className={styles.warning}>{t('permissionControls.nanogptApproverNone')}</span>
       ) : null}
       {!member.permissionLegacy ? (
         <PermissionProviderNote provider={provider} mode={member.permissionMode} />
@@ -129,6 +132,9 @@ export function PermissionLevelControl({
         ))}
       </SelectField>
       {blocker ? <span className={styles.note}>{t(`permissionControls.blocked.${blocker}`)}</span> : null}
+      {approverBlocksProvider({ provider, approver: member.approver }) ? (
+        <span className={styles.warning}>{t('permissionControls.nanogptApproverNone')}</span>
+      ) : null}
     </span>
   );
 }

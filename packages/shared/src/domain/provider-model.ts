@@ -1,5 +1,16 @@
 import { PermissionMode } from './member';
-import type { AgentProvider } from './member';
+import type { AgentProvider, Approver } from './member';
+
+/** Providers running through the Codex CLI share its sandbox and session metadata. */
+export function usesCodexCli(provider: AgentProvider | undefined): boolean {
+  return provider === 'codex' || provider === 'nanogpt';
+}
+
+/** NanoGPT has no subscription approval hook: external commands require a human. */
+export function approverBlocksProvider(member: { provider?: AgentProvider; approver?: Approver }): boolean {
+  // Match approverOf: members without an explicit approver use human approval.
+  return member.provider === 'nanogpt' && (member.approver ?? 'human') === 'none';
+}
 
 export const DEFAULT_PROVIDER_MODELS: Record<AgentProvider, string> = {
   claude: 'opus',

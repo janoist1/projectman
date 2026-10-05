@@ -4,12 +4,27 @@ import { t } from '../i18n/t';
 import { buildConfig, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
 import { cardsLine, workingCardKeys } from './members';
-import { cardWorkerRows, deriveTaskState, groupOpenInboxByTask } from './taskState';
+import { cardWorkerRows, deriveTaskState, groupOpenInboxByTask, startWaitingHint } from './taskState';
 import type { TaskStateContext } from './taskState';
 
 const COMMAND = 'Bash: npm test';
 const base = mockIndexes();
 const config = buildConfig();
+
+describe('NanoGPT waiting cards', () => {
+  it.each(['nanogpt_key_missing', 'nanogpt_setup_incomplete'] as const)(
+    'renders a mock card waiting for %s',
+    (reason) => {
+      const ctx = contextWith([]);
+      const task = {
+        ...tasks[0]!,
+        startWaiting: { reason, provider: 'nanogpt' as const, since: new Date().toISOString() },
+      };
+      expect(deriveTaskState(task, ctx).label).toBe(t(`taskStatus.startWaiting.${reason}`));
+      expect(startWaitingHint(task, ctx.members, 'owner')).toBe(t(`taskStatus.startHints.${reason}`));
+    },
+  );
+});
 
 const card = (key: string): Task => {
   const found = tasks.find((task) => task.key === key);

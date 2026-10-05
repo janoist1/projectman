@@ -6,6 +6,33 @@ import { t } from '../i18n/t';
 import { ProviderBadge } from './ProviderBadge';
 
 describe('ProviderBadge', () => {
+  it.each(['no_key', 'cli_too_old', 'chatgpt_login'] as const)(
+    'explains the NanoGPT failure %s',
+    (problem) => {
+      renderUi(
+        <ProviderBadge
+          provider="nanogpt"
+          status={{
+            provider: 'nanogpt',
+            loggedIn: false,
+            method: 'api_key',
+            checkedAt: new Date().toISOString(),
+            problem,
+          }}
+        />,
+      );
+      expect(screen.getByRole('group').textContent).toContain(
+        t('providerSettings.badgeNotReady', { provider: t('providers.nanogpt') }),
+      );
+      expect(screen.getByRole('tooltip').textContent).toBe(
+        t(
+          problem === 'no_key'
+            ? 'providerSettings.nanogptBadgeNoKey'
+            : 'providerSettings.nanogptBadgeIncomplete',
+        ),
+      );
+    },
+  );
   it.each(['not_logged_in', 'cli_missing'] as const)(
     'opens the reason by keyboard and touch: %s',
     (problem) => {

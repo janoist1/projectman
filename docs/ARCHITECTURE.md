@@ -1015,6 +1015,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
   (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
+  The reader selects the shared Codex transcript format with `usesCodexCli` from
+  `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
   checks transcript content; managed worker reads are confined to the worker home.

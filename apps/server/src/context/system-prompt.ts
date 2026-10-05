@@ -7,6 +7,7 @@ import {
   roleUsesWorktree,
   roleSessionTools,
   teamRules,
+  usesCodexCli,
 } from '@projectman/shared';
 import type { DutyId } from '@projectman/shared';
 import { roleLabel } from '../agent-text';
@@ -57,7 +58,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
 
 /** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */
 function isCodex(member: ContextPackInput['member']): boolean {
-  return member.provider === 'codex' || member.provider === 'nanogpt';
+  return usesCodexCli(member.provider);
 }
 function isGemini(member: ContextPackInput['member']): boolean {
   return member.provider === 'gemini';

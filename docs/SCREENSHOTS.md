@@ -218,6 +218,22 @@ Inspect the two picker images before attaching them: Chromium may omit an operat
 popup from a page screenshot. If the options are missing, capture the open native picker manually
 at the same widths; keep the real select rather than replacing it with a simulated menu.
 
+### PM-349: the recommended developer (Senior)
+
+Run `npm run shots -- scripts/scenarios/senior-developer.mjs --timeout 600 --widths 1512,390`. The
+scenario makes one AI developer the Senior, keeps them busy on a card, recommends the Senior for two more
+cards and sets the wait limit to 5 minutes (the smallest the settings allow). The last scene waits for the
+server's question to the owners (a one-minute sweep after the limit), so the run takes about 7 minutes.
+
+| Images                                | What to inspect                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `a-board-mark`                        | The Senior chip on the Senior card only; none on cards without a recommendation.           |
+| `b-who-takes`, `b-confirm`            | "Ki vigye?" names the Senior and why; the confirm dialog for a developer who is no Senior. |
+| `c-level-row`, `c-level-editor`       | The "Ajánlott" row with the reason, and its inline editor.                                 |
+| `d-waiting-drawer`, `d-waiting-board` | A card started while the Senior is busy: "A Seniorra vár", no assignee, the hint text.     |
+| `e-team`, `e-member-form`, `e-limits` | The Senior chip, the "Senior fejlesztő" checkbox and the "Senior-várakozás (perc)" field.  |
+| `f-inbox-question`                    | The question after the wait limit, with its two answers and what each does.                |
+
 ### Widths
 
 The four widths are the project's review sizes: 1512 (desktop), 800 (tablet), 390 and 375 (phones).

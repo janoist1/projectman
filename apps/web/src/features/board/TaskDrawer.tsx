@@ -6,7 +6,9 @@ import {
   canSeeTeamMessage,
   cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
+  developerLevelOf,
   fixLimitDecisionOf,
+  hasActiveSenior,
   isOnLeave,
   isTheme,
   loopDecisionOf,
@@ -47,6 +49,7 @@ import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
+import { SeniorWarning } from './SeniorWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
 import { nextStepLine } from './NextStep';
@@ -82,8 +85,9 @@ function StartPanel({
   /** Whether the "Kidolgozás" button is shown beside the panel: only then is it pointed at. */
   canRefine: boolean;
 }) {
-  const { key } = useProject();
+  const { key, can } = useProject();
   const labels = useLabels(key);
+  const config = useConfig(key, can.readConfig).data?.config;
   const start = useStartTask(key);
   const toast = useToast();
   // A pause holds the start: the button stays in its place but does nothing, and says why (PM-220).
@@ -94,6 +98,8 @@ function StartPanel({
   const [assignee, setAssignee] = useState('');
   // The open prerequisites the person is warned about before the start goes ahead (PM-204).
   const [warning, setWarning] = useState<string[] | null>(null);
+  // A non-Senior member chosen for a Senior card: asked first, before the prerequisite warning (PM-349).
+  const [seniorWarning, setSeniorWarning] = useState(false);
   const send = (despitePrerequisites: boolean) =>
     start.mutate(
       {
@@ -104,9 +110,12 @@ function StartPanel({
         },
       },
       {
-        onSuccess: () => {
+        onSuccess: (started) => {
           setWarning(null);
-          toast.show(t('task.started', { key: task.key }));
+          // A Senior card whose Seniors are all busy waits instead of starting: the response says which.
+          if (started.task.startWaiting?.reason === 'senior_busy' && !started.task.assignee)
+            toast.show(t('task.startedSeniorWait', { key: task.key }), 'info');
+          else toast.show(t('task.started', { key: task.key }));
         },
         onError: (error) => {
           // Not a failure: the approvers were asked, and the task waits for them.
@@ -120,18 +129,36 @@ function StartPanel({
   const developers = [...members.values()].filter(
     (member) => member.kind === 'ai' && isDeveloperRole(member.role) && member.status !== 'retired',
   );
+  // The default row of a Senior card names the Senior (PM-349). The shared rule decides whether the team
+  // has one; without the configuration (it needs the right to read it) the members' own marks do.
+  const seniorCard = developerLevelOf(task) === 'senior';
+  const hasSenior = config ? hasActiveSenior(config, task) : developers.some((member) => member.senior);
+  const reason = task.developerLevel?.reason ?? null;
+  const hint = !seniorCard
+    ? undefined
+    : !hasSenior
+      ? t('task.assigneeHintNoSenior')
+      : reason
+        ? t('task.assigneeHintSenior', { reason })
+        : t('task.assigneeHintSeniorNoReason');
+  const chosen = developers.find((member) => member.handle === assignee);
+  const goOn = () => (openKeys.length > 0 ? setWarning(openKeys) : send(false));
   return (
     <div className={styles.start}>
       <SelectField
         label={t('task.assigneeLabel')}
         value={assignee}
+        hint={hint}
         onChange={(event) => setAssignee(event.target.value)}
       >
-        <option value="">{t('task.assigneeAuto')}</option>
+        <option value="">
+          {seniorCard && hasSenior ? t('task.assigneeAutoSenior') : t('task.assigneeAuto')}
+        </option>
         {developers.map((member) => (
           // The server refuses a start for a member on leave (member_on_leave): not offered as a pick.
           <option key={member.handle} value={member.handle} disabled={isOnLeave(member)}>
             {`${member.displayName} · ${member.handle}`}
+            {member.senior ? ` · ${t('task.level.mark')}` : ''}
             {isOnLeave(member) ? leaveSuffix(member) : ` · ${t(`memberStatus.${member.status}`)}`}
           </option>
         ))}
@@ -153,11 +180,22 @@ function StartPanel({
         icon="play"
         loading={start.isPending}
         {...held.buttonProps}
-        onClick={() => (openKeys.length > 0 ? setWarning(openKeys) : send(false))}
+        onClick={() =>
+          seniorCard && hasSenior && chosen && !chosen.senior ? setSeniorWarning(true) : goOn()
+        }
       >
         {start.isPending ? t('task.starting') : t('task.start')}
       </Button>
       {held.note}
+      <SeniorWarning
+        name={seniorWarning && chosen ? chosen.displayName : null}
+        reason={reason}
+        onConfirm={() => {
+          setSeniorWarning(false);
+          goOn();
+        }}
+        onClose={() => setSeniorWarning(false)}
+      />
       <PrerequisiteWarning
         keys={warning}
         tasks={tasks}
@@ -398,7 +436,7 @@ export function TaskDrawer() {
       <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
         {task.startWaiting ? (
           <p className={drawer.section}>
-            {startWaitingHint(task)}
+            {startWaitingHint(task, members, myHandle)}
             {task.startWaiting.reason === 'provider_not_logged_in' ? (
               <>
                 {' '}

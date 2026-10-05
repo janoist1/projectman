@@ -151,6 +151,13 @@
   animation: pm-fade-in 160ms ease-out;
 }
 
+/* "Senior": the card is a task for the team's Senior (PM-349); text, not only colour. */
+.senior {
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  animation: pm-fade-in 160ms ease-out;
+}
+
 .stageRows {
   list-style: none;
   margin: 0;

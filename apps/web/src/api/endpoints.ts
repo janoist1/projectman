@@ -114,7 +114,7 @@ export const api = {
   createTask: (key: string, body: CreateTaskRequest) =>
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
-    apiRequest<unknown>(routes.startTask(key, taskKey), { method: 'POST', body }),
+    apiRequest(routes.startTask(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),

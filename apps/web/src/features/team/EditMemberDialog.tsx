@@ -65,6 +65,9 @@ function EditMemberForm({
   const [compactWindow, setCompactWindow] = useState(
     String(ai?.autoCompactWindowTokens ?? member.autoCompactWindowTokens ?? ''),
   );
+  // The Senior (PM-347) is an AI member that is no stand-in; the choice is the form's own, saved with it.
+  const canBeSenior = member.kind === 'ai' && !member.temp;
+  const [senior, setSenior] = useState(member.senior === true);
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -98,6 +101,8 @@ function EditMemberForm({
             : {
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
+                // Sent only when it changes: a stand-in has none, and the server refuses it for one.
+                ...(canBeSenior && senior !== (member.senior === true) ? { senior } : {}),
                 provider,
                 effort: effort ?? null,
                 autoCompactWindowTokens: compactWindow.trim() ? Number(compactWindow) : null,
@@ -187,6 +192,22 @@ function EditMemberForm({
               value={specialty}
               onChange={(event) => setSpecialty(event.target.value)}
             />
+            {canBeSenior ? (
+              <div>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    checked={senior}
+                    aria-describedby={`${formId}-senior`}
+                    onChange={(event) => setSenior(event.target.checked)}
+                  />
+                  {t('memberEdit.senior')}
+                </label>
+                <p id={`${formId}-senior`} className={styles.toggleHint}>
+                  {t('memberEdit.seniorHint')}
+                </p>
+              </div>
+            ) : null}
             <ProviderFields
               provider={provider}
               model={model}

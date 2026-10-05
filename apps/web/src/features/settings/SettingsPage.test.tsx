@@ -286,6 +286,51 @@ describe('settings section editors', () => {
     await waitFor(() => expect(project.backend.config.team.limits.minFreeDiskGb).toBe(0));
   });
 
+  it('sets how long a Senior card waits before the owners are asked, from 5 to 1440 minutes (PM-349)', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    const field = section.getByLabelText(t('settings.limits.seniorWait')) as HTMLInputElement;
+    // Not set in the mock project: the default of 30 minutes is shown.
+    expect(field.value).toBe('30');
+    expect(section.getByText(t('settings.limits.seniorWaitHelp'))).toBeTruthy();
+    expect(project.backend.config.team.limits).not.toHaveProperty('seniorWaitMinutes');
+
+    fireEvent.change(field, { target: { value: '90' } });
+    fireEvent.blur(field);
+    await saved(section);
+    expect(project.backend.config.team.limits.seniorWaitMinutes).toBe(90);
+    expect(lastConfigPatch(project.requests).limits).toMatchObject({ seniorWaitMinutes: 90 });
+
+    // Out of range: not saved, and the range is told.
+    const patches = project.requests.filter((request) => request.method === 'PATCH').length;
+    fireEvent.change(field, { target: { value: '2' } });
+    fireEvent.blur(field);
+    expect(section.getByText(t('settings.limits.range', { min: 5, max: 1440 }))).toBeTruthy();
+    expect(project.requests.filter((request) => request.method === 'PATCH')).toHaveLength(patches);
+    expect(project.backend.config.team.limits.seniorWaitMinutes).toBe(90);
+  });
+
+  it('shows a Senior wait that was set before in its field, and in minutes to those who cannot change it (PM-349)', async () => {
+    const project = mockProject();
+    project.backend.config.team.limits.seniorWaitMinutes = 45;
+    project.render(<SettingsPage />);
+    const section = await limitsSection();
+    expect((section.getByLabelText(t('settings.limits.seniorWait')) as HTMLInputElement).value).toBe('45');
+  });
+
+  it('lists the Senior wait to a member who cannot change the limits, with the default when none is set', async () => {
+    const project = mockProject();
+    project.render(<SettingsPage />, '/', {
+      can: { manageTeam: false, createTasks: true, workInSessions: true, readConfig: true },
+    });
+    const section = await limitsSection();
+    expect(section.getByText(t('settings.limits.seniorWaitSummary')).nextElementSibling?.textContent).toBe(
+      t('settings.limits.seniorWaitValue', { minutes: 30 }),
+    );
+    expect(section.queryByLabelText(t('settings.limits.seniorWait'))).toBeNull();
+  });
+
   it('sets the limit of the fix rounds, from 1 to 10 (PM-262)', async () => {
     const project = mockProject();
     project.render(<SettingsPage />);

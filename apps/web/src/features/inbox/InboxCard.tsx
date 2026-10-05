@@ -19,6 +19,7 @@ import {
   gateMoveText,
   inboxHeading,
   loopDecisionText,
+  seniorWaitDecisionText,
   optionLabel,
   payloadCode,
   permissionTool,
@@ -105,13 +106,16 @@ export function InboxCard({
   const fromSystem = item.source === 'system';
   const loopText = loopDecisionText(item, members, myHandle);
   const fixLimitText = fixLimitDecisionText(item, members, myHandle);
-  const alert = alertText(item, members, myHandle, labels) ?? loopText ?? fixLimitText;
+  const seniorWaitText = seniorWaitDecisionText(item, members, myHandle);
+  const alert = alertText(item, members, myHandle, labels) ?? loopText ?? fixLimitText ?? seniorWaitText;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
-  // that text, and so do a loop and a fix round limit decision; every other item keeps its row of buttons.
+  // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
+  // its row of buttons.
   const describesChoices =
     loopText !== null ||
     fixLimitText !== null ||
+    seniorWaitText !== null ||
     (item.kind === 'question' &&
       (extras.recommendedOptionId !== null || choices.some((option) => option.consequence)));
 
@@ -184,7 +188,7 @@ export function InboxCard({
         </div>
       ) : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
-      {item.body && loopText === null && fixLimitText === null ? (
+      {item.body && loopText === null && fixLimitText === null && seniorWaitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
         ) : (
@@ -253,6 +257,9 @@ export function InboxCard({
       ) : null}
       {fixLimitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.fixLimit.footer')}</p>
+      ) : null}
+      {seniorWaitText !== null && !assignedToOthers ? (
+        <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
       {assignedToOthers ? null : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>

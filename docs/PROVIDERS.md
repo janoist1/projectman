@@ -105,6 +105,12 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   the pause stays stopping until a stop or `release`.
   A Claude turn halted without its Stop hook (`haltStopMs`, 5 s) is settled the same way from the screen,
   and only when no main-agent tool is left running (parallel tools: the turn goes on until the last one).
+- **A turn the transcript ended (PM-343).** A main-conversation assistant entry with `stop_reason`
+  `end_turn` marks the turn over until a later assistant entry, a prompt or a compaction begins. While it
+  is marked, the main agent's tool hooks (a late `ToolSearch`, say) are ignored and cannot reopen the
+  turn; a session still `working` `turnEndGraceMs` (5 s) later with no work on the screen is closed as if
+  the Stop hook had come; a forced pause takes such a session as stopped without an Esc (an Esc already
+  sent is settled by it).
 - **Forced.** `pause` with `forceAfterMs` (when it passes) and `forcePause` send the one Esc as soon as
   the session is `working`; a tool that is running is cut (`interrupted`, `tool` the one cut). A
   compaction asked for and running is not waited for: the Esc cancels it and it is given up at once.

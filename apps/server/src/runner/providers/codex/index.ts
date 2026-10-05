@@ -41,6 +41,7 @@ export const CODEX_TIMING: SessionTiming = {
   compactTimeoutMs: 300_000,
   interruptConfirmMs: 5_000,
   haltStopMs: 5_000,
+  turnEndGraceMs: 5_000,
 };
 
 /** Codex's question tool: it waits for an answer typed in the terminal. */

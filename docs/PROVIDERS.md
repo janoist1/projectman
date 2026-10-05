@@ -110,7 +110,10 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   is marked, the main agent's tool hooks (a late `ToolSearch`, say) are ignored and cannot reopen the
   turn; a session still `working` `turnEndGraceMs` (5 s) later is closed (whatever the screen shows) as if
   the Stop hook had come; a forced pause takes such a session as stopped without an Esc (an Esc already
-  sent is settled by it).
+  sent is settled by it). A dropped call is remembered by its `tool_use_id`: a turn that begins with no
+  prompt (a background task's notification) can show its first tool hook before the transcript is read,
+  and when the transcript then shows that call the turn begins with it (replayed as a running tool). A
+  ghost call has no transcript entry and is never replayed.
 - **Forced.** `pause` with `forceAfterMs` (when it passes) and `forcePause` send the one Esc as soon as
   the session is `working`; a tool that is running is cut (`interrupted`, `tool` the one cut). A
   compaction asked for and running is not waited for: the Esc cancels it and it is given up at once.

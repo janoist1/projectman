@@ -143,6 +143,38 @@ describe('a turn the transcript ended (PM-343)', () => {
     expect(session.state.state).toBe('working');
   });
 
+  it('begins a new turn without a prompt: its tool hook, which came first, is replayed', async () => {
+    const { session, hook, assistant } = await start();
+    await assistant('a1', 'end_turn', ENDING);
+    await hook({ hook_event_name: 'Stop' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'bg2' });
+    expect(session.state.state).toBe('idle');
+    await hook(lateTool);
+    await assistant('a2', 'tool_use', [{ type: 'tool_use', id: 'bg2', name: 'Bash', input: {} }]);
+    expect(await waitFor(() => session.state.state === 'working')).toBe(true);
+    // The ghost call has no transcript entry: only the Bash call is a running tool.
+    await new Promise((resolve) => setTimeout(resolve, GRACE_MS * 2));
+    expect(session.state.state).toBe('working');
+    // A pause waits for the running Bash call; it does not settle as idle at once.
+    const settled = await Promise.race([
+      session.pause().then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 200)),
+    ]);
+    expect(settled).toBe(false);
+  });
+
+  it('begins a new turn without a prompt: a call that finished before the transcript was read', async () => {
+    const { session, hook, assistant } = await start();
+    await assistant('a1', 'end_turn', ENDING);
+    await hook({ hook_event_name: 'Stop' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await hook({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_use_id: 'bg2' });
+    await hook({ hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_use_id: 'bg2' });
+    await assistant('a2', 'tool_use', [{ type: 'tool_use', id: 'bg2', name: 'Bash', input: {} }]);
+    expect(await waitFor(() => session.state.state === 'working')).toBe(true);
+  });
+
   it('is not a turn end of the running turn when the entry is older than its prompt', async () => {
     const { session, hook, assistant, events } = await start();
     await hook({ hook_event_name: 'Stop' });

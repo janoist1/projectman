@@ -154,6 +154,13 @@ export class AgentSession {
    * must not reopen the turn), and a session still working is idle (PM-343).
    */
   private turnEnded = false;
+  /**
+   * Main-agent tool calls whose PreToolUse came while `turnEnded` and was dropped, by tool_use id. A
+   * ghost call (the CLI loading a deferred tool) has no transcript entry and stays here unused; a
+   * call the transcript later shows as part of a new turn (a background task's notification starts
+   * one without a prompt) is replayed then, so the session is not idle while its tool runs.
+   */
+  private readonly lateTools = new Map<string, { payload: HookPayload; name: string; done: boolean }>();
 
   constructor(args: {
     spec: StartSessionSpec;
@@ -704,7 +711,10 @@ export class AgentSession {
       case 'PreToolUse': {
         const name = payload.tool_name ?? 'tool';
         // A late call after the turn ended (e.g. the CLI loading a deferred tool) must not reopen it.
-        if (this.turnEnded && !this.adapter.inputTools.has(name)) return null;
+        if (this.turnEnded && !this.adapter.inputTools.has(name)) {
+          this.noteLateTool(payload, name);
+          return null;
+        }
         // A pause stopping the session turns the call away before anything else looks at it.
         const halted = this.haltingAnswer(payload, 'before_tool', name);
         if (halted !== undefined) return halted;
@@ -730,7 +740,11 @@ export class AgentSession {
       }
       case 'PostToolUse':
       case 'PostToolUseFailure': {
-        if (this.turnEnded && !this.adapter.inputTools.has(payload.tool_name ?? 'tool')) return null;
+        if (this.turnEnded && !this.adapter.inputTools.has(payload.tool_name ?? 'tool')) {
+          const late = payload.tool_use_id ? this.lateTools.get(payload.tool_use_id) : undefined;
+          if (late) late.done = true;
+          return null;
+        }
         const main = !payload.agent_id;
         const name = main ? this.noteToolEnd(payload) : (payload.tool_name ?? 'tool');
         const halted = this.haltingAnswer(payload, 'after_tool', name);
@@ -992,7 +1006,37 @@ export class AgentSession {
     }
     // An entry older than the latest prompt (the transcript read late) belongs to the turn before.
     const stale = turnAt !== undefined && Date.parse(turnAt) < this.lastPromptAt;
-    if (turnEnded !== undefined && !stale && !this.hasExited) this.noteTranscriptTurnEnd(turnEnded);
+    if (turnEnded !== undefined && !stale && !this.hasExited) {
+      this.noteTranscriptTurnEnd(turnEnded);
+      if (!turnEnded) this.replayLateTools(items);
+    }
+  }
+
+  /** A tool call hook dropped as late (the turn had ended); a few are kept, the oldest go first. */
+  private noteLateTool(payload: HookPayload, name: string): void {
+    if (payload.agent_id || !payload.tool_use_id) return;
+    this.lateTools.set(payload.tool_use_id, { payload, name, done: false });
+    if (this.lateTools.size > 32) this.lateTools.delete(this.lateTools.keys().next().value!);
+  }
+
+  /**
+   * The transcript went on after the turn end: a dropped call it shows belongs to that new turn, so
+   * it begins now (still running: a running tool, as if its hook had come in time).
+   */
+  private replayLateTools(items: Extract<RunnerEvent, { type: 'chat' }>['items']): void {
+    if (this.lateTools.size === 0 || this.hasExited) return;
+    for (const item of items) {
+      if (item.kind !== 'tool_call') continue;
+      const late = this.lateTools.get(item.toolUseId);
+      if (!late) continue;
+      this.lateTools.delete(item.toolUseId);
+      if (!late.done) this.noteToolStart(late.payload, late.name);
+      this.apply({
+        kind: 'pre_tool',
+        activity: toolActivity(late.name, late.payload.tool_input, this.spec.cwd),
+        needsInput: false,
+      });
+    }
   }
 
   /**
@@ -1194,7 +1238,10 @@ export class AgentSession {
   private apply(signal: SessionSignal): void {
     // Once the process is gone only the final exit transition may change the state.
     if (this.hasExited && signal.kind !== 'exit') return;
-    if (signal.kind === 'prompt_submit' || signal.kind === 'compact_start') this.turnEnded = false;
+    if (signal.kind === 'prompt_submit' || signal.kind === 'compact_start') {
+      this.turnEnded = false;
+      this.lateTools.clear();
+    }
     this.notePauseSignal(signal);
     const next = nextState(this.current, signal);
     if (next.state !== 'waiting_permission' && next.state !== 'waiting_input') this.waitingTool = null;

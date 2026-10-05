@@ -11,6 +11,9 @@ describe('Gemini login', () => {
       problem: 'not_logged_in',
     });
     expect(parseGeminiLogin({ stdout: 'unexpected', stderr: '', code: 0, error: null }).loggedIn).toBeNull();
+    expect(parseGeminiLogin({ stdout: '', stderr: '', code: null, error: 'spawn agy ENOENT' })).toMatchObject(
+      { problem: 'cli_missing' },
+    );
   });
   it('rejects non-consumer logins and missing CLI without touching the real home', async () => {
     const dirs = tempDirs();

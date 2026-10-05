@@ -1376,7 +1376,9 @@ export class MockBackend {
           method: this.providerLoggedIn[provider]
             ? provider === 'claude'
               ? 'claude.ai'
-              : 'chatgpt'
+              : provider === 'gemini'
+                ? 'google'
+                : 'chatgpt'
             : 'none',
           checkedAt: nowIso(),
         })),

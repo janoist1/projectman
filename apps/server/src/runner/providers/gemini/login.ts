@@ -27,6 +27,8 @@ export function parseGeminiLogin(out: CommandOutput): ProviderStatus {
     base.cliVersion = version;
     base.minCliVersion = '1.2.17';
   }
+  if (out.error && /ENOENT|not found/i.test(out.error))
+    return { ...base, loggedIn: false, problem: 'cli_missing', detail: 'Gemini CLI was not found.' };
   if (out.code === 0 && /^\S+\t.+$/m.test(out.stdout)) return { ...base, loggedIn: true, method: 'google' };
   if (out.code !== 0 && /Please sign in/i.test(`${out.stderr}\n${out.stdout}`))
     return { ...base, loggedIn: false, method: 'none', problem: 'not_logged_in' };

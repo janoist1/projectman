@@ -12,7 +12,7 @@
   top: 12px;
   align-self: start;
   width: 380px;
-  max-height: calc(100dvh - 24px);
+  max-height: var(--settings-panel-height, calc(100dvh - var(--topbar-height) - 24px));
   border: 1px solid var(--c-line);
   border-radius: 14px;
   background: var(--c-surface);
@@ -22,7 +22,7 @@
 .content {
   display: flex;
   flex-direction: column;
-  max-height: calc(100dvh - 26px);
+  max-height: calc(var(--settings-panel-height, calc(100dvh - var(--topbar-height) - 24px)) - 2px);
   animation: slide 160ms ease-out;
 }
 .header {

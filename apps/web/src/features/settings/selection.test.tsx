@@ -38,6 +38,7 @@ describe('settings URL selection', () => {
           {location.search}
         </output>
         <button onClick={() => selection.open({ type: 'stage', id: 'dev' })}>Open</button>
+        <button onClick={() => selection.open({ type: 'stage', id: 'review' })}>Switch</button>
         <button onClick={selection.close}>Close</button>
         <button onClick={() => navigate(-1)}>Back</button>
         <button onClick={() => navigate('/settings/pipeline')}>Enter</button>
@@ -61,5 +62,22 @@ describe('settings URL selection', () => {
     renderUi(<Controls />, { route: '/settings/pipeline?show=new-stage&after=dev&from=how-we-work&keep=1' });
     fireEvent.click(screen.getByText('Close'));
     expect(screen.getByRole('status').textContent).toBe('/settings/pipeline?keep=1');
+  });
+  it('closes all selections opened in the same panel and leaves no empty Back entry', () => {
+    renderUi(<Controls />, { route: '/previous' });
+    fireEvent.click(screen.getByText('Enter'));
+    fireEvent.click(screen.getByText('Open'));
+    fireEvent.click(screen.getByText('Switch'));
+    fireEvent.click(screen.getByText('Close'));
+    expect(screen.getByRole('status').textContent).toBe('/settings/pipeline');
+    fireEvent.click(screen.getByText('Back'));
+    expect(screen.getByRole('status').textContent).toBe('/previous');
+  });
+  it('closes after switching an item reached from a direct link', () => {
+    renderUi(<Controls />, { route: '/settings/pipeline?show=label:old&from=how-we-work' });
+    fireEvent.click(screen.getByText('Open'));
+    fireEvent.click(screen.getByText('Switch'));
+    fireEvent.click(screen.getByText('Close'));
+    expect(screen.getByRole('status').textContent).toBe('/settings/pipeline');
   });
 });

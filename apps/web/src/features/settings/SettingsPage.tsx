@@ -85,7 +85,9 @@ export function SettingsPage() {
   );
   useEffect(() => {
     main.current?.closest('main')?.scrollTo?.(0, 0);
-    if (!wide) {
+    if (wide && location.state?.settingsIssueTarget && section) {
+      main.current?.querySelector<HTMLElement>(`#settings-${section}`)?.focus();
+    } else if (!wide) {
       if (section) {
         const heading = main.current?.querySelector<HTMLElement>(`#settings-${section}`);
         if (heading) {
@@ -132,7 +134,11 @@ export function SettingsPage() {
             <span className={styles.linkTitle}>
               {t(`settings.nav.${id}`)}{' '}
               {counts[id] ? (
-                <span className={styles.mark} aria-label={t('settings.problems.mark', { n: counts[id]! })}>
+                <span
+                  className={styles.mark}
+                  role="img"
+                  aria-label={t('settings.problems.mark', { n: counts[id]! })}
+                >
                   <Icon name="exclamation" size={14} /> {counts[id]}
                 </span>
               ) : null}

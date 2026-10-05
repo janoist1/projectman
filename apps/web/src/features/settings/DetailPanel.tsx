@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Dialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
@@ -18,6 +18,8 @@ interface DetailPanelProps {
   empty?: ReactNode;
   onClose(): void;
   children?: ReactNode;
+  /** Stable selection identity: changing a draft title must not move the input focus. */
+  itemKey?: string;
 }
 
 /** A shared list/panel grid; narrow screens keep the modal outside the document flow. */
@@ -46,12 +48,15 @@ export function DetailPanel({
   empty,
   onClose,
   children,
+  itemKey,
 }: DetailPanelProps) {
   const wide = useMediaQuery(SETTINGS_WIDE_QUERY);
   const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null);
   const opener = useRef<HTMLElement | null>(null);
-  useEffect(() => {
+  const panel = useRef<HTMLElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
     if (!open) return;
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     return () => {
@@ -64,7 +69,33 @@ export function DetailPanel({
   }, [open]);
   useEffect(() => {
     if (open && wide) heading.current?.focus();
-  }, [open, title, wide]);
+    if (open && wide && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+      content.current?.animate?.(
+        [
+          { opacity: 0, transform: 'translateX(8px)' },
+          { opacity: 1, transform: 'none' },
+        ],
+        { duration: 160, easing: 'ease-out' },
+      );
+  }, [open, itemKey, wide]);
+  useEffect(() => {
+    const element = panel.current;
+    if (!wide || !element) return;
+    const measure = () => {
+      const top = Math.max(12, element.getBoundingClientRect().top);
+      element.style.setProperty('--settings-panel-height', `${Math.max(0, window.innerHeight - top - 12)}px`);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    document.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('scroll', measure, true);
+      window.removeEventListener('resize', measure);
+    };
+  }, [wide]);
   if (!wide)
     return (
       <Dialog
@@ -77,12 +108,15 @@ export function DetailPanel({
         footer={footer}
         onClose={onClose}
         focusTitle
+        focusKey={itemKey}
+        returnFocusRef={opener}
       >
         {children}
       </Dialog>
     );
   return (
     <aside
+      ref={panel}
       className={styles.panel}
       aria-labelledby={open ? titleId : undefined}
       onKeyDown={(event) => {
@@ -98,7 +132,7 @@ export function DetailPanel({
       }}
     >
       {open ? (
-        <div className={styles.content}>
+        <div ref={content} className={styles.content}>
           <header className={styles.header}>
             <div className={styles.top}>
               <span className={styles.kicker}>{kicker}</span>

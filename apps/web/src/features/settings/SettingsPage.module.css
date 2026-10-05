@@ -30,7 +30,7 @@
   gap: 8px;
   width: 100%;
   max-width: 720px;
-  margin: 0 auto;
+  margin: 0;
 }
 .navLink {
   display: flex;
@@ -134,8 +134,18 @@
     font-weight: 600;
   }
   .account {
-    border-top: 1px solid var(--c-line);
     margin-top: 8px;
+  }
+  .account::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 0;
+    right: 0;
+    border-top: 1px solid var(--c-line);
+  }
+  .account {
+    position: relative;
   }
 }
 @media (max-width: 767px) {

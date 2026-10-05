@@ -42,6 +42,7 @@ export function ConfigProblems({ config, section }: { config: ProjectConfig; sec
               {name}: {issueMessage(issue)}{' '}
               {target && target.section !== section ? (
                 <Link
+                  state={{ settingsIssueTarget: true }}
                   aria-label={t('settings.problems.openLabel', { name })}
                   to={{
                     pathname: `/p/${key}/settings/${target.section}`,

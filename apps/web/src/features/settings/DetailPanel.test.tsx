@@ -9,19 +9,28 @@ afterEach(() => vi.restoreAllMocks());
 function Fixture() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('First');
+  const [itemKey, setItemKey] = useState('first');
   return (
     <>
       <button onClick={() => setOpen(true)}>Open</button>
-      <button onClick={() => setTitle('Second')}>Switch</button>
+      <button
+        onClick={() => {
+          setTitle('Second');
+          setItemKey('second');
+        }}
+      >
+        Switch
+      </button>
       <DetailPanel
         open={open}
         title={title}
+        itemKey={itemKey}
         kicker="Stage"
         footer={<button>Save</button>}
         empty="Choose an item"
         onClose={() => setOpen(false)}
       >
-        <input aria-label="Name" />
+        <input aria-label="Name" value={title} onChange={(event) => setTitle(event.target.value)} />
       </DetailPanel>
     </>
   );
@@ -44,6 +53,10 @@ describe('settings detail panel', () => {
     fireEvent.click(opener);
     const heading = screen.getByRole('heading', { name: 'First' });
     expect(document.activeElement).toBe(heading);
+    const input = screen.getByLabelText('Name');
+    input.focus();
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    expect(document.activeElement).toBe(input);
     expect(wide ? screen.getByRole('complementary') : screen.getByRole('dialog')).toBeTruthy();
     fireEvent.click(screen.getByText('Switch'));
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Second' }));

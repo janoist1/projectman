@@ -113,4 +113,26 @@ describe('settings navigation', () => {
     expect(await screen.findByRole('region', { name: t('settings.sections.account') })).toBeTruthy();
     expect(screen.queryByText(t('settings.loadError'))).toBeNull();
   });
+  it('focuses the target heading after opening an issue on desktop', async () => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: query === SETTINGS_WIDE_QUERY,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    const project = mockProject();
+    const label = project.backend.config.pipeline.labels[0]!;
+    project.backend.config.pipeline.labels.push({ ...label });
+    project.render(<Fixture />, '/p/AC/settings/project');
+    const link = await screen.findByRole('link', {
+      name: t('settings.problems.openLabel', { name: label.name }),
+    });
+    link.focus();
+    fireEvent.click(link);
+    expect(document.activeElement?.id).toBe('settings-labels');
+  });
 });

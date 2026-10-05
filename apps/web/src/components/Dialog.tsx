@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from '../i18n/t';
 import { Icon } from './Icon';
@@ -45,6 +45,8 @@ interface DialogProps {
   back?: ReactNode;
   /** Detail panels focus their heading after showModal, including when the item changes. */
   focusTitle?: boolean;
+  focusKey?: string;
+  returnFocusRef?: RefObject<HTMLElement | null>;
   description?: string;
   children?: ReactNode;
   /** The buttons, pinned under the scrolling body: [Cancel] [Primary], the primary one last. */
@@ -74,6 +76,8 @@ export function Dialog({
   menu,
   back,
   focusTitle,
+  focusKey,
+  returnFocusRef,
 }: DialogProps) {
   if (!open) return null;
   return (
@@ -89,6 +93,8 @@ export function Dialog({
       menu={menu}
       back={back}
       focusTitle={focusTitle}
+      focusKey={focusKey}
+      returnFocusRef={returnFocusRef}
     >
       {children}
     </DialogInner>
@@ -108,6 +114,8 @@ function DialogInner({
   menu,
   back,
   focusTitle,
+  focusKey,
+  returnFocusRef,
 }: Omit<DialogProps, 'open'>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -131,7 +139,8 @@ function DialogInner({
     }
     return () => {
       if (typeof dialog.close === 'function' && dialog.open) dialog.close();
-      if (previous?.isConnected) previous.focus();
+      const target = returnFocusRef ? returnFocusRef.current : previous;
+      if (target?.isConnected) target.focus();
       else
         document
           .querySelector<HTMLElement>('[data-settings-content] h2[id^="settings-"]:not(#settings-problems)')
@@ -141,7 +150,7 @@ function DialogInner({
 
   useEffect(() => {
     if (focusTitle) titleRef.current?.focus();
-  }, [focusTitle, title]);
+  }, [focusTitle, focusKey]);
 
   return (
     <dialog

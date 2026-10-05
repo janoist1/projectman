@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
 export type SettingsShow =
@@ -36,6 +37,19 @@ export function useSettingsSelection() {
   const params = new URLSearchParams(location.search);
   const show = parseShow(params);
   const from = params.get('from') === 'how-we-work' ? ('how-we-work' as const) : null;
+  const closing = useRef<{ key: string; search: string } | null>(null);
+  useEffect(() => {
+    const target = closing.current;
+    if (!target || target.key !== location.key) return;
+    closing.current = null;
+    if (location.search !== target.search)
+      navigate(
+        { pathname: location.pathname, search: target.search },
+        { replace: true, state: location.state },
+      );
+  }, [location, navigate]);
+  const history = location.state?.settingsSelection as
+    { depth: number; key: string; search: string } | undefined;
   return {
     show,
     from,
@@ -43,17 +57,30 @@ export function useSettingsSelection() {
       navigate(
         { pathname: location.pathname, search: `?${showParams(next, from ?? undefined)}` },
         {
-          state: { settingsSelection: true },
+          state: {
+            ...location.state,
+            settingsSelection: history
+              ? { ...history, depth: history.depth + 1 }
+              : { depth: 1, key: location.key, search: clearedSearch(location.search) },
+          },
         },
       );
     },
     close() {
-      if (location.state?.settingsSelection) navigate(-1);
-      else {
+      if (history) {
+        closing.current = { key: history.key, search: history.search };
+        navigate(-history.depth);
+      } else {
         const next = new URLSearchParams(location.search);
         for (const key of ['show', 'after', 'from']) next.delete(key);
         navigate({ pathname: location.pathname, search: next.toString() }, { replace: true });
       }
     },
   };
+}
+
+function clearedSearch(search: string): string {
+  const params = new URLSearchParams(search);
+  for (const key of ['show', 'after', 'from']) params.delete(key);
+  return params.size ? `?${params}` : '';
 }

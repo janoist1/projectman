@@ -314,6 +314,13 @@ function unattendedCommandsSection({
   sandbox,
 }: ContextPackInput): string {
   const repo = repoOf(project, effectiveRepo(project, task));
+  if (member.provider === 'nanogpt') {
+    return [
+      '# Command permission decisions',
+      'The server does not automatically approve CLI permission requests, including read-only commands and routine worktree steps. Wait for the configured approver to decide. With no approver, these requests are refused.',
+      'Publishing from a local-only repository and in-place file editing remain refused outright. Use the file-editing tools for changes.',
+    ].join('\n');
+  }
   // A Claude member in the CLI's own sandbox (PM-167) is told its boundary instead: nothing there
   // waits for a human, whatever the work item. Codex's text does not change.
   if (sandbox && !isCodex(member) && sessionPolicy) {

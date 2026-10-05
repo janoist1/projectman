@@ -45,6 +45,11 @@ tenants into separate OS accounts or machines.
   configuration that can override provider, permissions, hooks or MCP servers before
   launch and resume. NanoGPT shell requests never receive automatic command-policy
   approval; unconditional publishing and in-place editing denials still apply.
+  The inbox approver sees the requested command, not the scripts or hooks it will run.
+  Before approving `npm ci`, `npm install`, `npm run` or `git commit` outside the sandbox,
+  inspect member-controlled lifecycle scripts and Git hooks: they also run outside the
+  sandbox with network access. A human approver is recommended for NanoGPT developers;
+  with `approver: 'none'`, requested commits are refused.
 
   Residual host risks require the owner's decision before PM-329 can pass security review:
   the legacy Codex filesystem sandbox permits reads beyond the worktree, so the secret

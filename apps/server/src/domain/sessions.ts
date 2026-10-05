@@ -2013,8 +2013,11 @@ export class SessionOrchestrator {
     }
   }
 
-  /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */
-  private async assertProviderReady(provider: AgentProvider, member: string): Promise<void> {
+  /**
+   * Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. A
+   * status that cannot be checked (`loggedIn: null`, or the check failing) holds nothing back.
+   */
+  async assertProviderReady(provider: AgentProvider, member: string): Promise<void> {
     let status;
     try {
       status = await this.deps.runner.providerStatus?.(provider, { member });

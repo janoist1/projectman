@@ -32,6 +32,8 @@ export interface ShotsOptions {
   timeoutSeconds: number;
   seed: 'demo' | 'none';
   keepData: boolean;
+  /** A JSON file of fixed machine data for the machine display (PM-320). */
+  machine: string | undefined;
 }
 export function parseWidths(text: string): number[];
 export function parseArgs(argv: string[]): ShotsOptions;

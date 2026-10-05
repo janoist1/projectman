@@ -125,6 +125,7 @@ export async function startInstance(options = {}) {
   const {
     seed = 'demo',
     web = true,
+    machine,
     fakeEnv = {},
     ports = {},
     owner: ownerOptions = {},
@@ -173,6 +174,7 @@ export async function startInstance(options = {}) {
       HOST: '127.0.0.1',
       PROJECTMAN_SERVER_URL: `http://127.0.0.1:${serverPort}`,
       ...(terminal === 'pipe' ? { PROJECTMAN_TERMINAL: 'pipe' } : {}),
+      ...(machine === undefined ? {} : { PROJECTMAN_MACHINE_FIXTURE: machine }),
       LOG_LEVEL: 'warn',
       FAKE_CLAUDE_MCP_CALLS_FILE: callsFile,
       PROJECTMAN_VITE_CACHE_DIR: join(dir, 'vite-cache'),

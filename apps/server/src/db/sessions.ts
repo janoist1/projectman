@@ -204,6 +204,13 @@ const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop'>, string>
 export function createSessionRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
+    countResumable: db.prepare(
+      `SELECT COUNT(*) AS n FROM sessions s
+       WHERE s.state IN ('exited', 'failed')
+         AND (s.work_item_type = 'general'
+              OR (s.work_item_type = 'task' AND EXISTS (
+                    SELECT 1 FROM tasks t WHERE t.key = s.work_item_ref AND t.status NOT IN ('done', 'cancelled'))))`,
+    ),
     profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
     setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
     compaction: db.prepare('SELECT compact_pending, context_tokens FROM sessions WHERE id = ?'),
@@ -352,6 +359,15 @@ export function createSessionRepository(db: Db) {
         inStates.set(states.length, statement);
       }
       return (statement.all(...states) as SessionRow[]).map(toSession);
+    },
+    /**
+     * How many sessions are closed but can be resumed (PM-320): the session of a (project, member, work
+     * item) is one row, so each triple counts once when it exited or failed and its work item is a
+     * general chat or a card that is not done or cancelled. Meetings and scheduled runs do not count.
+     */
+    countResumable(): number {
+      const row = statements.countResumable.get() as { n: number };
+      return row.n;
     },
     update(id: string, patch: SessionPatch): Session | null {
       const { doing, lastStop, ...columns } = patch;

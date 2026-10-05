@@ -1,4 +1,5 @@
 import { isHumanOnlyLabel, REFINE_LABEL } from '../domain/label';
+import type { LabelDefinition } from '../domain/label';
 import type { InboxItem } from '../domain/inbox';
 import type { Stage } from '../domain/pipeline';
 import { isOpenTask, isTheme } from '../domain/task';
@@ -69,6 +70,19 @@ export type RefinementTurn =
   | { kind: 'done'; targetStageId: string | null }
   | null;
 
+/** Split eligible setters as refinement does, keeping approvals human-only. */
+export function refinementSetters(
+  config: Pick<ProjectConfig, 'team'>,
+  definition: LabelDefinition | undefined,
+  setters: readonly string[],
+): { aiSetters: string[]; humanSetters: string[] } {
+  const aiSetters =
+    definition && isHumanOnlyLabel(definition)
+      ? []
+      : setters.filter((handle) => memberOf(config, handle)?.kind === 'ai');
+  return { aiSetters, humanSetters: setters.filter((handle) => !aiSetters.includes(handle)) };
+}
+
 export function refinementTurn(task: RefinementTask, config: RefinementConfig): RefinementTurn {
   if (!isRefining(task, config)) return null;
   const { stages } = config.pipeline;
@@ -89,17 +103,11 @@ export function refinementTurn(task: RefinementTask, config: RefinementConfig): 
       // A label only the system sets (an integration) is nobody's step: the card waits for it.
       if (definition?.setBy === 'system') return { kind: 'blocked', label: condition.label };
       const setters = definition ? labelSetters(config, definition, task) : [];
-      // A label only humans set stands for an approval: its setters are people by definition.
-      const aiSetters =
-        definition && isHumanOnlyLabel(definition)
-          ? []
-          : setters.filter((handle) => memberOf(config, handle)?.kind === 'ai');
       return {
         kind: 'step',
         stageId: stage.id,
         label: condition.label,
-        aiSetters,
-        humanSetters: setters.filter((handle) => !aiSetters.includes(handle)),
+        ...refinementSetters(config, definition, setters),
       };
     }
   }

@@ -701,6 +701,7 @@ export const hu = {
       no_free_member: 'Szabad fejlesztőre vár',
       label_missing: '{name} munkájára vár: {labels}',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
+      provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -729,6 +730,9 @@ export const hu = {
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
       full_test_pending:
         'A szerver lefuttatja az átadott commit teljes tesztjét (a PTY-tesztekkel együtt). Zöld eredménynél az átnéző magától indul; bukásnál a kártya visszamegy a fejlesztőhöz.',
+      // The drawer adds the login command (`providerSettings.loginCommands`) in a code element after it.
+      provider_not_logged_in:
+        'A munka magától elindul, amint belépsz; a szerver félpercenként ellenőrzi. Futtasd a szerveren:',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -1593,6 +1597,41 @@ export const hu = {
     breadcrumb: 'Hely',
     general: '{member} · általános beszélgetés',
     meeting: '{member} · megbeszélés',
+    // A session that rests after a finished step, a silence or a stop: a new message continues it (PM-296).
+    closure: {
+      label: 'Lezárva',
+      hint: 'Lezárva, folytatható · {reason}',
+      hintStopped: 'Lezárva, folytatható · leállította: {name}',
+      hintStoppedByYou: 'Lezárva, folytatható · leállítottad',
+      list: 'Lezárva · {reason}',
+      listStopped: 'Lezárva · leállította: {name}',
+      listStoppedByYou: 'Lezárva · leállítottad',
+      note: 'Magától lezárult: {reason}.',
+      noteStopped: 'Leállította: {name}.',
+      noteStoppedByYou: 'Leállítottad.',
+      resume: 'Ha írsz, a beszélgetés a korábbi előzménnyel folytatódik.',
+      event: 'Munkamenet magától lezárult: {reason}',
+      eventStopped: 'Munkamenet lezárva, leállította: {name}',
+      eventStoppedByYou: 'Munkamenet lezárva: leállítottad',
+      detail: '{reason} ({key})',
+      detailStage: '{reason} ({key} → {stage})',
+      long: {
+        step_done: 'a lépés kész',
+        idle: '{n} perc csend után',
+        card_done: 'a kártya kész',
+        task_cancelled: 'a kártyát visszavonták',
+        sent_back: 'a kártyát visszaküldték',
+        pause: 'szünet miatt',
+      },
+      short: {
+        step_done: 'lépés kész',
+        idle: '{n} perc csend',
+        card_done: 'kártya kész',
+        task_cancelled: 'visszavonva',
+        sent_back: 'visszaküldve',
+        pause: 'szünet',
+      },
+    },
     tabs: {
       label: 'Nézet',
       chat: 'Beszélgetés',
@@ -2132,7 +2171,6 @@ export const hu = {
     final_decision: 'Végső döntés',
   },
   profile: {
-    general: 'Általános beszélgetés',
     title: 'Csapattag',
     tasks: 'Feladatai és jóváhagyásai',
     activity: 'Legutóbbi tevékenység',
@@ -2506,7 +2544,7 @@ export const hu = {
     problems: {
       title: 'Javítandó a beállításokban',
       intro:
-        'A projekt így is használható, de a beállítások módosítását a szerver addig elutasítja, amíg ezek ki nem javulnak.',
+        '{n} hiba van a mentett beállításokban. Amíg nincs kijavítva, csak olyan módosítás menthető, amely nem ront rajta.',
     },
     unavailable: 'A projekt beállításai most nem érhetők el.',
   },

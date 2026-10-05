@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CONTROL_SOCKET_NAME, EXECUTION_PROFILES } from '@projectman/shared';
 import type { ExecutionProfile } from '@projectman/shared';
@@ -26,6 +27,7 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
+  MachineProbe,
   MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
@@ -138,6 +140,11 @@ export interface AppModules {
    * is off; `index.ts` passes the sandboxed one, except for the managed VM profile.
    */
   createFullTestExecutor?: (opts: { logger: FastifyBaseLogger }) => FullTestExecutor;
+  /**
+   * Makes what the machine display measures with (PM-320). Default: the operating system's; `index.ts`
+   * passes the fixed-data probe of the screenshot mode, tests a fake.
+   */
+  createMachineProbe?: (opts: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -328,6 +335,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  // The mark every session of this instance carries in its environment (PM-320): the first 16 hex digits
+  // of the hash of the real home path, so a development and the live instance never claim each other's
+  // processes, and a symlinked home gives the same tag.
+  const instanceTag = createHash('sha256').update(realpathSync(home)).digest('hex').slice(0, 16);
   chmodSync(home, 0o700);
   const publicBaseUrl = (
     options.publicBaseUrl ?? loopbackBaseUrl(APP_DEFAULTS.host, APP_DEFAULTS.port)
@@ -459,6 +470,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       configStore,
       logger: log.child({ module: 'domain' }),
       publicBaseUrl,
+      instanceTag,
+      machineProbe: modules.createMachineProbe
+        ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
+        : undefined,
       createRunner: (broker) =>
         makeRunner({
           claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
@@ -469,6 +484,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           terminal: options.terminal,
           managedVm: verifiedManagedVm,
           publicBaseUrl,
+          instanceTag,
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),

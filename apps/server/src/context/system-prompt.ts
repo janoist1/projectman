@@ -6,6 +6,7 @@ import {
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
+  teamRules,
 } from '@projectman/shared';
 import type { DutyId } from '@projectman/shared';
 import { roleLabel } from '../agent-text';
@@ -14,6 +15,7 @@ import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
+import { describeTeamRule } from './team-rules';
 import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
@@ -32,6 +34,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     tokenEconomySection(),
     pipelineSection(input, situation),
     labelsSection(input),
+    teamRulesSection(input),
     workItemSection(input, situation),
     sessionPolicySection(input),
     workspaceSection(input),
@@ -191,12 +194,20 @@ function pipelineSection(input: ContextPackInput, situation: Situation): string 
   });
   return [
     '# The pipeline',
-    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task. Approvals are labels only humans may set; the app asks them.',
+    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task.',
     ...lines,
   ].join('\n');
 }
 
 /** The project's label vocabulary: what each label means and who may set it. */
+function teamRulesSection({ project }: ContextPackInput): string {
+  return [
+    '# Team rules',
+    'Rules the system enforces on every task, beyond the gates and labels above.',
+    ...teamRules(project).map((rule) => `- ${describeTeamRule(rule, project)}`),
+  ].join('\n');
+}
+
 function labelsSection({ project }: ContextPackInput): string {
   const labels = project.pipeline.labels;
   if (labels.length === 0) return '';
@@ -447,12 +458,6 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
     '- When you are blocked or a decision is needed, ask with ask_human instead of guessing. Nobody reads your terminal: never ask with AskUserQuestion or any other question at the terminal.',
     '- Never put secrets (passwords, tokens, keys, connection strings, personal data) in messages, notes, task text, commits or pull requests; say where they are stored instead.',
     '- Do not ask a teammate to do what you are not allowed to do; tell a human instead.',
-    // The self-review rule is per label (notByAuthor), marked in the Labels section.
-    ...(project.pipeline.labels.some((label) => label.notByAuthor)
-      ? [
-          '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.',
-        ]
-      : []),
     '- Do not ask humans again about what they have already decided.',
     '- If you told the team something wrong, correct it yourself and tell everyone who relied on it.',
   ];

@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, hasPlanUsage } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
 import { useBoard, useTeamThreads } from '../api/queries';
 import { useConnectionStatus } from '../api/socketHooks';
@@ -259,14 +259,14 @@ function Presence({ board, members }: { board: BoardView | undefined; members: M
   );
 }
 
-/** The plan usage of every provider an AI member of the project runs on. */
+/** The plan usage of every provider an AI member of the project runs on that has a measurable one. */
 function planUsages(board: BoardView | undefined) {
   const providers = new Set(
     board?.members.flatMap((member) =>
       member.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [],
     ) ?? [],
   );
-  return [...providers].map((provider) => ({
+  return [...providers].filter(hasPlanUsage).map((provider) => ({
     provider,
     usage: board?.planUsageByProvider[provider] ?? (provider === 'claude' ? board?.planUsage : null),
   }));

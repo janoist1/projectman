@@ -1,8 +1,8 @@
 import type { Session, Task } from '@projectman/shared';
 import { t } from '../../i18n/t';
 import { formatScheduleTime } from '../../lib/schedules';
-import { isLiveSession, sessionStatus } from '../../lib/sessions';
-import type { SessionStatus } from '../../lib/sessions';
+import { closureTexts, isLiveSession, sessionClosure, sessionStatus } from '../../lib/sessions';
+import type { ClosureContext, SessionStatus } from '../../lib/sessions';
 
 /** When a scheduled session's run was due, in the project's time zone. */
 export interface ScheduleTime {
@@ -26,11 +26,24 @@ export function sessionTitle(
   return t('session.meeting', { member: memberName });
 }
 
-/** The live status in the header: a permission waiting for the viewer comes first. */
+/**
+ * The live status in the header: a permission waiting for the viewer comes first. A session that
+ * rests after a closing stop reads "Lezárva" (still the grey `exited` dot), with the reason in
+ * `title` when the context is given.
+ */
 export function liveState(
-  session: Pick<Session, 'state' | 'pause'>,
+  session: Pick<Session, 'state' | 'pause' | 'lastStop'>,
   needsYou: boolean,
-): { status: SessionStatus | 'paused'; label: string } {
+  closureContext?: ClosureContext,
+): { status: SessionStatus | 'paused'; label: string; title?: string } {
+  const closure = needsYou ? null : sessionClosure(session);
+  if (closure) {
+    const texts = closureTexts(
+      closure,
+      closureContext ?? { pipeline: null, members: new Map(), myHandle: null },
+    );
+    return { status: 'exited', label: texts.label, ...(closureContext ? { title: texts.hint } : {}) };
+  }
   // A live session a pause holds is quiet: "Szünetel", or "Megáll…" until it has stopped.
   if (!needsYou && session.pause && isLiveSession(session)) {
     return session.pause.point === null

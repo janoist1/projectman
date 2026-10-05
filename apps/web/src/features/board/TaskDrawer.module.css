@@ -445,3 +445,10 @@
     opacity: 0;
   }
 }
+
+/* A closed session names why it rests: the line may wrap in a narrow drawer (PM-296). */
+.sessionClosed {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}

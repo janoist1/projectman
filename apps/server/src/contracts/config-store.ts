@@ -17,11 +17,11 @@ export interface ConfigStore {
    * configuration was written (`isToleratedOnLoad`) still loads, with a logged warning.
    */
   load(projectKey: string): Promise<{ config: ProjectConfig; version: string }>;
-  /** Validates (schema + invariants, no exceptions), writes and commits. */
+  /** Validates schema and invariants (only introduced errors when previous is supplied), writes and commits. */
   save(
     projectKey: string,
     config: ProjectConfig,
-    meta: { author: { name: string; email: string }; message: string },
+    meta: { author: { name: string; email: string }; message: string; previous?: ProjectConfig },
   ): Promise<{ version: string }>;
   history(projectKey: string, limit?: number): Promise<ConfigVersionEntry[]>;
   /** The configuration as of `version` (migrated and validated), without changing anything. */

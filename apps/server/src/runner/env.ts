@@ -27,6 +27,20 @@ export const BILLING_ENV_VARS = [
   'AZURE_OPENAI_API_KEY',
   'AZURE_OPENAI_ENDPOINT',
   'AZURE_OPENAI_AD_TOKEN',
+  // Gemini (Antigravity CLI): API keys, custom endpoints and the Vertex / enterprise / pay-as-you-go
+  // routes bill something other than the Google subscription.
+  'GEMINI_API_KEY',
+  'GOOGLE_API_KEY',
+  'GOOGLE_GEMINI_BASE_URL',
+  'GOOGLE_GENAI_USE_VERTEXAI',
+  'GOOGLE_GENAI_USE_ENTERPRISE',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'GOOGLE_CLOUD_PROJECT',
+  'GOOGLE_CLOUD_LOCATION',
+  'AGY_ADC_AUTH',
+  'AGY_BUSINESS_PAYGO_TIER',
+  // NanoGPT: only the NanoGPT adapter hands the key back, as a trusted `extra`, to NanoGPT members.
+  'NANOGPT_API_KEY',
 ] as const;
 
 /** Exact names set by a parent Claude Code / Agent SDK session, or that change the TUI. */
@@ -50,6 +64,8 @@ const HOST_SESSION_VARS = new Set([
   // Set by a parent Codex session.
   'CODEX_THREAD_ID',
   'CODEX_INTERNAL_ORIGINATOR_OVERRIDE',
+  // Set by a parent Gemini CLI session.
+  'GEMINI_CLI',
 ]);
 
 /** Prefixes of host-session variables. */
@@ -57,6 +73,7 @@ const HOST_SESSION_PREFIXES = [
   'CLAUDE_CODE_SESSION',
   'CLAUDE_CODE_CHILD',
   'CLAUDE_CODE_MESSAGING',
+  'ANTIGRAVITY_',
   'PROJECTMAN_',
 ];
 
@@ -123,13 +140,15 @@ const MANAGED_VM_REMOVED_VARS = new Set([
 export function buildSessionEnv(
   base: NodeJS.ProcessEnv,
   sessionId: string,
-  opts: { managedVm?: boolean } = {},
+  opts: { managedVm?: boolean; instanceTag?: string } = {},
 ): Record<string, string> {
   const env = withLocalNoProxy(
     buildChildEnv(base, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       PROJECTMAN_SESSION_ID: sessionId,
+      // With the session id it marks every process of the session as this instance's (PM-320).
+      ...(opts.instanceTag ? { PROJECTMAN_INSTANCE: opts.instanceTag } : {}),
     }),
   );
   if (opts.managedVm) for (const name of MANAGED_VM_REMOVED_VARS) delete env[name];

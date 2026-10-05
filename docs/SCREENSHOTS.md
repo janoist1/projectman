@@ -31,7 +31,7 @@ the browser is missing, `npm run shots` exits with code 2 and says to run
 
 ```sh
 npm run shots -- <scenario.mjs> [--out <dir>] [--widths 1512,800,390,375] [--full-page] \
-                 [--scale 1|2] [--timeout 240] [--seed demo|none] [--keep-data]
+                 [--scale 1|2] [--timeout 240] [--seed demo|none] [--keep-data] [--machine <file>]
 ```
 
 | Option        | Meaning                                                                                                                      |
@@ -43,6 +43,25 @@ npm run shots -- <scenario.mjs> [--out <dir>] [--widths 1512,800,390,375] [--ful
 | `--timeout`   | Seconds for the whole run, instance start included (default 240)                                                             |
 | `--seed`      | `demo` (default: the Acme webshop, project AC, four cards) or `none` (an empty instance)                                     |
 | `--keep-data` | Keep the instance's data folder (its path is printed) instead of removing it                                                 |
+| `--machine`   | A JSON file of a fixed machine for the machine display (see below), e.g. `scripts/fixtures/machine/busy.json`                |
+
+### A fixed machine for the machine display
+
+The machine display (PM-300) measures the real machine with `ps`, which a member's sandbox does not
+allow, so pictures of it use fixed data. `--machine <file>` starts the instance's server with
+`PROJECTMAN_MACHINE_FIXTURE=<the file's JSON>`: the server then answers `GET /api/machine` from
+the file, logs a warning at start, and **never sends a real signal** (stopping an orphan only removes it
+from the list). Two samples: `scripts/fixtures/machine/busy.json` (critical load, two orphan processes)
+and `calm.json` (everything in order, no orphans).
+
+The JSON has `machine` (`cpuPercent` of the whole machine, `cores`, `memoryUsedGb`, `memoryTotalGb`,
+`memoryPressure` `normal|warn|critical`, `swapUsedGb`, `swapTotalGb`; null is unknown), `server`
+(`cpuPercent`, `memoryMb`), `sessions` (one per running session, in the order the runner lists them: its
+`processes`, the first is the CLI and the rest its children), `others` (processes of no session, grouped by
+short name like the real ones) and `orphans` (`sessionId`, which may name a real session of the instance, and
+`processes`, the first is the root). A process is `args` (the command line), `cpuPercent` (of one core, as
+`ps` shows it), `memoryMb` and `ageMinutes`. The sessions' rows come from the instance's real sessions, so
+start them (`instance.startSession`) before the scenario opens the panel.
 
 Exit code: **0** done, **1** the scenario failed (or the instance, or the timeout), **2** wrong
 use or no browser.
@@ -59,6 +78,11 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   /* ... */
 };
 ```
+
+A scenario may also export `fakeEnv`, an object of `FAKE_CLAUDE_*` / `FAKE_CODEX_*` variables for the
+fake CLIs of its instance (for example `{ FAKE_CLAUDE_LOGGED_OUT: '1' }`:
+`scripts/scenarios/provider-not-logged-in.mjs`). Variables of the shell running `npm run shots` never
+reach the fake CLIs.
 
 - `instance` is the running disposable instance: `instance.api(path, { method, body, as })`,
   `invite`, `startSession`, `say`, `waitIdle`, `setFakeCalls` and the rest of PM-269's API. Use it

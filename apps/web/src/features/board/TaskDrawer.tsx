@@ -3,8 +3,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
+  canSeeAllTeamMessages,
   canSeeTeamMessage,
   cardWorkerSessions,
+  DEFAULT_AGENT_PROVIDER,
   fixLimitDecisionOf,
   isOnLeave,
   isTheme,
@@ -36,7 +38,7 @@ import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
 import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
-import { sessionStatus } from '../../lib/sessions';
+import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
@@ -395,7 +397,21 @@ export function TaskDrawer() {
     );
     const side = (
       <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
-        {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
+        {task.startWaiting ? (
+          <p className={drawer.section}>
+            {startWaitingHint(task)}
+            {task.startWaiting.reason === 'provider_not_logged_in' ? (
+              <>
+                {' '}
+                <code>
+                  {t(
+                    `providerSettings.loginCommands.${task.startWaiting.provider ?? DEFAULT_AGENT_PROVIDER}`,
+                  )}
+                </code>
+              </>
+            ) : null}
+          </p>
+        ) : null}
         <div className={styles.actions} hidden={!hasActions}>
           {canRefine ? <RefineButton task={task} primary={refineFirst} /> : null}
           {startOffered && startLoading ? (
@@ -487,6 +503,7 @@ export function TaskDrawer() {
                 .map((entrySession) => {
                   const member = members.get(entrySession.member);
                   const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
+                  const closure = sessionClosure(entrySession);
                   return (
                     <li key={entrySession.id}>
                       <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
@@ -495,8 +512,13 @@ export function TaskDrawer() {
                           <span className={styles.sessionName}>
                             {nameOf(entrySession.member, members, myHandle)}
                           </span>
-                          <span className={styles.sessionState} data-status={status}>
-                            {t(`sessionState.${entrySession.state}`)}
+                          <span
+                            className={clsx(styles.sessionState, closure && styles.sessionClosed)}
+                            data-status={status}
+                          >
+                            {closure
+                              ? closureTexts(closure, { pipeline, members, myHandle }).list
+                              : t(`sessionState.${entrySession.state}`)}
                           </span>
                         </span>
                         <Icon name="chevronRight" size={16} />

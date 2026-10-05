@@ -222,6 +222,21 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     expect(JSON.parse(await readFile(argsFile, 'utf8')).argv).toContain(learned);
     expect(await readFile(transcript.path, 'utf8')).toContain('resume test');
   });
+  it('starts a NanoGPT conversation from its model footer and sends the first queued message', async () => {
+    process.env.FAKE_CODEX_VERSION = '0.159.1';
+    process.env.FAKE_CODEX_MODEL_FOOTER = '1';
+    const nanoHome = await dirs.make('nano-footer-home-');
+    await setup({ nanogptKey: async () => 'fictional-footer-key', nanogptCodexHome: nanoHome });
+    const s = spec({ provider: 'nanogpt', model: 'z-ai/glm-5.3-flash-uncensored' });
+    await runner.runner.start(s);
+    // No prompt argument or initial SessionStart hook: only the screen can release this message.
+    await runner.runner.sendUserMessage(s.sessionId, 'First NanoGPT message');
+    await assistantSaid(s.sessionId, 'Echo: First NanoGPT message');
+    await waitState(s.sessionId, 'idle');
+    expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'working', 'idle']);
+    expect(chatOf(s.sessionId).filter((item) => item.kind === 'user_text')).toHaveLength(1);
+  });
+
   it('passes the brief on the command line, learns the session id and follows the turn', async () => {
     await setup();
     const s = spec({ initialMessage: 'Hello from the brief' });

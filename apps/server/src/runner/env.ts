@@ -23,6 +23,10 @@ export const BILLING_ENV_VARS = [
   'CODEX_API_KEY',
   // Takes precedence over stored Codex authentication, even with an ephemeral auth store.
   'CODEX_ACCESS_TOKEN',
+  // AuthManager OAuth routing overrides must not redirect subscription credentials.
+  'CODEX_APP_SERVER_LOGIN_CLIENT_ID',
+  'CODEX_REFRESH_TOKEN_URL_OVERRIDE',
+  'CODEX_REVOKE_TOKEN_URL_OVERRIDE',
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
   'OPENAI_API_BASE',

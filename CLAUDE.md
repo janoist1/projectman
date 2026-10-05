@@ -23,6 +23,8 @@ made. A choice of your own that the owner should confirm goes to them as a quest
   The sole exception is the projectman-managed `NANOGPT_API_KEY` from
   `secrets/nanogpt.json`, passed only to NanoGPT member sessions (decision 34, PM-319).
   It never permits ChatGPT login fallback or OpenAI API billing.
+  The runner also strips Codex OAuth overrides: `CODEX_APP_SERVER_LOGIN_CLIENT_ID`,
+  `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
 - Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
   `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
   `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.

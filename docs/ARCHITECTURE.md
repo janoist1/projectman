@@ -872,6 +872,8 @@ workers follow the machine's size.
   skill-triggered MCP installation, an ephemeral authentication store, and disabled analytics
   and feedback. All child environments strip `CODEX_ACCESS_TOKEN`. Codex 0.159.1's public,
   unauthenticated GitHub announcement request remains a CLI network assumption.
+  The environment filter also removes AuthManager's OAuth client-id and token-endpoint
+  overrides, so a host environment cannot redirect child subscription authentication.
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.

@@ -31,7 +31,9 @@
  *   --dangerously-bypass-hook-trust: any key continues, and those hooks never run;
  * - after FAKE_CODEX_STARTUP_DELAY_MS (default 50) the history of a resumed session, then the
  *   composer: "› Ask Codex to do anything" above a footer "? for shortcuts ... 100% context
- *   left". A PROMPT argument is submitted right away. SessionStart only fires with that first
+ *   left". FAKE_CODEX_MODEL_FOOTER uses the model/effort/directory footer from the owner's
+ *   NanoGPT 0.159.1 screen instead, with three warnings and no context metadata.
+ *   A PROMPT argument is submitted right away. SessionStart only fires with that first
  *   turn, so a resumed session that is given no prompt reports nothing until someone types.
  *
  * HOOKS (`hooks.<Event> = [{hooks = [{type = "command", command, timeout}]}]`): run with
@@ -593,7 +595,9 @@ async function interactive() {
   const keys = createKeyWaiter();
   let lastCtrlC = 0;
 
-  const FOOTER = '  ? for shortcuts                                              100% context left';
+  const FOOTER = process.env.FAKE_CODEX_MODEL_FOOTER
+    ? `  ${model} ${config.model_reasoning_effort ?? 'medium'} · ${realCwd}   ⚠ 3 warnings · f2 to view`
+    : '  ? for shortcuts                                              100% context left';
   function showPrompt() {
     mode = 'prompt';
     out(`\r\n› ${input.length > 0 ? input.replace(/\n/g, '\r\n  ') : 'Ask Codex to do anything'}`);

@@ -96,6 +96,8 @@ const CODEX_BLOCKING_SCREENS: Array<[RegExp, string]> = [
 const COMPOSER_LINE = /^›(?:\s|$)(?!\s*\d+\.)/;
 /** The footer under the composer. */
 const FOOTER_LINE = /\? for shortcuts|context left|esc to interrupt|tab to queue/i;
+// Custom models without context-window metadata show model, effort and directory instead.
+const MODEL_FOOTER_LINE = /^\s*\S+\s+(?:low|medium|high|xhigh)\s+·\s+(?:~\/|\/)/;
 const MAX_COMPOSER_LINES = 20;
 
 /** Whether Codex's composer (input line and footer) is on screen, i.e. no dialog covers it. */
@@ -104,7 +106,7 @@ export function codexPromptVisible(text: string): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!COMPOSER_LINE.test(lines[i]!)) continue;
     for (let j = i + 1; j < lines.length && j <= i + MAX_COMPOSER_LINES; j++) {
-      if (FOOTER_LINE.test(lines[j]!)) return true;
+      if (FOOTER_LINE.test(lines[j]!) || MODEL_FOOTER_LINE.test(lines[j]!)) return true;
     }
   }
   return false;

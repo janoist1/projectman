@@ -58,7 +58,11 @@ tenants into separate OS accounts or machines.
   NanoGPT disables plugin loading and synchronization, ChatGPT apps and suggestions,
   skill-triggered MCP installation, analytics and feedback. Its ephemeral authentication
   store avoids persisted ChatGPT login and keychain credentials; `CODEX_ACCESS_TOKEN`
-  is stripped from all child environments. In the Codex 0.159.1 source, plugin requests
+  is stripped from all child environments. Children cannot inherit OAuth client-id,
+  refresh-endpoint or revoke-endpoint overrides either;
+  the filter removes `CODEX_APP_SERVER_LOGIN_CLIENT_ID`, `CODEX_REFRESH_TOKEN_URL_OVERRIDE`
+  and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
+  In the Codex 0.159.1 source, plugin requests
   take authentication from `AuthManager`, not the custom provider's `env_key`;
   `load_auth` reads Codex billing variables and auth storage, never `NANOGPT_API_KEY`.
   This is source verification, not a captured network-header test. See

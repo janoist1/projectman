@@ -252,7 +252,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
           excerpt: args.text.slice(0, 80),
         });
       }
-      return { messageId, deliveredTo: args.to };
+      return {
+        messageId,
+        deliveredTo: args.to,
+        recipients: args.to.map((handle) => ({ handle, delivery: 'typed_now' as const })),
+      };
     },
 
     async listMembers(ctx) {

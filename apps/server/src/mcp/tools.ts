@@ -271,7 +271,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: false,
     description:
       'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
-      'the task; humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
+      'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
+      'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
       'message.',
     input: {
       to: z

@@ -56,6 +56,10 @@ export function createMessageRepository(db: Db) {
       `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
     ),
+    pendingFrom: db.prepare(
+      `SELECT * FROM team_messages WHERE task_key = ? AND project_key = ? AND from_handle = ?
+       AND delivered_at IS NULL AND receipts IS NOT NULL ORDER BY seq`,
+    ),
     updateReceipts: db.prepare('UPDATE team_messages SET receipts = ?, delivered_at = ? WHERE id = ?'),
     markDelivered: db.prepare(
       'UPDATE team_messages SET delivered_at = ? WHERE id = ? AND delivered_at IS NULL',
@@ -152,6 +156,13 @@ export function createMessageRepository(db: Db) {
             ? m.receipts.some((r) => r.handle === handle && r.kind === 'ai' && !r.deliveredAt)
             : !m.deliveredAt,
         );
+    },
+    /**
+     * `from`'s messages about a card that are not typed into every AI recipient's session yet (PM-144),
+     * oldest first: `delivered_at` stays null while an AI receipt has none.
+     */
+    pendingFrom(projectKey: string, from: string, taskKey: string): TeamMessage[] {
+      return (statements.pendingFrom.all(taskKey, projectKey, from) as MessageRow[]).map(toMessage);
     },
     updateReceipts(
       id: string,

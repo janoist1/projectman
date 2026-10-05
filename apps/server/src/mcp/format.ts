@@ -25,6 +25,7 @@ import type {
   LocatedAttachmentForTool,
   PublishedTaskBranch,
   PublishedTaskState,
+  SentMessageRecipient,
   TaskToolDetail,
 } from '../contracts';
 
@@ -73,11 +74,16 @@ export function taskStatusLine(task: Task): string {
   ].join(' · ');
 }
 
-function timelineLines(events: TimelineEvent[], undelivered: string[] = []): string[] {
+function timelineLines(
+  events: TimelineEvent[],
+  undelivered: string[] = [],
+  pendingSent: { messageId: string; handles: string[] }[] = [],
+): string[] {
   const { lines, total } = recentTimeline(events, {
     limit: MAX_TIMELINE_EVENTS,
     textLimit: MAX_EVENT_TEXT_CHARS,
     undelivered: new Set(undelivered),
+    pendingSent: new Map(pendingSent.map((m) => [m.messageId, m.handles])),
   });
   if (total === 0) return ['Timeline: no events yet.'];
   const header =
@@ -210,7 +216,7 @@ export function formatTaskDetail(
     lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
   if (detail.cardQuestions?.length)
     lines.push('', 'Questions to people on this card:', ...cardQuestionLines(detail.cardQuestions, task.key));
-  lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds));
+  lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds, detail.pendingSentMessages));
   return lines.join('\n');
 }
 
@@ -380,6 +386,8 @@ export function formatSentMessage(result: {
   messageId: string;
   requested: string[];
   deliveredTo: string[];
+  /** What happens to the message for each recipient (PM-144). */
+  recipients: SentMessageRecipient[];
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
@@ -392,17 +400,48 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
+  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
+  const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
-      parts.push(
+      routed.push(
         `${handle} gets it in their general chat${result.taskKey ? `, because ${result.taskKey} is closed` : ''}.`,
       );
     else if (workItem.type === 'task')
-      parts.push(
+      routed.push(
         `${handle} gets it in their running session on ${workItem.taskKey}, a card of the same family${result.taskKey ? ` as ${result.taskKey}` : ''}.`,
       );
   }
-  return parts.join(' ');
+  return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
+}
+
+/** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
+function recipientLine({ handle, delivery, hold }: SentMessageRecipient, taskKey: string | null): string {
+  const card = taskKey ?? 'the card';
+  switch (delivery) {
+    case 'inbox':
+      return `${handle}: a person; they read it in the app.`;
+    case 'typed_now':
+      return `${handle}: typed into their session now.`;
+    case 'after_turn':
+      return `${handle}: their session is busy; it gets the full text when its current turn ends. Do not resend it.`;
+    case 'wake':
+      return `${handle}: no session of theirs is running; one starts or resumes with the full text (it may wait for a free slot, a usage limit or a pause). Do not resend it.`;
+    case 'held':
+      switch (hold) {
+        case 'refinement_turn':
+          return `${handle}: held: ${card} is being refined and it is not their turn; they get it on their turn or when the refinement ends.`;
+        case 'fix_limit':
+          return `${handle}: held: ${card} reached its fix round limit; they get it once that is decided.`;
+        case 'full_test':
+          return `${handle}: held until the server's full test of ${card}'s pinned commit has a result.`;
+        case 'pause':
+          return `${handle}: held: their session is paused; they get it when the pause ends.`;
+        case 'restart':
+        default:
+          return `${handle}: held: their session restarts first (a new review round or permission mode); they get it in its first input.`;
+      }
+  }
 }
 
 /** A question longer than this gets the hint to move detail into `details`. */

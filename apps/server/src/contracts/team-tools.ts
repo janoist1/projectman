@@ -31,6 +31,22 @@ import type { PullRequestInfo, RemoteState } from './github';
  * The MCP transport lives in src/mcp; the behaviour is implemented by the domain.
  */
 
+/** Why a sent team message waits before it reaches an AI recipient (PM-144). */
+export type SentMessageHold = 'refinement_turn' | 'fix_limit' | 'full_test' | 'pause' | 'restart';
+
+/** What happens to a sent team message for one recipient, decided when it is sent (PM-144). */
+export interface SentMessageRecipient {
+  handle: MemberHandle;
+  /**
+   * inbox: a person, who reads it in the app. typed_now: the AI recipient's session is idle and gets it now.
+   * after_turn: its session is in a turn (starting, working, waiting_permission, waiting_input) and gets it when the turn ends.
+   * wake: no session runs for it; one starts or resumes with it (admission may defer that). held: kept back, `hold` says why.
+   */
+  delivery: 'inbox' | 'typed_now' | 'after_turn' | 'wake' | 'held';
+  /** Only with delivery 'held'. */
+  hold?: SentMessageHold;
+}
+
 export interface ToolContext {
   sessionId: string;
   projectKey: string;
@@ -73,6 +89,11 @@ export interface TaskToolDetail extends TaskDetail {
    * timeline lines say that the full text is on its way (PM-180).
    */
   undeliveredMessageIds?: string[];
+  /**
+   * The caller's own messages on this card that are not typed into every AI recipient's session yet
+   * (PM-144), with the recipients still waiting, in the order the message names them.
+   */
+  pendingSentMessages?: { messageId: string; handles: MemberHandle[] }[];
   /** The timeline event asked for by id (get_task event_id): its whole text is shown instead of the task. */
   event?: TimelineEvent;
   /** The task's relations to other cards, both directions (PM-192); omitted by handlers that know none. */
@@ -173,6 +194,8 @@ export interface TeamToolsHandler {
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];
+    /** What happens to the message for each recipient, in the order of `to` (PM-144). */
+    recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
   }>;

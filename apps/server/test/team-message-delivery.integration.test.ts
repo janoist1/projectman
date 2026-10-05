@@ -1,0 +1,118 @@
+import { formatInjectedTeamMessage, routes } from '@projectman/shared';
+import type { ChatItem, Task, TaskDetail } from '@projectman/shared';
+import { afterEach, expect, it, vi } from 'vitest';
+import { waitFor } from '../src/runner/test-helpers';
+import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
+import type { CliAppHarness } from './helpers/app-harness';
+
+/**
+ * A long team message to a Codex member's running session, through the real runner and the fake Codex
+ * CLI (PM-144): the whole text arrives behind the `[team message from …]` prefix, whether the session is
+ * idle (typed now) or in the middle of a turn (typed when the turn ends), and the sender is told which.
+ */
+
+let h: CliAppHarness | undefined;
+afterEach(async () => {
+  await h?.close();
+  h = undefined;
+});
+
+/** More than 4000 characters over several paragraphs, one line longer than a paste chunk (500). */
+const LONG_BODY = [
+  'Review of the checkout form.',
+  Array.from({ length: 8 }, (_, i) =>
+    `Point ${i + 1}: ${'the details of this point '.repeat(8)}`.trim(),
+  ).join('\n'),
+  `One long line: ${'a very long observation without any line break '.repeat(14)}`.trim(),
+  Array.from({ length: 12 }, (_, i) =>
+    `Follow-up ${i + 1}: ${'please check this as well '.repeat(7)}`.trim(),
+  ).join('\n'),
+  'End of the review.',
+].join('\n\n');
+
+const userTexts = (chat: ChatItem[]) => chat.flatMap((i) => (i.kind === 'user_text' ? [i.text] : []));
+
+it(
+  'types a long team message into an idle and into a busy Codex session in full, and tells the sender which',
+  { timeout: 120_000 },
+  async () => {
+    expect(LONG_BODY.length).toBeGreaterThan(4000);
+    expect(LONG_BODY.split('\n').some((line) => line.length > 500)).toBe(true);
+    h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
+    const { app } = h;
+    const cookie = await setupOwner(app);
+    const headers = { cookie };
+    await createProject(h, cookie);
+    const { domain } = app.projectman;
+    await domain.projects.update(
+      'AR',
+      { actor: { kind: 'human', handle: 'owner' }, author: OWNER_LOGIN },
+      (config) => {
+        const dev = config.team.members.find((m) => m.handle === 'dev-2');
+        if (dev?.kind === 'ai') dev.provider = 'codex';
+        return 'Run dev-2 on codex';
+      },
+    );
+    const created = await app.inject({
+      method: 'POST',
+      url: routes.tasks('AR'),
+      headers,
+      payload: { title: 'Acme checkout' },
+    });
+    expect(created.statusCode).toBe(201);
+    const { key } = created.json<Task>();
+    const started = await app.inject({
+      method: 'POST',
+      url: routes.startTask('AR', key),
+      headers,
+      payload: { assignee: 'dev-2' },
+    });
+    expect(started.statusCode).toBe(200);
+    const { id } = started.json<TaskDetail>().sessions[0]!;
+    const chatOf = async () => (await domain.sessions.detail('AR', id)).chat;
+    const state = () => domain.sessions.get('AR', id).state;
+    const idle = () => waitFor(() => state() === 'idle', { what: 'idle' });
+    const said = (text: string) =>
+      vi.waitFor(
+        async () => {
+          expect((await chatOf()).some((i) => i.kind === 'assistant_text' && i.text.startsWith(text))).toBe(
+            true,
+          );
+        },
+        { timeout: 30_000 },
+      );
+    await said('Echo: # AR-1');
+    await idle();
+
+    // The sender is another AI member; its session does not matter to the delivery.
+    const sender = { sessionId: 'ses_sender', projectKey: 'AR', member: 'dev-1', taskKey: key };
+    const injected = formatInjectedTeamMessage('dev-1', LONG_BODY, key);
+
+    // (a) An idle session gets it now, whole.
+    const toIdle = await domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: LONG_BODY });
+    expect(toIdle.recipients).toEqual([{ handle: 'dev-2', delivery: 'typed_now' }]);
+    await vi.waitFor(
+      async () => expect(userTexts(await chatOf()).filter((text) => text === injected)).toHaveLength(1),
+      { timeout: 30_000 },
+    );
+    await idle();
+
+    // (b) A session in a slow turn gets it when the turn ends, whole.
+    const slow = await app.inject({
+      method: 'POST',
+      url: routes.sessionMessages('AR', id),
+      headers,
+      payload: { text: 'SLOW first task' },
+    });
+    expect(slow.statusCode).toBe(202);
+    await waitFor(() => state() === 'working', { what: 'a turn in progress' });
+    const toBusy = await domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: LONG_BODY });
+    expect(toBusy.recipients).toEqual([{ handle: 'dev-2', delivery: 'after_turn' }]);
+    await vi.waitFor(
+      async () => expect(userTexts(await chatOf()).filter((text) => text === injected)).toHaveLength(2),
+      { timeout: 30_000 },
+    );
+    await idle();
+    expect(userTexts(await chatOf()).slice(-2)).toEqual(['SLOW first task', injected]);
+  },
+);

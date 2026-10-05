@@ -148,6 +148,20 @@ describe('the full test before review', () => {
     await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
   });
 
+  it('tells the developer that the message to the reviewer is held for the full test (PM-144)', async () => {
+    await setup();
+    await handOver();
+    await vi.waitFor(() => expect(executor.specs).toHaveLength(1));
+    const { recipients } = await h.domain.messaging.sendReporting('AR', 'dev-1', {
+      to: ['cr'],
+      taskKey: 'AR-1',
+      text: 'Ready for review',
+    });
+    expect(recipients).toEqual([{ handle: 'cr', delivery: 'held', hold: 'full_test' }]);
+    executor.finish(passed);
+    await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+  });
+
   it('reuses a green verdict on another hand-over, but runs again for a new commit', async () => {
     const worktree = await setup();
     await handOver();

@@ -334,7 +334,9 @@ describe('team tools', () => {
         args: { to: ['cr', 'owner'], text: 'Ready for review ✅ — naïve café', taskKey: 'AR-21' },
       },
     ]);
-    expect(text(result)).toBe('Message msg_1 about AR-21 sent to cr, owner.');
+    expect(text(result)).toBe(
+      'Message msg_1 about AR-21 sent to cr, owner.\n- cr: typed into their session now.\n- owner: typed into their session now.',
+    );
   });
 
   it('send_message refuses a message addressed only to the caller', async () => {
@@ -353,7 +355,7 @@ describe('team tools', () => {
     const client = await connect(h, 'token-qa');
 
     expect(text(await call(client, 'send_message', { to: ['fe-1'], text: 'Hi' }))).toBe(
-      'Message msg_1 sent to fe-1.',
+      'Message msg_1 sent to fe-1.\n- fe-1: typed into their session now.',
     );
     await call(client, 'send_message', { to: ['fe-1'], text: 'About the login', task_key: 'AR-21' });
 

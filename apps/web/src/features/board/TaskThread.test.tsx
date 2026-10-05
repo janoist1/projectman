@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { Route, Routes, useLocation } from 'react-router';
+import { Link, Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
@@ -318,6 +318,47 @@ describe('the recipients of the card conversation (PM-273)', () => {
       }),
     );
     await within(await thread()).findByText('Ping from the card');
+  });
+
+  it('starts over on the next card: default recipients, an empty draft, and the send goes to that card', async () => {
+    const project = mockProject();
+    project.render(
+      <>
+        {card}
+        <Link to="/p/AC/tasks/AC-25/thread">next card</Link>
+      </>,
+      '/p/AC/tasks/AC-21/thread',
+    );
+    await thread();
+    fireEvent.click(
+      screen.getByRole('button', { name: t('task.thread.remove', { name: 'Frontend fejlesztő' }) }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: t('task.thread.addTo') }));
+    fireEvent.click(
+      within(screen.getByRole('group', { name: t('task.thread.addTo') })).getByRole('checkbox', {
+        name: /Devops/,
+      }),
+    );
+    fireEvent.change(composer('AC-21'), { target: { value: 'Meant for AC-21' } });
+    expect(chips()).toEqual([expect.stringContaining('Devops')]);
+
+    fireEvent.click(screen.getByText('next card'));
+    await waitFor(() => expect(where()).toBe('/p/AC/tasks/AC-25/thread'));
+    await waitFor(() => expect((composer('AC-25') as HTMLTextAreaElement).value).toBe(''));
+    expect(screen.queryByText(t('task.thread.edited'), { exact: false })).toBeNull();
+
+    fireEvent.change(composer('AC-25'), { target: { value: 'Meant for AC-25' } });
+    fireEvent.click(screen.getByRole('button', { name: t('common.send') }));
+    await waitFor(() =>
+      expect(project.requests).toContainEqual({
+        method: 'POST',
+        path: '/api/projects/AC/messages',
+        body: { to: expect.not.arrayContaining(['devops']), text: 'Meant for AC-25', taskKey: 'AC-25' },
+      }),
+    );
+    expect(
+      project.requests.some((request) => JSON.stringify(request.body ?? '').includes('Meant for AC-21')),
+    ).toBe(false);
   });
 });
 

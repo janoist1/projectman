@@ -571,6 +571,7 @@ export function TaskDrawer() {
             hasThread ? (
               <div key="thread" className={styles.thread} hidden={!thread}>
                 <TaskThread
+                  key={task.key}
                   task={task}
                   active={thread}
                   query={taskMessages}

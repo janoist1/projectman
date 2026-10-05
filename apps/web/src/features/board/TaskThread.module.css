@@ -259,7 +259,9 @@
   overflow-wrap: anywhere;
 }
 
+/* The answer stands in full: its line breaks and lists stay. */
 .qaAnswer {
+  white-space: pre-wrap;
   padding-top: 6px;
   border-top: 1px solid color-mix(in srgb, var(--c-kind-question-fg) 18%, transparent);
 }

@@ -72,6 +72,7 @@ export const ERROR_CODES = [
   'unknown_column',
   'task_not_cancelled',
   'task_session_live',
+  'priority_humans_only',
   'subtask_self_parent',
   'subtask_parent_not_found',
   'subtask_parent_project',

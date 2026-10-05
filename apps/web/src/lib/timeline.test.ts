@@ -16,6 +16,29 @@ const creation: TimelineEvent = {
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
 describe('creation timeline labels', () => {
+  it('names previous and new priority, including setting and clearing', () => {
+    for (const [previousPriority, priority] of [
+      [null, 'urgent'],
+      ['normal', 'high'],
+      ['high', null],
+    ]) {
+      const name = (value: string | null | undefined) =>
+        value ? t(`priority.levels.${value as 'urgent' | 'normal' | 'high'}`) : t('timeline.noPriority');
+      expect(
+        describeEvent(
+          { ...creation, type: 'task_updated', data: { fields: ['priority'], previousPriority, priority } },
+          context,
+        ).text,
+      ).toBe(
+        t('timeline.events.task_updated', {
+          fields: t('timeline.priorityChange', {
+            previous: name(previousPriority),
+            priority: name(priority),
+          }),
+        }),
+      );
+    }
+  });
   it('describes an AI boundary decision and keeps old check events readable', () => {
     const decision = {
       ...creation,

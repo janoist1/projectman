@@ -1,9 +1,13 @@
 import { taskSeq } from '@projectman/shared';
-import type { RankedCard, Task, TaskLink } from '@projectman/shared';
+import type { RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
+
+/** Persisted values: never renumber these levels. */
+const PRIORITY_COLUMN: Record<TaskPriority, number> = { urgent: 1, high: 2, normal: 3, low: 4 };
+const PRIORITY_LEVEL: Record<number, TaskPriority> = { 1: 'urgent', 2: 'high', 3: 'normal', 4: 'low' };
 
 interface TaskRow {
   kind: string;
@@ -122,7 +126,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     status: r.status as Task['status'],
     assignee: r.assignee,
     repo: r.repo,
-    priority: r.priority,
+    priority: r.priority === null ? null : (PRIORITY_LEVEL[r.priority] ?? null),
     boardRank: r.board_rank,
     // Checks recorded before labels read as their labels; the next label write clears the column.
     labels: [
@@ -304,7 +308,7 @@ export function createTaskRepository(db: Db) {
           task.status,
           task.assignee,
           task.repo,
-          task.priority,
+          task.priority === null ? null : PRIORITY_COLUMN[task.priority],
           toJson(task.labels),
           '{}',
           task.visibility,
@@ -402,6 +406,8 @@ export function createTaskRepository(db: Db) {
       }
       const values: Record<string, unknown> = { id };
       for (const field of fields) values[field] = patch[field];
+      if (patch.priority !== undefined)
+        values.priority = patch.priority === null ? null : PRIORITY_COLUMN[patch.priority];
       if (patch.labels) values.labels = toJson(patch.labels);
       statement.run(values);
     },

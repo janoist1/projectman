@@ -8,6 +8,7 @@ import type { BoardEntry } from './useBoardModel';
 
 /** The "no one is responsible" choice of the assignee filter; a handle never holds an `@`. */
 export const NO_ASSIGNEE = '@none';
+export const NO_PRIORITY = '@none';
 
 /**
  * What narrows the board besides the search and the theme: the state (Mind / Rád vár / Másra vár),
@@ -18,19 +19,23 @@ export interface BoardFilters {
   phase: BoardFilter;
   assignee: string;
   label: string;
+  priority: string;
 }
 
-export const noBoardFilters: BoardFilters = { phase: 'all', assignee: '', label: '' };
+export const noBoardFilters: BoardFilters = { phase: 'all', assignee: '', label: '', priority: '' };
 
 export interface FilterOption {
   value: string;
   label: string;
 }
 
-/** How many of the three filters are set to something other than "Mind". */
+/** How many filters are set to something other than "Mind". */
 export function activeFilterCount(filters: BoardFilters): number {
   return (
-    (filters.phase !== 'all' ? 1 : 0) + (filters.assignee !== '' ? 1 : 0) + (filters.label !== '' ? 1 : 0)
+    (filters.phase !== 'all' ? 1 : 0) +
+    (filters.assignee !== '' ? 1 : 0) +
+    (filters.label !== '' ? 1 : 0) +
+    (filters.priority !== '' ? 1 : 0)
   );
 }
 
@@ -44,16 +49,21 @@ export function matchesLabel(task: Pick<Task, 'labels'>, label: string): boolean
   return label === '' || task.labels.includes(label);
 }
 
+export function matchesPriority(task: Pick<Task, 'priority'>, priority: string): boolean {
+  return priority === '' || (priority === NO_PRIORITY ? task.priority === null : task.priority === priority);
+}
+
 /** Everything but the state filter: the segments' counts are taken over this. */
 export function matchesCardFilters(
   task: Task,
-  filters: Pick<BoardFilters, 'assignee' | 'label'>,
+  filters: Pick<BoardFilters, 'assignee' | 'label' | 'priority'>,
   search: string,
   labels: readonly LabelView[],
 ): boolean {
   return (
     matchesAssignee(task, filters.assignee) &&
     matchesLabel(task, filters.label) &&
+    matchesPriority(task, filters.priority) &&
     matchesSearch(task, search, labels)
   );
 }

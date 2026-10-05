@@ -101,7 +101,7 @@ export function sampleTaskDetail(): TaskDetail {
       status: 'active',
       assignee: 'fe-1',
       repo: 'web',
-      priority: 2,
+      priority: 'high',
       labels: ['frontend'],
       links: [{ kind: 'branch', ref: 'ar-21-login-validation', repo: 'web' }],
       visibility: 'internal',

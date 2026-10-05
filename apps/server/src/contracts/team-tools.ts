@@ -10,6 +10,7 @@ import type {
   Task,
   TaskDetail,
   TaskKind,
+  TaskPriority,
   TaskStatus,
   ThemeCard,
   ThemeProgress,
@@ -52,6 +53,8 @@ export type TaskSummary = Pick<
 > & {
   /** `theme` for a theme (PM-192); absent for a task. */
   kind?: TaskKind;
+  /** Present only when a person set a priority. */
+  priority?: TaskPriority;
 };
 
 /**

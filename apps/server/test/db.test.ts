@@ -33,6 +33,34 @@ function sampleTask(overrides: Partial<Task> = {}): Task {
 }
 
 describe('database', () => {
+  it('persists stable priority numbers and reads unknown stored levels as unset', () => {
+    const db = openDatabase(':memory:');
+    const repos = createRepositories(db);
+    repos.projects.insert({
+      key: 'AR',
+      name: 'acme',
+      templateId: null,
+      configVersion: 'v1',
+      createdAt: now,
+      updatedAt: now,
+    });
+    const levels = ['urgent', 'high', 'normal', 'low', null] as const;
+    for (const [index, priority] of levels.entries()) {
+      const key = `AR-${index + 1}`;
+      repos.tasks.insert(sampleTask({ key, id: `tsk_${index + 1}`, priority }));
+      expect(repos.tasks.get(key)!.priority).toBe(priority);
+      expect(db.prepare('SELECT priority FROM tasks WHERE key = ?').get(key)).toEqual({
+        priority: priority === null ? null : index + 1,
+      });
+    }
+    for (const priority of levels) {
+      repos.tasks.update('tsk_1', { priority });
+      expect(repos.tasks.get('AR-1')!.priority).toBe(priority);
+    }
+    db.prepare('UPDATE tasks SET priority = 7 WHERE key = ?').run('AR-1');
+    expect(repos.tasks.get('AR-1')!.priority).toBeNull();
+    db.close();
+  });
   const dirs: string[] = [];
   afterEach(() => {
     for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });

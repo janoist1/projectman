@@ -117,7 +117,7 @@ function makeTask(overrides: Partial<Task> = {}): Task {
     status: 'active',
     assignee: 'fe-1',
     repo: 'app',
-    priority: 2,
+    priority: 'high',
     labels: ['bug', 'email'],
     links: [
       {
@@ -307,7 +307,7 @@ describe('context pack snapshots', () => {
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/developer-dev.system-prompt.txt',
     );
-    await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/developer-dev.brief.txt');
+    await expect(`${pack.initialMessage}\n`).toMatchFileSnapshot('__snapshots__/developer-dev.brief.txt');
   });
 
   it('code reviewer reviewing a pull request', async () => {
@@ -315,7 +315,9 @@ describe('context pack snapshots', () => {
     await expect(`${pack.appendSystemPrompt}\n`).toMatchFileSnapshot(
       '__snapshots__/code-review-code_review.system-prompt.txt',
     );
-    await expect(pack.initialMessage).toMatchFileSnapshot('__snapshots__/code-review-code_review.brief.txt');
+    await expect(`${pack.initialMessage}\n`).toMatchFileSnapshot(
+      '__snapshots__/code-review-code_review.brief.txt',
+    );
   });
 
   // The repository's GitHub name is all that differs from the two packs above, so the snapshots of a
@@ -430,9 +432,9 @@ describe('token economy (PM-181)', () => {
 
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
   // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
-  // to make room for the structural decision rule of PM-223.
+  // to make room for the structural decision rule of PM-223; PM-287 names priority (high, not 2).
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 13002, brief: 862 },
+    { name: 'developer', handle: 'fe-1', system: 13002, brief: 865 },
     { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =

@@ -4,6 +4,7 @@ import {
   FullTestErrorReason,
   LabelChangeReason,
   TaskRelationKind,
+  TaskPriority,
 } from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
@@ -55,7 +56,16 @@ function stageName(ctx: TimelineContext, id: string): string {
   return ctx.pipeline?.stageById.get(id)?.name ?? id;
 }
 
-const fieldKeys = ['title', 'description', 'labels', 'visibility', 'stageId', 'parentKey', 'repo'] as const;
+const fieldKeys = [
+  'title',
+  'description',
+  'labels',
+  'visibility',
+  'stageId',
+  'parentKey',
+  'repo',
+  'priority',
+] as const;
 
 function fieldLabel(field: string): string {
   return (fieldKeys as readonly string[]).includes(field)
@@ -73,6 +83,16 @@ function repoName(value: unknown): string {
  * (events recorded without them name the field only).
  */
 function fieldText(field: string, data: Record<string, unknown>): string {
+  if (field === 'priority' && 'priority' in data) {
+    const name = (value: unknown) => {
+      const parsed = TaskPriority.safeParse(value);
+      return parsed.success ? t(`priority.levels.${parsed.data}`) : t('timeline.noPriority');
+    };
+    return t('timeline.priorityChange', {
+      previous: name(data.previousPriority),
+      priority: name(data.priority),
+    });
+  }
   return field === 'repo' && 'repo' in data
     ? t('timeline.repoChange', { previous: repoName(data.previousRepo), repo: repoName(data.repo) })
     : fieldLabel(field);

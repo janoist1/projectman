@@ -487,6 +487,7 @@ function task(partial: Partial<Task> & Pick<Task, 'key' | 'title' | 'stageId' | 
 export const tasks: Task[] = [
   task({
     key: 'AC-24',
+    priority: 'high',
     title: 'Hibariasztás a fizetési hibákra',
     description:
       'Jelezzen a rendszer, ha a fizetési vagy a rendelési kérések hibára futnak.\n\n- Riasztás a `/checkout` és a `/orders` hibáira\n- Napi összesítő a Kommunikációnak',

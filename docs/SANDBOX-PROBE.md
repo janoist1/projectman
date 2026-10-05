@@ -318,6 +318,112 @@ credential and no live data:
    (`kill -TERM <pid of node scripts/shots.mjs>`) the same holds and the exit code is 1.
 6. Record each line as `pass`, `fail` or `unverified` with the raw output in the task.
 
+## PM-356: restricted-read Codex permission profile
+
+**Pending owner verification.** This is the prerequisite for implementing PM-356, not a
+passing result for Codex 0.159.1. Run interactively on the subscription in a normal terminal.
+Do not use `codex exec`, copy login files, or run these commands through a member session.
+Use only the fictional fixture below; never substitute the live projectman home.
+
+From this checkout, prepare a fresh fixture (setup refuses an existing root):
+
+```sh
+sh scripts/sandbox-probe.sh setup
+probe_root="$HOME/projectman-sandbox-probe-v2"
+probe_home="$probe_root/probe-codex-home"
+probe_tmp="$probe_root/command-tmp"
+mkdir -p "$probe_home" "$probe_tmp" "$probe_root/cli-tmp"
+printf 'fictional login\n' > "$probe_home/auth.json"
+printf 'fictional WAL\n' > "$probe_root/fake-live/db.sqlite-wal"
+printf 'fictional SHM\n' > "$probe_root/fake-live/db.sqlite-shm"
+printf 'fictional journal\n' > "$probe_root/fake-live/db.sqlite-journal"
+node -e 'require("node:fs").writeFileSync(process.argv[1], Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=", "base64"))' "$probe_home/blocked.png"
+cd "$probe_root/fake-live/worktrees/T/T-1-repo"
+mkdir -p .codex .agents
+codex --version
+```
+
+Use the existing subscription login. `probe_home` is a fictional denied directory, **not**
+the CLI's `CODEX_HOME`. The profile also denies the actual CLI home to its sandboxed tools;
+the CLI itself must still authenticate. Do not print login files or environment variables.
+Before launching, privately check that loaded user, project and administrator configuration
+has no legacy sandbox setting or permission profile. Record only conflicting file/key names.
+If normal settings conflict, use a disposable account with a subscription login; do not
+edit normal user settings for the experiment. Inherited plugins and MCP servers must be off;
+use no browser or computer-control tools during this probe.
+
+In that same terminal build the exact inline profiles (fixture paths must contain no double
+quotes or backslashes). `:read-only` deliberately supplies no inherited temporary writes:
+
+```sh
+probe_denials="\"$probe_root/fake-live/secret\"=\"deny\",\"$probe_root/fake-live/db.sqlite*\"=\"deny\",\"$probe_root/fake-live/customization\"=\"deny\",\"$probe_root/outside\"=\"deny\",\"$probe_home\"=\"deny\",\"$HOME/.ssh\"=\"deny\",\"${CODEX_HOME:-$HOME/.codex}\"=\"deny\""
+probe_write="{extends=\":read-only\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials}}"
+probe_read="{extends=\":read-only\",filesystem={\":root\"=\"read\",$probe_denials}}"
+TMPDIR="$probe_root/cli-tmp" codex --ask-for-approval never \
+  -c 'default_permissions="projectman"' \
+  -c "permissions.projectman=$probe_write" \
+  -c "shell_environment_policy.set.TMPDIR=\"$probe_tmp\""
+```
+
+Ask the CLI to perform each operation separately, report the actual tool, exit status and
+denial, and never retry outside the sandbox. Give it the resolved fixture paths from above.
+
+| Operations                                                                                                                                          | Expected in the writer                                       |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `ls`, `cat README.md`, `touch pm356-write.txt`, edit that file with `apply_patch`, `git status`, `node -v`, `npm -v`                                | Succeed without approval                                     |
+| `touch <probe_tmp>/allowed.txt`                                                                                                                     | Succeed without approval                                     |
+| `cat <probe_root>/fake-live/secret`, `cat secret-link`, `cat <probe_root>/outside/secret.txt`, `cat <probe_root>/fake-live/customization/team.yaml` | Sandbox denial                                               |
+| `cat <probe_root>/fake-live/db.sqlite` and each of its `-wal`, `-shm`, `-journal` files                                                             | Sandbox denial, including the glob matches                   |
+| `cat <probe_home>/auth.json`, `ls <probe_home>`, `ls ~/.ssh`                                                                                        | Sandbox denial; only the fictional login may ever be printed |
+| `touch /tmp/pm356-probe.txt`, `touch <probe_root>/cli-tmp/blocked.txt`, `touch .codex/blocked.txt`, `touch .agents/blocked.txt`                     | Sandbox denial                                               |
+| `touch <probe_root>/main-repo/.git/pm356-blocked.txt`                                                                                               | Sandbox denial; the worktree's `.git` is a pointer file      |
+
+For the actual CLI home, request only `head -c 0 <actual CLI home>/auth.json && echo OPENED`:
+it must be denied and must not print `OPENED`. Do not read credential contents. Verify
+existence privately on the host first; a missing file is not evidence of sandbox denial.
+The negative writes must leave no marker. For a denied read, record sandbox evidence rather
+than treating any nonzero exit as a pass. Verify fictional files exist from the host terminal.
+
+Exit the CLI before each next launch. Repeat the writer with the same arguments but
+`--ask-for-approval on-request`. Own-file editing must not ask; forbidden writes should ask.
+Record and reject those requests. If own-file editing asks, repeat with the following profile
+and otherwise identical arguments, retaining both results:
+
+```sh
+probe_workspace_write="{extends=\":workspace\",filesystem={\":root\"=\"read\",\":workspace_roots\"={\".\"=\"write\",\".git\"=\"read\",\".codex\"=\"read\",\".agents\"=\"read\"},\"$probe_tmp\"=\"write\",$probe_denials}}"
+```
+
+Use `permissions.projectman=$probe_workspace_write` for that repeat. If neither base permits
+own-file editing without approval, stop and return to planning. Do not silently grant a wider root.
+
+Repeat with `permissions.projectman=$probe_read`, `--ask-for-approval never` and **without**
+`shell_environment_policy.set.TMPDIR`. The same reads must be denied and all writes,
+including own-worktree and temporary writes, must fail. Record its effective profile too.
+
+Test precedence using **fictional targets only**, in separate writer sessions:
+
+1. Add `--sandbox workspace-write` to the writer launch and retry the fictional denied reads.
+2. Without that flag, create `.codex/config.toml` containing only
+   `sandbox_mode="danger-full-access"`, launch the writer, and retry those reads. Afterwards
+   remove only this fixture config before further runs. Record whether legacy settings win.
+
+If shell commands fail because the CLI home is denied, repeat the original writer launch
+with `-c features.shell_snapshot=false`. Do not reopen the denied CLI home. In another
+original-profile session request **only** `view_image` on `<probe_home>/blocked.png` (no shell
+fallback); record whether this built-in tool respects the denial or is unavailable.
+
+Record on PM-356: commit, CLI version/provenance, OS, exact arguments, effective profile,
+each result/prompt and sanitized denial evidence. If the glob fails, repeat using four
+explicit denied database paths; if the profile is unsupported, return to planning for a
+minimum-version decision. No runtime change is finalized before this evidence exists.
+
+After implementation, a disposable development instance with fictional data must repeat the
+boundary for **both a Codex and a NanoGPT member**. Record their CLI versions and rendered
+arguments, denied `cat <development app home>/secret` and `ls <development app home>/secrets`,
+and successful worktree operations, attachment reads, npm-cache writes and
+`npm run heavy -- true`. Use no live app home, live port, real secret or computer-control tool.
+This later run is a separate acceptance prerequisite, not established by the standalone probe.
+
 ## Acceptance record and alternatives
 
 Fill one row per CLI version / OS / effective policy. For each capability record `pass`,

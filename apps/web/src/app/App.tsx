@@ -37,6 +37,7 @@ const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPa
 const memberProfilePage = lazyPage(() => import('../features/team/MemberProfilePage'), 'MemberProfilePage');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
+const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
 /** "/" → the last visited project, the first project, or project creation. */
@@ -76,6 +77,7 @@ export function AppRoutes() {
           <Route path="messages" element={messagesPage} />
           <Route path="messages/with/:handle" element={messagesPage} />
           <Route path="messages/all" element={messagesPage} />
+          <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="*" element={notFound} />
         </Route>

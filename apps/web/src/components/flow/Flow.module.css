@@ -1,0 +1,115 @@
+/*
+ * The rows of a flow: the first column holds the marks and the line through them, the content
+ * follows, and a station may carry something on the right. On a narrow screen the right side
+ * drops under the content and the mark column narrows (container query on the page).
+ */
+.row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+}
+
+.glyphCell {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  position: relative;
+  z-index: 2;
+  color: var(--col-fg, var(--c-ink-3));
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.body {
+  grid-column: 2 / 4;
+  min-width: 0;
+}
+
+.aside {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.station {
+  width: 100%;
+  min-height: 60px;
+  padding: 10px 12px 10px 0;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition:
+    background-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+button.station {
+  cursor: pointer;
+}
+
+button.station:hover {
+  background: color-mix(in srgb, var(--c-surface) 55%, transparent);
+}
+
+button.station[aria-pressed='true'] {
+  background: var(--c-surface);
+  box-shadow: var(--ring-selected);
+}
+
+.flash {
+  animation: flash 1400ms ease-out;
+}
+
+@keyframes flash {
+  0% {
+    background: var(--c-accent-bg);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.line {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .station {
+    transition: none;
+  }
+  .flash {
+    animation: none;
+  }
+}
+
+/* The page that shows a flow names its width `flow` (container: flow / inline-size). */
+@container flow (max-width: 640px) {
+  .row {
+    grid-template-columns: 44px minmax(0, 1fr);
+    column-gap: 8px;
+  }
+  .body {
+    grid-column: 2;
+  }
+  .station .aside {
+    grid-column: 2;
+    justify-content: flex-start;
+    margin-top: 6px;
+  }
+}

@@ -31,6 +31,12 @@ const icons = {
     </>
   ),
   messages: <path d="M20.5 11.6a8 8 0 0 1-11.7 7.1L4 20l1.3-4.4a8 8 0 1 1 15.2-4z" />,
+  map: (
+    <>
+      <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+      <path d="M9 4v14M15 6v14" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7h9" />

@@ -114,6 +114,20 @@
   font-weight: 800;
 }
 
+/* A label that needs two lines ("Hogyan dolgozunk"): the item grows with it. */
+.railItemTall {
+  height: auto;
+  min-height: 58px;
+  padding: 8px 0 7px;
+}
+
+.railLabelWrap {
+  white-space: normal;
+  text-align: center;
+  line-height: 1.15;
+  padding: 0 2px;
+}
+
 .railBadge {
   position: absolute;
   top: 5px;

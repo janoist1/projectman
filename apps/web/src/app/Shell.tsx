@@ -41,8 +41,13 @@ interface NavItem {
   badge?: number;
 }
 
-function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem } {
-  const { key } = useProject();
+function useNavItems(inboxCount: number): {
+  main: NavItem[];
+  /** The "how we work" page: on the rail and in the phone's account menu, not in the tab bar; a client has none. */
+  howWeWork: NavItem | null;
+  settings: NavItem;
+} {
+  const { key, can } = useProject();
   // The server counts the viewer's unread messages across their conversations (PM-78).
   const unread = useTeamThreads(key).data?.unreadCount ?? 0;
   const { pathname } = useLocation();
@@ -69,6 +74,14 @@ function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem }
         badge: unread,
       },
     ],
+    howWeWork: can.readConfig
+      ? {
+          to: `${base}/how-we-work`,
+          icon: 'map',
+          label: t('nav.howWeWork'),
+          active: under(`${base}/how-we-work`),
+        }
+      : null,
     settings: {
       to: `${base}/settings`,
       icon: 'settings',
@@ -85,7 +98,7 @@ function BadgeText({ count }: { count: number }) {
 /** Left navigation rail (desktop and tablet). */
 export function NavRail({ inboxCount }: { inboxCount: number }) {
   const { key, openPause, can } = useProject();
-  const { main, settings } = useNavItems(inboxCount);
+  const { main, howWeWork, settings } = useNavItems(inboxCount);
   const pause = useBoard(key).data?.pause;
   const canPause = can.pauseTeam && pause !== undefined && openPauses(pause).length === 0;
   return (
@@ -112,6 +125,16 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
           ) : null}
         </Link>
       ))}
+      {howWeWork ? (
+        <Link
+          to={howWeWork.to}
+          className={clsx(styles.railItem, styles.railItemTall, howWeWork.active && styles.railItemActive)}
+          aria-current={howWeWork.active ? 'page' : undefined}
+        >
+          <Icon name={howWeWork.icon} size={20} strokeWidth={1.8} />
+          <span className={clsx(styles.railLabel, styles.railLabelWrap)}>{howWeWork.label}</span>
+        </Link>
+      ) : null}
       <span className={styles.spacer} />
       <Link
         to={settings.to}
@@ -391,6 +414,7 @@ export function MobileHeader({
       ) : null}
       <AccountMenu
         settingsPath={`/p/${key}/settings`}
+        howWeWorkPath={can.readConfig ? `/p/${key}/how-we-work` : null}
         placement="below"
         onPause={canPause ? openPause : undefined}
       />

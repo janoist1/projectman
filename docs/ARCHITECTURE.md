@@ -822,16 +822,21 @@ workers follow the machine's size.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
   `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
-  signal is passed on to the command, and an unusable queue folder only warns, so the lock never holds
-  anything back. `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
+  signal is passed on to the command. An unusable queue folder (`heavy_lock_unavailable`) stops the
+  command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
+  PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
 - **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
   run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
-  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again.
+  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again. With an
+  unusable folder it runs without the queue and logs a warning: the review must not stall on it.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
-  npm cache when there is no clone). A Codex member gets no sandbox environment, so its commands queue in the
-  default folder, or run without the queue when that is not writable there.
+  npm cache when there is no clone). The same folder and variables go to a Codex member as
+  `AgentSandbox.portable` (PM-346): `buildCodexArgs` adds the parent to `sandbox_workspace_write.writable_roots`
+  (only in `workspace-write`; none in the managed VM) and sets each variable with
+  `shell_environment_policy.set.<NAME>`, so every command sees them, also one run outside the sandbox after a
+  question. The server makes the missing parent (0700) before the process starts.
 - **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
@@ -867,9 +872,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
   `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
   heartbeats; worker limits use the executing host's CPU and memory. Same-host runs must
-  use the same lock directory; different users are not automatically one queue.
+  use the same lock directory; different users are not automatically one queue. An unusable
+  folder stops a member's heavy command (exit 78); the server's full test runs without the queue
+  and warns (PM-346).
   **Remote engine:** queue competing runs on each execution host and size workers there;
-  do not use the server's PID namespace, lock or hardware measurements for another engine.
+  do not use the server's PID namespace, lock or hardware measurements for another engine. The
+  engine supplies `SandboxPaths.heavyLockDir` from its own `defaultHeavyLockDir()` or setting,
+  and with it the `StartSessionSpec.sandbox.portable` paths; its runner renders the Codex
+  arguments and makes the folder (PM-311, PM-312).
 - **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333). Legacy Claude sessions
   receive a per-process writable folder below the server's real `tmpdir`; the server makes,

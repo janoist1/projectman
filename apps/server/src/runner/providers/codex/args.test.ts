@@ -287,6 +287,96 @@ describe('buildCodexArgs', () => {
     });
   });
 
+  describe('what our sandbox shares with Codex: the heavy-run queue folder (PM-346)', () => {
+    const lockParent = '/fictional/tmp/projectman-501';
+    const lockDir = `${lockParent}/heavy`;
+    const sandbox = {
+      allowWrite: [lockParent],
+      allowedDomains: [],
+      allowLocalBinding: true,
+      portable: {
+        allowWrite: [lockParent],
+        env: { PROJECTMAN_HEAVY_LOCK_DIR: lockDir, npm_config_prefer_offline: 'true' },
+      },
+    };
+    const withPolicy = (
+      sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access',
+      execution?: NonNullable<StartSessionSpec['policy']>['execution'],
+    ): NonNullable<StartSessionSpec['policy']> => ({
+      version: 1,
+      enforcement: 'legacy',
+      ...(execution ? { execution } : {}),
+      access: 'task_worktree',
+      placement: { kind: 'member_workspace', path: '/work', use: 'work' },
+      tools: { team: { all: true, names: [] }, files: [], shell: [] },
+      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [] },
+      deniedOperations: [],
+      network: { allowedDomains: [], allowLocalBinding: false },
+      outsideSandbox: 'deny',
+      permissions: { claude: 'acceptEdits', sandbox: sandboxMode, approval: 'on-request' },
+    });
+    const build = (extra: Partial<StartSessionSpec>) =>
+      overrides(buildCodexArgs({ ...input, spec: { ...spec, ...extra } }).args);
+    const ENV_KEY = 'shell_environment_policy.set.PROJECTMAN_HEAVY_LOCK_DIR';
+
+    it('makes the queue folder writable and names it, also with a policy', () => {
+      const c = build({ policy: withPolicy('workspace-write'), sandbox });
+      expect(c.get('sandbox_workspace_write.writable_roots')).toBe(tomlValue([lockParent]));
+      expect(c.get(ENV_KEY)).toBe(tomlValue(lockDir));
+      expect(c.get('shell_environment_policy.set.npm_config_prefer_offline')).toBe(tomlValue('true'));
+    });
+
+    it('passes only the variables in a read-only sandbox, where nothing is writable', () => {
+      const c = build({ policy: withPolicy('read-only'), sandbox });
+      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+      expect(c.get(ENV_KEY)).toBe(tomlValue(lockDir));
+    });
+
+    it('changes nothing without `portable`', () => {
+      const plain = { ...sandbox, portable: undefined };
+      const policy = withPolicy('workspace-write');
+      expect(buildCodexArgs({ ...input, spec: { ...spec, policy, sandbox: plain } }).args).toEqual(
+        buildCodexArgs({ ...input, spec: { ...spec, policy } }).args,
+      );
+      const c = build({ policy, sandbox: plain });
+      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+      expect([...c.keys()].some((key) => key.startsWith('shell_environment_policy'))).toBe(false);
+    });
+
+    it('joins the legacy writable roots without a policy into one list, each once', () => {
+      const c = build({
+        permissionMode: 'acceptEdits',
+        writableRoots: ['/workspace/.git', lockParent],
+        sandbox,
+      });
+      expect(c.get('sandbox_workspace_write.writable_roots')).toBe(
+        tomlValue(['/workspace/.git', lockParent]),
+      );
+    });
+
+    it('gives the managed VM neither the root nor the variables', () => {
+      const policy = withPolicy('danger-full-access', {
+        profile: 'managed_vm',
+        boundary: { name: 'managed-vm', version: 1 },
+      });
+      const c = build({
+        policy: { ...policy, permissions: { ...policy.permissions, approval: 'never' } },
+        sandbox,
+      });
+      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+      expect([...c.keys()].some((key) => key.startsWith('shell_environment_policy'))).toBe(false);
+    });
+
+    it('leaves out a variable whose name is not a TOML bare key', () => {
+      const odd = { ...sandbox, portable: { allowWrite: [], env: { 'A.B': '1', 'C D': '2', GOOD_1: '3' } } };
+      const c = build({ policy: withPolicy('workspace-write'), sandbox: odd });
+      expect([...c.keys()].filter((key) => key.startsWith('shell_environment_policy'))).toEqual([
+        'shell_environment_policy.set.GOOD_1',
+      ]);
+      expect(c.has('sandbox_workspace_write.writable_roots')).toBe(false);
+    });
+  });
+
   it('never turns off the sandbox or the questions, even for bypassPermissions, and passes a Codex model', () => {
     const args = buildCodexArgs({
       ...input,

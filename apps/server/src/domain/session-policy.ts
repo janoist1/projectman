@@ -99,6 +99,15 @@ function heavyLockAccess(
   };
 }
 
+/** The part of a sandbox every provider's own sandbox takes (`AgentSandbox.portable`, PM-346). */
+function portableOf(heavy: {
+  allowWrite: string[];
+  env: Record<string, string>;
+}): Pick<AgentSandbox, 'portable'> {
+  if (heavy.allowWrite.length === 0) return {};
+  return { portable: { allowWrite: [...heavy.allowWrite], env: { ...heavy.env } } };
+}
+
 /**
  * What a developer's sandboxed commands read below the user's home besides their own directories
  * (PM-153): git's own configuration and the shell snapshot Claude Code sources before every command
@@ -275,6 +284,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
+    ...portableOf(heavy),
   };
 }
 
@@ -352,6 +362,7 @@ export function sessionSandbox(
       ...heavy.env,
     },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
+    ...portableOf(heavy),
   };
 }
 

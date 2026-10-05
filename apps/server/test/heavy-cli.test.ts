@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { parseHeavyArgs } from '../../../scripts/heavy/run';
+import { EXIT_QUEUE_UNAVAILABLE, parseHeavyArgs } from '../../../scripts/heavy/run';
 import { acquireHeavyLock, readHeavyQueue } from '../src/full-test/heavy-lock';
 import type { HeavyLock } from '../src/full-test/heavy-lock';
 
@@ -166,11 +166,20 @@ describe('the heavy CLI', () => {
     expect((await readHeavyQueue(dir)).holder?.label).toBe('the outer run');
   });
 
-  it('runs the command without the queue when the folder is unusable, with a warning', async () => {
+  it('does not run the command, and says so, when the folder is unusable (PM-346)', async () => {
+    const marker = path.join(root, 'ran');
     // /tmp is not ours and not 0700: the queue cannot be used there, and nothing is made in it.
-    const ran = await heavy(node("console.log('ran')"), { PROJECTMAN_HEAVY_LOCK_DIR: '/tmp/heavy' });
-    expect(ran.code).toBe(0);
-    expect(ran.stdout).toBe('ran\n');
-    expect(ran.stderr).toContain('running without the queue');
+    const ran = await heavy(node(`require('node:fs').writeFileSync(${JSON.stringify(marker)}, '')`), {
+      PROJECTMAN_HEAVY_LOCK_DIR: '/tmp/heavy',
+    });
+    expect(ran.code).toBe(EXIT_QUEUE_UNAVAILABLE);
+    expect(EXIT_QUEUE_UNAVAILABLE).toBe(78);
+    expect(existsSync(marker)).toBe(false);
+    const lines = ran.stderr.trim().split('\n');
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toMatch(/^heavy: the machine's heavy-run queue cannot be used, so this did not run: /);
+    expect(lines[1]).toMatch(/^heavy: .+/);
+    expect(lines[2]).toContain('would overload the machine');
+    expect(lines[3]).toContain('ask for the command to run outside your sandbox');
   });
 });

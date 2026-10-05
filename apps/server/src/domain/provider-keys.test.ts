@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import pino from 'pino';
+import fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProviderKeys } from './provider-keys';
 
@@ -29,14 +29,16 @@ describe('provider key store', () => {
       home,
       check,
       now: () => new Date('2026-10-05T08:00:00Z'),
-      logger: pino(
-        { level: 'trace' },
-        {
-          write: (line: string) => {
-            lines.push(line);
+      logger: fastify({
+        logger: {
+          level: 'trace',
+          stream: {
+            write: (line: string) => {
+              lines.push(line);
+            },
           },
         },
-      ),
+      }).log,
     };
     return {
       home,

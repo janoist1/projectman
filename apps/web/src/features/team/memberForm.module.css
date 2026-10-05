@@ -50,6 +50,30 @@
   color: var(--c-needs-text);
   background: var(--c-needs-bg);
 }
+.providerWarning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.saved {
+  grid-column: 1 / -1;
+  color: var(--c-ink-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.approverWarning {
+  color: var(--c-needs-text);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+@media (max-width: 767px) {
+  .providerWarning {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
 
 @media (max-width: 767px) {
   .actions > button {

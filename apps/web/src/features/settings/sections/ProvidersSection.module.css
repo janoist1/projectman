@@ -5,7 +5,7 @@
 }
 .row {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr) auto;
+  grid-template-columns: 110px minmax(0, 1fr) auto auto;
   gap: 4px 14px;
   align-items: center;
   padding: 10px 0;
@@ -23,6 +23,29 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.keyActions {
+  display: flex;
+  gap: 8px;
+}
+.actions {
+  grid-column: 4;
+  grid-row: 1;
+}
+@media (max-width: 767px) {
+  .status {
+    flex-wrap: wrap;
+  }
+  .keyActions {
+    flex-basis: 100%;
+  }
+  .actions {
+    grid-column: 1 / -1;
+    grid-row: 4;
+  }
+  .todo {
+    grid-row: 3;
+  }
 }
 .todo {
   grid-column: 1 / -1;

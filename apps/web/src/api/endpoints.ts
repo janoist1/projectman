@@ -85,6 +85,9 @@ export const api = {
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>
     apiRequest(routes.addHumanMember(key), { method: 'POST', body, schema: MemberView }),
   providers: () => apiRequest(routes.providers(), { schema: ProvidersView }),
+  setNanogptKey: (key: string) =>
+    apiRequest(routes.nanogptKey(), { method: 'PUT', body: { key }, schema: ProvidersView }),
+  deleteNanogptKey: () => apiRequest(routes.nanogptKey(), { method: 'DELETE', schema: ProvidersView }),
   setupStatus: () => apiRequest(routes.setupStatus(), { schema: SetupStatus }),
   setup: (body: SetupRequest) => apiRequest<unknown>(routes.setup(), { method: 'POST', body }),
   login: (body: LoginRequest) => apiRequest<unknown>(routes.login(), { method: 'POST', body }),

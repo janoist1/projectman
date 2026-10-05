@@ -23,14 +23,16 @@ export const GEMINI_LABELS: Record<string, PlainMessageKey> = {
   'gemini-3.8-flash': 'providerSettings.models.geminiFlash',
   'gemini-3.1-pro': 'providerSettings.models.geminiPro',
 };
+export const NANOGPT_LABELS: Record<string, PlainMessageKey> = {
+  'z-ai/glm-5.3-flash-uncensored': 'providerSettings.models.glm',
+  'z-ai/glm-5.3-uncensored': 'providerSettings.models.glmUncensored',
+  'z-ai/glm-5.3-flash-cybersecurity': 'providerSettings.models.glmCybersecurity',
+};
 export const PROVIDER_MODEL_LABELS: Record<AgentProvider, Record<string, PlainMessageKey>> = {
   claude: { ...CLAUDE_FIXED_LABELS, ...CLAUDE_ALIAS_LABELS },
   codex: CODEX_LABELS,
   gemini: GEMINI_LABELS,
-  nanogpt: { 'z-ai/glm-5.3-flash-uncensored': 'providerSettings.models.glm' } as Record<
-    string,
-    PlainMessageKey
-  >,
+  nanogpt: NANOGPT_LABELS,
 };
 
 export function providerModelLabel(provider: AgentProvider, model: string): string {

@@ -7,9 +7,20 @@ import {
   PLAN_USAGE_PROVIDERS,
   PROVIDER_PERMISSION_MODES,
   permissionModeFitsProvider,
+  usesCodexCli,
+  approverBlocksProvider,
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it('shares Codex CLI capabilities and explains only the NanoGPT none approver', () => {
+    expect(usesCodexCli('nanogpt')).toBe(true);
+    expect(usesCodexCli('codex')).toBe(true);
+    expect(usesCodexCli('gemini')).toBe(false);
+    expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'none' })).toBe(true);
+    expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'human' })).toBe(false);
+    expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'ai' })).toBe(false);
+    expect(approverBlocksProvider({ provider: 'codex', approver: 'none' })).toBe(false);
+  });
   it('rejects Gemini models for NanoGPT while retaining open model ids', () => {
     expect(modelForProvider('nanogpt', 'gemini-3.8-flash')).toBe('z-ai/glm-5.3-flash-uncensored');
     expect(modelForProvider('nanogpt', 'claude-opus')).toBe('z-ai/glm-5.3-flash-uncensored');

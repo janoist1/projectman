@@ -1,6 +1,12 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { DEFAULT_PROVIDER_MODELS, modelForProvider, MemberHandle } from '@projectman/shared';
+import {
+  DEFAULT_PROVIDER_MODELS,
+  modelForProvider,
+  MemberHandle,
+  usesCodexCli,
+  approverBlocksProvider,
+} from '@projectman/shared';
 import type { AgentProvider, AgentEffort, CheapSubagentModel, RoleId } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import { useHireMember, useRoles } from '../../api/queries';
@@ -31,7 +37,7 @@ interface HireDialogProps {
 }
 
 function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDone: () => void }) {
-  const { key } = useProject();
+  const { key, isOwner } = useProject();
   const hire = useHireMember(key);
   const roles = useRoles(key);
   const options = hireableRoles(roles.data?.roles ?? []);
@@ -56,7 +62,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const preview = useMemo(() => previewFor(role, specialty, config), [role, specialty, config]);
   const chosenModel =
     model ??
-    (provider === 'codex' ? DEFAULT_PROVIDER_MODELS.codex : modelForProvider(provider, preview.model));
+    (usesCodexCli(provider) ? DEFAULT_PROVIDER_MODELS[provider] : modelForProvider(provider, preview.model));
   const selectedRole = aiRoleView(role, specialty, roles.data?.roles);
   const defaultName = selectedRole.name;
 
@@ -203,6 +209,12 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
             />
           </div>
 
+          {approverBlocksProvider({ provider, approver: preview.approver }) ? (
+            <p className={form.approverWarning}>
+              {t('hire.nanogptApproverNone')}{' '}
+              {t(isOwner ? 'hire.nanogptApproverOwner' : 'hire.nanogptApproverOther')}
+            </p>
+          ) : null}
           <ScheduleFields value={schedule} onChange={setSchedule} showErrors={scheduleError} />
 
           <Fold summary={t('hire.details')} plain open={detailsOpen} onToggle={setDetailsOpen}>
@@ -230,7 +242,9 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
                 </div>
                 <div>
                   <dt>{t('hire.subscription')}</dt>
-                  <dd>{t('hire.subscriptionYours')}</dd>
+                  <dd>
+                    {t(provider === 'nanogpt' ? 'providerSettings.runsOn.nanogpt' : 'hire.subscriptionYours')}
+                  </dd>
                 </div>
               </dl>
               <TextField

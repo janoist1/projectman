@@ -18,7 +18,7 @@ describe('provider settings', () => {
     p.backend.providerStatus.nanogpt = { loggedIn: false, problem: 'no_key' };
     p.backend.providerStatus.gemini = { loggedIn: null };
     const ui = p.render(<ProvidersSection config={p.backend.config} />);
-    await screen.findByText(t('providerSettings.notReady'));
+    await screen.findByText(t('providerSettings.nanogptNoKeyState'));
     const row = (provider: 'claude' | 'codex' | 'gemini' | 'nanogpt') =>
       screen.getByText(t(`providers.${provider}`)).closest('li')!;
     expect(within(row('claude')).getByText('claude auth login')).toBeTruthy();
@@ -28,8 +28,10 @@ describe('provider settings', () => {
     expect(within(row('nanogpt')).queryByRole('code')).toBeNull();
     expect(within(row('gemini')).getByText(t('providerSettings.unknown'))).toBeTruthy();
     p.backend.providerStatus = {};
+    p.backend.nanogptKeyStatus = { set: true, setAt: null };
     await ui.client.invalidateQueries({ queryKey: ['providers'] });
-    await waitFor(() => expect(screen.getAllByText(t('providerSettings.ready'))).toHaveLength(4));
+    await waitFor(() => expect(screen.getAllByText(t('providerSettings.ready'))).toHaveLength(3));
+    expect(screen.getByText(t('providerSettings.nanogptSet'))).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
   it('keeps names and counts visible while loading and silently refreshes', async () => {

@@ -17,9 +17,13 @@ export function ProviderBadge({
       <Tooltip
         label={label}
         content={t(
-          status.problem === 'not_logged_in'
-            ? 'providerSettings.badgeLoginHelp'
-            : 'providerSettings.badgeNotReadyHelp',
+          provider === 'nanogpt'
+            ? status.problem === 'no_key'
+              ? 'providerSettings.nanogptBadgeNoKey'
+              : 'providerSettings.nanogptBadgeIncomplete'
+            : status.problem === 'not_logged_in'
+              ? 'providerSettings.badgeLoginHelp'
+              : 'providerSettings.badgeNotReadyHelp',
           { provider: name },
         )}
       >

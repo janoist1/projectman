@@ -42,9 +42,7 @@ describe('member profiles', () => {
     expect(
       screen.getByText((text) => text.endsWith(`· ${t('providerSettings.efforts.medium')}`)),
     ).toBeTruthy();
-    expect(
-      await screen.findByText(t('providerSettings.notReadyWarning', { provider: t('providers.nanogpt') })),
-    ).toBeTruthy();
+    expect(await screen.findByText(t('providerSettings.nanogptNoKey'), { exact: false })).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
   it('keeps the Codex plan meter', async () => {

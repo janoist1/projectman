@@ -1,5 +1,5 @@
 import { LabelChip } from '../../components/LabelChip';
-import { limitTokens, usageTotal } from '@projectman/shared';
+import { limitTokens, usageTotal, usesCodexCli } from '@projectman/shared';
 import type { LabelView, MemberView, Session, Task, TaskPullRequest } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
@@ -185,9 +185,7 @@ export function UsagePanel({ session, provider }: { session: Session; provider: 
       {partial ? (
         <p className={styles.muted}>{t('tokenUsage.since', { time: formatStamp(usage.since) })}</p>
       ) : null}
-      {usage && provider === 'codex' ? (
-        <p className={styles.muted}>{t('tokenUsage.codexSubagents')}</p>
-      ) : null}
+      {usesCodexCli(provider) ? <p className={styles.muted}>{t('tokenUsage.codexSubagents')}</p> : null}
     </section>
   );
 }

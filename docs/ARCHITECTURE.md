@@ -857,6 +857,9 @@ workers follow the machine's size.
   Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** the CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs.
+  Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
+  `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
+  On a remote engine this inspection must run beside the CLI, before secret delivery.
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.

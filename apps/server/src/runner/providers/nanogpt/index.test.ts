@@ -1,4 +1,4 @@
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildChildEnv } from '../../env';
@@ -16,6 +16,7 @@ describe('NanoGPT adapter', () => {
       codexHome,
       nanogptKey: async () => key,
       logger: silentLogger(),
+      ambientConfig: { codexManaged: [] },
     });
     const input = {
       spec: {
@@ -101,4 +102,39 @@ describe('NanoGPT adapter', () => {
       NANOGPT_API_KEY: 'private-test-sentinel',
     });
   });
+  it.each(['project', 'user', 'managed'] as const)(
+    'refuses dangerous %s configuration with names only',
+    async (layer) => {
+      const h = await harness();
+      const file =
+        layer === 'project'
+          ? path.join(h.input.spec.cwd, '.codex', 'config.toml')
+          : layer === 'user'
+            ? path.join(h.codexHome, 'config.toml')
+            : path.join(h.input.spec.cwd, 'managed-config.toml');
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, 'notify = ["configuration-private-sentinel"]\n');
+      const adapter =
+        layer === 'managed'
+          ? createNanogptAdapter({
+              bin: FAKE_CODEX,
+              codexHome: h.codexHome,
+              nanogptKey: async () => 'test-key',
+              logger: silentLogger(),
+              ambientConfig: { codexManaged: [file] },
+            })
+          : h.adapter;
+      let error: unknown;
+      try {
+        await adapter.launch(h.input);
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toMatchObject({
+        code: 'nanogpt_setup_incomplete',
+        details: { provider: 'nanogpt', ambientConfig: [{ file, keys: ['notify'] }] },
+      });
+      expect(JSON.stringify(error)).not.toContain('configuration-private-sentinel');
+    },
+  );
 });

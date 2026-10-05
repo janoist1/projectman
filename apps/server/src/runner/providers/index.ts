@@ -21,6 +21,7 @@ export function createProviderAdapters(opts: RunnerModuleOptions): ProviderAdapt
         opts.nanogptCodexHome ??
         path.join(path.dirname(opts.codexHome ?? defaultCodexHome(env)), 'projectman-nanogpt-codex-home'),
       nanogptKey: opts.nanogptKey ?? (async () => null),
+      ambientConfig: opts.ambientConfig,
       logger: opts.logger,
     }),
     claude: createClaudeAdapter({

@@ -16,6 +16,9 @@ until PM-331. Real-key tool, effort and process-environment checks are performed
 Both Codex and NanoGPT pass `-c notify=[]` so project configuration cannot install a
 notification command running outside the CLI sandbox. Acceptance of this override by
 Codex 0.159.1 remains part of the owner's manual check.
+NanoGPT startup also uses `inspectAmbientConfig` to reject override-capable settings in
+`/etc/codex`, its dedicated Codex home and the workspace's `.codex/config.toml`.
+The `nanogpt_setup_incomplete` error exposes only configuration file and key names.
 
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**

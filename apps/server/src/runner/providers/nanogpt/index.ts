@@ -2,8 +2,9 @@ import { chmod, lstat, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
-import type { ProviderStatus } from '../../../contracts';
+import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
+import { inspectAmbientConfig } from '../../managed-vm';
 import { createCodexAdapter } from '../codex';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER } from '../codex/args';
 import type { ProviderAdapter } from '../types';
@@ -23,6 +24,7 @@ export function createNanogptAdapter(opts: {
   codexHome: string;
   nanogptKey: () => Promise<string | null>;
   logger: FastifyBaseLogger;
+  ambientConfig?: AmbientConfigLocations;
 }): ProviderAdapter {
   const codex = createCodexAdapter(opts);
   async function hasAuth(): Promise<boolean> {
@@ -79,11 +81,19 @@ export function createNanogptAdapter(opts: {
         throw new NanogptStartError('provider_unsupported', { profile: 'managed_vm' });
       if (await hasAuth())
         throw new NanogptStartError('nanogpt_setup_incomplete', { problem: 'chatgpt_login' });
+      const realCwd = await realpath(input.spec.cwd).catch(() => input.spec.cwd);
+      const ambientConfig = await inspectAmbientConfig({
+        provider: 'nanogpt',
+        cwd: realCwd,
+        env: { CODEX_HOME: opts.codexHome },
+        locations: opts.ambientConfig,
+      });
+      if (ambientConfig.length > 0)
+        throw new NanogptStartError('nanogpt_setup_incomplete', { ambientConfig });
       const key = await opts.nanogptKey();
       if (!key) throw new NanogptStartError('nanogpt_key_missing');
       await mkdir(opts.codexHome, { recursive: true, mode: 0o700 });
       await chmod(opts.codexHome, 0o700);
-      const realCwd = await realpath(input.spec.cwd).catch(() => input.spec.cwd);
       const command = buildCodexArgs({ ...input, realCwd, provider: NANOGPT_CODEX_PROVIDER });
       return {
         ...resolveCommand(opts.bin, command.args),

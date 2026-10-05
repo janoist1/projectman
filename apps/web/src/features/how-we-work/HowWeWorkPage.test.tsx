@@ -245,8 +245,12 @@ describe('the item on show', () => {
         return (
           <>
             <output data-testid="search">{location.search}</output>
+            <output data-testid="path">{location.pathname}</output>
             <button type="button" onClick={() => void navigate(-1)}>
               back
+            </button>
+            <button type="button" onClick={() => void navigate('/')}>
+              go to the page
             </button>
           </>
         );
@@ -283,6 +287,17 @@ describe('the item on show', () => {
       fireEvent.keyDown(dialog, { key: 'Escape' });
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(search()).toBe('');
+    });
+
+    it('steps back only once on Esc, so the page before it stays behind the panel', async () => {
+      renderWithHistory('/before');
+      fireEvent.click(screen.getByRole('button', { name: 'go to the page' }));
+      fireEvent.click(await screen.findByRole('button', { name: t('howWeWork.legendButton') }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.keyDown(dialog, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(search()).toBe('');
+      expect(screen.getByTestId('path').textContent).toBe('/');
     });
 
     it('closes a panel opened by a link by dropping the parameter', async () => {

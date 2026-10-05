@@ -494,10 +494,19 @@ function ruleDetail(id: string, view: MapView): Detail {
 
 /* ---------- legend ---------- */
 
-const SAMPLE_HUMAN = { handle: 'person', displayName: 'Ember', kind: 'human', role: 'developer' } as const;
-const SAMPLE_AI = { handle: 'ai', displayName: 'AI', kind: 'ai', role: 'code-review' } as const;
-
 function legendDetail(asked: boolean): Detail {
+  const sampleHuman = {
+    handle: 'person',
+    displayName: t('howWeWork.legend.sampleHuman'),
+    kind: 'human',
+    role: 'developer',
+  } as const;
+  const sampleAi = {
+    handle: 'ai',
+    displayName: t('howWeWork.legend.sampleAi'),
+    kind: 'ai',
+    role: 'code-review',
+  } as const;
   const kinds: StageKind[] = ['queue', 'work', 'step', 'release', 'done'];
   const row = (mark: ReactNode, text: string, key: string) => (
     <div key={key} className={styles.lg}>
@@ -547,8 +556,8 @@ function legendDetail(asked: boolean): Detail {
           )}
           {row(
             <span className={styles.legendAvatars}>
-              <Avatar member={SAMPLE_HUMAN} size="sm" />
-              <Avatar member={SAMPLE_AI} size="sm" />
+              <Avatar member={sampleHuman} size="sm" />
+              <Avatar member={sampleAi} size="sm" />
             </span>,
             t('howWeWork.legend.shapes'),
             'shapes',

@@ -42,8 +42,8 @@ function HowWeWork() {
   const map = useMemo(() => (data ? teamMap(data.config) : null), [data]);
   useDocumentTitle(t('howWeWork.title'), data?.config.project.name);
   const flashed = useFlash(map);
-  const { selected, select, close } = useSelection();
   const wide = useMediaQuery(WIDE_QUERY);
+  const { selected, select, close } = useSelection(wide);
 
   const view = useMemo<MapView | null>(() => {
     if (!data || !map) return null;
@@ -180,7 +180,7 @@ function useFlash(map: TeamMap | null): ReadonlySet<string> {
  * The item on show lives in `?show=`, so a link can point at it. Closing it (the button, Esc, the
  * dialog) puts the focus back on what opened it.
  */
-function useSelection() {
+function useSelection(pageEscape: boolean) {
   const [params, setParams] = useSearchParams();
   const raw = params.get('show');
   const selected = useMemo(() => parseShow(raw), [raw]);
@@ -190,6 +190,7 @@ function useSelection() {
   const lastValue = useRef<string | null>(null);
   /** Opening the panel made a history entry of its own: closing it is Back. */
   const pushed = useRef(false);
+  const closing = useRef(false);
 
   const write = useCallback(
     (next: string | null, replace: boolean) => {
@@ -217,6 +218,10 @@ function useSelection() {
     [value, write],
   );
   const close = useCallback(() => {
+    // One close per opening: the URL (and so `value`) changes a moment later, and a second call before
+    // that (Esc reaches both the dialog and the page) would step back once more, off this page.
+    if (closing.current) return;
+    closing.current = true;
     // The panel opened by a click is one step forward in the history, so Back and the phone's back
     // gesture close it; one opened by a link has no such step, and closing it only drops the parameter.
     if (pushed.current) void navigate(-1);
@@ -224,6 +229,7 @@ function useSelection() {
   }, [navigate, write]);
 
   useEffect(() => {
+    closing.current = false;
     if (value !== null) {
       lastValue.current = value;
       return;
@@ -241,14 +247,16 @@ function useSelection() {
     opener.current = null;
   }, [value]);
 
+  // Beside the page the panel has no Esc of its own; as a dialog it has (the Dialog calls `close`).
   useEffect(() => {
-    if (value === null) return;
+    if (value === null || !pageEscape) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
+      // Another layer (a menu) took the key.
+      if (event.key === 'Escape' && !event.defaultPrevented) close();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [value, close]);
+  }, [value, close, pageEscape]);
 
   return { selected, select, close };
 }

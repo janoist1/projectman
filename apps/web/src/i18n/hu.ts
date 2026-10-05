@@ -1206,6 +1206,8 @@ export const hu = {
       },
     },
     legend: {
+      sampleHuman: 'Ember',
+      sampleAi: 'AI',
       eyebrow: 'Részletek',
       title: 'Jelmagyarázat',
       pick: 'Válassz egy elemet',

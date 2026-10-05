@@ -248,11 +248,11 @@ function Item({ icon, needs = false, children }: { icon: IconName; needs?: boole
 
 function Chips({ ids }: { ids: readonly string[] }) {
   return (
-    <div className={styles.chips}>
+    <span className={styles.chips}>
       {ids.map((id) => (
         <LabelButton key={id} id={id} />
       ))}
-    </div>
+    </span>
   );
 }
 

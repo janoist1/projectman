@@ -81,10 +81,13 @@ export function ProjectSwitcher({
 /** Avatar button with the account: settings and logout. */
 export function AccountMenu({
   settingsPath,
+  howWeWorkPath = null,
   placement = 'right',
   onPause,
 }: {
   settingsPath: string | null;
+  /** The "how we work" page, above the settings: only the phone's menu has it (the rail has an item). */
+  howWeWorkPath?: string | null;
   placement?: 'right' | 'below';
   /** Pause the team (PM-220): in this menu at every width; the top bar has the button on wide windows too. */
   onPause?: (() => void) | undefined;
@@ -158,6 +161,12 @@ export function AccountMenu({
               </button>
               <div className={styles.separator} />
             </>
+          ) : null}
+          {howWeWorkPath ? (
+            <Link to={howWeWorkPath} className={styles.item} onClick={() => setOpen(false)}>
+              <Icon name="map" size={16} />
+              <span className={styles.itemText}>{t('nav.howWeWork')}</span>
+            </Link>
           ) : null}
           {settingsPath ? (
             <Link to={settingsPath} className={styles.item} onClick={() => setOpen(false)}>

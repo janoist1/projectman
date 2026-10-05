@@ -168,6 +168,8 @@ export class FakeRunner implements SessionRunner {
 export interface FakeRunnerModule {
   runner: FakeRunner;
   transcripts: Map<string, ChatItem[]>;
+  /** Transcript paths whose file does not exist or is empty; every other path counts as written. */
+  emptyTranscripts: Set<string>;
   /** Every transcript read, with its options. */
   transcriptReads: Array<{ path: string; opts: Parameters<TranscriptReader['read']>[1] }>;
   planUsage: { value: PlanUsage | null; calls: number };
@@ -184,12 +186,16 @@ export function createFakeRunnerModule(): FakeRunnerModule {
   const runner = new FakeRunner();
   const transcripts = new Map<string, ChatItem[]>();
   const transcriptReads: FakeRunnerModule['transcriptReads'] = [];
+  const emptyTranscripts = new Set<string>();
   const planUsage = { value: null as PlanUsage | null, calls: 0 };
   let broker: PermissionBroker | null = null;
   let options: RunnerModuleOptions | null = null;
   const module: RunnerModule = {
     runner,
     transcripts: {
+      async hasContent(path) {
+        return !emptyTranscripts.has(path);
+      },
       async read(path, opts) {
         transcriptReads.push({ path, opts });
         const items = transcripts.get(path);
@@ -208,6 +214,7 @@ export function createFakeRunnerModule(): FakeRunnerModule {
   return {
     runner,
     transcripts,
+    emptyTranscripts,
     transcriptReads,
     planUsage,
     broker() {
@@ -248,6 +255,11 @@ export class FakeContextBuilder implements ContextPackBuilder {
       continueMessage:
         input.workItem.type === 'task' && input.task
           ? `Continue ${input.task.key}: ${input.task.title}`
+          : null,
+      // A short, recognisable text when the card has other workers or questions (PM-249).
+      standing:
+        input.task && (input.cardWorkers?.length || input.cardQuestions?.length)
+          ? `Standing ${input.task.key}: workers ${(input.cardWorkers ?? []).map((w) => w.handle).join(',')}; questions ${(input.cardQuestions ?? []).length}`
           : null,
       // The real definition: the session start passes it on as it is.
       subagents: [cheapSubagent(input.member)].filter((agent) => agent !== null),

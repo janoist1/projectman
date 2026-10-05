@@ -342,7 +342,7 @@ export function BoardPage() {
     /** A group move: the cards that would wait, each with its open prerequisites. */
     rows?: { key: string; prerequisites: string[] }[];
   } | null>(null);
-  const selected = useMatch('/p/:projectKey/tasks/:taskKey')?.params.taskKey ?? null;
+  const selected = useMatch('/p/:projectKey/tasks/:taskKey/*')?.params.taskKey ?? null;
   const uploadingCounts = useUploadingCounts();
   // A file from outside is dragged over the board: over a card, or not (then it says where to drop it).
   const [fileDrag, setFileDrag] = useState<'card' | 'board' | null>(null);

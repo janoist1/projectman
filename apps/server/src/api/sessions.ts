@@ -57,8 +57,8 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post<SessionParams>(routes.stopSession(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
-    await requireAccess(domain, request, key, { minimum: 'developer' });
-    return domain.sessions.stop(key, sessionId);
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    return domain.sessions.stop(key, sessionId, { kind: 'manual', by: actorOf(access) });
   });
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
@@ -107,6 +107,10 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
     const query = parseBody(MessagesQuery, request.query);
+    // A card the viewer may not see has no thread for them (the POST refuses it the same way); an
+    // unknown key stays an empty list, which the free-text "all messages" filter relies on.
+    const task = query.taskKey ? domain.tasks.find(key, query.taskKey) : null;
+    if (task && !canSeeTask(access, task)) throw notFound('task', query.taskKey!);
     return {
       messages: domain.messages.list(key, {
         taskKey: query.taskKey,

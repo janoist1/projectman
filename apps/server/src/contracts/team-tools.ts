@@ -23,6 +23,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
+import type { CardQuestion } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
 
 /**
@@ -84,6 +85,10 @@ export interface TaskToolDetail extends TaskDetail {
   /** On a theme: the cards that belong to it, collecting cards with their subtasks, and how far it is (PM-192). */
   themeCards?: ThemeCard[];
   themeProgress?: ThemeProgress;
+  /** Ids of the sessions that work on the card now (PM-249, `SessionOrchestrator.cardWorkers`). */
+  workingSessionIds?: string[];
+  /** The card's questions (PM-249), as the brief lists them (`QUESTION_LIMIT`). */
+  cardQuestions?: CardQuestion[];
 }
 
 /** A page of a task's readable attachments, oldest first. */

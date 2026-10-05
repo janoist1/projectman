@@ -2,7 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { DUTIES, DUTY_GROUPS, DUTY_IDS } from '../domain/duty';
 import { dutyHolders, roleHolders, RoleOverrides } from '../domain/role';
 import { ProjectConfig } from './schema';
-import { dutyMembers, isWorkingOnTask, memberDuties, roleBundle, stageOwners, stagesToJoin } from './duties';
+import type { Session, SessionState } from '../domain/session';
+import {
+  cardWorkerSessions,
+  dutyMembers,
+  hasStepOnTask,
+  isSessionAtWork,
+  isWorkingOnTask,
+  memberDuties,
+  roleBundle,
+  stageOwners,
+  stagesToJoin,
+} from './duties';
 import { labelHolders } from './labels';
 import { applyConfigPatch, PatchConfigRequest } from './edit';
 import { approvalPolicyChanged } from './owner-only';
@@ -117,6 +128,87 @@ describe('duty bundles', () => {
     expect(isWorkingOnTask(c, onTask('queue', 'builder'), 'builder', 'idle')).toBe(false);
     expect(isWorkingOnTask(c, onTask('done', 'builder'), 'builder', 'idle')).toBe(false);
     expect(isWorkingOnTask(c, onTask('missing', 'builder'), 'builder', 'idle')).toBe(false);
+  });
+  it('says whether a member has a step on a card: its refinement turn or its stage (PM-288)', () => {
+    const c = config();
+    const card = (stageId: string, assignee: string | null, status = 'active') =>
+      ({ status, stageId, assignee }) as Parameters<typeof hasStepOnTask>[1];
+    // The work stage: the assignee (or any owner of an unassigned card) has the step.
+    expect(hasStepOnTask(c, card('work', 'builder'), 'builder', null)).toBe(true);
+    expect(hasStepOnTask(c, card('work', 'other'), 'builder', null)).toBe(false);
+    expect(hasStepOnTask(c, card('work', null), 'builder', null)).toBe(true);
+    // A stage the member does not own, a queue and a done stage: no step.
+    expect(hasStepOnTask(c, card('release', 'builder'), 'builder', null)).toBe(false);
+    expect(hasStepOnTask(c, card('queue', 'builder'), 'builder', null)).toBe(false);
+    expect(hasStepOnTask(c, card('done', 'builder'), 'builder', null)).toBe(false);
+    // The refinement turn is a step wherever the card stands.
+    expect(hasStepOnTask(c, card('queue', null), 'builder', 'builder')).toBe(true);
+    expect(hasStepOnTask(c, card('queue', null), 'builder', 'other')).toBe(false);
+    // A card in refinement is worked one member at a time: the other owners of its stage have no step.
+    expect(hasStepOnTask(c, card('work', null), 'builder', 'other')).toBe(false);
+    // A card that is not open has no step at all.
+    expect(hasStepOnTask(c, card('work', 'builder', 'cancelled'), 'builder', 'builder')).toBe(false);
+    expect(hasStepOnTask(c, card('work', 'builder', 'done'), 'builder', null)).toBe(false);
+  });
+  it('says whether a session is at work: an engaged state, or idle with a sign of work (PM-288)', () => {
+    const none = { awaitsFirstTurn: false, pendingInput: false, messageOnItsWay: false };
+    for (const state of ['starting', 'working', 'waiting_permission', 'waiting_input'] as const)
+      expect(isSessionAtWork({ state }, none)).toBe(true);
+    expect(isSessionAtWork({ state: 'idle' }, none)).toBe(false);
+    expect(isSessionAtWork({ state: 'idle' }, { ...none, awaitsFirstTurn: true })).toBe(true);
+    expect(isSessionAtWork({ state: 'idle' }, { ...none, pendingInput: true })).toBe(true);
+    expect(isSessionAtWork({ state: 'idle' }, { ...none, messageOnItsWay: true })).toBe(true);
+    // A process that is gone is not at work, whatever the signals say.
+    expect(isSessionAtWork({ state: 'exited' }, { ...none, messageOnItsWay: true })).toBe(false);
+    expect(isSessionAtWork({ state: 'failed' }, { ...none, pendingInput: true })).toBe(false);
+  });
+  it('lists the sessions that work on a card now, one per member, step owners first (PM-249)', () => {
+    const session = (id: string, member: string, state: SessionState, at: string, taskKey = 'EX-1') =>
+      ({
+        id,
+        member,
+        state,
+        workItem: { type: 'task', taskKey },
+        lastActivityAt: at,
+        stateSince: at,
+      }) as unknown as Session;
+    const task: { key: string; assignee: string | null } = { key: 'EX-1', assignee: 'builder' };
+    const ids = (stage: Parameters<typeof cardWorkerSessions>[0], sessions: Session[], t = task) =>
+      cardWorkerSessions(stage, t, sessions).map((s) => s.id);
+    // Work stage: the assignee's idle session counts, another member's idle one does not.
+    const work = { kind: 'work' as const, owners: ['builder', 'dev2'] };
+    const all = [
+      session('a', 'dev2', 'working', '2026-10-03T10:00:00Z'),
+      session('b', 'builder', 'idle', '2026-10-03T12:00:00Z'),
+      session('c', 'qa', 'idle', '2026-10-03T09:00:00Z'),
+      session('d', 'other', 'waiting_input', '2026-10-03T08:00:00Z'),
+      session('e', 'qa2', 'exited', '2026-10-03T07:00:00Z'),
+      session('f', 'qa3', 'failed', '2026-10-03T07:00:00Z'),
+      session('g', 'builder2', 'working', '2026-10-03T07:00:00Z', 'EX-2'),
+    ];
+    // The assignee first, then the others by how long they have been in their state.
+    expect(ids(work, all)).toEqual(['b', 'd', 'a']);
+    // Without an assignee the stage's owners work on it.
+    expect(ids(work, all, { key: 'EX-1', assignee: null })).toEqual(['d', 'a', 'b']);
+    // A step stage: its owners come first, even before the assignee.
+    const step = { kind: 'step' as const, owners: ['qa', 'builder'] };
+    expect(ids(step, all)).toEqual(['c', 'b', 'd', 'a']);
+    // A queue stage: only sessions in a turn or waiting for an answer.
+    expect(ids({ kind: 'queue', owners: ['builder'] }, all)).toEqual(['d', 'a']);
+    expect(ids(undefined, all)).toEqual(['d', 'a']);
+    // One session per member: the one longest in its state.
+    expect(
+      ids(work, [
+        session('x2', 'a', 'working', '2026-10-03T11:00:00Z'),
+        session('x1', 'a', 'working', '2026-10-03T10:00:00Z'),
+      ]),
+    ).toEqual(['x1']);
+    // Meeting and general sessions are not on the card.
+    expect(
+      cardWorkerSessions(work, task, [
+        { ...session('m', 'builder', 'working', '2026-10-03T10:00:00Z'), workItem: { type: 'general' } },
+      ]),
+    ).toEqual([]);
   });
   it('replaces built-in bundles and resets by removing the override', () => {
     const c = config();

@@ -64,7 +64,7 @@ const sameFile = (a: Stats, b: Stats): boolean => a.dev === b.dev && a.ino === b
 
 /**
  * Opens `requested` for reading if, and only if, it is a regular file inside the directory `root`
- * (an AI session's working directory, as the server recorded it). A relative path is resolved
+ * (an AI session's working directory or session folder, as the server recorded it). A relative path is resolved
  * against `root`; an absolute one must lie inside it, spelled with `root` as recorded or resolved.
  *
  * What is refused: a path outside `root` (by whole components: `/work/app2` is not inside
@@ -82,24 +82,48 @@ const sameFile = (a: Stats, b: Stats): boolean => a.dev === b.dev && a.ino === b
 export async function openWorkspaceFile(
   root: string,
   requested: string,
-  opts: { maxBytes: number; hooks?: WorkspaceFileHooks },
+  opts: {
+    maxBytes: number;
+    hooks?: WorkspaceFileHooks;
+    /**
+     * How the messages name `root` (default 'your working directory') and, for a file outside it,
+     * the other place the caller may attach from (PM-268: the session folder).
+     */
+    place?: { name: string; other?: { name: string; path: string } };
+    /**
+     * `root` must be its own real path: it is refused (`unreadable`) when it, or a directory above
+     * it, is a symbolic link. For a root a sandboxed member could have replaced by a link (the
+     * session folder, PM-268); the final check then also catches a replacement made later.
+     */
+    exactRoot?: boolean;
+  },
 ): Promise<WorkspaceFile> {
   if (!requested.trim() || requested.includes('\0'))
     throw new WorkspaceFileRefusal('invalid', 'The path is empty or not a valid path.');
+  const placeName = opts.place?.name ?? 'your working directory';
+  const recordedRoot = path.resolve(root);
+  const unavailable = () =>
+    new WorkspaceFileRefusal(
+      'unreadable',
+      `${placeName.charAt(0).toUpperCase()}${placeName.slice(1)} is not available.`,
+    );
   let realRoot: string;
   try {
     realRoot = await realpath(root);
   } catch {
-    throw new WorkspaceFileRefusal('unreadable', 'Your working directory is not available.');
+    throw unavailable();
   }
-  const recordedRoot = path.resolve(root);
+  if (opts.exactRoot && realRoot !== recordedRoot) throw unavailable();
   const relative =
     relativeInside(recordedRoot, path.resolve(recordedRoot, requested)) ??
     relativeInside(realRoot, path.resolve(realRoot, requested));
   if (relative === null) {
+    const other = opts.place?.other;
     throw new WorkspaceFileRefusal(
       'outside',
-      `${requested} is not inside your working directory (${recordedRoot}); only files there can be attached.`,
+      `${requested} is not inside ${placeName} (${recordedRoot})${
+        other ? ` or ${other.name} (${other.path})` : ''
+      }; only files there can be attached.`,
     );
   }
 

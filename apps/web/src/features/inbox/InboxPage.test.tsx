@@ -178,7 +178,7 @@ describe('plain-language questions in the inbox', () => {
     expect(within(recommended).getByText(t('inbox.question.recommended'))).toBeTruthy();
     expect(
       within(recommended).getByText(
-        t('inbox.question.reason', { reason: 'Telefonon is jól olvasható, és nem tűnik el magától.' }),
+        `${t('inbox.question.reasonLabel')} Telefonon is jól olvasható, és nem tűnik el magától.`,
       ),
     ).toBeTruthy();
     expect(within(card).getByText('A hibaüzenet addig látszik, amíg ki nem javítod a címet.')).toBeTruthy();

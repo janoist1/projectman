@@ -1,3 +1,4 @@
+import type { Statement } from 'better-sqlite3';
 import type { TimelineEvent } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
@@ -27,6 +28,8 @@ const toEvent = (r: TimelineRow): TimelineEvent => ({
 });
 
 export function createTimelineRepository(db: Db) {
+  // `listOfTypes` statements by how many types they take.
+  const ofTypes = new Map<number, Statement>();
   const statements = {
     insert: db.prepare(
       `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at)
@@ -106,6 +109,26 @@ export function createTimelineRepository(db: Db) {
     latestOfType(projectKey: string, taskKey: string, type: TimelineEvent['type']): TimelineEvent | null {
       const row = statements.latestOfType.get(projectKey, taskKey, type) as TimelineRow | undefined;
       return row ? toEvent(row) : null;
+    },
+    /** The most recent `limit` events of the given types on a card, oldest first. */
+    listOfTypes(
+      projectKey: string,
+      taskKey: string,
+      types: TimelineEvent['type'][],
+      limit: number,
+    ): TimelineEvent[] {
+      if (types.length === 0) return [];
+      const signature = types.length;
+      let statement = ofTypes.get(signature);
+      if (!statement) {
+        statement = db.prepare(
+          `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ?
+             AND type IN (${types.map(() => '?').join(', ')}) ORDER BY seq DESC LIMIT ?`,
+        );
+        ofTypes.set(signature, statement);
+      }
+      const rows = statement.all(projectKey, taskKey, ...types, limit) as TimelineRow[];
+      return rows.reverse().map(toEvent);
     },
     /** The most recent `limit` events, oldest first. */
     list(projectKey: string, opts: { taskKey?: string; limit?: number } = {}): TimelineEvent[] {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ExecutionProfile, ProjectConfig } from '@projectman/shared';
@@ -99,6 +99,13 @@ export async function createDomainHarness(
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
     fullTestExecutor?: FullTestExecutor;
+    /**
+     * The root of the session folders (PM-268) below the harness directory, or a path of the
+     * test's own (an unsafe one); absent, no session folders.
+     */
+    sessionFolders?: boolean | string;
+    /** Playwright's browsers directory (PM-268); absent, no browsers variable. */
+    browsersDir?: string;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -123,8 +130,17 @@ export async function createDomainHarness(
   );
   const liveProcesses = opts.liveProcesses ?? new Set<number>();
   const workspacesDir = join(dir, 'workspaces');
+  const sessionFoldersDir =
+    typeof opts.sessionFolders === 'string'
+      ? opts.sessionFolders
+      : opts.sessionFolders
+        ? // Canonical, as the real root is (it comes from realpathSync(tmpdir())); on macOS tmpdir() is a link.
+          join(realpathSync(dir), 'session-folders', 'root')
+        : undefined;
 
   const domain: Domain = createDomain({
+    sessionFoldersDir,
+    browsersDir: opts.browsersDir,
     boundaryAdapter: opts.boundaryAdapter,
     runtimeBoundary: opts.runtimeBoundary,
     egress: opts.egress,
@@ -170,6 +186,8 @@ export async function createDomainHarness(
     // Likewise the disk check and the worktree sweep: tests call `domain.disk` and `domain.worktreeSweep`.
     diskCheckMs: 3_600_000,
     worktreeSweepMs: 3_600_000,
+    // And the idle close sweep: tests call `domain.sessionCloser.sweep()`.
+    idleCloseSweepMs: 3_600_000,
     freeDiskBytes: opts.freeDiskBytes,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });
@@ -202,6 +220,7 @@ export async function createDomainHarness(
     log,
     liveProcesses,
     workspacesDir,
+    sessionFoldersDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */

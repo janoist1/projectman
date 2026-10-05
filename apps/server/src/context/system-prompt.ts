@@ -2,57 +2,25 @@ import {
   approverOf,
   dutyMembers,
   effectiveRepo,
-  isBuiltInRole,
   repoOf,
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
+  teamRules,
 } from '@projectman/shared';
-import type { BuiltInRoleId, CustomRoleDefinition, DutyId } from '@projectman/shared';
+import type { DutyId } from '@projectman/shared';
+import { roleLabel } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
 import { describeSandbox, describeUnattendedCommands } from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
+import { describeTeamRule } from './team-rules';
 import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
-/** English names of the built-in roles for prompt text. */
-const ROLE_LABELS: Record<BuiltInRoleId, string> = {
-  operator: 'operator',
-  product_owner: 'product owner',
-  project_manager: 'project manager',
-  business_analyst: 'business analyst',
-  architect: 'architect',
-  designer: 'UI/UX designer',
-  developer: 'developer',
-  lead_developer: 'lead developer',
-  code_review: 'code reviewer',
-  security_review: 'security reviewer',
-  qa: 'QA engineer',
-  devops: 'DevOps engineer',
-  communication: 'communication member',
-  support: 'support member',
-  researcher: 'researcher',
-  maintainer: 'maintainer',
-  coach: 'coach',
-  watchdog: 'watchdog',
-  content: 'content writer',
-  translator: 'translator',
-  docs: 'technical writer',
-};
-
-/**
- * A role for prompt text: the English name of a built-in role, a custom role's own name (in the
- * project's language), else the value as it is.
- */
-export function roleLabel(
-  role: string,
-  customRoles: readonly Pick<CustomRoleDefinition, 'id' | 'name'>[] = [],
-): string {
-  if (isBuiltInRole(role)) return ROLE_LABELS[role];
-  return customRoles.find((r) => r.id === role)?.name ?? role;
-}
+// The role names live in agent-text, which the domain reads too (the card's workers, PM-249).
+export { roleLabel };
 
 /**
  * The member's system prompt (Claude Code: `--append-system-prompt`; Codex:
@@ -66,6 +34,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     tokenEconomySection(),
     pipelineSection(input, situation),
     labelsSection(input),
+    teamRulesSection(input),
     workItemSection(input, situation),
     sessionPolicySection(input),
     workspaceSection(input),
@@ -189,6 +158,7 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
     '- Message only when someone has something to do, and send humans only what needs their decision or action.',
+    "- When other members work on the same card (your brief or get_task names them), split the work with them by send_message, addressed to all of them, and do not overwrite each other's part.",
     `- Write messages, notes, questions, task titles and descriptions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',
@@ -224,12 +194,20 @@ function pipelineSection(input: ContextPackInput, situation: Situation): string 
   });
   return [
     '# The pipeline',
-    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task. Approvals are labels only humans may set; the app asks them.',
+    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task.',
     ...lines,
   ].join('\n');
 }
 
 /** The project's label vocabulary: what each label means and who may set it. */
+function teamRulesSection({ project }: ContextPackInput): string {
+  return [
+    '# Team rules',
+    'Rules the system enforces on every task, beyond the gates and labels above.',
+    ...teamRules(project).map((rule) => `- ${describeTeamRule(rule, project)}`),
+  ].join('\n');
+}
+
 function labelsSection({ project }: ContextPackInput): string {
   const labels = project.pipeline.labels;
   if (labels.length === 0) return '';
@@ -480,12 +458,6 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
     '- When you are blocked or a decision is needed, ask with ask_human instead of guessing. Nobody reads your terminal: never ask with AskUserQuestion or any other question at the terminal.',
     '- Never put secrets (passwords, tokens, keys, connection strings, personal data) in messages, notes, task text, commits or pull requests; say where they are stored instead.',
     '- Do not ask a teammate to do what you are not allowed to do; tell a human instead.',
-    // The self-review rule is per label (notByAuthor), marked in the Labels section.
-    ...(project.pipeline.labels.some((label) => label.notByAuthor)
-      ? [
-          '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.',
-        ]
-      : []),
     '- Do not ask humans again about what they have already decided.',
     '- If you told the team something wrong, correct it yourself and tell everyone who relied on it.',
   ];

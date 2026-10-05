@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { TeamMessage } from './message';
-import { canSeeAllTeamMessages, canSeeTeamMessage, isUnreadBy, threadPeersOf } from './message';
+import {
+  canSeeAllTeamMessages,
+  canSeeTeamMessage,
+  cardThreadRecipients,
+  isUnreadBy,
+  threadPeersOf,
+} from './message';
 
 const message = (from: string, to: string[], readBy: string[] = []) =>
   ({
@@ -70,5 +76,49 @@ describe('threadPeersOf', () => {
 
   it('leaves the sender out of their own thread list', () => {
     expect(threadPeersOf(message('a', ['a', 'b']), 'a')).toEqual(['b']);
+  });
+});
+
+describe('cardThreadRecipients', () => {
+  const base = {
+    workers: ['dev', 'qa'],
+    assignee: 'claude',
+    stageOwners: ['architect'],
+    writer: 'owner',
+    canReceive: () => true,
+  };
+
+  it('goes to the members working on the card first', () => {
+    expect(cardThreadRecipients(base)).toEqual({ basis: 'workers', to: ['dev', 'qa'] });
+  });
+
+  it('falls back to the assignee, then to the stage owners, then to nobody', () => {
+    const idle = { ...base, workers: [] };
+    expect(cardThreadRecipients(idle)).toEqual({ basis: 'assignee', to: ['claude'] });
+    expect(cardThreadRecipients({ ...idle, assignee: null })).toEqual({
+      basis: 'stage_owners',
+      to: ['architect'],
+    });
+    expect(cardThreadRecipients({ ...idle, assignee: null, stageOwners: [] })).toEqual({
+      basis: 'none',
+      to: [],
+    });
+  });
+
+  it('leaves out the writer and members who cannot receive', () => {
+    expect(
+      cardThreadRecipients({ ...base, workers: ['owner', 'dev', 'qa'], canReceive: (h) => h !== 'qa' }),
+    ).toEqual({ basis: 'workers', to: ['dev'] });
+  });
+
+  it('falls through when every worker is excluded', () => {
+    expect(cardThreadRecipients({ ...base, workers: ['owner'], assignee: 'claude' })).toEqual({
+      basis: 'assignee',
+      to: ['claude'],
+    });
+    expect(cardThreadRecipients({ ...base, workers: [], assignee: 'owner' })).toEqual({
+      basis: 'stage_owners',
+      to: ['architect'],
+    });
   });
 });

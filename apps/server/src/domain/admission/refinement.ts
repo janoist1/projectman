@@ -220,6 +220,7 @@ export class RefinementSteps {
             member,
             workItem,
             messages: [...messages, formatInjectedTeamMessage('projectman', text, taskKey)],
+            cause: { kind: 'refinement', label },
           }),
         );
         this.record(this.tasks.get(projectKey, taskKey), label, member.handle);
@@ -284,6 +285,7 @@ export class RefinementSteps {
     member: string | null,
     reason: 'started' | 'label_set' | 'label_removed' | 'done',
   ): void {
+    const previous = this.turnMember(task.projectKey, task.key);
     this.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
@@ -291,6 +293,16 @@ export class RefinementSteps {
       type: 'refinement_turn',
       data: { label, member, reason },
     });
+    // The turn left its member (the next step is another member's, or the refinement is over); the
+    // consecutive steps of one member are not a turn left.
+    if (previous && (reason === 'done' || member !== previous)) this.turnLeft?.(task, previous);
+  }
+
+  private turnLeft: ((task: Task, member: string) => void) | undefined;
+
+  /** Tells `SessionCloser` that a member's turn on a card is over (late bound, like `onPauseDropped`). */
+  onTurnLeft(listener: (task: Task, member: string) => void): void {
+    this.turnLeft = listener;
   }
 
   private recorded(projectKey: string, taskKey: string): RecordedTurn | null {

@@ -17,37 +17,40 @@ const drawer = (
 const select = async () => (await screen.findByLabelText(t('priority.label'))) as HTMLSelectElement;
 
 describe('card priority properties', () => {
-  it('saves and clears in a live task drawer, recording the changes without changing rank', async () => {
-    const project = mockProject();
-    const rank = project.backend.findTask('AC-20')!.boardRank;
-    project.render(drawer, '/p/AC/tasks/AC-20');
-    fireEvent.change(await select(), { target: { value: 'high' } });
-    await waitFor(() => expect(project.backend.findTask('AC-20')!.priority).toBe('high'));
-    expect(project.requests).toContainEqual({
-      method: 'PATCH',
-      path: '/api/projects/AC/tasks/AC-20',
-      body: { priority: 'high' },
-    });
-    await screen.findByText(
-      t('timeline.events.task_updated', {
-        fields: t('timeline.priorityChange', {
-          previous: t('timeline.noPriority'),
-          priority: t('priority.levels.high'),
+  it.each(['', '?size=large'])(
+    'saves and clears in a live task view %s, recording the changes without changing rank',
+    async (query) => {
+      const project = mockProject();
+      const rank = project.backend.findTask('AC-20')!.boardRank;
+      project.render(drawer, `/p/AC/tasks/AC-20${query}`);
+      fireEvent.change(await select(), { target: { value: 'high' } });
+      await waitFor(() => expect(project.backend.findTask('AC-20')!.priority).toBe('high'));
+      expect(project.requests).toContainEqual({
+        method: 'PATCH',
+        path: '/api/projects/AC/tasks/AC-20',
+        body: { priority: 'high' },
+      });
+      await screen.findByText(
+        t('timeline.events.task_updated', {
+          fields: t('timeline.priorityChange', {
+            previous: t('timeline.noPriority'),
+            priority: t('priority.levels.high'),
+          }),
         }),
-      }),
-    );
-    await waitFor(() =>
-      expect(screen.getByLabelText(t('priority.label')).hasAttribute('disabled')).toBe(false),
-    );
-    fireEvent.change(await select(), { target: { value: '' } });
-    await waitFor(() => expect(project.backend.findTask('AC-20')!.priority).toBeNull());
-    expect(project.requests).toContainEqual({
-      method: 'PATCH',
-      path: '/api/projects/AC/tasks/AC-20',
-      body: { priority: null },
-    });
-    expect(project.backend.findTask('AC-20')!.boardRank).toBe(rank);
-  });
+      );
+      await waitFor(() =>
+        expect(screen.getByLabelText(t('priority.label')).hasAttribute('disabled')).toBe(false),
+      );
+      fireEvent.change(await select(), { target: { value: '' } });
+      await waitFor(() => expect(project.backend.findTask('AC-20')!.priority).toBeNull());
+      expect(project.requests).toContainEqual({
+        method: 'PATCH',
+        path: '/api/projects/AC/tasks/AC-20',
+        body: { priority: null },
+      });
+      expect(project.backend.findTask('AC-20')!.boardRank).toBe(rank);
+    },
+  );
 
   it('shows the pending choice, then restores the saved value and focus on failure', async () => {
     const project = mockProject();

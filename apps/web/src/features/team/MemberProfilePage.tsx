@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
 import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, mergeTokenUsage, roleBundle } from '@projectman/shared';
-import type { SchedulesView, TeamMessage } from '@projectman/shared';
+import type { SchedulesView, Session, TeamMessage } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
@@ -36,8 +36,9 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
+import { inboxHeading } from '../../lib/inbox';
 import { memberStatusView } from '../../lib/members';
-import { isLiveSession } from '../../lib/sessions';
+import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { useDocumentTitle } from '../../lib/hooks';
 import { describeCron } from '../../lib/schedules';
@@ -52,6 +53,13 @@ import { RetireDialog } from './RetireDialog';
 import { PermissionLevelControl } from './PermissionLevelControl';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './MemberProfilePage.module.css';
+
+/** What the session is for: its card, or the kind of work it is. */
+function workName(session: Session): string {
+  return session.workItem.type === 'task'
+    ? session.workItem.taskKey
+    : t(`pause.progress.work.${session.workItem.type}`);
+}
 
 function SessionPeek({ sessionId }: { sessionId: string }) {
   const { key, myHandle } = useProject();
@@ -296,7 +304,9 @@ export function MemberProfilePage() {
             <ul className={styles.list}>
               {data.inbox.map((item) => (
                 <li key={item.id}>
-                  <Link to={`/p/${key}/inbox`}>{item.title}</Link>
+                  <Link to={`/p/${key}/inbox`}>
+                    {item.kind === 'question' ? inboxHeading(item) : item.title}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -359,8 +369,7 @@ export function MemberProfilePage() {
               {live.map((session) => (
                 <div key={session.id}>
                   <Link to={`/p/${key}/sessions/${session.id}`}>
-                    {t('profile.openSession')} ·{' '}
-                    {session.workItem.type === 'task' ? session.workItem.taskKey : t('profile.general')}
+                    {t('profile.openSession')} · {workName(session)}
                   </Link>
                   <SessionPeek sessionId={session.id} />
                 </div>
@@ -369,14 +378,22 @@ export function MemberProfilePage() {
                 <>
                   <h2 className={styles.panelTitle}>{t('profile.sessions')}</h2>
                   <ul className={styles.list}>
-                    {pastSessions.map((session) => (
-                      <li key={session.id}>
-                        <Link to={`/p/${key}/sessions/${session.id}`}>
-                          {session.workItem.type === 'task' ? session.workItem.taskKey : t('profile.general')}{' '}
-                          · {formatStamp(session.startedAt)}
-                        </Link>
-                      </li>
-                    ))}
+                    {pastSessions.map((session) => {
+                      const closure = sessionClosure(session);
+                      return (
+                        <li key={session.id}>
+                          <Link to={`/p/${key}/sessions/${session.id}`}>
+                            {workName(session)} · {formatStamp(session.startedAt)}
+                          </Link>
+                          {closure ? (
+                            <span className={styles.closed}>
+                              {' · '}
+                              {closureTexts(closure, { ...indexes, myHandle }).list}
+                            </span>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </>
               ) : null}

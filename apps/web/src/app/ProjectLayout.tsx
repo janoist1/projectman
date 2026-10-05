@@ -24,7 +24,7 @@ export function ProjectLayout() {
   const me = useMeContext();
   const isMobile = useIsMobile();
   const boardIndex = useMatch('/p/:projectKey');
-  const boardTask = useMatch('/p/:projectKey/tasks/:taskKey');
+  const boardTask = useMatch('/p/:projectKey/tasks/:taskKey/*');
   const fixedBoard = !isMobile && !!(boardIndex || boardTask);
   // A session fills the phone: its own header replaces the app's (project, search, new task, account)
   // and its back arrow the tab bar.
@@ -48,7 +48,9 @@ export function ProjectLayout() {
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
   const [boardFilters, setBoardFilters] = useState<BoardFilters>(noBoardFilters);
   const access = me.projects.find((project) => project.key === projectKey)?.access;
-  const config = useConfig(projectKey, access === 'owner' || access === 'admin' || access === 'developer');
+  // The server gives the configuration to every member but a client; the card's state line needs it (PM-291).
+  const readConfig = access !== undefined && access !== 'client';
+  const config = useConfig(projectKey, readConfig);
   const isOwner = access === 'owner';
   const internal = access === 'owner' || access === 'admin' || access === 'developer';
   const can = useMemo(
@@ -57,8 +59,9 @@ export function ProjectLayout() {
       manageTeam: access === 'owner' || access === 'admin',
       workInSessions: internal,
       pauseTeam: access === 'owner' || access === 'admin',
+      readConfig,
     }),
-    [access, internal],
+    [access, internal, readConfig],
   );
 
   useEffect(() => {

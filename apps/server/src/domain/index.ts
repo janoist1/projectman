@@ -1,5 +1,11 @@
 import os from 'node:os';
-import { isOnLeave, memberOf, permissionDelegationOf, stageOf } from '@projectman/shared';
+import {
+  canManageInstancePause,
+  isOnLeave,
+  memberOf,
+  permissionDelegationOf,
+  stageOf,
+} from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -12,6 +18,7 @@ import type {
   FullTestExecutor,
   GithubPublisher,
   GithubService,
+  MachineProbe,
   ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
@@ -40,6 +47,7 @@ import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { BoundaryService } from './boundary';
+import { CardQuestions } from './card-questions';
 import { createDomainContext, defaultTemplateRegistry } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
@@ -61,6 +69,10 @@ import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
+import { MachineMonitor } from './machine';
+import { createMachineProbe } from '../machine';
+import { prepareSessionFoldersRoot, SessionFolders } from './session-folders';
+import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
@@ -108,6 +120,7 @@ export type { WorkspaceFile, WorkspaceFileHooks, WorkspaceFileRefusalReason } fr
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
+export { CardQuestions, QUESTION_LIMIT } from './card-questions';
 export { EgressService } from './egress';
 export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } from './egress';
 export { GithubSync } from './github-sync';
@@ -121,6 +134,7 @@ export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
 export { PauseService } from './pause';
+export { MachineMonitor } from './machine';
 export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
 export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-usage';
 export { PresenceService } from './presence';
@@ -195,6 +209,16 @@ export interface DomainOptions {
    * sessions never change it (PM-188).
    */
   installDir?: string;
+  /**
+   * The root of the session folders (PM-268): each Claude session gets its own writable folder below
+   * it. Checked here (`prepareSessionFoldersRoot`); one that is not safe, or the managed VM, turns
+   * the folders off. Absent: no folders.
+   */
+  sessionFoldersDir?: string;
+  /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
+  browsersDir?: string;
+  /** The machine's heavy-run queue folder (PM-332): its parent is writable for the members' commands. */
+  heavyLockDir?: string;
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
   /**
@@ -243,6 +267,19 @@ export interface DomainOptions {
   worktreeSweepMs?: number;
   /** How long a closed card's worktree stays (default `CLOSED_WORKTREE_KEEP_MS`, 3 days). */
   closedWorktreeKeepMs?: number;
+  /** How often the idle sessions are looked at for a close (default 1 min, PM-295). */
+  idleCloseSweepMs?: number;
+  /**
+   * Makes what the machine display measures with (PM-320); default: the operating system's
+   * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
+   * of the screenshot mode.
+   */
+  machineProbe?: (deps: { runningPids: () => number[] }) => MachineProbe;
+  /**
+   * The tag of this instance (PM-320), set in the environment of every session the runner starts:
+   * only a process that carries it can be an orphan of this instance. Absent: none is recognised.
+   */
+  instanceTag?: string;
 }
 
 export type Domain = ReturnType<typeof createDomain>;
@@ -297,7 +334,21 @@ export function createDomain(opts: DomainOptions) {
     storage: opts.attachmentStorage,
   });
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
+  const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
+  let sessionFolders: SessionFolders | undefined;
+  if (opts.sessionFoldersDir && opts.runtimeBoundary?.mode !== 'managed_vm') {
+    try {
+      prepareSessionFoldersRoot(opts.sessionFoldersDir);
+      // One registry for the sessions (which make the folders) and the team tools (which attach from them).
+      sessionFolders = new SessionFolders(opts.sessionFoldersDir);
+    } catch (err) {
+      opts.logger.error(
+        { err, dir: opts.sessionFoldersDir },
+        'the session folders are off: their root is not a safe directory',
+      );
+    }
+  }
   const sessions = new SessionOrchestrator({
     ctx,
     projects,
@@ -307,6 +358,7 @@ export function createDomain(opts: DomainOptions) {
     runner: runnerModule.runner,
     transcripts: runnerModule.transcripts,
     contextBuilder: opts.contextBuilder,
+    cardQuestions,
     memory: opts.memory,
     worktrees: opts.worktrees,
     publicBaseUrl: opts.publicBaseUrl,
@@ -322,6 +374,9 @@ export function createDomain(opts: DomainOptions) {
     standby: opts.standby,
     appHome: opts.appHome,
     userHome: opts.userHome,
+    sessionFolders,
+    browsersDir: opts.browsersDir,
+    heavyLockDir: opts.heavyLockDir,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
       (dir): dir is string => !!dir,
     ),
@@ -364,6 +419,15 @@ export function createDomain(opts: DomainOptions) {
   const delivery = new MessageDelivery({ ctx, sessions, messages });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
+  const sessionCloser = new SessionCloser({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    refinement,
+    messaging,
+    delivery,
+  });
   // The network gate's egress operations are one registry of the protected adapter; another
   // adapter (PM-142's publishing) answers the operation ids that are not egress ones.
   const egress = new EgressService({ ctx, projects, timeline, settings: opts.egress });
@@ -464,6 +528,28 @@ export function createDomain(opts: DomainOptions) {
     schedules,
     refinement,
   });
+  const machine = new MachineMonitor({
+    probe:
+      opts.machineProbe?.({ runningPids: () => runnerModule.runner.list().map((info) => info.pid) }) ??
+      createMachineProbe(),
+    runner: runnerModule.runner,
+    sessions: opts.repos.sessions,
+    tasks: opts.repos.tasks,
+    memberOf: async (projectKey, handle) => {
+      const member = memberOf(await projects.config(projectKey), handle);
+      if (member?.kind !== 'ai') return null;
+      return {
+        handle: member.handle,
+        displayName: member.displayName,
+        kind: member.kind,
+        role: member.role,
+        specialty: member.specialty ?? null,
+      };
+    },
+    instanceTag: opts.instanceTag,
+    logger: opts.logger.child({ module: 'machine' }),
+    now,
+  });
   const reviewWatch = new ReviewWatch({ ctx, projects, tasks, sessions, messaging });
   // The server's full test of the pinned commit (PM-217) holds the reviewers back until its result is in.
   const fullTests = new FullTestRuns({
@@ -479,6 +565,7 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
     ctx,
@@ -507,6 +594,7 @@ export function createDomain(opts: DomainOptions) {
     publishing,
     ctx,
     sessions,
+    cardQuestions,
     projects,
     tasks,
     members,
@@ -518,6 +606,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
+    sessionFolders,
   });
   const agentQuestions = new AgentQuestions({
     ctx,
@@ -587,6 +676,10 @@ export function createDomain(opts: DomainOptions) {
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
   events.on('inbox_resolved', (item) => (item.kind === 'question' ? messaging.answer(item) : undefined));
+  // The card's other workers learn what was answered, so they do not ask it again (PM-249).
+  events.on('inbox_resolved', (item) =>
+    item.kind === 'question' ? messaging.answeredNotice(item) : undefined,
+  );
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
@@ -623,7 +716,9 @@ export function createDomain(opts: DomainOptions) {
     syncFullTest(task);
   });
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
-  events.on('task_cancelled', (task) => sessions.stopTask(task.projectKey, task.key));
+  events.on('task_cancelled', (task) =>
+    sessions.stopTask(task.projectKey, task.key, { kind: 'task_cancelled', taskKey: task.key }),
+  );
   events.on('task_cancelled', (task) => admission.discardStale(task));
   // A card that closes (done or withdrawn) frees the cards that need it first (PM-204).
   const prerequisites = new PrerequisiteClosures({ ctx, timeline });
@@ -644,6 +739,26 @@ export function createDomain(opts: DomainOptions) {
     background.run(
       () => sessions.roundEnded(change.task),
       (err) => opts.logger.warn({ err }, 'end-of-round compaction failed'),
+    );
+  });
+  // A member whose step on the card is over has its session closed (PM-295): at once if it is idle, else
+  // when its turn ends. The conversation stays, and the next message or hand-over resumes it.
+  events.on('task_stage_changed', (change) => {
+    background.run(
+      () => sessionCloser.stageChanged(change),
+      (err) => opts.logger.warn({ err }, 'closing the sessions of a finished step failed'),
+    );
+  });
+  events.on('session_idle', (session) => {
+    background.run(
+      () => sessionCloser.sessionIdle(session),
+      (err) => opts.logger.warn({ err }, 'closing an idle session failed'),
+    );
+  });
+  refinement.onTurnLeft((task, member) => {
+    background.run(
+      () => sessionCloser.refinementTurnLeft(task, member),
+      (err) => opts.logger.warn({ err }, 'closing the session of a finished refinement turn failed'),
     );
   });
   // Done tasks: temp workers leave; sessions stop and clean worktrees go away.
@@ -731,6 +846,9 @@ export function createDomain(opts: DomainOptions) {
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  // A member joining a card is told to the card's other workers; a notice kept for an ended session is dropped (PM-249).
+  events.on('task_session_joined', (joined) => messaging.joinedNotice(joined));
+  events.on('session_ended', (session) => delivery.dropHeld(session.id));
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
     background.run(
@@ -746,6 +864,7 @@ export function createDomain(opts: DomainOptions) {
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
     ctx,
@@ -761,6 +880,7 @@ export function createDomain(opts: DomainOptions) {
     presence,
     messages,
     messaging,
+    sessionCloser,
     tasks,
     attachments,
     members,
@@ -769,6 +889,7 @@ export function createDomain(opts: DomainOptions) {
     planUsage,
     admission,
     pauses,
+    machine,
     taskStarts,
     handOver,
     workStarts,
@@ -783,6 +904,7 @@ export function createDomain(opts: DomainOptions) {
     disk,
     worktreeSweep,
     teamTools,
+    cardQuestions,
     board,
     profiles,
     invitations,
@@ -879,6 +1001,16 @@ export function createDomain(opts: DomainOptions) {
       sweepWorktrees();
       sweepTimer = setInterval(sweepWorktrees, opts.worktreeSweepMs ?? 6 * 60 * 60_000);
       sweepTimer.unref();
+      // Sessions that sat idle for a quarter of an hour close (PM-295).
+      idleCloseTimer = setInterval(
+        () =>
+          background.run(
+            () => sessionCloser.sweep(),
+            (err) => opts.logger.warn({ err }, 'idle session close sweep failed'),
+          ),
+        opts.idleCloseSweepMs ?? 60_000,
+      );
+      idleCloseTimer.unref();
     },
 
     async stop(): Promise<void> {
@@ -889,13 +1021,29 @@ export function createDomain(opts: DomainOptions) {
       if (loopWatchTimer) clearInterval(loopWatchTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
+      if (idleCloseTimer) clearInterval(idleCloseTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
       await background.stop();
       pauses.dispose();
       sessions.dispose();
+      await machine.stop();
       await drained;
+    },
+
+    /**
+     * Whether the user may manage the instance as a whole: the owner of every project, the same rule
+     * as the instance's pause (`canManageInstancePause`). The machine display is for them alone.
+     */
+    async instanceOwner(email: string): Promise<boolean> {
+      const accesses = await Promise.all(
+        projects.summaries().map(async (project) => {
+          const access = await this.accessFor(project.key, email);
+          return access?.access ?? null;
+        }),
+      );
+      return canManageInstancePause(accesses);
     },
 
     /** The user's membership in a project, or null (unknown project or not a member). */

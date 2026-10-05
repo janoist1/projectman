@@ -1,3 +1,5 @@
+import { lstatSync } from 'node:fs';
+import path from 'node:path';
 import {
   AttachmentId,
   effectiveRepo,
@@ -16,6 +18,7 @@ import type {
   MemberView,
   ProjectConfig,
   QuestionOptionInput,
+  Session,
   Task,
   TaskKind,
   Visibility,
@@ -41,8 +44,11 @@ import type {
   ToolContext,
 } from '../contracts';
 import { openWorkspaceFile, WorkspaceFileRefusal } from './attachments';
+import { isWithin } from './command-paths';
 import type { DomainContext } from './context';
 import type { BoundaryService } from './boundary';
+import { QUESTION_LIMIT } from './card-questions';
+import type { CardQuestions } from './card-questions';
 import type { EgressService } from './egress';
 import { DomainError } from './errors';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
@@ -54,6 +60,7 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
+import type { SessionFolders } from './session-folders';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
 import type { TaskService } from './tasks';
@@ -65,6 +72,11 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
 const MAX_ATTACHMENT_PAGE = 200;
+
+/** A directory that is not a symbolic link (the server made the session folder as one). */
+function isRealDirectory(dir: string): boolean {
+  return lstatSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false;
+}
 
 /** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {
@@ -239,7 +251,8 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
-  private readonly sessions: Pick<SessionOrchestrator, 'setDoing'>;
+  private readonly sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers'>;
+  private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly members: MemberService;
@@ -253,6 +266,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly githubSync: GithubSync;
   private readonly attachments: AttachmentOperations;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
+  private readonly sessionFolders: Pick<SessionFolders, 'of'> | undefined;
 
   constructor(deps: {
     boundary: BoundaryService;
@@ -261,7 +275,9 @@ export class TeamToolsService implements TeamToolsHandler {
     publishing: PublishingGate;
     ctx: DomainContext;
     /** The session service: set_current_work records the sentence on the caller's session. */
-    sessions: Pick<SessionOrchestrator, 'setDoing'>;
+    sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers'>;
+    /** The questions asked on a card, which get_task lists (PM-249). */
+    cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     tasks: TaskService;
     members: MemberService;
@@ -277,12 +293,16 @@ export class TeamToolsService implements TeamToolsHandler {
     attachments: AttachmentOperations;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
+    /** The session folders (PM-268): `attach_file` takes files from the caller's own folder too. */
+    sessionFolders?: Pick<SessionFolders, 'of'>;
   }) {
+    this.sessionFolders = deps.sessionFolders;
     this.boundary = deps.boundary;
     this.egress = deps.egress ?? null;
     this.publishing = deps.publishing;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
+    this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.members = deps.members;
@@ -400,6 +420,11 @@ export class TeamToolsService implements TeamToolsHandler {
             }
           : {}),
         ...(theme ? { themeCards: theme.cards, themeProgress: theme.progress } : {}),
+        // Who works on the card now and what was asked on it (PM-249), as the brief lists them.
+        workingSessionIds: this.sessions
+          .cardWorkers(ctx.projectKey, detail.task, config)
+          .map((session) => session.id),
+        cardQuestions: this.cardQuestions.list(ctx.projectKey, taskKey, { limit: QUESTION_LIMIT }),
         attachments: {
           attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
           total: attachments.length,
@@ -462,13 +487,28 @@ export class TeamToolsService implements TeamToolsHandler {
       const taskKey = this.validTaskKey(ctx, args.taskKey);
       const actor = aiActor(ctx.member);
       await this.attachments.assertCanUpload(ctx.projectKey, taskKey, actor);
-      // The directory is the one the server started the session in; the caller never names it.
-      const cwd = this.sessionDirectory(ctx);
-      const file = await openWorkspaceFile(cwd, args.path, { maxBytes: MAX_ATTACHMENT_BYTES }).catch(
-        (err: unknown) => {
-          throw toFileToolError(err, args.path);
-        },
-      );
+      // The directories are the ones the server started the session with; the caller never names
+      // them. The session folder is the one the server made for this process (it remembers it; the
+      // path is never derived from the id) and counts only while it exists.
+      const session = this.callerSession(ctx);
+      const recorded = this.sessionFolders?.of(session.id);
+      const folder = recorded && isRealDirectory(recorded) ? recorded : null;
+      const inFolder =
+        folder !== null && path.isAbsolute(args.path) && isWithin(folder, path.resolve(args.path));
+      const place = inFolder
+        ? { name: 'your session folder' }
+        : {
+            name: 'your working directory',
+            ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
+          };
+      const file = await openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
+        maxBytes: MAX_ATTACHMENT_BYTES,
+        place,
+        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
+        exactRoot: inFolder,
+      }).catch((err: unknown) => {
+        throw toFileToolError(err, args.path);
+      });
       try {
         const attachment = await this.attachments.upload({
           projectKey: ctx.projectKey,
@@ -804,17 +844,18 @@ export class TeamToolsService implements TeamToolsHandler {
   }
 
   /**
-   * The working directory of the calling session, as the server recorded it when it started the
-   * session. The token names the session; it must still be this member's session in this project.
+   * The calling session, whose working directory (`cwd`) is as the server recorded it when it
+   * started the session. The token names the session; it must still be this member's session in
+   * this project.
    */
-  private sessionDirectory(ctx: ToolContext): string {
+  private callerSession(ctx: ToolContext): Session {
     const session = this.ctx.repos.sessions.get(ctx.sessionId);
     if (!session || session.projectKey !== ctx.projectKey || session.member !== ctx.member)
       throw new TeamToolError(
         'forbidden',
         'Your session is not known to the server, so no file can be attached.',
       );
-    return session.cwd;
+    return session;
   }
 
   /** The explicit task key, else the session's task, else null. */

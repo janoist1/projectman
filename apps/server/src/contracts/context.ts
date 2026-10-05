@@ -12,6 +12,7 @@ import type {
   Task,
   TaskRelation,
   TimelineEvent,
+  WorkDoing,
   WorkItemRef,
 } from '@projectman/shared';
 
@@ -21,6 +22,12 @@ import type {
  */
 
 export interface ContextPackInput {
+  /**
+   * The server runs the full test before review on this task's handed-over commits (PM-217, PM-332): the
+   * executor is available and the task's repository has a `reviewTest`. The developer's steps then ask
+   * for targeted tests only. Omitted when false.
+   */
+  serverFullTest?: boolean;
   /** Rebuilt from actual placement for every start, including resumes. */
   sessionPolicy?: SessionPolicy;
   /**
@@ -73,6 +80,40 @@ export interface ContextPackInput {
    * reads only what changed since.
    */
   lastReviewedCommit?: string;
+  /** Other members' sessions working on the task now (PM-249). Omitted when none. */
+  cardWorkers?: CardWorker[];
+  /**
+   * Questions asked on the card (PM-249), oldest first: a new conversation gets the latest ones, a
+   * resumed one those since it last ran. Omitted when none.
+   */
+  cardQuestions?: CardQuestion[];
+}
+
+/** A member whose session works on the card now, as another member's brief names it (PM-249). */
+export interface CardWorker {
+  handle: string;
+  displayName: string;
+  /** `roleLabel(member.role, customRoles)`, as in the team list of the system prompt. */
+  role: string;
+  state: SessionState;
+  /** `Session.doing`, when the member gave a sentence. */
+  doing?: WorkDoing;
+}
+
+/** A question an AI member asked people on the card with ask_human (PM-249). */
+export interface CardQuestion {
+  inboxItemId: string;
+  /** The member who asked (the inbox item's `source`). */
+  asker: string;
+  /** `payload.question`, else the item's title. */
+  question: string;
+  askedAt: string;
+  /** The `question_asked` timeline event; get_task event_id reads the whole question. */
+  askedEventId: string | null;
+  /** Expired and cancelled questions are left out. */
+  state: 'open' | 'answered';
+  /** `answerText(item)`, `resolution.by` and `.at`, and the `question_answered` event. */
+  answer?: { by: string; text: string; at: string; eventId: string | null };
 }
 
 /** How a card relates to the task a session starts on. */
@@ -105,6 +146,11 @@ export interface ContextPack {
    * the stopped session, a waiting team message) gets that message instead.
    */
   continueMessage: string | null;
+  /**
+   * What a resumed task session is told first about the card now (PM-249): who else works on it and
+   * the questions asked or answered since it last ran; null when neither.
+   */
+  standing: string | null;
   /**
    * Subagents the session is started with (`StartSessionSpec.subagents`): the cheap subagent when
    * the member has one (PM-179), which the system prompt then tells it how to use; else empty.
@@ -187,6 +233,8 @@ export interface WorktreeManagerOptions {
   /** Where worktrees are created, e.g. ~/.projectman/worktrees. */
   rootDir: string;
   logger: FastifyBaseLogger;
+  /** PM-332: clone node_modules into a task worktree from an installed checkout with the same lockfile (APFS clonefile, macOS). Default false. */
+  cloneDependencies?: boolean;
 }
 
 /* ---------- member workspaces (PM-138) ---------- */

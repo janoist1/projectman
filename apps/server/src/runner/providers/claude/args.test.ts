@@ -443,6 +443,15 @@ describe('the managed VM profile (PM-141)', () => {
     expect(args).not.toContain('--setting-sources');
   });
 
+  it('turns Claude Code prompt suggestions off on every profile (PM-345)', () => {
+    expect(buildSettings({ ...input, policy: undefined }).promptSuggestionEnabled).toBe(false);
+    expect(buildSettings({ ...input, policy: policy() }).promptSuggestionEnabled).toBe(false);
+    const args = buildClaudeArgs(spec, buildSettings({ ...input, policy: policy() }));
+    expect(JSON.parse(args[args.indexOf('--settings') + 1]!)).toMatchObject({
+      promptSuggestionEnabled: false,
+    });
+  });
+
   it('turns Claude Code auto memory off on every profile (PM-208)', () => {
     expect(buildSettings({ ...input, policy: undefined }).autoMemoryEnabled).toBe(false);
     expect(buildSettings({ ...input, policy: policy() }).autoMemoryEnabled).toBe(false);

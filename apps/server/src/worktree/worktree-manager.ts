@@ -3,6 +3,7 @@ import path from 'node:path';
 import { TaskKey, type ProjectConfig } from '@projectman/shared';
 import type { SourceHead, WorktreeInfo, WorktreeManager, WorktreeManagerOptions } from '../contracts';
 import { isTaskBranch, taskBranchName } from './branch-name';
+import { cloneDependencies } from './dependencies';
 import { git, gitSucceeds, isoOrNull, tryGit } from './git';
 import { canonical, createKeyedLock, isInside } from './paths';
 
@@ -53,6 +54,9 @@ interface ListedWorktree {
  *   logged and tolerated, e.g. offline). It starts from the local default when it is equal to
  *   or ahead of origin, otherwise from origin (including diverged histories), falling back
  *   to the local default when origin is absent; it gets no upstream until it is pushed.
+ * - With cloneDependencies, ensureForTask then clones node_modules into the worktree (new or
+ *   existing, when it has none) from an installed checkout with the same lockfile (PM-332,
+ *   dependencies.ts); that never fails the call.
  * - remove only touches worktrees under rootDir, refuses dirty ones unless forced and never
  *   deletes the branch.
  */
@@ -124,8 +128,46 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     taskKey: string;
     title: string;
   }): Promise<WorktreeInfo> {
-    const { project, taskKey, title } = args;
+    const { taskKey } = args;
     const { repo, repoPath, target } = await taskLocation(args);
+    const info = await ensureWorktree(args, { repo, repoPath, target });
+    // Outside the repository's lock: the clone is slow-ish I/O that other tasks need not wait for.
+    if (opts.cloneDependencies) await cloneIntoWorktree(repoPath, info.path, taskKey);
+    return info;
+  }
+
+  /** Clones the dependencies into the worktree; whatever happens, the worktree stays usable. */
+  async function cloneIntoWorktree(repoPath: string, worktreePath: string, taskKey: string): Promise<void> {
+    try {
+      const own = await canonical(worktreePath);
+      const candidates = [repoPath];
+      for (const listed of await listWorktrees(repoPath)) {
+        if (listed.prunable) continue;
+        const listedPath = await canonical(listed.path);
+        if (listedPath === own || listedPath === (await canonical(repoPath))) continue;
+        candidates.push(listed.path);
+      }
+      const result = await cloneDependencies({ target: worktreePath, candidates, logger: log });
+      if (result.status === 'cloned') {
+        const { reference, dirs, ms } = result;
+        log.info({ taskKey, reference, dirs, ms }, 'dependencies cloned into the worktree');
+      } else {
+        log.debug({ taskKey, reason: result.reason }, 'dependencies not cloned into the worktree');
+      }
+    } catch (err) {
+      log.warn(
+        { taskKey, err: err instanceof Error ? err.message : String(err) },
+        'cloning the dependencies failed; the member installs them',
+      );
+    }
+  }
+
+  async function ensureWorktree(
+    args: { project: ProjectConfig; repoName: string; taskKey: string; title: string },
+    location: { repo: ProjectConfig['project']['repos'][number]; repoPath: string; target: string },
+  ): Promise<WorktreeInfo> {
+    const { project, taskKey, title } = args;
+    const { repo, repoPath, target } = location;
     return withLock(await canonical(repoPath), async () => {
       await git(['-C', repoPath, 'worktree', 'prune']);
       const worktrees = await listWorktrees(repoPath);

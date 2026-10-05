@@ -165,6 +165,16 @@ Documentation map:
   repositories and none chosen it does not start (`repo_required`). Roles that only read run in
   the workspace root. A conversation belongs to the directory it ran in: when the task's
   worktree is elsewhere (its repo changed since), the session starts a new conversation there.
+  **Dependencies in a new worktree** (PM-332, `PROJECTMAN_CLONE_DEPENDENCIES`, on by default; macOS only):
+  after `ensureForTask` made the worktree (or found one without `node_modules`) it clones `node_modules`, the
+  root's and every workspace's, with `cp -c -R` (APFS `clonefile`: seconds, and the blocks are shared) from
+  the first checkout of the repository (the repo path, then its other worktrees) whose `package-lock.json` is
+  byte-identical and whose hidden `node_modules/.package-lock.json` is not older than it, i.e. installed after
+  the lockfile's last change. Only on one APFS volume, only where git ignores `node_modules`; `.vite`,
+  `.vite-temp` and `.cache` are left out of the copy. The server never runs `npm install`/`npm ci` outside the
+  sandbox (install scripts). Whatever fails or does not apply (`worktree/dependencies.ts` names the reasons)
+  is a log line, never a failed worktree: the member installs as before. Members' own workspaces and review
+  copies are not cloned.
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -773,7 +783,10 @@ commit pinned at the hand-over, run by the server.
   hand-over's deferred start waits with `full_test_pending`) and the developer's messages to them are stored
   (`Messaging.heldForFullTest`); a person's message is not held. `TaskReviewPin.fullTest` shows the state.
 - **Green.** The reviewers start; their brief and resume message say the full test passed, so they need not run
-  the tests or the type check again. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
+  the tests or the type check again. On another hand-over of the same commit, the latest earlier verdict is
+  reused if it passed: no new run or `task_full_test` event is made, reviewers do not wait, and
+  `reviewPin.fullTest` keeps the original result time. Earlier failed or error verdicts are retried;
+  a new commit gets a new run. **Error** (could not run: timeout, no sandbox, no PTY, dirty checkout, …):
   nothing is sent back, and the brief says the reviewer must run the checks itself. **Failed:** the card goes
   back to the work stage before its stage (`task_stage_changed.testsFailed`, a fix round in the round count),
   the reviewers' sessions stop and the developer gets a system message with the failed files and the output.
@@ -781,6 +794,207 @@ commit pinned at the hand-over, run by the server.
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
   only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+
+When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
+sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
+then ask only for targeted tests and the type check of touched parts while working: the server runs
+the configured full command on the handed-over commit, PTY tests included. Otherwise the steps ask
+for targeted tests while working and one full test and type check on the handed-over commit.
+Dependencies are installed only when missing from the working directory.
+
+## Heavy-run queue (PM-332)
+
+Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
+starts a worker per core, about 150 MB each. So **one heavy run goes at a time on the machine**, and a run's
+workers follow the machine's size.
+
+- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, node built-ins only, because the CLI imports it
+  directly and `full-test/index.ts` loads the sandbox runtime). macOS has no `flock` or `lockf`, so it is a
+  directory in `/tmp/projectman-<uid>/heavy` (`defaultHeavyLockDir()`, `PROJECTMAN_HEAVY_LOCK_DIR`): its parent
+  must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holder/` is the lock itself (`mkdir` is
+  atomic; `owner.json` inside names the process, its label, checkout and session); `queue/<ticket>.json` is one
+  file per waiter, the ticket sorting by queue time. A waiter and the holder write a heartbeat (`utimes`, every
+  5 s) on their file. The head of the queue removes the tickets and the holder that are stale (heartbeat older
+  than 30 s, or the pid gone) and takes the lock; breaking a holder is a `rename` away, atomic, so one waiter
+  wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
+  moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
+  who holds it and who waits, for the PM-300 display.
+- **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
+  (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
+  `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
+  signal is passed on to the command, and an unusable queue folder only warns, so the lock never holds
+  anything back. `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
+  without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
+- **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
+  run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
+  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again.
+- **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
+  `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
+  npm cache when there is no clone). A Codex member gets no sandbox environment, so its commands queue in the
+  default folder, or run without the queue when that is not writable there.
+- **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
+  one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
+  `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
+  still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
+- **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
+  script itself.
+
+## Machine-dependent parts (PM-341)
+
+This is a living inventory of assumptions that tie execution to a machine, account or OS.
+The current local mode usually places the server and agent CLIs on the same host; the managed
+VM boundary separates accounts on one host, not server and engine across hosts. The remote
+actions below are requirements for planning, not implemented remote support or new contracts.
+Keep entries current under the rule in `CLAUDE.md`.
+
+Unless stated otherwise, server paths below are relative to `apps/server/src/`.
+
+- **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
+  `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
+  phase until a release file exists in the disposable session workspace; PTY readiness
+  markers confirm the phase before a pause is requested. The test and fake must share
+  that temporary filesystem. Interrupting a turn abandons its gate without a release.
+  **Remote engine:** run this integration harness and its fake together on the engine;
+  these test-only paths never cross the production server/engine boundary.
+- **Dependency clones** — `worktree/dependencies.ts`, `cloneDependencies` (PM-334).
+  Copies installed `node_modules` from another checkout with the same lockfile using
+  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe.
+  **Remote engine:** find reference checkouts and probe the filesystem on the engine;
+  retain the existing skip/install fallback on other platforms. The server's installation
+  cannot be cloned across machines, and native dependencies must match the engine.
+- **Heavy-run queue and worker limits** — `full-test/heavy-lock.ts`,
+  `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
+  `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
+  `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
+  heartbeats; worker limits use the executing host's CPU and memory. Same-host runs must
+  use the same lock directory; different users are not automatically one queue.
+  **Remote engine:** queue competing runs on each execution host and size workers there;
+  do not use the server's PID namespace, lock or hardware measurements for another engine.
+- **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
+  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333). Legacy Claude sessions
+  receive a per-process writable folder below the server's real `tmpdir`; the server makes,
+  sweeps and removes it. These folders are not supplied to Codex or managed VM sessions.
+  **Remote engine:** allocate and clean up on the executing host, generate its sandbox paths
+  there, and transfer output through an authenticated attachment path rather than reading a
+  remote absolute path on the server.
+- **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
+  `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270).
+  Playwright loads local Chromium binaries from the configured browser directory (default
+  `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
+  `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
+  and writes images to local output storage.
+  **Remote engine:** provision a compatible browser on the engine, preserve the disposable
+  instance's network fence and read-only browser access, and return images as artifacts.
+- **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
+  `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
+  OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
+  ownership checks and signals use its UID and PID namespace, with process start times
+  checked against PID reuse. **Remote engine:** measure and stop on the owning engine,
+  identify the engine with every process identity, and preserve fresh ownership/orphan
+  checks and owner access. A remote PID must never be signalled on the server.
+- **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
+  `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
+  `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
+  not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
+  explicitly, including reconnects and moves; equal paths on different hosts must not imply
+  equal ownership.
+- **Session process termination** — `runner/session.ts` (`stop`, `kill`),
+  `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
+  SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
+  In local mode stopping the CLI does not itself prove that detached children are gone.
+  **Remote engine:** execute stop/kill on the engine owning that process, return its exit
+  acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
+  is not evidence that a remote session has stopped.
+- **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
+  `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
+  (PM-340). Claude conversations live under `~/.claude/projects`; Codex rollouts under
+  `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
+  checks transcript content; managed worker reads are confined to the worker home.
+  **Remote engine:** keep CLI conversation state and resume checks on its engine/account,
+  stream conversation events to the server, and preserve confinement. A conversation ID
+  without its engine's saved state is insufficient for resume.
+- **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
+  `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
+  `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
+  PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
+  instance; the port is configurable). The internal guard also checks the peer, Host and
+  forwarding/origin headers; merely changing the URL to a public server cannot work.
+  **Remote engine:** plan an authenticated engine transport/local relay for hooks, decisions
+  and MCP while preserving token isolation and the internal endpoint guard.
+- **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
+  `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
+  `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
+  `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
+  common git directory. Canonical paths, branch ownership and cleanup are local filesystem
+  operations. **Remote engine:** maintain repositories/worktrees and git metadata there;
+  plan branch/commit transfer and remote status/cleanup rather than treating server paths
+  as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
+- **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
+  `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
+  value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
+  hosts or even every local worktree volume. **Remote engine:** report capacity for the
+  engine's execution/storage volumes and plan admission against those as well as server
+  storage; keep unavailable measurements distinct from low capacity.
+- **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
+  `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
+  `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
+  access. Pause and shutdown act through the local runner; activation checks local instance
+  markers and database use. Deployment scripts using the control client need access to that
+  host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
+  **Remote engine:** keep the administrative socket local, propagate pause/stop to engines
+  with acknowledgements and reconnect handling, and require the existing human deployment
+  decision before activation; local process exit is not proof that remote work stopped.
+- **Native sandbox and canonical paths** — `domain/session-policy.ts`,
+  `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333).
+  Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
+  are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
+  Codex has its own permission mapping in `runner/providers/codex/args.ts`.
+  **Remote engine:** build the policy from its filesystem and supported OS/provider
+  enforcement, preserve protected paths and fail closed where required; do not copy Mac
+  path grants or infer Codex permissions from Claude syntax.
+- **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
+  `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
+  `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
+  Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
+  the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
+  events. These observe the local account, not an arbitrary remote sponsor.
+  **Remote engine:** obtain usage where that sponsor's CLI is logged in and send attributed,
+  timestamped measurements; leave credentials there and retain subscription-only execution.
+- **Claude workspace trust** — `runner/providers/claude/trust.ts`,
+  `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
+  in `~/.claude.json` (or the configured Claude config directory); the managed launcher
+  helper does so as the worker, for that worker's home and local repository path.
+  **Remote engine:** prepare trust on the engine as the executing account, for the actual
+  canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
+- **Server full test before review** — `domain/full-tests.ts`, `full-test/{index,sandbox}.ts`
+  (PM-217, PM-336). The executor runs the pinned checkout on the server host, using local
+  git metadata, a short temporary run directory, process-group signals and macOS `srt`;
+  it is unavailable without macOS/`srt` and is off in the managed VM profile.
+  **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent
+  isolation and resource queuing there, and transport of the attributed verdict/cancellation.
+  An unavailable executor must not become a passing verdict.
+- **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
+  `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
+  `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
+  PM-138; PM-331). The privileged launcher uses a local Unix socket and worker accounts;
+  egress peer identity comes from Linux's local `/proc/net/tcp*` socket UID tables.
+  Worker workspace hand-over uses local owner-checked spool files and git bundles.
+  **Remote engine:** retain the launcher, account isolation, peer checks and spools inside
+  the execution host; plan authenticated server/engine requests and artifact transfer instead
+  of forwarding Unix paths, UIDs or TCP peer lookup across machines.
+- **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
+  `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
+  Disposable instances reserve loopback ports, spawn local server/web process groups and
+  use local temp homes; migration inventories local repositories, paths and database use,
+  packages data and remaps paths. Cross-machine activation already requires a person's
+  confirmation that the source is retired. **Remote engine:** execute local probes and
+  process management on the target host, inventory engine state separately, and preserve
+  explicit source retirement and rollback checks rather than inferring remote liveness.
+
+After this inventory reaches `main`, the architect must compare the PM-286 hybrid plan and
+its breakdown with it before PM-311 starts, including the related remote-work directions
+PM-310 and PM-331. PM-341 is PM-311's prerequisite; that planning review is separate from
+this documentation change.
 
 ## Housekeeping: worktrees of closed cards and free disk space (PM-243)
 
@@ -900,6 +1114,52 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
   (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)).
+
+## The machine and the sessions (PM-320, part of PM-300)
+
+The server shows how loaded the machine is, what each running session's process tree uses, and which
+processes a finished session left behind (orphans), and the owner may stop those. Server side only here; the
+display is PM-322.
+
+- **Probe.** `MachineProbe` (`apps/server/src/contracts/machine.ts`) is the only thing that touches the
+  operating system: `machine()` (processor counters, memory, swap, pressure), `processes()` (one `ps -axww -o
+pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pids, names)` and
+  `signal(pid, 'SIGTERM'|'SIGKILL')`. The real one (`apps/server/src/machine`) runs `vm_stat`, `sysctl`, `ps` with
+  `execFile`, a 5 s limit and `LC_ALL=C` on macOS, and reads `/proc` on Linux; elsewhere the process list is
+  unavailable (`null`) and the page says so. A reading that fails is `null`, never an error. The probe
+  never signals a pid below 2.
+- **Identity.** A process is its pid together with its start time (`lstart`), because a pid is reused. Every
+  signal is preceded by a check of both against a fresh process list.
+- **Marks.** The runner puts `PROJECTMAN_SESSION_ID` and `PROJECTMAN_INSTANCE=<tag>` in the environment of
+  every session; the tag is the first 16 hex digits of `sha256(realpath(PROJECTMAN_HOME))`, computed in
+  `app.ts` and given to the runner and to the domain. A process of a session survives a detach (`setsid`,
+  `nohup`) with its environment, so the marks follow it. (A session that is not started by this build has no
+  tag: its leftovers are not recognised.)
+- **Classification** (`MachineMonitor`, `apps/server/src/domain/machine.ts`). From one process list: the
+  tree under each running session's CLI is that session's; the server's own tree is `projectman`; an orphan is a
+  root that has **both** marks (this instance's tag and a `ses_` session id), belongs to the server's user, lies
+  outside every live tree and the server's tree, is not an ancestor of the server, and whose parent is not a
+  candidate itself. Its session must not run, or the root must have started **before** the session's current CLI
+  (a root that started with or after the CLI is that live session's detached child). Everything else is
+  `others`, grouped by short name, with a row only when it uses at least 5 % of a core or 500 MB (8 rows).
+- **Rounds** are driven by demand, never by a permanent timer: while a request with `?panel=1` came within
+  15 s, every 5 s; while any request came within 45 s, every 15 s; else none. One round at a time, shared by
+  the requests that arrive during it; the first round reads the processor twice 500 ms apart; a request
+  waits for a round at most 3 s. The load of a process is its CPU time between two rounds (not the decayed
+  `%cpu` of `ps`, which only the first round uses). `closedSessions` is `countResumable()` cached for 30 s.
+- **Stopping** (`MachineMonitor.stopOrphans`, one request at a time): each item is looked up in a fresh list
+  with a fresh environment, so a stale panel can never stop an unrelated process. Outcomes: `stopped`, `gone`
+  (no such process, or another one with the same pid), `refused` (not an orphan of this instance now),
+  `failed`. SIGTERM goes to the root and its own descendants, then the list is polled every 250 ms for 3 s,
+  SIGKILL goes to what lives, and 1 s later the root decides `stopped` or `failed`. A process that stopped
+  leaves the last sample at once. The log line has the user, pid, short name, session and outcome, never the
+  command line.
+- **Access.** `GET /api/machine[?panel=1]` and `POST /api/machine/orphans/stop` are for an owner of every
+  project (`domain.instanceOwner`, the rule of the instance's pause); `Me.instanceOwner` tells the web.
+  The command lines of the orphans (`OrphanProcessRow.command`, 160 characters at most) leave the server only
+  here; a session's top processes carry the short name only.
+- **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,
+  [SCREENSHOTS.md](SCREENSHOTS.md)) swaps the probe for fixed data that never signals; the server warns at start.
 
 ## GitHub
 

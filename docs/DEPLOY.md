@@ -24,6 +24,16 @@ from the CLI login home and from the app checkout at `/srv/projectman`.
 Allow disk for one clone and its dependencies per member and repository; projectman never
 removes them.
 
+Claude members in the legacy profile also get a session folder for the files they attach, such as
+screenshots (PM-268; PROVIDERS.md has the details). It is `projectman-sessions/<hash of
+PROJECTMAN_HOME>/<session id>.<random>` in the server's temp directory, made at each session's start and
+removed when it ends and at the server's start. With the unit's `PrivateTmp=true` that is the
+service's own `/tmp`, private to it and emptied when the service stops; without it, the root must
+be a real directory of the service user's, not a link, which the server checks (otherwise it
+logs an error and runs without the folders). `PROJECTMAN_BROWSERS_PATH` (default
+`$PROJECTMAN_HOME/browsers`) is the directory of Playwright's browsers that those sessions read
+(`PLAYWRIGHT_BROWSERS_PATH`) and never write; a human installs the browsers there.
+
 ```sh
 sudo useradd --create-home --home-dir /var/lib/projectman --shell /bin/bash projectman
 sudo install -d -o projectman -g projectman -m 0700 /var/lib/projectman/data

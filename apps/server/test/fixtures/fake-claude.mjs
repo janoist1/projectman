@@ -36,6 +36,9 @@
  *   "[Request interrupted by user]" and sends no Stop hook, like Claude Code).
  * - A submitted prompt: UserPromptSubmit hook (a "block" decision drops it), user entry, then
  *   after FAKE_CLAUDE_WORK_DELAY_MS (default 50; 800 if the prompt contains "SLOW"):
+ *   - "LONGTOOL" test gates: FAKE_CLAUDE_WORK_RELEASE_FILE holds the turn before the tool;
+ *     FAKE_CLAUDE_TOOL_RELEASE_FILE holds the running tool. Each prints a readiness marker
+ *     and waits for the file to exist, or for the turn to be interrupted, instead of a delay.
  *   - contains "PERMISSION": tool_use Bash {command:"git push", or FAKE_CLAUDE_PERMISSION_COMMAND},
  *     PreToolUse, then (unless an
  *     allow rule matches) a PermissionRequest hook with permission_suggestions; "allow" runs
@@ -63,6 +66,9 @@
  *     agent_type "Explore" and agent_transcript_path.
  *   - always: assistant text "Echo: <first line of the prompt>" (a thinking entry first, with the
  *     same message id and a placeholder output count of 1), then the Stop hook.
+ *   - FAKE_CLAUDE_SUGGESTION_MODE set and `promptSuggestionEnabled` not false in --settings: after
+ *     the Stop hook the CLI's prompt suggestion asks an AskUserQuestion ("Suggestion", PM-345), the
+ *     same way as "ASK" (a refusing PreToolUse hook: no dialog; else it waits for a key).
  *   Every response's usage: input 10 (or FAKE_CLAUDE_INPUT_TOKENS), output 5, cache read 100,
  *   cache write 20, model --model (default "claude-fake").
  * - "/clear": SessionEnd (reason "clear"), a new session id and transcript file, then
@@ -687,6 +693,7 @@ async function interactive() {
    * denial. `run`, when given, does the call once it is allowed and answers `{ text, isError }`.
    */
   async function toolCall(name, toolInput, okResult, toolResponse, run) {
+    const myTurn = turn;
     const toolUseId = `toolu_fake_${turn}_${name}`;
     assistantEntry([{ type: 'tool_use', id: toolUseId, name, input: toolInput }]);
     line(`● ${name}(${JSON.stringify(toolInput).slice(0, 60)})`);
@@ -748,7 +755,7 @@ async function interactive() {
     if (!busy) return false; // interrupted meanwhile
     if (allowed && run) {
       const result = await run();
-      if (!busy) return false; // interrupted while the call ran
+      if (!busy || turn !== myTurn) return false; // interrupted while the call ran
       userEntry(
         [{ type: 'tool_result', tool_use_id: toolUseId, content: result.text, is_error: result.isError }],
         {
@@ -784,6 +791,11 @@ async function interactive() {
     return true;
   }
 
+  async function waitForRelease(file, marker, myTurn) {
+    line(marker);
+    while (busy && turn === myTurn && !existsSync(file)) await sleep(20);
+  }
+
   async function runTurn(text) {
     turn += 1;
     const myTurn = turn;
@@ -795,7 +807,11 @@ async function interactive() {
     busy = true;
     progress(true);
     userEntry(text, { promptId: randomUUID() });
-    await sleep(text.includes('SLOW') ? 800 : workDelay);
+    if (text.includes('LONGTOOL') && process.env.FAKE_CLAUDE_WORK_RELEASE_FILE) {
+      await waitForRelease(process.env.FAKE_CLAUDE_WORK_RELEASE_FILE, `Waiting before tool: ${text}`, myTurn);
+    } else {
+      await sleep(text.includes('SLOW') ? 800 : workDelay);
+    }
     if (!busy || turn !== myTurn) return;
 
     if (process.env.FAKE_CLAUDE_LOGGED_OUT || text.includes('EXPIRE')) {
@@ -837,9 +853,17 @@ async function interactive() {
       if (!ok || !busy || turn !== myTurn) return;
     }
     if (text.includes('LONGTOOL')) {
-      // A Bash call that takes FAKE_CLAUDE_TOOL_MS (default 1000): a pause waits for its end.
+      // Hold the tool at a test gate, or take FAKE_CLAUDE_TOOL_MS (default 1000).
       const ok = await toolCall('Bash', { command: 'sleep 60' }, '', null, async () => {
-        await sleep(Number(process.env.FAKE_CLAUDE_TOOL_MS ?? 1000));
+        if (process.env.FAKE_CLAUDE_TOOL_RELEASE_FILE) {
+          await waitForRelease(
+            process.env.FAKE_CLAUDE_TOOL_RELEASE_FILE,
+            `Long tool running: ${text}`,
+            myTurn,
+          );
+        } else {
+          await sleep(Number(process.env.FAKE_CLAUDE_TOOL_MS ?? 1000));
+        }
         return { text: 'slept', isError: false };
       });
       if (!ok || !busy || turn !== myTurn) return;
@@ -924,6 +948,46 @@ async function interactive() {
     progress(false);
     line();
     showPrompt();
+    if (process.env.FAKE_CLAUDE_SUGGESTION_MODE && settings?.promptSuggestionEnabled !== false)
+      await suggestionMode(myTurn);
+  }
+
+  /**
+   * Claude Code's prompt suggestion (PM-345): after a turn it asks the model for the user's next
+   * message, and the model answers with an AskUserQuestion at the terminal. Only with the setting
+   * `promptSuggestionEnabled` left on, and only when FAKE_CLAUDE_SUGGESTION_MODE is set.
+   */
+  async function suggestionMode(myTurn) {
+    const toolUseId = `toolu_fake_${myTurn}_suggest`;
+    const toolInput = {
+      questions: [
+        {
+          header: 'Suggestion',
+          question: "I'm in suggestion mode. Would you like me to suggest a follow-up?",
+          options: [{ label: 'Stay silent' }, { label: 'Suggest a follow-up' }],
+        },
+      ],
+    };
+    const outputs = await runHooks(
+      'PreToolUse',
+      { tool_name: 'AskUserQuestion', tool_input: toolInput, tool_use_id: toolUseId },
+      'AskUserQuestion',
+    );
+    const refused = outputs.some(
+      (o) =>
+        o.hookSpecificOutput?.hookEventName === 'PreToolUse' &&
+        o.hookSpecificOutput.permissionDecision === 'deny',
+    );
+    if (refused || turn !== myTurn) return;
+    line("I'm in suggestion mode. 1. Stay silent  2. Suggest a follow-up");
+    mode = 'question';
+    await keys.wait();
+    mode = 'prompt';
+    await runHooks(
+      'PostToolUse',
+      { tool_name: 'AskUserQuestion', tool_input: toolInput, tool_use_id: toolUseId, tool_response: {} },
+      'AskUserQuestion',
+    );
   }
 
   function interrupt() {

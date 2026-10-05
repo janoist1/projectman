@@ -6,6 +6,16 @@ export const DEFAULT_PROVIDER_MODELS: Record<AgentProvider, string> = {
   codex: 'gpt-6.1-sol',
 };
 
+/**
+ * The providers whose plan usage the server can measure (PM-324): the plan-usage pause and the
+ * usage gauges apply to these only.
+ */
+export const PLAN_USAGE_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+
+export function hasPlanUsage(provider: AgentProvider): boolean {
+  return PLAN_USAGE_PROVIDERS.includes(provider);
+}
+
 /** Claude aliases and full model ids must never be sent to Codex. */
 const CLAUDE_MODEL =
   /^(?:default|best|opus|sonnet|haiku|fable|opusplan)(?:\[1m\])?$|^claude|^anthropic|opus|sonnet|haiku|fable|\[1m\]/i;

@@ -306,7 +306,10 @@ describe('loop watch', () => {
       const stop = vi.spyOn(h.domain.sessions, 'stopTask').mockResolvedValue();
       await resolve('stop_work');
       await vi.waitFor(() => expect(loop()).toBeNull());
-      expect(stop).toHaveBeenCalledWith('AR', 'AR-1');
+      expect(stop).toHaveBeenCalledWith('AR', 'AR-1', {
+        kind: 'loop_stopped',
+        by: { kind: 'human', handle: 'owner' },
+      });
       expect(items()[0]).toMatchObject({
         state: 'resolved',
         resolution: { optionId: 'stop_work', by: 'owner' },

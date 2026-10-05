@@ -5,6 +5,7 @@ import type {
   ChatItem,
   PausePoint,
   PlanUsage,
+  ProviderProblem,
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
@@ -230,6 +231,11 @@ export interface ProviderStatus {
   checkedAt: string;
   /** Why the provider is not usable (English), when `loggedIn` is not true. */
   detail?: string;
+  /** Why the provider is not usable, with `loggedIn === false` (PM-324). */
+  problem?: ProviderProblem;
+  /** The installed CLI's version and the oldest one the adapter works with, when known. */
+  cliVersion?: string;
+  minCliVersion?: string;
 }
 
 /** Error code of a session start refused because the provider is not logged in. */
@@ -409,6 +415,12 @@ export interface PermissionRefusedInfo {
 
 export interface TranscriptReader {
   /**
+   * Whether the transcript exists and is not empty (PM-340): only such a conversation can be
+   * resumed, the CLI writes the file after its first message. `confineTo` as in `read`. Rejects
+   * when the file cannot be checked (not a regular file in the worker home, no access).
+   */
+  hasContent(path: string, opts?: { confineTo?: string }): Promise<boolean>;
+  /**
    * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
    * `provider` is the agent CLI that wrote it (default: guessed from the file name, Codex
    * rollouts are rollout-*.jsonl). `self` is the handle of the session's member (sender of
@@ -477,6 +489,12 @@ export interface RunnerModuleOptions {
    * variables. Explicit options above take precedence. Default: `process.env`.
    */
   env?: NodeJS.ProcessEnv;
+  /**
+   * The tag of this instance (PM-320): set as `PROJECTMAN_INSTANCE` in the environment of every
+   * local session, so a process that outlives its session can be recognised as this instance's.
+   * The launcher's sessions run as another user and do not get it.
+   */
+  instanceTag?: string;
   /**
    * The protected launcher of the managed VM (PM-140). When set, every session starts through it
    * as its member's worker account, in a sandboxed unit, with the provider's pinned CLI; nothing

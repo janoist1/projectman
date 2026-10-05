@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SessionStop } from './involvement';
 import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
 import { TaskKey } from './task';
 import { UsageSummary } from './token-usage';
@@ -149,8 +150,16 @@ export const Session = z.object({
   doing: WorkDoing.optional(),
   /** A pause holds the session (PM-219); absent: none does. Taken off when the pause is resumed. */
   pause: SessionPause.optional(),
+  /**
+   * Why the session stopped last (PM-288). Cleared when it starts or resumes; absent for a row from
+   * before it was kept.
+   */
+  lastStop: SessionStop.optional(),
 });
 export type Session = z.infer<typeof Session>;
+
+/** Minutes of silence (since `Session.lastActivityAt`) after which an idle session closes by itself (PM-288). */
+export const SESSION_IDLE_CLOSE_MINUTES = 15;
 
 /**
  * A member's work on one card (PM-207): a task session that is working. A member's status and
@@ -171,9 +180,14 @@ export type TaskWork = z.infer<typeof TaskWork>;
 /** The states in which a session works on its card (a starting one counts, as for the member's status). */
 const WORKING_SESSION_STATES: ReadonlySet<SessionState> = new Set(['starting', 'working']);
 
+/** Whether a session in this state works (starting or working). */
+export function isWorkingSessionState(state: SessionState): boolean {
+  return WORKING_SESSION_STATES.has(state);
+}
+
 /** The work a session does on its card now; null when it is not a working task session. */
 export function taskWorkOf(session: Session): TaskWork | null {
-  if (session.workItem.type !== 'task' || !WORKING_SESSION_STATES.has(session.state)) return null;
+  if (session.workItem.type !== 'task' || !isWorkingSessionState(session.state)) return null;
   return {
     sessionId: session.id,
     taskKey: session.workItem.taskKey,

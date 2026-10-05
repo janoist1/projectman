@@ -608,9 +608,10 @@ describe('settings section editors', () => {
 
   it('tells the owner which rules the stored configuration breaks, and nothing when it breaks none', async () => {
     const valid = mockProject();
-    valid.render(<SettingsPage />);
+    const validUi = valid.render(<SettingsPage />);
     await screen.findByRole('region', { name: t('settings.sections.project') });
     expect(screen.queryByRole('region', { name: t('settings.problems.title') })).toBeNull();
+    validUi.unmount();
 
     const project = mockProject();
     const { columns } = project.backend.config.pipeline;
@@ -618,12 +619,20 @@ describe('settings section editors', () => {
     project.backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!.setBy = 'humans';
     project.render(<SettingsPage />);
     const notice = within(await screen.findByRole('region', { name: t('settings.problems.title') }));
-    expect(notice.getByText(t('settings.problems.intro'))).toBeTruthy();
+    expect(notice.getByText(t('settings.problems.intro', { n: 2 }))).toBeTruthy();
     const items = notice.getAllByRole('listitem').map((item) => item.textContent);
     expect(items).toEqual([
       `pipeline.columns[${columns.length - 1}].id ${t('settings.issues.duplicate_column')}`,
       `pipeline.stages[7].gate.conditions[1] ${t('settings.issues.release_approval_needs_duty')}`,
     ]);
+
+    const section = await editSection('project');
+    fireEvent.change(section.getByLabelText(t('settings.project.name')), {
+      target: { value: 'Renamed despite existing errors' },
+    });
+    fireEvent.click(section.getByRole('button', { name: t('memberEdit.save') }));
+    await waitFor(() => expect(section.queryByRole('button', { name: t('memberEdit.save') })).toBeNull());
+    expect(project.backend.config.project.name).toBe('Renamed despite existing errors');
   });
 
   it('shows a conflict and reloads the latest version before retrying', async () => {
@@ -907,7 +916,8 @@ describe('settings section editors', () => {
     expect((await stage.findByRole('alert')).textContent).toBe(t('settings.issues.too_small'));
   });
 
-  it.each(['client', 'viewer'] as const)('hides edit buttons for %s access', async (access) => {
+  // A client does not get the configuration at all (it is refused), so only a viewer reaches the sections.
+  it.each(['viewer'] as const)('hides edit buttons for %s access', async (access) => {
     const project = mockProject();
     const member = project.backend.config.team.members.find((member) => member.handle === 'owner')!;
     if (member.kind === 'human') member.access = access;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { FullTestErrorReason } from './full-test';
+import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import { MemberHandle } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
@@ -193,7 +194,7 @@ export interface TimelineEventData {
   team_resumed: { pauseId: string; scope: PauseScopeKind; source: PauseSource };
   session_started: { member: string; resumed: boolean };
   /** `reason`: why the session ended when known (e.g. a lost login). */
-  session_ended: { member: string; exitCode: number | null; reason?: string };
+  session_ended: { member: string; exitCode: number | null; reason?: string; stop?: SessionStop };
   /**
    * An owner changed one permission setting of a session (PM-170); the actor is that owner. `from`
    * and `to` are the values that apply (a mode, or an approver), `reset` that the session went back

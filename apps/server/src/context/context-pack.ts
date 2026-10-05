@@ -1,5 +1,6 @@
 import type { ContextPack, ContextPackBuilder, ContextPackInput } from '../contracts';
 import { buildBrief } from './brief';
+import { buildStanding } from './card-thread';
 import { COMPACT_INSTRUCTION } from './compact-instruction';
 import { buildContinueMessage, buildPauseNudge } from './continue-message';
 import { cheapSubagent } from './subagents';
@@ -24,6 +25,8 @@ import { assess } from './work-item';
  * - `continueMessage`: what a resumed task session gets when no message caused the resume (it
  *   was restarted; the task, its stage and to check where it left off); null for other work
  *   items. The caller types it, in place of the brief, unless a message caused the resume.
+ * - `standing`: what a resumed task session is told first about the card now (PM-249): the other
+ *   members working on it and the questions asked or answered since it last ran; null when neither.
  * - `subagents`: the member's cheap subagent when it has one (PM-179); the system prompt then has
  *   the rule for using it.
  *
@@ -40,6 +43,7 @@ export function createContextPackBuilder(): ContextPackBuilder {
         appendSystemPrompt: buildSystemPrompt(input, situation),
         initialMessage: buildBrief(input, situation),
         continueMessage: buildContinueMessage(input, situation),
+        standing: buildStanding(input),
         subagents: [cheapSubagent(input.member)].filter((agent) => agent !== null),
       };
     },

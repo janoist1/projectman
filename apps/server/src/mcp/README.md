@@ -66,7 +66,7 @@ tests use the SDK's own client, which behaves the same way here):
 | `save_memory`       | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                             |
 | `list_attachments`  | `task_key`, `offset?` (default 0), `limit?` (1–200, default 50)                                                                               | `listAttachments(ctx, { taskKey, offset, limit })`                                                      |
 | `read_attachment`   | `task_key`, `attachment_id`                                                                                                                   | `readAttachment(ctx, { taskKey, attachmentId })`                                                        |
-| `attach_file`       | `task_key`, `path` (relative to the session's working directory, or absolute inside it)                                                       | `attachFile(ctx, { taskKey, path })`                                                                    |
+| `attach_file`       | `task_key`, `path` (relative to the session's working directory, or absolute inside it or inside the session folder)                          | `attachFile(ctx, { taskKey, path })`                                                                    |
 | `delete_attachment` | `task_key`, `attachment_id`                                                                                                                   | `deleteAttachment(ctx, { taskKey, attachmentId })`                                                      |
 
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
@@ -105,7 +105,8 @@ tests use the SDK's own client, which behaves the same way here):
   extension, a hard link to the stored file), its type and how to read it with the agent's own
   tools; the content is never put into the answer and never run. `attach_file` takes no
   directory, uploader or storage place from the caller: the domain reads the session's working
-  directory from the session the token names and opens the file with `openWorkspaceFile`
+  directory from the session the token names (and, for an absolute path inside it, the session's
+  own folder, PM-268) and opens the file with `openWorkspaceFile`
   (`domain/attachments/workspace-file.ts`). `delete_attachment` deletes only the caller's own.
 - `get_task` includes the parent and one-level subtasks with keys, titles, stages and statuses.
   Its `Repo:` line is the repository the work happens in (the task's own, else the project's only

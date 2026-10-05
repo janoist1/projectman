@@ -1,0 +1,34 @@
+{
+  "machine": {
+    "cpuPercent": 12,
+    "cores": 10,
+    "memoryUsedGb": 7.4,
+    "memoryTotalGb": 16,
+    "memoryPressure": "normal",
+    "swapUsedGb": 0.5,
+    "swapTotalGb": 2
+  },
+  "server": { "cpuPercent": 3, "memoryMb": 260 },
+  "sessions": [
+    {
+      "processes": [
+        { "args": "claude --model opus", "cpuPercent": 8, "memoryMb": 520, "ageMinutes": 20 },
+        {
+          "args": "node /work/node_modules/vite/bin/vite.js --port 5173",
+          "cpuPercent": 2,
+          "memoryMb": 310,
+          "ageMinutes": 18
+        }
+      ]
+    }
+  ],
+  "others": [
+    {
+      "args": "/Applications/Slack.app/Contents/MacOS/Slack",
+      "cpuPercent": 6,
+      "memoryMb": 700,
+      "ageMinutes": 900
+    }
+  ],
+  "orphans": []
+}

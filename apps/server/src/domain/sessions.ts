@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   approverBlocker,
   autoCompactWindowOf,
+  cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   effectiveSessionPermissions,
@@ -18,6 +19,7 @@ import {
   routes,
   sameWorkItem,
   stageOf,
+  stageOwners,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -33,6 +35,7 @@ import type {
   Session,
   SessionDetail,
   SessionState,
+  SessionStop,
   Task,
   UpdateSessionRequest,
   WorkDoing,
@@ -47,6 +50,7 @@ import {
 import type {
   AttachmentOperations,
   CardRelation,
+  CardWorker,
   ContextPackBuilder,
   ManagedVmAttestation,
   ManagedVmBoundary,
@@ -64,8 +68,11 @@ import type {
   WorktreeManager,
 } from '../contracts';
 import { encodeWorkItem } from '../db';
+import { roleLabel } from '../agent-text';
 import { requireAiMember } from './access';
 import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from './admission/rules';
+import { QUESTION_LIMIT } from './card-questions';
+import type { CardQuestions } from './card-questions';
 import { isoNow } from './context';
 import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
@@ -85,9 +92,12 @@ import {
   SANDBOX_GIT_CONFIG,
   SANDBOX_GIT_CONFIG_FILE,
   sensitivePaths,
+  sessionFolderToolRules,
   sessionSandbox,
   usesWorktree,
 } from './session-policy';
+import { SESSION_DIR_VARIABLE } from './session-folders';
+import type { SessionFolders } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
@@ -138,7 +148,25 @@ export interface EnsureSessionResult {
   firstInput: Promise<boolean>;
 }
 
+/** Why a task session started (PM-249): the joined notice tells the others. */
+export type SessionStartCause =
+  /** Woken by team messages: their senders, in order, once each. */
+  | { kind: 'message'; from: string[] }
+  /** The card entered a stage it owns (hand-over); `by` is who moved it. */
+  | { kind: 'stage'; stageId: string; by: string }
+  /** Its refinement step for a label (PM-252). */
+  | { kind: 'refinement'; label: string }
+  /** A task start (`TaskStarts`); `by` is who started it. */
+  | { kind: 'start'; by: string };
+
 export interface EnsureSessionOptions {
+  /** Why the session starts; passed on to `task_session_joined`. None: the notice names no reason. */
+  cause?: SessionStartCause;
+  /**
+   * The same session started again after a pause or a shutdown (PM-219): not a joining, no
+   * `task_session_joined`.
+   */
+  pauseRestart?: boolean;
   /**
    * The messages that cause this start (a person writing to a stopped session, the waiting team
    * messages), oldest first, as they are typed in. The session takes them in its first input, in
@@ -164,7 +192,7 @@ export interface EnsureSessionOptions {
 export const MAX_FIRST_INPUT_CHARS = 24_000;
 
 /** Between the messages of a first input, and before the first one after a brief. */
-const MESSAGE_SEPARATOR = '\n\n';
+export const MESSAGE_SEPARATOR = '\n\n';
 
 /** What introduces the messages that wait for a new conversation, after its brief. */
 const WAITING_MESSAGES_HEADER = 'Messages that were waiting for you when this session started:';
@@ -201,6 +229,8 @@ export interface SessionOrchestratorDeps {
   runner: SessionRunner;
   transcripts: TranscriptReader;
   contextBuilder: ContextPackBuilder;
+  /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
+  cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
   /** Base URL the claude CLI reaches this server at, e.g. http://127.0.0.1:4700. */
@@ -244,6 +274,15 @@ export interface SessionOrchestratorDeps {
    * checkout. The project's workspace is added per session.
    */
   readerDenyWrite?: string[];
+  /**
+   * The session folders (PM-268; their root is checked by `prepareSessionFoldersRoot`): each Claude
+   * session of the legacy profile gets its own writable folder, new at every start. Absent, none is made.
+   */
+  sessionFolders?: SessionFolders;
+  /** Playwright's browsers (PM-268): handed to Claude sessions read-only in `PLAYWRIGHT_BROWSERS_PATH`. */
+  browsersDir?: string;
+  /** The machine's heavy-run queue folder (PM-332): its parent is writable for the commands of a worktree session. */
+  heavyLockDir?: string;
   /** The user's home, where the credentials are (default: the operating system's). */
   userHome?: string;
   /**
@@ -352,6 +391,8 @@ function workItemLabel(item: WorkItemRef, member: AiMemberConfig): string {
  */
 export class SessionOrchestrator {
   private readonly deps: SessionOrchestratorDeps;
+  private fullTests: { runsFor(task: Task, config: ProjectConfig): boolean } | undefined;
+
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
   private readonly tokens = new Map<string, ToolContext>();
@@ -372,6 +413,8 @@ export class SessionOrchestrator {
   >();
   /** The provider each session's current process runs, for the transcript it reports. */
   private readonly processProviders = new Map<string, AgentProvider>();
+  /** Sessions whose current process resumes a conversation: one that exits before it is ready gives it up (PM-340). */
+  private readonly resumingProcesses = new Set<string>();
   /** Sessions whose first input (with messages in it) is not known to have reached them: settles it. */
   private readonly firstInputWaiters = new Map<string, (typed: boolean) => void>();
   /**
@@ -383,6 +426,18 @@ export class SessionOrchestrator {
   private readonly processModes = new Map<string, string | undefined>();
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
   private readonly processGrants = new Map<string, number>();
+  /**
+   * Sessions marked to close at their next idle moment (PM-288), with the reason. In memory only: the
+   * next sweep finds a session that is still due.
+   */
+  private readonly closePending = new Map<string, SessionStop>();
+  /** Sessions `close` is stopping now: nothing is typed into them (`typeInto`). */
+  private readonly closing = new Set<string>();
+  /**
+   * The reason of a stop in progress, for `markEnded` to record when the runner's own exit event
+   * reaches it first.
+   */
+  private readonly stopReasons = new Map<string, SessionStop>();
   private readonly unsubscribe: () => void;
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
@@ -400,6 +455,11 @@ export class SessionOrchestrator {
         })
       : null;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
+  }
+
+  /** Wire the full-test policy into every session brief, including resumes. */
+  useFullTests(fullTests: { runsFor(task: Task, config: ProjectConfig): boolean }): void {
+    this.fullTests = fullTests;
   }
 
   dispose(): void {
@@ -492,6 +552,11 @@ export class SessionOrchestrator {
     return this.awaitingFirstTurn.has(sessionId);
   }
 
+  /** Whether text typed into the session has not started a turn yet (the runner still holds it). */
+  hasPendingInput(sessionId: string): boolean {
+    return this.deps.runner.hasPendingInput?.(sessionId) ?? false;
+  }
+
   /** Running AI sessions with a turn in progress, across all projects. */
   busyCount(): number {
     return this.ctx.repos.sessions.listInStates(BUSY_SESSION_STATES).filter((s) => this.isRunning(s.id))
@@ -568,6 +633,9 @@ export class SessionOrchestrator {
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
       const existing = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
+      // A resumed conversation is told first who works on the card and what was asked (PM-249), except
+      // a review session that restarts on a new commit: its message is the new round's.
+      let announce = true;
       if (existing && this.isRunning(existing.id)) {
         if (!this.workspaces?.isStale(existing))
           return {
@@ -583,6 +651,7 @@ export class SessionOrchestrator {
         assertNotPaused(this.ctx.repos.pauses, projectKey);
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
+        announce = false;
       }
       return this.start(
         config,
@@ -591,8 +660,11 @@ export class SessionOrchestrator {
         task,
         existing,
         messagesForFirstInput(opts.messages),
+        announce,
         null,
         opts.nudge ?? null,
+        opts.cause ?? null,
+        opts.pauseRestart ?? false,
       );
     });
   }
@@ -623,6 +695,7 @@ export class SessionOrchestrator {
         task,
         this.find(sessionId),
         messagesForFirstInput(messages),
+        false,
       );
       return true;
     });
@@ -767,7 +840,9 @@ export class SessionOrchestrator {
     const grantsLost = this.grantedForSession(session);
     await this.deps.runner.stop(session.id);
     this.markEnded(session.id, null);
-    await this.start(config, member, session.workItem, task, this.find(sessionId), [], { grantsLost });
+    await this.start(config, member, session.workItem, task, this.find(sessionId), [], false, {
+      grantsLost,
+    });
   }
 
   /**
@@ -813,6 +888,8 @@ export class SessionOrchestrator {
 
   /** Types text into a running session (queued by the runner until the session is idle). */
   typeInto(session: Session, text: string): Promise<void> {
+    // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
+    if (this.closing.has(session.id)) throw new Error(`session ${session.id} is closing`);
     return this.deps.runner.sendUserMessage(session.id, text);
   }
 
@@ -821,11 +898,77 @@ export class SessionOrchestrator {
     return this.deps.memory.read(projectKey, handle);
   }
 
-  async stop(projectKey: string, sessionId: string): Promise<Session> {
+  /** Stops a session; `stop` is why (PM-288), recorded on the session and its `session_ended` event. */
+  async stop(projectKey: string, sessionId: string, stop?: SessionStop): Promise<Session> {
     const session = this.get(projectKey, sessionId);
     this.dropPause(session);
+    // The runner's exit event may end the session before this call does: it takes the reason from here.
+    if (stop) this.stopReasons.set(session.id, stop);
     if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
-    return this.markEnded(session.id, null) ?? this.get(projectKey, sessionId);
+    return this.markEnded(session.id, null, null, stop) ?? this.get(projectKey, sessionId);
+  }
+
+  // ---------------------------------------------------------------- closing idle sessions (PM-288)
+
+  /**
+   * Marks the session to close at its next idle moment (`SessionCloser.sessionIdle`): the member that
+   * moved the card finishes its round first.
+   */
+  closeWhenIdle(session: Session, stop: SessionStop): void {
+    this.closePending.set(session.id, stop);
+  }
+
+  /** Why the session is marked to close; undefined: it is not. */
+  pendingClose(sessionId: string): SessionStop | undefined {
+    return this.closePending.get(sessionId);
+  }
+
+  /**
+   * The session is not to close after all (its member has a step on the card again). A compaction the
+   * mark held back is looked at now: the session is idle, and it drops the compaction of a card that is
+   * back in a stage its member works it in.
+   */
+  cancelClose(sessionId: string): void {
+    if (!this.closePending.delete(sessionId)) return;
+    const session = this.find(sessionId);
+    if (session && this.ctx.repos.sessions.compaction(session.id).pending) this.compactWhenIdle(session);
+  }
+
+  /**
+   * Closes the session if it does not work now, and says whether it did (null: it did not). Under the
+   * session's lock, and checked again just before the stop: a message or an input that came meanwhile
+   * keeps it open. The conversation stays: the next message, answer or hand-over resumes it.
+   */
+  close(projectKey: string, sessionId: string, stop: SessionStop): Promise<Session | null> {
+    const found = this.find(sessionId);
+    if (!found || found.projectKey !== projectKey) return Promise.resolve(null);
+    return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
+      const session = this.find(sessionId);
+      if (
+        !session ||
+        session.state !== 'idle' ||
+        !this.isRunning(session.id) ||
+        this.isPaused(session) ||
+        this.awaitsFirstTurn(session.id) ||
+        this.hasPendingInput(session.id)
+      )
+        return null;
+      this.closing.add(session.id);
+      this.stopReasons.set(session.id, stop);
+      try {
+        await this.deps.runner.stop(session.id);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session to close it');
+      }
+      return this.markEnded(session.id, null, null, stop) ?? this.find(session.id);
+    });
+  }
+
+  /** A team message for the session's member and work item is not typed into it yet, a held one too. */
+  messageWaiting(session: Session): boolean {
+    return this.ctx.repos.messages
+      .pending(session.projectKey, session.member)
+      .some((m) => sameWorkItem(messageRoute(m, session.member), session.workItem));
   }
 
   /**
@@ -866,10 +1009,10 @@ export class SessionOrchestrator {
   }
 
   /** Stops all live sessions for a cancelled task without cleaning up its worktrees. */
-  async stopTask(projectKey: string, taskKey: string): Promise<void> {
+  async stopTask(projectKey: string, taskKey: string, stop: SessionStop): Promise<void> {
     for (const session of this.list(projectKey, { taskKey })) {
       if (LIVE_SESSION_STATES.includes(session.state) || this.isRunning(session.id)) {
-        await this.stop(projectKey, session.id);
+        await this.stop(projectKey, session.id, stop);
       }
     }
   }
@@ -883,6 +1026,24 @@ export class SessionOrchestrator {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
       }
       this.markEnded(session.id, null);
+    }
+  }
+
+  /**
+   * Whether the session's conversation was written: its transcript is a file with content (PM-340).
+   * Behind the VM boundary the worker owns its transcripts: only a real file in its home counts. A file
+   * that cannot be checked counts as not written, as the CLI could hardly resume it.
+   */
+  private async transcriptWritten(session: Session): Promise<boolean> {
+    if (!session.transcriptPath) return false;
+    const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
+    try {
+      return await this.deps.transcripts.hasContent(session.transcriptPath, {
+        ...(layout ? { confineTo: layout.home(session.member) } : {}),
+      });
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId: session.id }, 'could not check the transcript');
+      return false;
     }
   }
 
@@ -951,12 +1112,14 @@ export class SessionOrchestrator {
         finishing = true;
         continue;
       }
+      const stop: SessionStop = { kind: 'card_done', taskKey };
+      this.stopReasons.set(session.id, stop);
       try {
         await this.deps.runner.stop(session.id);
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
       }
-      this.markEnded(session.id, null);
+      this.markEnded(session.id, null, null, stop);
     }
     // The worktrees go once the finishing session is done with them too.
     if (finishing) return;
@@ -1034,6 +1197,15 @@ export class SessionOrchestrator {
         doing: null,
       });
     }
+    // No process of an earlier run survives: what is left of the session folders is removed (PM-268).
+    const folders = this.deps.sessionFolders;
+    if (!folders) return;
+    try {
+      const removed = folders.sweep((id) => this.isRunning(id));
+      if (removed.length > 0) this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
+    } catch (err) {
+      this.ctx.logger.warn({ err, dir: folders.root }, 'could not sweep the session folders');
+    }
   }
 
   /**
@@ -1057,16 +1229,34 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
     messages: string[],
+    announce: boolean,
     restart: PermissionRestart | null = null,
     nudge: string | null = null,
+    cause: SessionStartCause | null = null,
+    pauseRestart = false,
   ): Promise<EnsureSessionResult> {
     // A theme is not worked on: its description is written from the member's general chat.
     if (task && isTheme(task)) throw themeRefused(task.key, 'have a session');
     const sessionId = existing?.id ?? newId('ses');
     try {
-      return await this.launch(config, member, workItem, task, existing, messages, sessionId, restart, nudge);
+      return await this.launch(
+        config,
+        member,
+        workItem,
+        task,
+        existing,
+        messages,
+        announce,
+        sessionId,
+        restart,
+        nudge,
+        cause,
+        pauseRestart,
+      );
     } catch (err) {
       this.workspaces?.ended(sessionId);
+      // A start that failed leaves no folder behind (PM-268).
+      this.removeSessionFolderOf(sessionId);
       throw err;
     }
   }
@@ -1078,9 +1268,12 @@ export class SessionOrchestrator {
     task: Task | null,
     existing: Session | null,
     messages: string[],
+    announce: boolean,
     sessionId: string,
     restart: PermissionRestart | null,
     nudge: string | null,
+    cause: SessionStartCause | null,
+    pauseRestart: boolean,
   ): Promise<EnsureSessionResult> {
     // A standby copy (PM-143) never works: only one copy of an installation may start AI sessions.
     if (this.deps.standby)
@@ -1237,6 +1430,24 @@ export class SessionOrchestrator {
       task,
     );
     const relatedSessions = task ? this.relatedSessions(projectKey, member.handle, task) : [];
+    // Resume only a conversation that exists (the runner reported its transcript), that belongs to
+    // the member's current provider and that ran where the session runs now. The reported path is not
+    // proof (PM-340): the CLI writes the file after its first message, and cannot resume what it never
+    // wrote. A session that never got its first round starts a new conversation.
+    const resumable =
+      !relocated &&
+      Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
+    const conversationLost = resumable && !(await this.transcriptWritten(existing!));
+    const resume = resumable && !conversationLost;
+    // Who else works on the card and what was asked on it (PM-249): a new conversation gets the latest
+    // questions, a resumed one those since it last ran.
+    const cardWorkers = task ? this.cardWorkersFor(config, task, member.handle) : [];
+    const cardQuestions = task
+      ? this.deps.cardQuestions.list(projectKey, task.key, {
+          limit: QUESTION_LIMIT,
+          ...(resume && existing ? { since: existing.lastActivityAt } : {}),
+        })
+      : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
@@ -1265,12 +1476,22 @@ export class SessionOrchestrator {
         ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
         : undefined;
     const excludesFile = userExcludesFile(userHome);
+    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268); Codex and
+    // the managed VM neither.
+    const ownFolders = !vm && !this.managed && provider === 'claude';
+    // A new path at every start: what an earlier run left running cannot use or pre-empt it.
+    const sessionDir =
+      ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
+    const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
         ? undefined
         : sessionSandbox(policy, {
             userHome,
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
+            ...(sessionDir ? { sessionDir } : {}),
+            ...(browsersDir ? { browsersDir } : {}),
+            ...(this.deps.heavyLockDir ? { heavyLockDir: this.deps.heavyLockDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
             ...(memberDir ? { memberDir } : {}),
             ...(excludesFile ? { excludesFile } : {}),
@@ -1279,6 +1500,7 @@ export class SessionOrchestrator {
             readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
           });
     const pack = this.deps.contextBuilder.build({
+      ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),
       project: config,
       // The settings that apply to this session: the system prompt tells the agent who answers.
       member: acting,
@@ -1293,6 +1515,8 @@ export class SessionOrchestrator {
       ...(attachments.length > 0 ? { attachments } : {}),
       ...(parentAttachments ? { parentAttachments } : {}),
       ...(relatedSessions.length > 0 ? { relatedSessions } : {}),
+      ...(cardWorkers.length > 0 ? { cardWorkers } : {}),
+      ...(cardQuestions.length > 0 ? { cardQuestions } : {}),
       ...(relations.length > 0 ? { relations } : {}),
       ...(themeCard
         ? {
@@ -1324,12 +1548,11 @@ export class SessionOrchestrator {
         );
       }
     }
+    // Made now, before the process: Claude Code may not handle a write path that does not exist. A
+    // failed start removes it (`start`); a restart's old folder was removed when its process ended.
+    const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
+    if (sessionFolder) this.prepareSessionFolder(sessionId, sessionFolder);
     const at = isoNow(this.ctx);
-    // Resume only a conversation that exists (the runner reported its transcript), that belongs to
-    // the member's current provider and that ran where the session runs now.
-    const resume =
-      !relocated &&
-      Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
     const owed = resume && existing ? this.ctx.repos.sessions.compaction(existing.id) : null;
@@ -1348,7 +1571,8 @@ export class SessionOrchestrator {
         branch,
         lastActivityAt: at,
         endedAt: null,
-        ...(relocated ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
+        lastStop: null,
+        ...(relocated || conversationLost ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
         // This start takes the session's current mode; the header says when it dropped grants.
         permissionRestartPending: false,
         permissionGrantsLost: restart?.grantsLost ?? false,
@@ -1387,14 +1611,22 @@ export class SessionOrchestrator {
     const token = this.issueToken(session);
     const egressToken = this.managed ? this.issueEgressToken(session) : undefined;
     this.processProviders.set(session.id, provider);
+    if (resume) this.resumingProcesses.add(session.id);
     // Before the process starts: Codex reports its first input as it starts.
     const firstInput = messages.length > 0 ? this.awaitFirstInput(session.id) : Promise.resolve(true);
     // A pause's nudge (PM-219) goes first on a resumed conversation: before the messages, or in place of
     // the continue message. A new conversation has nothing to be nudged about.
-    const initialMessage = resume
+    const resumedInput = resume
       ? messages.length > 0
         ? [...(nudge ? [nudge] : []), ...messages].join(MESSAGE_SEPARATOR)
         : (nudge ?? (restart ? null : pack.continueMessage))
+      : null;
+    // A resumed conversation is told first about the card now (PM-249): who else works on it, and the
+    // questions asked or answered since it last ran.
+    const initialMessage = resume
+      ? announce && pack.standing
+        ? [pack.standing, resumedInput].filter((part) => part?.trim()).join(MESSAGE_SEPARATOR)
+        : resumedInput
       : newConversationInput(pack.initialMessage, messages);
     if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 
@@ -1427,7 +1659,13 @@ export class SessionOrchestrator {
         policy,
         // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
         // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
-        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        allowedTools: vm
+          ? []
+          : [
+              ...allowedToolsFor(member.role, config),
+              ...attachmentRules.allow,
+              ...sessionFolderToolRules(sessionFolder ?? null).allow,
+            ],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes
@@ -1463,6 +1701,7 @@ export class SessionOrchestrator {
       this.awaitingFirstTurn.delete(session.id);
       this.revokeToken(session.id);
       this.processProviders.delete(session.id);
+      this.resumingProcesses.delete(session.id);
       this.processModes.delete(session.id);
       this.processGrants.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
@@ -1503,6 +1742,9 @@ export class SessionOrchestrator {
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
     void this.ctx.events.emit('session_started', fresh);
+    // The card's other workers are told who joined (PM-249); a restart is not a joining.
+    if (announce && !pauseRestart && workItem.type === 'task')
+      void this.ctx.events.emit('task_session_joined', { session: fresh, resumed: resume, cause });
     return {
       session: fresh,
       created: !existing,
@@ -1511,6 +1753,35 @@ export class SessionOrchestrator {
       messagesSent: messages.length,
       firstInput,
     };
+  }
+
+  /**
+   * The running sessions that work on the card now (PM-249): see `cardWorkerSessions` for who counts and
+   * in which order.
+   */
+  cardWorkers(projectKey: string, task: Task, config: ProjectConfig): Session[] {
+    const stage = stageOf(config, task.stageId);
+    return cardWorkerSessions(
+      stage && { kind: stage.kind, owners: stageOwners(config, stage) },
+      task,
+      this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
+    ).filter((s) => this.isRunning(s.id));
+  }
+
+  /** The other members working on the card, as the member's brief names them (PM-249). */
+  private cardWorkersFor(config: ProjectConfig, task: Task, self: string): CardWorker[] {
+    return this.cardWorkers(config.project.key, task, config)
+      .filter((s) => s.member !== self)
+      .map((s) => {
+        const worker = memberOf(config, s.member);
+        return {
+          handle: s.member,
+          displayName: worker?.displayName ?? s.member,
+          role: worker?.kind === 'ai' ? roleLabel(worker.role, config.team.roles) : s.member,
+          state: s.state,
+          ...(s.doing ? { doing: s.doing } : {}),
+        };
+      });
   }
 
   /**
@@ -1655,6 +1926,31 @@ export class SessionOrchestrator {
     return dir;
   }
 
+  /** The session's own folder (PM-268), made before its process starts. */
+  private prepareSessionFolder(sessionId: string, dir: string): void {
+    try {
+      this.deps.sessionFolders!.make(sessionId, dir);
+    } catch (err) {
+      throw new DomainError(
+        'session_start_failed',
+        `could not prepare the session folder: ${(err as Error).message}`,
+        { status: 502, details: { stage: 'session_folder', reason: errorCode(err) } },
+      );
+    }
+  }
+
+  /**
+   * Removes the session's folder (PM-268). Synchronous, so a restart's new folder is made after
+   * it; a failure is logged and never stops the caller.
+   */
+  private removeSessionFolderOf(sessionId: string): void {
+    try {
+      this.deps.sessionFolders?.remove(sessionId);
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId }, 'could not remove the session folder');
+    }
+  }
+
   private async workerSessionDir(handle: string, projectKey: string): Promise<string> {
     const boundary = this.deps.runtimeBoundary!;
     const layout = boundary.layout!;
@@ -1717,8 +2013,11 @@ export class SessionOrchestrator {
     }
   }
 
-  /** Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. */
-  private async assertProviderReady(provider: AgentProvider, member: string): Promise<void> {
+  /**
+   * Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. A
+   * status that cannot be checked (`loggedIn: null`, or the check failing) holds nothing back.
+   */
+  async assertProviderReady(provider: AgentProvider, member: string): Promise<void> {
     let status;
     try {
       status = await this.deps.runner.providerStatus?.(provider, { member });
@@ -1759,11 +2058,27 @@ export class SessionOrchestrator {
     sessionId: string,
     exitCode: number | null,
     reason: string | null = null,
+    stop?: SessionStop,
   ): Session | null {
     const session = this.ctx.repos.sessions.get(sessionId);
+    const failed = exitCode !== null && exitCode !== 0;
+    // A session a pause held ends as paused, unless it failed; the other ends without a reason are PM-274's.
+    const why =
+      stop ??
+      this.stopReasons.get(sessionId) ??
+      (session && !failed && this.isPaused(session) ? ({ kind: 'pause' } as const) : undefined);
+    // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
+    // start begins a new conversation, so it does not fail again and again with the same resume.
+    const resumeFailed =
+      failed && session?.state === 'starting' && this.resumingProcesses.has(sessionId) && !stop;
+    this.resumingProcesses.delete(sessionId);
+    this.stopReasons.delete(sessionId);
+    this.closePending.delete(sessionId);
+    this.closing.delete(sessionId);
     this.settleFirstInput(sessionId, false);
     this.awaitingFirstTurn.delete(sessionId);
     this.revokeToken(sessionId);
+    this.removeSessionFolderOf(sessionId);
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
     this.processGrants.delete(sessionId);
@@ -1773,7 +2088,7 @@ export class SessionOrchestrator {
     this.inputWaits.delete(sessionId);
     if (!session || ENDED.has(session.state)) return null;
     const at = isoNow(this.ctx);
-    const state: SessionState = exitCode !== null && exitCode !== 0 ? 'failed' : 'exited';
+    const state: SessionState = failed ? 'failed' : 'exited';
     const ended = this.ctx.repos.sessions.update(sessionId, {
       state,
       activity: reason,
@@ -1783,7 +2098,14 @@ export class SessionOrchestrator {
       // No process waits for a restart now: the next start takes the session's mode anyway.
       permissionRestartPending: false,
       doing: null,
+      ...(why ? { lastStop: why } : {}),
+      ...(resumeFailed ? { claudeSessionId: newUuid(), transcriptPath: null } : {}),
     })!;
+    if (resumeFailed)
+      this.ctx.logger.warn(
+        { sessionId, member: ended.member, exitCode },
+        'a resumed conversation exited before it was ready: the next start begins a new one',
+      );
     this.workspaces?.ended(sessionId);
     this.deps.timeline.append({
       projectKey: ended.projectKey,
@@ -1791,7 +2113,7 @@ export class SessionOrchestrator {
       sessionId,
       actor: aiActor(ended.member),
       type: 'session_ended',
-      data: { member: ended.member, exitCode, ...(reason ? { reason } : {}) },
+      data: { member: ended.member, exitCode, ...(reason ? { reason } : {}), ...(why ? { stop: why } : {}) },
     });
     this.publishSession(ended);
     void this.ctx.events.emit('session_ended', ended);
@@ -1993,13 +2315,15 @@ export class SessionOrchestrator {
       if (!this.compactInstruction(session.provider)) continue;
       if (isWorkingOnTask(config, task, session.member, 'idle')) continue;
       this.ctx.repos.sessions.setCompactPending(session.id, true);
-      this.compactWhenIdle(session);
     }
   }
 
-  /** Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). */
+  /**
+   * Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). Not
+   * one marked to close (PM-288): its conversation is compacted when it resumes (`compactFirst`).
+   */
   private compactWhenIdle(session: Session): void {
-    if (session.state !== 'idle' || this.isPaused(session)) return;
+    if (session.state !== 'idle' || this.isPaused(session) || this.closePending.has(session.id)) return;
     this.locks
       .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
         this.compactIdle(session.id),
@@ -2050,13 +2374,6 @@ export class SessionOrchestrator {
       { sessionId: session.id, taskKey: task.key, asked },
       asked ? 'compacting the conversation at the end of its round' : 'the compaction was not asked for',
     );
-  }
-
-  /** A team message for this session's work item has not been typed into it yet. */
-  private messageWaiting(session: Session): boolean {
-    return this.ctx.repos.messages
-      .pending(session.projectKey, session.member)
-      .some((m) => sameWorkItem(messageRoute(m, session.member), session.workItem));
   }
 
   private publishSession(session: Session): void {

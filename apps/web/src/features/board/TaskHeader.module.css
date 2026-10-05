@@ -1,9 +1,14 @@
 .head {
-  padding: 18px 22px 16px;
+  /* The large card window (PM-283) widens the sides. */
+  padding: 18px var(--card-pad-x, 22px) 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
   border-bottom: 1px solid var(--c-line-soft);
+}
+
+.head.bare {
+  border-bottom: 0;
 }
 
 .chips {
@@ -35,7 +40,14 @@
   background: var(--phase-bg);
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  /* The refinement row (PM-291) wraps under the text, in line with it. */
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+/* The text takes what is left of the line (not its own width), so it never wraps under the dot (PM-291). */
+.now .nowText {
+  flex: 1 1 0;
 }
 
 /* The dot and the age stay on the first line when the text under it runs on. */

@@ -540,6 +540,7 @@ export class PauseService {
         this.sessions.ensureSession(session.projectKey, session.member, session.workItem, {
           messages,
           nudge,
+          pauseRestart: true,
         }),
       );
     } catch (err) {

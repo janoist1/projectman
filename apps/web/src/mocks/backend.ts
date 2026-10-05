@@ -1,4 +1,6 @@
 import {
+  StopOrphansRequest,
+  canManageInstancePause,
   AcceptInviteRequest,
   BOARD_RANK_STEP,
   BoardMoveRequest,
@@ -27,6 +29,7 @@ import {
   CreateTaskRequest,
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
+  hasPlanUsage,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -102,12 +105,13 @@ import {
   stageIndex,
   stageOf,
   stageOwners,
+  startBlock,
   subtaskParentRefusal,
   isTheme,
   themeRefusal,
   taskSeq,
   taskWorkOf,
-  validateProjectConfig,
+  introducedErrors,
   mergeTokenUsage,
   ALERT_SEEN_OPTION,
   limitTokens,
@@ -138,6 +142,7 @@ import {
   measureClosedCard,
 } from '@projectman/shared';
 import type {
+  MachineView,
   Actor,
   FixRounds,
   TaskFixLimit,
@@ -176,10 +181,13 @@ import type {
   ScheduleRun,
   ServerEvent,
   Session,
+  SessionStop,
   SessionTokensAlert,
   Stage,
+  StartBlock,
   Task,
   TeamMessage,
+  TeamMessageAnswer,
   TokenUsage,
   TimelineEvent,
   TimelineEventData,
@@ -293,10 +301,11 @@ const NO_APPROVER_CODES: ReadonlySet<string> = new Set([
   'missing_duty_holder',
 ]);
 
-function gateBlockedError(evaluation: GateEvaluation): MockResponse {
+function gateBlockedError(evaluation: GateEvaluation, block?: StartBlock): MockResponse {
   return error(409, 'gate_blocked', 'Gate conditions are not met', {
     unmet: evaluation.unmet,
     approvals: evaluation.approvals,
+    ...(block ? { block } : {}),
   });
 }
 
@@ -372,6 +381,9 @@ export class MockBackend {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
   planUsage = clone(fixtures.planUsage);
+  /** A fixed sample can be supplied by UI tests; otherwise use the fixture sessions. */
+  machine: MachineView | null = null;
+  orphanStopOutcomes: Record<number, 'stopped' | 'gone' | 'refused' | 'failed'> = {};
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
@@ -1068,6 +1080,8 @@ export class MockBackend {
       lastActivityAt: nowIso(),
       ...(stateChanged ? { stateSince: nowIso() } : {}),
     });
+    // A session that runs again no longer rests: the reason of its last stop goes (PM-288).
+    if (wasEnded && this.isLive(session)) delete session.lastStop;
     if (wasEnded || session.state === 'idle' || session.state === 'waiting_input')
       this.flushTeamMessages(session);
     if (session.workItem.type === 'schedule' && !this.isLive(session)) {
@@ -1105,6 +1119,8 @@ export class MockBackend {
     taskKey: string | null,
     text: string,
     sessionId?: string,
+    /** What the message answers: the card thread shows it as a question and its answer (PM-249). */
+    answer?: TeamMessageAnswer,
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text);
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1125,6 +1141,7 @@ export class MockBackend {
         deliveredAt: this.findMember(handle)?.kind === 'human' ? nowIso() : null,
         readAt: null,
       })),
+      ...(answer ? { answer } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -1243,10 +1260,12 @@ export class MockBackend {
               .filter((member) => member.kind === 'ai' && member.status !== 'retired')
               .map((member) => member.provider ?? DEFAULT_AGENT_PROVIDER),
           ),
-        ].map((provider) => [
-          provider,
-          provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
-        ]),
+        ]
+          .filter(hasPlanUsage)
+          .map((provider) => [
+            provider,
+            provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
+          ]),
       ),
     };
   }
@@ -1296,6 +1315,26 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
+      if (!this.me().instanceOwner) return error(403, 'insufficient_access', 'Instance owner required');
+      if (path === '/api/machine' && method === 'GET') return ok(this.machine ?? this.machineView());
+      if (path === '/api/machine/orphans/stop' && method === 'POST') {
+        const input = parseBody(StopOrphansRequest, body);
+        if (!input) return error(400, 'invalid_request', 'Invalid orphan identities');
+        const results = input.orphans.map((identity) => {
+          const exists = this.machine?.orphans?.some(
+            (row) => row.pid === identity.pid && row.startedAt === identity.startedAt,
+          );
+          const outcome = this.orphanStopOutcomes[identity.pid] ?? (exists ? 'stopped' : 'gone');
+          if ((outcome === 'stopped' || outcome === 'gone') && this.machine?.orphans)
+            this.machine.orphans = this.machine.orphans.filter(
+              (row) => row.pid !== identity.pid || row.startedAt !== identity.startedAt,
+            );
+          return { ...identity, outcome };
+        });
+        return ok({ results });
+      }
+    }
     if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
     if (path === '/api/providers' && method === 'GET') {
       return ok({
@@ -1345,6 +1384,7 @@ export class MockBackend {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
+      instanceOwner: canManageInstancePause([member?.kind === 'human' ? member.access : null]),
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
       projects:
         member?.kind === 'human'
@@ -1357,6 +1397,50 @@ export class MockBackend {
               },
             ]
           : [],
+    };
+  }
+
+  private machineView(): MachineView {
+    const live = this.sessions.filter((session) => this.isLive(session));
+    return {
+      sampledAt: nowIso(),
+      intervalMs: 15000,
+      summary: {
+        cpuPercent: 34,
+        cores: 8,
+        memoryUsedBytes: 6 * 1024 ** 3,
+        memoryTotalBytes: 16 * 1024 ** 3,
+        memoryPressure: 'normal',
+        swapUsedBytes: 0,
+        swapTotalBytes: 0,
+        sessionsRunning: live.length,
+        sessionsWorking: live.filter((session) => session.state === 'working' || session.state === 'starting')
+          .length,
+      },
+      sessions: live.map((session, index) => ({
+        sessionId: session.id,
+        projectKey: session.projectKey,
+        memberHandle: session.member,
+        member: this.members.find((member) => member.handle === session.member) ?? null,
+        workItem: session.workItem,
+        taskTitle:
+          session.workItem.type === 'task' ? (this.findTask(session.workItem.taskKey)?.title ?? null) : null,
+        state: session.state,
+        stateSince: session.stateSince ?? session.lastActivityAt,
+        paused: !!session.pause,
+        pid: 1000 + index,
+        processStartedAt: session.startedAt,
+        cpuPercent: 8,
+        memoryBytes: (640 + index * 100) * 1024 ** 2,
+        processCount: 1,
+        top: [],
+      })),
+      orphans: [],
+      others: [
+        { kind: 'server', name: 'projectman', cpuPercent: 2, memoryBytes: 120 * 1024 ** 2, processCount: 1 },
+      ],
+      rest: { cpuPercent: 10, memoryBytes: 1024 ** 3 },
+      closedSessions: this.sessions.filter((session) => !this.isLive(session)).length,
     };
   }
 
@@ -1502,6 +1586,11 @@ export class MockBackend {
       const involves = (message: TeamMessage, handle: string) =>
         message.from === handle || message.to.includes(handle);
       const limit = Number(query.get('limit') ?? 200);
+      // Like the server: the conversation of a card the viewer cannot see is not theirs to learn of.
+      if (taskKey) {
+        const card = this.findTask(taskKey);
+        if (card && !this.canSee(card)) return error(404, 'not_found', 'Unknown task');
+      }
       const listed = this.visibleMessages()
         .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
         .filter((message) => !member || involves(message, member))
@@ -1671,6 +1760,10 @@ export class MockBackend {
 
     if (rest === '/config') {
       if (method === 'PATCH') return this.patchConfig(body);
+      // The server gives the configuration to every member but a client.
+      const reader = memberOf(this.config, this.viewerHandle);
+      if (reader?.kind === 'human' && reader.access === 'client')
+        return error(403, 'insufficient_access', 'Requires internal access');
       return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
     }
     if (rest === '/config/revert' && method === 'POST') {
@@ -1702,10 +1795,8 @@ export class MockBackend {
           tasks: count,
         });
     }
-    const issues = validateProjectConfig(next);
-    return issues.some((i) => i.severity !== 'warning')
-      ? error(400, 'config_invalid', 'Invalid configuration', { issues })
-      : null;
+    const issues = introducedErrors(this.config, next);
+    return issues.length > 0 ? error(400, 'config_invalid', 'Invalid configuration', { issues }) : null;
   }
 
   private patchConfig(body: unknown): MockResponse {
@@ -3107,13 +3198,16 @@ export class MockBackend {
     if (!task || !input) return error(404, 'not_found', 'Unknown task');
     if (isTheme(task)) return error(409, 'task_is_theme', 'A theme is not started');
     if (!isOpenTask(task)) return error(409, 'task_closed', 'Task is closed');
+    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
+    // Like the server: a person's Start of a card that is not ready to start is refused first (PM-291).
+    const block = workStage ? startBlock(task, this.config) : null;
+    if (workStage && block) return gateBlockedError(evaluateStart(task, this.config, workStage.id), block);
     // A person's start of a card with an open prerequisite needs the warning accepted (PM-204).
     const open = openPrerequisites(task, this.tasks).map((card) => card.key);
     if (open.length > 0 && !input.despitePrerequisites)
       return error(409, 'prerequisite_open', `Task ${task.key} waits for ${open.join(', ')}`, {
         prerequisites: open,
       });
-    const workStage = this.config.pipeline.stages.find((stage) => stage.kind === 'work');
     // Like the server: a gate that lacks only labels AI members set starts them, and the developer waits (PM-236).
     if (
       workStage &&
@@ -3489,9 +3583,13 @@ export class MockBackend {
       )
     )
       return 'ai_limit_reached';
-    if (Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent)
-      return 'plan_usage_paused';
+    // Like the server: after the AI limit, before the plan usage (PM-324).
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
+    if (
+      hasPlanUsage(provider) &&
+      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
+    )
+      return 'plan_usage_paused';
     return null;
   }
 
@@ -3753,19 +3851,36 @@ export class MockBackend {
   private stopSession(sessionId: string): MockResponse {
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
-    this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso() });
+    this.closeSession(sessionId, { kind: 'manual', by: this.viewerActor() });
+    if (this.machine?.sessions.some((row) => row.sessionId === sessionId)) {
+      const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
+      this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);
+      this.machine.summary.sessionsRunning--;
+      if (row.state === 'working' || row.state === 'starting') this.machine.summary.sessionsWorking--;
+      this.machine.closedSessions++;
+    }
+    return ok();
+  }
+
+  /**
+   * Ends a session the way the server does (PM-288, PM-295): the reason is on the session
+   * (`lastStop`) and in the `session_ended` event of its card. The next message continues it.
+   */
+  closeSession(sessionId: string, stop: SessionStop): void {
+    const session = this.findSession(sessionId);
+    if (!session) return;
+    this.updateSession(sessionId, { state: 'exited', activity: null, endedAt: nowIso(), lastStop: stop });
     this.appendChat(sessionId, [this.chatItem('system_note', { text: 'A session leállt.' })]);
     if (session.workItem.type === 'task') {
       this.addTimeline(
         session.workItem.taskKey,
         session.member,
         'session_ended',
-        { member: session.member, exitCode: 0 },
+        { member: session.member, exitCode: 0, stop },
         sessionId,
       );
     }
     this.setMemberState(session.member, 'idle', null);
-    return ok();
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
@@ -3968,7 +4083,12 @@ export class MockBackend {
         { inboxItemId: item.id, answer },
         sessionId,
       );
-      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer);
+      const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
+      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer, undefined, {
+        inboxItemId: item.id,
+        question,
+        answer,
+      });
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

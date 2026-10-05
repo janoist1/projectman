@@ -51,6 +51,11 @@ export const Me = z.object({
   projects: z
     .array(z.object({ key: z.string(), name: z.string(), access: HumanAccess, roles: z.array(RoleId) }))
     .default([]),
+  /**
+   * The user may manage the instance as a whole (`canManageInstancePause` on every project):
+   * they see the machine display. Absent (an older server): false.
+   */
+  instanceOwner: z.boolean().optional(),
 });
 export type Me = z.infer<typeof Me>;
 
@@ -59,6 +64,10 @@ export type SetupStatus = z.infer<typeof SetupStatus>;
 
 /* ---------- providers ---------- */
 
+/** Why a provider is not usable (PM-324); only with `loggedIn === false`. */
+export const ProviderProblem = z.enum(['not_logged_in', 'no_key', 'cli_too_old', 'cli_missing']);
+export type ProviderProblem = z.infer<typeof ProviderProblem>;
+
 /** Subscription login status of each supported runner provider. */
 export const ProviderLoginStatus = z.object({
   provider: AgentProvider,
@@ -66,6 +75,9 @@ export const ProviderLoginStatus = z.object({
   method: z.string().nullable(),
   checkedAt: z.string(),
   detail: z.string().optional(),
+  problem: ProviderProblem.optional(),
+  cliVersion: z.string().optional(),
+  minCliVersion: z.string().optional(),
 });
 export type ProviderLoginStatus = z.infer<typeof ProviderLoginStatus>;
 export const ProvidersView = z.object({ providers: z.array(ProviderLoginStatus) });

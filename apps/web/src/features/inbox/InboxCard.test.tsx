@@ -206,7 +206,7 @@ describe('InboxCard: a question that explains itself', () => {
 
     expect(within(recommended).getByText(t('inbox.question.recommended'))).toBeTruthy();
     const consequence = within(recommended).getByText(/addig látszik/);
-    const why = within(recommended).getByText(t('inbox.question.reason', { reason }));
+    const why = within(recommended).getByText(`${t('inbox.question.reasonLabel')} ${reason}`);
     expect(consequence.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(other).queryByText(t('inbox.question.recommended'))).toBeNull();
     expect(within(other).queryByText(/Miért:/)).toBeNull();
@@ -225,7 +225,7 @@ describe('InboxCard: a question that explains itself', () => {
 
     expect(describedBy(beneathField)).toBe(
       `${t('inbox.question.recommended')} | A hibaüzenet addig látszik, amíg ki nem javítod a címet. | ` +
-        t('inbox.question.reason', { reason }),
+        `${t('inbox.question.reasonLabel')} ${reason}`,
     );
     expect(describedBy(popup)).toBe('Pár másodperc múlva eltűnik, ezért könnyű lemaradni róla.');
   });
@@ -285,7 +285,7 @@ describe('InboxCard: a question that explains itself', () => {
     );
     const recommended = choice(card, beneathField);
     expect(within(recommended).getByText(t('inbox.question.recommended'))).toBeTruthy();
-    expect(within(recommended).getByText(t('inbox.question.reason', { reason }))).toBeTruthy();
+    expect(within(recommended).getByText(`${t('inbox.question.reasonLabel')} ${reason}`)).toBeTruthy();
     expect(within(choice(card, popup)).queryByText(t('inbox.question.recommended'))).toBeNull();
     expect(within(card).queryByText(/addig látszik/)).toBeNull();
   });
@@ -378,6 +378,112 @@ describe('InboxCard: a question that explains itself', () => {
     it('says nothing for an ordinary question', () => {
       const { card } = renderCard(item('inb_perm_push'));
       expect(within(card).queryByText(/döntnök/)).toBeNull();
+    });
+  });
+
+  describe('a long question written in markdown', () => {
+    const question =
+      'Kidolgozás alatt mi legyen a fiókban az Indítás gombbal? **Mi alapján van ott ma az Indítás?** Minden kártyán megjelenik.\n\n' +
+      '**Az új szabály:**\n' +
+      '- A kártya tetején ez áll: „Kidolgozás alatt”.\n' +
+      '- Az Indítás csak akkor látszik, ha a kapu teljesül.\n\n' +
+      'A gomb a `can.createTasks` joghoz kötött.';
+    const long = plainLanguageQuestion({
+      title: question,
+      payload: {
+        question,
+        options: ['Elrejtjük', 'Marad'],
+        recommended: 'option_1',
+        recommendationReason: 'Ez a **legkevesebb zaj**.',
+      },
+      options: [
+        {
+          id: 'option_1',
+          label: 'Elrejtjük',
+          style: 'primary',
+          consequence: 'Kidolgozás alatt **nem látszik**.',
+        },
+        { id: 'option_2', label: 'Marad', style: 'secondary', consequence: 'Semmi nem változik.' },
+      ],
+    });
+
+    it('shows a short plain heading and the rest as formatted text, with no raw marks', () => {
+      const { card } = renderCard(long);
+      expect(
+        within(card).getByRole('heading', {
+          name: 'Kidolgozás alatt mi legyen a fiókban az Indítás gombbal?',
+        }),
+      ).toBeTruthy();
+      expect(card.textContent).not.toContain('**');
+      expect(card.textContent).not.toMatch(/(^|\n)\s*- /);
+      expect(within(card).getByText('Mi alapján van ott ma az Indítás?').tagName).toBe('STRONG');
+      expect(within(card).getByText('can.createTasks').tagName).toBe('CODE');
+      expect(within(card).getAllByRole('listitem').length).toBeGreaterThanOrEqual(2);
+      expect(within(card).getByText(/A kártya tetején ez áll/).tagName).toBe('LI');
+    });
+
+    it('formats the consequence and the reason of an option inline', () => {
+      const { card } = renderCard(long);
+      expect(within(card).getByText('nem látszik').tagName).toBe('STRONG');
+      expect(within(card).getByText('legkevesebb zaj').tagName).toBe('STRONG');
+      expect(card.textContent).toContain(`${t('inbox.question.reasonLabel')} Ez a legkevesebb zaj.`);
+    });
+
+    it('has no body and no button for a short one-line question', () => {
+      const { card } = renderCard(plainLanguageQuestion());
+      expect(within(card).queryByRole('button', { name: t('inbox.question.more') })).toBeNull();
+      expect(card.querySelector('[aria-controls]')).toBeNull();
+    });
+
+    it('folds a body taller than ten lines behind a button that opens and closes it', () => {
+      vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(500);
+      try {
+        const { card } = renderCard(long);
+        const toggle = within(card).getByRole('button', { name: t('inbox.question.more') });
+        const body = document.getElementById(toggle.getAttribute('aria-controls')!)!;
+        expect(toggle.getAttribute('aria-expanded')).toBe('false');
+        expect(body.className).toMatch(/clamped/);
+        expect(body.style.maxHeight).toMatch(/px$/);
+        fireEvent.click(toggle);
+        expect(body.style.maxHeight).toBe('');
+        expect(body.className).not.toMatch(/clamped/);
+        const less = within(card).getByRole('button', { name: t('inbox.question.less') });
+        expect(less.getAttribute('aria-expanded')).toBe('true');
+        fireEvent.click(less);
+        expect(body.className).toMatch(/clamped/);
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('opens the folded body when focus moves into it', () => {
+      vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(500);
+      try {
+        const { card } = renderCard(
+          plainLanguageQuestion({ title: `${question}\n\nLásd [a kártyát](https://example.test/c).` }),
+        );
+        const body = document.getElementById(
+          within(card)
+            .getByRole('button', { name: t('inbox.question.more') })
+            .getAttribute('aria-controls')!,
+        )!;
+        fireEvent.focus(within(card).getByRole('link', { name: 'a kártyát' }));
+        expect(body.className).not.toMatch(/clamped/);
+        expect(within(card).getByRole('button', { name: t('inbox.question.less') })).toBeTruthy();
+      } finally {
+        vi.restoreAllMocks();
+      }
+    });
+
+    it('titles a question that starts with a list "waiting for an answer", the list in the body', () => {
+      const { card } = renderCard(
+        plainLanguageQuestion({
+          title: '- Az alsó sáv 64 px magas.\n- A számláló az ikonon ül.\n\nMaradhat így?',
+        }),
+      );
+      expect(within(card).getByRole('heading', { name: t('inbox.question.untitled') })).toBeTruthy();
+      expect(within(card).getByText('Az alsó sáv 64 px magas.').tagName).toBe('LI');
+      expect(card.textContent).not.toContain('- ');
     });
   });
 

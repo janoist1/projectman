@@ -1,0 +1,85 @@
+{
+  "machine": {
+    "cpuPercent": 93,
+    "cores": 10,
+    "memoryUsedGb": 14.9,
+    "memoryTotalGb": 16,
+    "memoryPressure": "critical",
+    "swapUsedGb": 15.6,
+    "swapTotalGb": 16
+  },
+  "server": { "cpuPercent": 25, "memoryMb": 420 },
+  "sessions": [
+    {
+      "processes": [
+        { "args": "claude --model opus", "cpuPercent": 60, "memoryMb": 900, "ageMinutes": 95 },
+        {
+          "args": "node /work/node_modules/.bin/vitest run",
+          "cpuPercent": 320,
+          "memoryMb": 2100,
+          "ageMinutes": 4
+        },
+        {
+          "args": "node /work/node_modules/vite/bin/vite.js --port 5173",
+          "cpuPercent": 40,
+          "memoryMb": 650,
+          "ageMinutes": 30
+        },
+        {
+          "args": "/work/node_modules/.bin/tsc -p tsconfig.json",
+          "cpuPercent": 85,
+          "memoryMb": 780,
+          "ageMinutes": 1
+        }
+      ]
+    },
+    {
+      "processes": [
+        { "args": "codex", "cpuPercent": 35, "memoryMb": 700, "ageMinutes": 42 },
+        {
+          "args": "node /work/node_modules/playwright/cli.js test",
+          "cpuPercent": 120,
+          "memoryMb": 1300,
+          "ageMinutes": 6
+        }
+      ]
+    }
+  ],
+  "others": [
+    {
+      "args": "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper (Renderer).app/Contents/MacOS/Google Chrome Helper (Renderer)",
+      "cpuPercent": 55,
+      "memoryMb": 1900,
+      "ageMinutes": 600
+    },
+    {
+      "args": "/Applications/Slack.app/Contents/MacOS/Slack",
+      "cpuPercent": 12,
+      "memoryMb": 800,
+      "ageMinutes": 900
+    }
+  ],
+  "orphans": [
+    {
+      "sessionId": "ses_fixture_a",
+      "processes": [
+        {
+          "args": "node /old/node_modules/vite/bin/vite.js --port 5174",
+          "cpuPercent": 70,
+          "memoryMb": 1100,
+          "ageMinutes": 320
+        },
+        {
+          "args": "/old/node_modules/@esbuild/darwin-arm64/bin/esbuild --service=0.25 --ping",
+          "cpuPercent": 5,
+          "memoryMb": 120,
+          "ageMinutes": 320
+        }
+      ]
+    },
+    {
+      "sessionId": "ses_fixture_b",
+      "processes": [{ "args": "sleep 600", "cpuPercent": 0, "memoryMb": 2, "ageMinutes": 240 }]
+    }
+  ]
+}

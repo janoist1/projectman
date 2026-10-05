@@ -59,6 +59,7 @@ export async function meOf(domain: Domain, user: AuthUser): Promise<Me> {
     email: user.email,
     handles: await domain.handlesFor(user.email),
     projects: await domain.projectsFor(user.email),
+    instanceOwner: await domain.instanceOwner(user.email),
   };
 }
 

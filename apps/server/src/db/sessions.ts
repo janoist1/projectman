@@ -3,6 +3,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   mergeTokenUsage,
   SelectablePermissionMode,
+  SessionStop,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -48,6 +49,18 @@ interface SessionRow {
   reviewed_commit: string | null;
   doing_summary: string | null;
   doing_detail: string | null;
+  last_stop: string | null;
+}
+
+/** The stored reason of the last stop (JSON); a broken or empty value is no reason (PM-288). */
+function lastStopOf(raw: string | null): SessionStop | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = SessionStop.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** What a session's conversation owes and measures for the end-of-round compaction (PM-213). */
@@ -124,6 +137,7 @@ const baseSession = (r: SessionRow): Session => ({
   ...(r.doing_summary
     ? { doing: { summary: r.doing_summary, ...(r.doing_detail ? { detail: r.doing_detail } : {}) } }
     : {}),
+  ...(lastStopOf(r.last_stop) ? { lastStop: lastStopOf(r.last_stop) } : {}),
 });
 
 /** A summed row of the token_usage table. */
@@ -163,10 +177,12 @@ export type SessionPatch = Partial<
   usageSince?: string;
   /** What the member says it does now (PM-238); null clears it. */
   doing?: WorkDoing | null;
+  /** Why the session stopped (PM-288); null clears it. */
+  lastStop?: SessionStop | null;
 };
 
 /** The patch with `doing` spread over its two columns; the other keys are columns of their own. */
-const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing'>, string> = {
+const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop'>, string> = {
   usageSince: 'usage_since',
   permissionModeOverride: 'permission_mode',
   approverOverride: 'approver',
@@ -188,6 +204,13 @@ const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing'>, string> = {
 export function createSessionRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM sessions WHERE id = ?'),
+    countResumable: db.prepare(
+      `SELECT COUNT(*) AS n FROM sessions s
+       WHERE s.state IN ('exited', 'failed')
+         AND (s.work_item_type = 'general'
+              OR (s.work_item_type = 'task' AND EXISTS (
+                    SELECT 1 FROM tasks t WHERE t.key = s.work_item_ref AND t.status NOT IN ('done', 'cancelled'))))`,
+    ),
     profile: db.prepare('SELECT execution_profile FROM sessions WHERE id = ?'),
     setProfile: db.prepare('UPDATE sessions SET execution_profile = ? WHERE id = ?'),
     compaction: db.prepare('SELECT compact_pending, context_tokens FROM sessions WHERE id = ?'),
@@ -337,8 +360,17 @@ export function createSessionRepository(db: Db) {
       }
       return (statement.all(...states) as SessionRow[]).map(toSession);
     },
+    /**
+     * How many sessions are closed but can be resumed (PM-320): the session of a (project, member, work
+     * item) is one row, so each triple counts once when it exited or failed and its work item is a
+     * general chat or a card that is not done or cancelled. Meetings and scheduled runs do not count.
+     */
+    countResumable(): number {
+      const row = statements.countResumable.get() as { n: number };
+      return row.n;
+    },
     update(id: string, patch: SessionPatch): Session | null {
-      const { doing, ...columns } = patch;
+      const { doing, lastStop, ...columns } = patch;
       const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as Array<
         [keyof typeof COLUMNS, unknown]
       >;
@@ -346,6 +378,7 @@ export function createSessionRepository(db: Db) {
       if (doing !== undefined) {
         named.push(['doing_summary', doing?.summary ?? null], ['doing_detail', doing?.detail ?? null]);
       }
+      if (lastStop !== undefined) named.push(['last_stop', lastStop ? JSON.stringify(lastStop) : null]);
       if (named.length > 0) {
         const set = named.map(([column]) => `${column} = ?`).join(', ');
         let statement = updates.get(set);

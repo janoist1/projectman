@@ -722,7 +722,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Ask a human for a decision or information you cannot find or decide yourself (requirements, ' +
       'priorities, approvals, access, trade-offs). The question goes to their inbox; the answer arrives ' +
       'later in this session as a team message. Do not wait or poll for it: continue with work that does ' +
-      'not depend on the answer, or end your turn. Ask one clear question. The human who answers is ' +
+      'not depend on the answer, or end your turn. Before you ask, check the questions already asked on ' +
+      'the card (your brief and get_task list them): do not ask again what was answered or is still open. ' +
+      'Ask one clear question. The human who answers is ' +
       'usually not a specialist and often reads on a phone, so write for them: start the question with ' +
       'one plain sentence that names the decision in everyday words, and keep it short. Describe each ' +
       'option by what happens if it is picked, not by technical names, and always recommend one option ' +
@@ -937,9 +939,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Attach a file',
     readOnly: false,
     description:
-      'Attach a file from your working directory to a task, in your name, for example a screenshot or a ' +
-      'report for the reviewer. Only a regular file inside your working directory (at most 25 MB) can be ' +
-      'attached: no symbolic links, directories or files elsewhere. Do not attach secrets.',
+      'Attach a file from your working directory or your session folder ($PROJECTMAN_SESSION_DIR in your ' +
+      'commands) to a task, in your name, for example a screenshot or a report for the reviewer. Only a ' +
+      'regular file inside one of them (at most 25 MB) can be attached: no symbolic links, directories or ' +
+      'files elsewhere. Do not attach secrets.',
     input: {
       task_key: taskKeyInput,
       path: z
@@ -947,7 +950,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .trim()
         .min(1)
         .max(MAX_PATH_CHARS)
-        .describe('The file: relative to your working directory, or an absolute path inside it.'),
+        .describe(
+          'The file: relative to your working directory, or an absolute path inside it or inside your session folder.',
+        ),
     },
     async run({ ctx, args, handler }) {
       const { attachment } = await handler.attachFile(ctx, { taskKey: args.task_key, path: args.path });

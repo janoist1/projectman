@@ -52,12 +52,87 @@
   overflow-wrap: anywhere;
 }
 
+.consequence strong {
+  color: var(--c-ink);
+}
+
 .reason {
   font-size: var(--text-sm);
   font-weight: 600;
   line-height: 1.45;
   color: var(--c-accent-text);
   overflow-wrap: anywhere;
+}
+
+.reason strong {
+  font-weight: 800;
+}
+
+/* The body of the question: markdown under the short heading, folded after ten lines. */
+.body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.bodyText {
+  align-self: stretch;
+  min-width: 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--c-ink-2);
+}
+
+.bodyText .markdown {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.bodyText strong {
+  color: var(--c-ink);
+}
+
+.bodyText a {
+  color: var(--c-accent-text);
+}
+
+/*
+ * At most eight lines show, ending at the bottom of a block (the height is set in the style, from
+ * the measured blocks). Only when the cut falls inside a long paragraph does its last line fade out,
+ * whatever the colour behind it.
+ */
+.clamped {
+  overflow: hidden;
+}
+
+.faded {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.55em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.55em), transparent);
+}
+
+/* Looks like the "Teljes parancs" button of a command (PermissionParts.module.css). */
+.more {
+  border: 0;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--c-accent);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.mobile.body .bodyText {
+  font-size: var(--text-lg);
+}
+
+.mobile .bodyText ul,
+.mobile .bodyText ol {
+  padding-left: 20px;
+}
+
+.mobile .more {
+  min-height: 40px;
 }
 
 .mobile .choice {

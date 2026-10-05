@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { AI_BUILT_IN_ROLE_IDS, DUTIES, DUTY_IDS } from '@projectman/shared';
+import {
+  AI_BUILT_IN_ROLE_IDS,
+  DUTIES,
+  DUTY_IDS,
+  LabelDefinition,
+  TEAM_RULE_IDS,
+  teamRules,
+} from '@projectman/shared';
 import type {
   Actor,
   AiMemberConfig,
@@ -14,14 +21,45 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
-import type { ContextPackInput, SessionPolicy } from '../contracts';
+import type { CardQuestion, CardWorker, ContextPackInput, SessionPolicy } from '../contracts';
 import { buildSessionPolicy, commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
+import { describeTeamRule } from './team-rules';
 
 const builder = createContextPackBuilder();
+
+describe('team rules in the system prompt', () => {
+  it('describes every applicable rule immediately after labels without duplicate guardrails', () => {
+    const project = buildProject();
+    project.pipeline.labels.push(LabelDefinition.parse({ id: 'refine', name: 'Refine' }));
+    const prompt = builder.build(input({ project })).appendSystemPrompt;
+    const rules = teamRules(project);
+    expect(rules.map((rule) => rule.id)).toEqual([...TEAM_RULE_IDS]);
+    expect(prompt.indexOf('# Team rules')).toBeGreaterThan(prompt.indexOf('# Labels'));
+    expect(section(prompt, '# Labels')).not.toContain('# Team rules');
+    for (const rule of rules)
+      expect(section(prompt, '# Team rules')).toContain(`- ${describeTeamRule(rule, project)}`);
+    expect(prompt.match(/Approvals:/g)).toHaveLength(1);
+    expect(prompt.match(/Nobody approves their own work:/g)).toHaveLength(1);
+    expect(prompt).not.toContain('Approvals are labels only humans may set; the app asks them.');
+    expect(prompt).not.toContain('Never set a label marked "not on your own work"');
+  });
+
+  it('renders the configured fix limit and human fallback', () => {
+    const project = buildProject();
+    project.team.limits.maxFixRounds = 5;
+    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Team rules')).toContain(
+      'reaches 5 rounds',
+    );
+    const rule = teamRules(project).find((entry) => entry.id === 'fix_limit')!;
+    expect(describeTeamRule({ ...rule, labels: [], lead: null, deciders: ['owner'] }, project)).toContain(
+      'a human decides in their inbox (`owner`)',
+    );
+  });
+});
 
 /** Adds an AI member of the role with the role's defaults to the project. */
 function addMember(
@@ -432,10 +470,12 @@ describe('token economy (PM-181)', () => {
 
   // The prompt and the kick-off brief together may not grow from the size they had before PM-181
   // (measured on the snapshots of that time, in characters). The developer's allowance grew once,
-  // to make room for the structural decision rule of PM-223; PM-287 names priority (high, not 2).
+  // to make room for the structural decision rule of PM-223, and again for the rule of working on the
+  // same card as others (PM-249), then for targeted checks (PM-335) and shared team rules (PM-289).
+  // PM-287 names priority (high, not 2), adding three characters to the brief.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 13002, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 11832, brief: 1900 },
+    { name: 'developer', handle: 'fe-1', system: 14800, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 12891, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -458,7 +498,7 @@ describe('token economy (PM-181)', () => {
   });
 
   it('does not grow the system prompt of a custom role', () => {
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(7553);
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(8822);
   });
 });
 
@@ -701,6 +741,7 @@ describe('system prompt', () => {
       '# Token economy',
       '# The pipeline',
       '# Labels',
+      '# Team rules',
       '# Current work item',
       '# Commands that run without asking',
       '# Guardrails',
@@ -903,10 +944,10 @@ describe('system prompt', () => {
   });
 
   it('forbids self-review through the labels marked for it', () => {
-    const rule =
-      '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.';
     const project = buildProject();
-    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Guardrails')).toContain(rule);
+    expect(section(builder.build(input({ project })).appendSystemPrompt, '# Team rules')).toContain(
+      'Nobody approves their own work: never set',
+    );
     project.pipeline.labels = project.pipeline.labels.map((label) => ({ ...label, notByAuthor: false }));
     expect(builder.build(input({ project })).appendSystemPrompt).not.toContain('not on your own work');
   });
@@ -1019,6 +1060,104 @@ describe('kick-off brief', () => {
     expect(builder.build(input({ relatedSessions: [] })).initialMessage).not.toContain(
       'Your other running sessions',
     );
+  });
+
+  describe('the card’s thread: other workers and questions (PM-249)', () => {
+    const workers: CardWorker[] = [
+      {
+        handle: 'designer',
+        displayName: 'UI/UX designer',
+        role: 'UI/UX designer',
+        state: 'working',
+        doing: { summary: 'The form layout is being drawn' },
+      },
+      { handle: 'fe-2', displayName: 'Fejlesztő', role: 'developer', state: 'idle' },
+    ];
+    const questions: CardQuestion[] = [
+      {
+        inboxItemId: 'inb_1',
+        asker: 'analyst',
+        question: 'Which export format?',
+        askedAt: '2026-10-03T11:20:00.000Z',
+        askedEventId: 'evt_q1',
+        state: 'answered',
+        answer: { by: 'owner', text: 'CSV', at: '2026-10-03T12:00:00.000Z', eventId: 'evt_a1' },
+      },
+      {
+        inboxItemId: 'inb_2',
+        asker: 'designer',
+        question: 'Should the form keep its draft?',
+        askedAt: '2026-10-03T11:54:00.000Z',
+        askedEventId: 'evt_q2',
+        state: 'open',
+      },
+    ];
+    const workersBlock = [
+      '## Also working on this card',
+      '- `designer` (UI/UX designer, working): The form layout is being drawn',
+      '- `fe-2` (developer, idle)',
+      "Each of you works from your own conversation, and none sees another's. Split the work by send_message with the members it concerns, do not overwrite each other's part (the description above all), and send a message about coordinating to all of them.",
+    ].join('\n');
+    const questionsBlock = [
+      '## Questions to people on this card',
+      '- `analyst` asked (2026-10-03 11:20 UTC): "Which export format?" → `owner` answered: "CSV"',
+      '- `designer` asked (2026-10-03 11:54 UTC): "Should the form keep its draft?" → open',
+      'Before you ask a person, check here (and in get_task) that it was not answered and is not open already.',
+    ].join('\n');
+
+    it('puts both sections after the theme and before the attachments, only when they are not empty', () => {
+      const brief =
+        builder.build(input({ handle: 'fe-1', cardWorkers: workers, cardQuestions: questions }))
+          .initialMessage ?? '';
+      expect(brief).toContain(`\n\n${workersBlock}\n\n${questionsBlock}\n\n## Attachments`);
+      expect(brief.indexOf('## Relations')).toBeLessThan(brief.indexOf('## Also working on this card'));
+      const plain = builder.build(input({ handle: 'fe-1', cardWorkers: [], cardQuestions: [] }));
+      for (const heading of ['## Also working on this card', '## Questions to people on this card'])
+        expect(plain.initialMessage).not.toContain(heading);
+      expect(plain.initialMessage).toBe(builder.build(input({ handle: 'fe-1' })).initialMessage);
+    });
+
+    it('says in the first line of `standing` where the card stands, and only when there is something to say', () => {
+      const standing = builder.build(input({ cardWorkers: workers, cardQuestions: questions })).standing;
+      expect(standing).toBe(`Now on AR-21:\n\n${workersBlock}\n\n${questionsBlock}`);
+      expect(builder.build(input({ cardWorkers: workers })).standing).toBe(
+        `Now on AR-21:\n\n${workersBlock}`,
+      );
+      expect(builder.build(input({ cardQuestions: questions })).standing).toBe(
+        `Now on AR-21:\n\n${questionsBlock}`,
+      );
+      expect(builder.build(input()).standing).toBeNull();
+      expect(builder.build(input({ cardWorkers: [], cardQuestions: [] })).standing).toBeNull();
+      expect(
+        builder.build(input({ workItem: { type: 'general' }, task: null, cardWorkers: workers })).standing,
+      ).toBeNull();
+    });
+
+    it('cuts a long question and answer, and says how to read them whole', () => {
+      const long: CardQuestion = {
+        ...questions[0]!,
+        question: `Q${'q'.repeat(300)}`,
+        answer: {
+          by: 'owner',
+          text: `A${'a'.repeat(400)}`,
+          at: '2026-10-03T12:00:00.000Z',
+          eventId: 'evt_a1',
+        },
+      };
+      const brief = builder.build(input({ cardQuestions: [long] })).initialMessage ?? '';
+      expect(brief).toContain(
+        `"Q${'q'.repeat(158)}… (read it whole: get_task task_key AR-21, event_id evt_q1)"`,
+      );
+      expect(brief).toContain(
+        `"A${'a'.repeat(238)}… (read it whole: get_task task_key AR-21, event_id evt_a1)"`,
+      );
+      expect(brief).not.toContain('q'.repeat(160));
+      // Without an event to read from, the cut says only that.
+      const noEvent = builder.build(
+        input({ cardQuestions: [{ ...long, askedEventId: null }] }),
+      ).initialMessage;
+      expect(noEvent).toContain(`"Q${'q'.repeat(158)}…" → `);
+    });
   });
 
   it('keeps the brief compact', () => {
@@ -1211,6 +1350,44 @@ describe('kick-off brief', () => {
 });
 
 describe('expected steps', () => {
+  it.each(['developer', 'maintainer'])(
+    'asks %s for targeted checks when the server runs the full test',
+    (role) => {
+      const project = buildProject();
+      const handle = role === 'developer' ? 'fe-1' : 'maintainer';
+      if (role === 'maintainer') {
+        addMember(project, handle, role);
+        (project.pipeline.stages.find((stage) => stage.id === 'dev')!.owners ??= []).push(handle);
+      }
+      project.project.repos[0]!.reviewTest = {
+        command: 'custom-check --all',
+        maxWorkers: 2,
+        timeoutMinutes: 15,
+      };
+      const source = input({ project, handle, task: makeTask({ stageId: 'dev', assignee: handle }) });
+      const steps = doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt);
+      expect(steps).toContain('Install the dependencies only if they are missing');
+      expect(steps).toContain(
+        "run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched",
+      );
+      expect(steps).toContain(
+        'Do not run the whole test suite: the server runs `custom-check --all` once on the commit you hand over, PTY tests included',
+      );
+      const fallback = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(fallback).toContain(
+        "run the project's full tests and type check once, on the commit you hand over",
+      );
+      expect(fallback).not.toContain('Do not run the whole test suite');
+    },
+  );
+
+  it('keeps code review steps unchanged by the server full test flag', () => {
+    const source = input({ handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+    expect(doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt)).toBe(
+      doneSteps(builder.build(source).appendSystemPrompt),
+    );
+  });
+
   const stepsOf = (overrides: Parameters<typeof input>[0]) =>
     doneSteps(builder.build(input(overrides)).appendSystemPrompt);
 
@@ -1226,7 +1403,7 @@ describe('expected steps', () => {
     for (const repo of ['app', null]) {
       const steps = stepsOf({ handle: 'fe-1', task: makeTask({ stageId: 'dev', repo }) });
       expect(steps, String(repo)).toContain(
-        "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+        "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
       );
     }
   });
@@ -1238,7 +1415,9 @@ describe('expected steps', () => {
       handle: 'fe-1',
       task: makeTask({ stageId: 'dev', repo: null }),
     });
-    expect(steps).toContain("2. Implement the change in your working directory and run the project's tests.");
+    expect(steps).toContain(
+      "Implement the change in your working directory. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
+    );
   });
 
   it('sends feedback work back to the assignee', () => {
@@ -1347,7 +1526,7 @@ describe('expected steps', () => {
       task: makeTask({ stageId: 'dev', assignee: 'maintainer' }),
     });
     expect(steps).toContain(
-      "1. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused, and run the project's tests.",
+      "1. Install the dependencies only if they are missing from your working directory: they are often in place already. Make the maintenance change the task describes in your working directory (the task's own worktree and branch), small and focused. While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
     );
     expect(steps).toContain('2. Commit, push, open a pull request and attach it with link_pull_request.');
     expect(steps).toContain(
@@ -1827,7 +2006,7 @@ describe('repositories without GitHub', () => {
       expect(steps).toBe(
         [
           '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-          "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+          "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
           "3. Commit the work on the task's own branch in your worktree. Never push and never open a pull request: the repository is local-only (the owner has not allowed publishing from it). Before you hand over, make sure everything is committed: `git status` shows nothing left to commit.",
           '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (the branch and its last commit, what changed, what to check).',
         ].join('\n'),
@@ -1839,7 +2018,7 @@ describe('repositories without GitHub', () => {
       expect(steps).toBe(
         [
           '1. Read the task, its links and relations to other cards; ask with ask_human if the goal or a decision is unclear.',
-          "2. Implement the change in your working directory (the task's own worktree and branch) and run the project's tests.",
+          "2. Install the dependencies only if they are missing from your working directory: they are often in place already. Implement the change in your working directory (the task's own worktree and branch). While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.",
           '3. Commit, push, open a pull request and attach it with link_pull_request.',
           '4. Move the task to Code review (`code_review`) with update_task and hand over to `code-review` with send_message: the facts they need (links, what changed, what to check).',
         ].join('\n'),

@@ -16,13 +16,12 @@ import { Button, ButtonLink } from '../../components/Button';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { LeaveChip } from '../../components/LeaveChip';
 import { Markdown } from '../../components/Markdown';
-import { Popover } from '../../components/Popover';
 import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { formatTime } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
-import { optionLabel } from '../../lib/inbox';
+import { inboxHeading, optionLabel } from '../../lib/inbox';
 import { nameOf, namesOf, roleLabel } from '../../lib/members';
 import { useIsMobile } from '../../lib/hooks';
 import { InboxCard } from '../inbox/InboxCard';
@@ -35,18 +34,18 @@ import {
   threadItems,
 } from './conversations';
 import type { ThreadEntry } from './conversations';
-import { deliveryState, receiptsOf } from './receipts';
+import { DeliveryStatus } from './DeliveryStatus';
 import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
 
 /** An opened thread marks its incoming messages read after this long, so a glance in passing does not. */
-const READ_AFTER_MS = 1000;
+export const READ_AFTER_MS = 1000;
 /** The server's page of one thread (`limit` of the request); a full page means older messages are not shown. */
-const PAGE_LIMIT = 500;
+export const PAGE_LIMIT = 500;
 /** Within this distance of the bottom the thread follows new messages. */
-const STICK_PX = 48;
+export const STICK_PX = 48;
 
-function useDocumentVisible(): boolean {
+export function useDocumentVisible(): boolean {
   const [visible, setVisible] = useState(() => document.visibilityState !== 'hidden');
   useEffect(() => {
     const update = () => setVisible(document.visibilityState !== 'hidden');
@@ -240,7 +239,7 @@ export function ConversationThread({
         ) : (
           <p className={styles.answered}>
             {t('messages.question.answered', {
-              title: item.item.title,
+              title: inboxHeading(item.item),
               answer: answeredText(item.item),
             })}
           </p>
@@ -428,8 +427,6 @@ function MessageBubble({
   const unread = !mine && isUnreadBy(message, myHandle);
   // Who else got it: a group message is in every recipient's thread, marked with the others.
   const also = message.to.filter((handle) => handle !== myHandle && handle !== peer);
-  const receipts = receiptsOf(message, members);
-  const state = deliveryState(receipts);
   return (
     <div
       className={clsx(
@@ -464,35 +461,7 @@ function MessageBubble({
               {t('messages.thread.also', { names: joinNames(namesOf(also, members, myHandle)) })}
             </span>
           ) : null}
-          {mine ? (
-            <Popover
-              label={t(`messages.status.${state}`)}
-              variant="ghost"
-              size="sm"
-              className={clsx(styles.status, state === 'queued' && styles.statusWait)}
-            >
-              {() => (
-                <ul className={styles.receipts} aria-label={t('messages.status.details')}>
-                  {receipts.map((receipt) => (
-                    <li key={receipt.handle}>
-                      <strong>{nameOf(receipt.handle, members, myHandle)}</strong> ·{' '}
-                      {receipt.kind === 'ai'
-                        ? receipt.deliveredAt
-                          ? t('messages.status.aiTyped')
-                          : t('messages.status.aiQueued')
-                        : receipt.readAt
-                          ? t('messages.status.humanRead')
-                          : t('messages.status.humanUnread')}
-                      {receipt.route?.type === 'general' ? ` · ${t('messages.routeGeneral')}` : null}
-                      {receipt.route?.type === 'task'
-                        ? ` · ${t('messages.routeTask', { taskKey: receipt.route.taskKey })}`
-                        : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Popover>
-          ) : null}
+          {mine ? <DeliveryStatus message={message} members={members} myHandle={myHandle} /> : null}
           {canSend ? (
             <span className={styles.actions}>
               <Button size="sm" variant="ghost" onClick={() => onReply(message)}>

@@ -25,6 +25,46 @@
   }
 }
 
+/* The large window (PM-283): the same box in the middle of the board, over a backdrop that covers the page. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--c-backdrop);
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.window {
+  --card-pad-x: 40px;
+  --card-title-size: 26px;
+  --card-select-max: 320px;
+  inset: 32px;
+  width: min(1160px, calc(100vw - 64px));
+  margin: 0 auto;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: window-in 160ms ease-out;
+}
+
+/* One column: the head and the 760px column stand on the same line, so the sides are what is left of the
+   window around it (the percentage is of the window's width in the head and in the scroll box alike). */
+.window:not(.wide) {
+  --card-pad-x: max(40px, calc((100% - 760px) / 2));
+}
+
+@keyframes window-in {
+  from {
+    transform: scale(0.985);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
 .scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -35,9 +75,165 @@
   gap: 20px;
 }
 
+/* The sections sit in four groups that only order the tree: the quick view and the one-column window lay
+   their sections out as if the group were not there. */
+.group {
+  display: contents;
+}
+
+.group:empty {
+  display: none;
+}
+
+/* Only the close button stands above a loading, failed or missing card. */
+.bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 16px 16px 0;
+}
+
+/* What stands under the close button alone (loading, failed, missing): in the middle of the large window. */
+.center {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.window .center {
+  justify-content: center;
+}
+
+/* One column: 760px at most, in the middle of the window. */
+.window .scroll {
+  padding: 28px var(--card-pad-x) 40px;
+  display: grid;
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+  align-content: start;
+}
+
+.window .scroll > *,
+.window .group > * {
+  min-width: 0;
+}
+
 .description {
   font-size: 13.5px;
   color: var(--c-ink-2);
+}
+
+.window .description {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Two columns: the reading column on the left (the groups in order), the actions, properties on the right.
+   The right column spans every row, so it sets none of their heights; it stays in sight while the left scrolls. */
+.wide .scroll {
+  grid-template-columns: minmax(0, 760px) 320px;
+  grid-template-rows: auto auto 1fr;
+  column-gap: 20px;
+  container-type: size; /* the right column is as tall as the window at most (cqh) */
+}
+
+.wide .group {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  grid-column: 1;
+}
+
+.wide .group:empty {
+  display: none;
+}
+
+.wide .side {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: start;
+  position: sticky;
+  top: 0; /* the padding of the scroll box already keeps it off the line under the head */
+  max-height: 100cqh;
+  overflow-y: auto;
+  padding-left: 20px;
+  border-left: 1px solid var(--c-line-soft);
+}
+
+/* The switch between the card and its conversation (PM-273): under the head, on the head's own line. The line
+   under the head is this row's (the head leaves it off), so what scrolls below is cut under the switch. */
+.views {
+  flex: none;
+  display: flex;
+  padding: 0 var(--card-pad-x, 22px) 12px;
+  border-bottom: 1px solid var(--c-line-soft);
+}
+
+/* As wide as its two buttons; on a phone the halves share the row. */
+.views .switch {
+  flex: none;
+}
+
+/* A hidden group must not show though a layout above makes it a box (display: contents, flex). */
+.group[hidden],
+.thread[hidden] {
+  display: none !important;
+}
+
+/* The conversation: the card's sections are hidden, so what is left is the thread. It fills the drawer under
+   the switch: the messages scroll in it, and the box to write in stays under them. Both views stay in the
+   tree, so the scroll box below is the card's scroller only while the card shows. */
+.thread {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.scroll.conversation {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+/* How far the messages and the box stand from the sides: the card's own side padding in each layout. */
+.conversation .thread {
+  --thread-pad-x: 22px;
+}
+
+.window .scroll.conversation {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  justify-content: stretch;
+  align-content: stretch;
+}
+
+/* One column: the messages stand in the 760px column of the head, the box's top line runs the window's width. */
+.window .conversation .thread {
+  --thread-pad-x: var(--card-pad-x);
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* Two columns: only the left one is the conversation. The right one stays, and scrolls on its own. */
+.wide .scroll.conversation {
+  padding: 0 var(--card-pad-x);
+  grid-template-columns: minmax(0, 760px) 320px;
+  column-gap: 20px; /* `.scroll.conversation` zeroes `gap`; this is the room the thread leaves the right column's line */
+}
+
+.wide .conversation .thread {
+  --thread-pad-x: 0px;
+}
+
+.wide .conversation .side {
+  grid-row: 1;
+  align-self: stretch;
+  position: static;
+  max-height: none;
+  padding-top: 28px;
+  padding-bottom: 40px;
 }
 
 .sessions {
@@ -102,6 +298,11 @@
   flex-grow: 1;
 }
 
+/* One column: the row is as wide as the reading column, and the button is the size of its text. */
+.window:not(.wide) .grow {
+  flex-grow: 0;
+}
+
 .start {
   display: flex;
   flex-direction: column;
@@ -110,10 +311,33 @@
   flex: 1 1 100%;
 }
 
+/* Where the Start will stand, while the rule that decides it still loads (PM-291): the size of the button, so it does not jump. */
+.startLoading {
+  width: 104px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--c-line-soft);
+  animation: start-loading 1.2s ease-in-out infinite;
+}
+
+@keyframes start-loading {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .missing {
   padding: 24px;
   font-size: var(--text-md);
   color: var(--c-ink-3);
+}
+
+.window .missing {
+  text-align: center;
 }
 
 @media (max-width: 767px) {
@@ -128,6 +352,23 @@
     padding-left: 16px;
     padding-right: 16px;
   }
+  .views {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .views .switch {
+    flex: 1;
+  }
+  .views .switch button {
+    flex: 1;
+    justify-content: center;
+  }
+  .scroll.conversation {
+    padding: 0;
+  }
+  .conversation .thread {
+    --thread-pad-x: 16px;
+  }
 }
 
 /* Too short for a fixed head around a scrolling body (landscape phones, small
@@ -139,6 +380,24 @@
   .scroll {
     flex: 0 0 auto;
     overflow-y: visible;
+  }
+  /* The conversation scrolls with the drawer too, and its box is no longer pinned. */
+  .scroll.conversation,
+  .window .scroll.conversation {
+    overflow: visible;
+    grid-template-rows: auto;
+  }
+  .thread {
+    flex: 0 0 auto;
+  }
+  /* The window scrolls as a whole, so there is no height for the right column to keep in. */
+  .wide .scroll {
+    container-type: normal;
+  }
+  .wide .side {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 }
 
@@ -185,4 +444,11 @@
   from {
     opacity: 0;
   }
+}
+
+/* A closed session names why it rests: the line may wrap in a narrow drawer (PM-296). */
+.sessionClosed {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }

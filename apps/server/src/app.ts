@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CONTROL_SOCKET_NAME, EXECUTION_PROFILES } from '@projectman/shared';
 import type { ExecutionProfile } from '@projectman/shared';
@@ -26,6 +27,7 @@ import type {
   McpModule,
   McpModuleOptions,
   MemberMemoryStore,
+  MachineProbe,
   MemberWorkspaceManager,
   RunnerModule,
   RunnerModuleOptions,
@@ -138,6 +140,11 @@ export interface AppModules {
    * is off; `index.ts` passes the sandboxed one, except for the managed VM profile.
    */
   createFullTestExecutor?: (opts: { logger: FastifyBaseLogger }) => FullTestExecutor;
+  /**
+   * Makes what the machine display measures with (PM-320). Default: the operating system's; `index.ts`
+   * passes the fixed-data probe of the screenshot mode, tests a fake.
+   */
+  createMachineProbe?: (opts: { runningPids: () => number[]; instanceTag: string }) => MachineProbe;
 }
 
 /** Defaults of the server's options, including those index.ts reads from the environment. */
@@ -161,6 +168,8 @@ export interface BuildAppOptions {
   publicBaseUrl?: string;
   /** Claude Code CLI (default "claude"). */
   claudeBin?: string;
+  /** PM-332: clone node_modules into new task worktrees from an installed checkout (default false; index.ts turns it on). */
+  cloneDependencies?: boolean;
   /** OpenAI Codex CLI (default "codex"). */
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
@@ -191,6 +200,21 @@ export interface BuildAppOptions {
   webDistDir?: string | null;
   /** The checkout the server runs from: reading sessions never change it (PM-188). */
   installDir?: string;
+  /**
+   * The root of the session folders (PM-268): each Claude session gets its own writable folder
+   * below it, for screenshots and other files its commands make. Absent (tests): no folders.
+   */
+  sessionFoldersDir?: string;
+  /**
+   * Playwright's browsers (PM-268), read-only for the members' commands in `PLAYWRIGHT_BROWSERS_PATH`.
+   * Absent (tests): the variable is not set.
+   */
+  browsersDir?: string;
+  /**
+   * The machine's heavy-run queue folder (PM-332, `full-test/heavy-lock.ts`): the members' sandboxes may
+   * write its parent and name it in `PROJECTMAN_HEAVY_LOCK_DIR`. Absent (tests): neither.
+   */
+  heavyLockDir?: string;
   /** How long a permission request waits for a human (default 10 minutes). */
   permissionTimeoutMs?: number;
   /** How often linked pull requests are polled (default 1 minute). */
@@ -311,6 +335,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
+  // The mark every session of this instance carries in its environment (PM-320): the first 16 hex digits
+  // of the hash of the real home path, so a development and the live instance never claim each other's
+  // processes, and a symlinked home gives the same tag.
+  const instanceTag = createHash('sha256').update(realpathSync(home)).digest('hex').slice(0, 16);
   chmodSync(home, 0o700);
   const publicBaseUrl = (
     options.publicBaseUrl ?? loopbackBaseUrl(APP_DEFAULTS.host, APP_DEFAULTS.port)
@@ -364,7 +392,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const memory = modules.memberMemory ?? createMemberMemoryStore({ rootDir: join(home, 'memory') });
     const worktrees =
       modules.worktrees ??
-      createWorktreeManager({ rootDir: join(home, 'worktrees'), logger: log.child({ module: 'worktree' }) });
+      createWorktreeManager({
+        rootDir: join(home, 'worktrees'),
+        logger: log.child({ module: 'worktree' }),
+        cloneDependencies: options.cloneDependencies ?? false,
+      });
     // The VM boundary (PM-140): fail closed. Its proxy is the workers' only way out; the status
     // reports it down until it listens, and no session starts meanwhile.
     const boundaryConfig = options.runtimeBoundary;
@@ -438,6 +470,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       configStore,
       logger: log.child({ module: 'domain' }),
       publicBaseUrl,
+      instanceTag,
+      machineProbe: modules.createMachineProbe
+        ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
+        : undefined,
       createRunner: (broker) =>
         makeRunner({
           claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
@@ -448,6 +484,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           terminal: options.terminal,
           managedVm: verifiedManagedVm,
           publicBaseUrl,
+          instanceTag,
           broker,
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),
@@ -465,6 +502,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       worktreesRootDir: join(home, 'worktrees'),
       appHome: home,
       installDir: options.installDir,
+      sessionFoldersDir: options.sessionFoldersDir,
+      browsersDir: options.browsersDir,
+      heavyLockDir: options.heavyLockDir,
       memberWorkspaces,
       workspacesRootDir: workspacesDir,
       // Behind the boundary a session's pid is the launcher's (root's) process, and the launcher

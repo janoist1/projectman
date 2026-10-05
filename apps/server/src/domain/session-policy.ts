@@ -17,6 +17,7 @@ import type { FullTestSandbox, SessionPolicy } from '../contracts';
 import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
 import { isWithin, isWithinAny } from './command-paths';
+import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
 import { isReadOnlyCommand } from './read-only-commands';
 import { parseShellCommand } from './shell-words';
@@ -71,6 +72,32 @@ export const SANDBOX_DENIED_ENV_VARS = [
  */
 export const PTY_SKIP_VARIABLE = 'PROJECTMAN_SKIP_PTY_TESTS';
 export const SANDBOX_PTY_ENV = { [PTY_SKIP_VARIABLE]: '1' } as const;
+
+/** The machine's heavy-run queue folder (PM-332), named in the sandbox of a session: `scripts/heavy` reads it. */
+export const HEAVY_LOCK_DIR_VARIABLE = 'PROJECTMAN_HEAVY_LOCK_DIR';
+/** Install from the member's own npm cache when there is no clone to copy the dependencies from (PM-332). */
+export const PREFER_OFFLINE_VARIABLE = 'npm_config_prefer_offline';
+
+/**
+ * What a sandboxed session needs for the heavy-run queue: its parent folder (`projectman-<uid>`, made
+ * 0700 by the lock) writable, the folder named in the environment, and npm preferring its cache. Nothing
+ * when the folder is not given, in a denied path, or the parent is the user's or the app's home or above
+ * (never the home or a directory above it, whatever the configuration says).
+ */
+function heavyLockAccess(
+  heavyLockDir: string | undefined,
+  denied: readonly string[],
+  homes: readonly (string | undefined)[],
+): { allowWrite: string[]; env: Record<string, string> } {
+  if (!heavyLockDir) return { allowWrite: [], env: {} };
+  const parent = path.dirname(heavyLockDir);
+  if (isWithinAny(denied, parent) || homes.some((home) => home && isWithin(parent, home)))
+    return { allowWrite: [], env: {} };
+  return {
+    allowWrite: [parent],
+    env: { [HEAVY_LOCK_DIR_VARIABLE]: heavyLockDir, [PREFER_OFFLINE_VARIABLE]: 'true' },
+  };
+}
 
 /**
  * What a developer's sandboxed commands read below the user's home besides their own directories
@@ -161,6 +188,16 @@ export interface SandboxPaths {
    * does not warn about it. Left out when it lies in a denied path or in the app home.
    */
   excludesFile?: string;
+  /**
+   * The session's own folder (`sessionFolderOf`, PM-268), made by the caller before the start:
+   * written by the commands, named in `PROJECTMAN_SESSION_DIR`. A direct child of the session
+   * folders root, which a developer's commands do not read otherwise.
+   */
+  sessionDir?: string;
+  /** Playwright's browsers (`PROJECTMAN_BROWSERS_PATH`, PM-268): read-only, in `PLAYWRIGHT_BROWSERS_PATH`. */
+  browsersDir?: string;
+  /** The machine's heavy-run queue folder (`PROJECTMAN_HEAVY_LOCK_DIR`, PM-332): its parent is writable. */
+  heavyLockDir?: string;
 }
 
 /**
@@ -177,6 +214,7 @@ export interface SandboxPaths {
  *   checkout's `HEAD` and `index` (`sharedGitDenials`), and nothing the host runs or loads outside a
  *   sandbox. A member workspace is an independent clone with its own `.git`: nothing is shared
  *   there, so nothing is denied.
+ *   The parent of the heavy-run queue folder is writable too (`heavyLockAccess`).
  * - Environment: without `SANDBOX_DENIED_ENV_VARS`, with `SANDBOX_PTY_ENV`.
  * - Network: only the npm registry; the tests may listen on local ports, which also opens every
  *   local port (decision 24).
@@ -184,6 +222,17 @@ export interface SandboxPaths {
 function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandbox {
   const { userHome, appHome, defaultBranch, memberDir, excludesFile } = paths;
   const denied = policy.filesystem.deniedPaths ?? [];
+  const sessionDir =
+    paths.sessionDir && !isWithinAny(denied, paths.sessionDir) ? paths.sessionDir : undefined;
+  // Never the home or a directory above it, nor the app home or above it, whatever the config says.
+  const browsersDir =
+    paths.browsersDir &&
+    !isWithinAny(denied, paths.browsersDir) &&
+    !isWithin(paths.browsersDir, userHome) &&
+    !(appHome && isWithin(paths.browsersDir, appHome))
+      ? paths.browsersDir
+      : undefined;
+  const heavy = heavyLockAccess(paths.heavyLockDir, denied, [userHome, appHome]);
   const gitDir = policy.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
@@ -195,6 +244,8 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...own.map((dir) => dir.path),
     ...(gitConfig ? [gitConfig] : []),
     ...(gitDir ? [gitDir] : []),
+    ...(sessionDir ? [sessionDir] : []),
+    ...(browsersDir ? [browsersDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
     // Never the home or a directory above it, whatever the config says.
     ...(excludesFile && !isWithin(excludesFile, userHome) && !(appHome && isWithin(appHome, excludesFile))
@@ -202,14 +253,27 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       : []),
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
-    allowWrite: own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
+    allowWrite: [
+      ...own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
+      ...(sessionDir ? [sessionDir] : []),
+      ...heavy.allowWrite,
+    ],
     ...(gitDir && defaultBranch ? { denyWrite: sharedGitDenials(gitDir, defaultBranch) } : {}),
     denyRead: [
-      ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
+      ...new Set([
+        userHome,
+        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
+        // The folders of the other sessions, as the other worktrees: only this session's own is read.
+        ...(sessionDir ? [path.dirname(sessionDir)] : []),
+        ...denied,
+      ]),
     ],
     allowRead: [...new Set(allowRead)],
     env: {
       ...Object.fromEntries(own.map((dir) => [dir.variable, dir.path])),
+      ...(sessionDir ? { [SESSION_DIR_VARIABLE]: sessionDir } : {}),
+      ...(browsersDir ? { [BROWSERS_PATH_VARIABLE]: browsersDir } : {}),
+      ...heavy.env,
       ...SANDBOX_PTY_ENV,
       ...(gitConfig ? { [GIT_SETTINGS_VARIABLE]: gitConfig } : {}),
     },
@@ -267,13 +331,31 @@ export function sessionSandbox(
   const others = listed.filter(
     (dir) => !own.includes(dir) && !listed.some((other) => other !== dir && isWithin(other, dir)),
   );
+  const denyWrite = [...own, ...others];
+  const denied = policy.filesystem.deniedPaths ?? [];
+  // Its own folder, outside every checkout and the app home; a folder inside a denyWrite path stays read-only.
+  const sessionDir =
+    options.sessionDir &&
+    !isWithinAny(denied, options.sessionDir) &&
+    !isWithinAny(denyWrite, options.sessionDir)
+      ? options.sessionDir
+      : undefined;
+  // Read-only already (the reader reads everything outside `deniedPaths`; the app home is `denyWrite`).
+  const browsersDir =
+    options.browsersDir && !isWithinAny(denied, options.browsersDir) ? options.browsersDir : undefined;
+  const heavy = heavyLockAccess(options.heavyLockDir, denied, [options.userHome, options.appHome]);
   return {
-    allowWrite: [],
-    denyWrite: [...own, ...others],
+    allowWrite: [...(sessionDir ? [sessionDir] : []), ...heavy.allowWrite],
+    denyWrite,
     ...(policy.filesystem.deniedPaths?.length ? { denyRead: [...policy.filesystem.deniedPaths] } : {}),
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
-    env: { ...SANDBOX_PTY_ENV },
+    env: {
+      ...SANDBOX_PTY_ENV,
+      ...(sessionDir ? { [SESSION_DIR_VARIABLE]: sessionDir } : {}),
+      ...(browsersDir ? { [BROWSERS_PATH_VARIABLE]: browsersDir } : {}),
+      ...heavy.env,
+    },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
   };
 }
@@ -297,6 +379,7 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     '.claude/hooks',
     '.claude.json',
     '.codex',
+    '.gemini',
     '.npmrc',
   ];
   // `logs` is not created by the server itself: the owner's live home has it (the process logs of
@@ -304,6 +387,9 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
   const app = [
     'db.sqlite*',
     'secret',
+    // The secret store and the providers' own CLI homes (PM-324): the NanoGPT key, the NanoGPT Codex home.
+    'secrets',
+    'providers',
     'logs',
     'customization',
     'memory',
@@ -414,6 +500,17 @@ export function attachmentToolRules(dir: string | null): { allow: string[]; deny
   const paths = dir ? directoryRulePaths(dir) : null;
   if (!paths) return { allow: [], deny: [] };
   return { allow: paths.map((p) => `Read(${p})`), deny: paths.map((p) => `Edit(${p})`) };
+}
+
+/**
+ * Claude Code rules for the session folder (PM-268): its files are read and written without
+ * asking (a screenshot is looked at with Read). Not an extra working directory (`--add-dir`). A
+ * path with characters that mean something in a rule gets no rules.
+ */
+export function sessionFolderToolRules(dir: string | null): { allow: string[] } {
+  const paths = dir ? directoryRulePaths(dir) : null;
+  if (!paths) return { allow: [] };
+  return { allow: paths.flatMap((p) => [`Read(${p})`, `Edit(${p})`]) };
 }
 
 /**

@@ -5,6 +5,7 @@ import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../tasks';
+import { actorHandle } from '../util';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 
@@ -125,7 +126,12 @@ export class StageHandOver {
           .sort((a, b) => a.load - b.load)[0]?.member;
         waitsFor = (free ?? (candidates.length === 1 ? candidates[0] : undefined))?.handle;
         // Nobody free: admission refuses the first owner (on leave or at capacity, unless the switch is off).
-        const result = await this.admission.start({ config, member: free ?? candidates[0]!, workItem });
+        const result = await this.admission.start({
+          config,
+          member: free ?? candidates[0]!,
+          workItem,
+          cause: { kind: 'stage', stageId: change.to, by: actorHandle(change.actor) },
+        });
         // Resumed sessions get no brief, so tell them which stage the task is in now.
         if (result.resumed) this.notify(current, stage, result.session.member);
       },

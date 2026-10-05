@@ -1,11 +1,13 @@
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { existsSync, realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
-import { createFullTestExecutor } from './full-test';
+import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
+import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 
@@ -17,6 +19,10 @@ import { createShutdown } from './shutdown';
  *   CODEX_HOME (~/.codex): where the runner reads Codex's transcripts and plan usage,
  *   CLAUDE_CONFIG_DIR (~): where the runner finds Claude Code's .claude.json (workspace trust),
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
+ *   PROJECTMAN_BROWSERS_PATH (<home>/browsers): Playwright's browsers (PM-268, docs/DEPLOY.md), which
+ *   the members' sandboxed commands read and never write, in PLAYWRIGHT_BROWSERS_PATH.
+ *   PROJECTMAN_HEAVY_LOCK_DIR (/tmp/projectman-<uid>/heavy): the machine's heavy-run queue (PM-332),
+ *   shared by the members' sandboxes, the server's full test and `npm run heavy`.
  *   PROJECTMAN_WORKSPACES (task_worktree): `member` gives every AI member a durable workspace per
  *   repository (PM-138) instead of a worktree per task.
  *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
@@ -41,9 +47,14 @@ import { createShutdown } from './shutdown';
  *   limiters then count per that address instead of the proxy's, but only for requests from
  *   loopback whose header holds exactly one IP; unset (and always behind `tailscale serve`, which
  *   sets no such header) the connection's address counts. X-Forwarded-For is never read.
+ *   PROJECTMAN_MACHINE_FIXTURE (unset): the JSON of a fixed machine (PM-320, docs/SCREENSHOTS.md): the
+ *   machine display then shows it instead of the real machine and never signals a process. For
+ *   the screenshots of a disposable instance only; the server logs a warning when it is set.
  *   PROJECTMAN_SHUTDOWN_PAUSE_MS (60000): how long stopping the server (SIGTERM, SIGINT) lets the
  *   sessions come to a safe point before it closes (PM-219); 0 turns the pause off. The service unit's
  *   TimeoutStopSec must exceed it by about 20 seconds.
+ *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
+ *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -53,6 +64,8 @@ interface ServerConfig {
   port: number;
   host: LoopbackHost;
   app: BuildAppOptions;
+  /** The machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the machine. */
+  machineFixture: boolean;
 }
 
 function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
@@ -91,15 +104,41 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     throw new Error(
       `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
     );
+  // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
+  const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
+  if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
+    throw new Error(`invalid PROJECTMAN_CLONE_DEPENDENCIES: ${cloneDependencies} (on or off)`);
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
+  const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
+  // The screenshot mode's fixed machine (PM-320): invalid JSON stops the start.
+  const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
+    ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
+    : undefined;
   return {
     port,
     host,
+    machineFixture: machineFixture !== undefined,
     app: {
-      home: resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman')),
+      modules: machineFixture
+        ? {
+            createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
+          }
+        : undefined,
+      home,
+      // The session folders (PM-268) below the real temp directory (macOS: /var is /private/var, the
+      // path the sandbox sees); the hash keeps a development and the live instance's folders apart,
+      // so neither sweeps the other's.
+      sessionFoldersDir: join(
+        realpathSync(tmpdir()),
+        'projectman-sessions',
+        createHash('sha256').update(home).digest('hex').slice(0, 12),
+      ),
+      browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
+      heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
       publicBaseUrl: loopbackBaseUrl(host, port),
       clientIpHeader,
+      cloneDependencies: cloneDependencies !== 'off',
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
       codexHome: env.CODEX_HOME || undefined,
@@ -141,11 +180,14 @@ async function main(): Promise<void> {
         ? config.app.modules
         : {
             ...config.app.modules,
-            createFullTestExecutor: ({ logger }) => createFullTestExecutor({ logger, env: process.env }),
+            createFullTestExecutor: ({ logger }) =>
+              createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },
   });
   if (config.app.executionProfile === 'managed_vm')
     app.log.info('the full test before review is off: the managed VM profile has no sandbox for it');
+  if (config.machineFixture)
+    app.log.warn('the machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the real machine');
 
   const shutdown = createShutdown({
     pause: () => app.projectman.pauseForShutdown(),

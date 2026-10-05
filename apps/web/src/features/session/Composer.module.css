@@ -60,3 +60,8 @@
     font-size: 16px;
   }
 }
+
+/* The closed-session line appears when the session closes under an open view (PM-296). */
+.closedNote {
+  animation: pm-fade-in 160ms ease-out;
+}

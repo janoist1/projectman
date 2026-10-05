@@ -1,5 +1,5 @@
 import { isUnreadBy, messageRoute, sameWorkItem, threadPeersOf } from '@projectman/shared';
-import type { Actor, TeamMessage, TeamThread, WorkItemRef } from '@projectman/shared';
+import type { Actor, TeamMessage, TeamMessageAnswer, TeamThread, WorkItemRef } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import type { TimelineService } from '../timeline';
@@ -19,6 +19,8 @@ export interface RecordMessageInput {
   humanRecipients?: string[];
   /** Recipients that get the message somewhere else than its default place (`routeFor`), by handle. */
   routes?: Record<string, WorkItemRef>;
+  /** Set on the message that carries a person's answer to an AI member's question (PM-249). */
+  answer?: TeamMessageAnswer;
 }
 
 /**
@@ -57,6 +59,7 @@ export class MessageService {
         readAt: null,
         ...(input.routes?.[handle] ? { route: input.routes[handle] } : {}),
       })),
+      ...(input.answer ? { answer: input.answer } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);

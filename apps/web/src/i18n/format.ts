@@ -32,12 +32,16 @@ export function formatDate(value: string | Date, now: Date = new Date()): string
   return d.getFullYear() === now.getFullYear() ? dateFormat.format(d) : dateYearFormat.format(d);
 }
 
-/** Timeline stamp: "14:02" today, "tegnap 14:02", otherwise "szept. 28. 14:02". */
+/**
+ * Timeline stamp: "14:02" today, "tegnap 14:02", "holnap 08:00", otherwise "szept. 28. 14:02"
+ * (also for a time further ahead).
+ */
 export function formatStamp(value: string | Date, now: Date = new Date()): string {
   const days = daysBetween(value, now);
   const time = formatTime(value);
-  if (days <= 0) return time;
+  if (days === 0) return time;
   if (days === 1) return t('time.yesterdayAt', { time });
+  if (days === -1) return t('time.tomorrowAt', { time });
   return t('time.dateAt', { date: formatDate(value, now), time });
 }
 
@@ -90,4 +94,21 @@ export function formatTokens(count: number): string {
 
 export function formatPercent(value: number): string {
   return t('planUsage.percent', { value: Math.round(value) });
+}
+
+/** Binary memory units, matching Activity Monitor. */
+export function formatMemory(bytes: number | null): string {
+  if (bytes === null) return t('planUsage.unknown');
+  return bytes < 1024 ** 3
+    ? t('machine.megabytes', { value: Math.round(bytes / 1024 ** 2) })
+    : t('machine.gigabytes', { value: sizeFormat.format(bytes / 1024 ** 3) });
+}
+
+export function formatDuration(ms: number): string {
+  const minutes = Math.max(0, Math.floor(ms / 60000));
+  if (minutes === 0) return t('machine.lessThanMinute');
+  if (minutes >= 1440) return t('machine.days', { count: Math.floor(minutes / 1440) });
+  if (minutes >= 60 && minutes % 60 === 0) return t('machine.wholeHours', { hours: minutes / 60 });
+  if (minutes >= 60) return t('machine.hours', { hours: Math.floor(minutes / 60), minutes: minutes % 60 });
+  return t('machine.minutes', { count: minutes });
 }

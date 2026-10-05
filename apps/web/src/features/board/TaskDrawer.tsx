@@ -1,20 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import clsx from 'clsx';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
-  canSeeAllTeamMessages,
+  canSeeTeamMessage,
+  cardWorkerSessions,
+  DEFAULT_AGENT_PROVIDER,
   fixLimitDecisionOf,
   isOnLeave,
   isTheme,
   loopDecisionOf,
 } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { Task, TimelineEvent } from '@projectman/shared';
 import {
+  useBoard,
   useConfig,
   useInbox,
   useLabels,
   useResolveInbox,
   useStartTask,
   useTaskDetail,
+  useTaskMessages,
 } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -22,6 +28,7 @@ import { Button, ButtonLink } from '../../components/Button';
 import { SelectField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { leaveSuffix } from '../../components/LeaveChip';
+import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
@@ -30,16 +37,18 @@ import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
 import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
-import { sessionStatus } from '../../lib/sessions';
+import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
-import { useDocumentTitle } from '../../lib/hooks';
+import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { nameOf } from '../../lib/members';
 import { canStartRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
+import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
+import type { CardSize } from './cardSize';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
 import { SignalBox } from './SignalBox';
@@ -51,6 +60,7 @@ import { TaskAttachments } from './TaskAttachments';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
 import { TaskProperties } from './TaskProperties';
+import { TaskThread } from './TaskThread';
 import { TaskRounds, TaskUsage } from './TaskUsage';
 import { TaskMove } from './TaskMove';
 import { canMoveTask } from './moveTask';
@@ -77,7 +87,10 @@ function StartPanel({
   const start = useStartTask(key);
   const toast = useToast();
   // A pause holds the start: the button stays in its place but does nothing, and says why (PM-220).
-  const held = useHeldStart(useTeamPaused(), t('pause.disabled.start'));
+  // So does switched-off AI work (PM-291); the pause's reason comes first.
+  const paused = useTeamPaused();
+  const aiOff = useBoard(key).data?.aiEnabled === false;
+  const held = useHeldStart(paused || aiOff, paused ? t('pause.disabled.start') : t('task.aiOffStart'));
   const [assignee, setAssignee] = useState('');
   // The open prerequisites the person is warned about before the start goes ahead (PM-204).
   const [warning, setWarning] = useState<string[] | null>(null);
@@ -156,16 +169,39 @@ function StartPanel({
   );
 }
 
+/** The large window has two columns from this width on: its own 1040px (the window is 64px narrower than the screen). */
+const WIDE_QUERY = '(min-width: 1104px)';
+
+/**
+ * The open card (PM-283): the quick view is the drawer on the right of the board, the large window (`?size=large`)
+ * floats in the middle of it over a backdrop, and a phone always has the drawer. The same component and the same
+ * sections show both: they keep their place in the tree (and so a draft) when the size or the number of columns changes.
+ */
 export function TaskDrawer() {
-  const { taskKey = '' } = useParams();
+  const { taskKey = '', '*': subPath } = useParams();
   const { key, myHandle, can, me } = useProject();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const mobile = useIsMobile();
+  const size: CardSize = !mobile && searchParams.get(SIZE_PARAM) === 'large' ? 'large' : 'quick';
+  const twoColumns = useMediaQuery(WIDE_QUERY) && size === 'large';
+  const panelRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Replaces the history entry: the browser's Back goes to where the card was opened from.
+  const toggleSize = mobile
+    ? undefined
+    : () => {
+        const next = new URLSearchParams(searchParams);
+        if (size === 'large') next.delete(SIZE_PARAM);
+        else next.set(SIZE_PARAM, 'large');
+        setSearchParams(next, { replace: true });
+      };
   const access = me.projects.find((project) => project.key === key)?.access;
-  const seesAllMessages = access ? canSeeAllTeamMessages({ access }) : false;
   const navigate = useNavigate();
   const { board, members, pipeline, model } = useBoardModel();
   const detail = useTaskDetail(key, taskKey);
   const labels = useLabels(key);
-  const config = useConfig(key, can.createTasks).data?.config;
+  const configQuery = useConfig(key, can.readConfig);
+  const config = configQuery.data?.config;
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
@@ -175,6 +211,16 @@ export function TaskDrawer() {
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
   const task = detail.data?.task ?? boardTask;
   const entry = model?.byKey.get(taskKey);
+  // The card's conversation (PM-273): a view of the same open card (`/thread`), not a page. A theme has none.
+  const hasThread = Boolean(task && !isTheme(task) && entry);
+  const thread = hasThread && subPath === 'thread';
+  const taskMessages = useTaskMessages(key, taskKey, hasThread);
+  const messageCount = taskMessages.data?.messages.length ?? 0;
+  const cardScroll = useRef(0);
+  const switchView = (view: 'card' | 'thread') =>
+    navigate(withCardSize(`/p/${key}/tasks/${taskKey}${view === 'thread' ? '/thread' : ''}`, size), {
+      replace: true,
+    });
   // The whole open card takes files: they join the same queue as the files chosen in its list.
   const uploads = useUploadQueue();
   const canAttach = useCanAttach();
@@ -199,19 +245,60 @@ export function TaskDrawer() {
     return () => document.removeEventListener('keydown', onKey);
   }, [key, navigate]);
 
+  // The large window holds the focus and the pointer: all that lies under it (the menu, the bars, the board)
+  // is inert, so Tab stays inside it. Not a modal <dialog>: that would cover the toasts and the popovers.
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (size !== 'large' || !panel) return;
+    const inerted: Element[] = [];
+    for (let node: Element | null = panel; node && node !== document.body; node = node.parentElement) {
+      for (const sibling of node.parentElement?.children ?? []) {
+        if (sibling === node || sibling.hasAttribute('inert') || sibling.hasAttribute('data-inert-exempt'))
+          continue;
+        sibling.setAttribute('inert', '');
+        inerted.push(sibling);
+      }
+    }
+    return () => inerted.forEach((element) => element.removeAttribute('inert'));
+  }, [size]);
+
+  // A window opens at the start of the card. The Thread view keeps its own place instead (its end, or the
+  // message a link led to), and the card is at the start when it is shown again.
+  useEffect(() => {
+    cardScroll.current = 0;
+    if (scrollRef.current && !thread) scrollRef.current.scrollTop = 0;
+  }, [size]);
+
+  // Hiding the card's sections shortens the scroll box and so moves it: showing them puts it back.
+  useLayoutEffect(() => {
+    if (!thread && scrollRef.current) scrollRef.current.scrollTop = cardScroll.current;
+  }, [thread]);
+
   const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
   const myItems = openItemsFor(inbox.data?.items, myHandle).filter((item) => item.taskKey === taskKey);
 
   const body = (() => {
+    // Until there is a head, the close button stands alone above the state: behind the large window
+    // the board cannot be reached, so Escape must not be the only way out.
+    const closeOnly = (state: ReactNode) => (
+      <>
+        <div className={styles.bar}>
+          <Button variant="muted" iconOnly icon="close" onClick={close} aria-label={t('common.close')} />
+        </div>
+        <div className={styles.center}>{state}</div>
+      </>
+    );
     if (!task) {
-      if (detail.isPending || board.isPending) return <LoadingState />;
-      if (detail.isError) return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
-      return <p className={styles.missing}>{t('task.notFound', { key: taskKey })}</p>;
+      if (detail.isPending || board.isPending) return closeOnly(<LoadingState />);
+      // A card that does not exist is no failure to retry: it has its own text.
+      if (detail.isError && !(isApiError(detail.error) && detail.error.status === 404))
+        return closeOnly(<ErrorState error={detail.error} onRetry={() => void detail.refetch()} />);
+      return closeOnly(<p className={styles.missing}>{t('task.notFound', { key: taskKey })}</p>);
     }
-    if (!pipeline) return <LoadingState />;
+    if (!pipeline) return closeOnly(<LoadingState />);
     // A theme is no card of the pipeline: it has its own head, progress and cards, and nothing to start or move.
     const theme = isTheme(task);
-    if (!theme && !entry) return <LoadingState />;
+    if (!theme && !entry) return closeOnly(<LoadingState />);
     const stage = pipeline.stageById.get(task.stageId);
     const parent =
       board.data?.tasks.find((candidate) => candidate.key === task.parentKey) ?? detail.data?.parent;
@@ -232,191 +319,319 @@ export function TaskDrawer() {
     // A person who may put the `refine` label on a card that is not being refined can start it with a button.
     const canRefine =
       !theme && can.createTasks && config && myHandle ? canStartRefinement(task, config, myHandle) : false;
+    const workers = cardWorkerSessions(
+      stage ? { kind: stage.kind, owners: stage.owners ?? [] } : undefined,
+      task,
+      sessions,
+    ).map((worker) => worker.member);
+    // Where a link into the card's conversation leads: the same size as the open card.
+    const threadHref = hasThread ? withCardSize(`/p/${key}/tasks/${task.key}/thread`, size) : null;
+    // A timeline row of a message links to it in the conversation, if the viewer may read that message.
+    const fullMessageHref = (event: TimelineEvent): string | null => {
+      if (!hasThread || event.type !== 'team_message' || !access || !myHandle || !event.actor.handle)
+        return null;
+      const { messageId, to } = event.data;
+      if (typeof messageId !== 'string' || !Array.isArray(to)) return null;
+      const recipients = to.filter((handle): handle is string => typeof handle === 'string');
+      if (!canSeeTeamMessage({ access, handle: myHandle }, { from: event.actor.handle, to: recipients }))
+        return null;
+      return withCardSize(
+        `/p/${key}/tasks/${task.key}/thread?message=${encodeURIComponent(messageId)}`,
+        size,
+      );
+    };
+    // The Start is offered only when the shared rule lets a person start the card (PM-291); what it waits for
+    // is on the status line. While the rule's data loads a bar holds its place; if it never comes, the
+    // Start shows as before and the server decides.
+    const startBlock = entry?.state.startBlock;
+    const startLoading = can.readConfig && configQuery.isPending;
+    const startOffered = isQueued && can.createTasks && !startBlock;
+    const refineFirst = canRefine && startBlock?.kind === 'unmet' && startBlock.refines;
     const hasActions =
-      (isQueued && can.createTasks) ||
+      startOffered ||
       canRefine ||
       Boolean(session && can.workInSessions) ||
       canMoveTask(task, can.createTasks);
+    // The sections come in four groups, in the order of the quick view. The large window with two columns
+    // reads the left one first and the right one (`side`) last, and moves the groups, not the sections:
+    // a group keeps its place under the scroll box, so what is typed in it is not lost.
+    const signals = (
+      <div key="signals" className={styles.group} hidden={thread}>
+        <SignalBox
+          task={task}
+          members={members}
+          myHandle={myHandle}
+          messagesHref={threadHref}
+          decidingLoop={myItems.some((item) => loopDecisionOf(item))}
+          decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
+        />
+        {myItems.length > 0 ? (
+          <section className={drawer.section}>
+            {myItems.map((item) => (
+              <InboxCard
+                key={item.id}
+                item={item}
+                members={members}
+                myHandle={myHandle}
+                pipeline={pipeline}
+                labels={labels}
+                compact
+                headingLevel={3}
+                pending={resolve.isPending && resolve.variables?.item.id === item.id}
+                onResolve={(target, request) =>
+                  resolve.mutate(
+                    { item: target, body: request },
+                    {
+                      onSuccess: () => toast.show(decisionToast(target, request.optionId, myHandle), 'ok'),
+                      onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
+                    },
+                  )
+                }
+                detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
+              />
+            ))}
+          </section>
+        ) : null}
+      </div>
+    );
+    const side = (
+      <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
+        {task.startWaiting ? (
+          <p className={drawer.section}>
+            {startWaitingHint(task)}
+            {task.startWaiting.reason === 'provider_not_logged_in' ? (
+              <>
+                {' '}
+                <code>
+                  {t(
+                    `providerSettings.loginCommands.${task.startWaiting.provider ?? DEFAULT_AGENT_PROVIDER}`,
+                  )}
+                </code>
+              </>
+            ) : null}
+          </p>
+        ) : null}
+        <div className={styles.actions} hidden={!hasActions}>
+          {canRefine ? <RefineButton task={task} primary={refineFirst} /> : null}
+          {startOffered && startLoading ? (
+            <div className={styles.startLoading} role="status">
+              <span className="visually-hidden">{t('task.startLoading')}</span>
+            </div>
+          ) : startOffered ? (
+            <StartPanel task={task} members={members} tasks={board.data?.tasks ?? []} canRefine={canRefine} />
+          ) : isQueued && can.createTasks ? null : session && can.workInSessions ? (
+            <>
+              <ButtonLink
+                to={`/p/${key}/sessions/${session.id}`}
+                variant="primary"
+                size="md"
+                iconRight="arrowRight"
+                className={styles.grow}
+              >
+                {t('task.openSession')}
+              </ButtonLink>
+              <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="md">
+                {t('task.message')}
+              </ButtonLink>
+            </>
+          ) : null}
+          {canMoveTask(task, can.createTasks) ? (
+            <TaskMove
+              key={`${task.key}:${task.stageId}`}
+              task={task}
+              pipeline={pipeline}
+              tasks={board.data?.tasks ?? []}
+            />
+          ) : null}
+        </div>
+
+        {theme ? (
+          <>
+            <ThemeSummary task={task} tasks={cards} />
+            <section className={drawer.props}>
+              <div className={drawer.prop}>
+                <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
+                <span>{t(`visibility.${task.visibility}`)}</span>
+              </div>
+            </section>
+          </>
+        ) : (
+          <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
+        )}
+      </div>
+    );
+    const content = (
+      <div key="content" className={styles.group} hidden={thread}>
+        <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
+
+        {theme && model ? (
+          <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
+        ) : null}
+
+        <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
+
+        <section className={drawer.section}>
+          <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
+          {detail.isPending ? (
+            <LoadingState compact />
+          ) : detail.isError ? (
+            <ErrorState compact error={detail.error} onRetry={() => void detail.refetch()} />
+          ) : (
+            <Timeline
+              events={detail.data.timeline}
+              ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
+              fullMessageHref={fullMessageHref}
+              next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
+            />
+          )}
+        </section>
+
+        {can.createTasks && myHandle ? (
+          <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
+        ) : null}
+      </div>
+    );
+    const more = (
+      <div key="more" className={styles.group} hidden={thread}>
+        {sessions.length > 0 ? (
+          <section className={drawer.section}>
+            <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
+            <ul className={styles.sessions}>
+              {[...sessions]
+                .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+                .map((entrySession) => {
+                  const member = members.get(entrySession.member);
+                  const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
+                  const closure = sessionClosure(entrySession);
+                  return (
+                    <li key={entrySession.id}>
+                      <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
+                        <Avatar member={member} handle={entrySession.member} size="md" status={status} />
+                        <span className={styles.sessionText}>
+                          <span className={styles.sessionName}>
+                            {nameOf(entrySession.member, members, myHandle)}
+                          </span>
+                          <span
+                            className={clsx(styles.sessionState, closure && styles.sessionClosed)}
+                            data-status={status}
+                          >
+                            {closure
+                              ? closureTexts(closure, { pipeline, members, myHandle }).list
+                              : t(`sessionState.${entrySession.state}`)}
+                          </span>
+                        </span>
+                        <Icon name="chevronRight" size={16} />
+                      </Link>
+                    </li>
+                  );
+                })}
+            </ul>
+          </section>
+        ) : null}
+
+        <TaskUsage sessions={sessions} members={members} myHandle={myHandle} />
+        <TaskRounds rounds={detail.data?.rounds} fixRounds={detail.data?.fixRounds} sessions={sessions} />
+      </div>
+    );
     return (
       <>
         {theme || !entry ? (
-          <ThemeHeader task={task} headingRef={headingRef} onClose={close} />
+          <ThemeHeader
+            task={task}
+            headingRef={headingRef}
+            size={size}
+            onToggleSize={toggleSize}
+            onClose={close}
+          />
         ) : (
           <TaskHeader
             task={task}
             parent={parent}
             state={entry.state}
             pipeline={pipeline}
+            members={members}
+            labels={labels}
             headingRef={headingRef}
+            size={size}
+            onToggleSize={toggleSize}
             onClose={close}
+            rule={!hasThread}
           />
         )}
 
-        <div className={styles.scroll}>
-          <SignalBox
-            task={task}
-            members={members}
-            myHandle={myHandle}
-            messagesHref={seesAllMessages ? `/p/${key}/messages/all?task=${task.key}` : null}
-            decidingLoop={myItems.some((item) => loopDecisionOf(item))}
-            decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
-          />
-          {myItems.length > 0 ? (
-            <section className={drawer.section}>
-              {myItems.map((item) => (
-                <InboxCard
-                  key={item.id}
-                  item={item}
-                  members={members}
-                  myHandle={myHandle}
-                  pipeline={pipeline}
-                  labels={labels}
-                  compact
-                  headingLevel={3}
-                  pending={resolve.isPending && resolve.variables?.item.id === item.id}
-                  onResolve={(target, request) =>
-                    resolve.mutate(
-                      { item: target, body: request },
-                      {
-                        onSuccess: () => toast.show(decisionToast(target, request.optionId, myHandle), 'ok'),
-                        onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
-                      },
-                    )
-                  }
-                  detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
-                />
-              ))}
-            </section>
-          ) : null}
-
-          {task.startWaiting ? <p className={drawer.section}>{startWaitingHint(task)}</p> : null}
-          <div className={styles.actions} hidden={!hasActions}>
-            {canRefine ? <RefineButton task={task} /> : null}
-            {isQueued && can.createTasks ? (
-              <StartPanel
-                task={task}
-                members={members}
-                tasks={board.data?.tasks ?? []}
-                canRefine={canRefine}
-              />
-            ) : session && can.workInSessions ? (
-              <>
-                <ButtonLink
-                  to={`/p/${key}/sessions/${session.id}`}
-                  variant="primary"
-                  size="md"
-                  iconRight="arrowRight"
-                  className={styles.grow}
-                >
-                  {t('task.openSession')}
-                </ButtonLink>
-                <ButtonLink to={`/p/${key}/sessions/${session.id}?compose=1`} variant="secondary" size="md">
-                  {t('task.message')}
-                </ButtonLink>
-              </>
-            ) : null}
-            {canMoveTask(task, can.createTasks) ? (
-              <TaskMove
-                key={`${task.key}:${task.stageId}`}
-                task={task}
-                pipeline={pipeline}
-                tasks={board.data?.tasks ?? []}
-              />
-            ) : null}
+        {hasThread ? (
+          <div className={styles.views}>
+            <SegmentedControl
+              className={styles.switch}
+              size="sm"
+              label={t('task.view.label')}
+              value={thread ? 'thread' : 'card'}
+              onChange={switchView}
+              options={[
+                { value: 'card', label: t('task.view.card') },
+                {
+                  value: 'thread',
+                  label: t('task.view.thread'),
+                  count: messageCount > 0 ? messageCount : undefined,
+                },
+              ]}
+            />
           </div>
+        ) : null}
 
-          {theme ? (
-            <>
-              <ThemeSummary task={task} tasks={cards} />
-              <section className={drawer.props}>
-                <div className={drawer.prop}>
-                  <span className={drawer.propLabel}>{t('newTask.fields.visibility')}</span>
-                  <span>{t(`visibility.${task.visibility}`)}</span>
-                </div>
-              </section>
-            </>
-          ) : (
-            <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
-          )}
-
-          <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
-
-          {theme && model ? (
-            <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
-          ) : null}
-
-          <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
-
-          <section className={drawer.section}>
-            <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
-            {detail.isPending ? (
-              <LoadingState compact />
-            ) : detail.isError ? (
-              <ErrorState compact error={detail.error} onRetry={() => void detail.refetch()} />
-            ) : (
-              <Timeline
-                events={detail.data.timeline}
-                ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
-                next={theme ? null : nextStepLine(task, pipeline, members, myHandle)}
-              />
-            )}
-          </section>
-
-          {can.createTasks && myHandle ? (
-            <TaskCommentComposer key={`comments:${task.key}`} taskKey={task.key} members={members} />
-          ) : null}
-
-          {sessions.length > 0 ? (
-            <section className={drawer.section}>
-              <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
-              <ul className={styles.sessions}>
-                {[...sessions]
-                  .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
-                  .map((entrySession) => {
-                    const member = members.get(entrySession.member);
-                    const status = sessionStatus(entrySession, entrySession.state === 'waiting_permission');
-                    return (
-                      <li key={entrySession.id}>
-                        <Link to={`/p/${key}/sessions/${entrySession.id}`} className={styles.sessionRow}>
-                          <Avatar member={member} handle={entrySession.member} size="md" status={status} />
-                          <span className={styles.sessionText}>
-                            <span className={styles.sessionName}>
-                              {nameOf(entrySession.member, members, myHandle)}
-                            </span>
-                            <span className={styles.sessionState} data-status={status}>
-                              {t(`sessionState.${entrySession.state}`)}
-                            </span>
-                          </span>
-                          <Icon name="chevronRight" size={16} />
-                        </Link>
-                      </li>
-                    );
-                  })}
-              </ul>
-            </section>
-          ) : null}
-
-          <TaskUsage sessions={sessions} members={members} myHandle={myHandle} />
-          <TaskRounds rounds={detail.data?.rounds} fixRounds={detail.data?.fixRounds} sessions={sessions} />
+        <div
+          ref={scrollRef}
+          className={clsx(styles.scroll, thread && styles.conversation)}
+          onScroll={(event) => {
+            if (!thread) cardScroll.current = event.currentTarget.scrollTop;
+          }}
+        >
+          {/* Both views stay in the tree: what is typed in the hidden one (a message, a description) is kept. */}
+          {[
+            ...(twoColumns ? [signals, content, more, side] : [signals, side, content, more]),
+            hasThread ? (
+              <div key="thread" className={styles.thread} hidden={!thread}>
+                <TaskThread
+                  key={task.key}
+                  task={task}
+                  active={thread}
+                  query={taskMessages}
+                  workers={workers}
+                  stageOwners={stage?.owners ?? []}
+                  members={members}
+                  labels={labels}
+                  messageParam={searchParams.get('message')}
+                />
+              </div>
+            ) : null,
+          ]}
         </div>
       </>
     );
   })();
 
+  const large = size === 'large';
   return (
-    <aside
-      className={styles.drawer}
-      aria-label={t(task && isTheme(task) ? 'theme.drawerLabel' : 'task.drawerLabel')}
-      {...fileDrop.props}
-    >
-      {body}
-      {fileDrop.state && task ? (
-        <div className={styles.dropOverlay} data-state={fileDrop.state} role="status">
-          <Icon name="paperclip" size={28} />
-          <b>{t(fileDrop.state === 'over' ? 'attachments.dropActive' : 'attachments.dropDenied')}</b>
-          <span>{task.title}</span>
-        </div>
-      ) : null}
-    </aside>
+    <CardSizeProvider value={size}>
+      {large ? <div className={styles.backdrop} data-inert-exempt onClick={close} /> : null}
+      {/* One element for both sizes, so the sections below keep their place; only its role tells them apart. */}
+      <div
+        ref={panelRef}
+        className={clsx(styles.drawer, large && styles.window, twoColumns && styles.wide)}
+        role={large ? 'dialog' : 'complementary'}
+        aria-modal={large ? true : undefined}
+        aria-label={t(task && isTheme(task) ? 'theme.drawerLabel' : 'task.drawerLabel')}
+        {...fileDrop.props}
+      >
+        {body}
+        {fileDrop.state && task ? (
+          <div className={styles.dropOverlay} data-state={fileDrop.state} role="status">
+            <Icon name="paperclip" size={28} />
+            <b>{t(fileDrop.state === 'over' ? 'attachments.dropActive' : 'attachments.dropDenied')}</b>
+            <span>{task.title}</span>
+          </div>
+        ) : null}
+      </div>
+    </CardSizeProvider>
   );
 }

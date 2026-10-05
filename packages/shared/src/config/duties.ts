@@ -2,7 +2,8 @@ import { BUILT_IN_ROLE_DUTIES, customRoleDuties, isBuiltInRole } from '../domain
 import { DUTIES } from '../domain/duty';
 import type { DutyId } from '../domain/duty';
 import type { Stage } from '../domain/pipeline';
-import type { SessionState } from '../domain/session';
+import type { Session, SessionState } from '../domain/session';
+import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
 import { memberRoles, stageOf } from './lookup';
 import type { MemberConfig, ProjectConfig } from './schema';
@@ -94,12 +95,90 @@ export function isWorkingOnTask(
   handle: string,
   sessionState: SessionState,
 ): boolean {
-  if (ENGAGED_SESSION_STATES.includes(sessionState)) return true;
   const stage = stageOf(config, task.stageId);
+  return isWorkingInStage(
+    stage && { kind: stage.kind, owners: stageOwners(config, stage) },
+    task,
+    handle,
+    sessionState,
+  );
+}
+/**
+ * Whether the member has a step on the card (PM-288): it is the member whose turn it is in the
+ * refinement (`turnMember`, `RefinementSteps.turnMember`), or the member works in the stage the card
+ * sits in. A card in refinement is worked one step at a time, one member per step: while it has a turn
+ * member, the other owners of its stage have no step on it. A member with no step on an open card is
+ * done with it.
+ */
+export function hasStepOnTask(
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+  task: Pick<Task, 'status' | 'stageId' | 'assignee'>,
+  handle: string,
+  turnMember: string | null,
+): boolean {
+  if (!isOpenTask(task)) return false;
+  return turnMember !== null ? turnMember === handle : isWorkingOnTask(config, task, handle, 'idle');
+}
+/**
+ * Whether a session works now (PM-288): it is in an engaged state, or it is idle and one of the
+ * signals holds: it awaits its first turn, it has typed input that has not started, or a message
+ * is on its way to it. Such a session is not closed.
+ */
+export function isSessionAtWork(
+  session: Pick<Session, 'state'>,
+  signals: { awaitsFirstTurn: boolean; pendingInput: boolean; messageOnItsWay: boolean },
+): boolean {
+  if (ENGAGED_SESSION_STATES.includes(session.state)) return true;
+  return (
+    session.state === 'idle' && (signals.awaitsFirstTurn || signals.pendingInput || signals.messageOnItsWay)
+  );
+}
+/** A stage with its owners resolved (`resolvedStages`; the board's `stages` carry them). */
+export type StageWithOwners = Pick<Stage, 'kind'> & { owners: readonly string[] };
+/** `isWorkingOnTask` against a stage whose owners are resolved (the web has no ProjectConfig). */
+export function isWorkingInStage(
+  stage: StageWithOwners | undefined,
+  task: Pick<Task, 'assignee'>,
+  handle: string,
+  sessionState: SessionState,
+): boolean {
+  if (ENGAGED_SESSION_STATES.includes(sessionState)) return true;
   if (!stage) return false;
-  if (stage.kind === 'work')
-    return task.assignee ? task.assignee === handle : stageOwners(config, stage).includes(handle);
-  return stage.kind !== 'queue' && stage.kind !== 'done' && stageOwners(config, stage).includes(handle);
+  if (stage.kind === 'work') return task.assignee ? task.assignee === handle : stage.owners.includes(handle);
+  return stage.kind !== 'queue' && stage.kind !== 'done' && stage.owners.includes(handle);
+}
+/** Session states of a live session: a process that runs (or starts) for its work item. */
+const LIVE_SESSION_STATES: SessionState[] = [
+  'starting',
+  'idle',
+  'working',
+  'waiting_permission',
+  'waiting_input',
+];
+/**
+ * The sessions that work on a card now (PM-249): live sessions whose work item is the card and whose
+ * member works on it (`isWorkingInStage`). One per member. Order: the owners of a step stage, then the
+ * assignee, then the others; within a group by `stateSince ?? lastActivityAt`, oldest first.
+ */
+export function cardWorkerSessions(
+  stage: StageWithOwners | undefined,
+  task: Pick<Task, 'key' | 'assignee'>,
+  sessions: readonly Session[],
+): Session[] {
+  const since = (s: Session) => s.stateSince ?? s.lastActivityAt;
+  const rank = (s: Session) =>
+    stage?.kind === 'step' && stage.owners.includes(s.member) ? 0 : s.member === task.assignee ? 1 : 2;
+  const working = sessions
+    .filter(
+      (s) =>
+        s.workItem.type === 'task' &&
+        s.workItem.taskKey === task.key &&
+        LIVE_SESSION_STATES.includes(s.state) &&
+        isWorkingInStage(stage, task, s.member, s.state),
+    )
+    .sort((a, b) => rank(a) - rank(b) || since(a).localeCompare(since(b)));
+  const seen = new Set<string>();
+  return working.filter((s) => !seen.has(s.member) && !!seen.add(s.member));
 }
 /** The task's assignee and the attributed authors of its pull requests. */
 export function taskAuthors(task: Pick<Task, 'assignee' | 'links'>): string[] {

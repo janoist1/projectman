@@ -68,6 +68,10 @@ export const routes = {
   instancePause: () => '/api/pause',
   instancePauseResume: () => '/api/pause/resume',
   instancePauseForce: () => '/api/pause/force',
+  /** The machine display (PM-300): GET `MachineView` (`?panel=1` while the panel is open); instance owners only. */
+  machine: () => '/api/machine',
+  /** POST `StopOrphansRequest` → `StopOrphansResult`: stops orphan processes of this instance; instance owners only. */
+  machineOrphansStop: () => '/api/machine/orphans/stop',
 
   schedules: (key: string) => `/api/projects/${key}/schedules`,
   runSchedule: (key: string, handle: string) => `/api/projects/${key}/members/${handle}/schedule/run`,

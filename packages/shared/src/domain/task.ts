@@ -89,6 +89,8 @@ export const TaskStartWaiting = z.object({
     // The server's full test of the pinned commit (PM-217) has not ended: the reviewer's start
     // continues once it has.
     'full_test_pending',
+    // The member's provider is not logged in (PM-324): the start continues once it is.
+    'provider_not_logged_in',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),

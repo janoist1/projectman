@@ -95,7 +95,10 @@ export class SessionManager implements SessionRunner {
     if (!dir?.isDirectory()) throw new Error(`working directory does not exist: ${spec.cwd}`);
     if (spec.policy) assertManagedVmPolicy(spec.policy);
     const managedVm = spec.policy?.execution?.profile === 'managed_vm';
-    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId, { managedVm });
+    const env = buildSessionEnv(this.opts.env ?? process.env, spec.sessionId, {
+      managedVm,
+      instanceTag: this.opts.instanceTag,
+    });
     if (!(await cliExists(adapter.bin, env.PATH))) {
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }

@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, hasPlanUsage } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
 import { useBoard, useTeamThreads } from '../api/queries';
 import { useConnectionStatus } from '../api/socketHooks';
@@ -18,9 +18,21 @@ import { AccountMenu, ProjectSwitcher } from './Menus';
 import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
+import { MachineIndicator } from '../features/machine/MachineIndicator';
 
-/** The top bar's step as the window narrows: the meters lose their labels (they are gone at 1180). */
-const TIGHT_METERS_QUERY = '(max-width: 1419px)';
+/*
+ * The desktop top bar sheds width in steps, so nothing overlaps (the search field gives way first):
+ *   >= 1600   the Szünet button shows, the plan usage is `full` (two meters per provider)
+ *   1500-1599 the Szünet button is hidden (the account menu has it; CSS in Shell.module.css)
+ *   1280-1499 the plan usage is `peak` (one meter per provider): TIGHT_METERS_QUERY
+ *   1181-1279 as above; the machine meter's button turns into a badge below 1280 (PM-322 adds
+ *             its `(max-width: 1279px)` query here)
+ *   <= 1180   the plan usage and the presence are hidden (CSS)
+ *   <= 900    "Új feladat" is an icon only: COMPACT_NEW_TASK_QUERY
+ *   < 768     the phone header replaces the bar (a plan usage badge, an icon-only new task)
+ */
+const TIGHT_METERS_QUERY = '(max-width: 1499px)';
+const COMPACT_NEW_TASK_QUERY = '(max-width: 900px)';
 
 interface NavItem {
   to: string;
@@ -30,8 +42,13 @@ interface NavItem {
   badge?: number;
 }
 
-function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem } {
-  const { key } = useProject();
+function useNavItems(inboxCount: number): {
+  main: NavItem[];
+  /** The "how we work" page: on the rail and in the phone's account menu, not in the tab bar; a client has none. */
+  howWeWork: NavItem | null;
+  settings: NavItem;
+} {
+  const { key, can } = useProject();
   // The server counts the viewer's unread messages across their conversations (PM-78).
   const unread = useTeamThreads(key).data?.unreadCount ?? 0;
   const { pathname } = useLocation();
@@ -58,6 +75,14 @@ function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem }
         badge: unread,
       },
     ],
+    howWeWork: can.readConfig
+      ? {
+          to: `${base}/how-we-work`,
+          icon: 'map',
+          label: t('nav.howWeWork'),
+          active: under(`${base}/how-we-work`),
+        }
+      : null,
     settings: {
       to: `${base}/settings`,
       icon: 'settings',
@@ -74,7 +99,7 @@ function BadgeText({ count }: { count: number }) {
 /** Left navigation rail (desktop and tablet). */
 export function NavRail({ inboxCount }: { inboxCount: number }) {
   const { key, openPause, can } = useProject();
-  const { main, settings } = useNavItems(inboxCount);
+  const { main, howWeWork, settings } = useNavItems(inboxCount);
   const pause = useBoard(key).data?.pause;
   const canPause = can.pauseTeam && pause !== undefined && openPauses(pause).length === 0;
   return (
@@ -101,6 +126,16 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
           ) : null}
         </Link>
       ))}
+      {howWeWork ? (
+        <Link
+          to={howWeWork.to}
+          className={clsx(styles.railItem, styles.railItemTall, howWeWork.active && styles.railItemActive)}
+          aria-current={howWeWork.active ? 'page' : undefined}
+        >
+          <Icon name={howWeWork.icon} size={20} strokeWidth={1.8} />
+          <span className={clsx(styles.railLabel, styles.railLabelWrap)}>{howWeWork.label}</span>
+        </Link>
+      ) : null}
       <span className={styles.spacer} />
       <Link
         to={settings.to}
@@ -248,14 +283,14 @@ function Presence({ board, members }: { board: BoardView | undefined; members: M
   );
 }
 
-/** The plan usage of every provider an AI member of the project runs on. */
+/** The plan usage of every provider an AI member of the project runs on that has a measurable one. */
 function planUsages(board: BoardView | undefined) {
   const providers = new Set(
     board?.members.flatMap((member) =>
       member.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [],
     ) ?? [],
   );
-  return [...providers].map((provider) => ({
+  return [...providers].filter(hasPlanUsage).map((provider) => ({
     provider,
     usage: board?.planUsageByProvider[provider] ?? (provider === 'claude' ? board?.planUsage : null),
   }));
@@ -275,25 +310,26 @@ export function TopBar({
 }) {
   const { key, openNewTask, openPause, can } = useProject();
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
-  // The bar sheds width in steps, so nothing overlaps: the search field gives way first, the Szünet
-  // button leaves (the account menu has it at every width), then the meters lose their labels.
+  // The steps are listed at the top of this file.
   const tightMeters = useMediaQuery(TIGHT_METERS_QUERY);
+  const compactNewTask = useMediaQuery(COMPACT_NEW_TASK_QUERY);
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
       <SearchBox />
       <span className={styles.spacer} />
-      <span className={clsx(styles.hideNarrow, tightMeters && styles.metersTight)}>
+      <span className={clsx(styles.hideNarrow, styles.meters)}>
         {planUsages(board).map(({ provider, usage }) => (
           <PlanUsageMeter
             key={provider}
             provider={provider}
             usage={usage}
             pauseAbove={pauseAbove}
-            compact={tightMeters}
+            variant={tightMeters ? 'peak' : 'full'}
           />
         ))}
       </span>
+      <MachineIndicator />
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />
       </span>
@@ -304,8 +340,14 @@ export function TopBar({
       ) : null}
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
-        <Button variant="primary" icon="plus" onClick={() => openNewTask()}>
-          {t('topbar.newTask')}
+        <Button
+          variant="primary"
+          icon="plus"
+          iconOnly={compactNewTask}
+          aria-label={compactNewTask ? t('topbar.newTask') : undefined}
+          onClick={() => openNewTask()}
+        >
+          {compactNewTask ? undefined : t('topbar.newTask')}
         </Button>
       ) : null}
     </header>
@@ -362,6 +404,7 @@ export function MobileHeader({
         pauseAbove={pauseAbove}
         to={`/p/${key}/team`}
       />
+      <MachineIndicator phone />
       {can.createTasks ? (
         <Button
           variant="primary"
@@ -374,6 +417,7 @@ export function MobileHeader({
       ) : null}
       <AccountMenu
         settingsPath={`/p/${key}/settings`}
+        howWeWorkPath={can.readConfig ? `/p/${key}/how-we-work` : null}
         placement="below"
         onPause={canPause ? openPause : undefined}
       />

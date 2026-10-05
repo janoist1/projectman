@@ -97,7 +97,13 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   links anywhere on the way, files with several hard links, directories, FIFOs (opened without
   blocking), sockets and devices, and checks the opened handle afterwards: its real location
   must still be inside and be the very file opened, so a path swapped between the checks and the
-  open is refused. The content is streamed from that handle and refused when its size or time
+  open is refused. The session folder (PM-268; the server computes it, the caller never names
+  it) is a second root for an absolute path: only the folder the server made for the calling
+  session's current process (it remembers it; an older folder of the same session is not it), and only
+  while the folder is its own real path (the sandbox lets a session empty its folder and put a
+  symbolic link in its place, so a folder or a directory above it that is a link is refused, and
+  so is a folder swapped for one before the file is read); every check above applies to it
+  unchanged, and a relative path still means the working directory. The content is streamed from that handle and refused when its size or time
   changes meanwhile. A task session may read (never edit) only its own task's attachment
   directory without asking: Claude Code gets `Read(//…/**)` allowed and `Edit(//…/**)` denied for
   it, not an extra working directory, and nothing of the rest of `PROJECTMAN_HOME`; Codex gets
@@ -108,7 +114,8 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   paths stay inside their workspace; task worktrees stay inside their project
   folder, including resolved symlinks. Shell forwarder arguments are quoted; curl
   ignores user curl configuration and bypasses proxies. Known billing keys and
-  endpoint overrides are stripped for both agent providers.
+  endpoint overrides are stripped for every agent provider (Claude, Codex, and the Gemini,
+  Antigravity and NanoGPT variables); only a trusted `extra` of the adapter brings one back.
 - Customization keys and version IDs are validated; commits name only the project
   path. Symlinked project paths are rejected. Git hooks/signing are disabled for
   customization commits. YAML is limited to 1 MiB per file, 50 levels and no aliases;
@@ -163,9 +170,10 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
   the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and the plan
-  mode's plan file are there) and the sensitive parts of the app home (database, cookie secret, logs,
-  customization repository, members' memory, publishing identity, spool); `WebFetch` may not reach
+  `~/.codex`, `~/.gemini`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and
+  the plan mode's plan file are there) and the sensitive parts of the app home (database, cookie
+  secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
+  `providers`); `WebFetch` may not reach
   `localhost` or `127.0.0.1`. The list is `sensitivePaths` and `HARD_DENIED_HOSTS` in
   `domain/session-policy.ts`.
 - **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.
@@ -209,6 +217,26 @@ reader's allow list, because they need the GitHub CLI's login; Claude Code 2.1.2
 a command of their own, so a chain, a pipe, a substitution or a redirection into a file keeps the
 whole command inside. That is the CLI's behaviour, read in its code, not a rule of ours: a later
 version must be checked again (SANDBOX-PROBE.md). A local-only repository gets no exception.
+
+**The session folder (PM-268).** A Claude session in the legacy profile, a reader too, writes one
+more place: its own session folder, for the screenshots and reports it attaches. It is outside
+every checkout and the app home (`<tmp>/projectman-sessions/<hash of the app home>/<session id>.<random>`),
+nothing outside a sandbox runs or loads from it, and it is removed with the process (and the whole
+root when the server starts). Only the server computes the path; the session gets it in
+`PROJECTMAN_SESSION_DIR` and names no other. The name is new at every start: a command that
+outlived an earlier run (a detached one is not killed with the process) holds the old path in its
+sandbox, may empty the old folder, and could try to leave a symbolic link there for the next start
+to write through; the next start has another, unpredictable path, made exclusively and checked
+(a real directory of the server's user), so the old rule never covers it. The old folder is
+renamed to a `.trash-<random>` name before it is removed, so a survivor cannot swap a directory
+in it for a link while the removal walks it. A process group left running is not killed (the
+runner stops the main process only; a separate card). The root is checked before use: a real directory (not
+a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
+server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
+the predictable path at; a symbolic link in it is removed as a link). A developer's sandbox reads
+no other session's folder (the root is in `denyRead`, its own folder re-opened). Codex and the
+managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
+(`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 
 **A developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
 user's home and the app home but its worktree, its task's attachments, its own npm cache and

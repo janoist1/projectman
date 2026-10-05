@@ -9,6 +9,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import type { ConfigChange } from './projects';
+import type { SessionStartCause } from './sessions';
 import type { StageChange } from './tasks';
 
 /**
@@ -44,6 +45,8 @@ export interface DomainEventMap {
   task_talk_recorded: { event: TimelineEvent };
   /** A session's process started (a new or a resumed conversation). */
   session_started: Session;
+  /** A task session started or resumed with `announce` (PM-249, not a restart): the card's other workers are told. */
+  task_session_joined: { session: Session; resumed: boolean; cause: SessionStartCause | null };
   /** A session ended: it exited, was stopped, or failed (also to start). */
   session_ended: Session;
   /** A running session's turn ended: it idles, and its member may have capacity again (PM-119). */

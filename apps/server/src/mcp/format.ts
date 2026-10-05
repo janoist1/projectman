@@ -1,6 +1,8 @@
 import { isCardLink, isTheme } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
+  cardQuestionLines,
+  stateText,
   describeAttachment,
   describeLink,
   describeRepo,
@@ -198,9 +200,16 @@ export function formatTaskDetail(
   );
   if (relations.length > 0) lines.push('', 'Relations:', ...relationLines(relations));
   if (detail.attachments) lines.push('', ...attachmentLines(task.key, detail.attachments));
-  if (sessions.length > 0) {
-    lines.push('', `Sessions: ${sessions.map((s) => `${s.member} (${s.state})`).join(', ')}`);
-  }
+  // Who works on the card now and who else has a session on it (PM-249).
+  const working = new Set(detail.workingSessionIds ?? []);
+  const sessionText = (s: (typeof sessions)[number]) => `${s.member} (${stateText(s.state)})`;
+  const workers = (detail.workingSessionIds ?? []).flatMap((id) => sessions.filter((s) => s.id === id));
+  const others = sessions.filter((s) => !working.has(s.id));
+  if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
+  if (others.length > 0)
+    lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
+  if (detail.cardQuestions?.length)
+    lines.push('', 'Questions to people on this card:', ...cardQuestionLines(detail.cardQuestions, task.key));
   lines.push('', ...timelineLines(timeline, detail.undeliveredMessageIds));
   return lines.join('\n');
 }

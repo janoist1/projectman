@@ -1094,7 +1094,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
-      screenshotRuns?.stop();
+      await screenshotRuns?.stop();
       await background.stop();
       pauses.dispose();
       sessions.dispose();

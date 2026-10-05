@@ -70,6 +70,10 @@ get_screenshot_run run_id=shr_…
   `sandbox` (the sandbox did not start). Open an image with the image tool, and attach it with
   `attach_file` as below.
 - One run at a time per session; the server keeps an ended run for an hour (the last five).
+- When the session ends, its run is signalled (SIGTERM, then SIGKILL after a grace) and the session
+  folder is removed at once, without waiting for the process group to go: a browser that is still
+  writing can for a moment re-create a folder below the removed one. When the server stops, it
+  waits for the runs to end, so their run directories and the queue place are released.
 - The tools exist for sessions with a session folder in a worktree (Codex in `acceptEdits` mode or
   more), on macOS with `srt`; otherwise they answer `forbidden`.
 

@@ -63,6 +63,8 @@ interface Run {
   controller: AbortController;
   /** The run's end was decided; its status changes when its images are listed. */
   ending: boolean;
+  /** The executor's call, settled when the process group is gone; absent until the run is launched. */
+  executing?: Promise<void>;
   /** Resolved when the run is over. */
   over: Promise<void>;
   settle: () => void;
@@ -141,10 +143,14 @@ export class ScreenshotRuns {
     }
   }
 
-  /** The server stops: every run stops. */
-  stop(): void {
+  /**
+   * The server stops: every run stops, and the executors are waited for, so the run directories
+   * and the heavy-run lock are released before the server goes.
+   */
+  async stop(): Promise<void> {
     for (const sessionId of new Set([...this.runs.values()].map((run) => run.sessionId)))
       this.stopSession(sessionId);
+    await Promise.all([...this.runs.values()].map((run) => run.executing));
   }
 
   private register(ctx: ToolContext, scope: ScreenshotScope): Run {
@@ -173,7 +179,7 @@ export class ScreenshotRuns {
   private launch(ctx: ToolContext, run: Run, args: string[]): void {
     const scope = run.scope;
     const label = `shots ${ctx.taskKey ?? ctx.sessionId} ${ctx.member}`;
-    void this.deps.executor
+    run.executing = this.deps.executor
       .run(
         {
           runId: run.id,

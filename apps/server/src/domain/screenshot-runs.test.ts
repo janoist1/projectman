@@ -287,7 +287,8 @@ describe('how a run ends', () => {
     const { service, calls } = runs({ pollMs: 20 });
     await service.take(ctx, input);
     await service.take(other, input);
-    service.stop();
+    // The fake executor ends when it is aborted; stop() returns once both have.
+    await service.stop();
     expect(calls.map((call) => call.signal.aborted)).toEqual([true, true]);
   });
 

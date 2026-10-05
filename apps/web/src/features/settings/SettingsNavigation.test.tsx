@@ -6,6 +6,7 @@ import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { SETTINGS_SECTIONS, SETTINGS_WIDE_QUERY } from './sections';
 import { SettingsTestRoutes } from './testRoutes';
+import { useSettingsSelection } from './selection';
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -134,5 +135,23 @@ describe('settings navigation', () => {
     link.focus();
     fireEvent.click(link);
     expect(document.activeElement?.id).toBe('settings-labels');
+  });
+  it('keeps section focus handling out of panel selection changes', async () => {
+    function SelectionControl() {
+      const selection = useSettingsSelection();
+      return <button onClick={() => selection.open({ type: 'stage', id: 'dev' })}>Select item</button>;
+    }
+    mockProject().render(
+      <>
+        <SelectionControl />
+        <Fixture />
+      </>,
+      '/p/AC/settings/pipeline',
+    );
+    await screen.findByRole('heading', { name: t('settings.sections.pipeline') });
+    const opener = screen.getByText('Select item');
+    opener.focus();
+    fireEvent.click(opener);
+    expect(document.activeElement).toBe(opener);
   });
 });

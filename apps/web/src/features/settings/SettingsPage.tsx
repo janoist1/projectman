@@ -100,7 +100,13 @@ export function SettingsPage() {
       }
     }
     previousSection.current = section;
-  }, [section, wide, Boolean(config.data), location.state]);
+  }, [
+    section,
+    wide,
+    Boolean(config.data),
+    location.state?.settingsIssueTarget,
+    location.state?.settingsReturn,
+  ]);
 
   if (isSettingsSection(legacy))
     return <Navigate replace to={{ pathname: `${base}/${legacy}`, search: location.search }} />;

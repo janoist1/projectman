@@ -293,6 +293,18 @@ describe('TranscriptParser', () => {
 });
 
 describe('resultSummary', () => {
+  it('reports whether the latest main assistant entry ended the turn (PM-343)', () => {
+    const entry = (stopReason: string | null, extra: Record<string, unknown> = {}) => {
+      const e = assistant([{ type: 'text', text: 'x' }], extra);
+      return { ...e, message: { ...e.message, stop_reason: stopReason } };
+    };
+    const parse = (...entries: unknown[]) => new TranscriptParser().parseLines(jsonl(...entries).split('\n'));
+    expect(parse(entry('end_turn')).turnEnded).toBe(true);
+    expect(parse(entry('end_turn'), entry('tool_use')).turnEnded).toBe(false);
+    expect(parse(entry('end_turn'), entry('end_turn', { isSidechain: true })).turnEnded).toBe(true);
+    expect(parse(user('hello')).turnEnded).toBeUndefined();
+  });
+
   it('describes common tools', () => {
     expect(resultSummary('Read', true, '1\tx', { type: 'text', file: { numLines: 42 } })).toBe('42 lines');
     expect(resultSummary('Write', true, '', { type: 'create' })).toBe('Created');

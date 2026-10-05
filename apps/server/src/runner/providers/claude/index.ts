@@ -39,6 +39,7 @@ export const CLAUDE_TIMING: SessionTiming = {
   compactTimeoutMs: 300_000,
   interruptConfirmMs: 5_000,
   haltStopMs: 5_000,
+  turnEndGraceMs: 5_000,
 };
 
 /** Claude Code's question tool: it waits for an answer typed in the terminal. */

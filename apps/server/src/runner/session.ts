@@ -149,6 +149,18 @@ export class AgentSession {
   private waitingTool: string | null = null;
   /** Callers of `interrupt` awaiting the confirmation of the Esc. */
   private readonly interruptWaiters = new Set<(confirmed: boolean) => void>();
+  /**
+   * The transcript ended the turn (`end_turn`) and nothing new has begun: a tool hook now is late (it
+   * must not reopen the turn), and a session still working is idle (PM-343).
+   */
+  private turnEnded = false;
+  /**
+   * Main-agent tool calls whose PreToolUse came while `turnEnded` and was dropped, by tool_use id. A
+   * ghost call (the CLI loading a deferred tool) has no transcript entry and stays here unused; a
+   * call the transcript later shows as part of a new turn (a background task's notification starts
+   * one without a prompt) is replayed then, so the session is not idle while its tool runs.
+   */
+  private readonly lateTools = new Map<string, { payload: HookPayload; name: string; done: boolean }>();
 
   constructor(args: {
     spec: StartSessionSpec;
@@ -472,10 +484,10 @@ export class AgentSession {
     });
     if (confirmed) return 'confirmed';
     if (this.hasExited) return 'unconfirmed';
-    if (this.screenIdle()) {
+    if (this.screenIdle() || (this.turnEnded && this.current.state === 'working')) {
       this.log.warn(
         { sessionId: this.id },
-        'the Esc was not confirmed, but the prompt is up and nothing works: taken as interrupted',
+        'the Esc was not confirmed, but the prompt is up (or the turn ended) and nothing works: taken as interrupted',
       );
       this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
@@ -631,6 +643,14 @@ export class AgentSession {
       return;
     }
     if (compaction && compaction.phase !== 'queued') return;
+    if (p.forceRequested && !p.forced && this.turnEnded) {
+      // The transcript ended the turn and the Stop hook did not come: there is nothing to interrupt.
+      p.forced = true;
+      p.turnEnding = true;
+      this.log.warn({ sessionId: this.id }, 'forced pause of a session whose turn ended: taken as stopped');
+      this.closeEndedTurn();
+      return;
+    }
     if (p.forceRequested && !p.forced) {
       p.forced = true;
       p.turnEnding = true;
@@ -690,6 +710,11 @@ export class AgentSession {
         return null;
       case 'PreToolUse': {
         const name = payload.tool_name ?? 'tool';
+        // A late call after the turn ended (e.g. the CLI loading a deferred tool) must not reopen it.
+        if (this.turnEnded && !this.adapter.inputTools.has(name)) {
+          this.noteLateTool(payload, name);
+          return null;
+        }
         // A pause stopping the session turns the call away before anything else looks at it.
         const halted = this.haltingAnswer(payload, 'before_tool', name);
         if (halted !== undefined) return halted;
@@ -715,6 +740,11 @@ export class AgentSession {
       }
       case 'PostToolUse':
       case 'PostToolUseFailure': {
+        if (this.turnEnded && !this.adapter.inputTools.has(payload.tool_name ?? 'tool')) {
+          const late = payload.tool_use_id ? this.lateTools.get(payload.tool_use_id) : undefined;
+          if (late) late.done = true;
+          return null;
+        }
         const main = !payload.agent_id;
         const name = main ? this.noteToolEnd(payload) : (payload.tool_name ?? 'tool');
         const halted = this.haltingAnswer(payload, 'after_tool', name);
@@ -954,7 +984,8 @@ export class AgentSession {
 
   private onTranscriptLines(parser: TranscriptLineParser, lines: string[]): void {
     if (parser !== this.parser) return;
-    const { items, interruptedAt, authError, usage, contextTokens } = parser.parseLines(lines);
+    const { items, interruptedAt, turnEnded, turnAt, authError, usage, contextTokens } =
+      parser.parseLines(lines);
     if (items.length > 0) this.deps.emit({ type: 'chat', sessionId: this.id, items });
     if (usage?.length || contextTokens !== undefined) {
       this.deps.emit({
@@ -973,6 +1004,75 @@ export class AgentSession {
       this.input.schedule(this.timing.stopSettleMs);
       this.apply({ kind: 'interrupted' });
     }
+    // An entry older than the latest prompt (the transcript read late) belongs to the turn before.
+    const stale = turnAt !== undefined && Date.parse(turnAt) < this.lastPromptAt;
+    if (turnEnded !== undefined && !stale && !this.hasExited) {
+      this.noteTranscriptTurnEnd(turnEnded);
+      if (!turnEnded) this.replayLateTools(items);
+    }
+  }
+
+  /** A tool call hook dropped as late (the turn had ended); a few are kept, the oldest go first. */
+  private noteLateTool(payload: HookPayload, name: string): void {
+    if (payload.agent_id || !payload.tool_use_id) return;
+    this.lateTools.set(payload.tool_use_id, { payload, name, done: false });
+    if (this.lateTools.size > 32) this.lateTools.delete(this.lateTools.keys().next().value!);
+  }
+
+  /**
+   * The transcript went on after the turn end: a dropped call it shows belongs to that new turn, so
+   * it begins now (still running: a running tool, as if its hook had come in time).
+   */
+  private replayLateTools(items: Extract<RunnerEvent, { type: 'chat' }>['items']): void {
+    if (this.lateTools.size === 0 || this.hasExited) return;
+    for (const item of items) {
+      if (item.kind !== 'tool_call') continue;
+      const late = this.lateTools.get(item.toolUseId);
+      if (!late) continue;
+      this.lateTools.delete(item.toolUseId);
+      if (!late.done) this.noteToolStart(late.payload, late.name);
+      this.apply({
+        kind: 'pre_tool',
+        activity: toolActivity(late.name, late.payload.tool_input, this.spec.cwd),
+        needsInput: false,
+      });
+    }
+  }
+
+  /**
+   * The transcript's latest assistant entry ended the turn, or went on (PM-343). The Stop hook
+   * normally follows within moments; if the session still works after `turnEndGraceMs` it is
+   * closed here: the transcript says nothing is left to do, whatever the screen shows.
+   */
+  private noteTranscriptTurnEnd(ended: boolean): void {
+    this.turnEnded = ended;
+    if (ended && this.current.state === 'working') {
+      // An Esc is awaiting the end of the turn: this is it.
+      if (this.interruptWaiters.size > 0) {
+        this.closeEndedTurn();
+        return;
+      }
+      this.timer(() => this.checkTurnEndClosed(), this.timing.turnEndGraceMs);
+    }
+  }
+
+  private checkTurnEndClosed(): void {
+    if (!this.turnEnded || this.hasExited || this.current.state !== 'working') return;
+    const { compaction } = this;
+    // A compaction asked for after the turn works on its own; a message being typed starts a new turn.
+    if ((compaction && compaction.phase !== 'queued') || this.input.isTyping || this.input.isAwaitingSubmit)
+      return;
+    this.log.warn(
+      { sessionId: this.id },
+      'the turn ended in the transcript but no Stop hook followed: closing it',
+    );
+    this.closeEndedTurn();
+  }
+
+  /** The transcript says the turn is over: the session is idle, whatever the hooks said. */
+  private closeEndedTurn(): void {
+    this.input.schedule(this.timing.stopSettleMs);
+    this.apply({ kind: 'stop' });
   }
 
   /**
@@ -1138,6 +1238,10 @@ export class AgentSession {
   private apply(signal: SessionSignal): void {
     // Once the process is gone only the final exit transition may change the state.
     if (this.hasExited && signal.kind !== 'exit') return;
+    if (signal.kind === 'prompt_submit' || signal.kind === 'compact_start') {
+      this.turnEnded = false;
+      this.lateTools.clear();
+    }
     this.notePauseSignal(signal);
     const next = nextState(this.current, signal);
     if (next.state !== 'waiting_permission' && next.state !== 'waiting_input') this.waitingTool = null;

@@ -72,6 +72,11 @@ export interface SessionTiming {
   interruptConfirmMs: number;
   /** After a halting hook answer the CLI should end the turn with a Stop within this long (PM-218). */
   haltStopMs: number;
+  /**
+   * A turn the transcript ended (`end_turn`) whose Stop hook did not follow is closed after this long,
+   * when the screen shows the prompt (PM-343).
+   */
+  turnEndGraceMs: number;
 }
 
 /** Result of parsing transcript lines. */
@@ -79,6 +84,13 @@ export interface TranscriptParseResult {
   items: ChatItem[];
   /** Timestamp of the latest interruption (Esc) the transcript recorded, if any. */
   interruptedAt: string | null;
+  /**
+   * Whether the latest assistant entry of the main conversation in these lines ended the turn
+   * (`true`, Claude Code's `end_turn`) or went on (`false`); absent when there was none (PM-343).
+   */
+  turnEnded?: boolean;
+  /** The timestamp of that entry: one from before the latest prompt belongs to the turn before. */
+  turnAt?: string;
   /** A login failure the transcript recorded, e.g. "Login expired · Please run /login". */
   authError?: string | null;
   /** Tokens these lines add to the session's usage (PM-178), per model and scope. */

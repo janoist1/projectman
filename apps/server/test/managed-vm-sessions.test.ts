@@ -48,7 +48,7 @@ afterAll(async () => {
 const ATTESTATION: ManagedVmAttestation = {
   profile: { name: 'managed-vm', version: 1 },
   verifiedAt: '2026-10-01T12:00:00.000Z',
-  providerVersions: { claude: ['2.1.284'], codex: ['0.159.1'] },
+  providerVersions: { claude: ['2.1.284'], codex: ['0.159.1'], nanogpt: [] },
 };
 const verified: ManagedVmBoundary = { verify: async () => ATTESTATION };
 
@@ -92,6 +92,23 @@ describe('the managed VM profile in the domain (PM-141)', { timeout: 60_000 }, (
   const homeOf = async (handle: string) => path.join(await realpath(h.workspacesDir), 'AR', handle, '.home');
   const startTask = (taskKey: string, assignee: string) =>
     h.domain.taskStarts.start('AR', taskKey, { assignee, actor: OWNER_ACTOR, author: OWNER });
+  it('refuses Gemini with a non-deferrable unsupported-provider conflict', async () => {
+    await managed({
+      adjust: (config) => {
+        modes(config);
+        const member = config.team.members.find((m) => m.handle === 'dev-1');
+        if (member?.kind === 'ai') {
+          member.provider = 'gemini';
+          member.model = 'gemini-3.8-flash';
+        }
+      },
+    });
+    await expect(startTask('AR-1', 'dev-1')).rejects.toMatchObject({
+      code: 'provider_unsupported',
+      status: 409,
+      details: { provider: 'gemini', profile: 'managed_vm' },
+    });
+  });
 
   it('starts a developer question-free in its own workspace, with none of the legacy tool rules or sandbox', async () => {
     await managed();

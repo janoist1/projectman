@@ -7,6 +7,10 @@
   border-bottom: 1px solid var(--c-line-soft);
 }
 
+.head.bare {
+  border-bottom: 0;
+}
+
 .chips {
   display: flex;
   align-items: center;

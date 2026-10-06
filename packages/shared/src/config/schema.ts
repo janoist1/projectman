@@ -97,6 +97,11 @@ export const AiMemberConfig = z.object({
   sponsor: MemberHandle,
   /** Temporary stand-in ("beugró"): hired for one task, retired when it is done. */
   temp: z.boolean().default(false),
+  /**
+   * The team's Senior (PM-347): Senior cards are for this member. Absent: not a Senior (see `isSenior`);
+   * a temp worker is never one.
+   */
+  senior: z.boolean().optional(),
   /** Recurring runs, e.g. every weekday morning. */
   schedule: MemberSchedule.optional(),
   /**
@@ -197,6 +202,11 @@ export const TeamLimits = z.object({
    * go to the implementer by itself: the lead developer, then a person decides. Absent: `DEFAULT_MAX_FIX_ROUNDS`.
    */
   maxFixRounds: z.number().int().min(1).max(10).optional(),
+  /**
+   * How many minutes a Senior card waits for a Senior before it may go to another developer (PM-347).
+   * Absent: `DEFAULT_SENIOR_WAIT_MINUTES`.
+   */
+  seniorWaitMinutes: z.number().int().min(5).max(1440).optional(),
   tempWorkers: z
     .object({
       enabled: z.boolean().default(false),

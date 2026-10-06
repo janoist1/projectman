@@ -34,6 +34,16 @@ function moduleOf(h: DomainHarness): RunnerModule {
 describe('agent providers', () => {
   let h: DomainHarness;
   afterEach(() => h.cleanup());
+  it('hires NanoGPT with its open model and Codex permission modes', async () => {
+    h = await createDomainHarness();
+    const hired = await h.domain.members.hire(
+      'AR',
+      { role: 'qa', provider: 'nanogpt' },
+      { actor: OWNER_ACTOR, author: OWNER, sponsor: 'owner' },
+    );
+    expect(hired).toMatchObject({ provider: 'nanogpt', model: 'z-ai/glm-5.3-flash-uncensored' });
+    expect(permissionModeFitsProvider('nanogpt', 'bypassPermissions')).toBe(false);
+  });
 
   it('hires a Codex member and shows every AI member with its provider', async () => {
     h = await createDomainHarness();
@@ -111,7 +121,7 @@ describe('agent providers', () => {
     expect(await update({ provider: 'claude', model: 'sonnet' })).toMatchObject({ model: 'sonnet' });
   });
 
-  it('retains compatible custom ids and rejects AI settings on humans', async () => {
+  it('resets models not supplied when switching and rejects AI settings on humans', async () => {
     h = await createDomainHarness({
       adjust: (config) => {
         const member = config.team.members.find((m) => m.handle === 'dev-2');
@@ -125,7 +135,7 @@ describe('agent providers', () => {
         { provider: 'codex' },
         { actor: OWNER_ACTOR, author: OWNER },
       ),
-    ).toMatchObject({ provider: 'codex', model: 'fictional-codex-model' });
+    ).toMatchObject({ provider: 'codex', model: 'gpt-6.1-sol' });
     for (const body of [{ provider: 'codex' }, { effort: 'high' }] as const) {
       expect(
         await rejection(h.domain.members.update('AR', 'owner', body, { actor: OWNER_ACTOR, author: OWNER })),

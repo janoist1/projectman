@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   AgentEffort,
   AgentProvider,
+  effortForProvider,
   CheapSubagentModel,
   modelForProvider,
   PROVIDER_CHEAP_SUBAGENT_MODELS,
@@ -17,6 +18,7 @@ import {
   PROVIDER_MODEL_LABELS,
 } from './providerModels';
 import styles from './memberForm.module.css';
+import { ProviderWarning } from './ProviderWarning';
 
 /** Shared AI settings for hiring and editing, with live subscription login warnings. */
 export function ProviderFields({
@@ -53,18 +55,20 @@ export function ProviderFields({
     <>
       <SelectField
         label={t('providerSettings.provider')}
+        hint={t(`providerSettings.runsOn.${provider}`)}
         value={provider}
         onChange={(event) => {
           const next = AgentProvider.parse(event.target.value);
-          const nextModel = modelForProvider(next, model);
+          const builtIn = Object.values(PROVIDER_MODEL_LABELS).some((labels) => Object.hasOwn(labels, model));
+          const nextModel = modelForProvider(next, builtIn ? undefined : model);
           setCustom(!Object.hasOwn(PROVIDER_MODEL_LABELS[next], nextModel));
-          onEffortChange(next === 'codex' ? (effort === 'max' ? 'xhigh' : (effort ?? 'medium')) : effort);
+          onEffortChange(effortForProvider(next, effort));
           onProviderChange(next, nextModel);
         }}
       >
         {AgentProvider.options.map((entry) => (
           <option key={entry} value={entry}>
-            {t(`providers.${entry}`)}
+            {t(entry === 'nanogpt' ? 'providerSettings.nanogptOption' : `providers.${entry}`)}
           </option>
         ))}
       </SelectField>
@@ -87,13 +91,14 @@ export function ProviderFields({
             </optgroup>
           </>
         ) : (
-          modelOptions(CODEX_LABELS)
+          modelOptions(PROVIDER_MODEL_LABELS[provider])
         )}
         <option value="custom">{t('providerSettings.customModel')}</option>
       </SelectField>
       {custom ? (
         <TextField
           label={t('providerSettings.modelId')}
+          hint={provider === 'nanogpt' ? t('providerSettings.nanogptModelHint') : undefined}
           value={model}
           required
           onChange={(event) => onModelChange(event.target.value)}
@@ -101,21 +106,29 @@ export function ProviderFields({
           autoCapitalize="off"
         />
       ) : null}
-      <SelectField
-        label={t('providerSettings.effort')}
-        hint={t('providerSettings.effortHint')}
-        value={effort ?? ''}
-        onChange={(event) =>
-          onEffortChange(event.target.value ? AgentEffort.parse(event.target.value) : undefined)
-        }
-      >
-        {provider === 'claude' ? <option value="">{t('providerSettings.defaultEffort')}</option> : null}
-        {PROVIDER_EFFORT_OPTIONS[provider].map((entry) => (
-          <option key={entry} value={entry}>
-            {t(`providerSettings.efforts.${entry}`)}
-          </option>
-        ))}
-      </SelectField>
+      {PROVIDER_EFFORT_OPTIONS[provider].length > 0 ? (
+        <SelectField
+          label={t('providerSettings.effort')}
+          hint={t(
+            provider === 'nanogpt'
+              ? 'providerSettings.nanogptEffortHint'
+              : provider === 'gemini' && model.trim() === 'gemini-3.1-pro' && (!effort || effort === 'medium')
+                ? 'providerSettings.geminiProEffortHint'
+                : 'providerSettings.effortHint',
+          )}
+          value={effort ?? ''}
+          onChange={(event) =>
+            onEffortChange(event.target.value ? AgentEffort.parse(event.target.value) : undefined)
+          }
+        >
+          {provider === 'claude' ? <option value="">{t('providerSettings.defaultEffort')}</option> : null}
+          {PROVIDER_EFFORT_OPTIONS[provider].map((entry) => (
+            <option key={entry} value={entry}>
+              {t(`providerSettings.efforts.${entry}`)}
+            </option>
+          ))}
+        </SelectField>
+      ) : null}
       {onCheapSubagentChange ? (
         <SelectField
           label={t('providerSettings.cheapSubagent')}
@@ -147,12 +160,7 @@ export function ProviderFields({
           {t('providerSettings.astraWarning')}
         </p>
       ) : null}
-      {status?.loggedIn === false ? (
-        <p className={styles.warning} role="alert">
-          {t('providerSettings.loginWarning', { provider: t(`providers.${provider}`) })}{' '}
-          <code>{t(`providerSettings.loginCommands.${provider}`)}</code>
-        </p>
-      ) : null}
+      <ProviderWarning key={provider} provider={provider} status={status} inDialog />
       {status?.loggedIn === null || providers.isError ? (
         <p className={styles.warning} role="status">
           {t('providerSettings.statusUnknown')}

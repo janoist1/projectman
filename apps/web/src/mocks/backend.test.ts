@@ -249,6 +249,30 @@ describe('mock task updates', () => {
 });
 
 describe('mock provider settings', () => {
+  it('stores only key status, validates writes and refuses non-owners', () => {
+    const backend = new MockBackend();
+    const path = '/api/providers/nanogpt/key';
+    expect(backend.handle('PUT', path, { key: 'mock-private-sentinel' })).toMatchObject({
+      status: 200,
+      body: { keys: { nanogpt: { set: true } }, canManageKeys: true },
+    });
+    expect(JSON.stringify(backend.handle('GET', '/api/providers', undefined).body)).not.toContain(
+      'mock-private-sentinel',
+    );
+    expect(backend.handle('PUT', path, { key: ' ' }).status).toBe(400);
+    backend.viewerHandle = 'kata';
+    expect(backend.handle('PUT', path, { key: 'replacement' }).status).toBe(403);
+    expect(backend.handle('DELETE', path, undefined).status).toBe(403);
+    expect(backend.handle('GET', '/api/providers', undefined)).toMatchObject({
+      body: { canManageKeys: false },
+    });
+    backend.viewerHandle = 'owner';
+    expect(backend.handle('DELETE', path, undefined)).toMatchObject({
+      status: 200,
+      body: { keys: { nanogpt: { set: false, setAt: null } } },
+    });
+    expect(backend.handle('DELETE', path, undefined).status).toBe(200);
+  });
   it('reports provider login statuses for any logged-in member', () => {
     const backend = new MockBackend();
     backend.viewerHandle = 'kata';
@@ -256,6 +280,8 @@ describe('mock provider settings', () => {
     expect(ProvidersView.parse(backend.handle('GET', '/api/providers', undefined).body).providers).toEqual([
       expect.objectContaining({ provider: 'claude', loggedIn: true }),
       expect.objectContaining({ provider: 'codex', loggedIn: false }),
+      expect.objectContaining({ provider: 'gemini', loggedIn: true, method: 'google' }),
+      expect.objectContaining({ provider: 'nanogpt', loggedIn: false, problem: 'no_key', method: 'api_key' }),
     ]);
     backend.auth = 'login';
     expect(backend.handle('GET', '/api/providers', undefined).status).toBe(401);

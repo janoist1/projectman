@@ -5,6 +5,7 @@ import type {
   ChatItem,
   PausePoint,
   PlanUsage,
+  ProviderProblem,
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
@@ -56,6 +57,20 @@ export interface AgentSandbox {
    * (the provider adapter renders the pattern, PM-188).
    */
   excludedCommands?: string[];
+  /**
+   * What an agent CLI with a sandbox of its own (Codex) takes from this one too (PM-346): its commands
+   * may also write `allowWrite` and see `env`. Every entry is in `allowWrite` / `env` above as well,
+   * which Claude Code renders; Claude Code ignores this. Absent: nothing.
+   */
+  portable?: {
+    allowWrite: string[];
+    env: Record<string, string>;
+    /**
+     * The commands' own temporary directory (PM-339): writable and their TMPDIR, while the shared
+     * ones (`/tmp`, the CLI's own TMPDIR) are no longer writable. Absent: the CLI's default.
+     */
+    tmpDir?: string;
+  };
 }
 
 /**
@@ -230,6 +245,11 @@ export interface ProviderStatus {
   checkedAt: string;
   /** Why the provider is not usable (English), when `loggedIn` is not true. */
   detail?: string;
+  /** Why the provider is not usable, with `loggedIn === false` (PM-324). */
+  problem?: ProviderProblem;
+  /** The installed CLI's version and the oldest one the adapter works with, when known. */
+  cliVersion?: string;
+  minCliVersion?: string;
 }
 
 /** Error code of a session start refused because the provider is not logged in. */
@@ -263,7 +283,7 @@ export interface ManagedVmAttestation {
   /** When the proof was made (ISO time). */
   verifiedAt: string;
   /** The CLI versions the question-free settings are proven for, per provider. */
-  providerVersions: Record<AgentProvider, readonly string[]>;
+  providerVersions: Partial<Record<AgentProvider, readonly string[]>>;
 }
 
 /**
@@ -475,8 +495,12 @@ export interface RunnerModuleOptions {
   trustWorkspaces?: boolean;
   /** Path or name of the OpenAI Codex CLI (default: $CODEX_BIN, else "codex"). Tests pass a fake CLI. */
   codexBin?: string;
+  geminiBin?: string;
+  geminiConfigDir?: string;
   /** Codex's home, where it keeps transcripts (default: $CODEX_HOME, else ~/.codex). Read only. */
   codexHome?: string;
+  nanogptCodexHome?: string;
+  nanogptKey?: () => Promise<string | null>;
   /**
    * The environment the runner reads its defaults from ($CODEX_BIN, $CODEX_HOME,
    * $CLAUDE_CONFIG_DIR, PATH) and starts the CLIs with, after removing billing and host-session

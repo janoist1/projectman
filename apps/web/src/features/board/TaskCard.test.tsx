@@ -53,6 +53,27 @@ function renderCard(key: string, selected = false) {
 }
 
 describe('TaskCard', () => {
+  it.each(['urgent', 'high', 'normal', 'low'] as const)(
+    'names the %s mark accessibly on the card link',
+    (priority) => {
+      const task = { ...taskByKey('AC-24'), priority };
+      renderUi(<TaskCard task={task} state={deriveTaskState(task, ctx)} pipeline={pipeline} to="/task" />);
+      const label = t('priority.markLabel', { level: t(`priority.levels.${priority}`) });
+      const card = screen.getByRole('link', { name: new RegExp(label) });
+      const mark = within(card).getByTitle(label).querySelector('svg')!;
+      expect(mark.getAttribute('aria-hidden')).toBe('true');
+      if (priority === 'urgent') expect(mark.querySelector('path')).toBeTruthy();
+      else
+        expect(mark.querySelectorAll('rect[fill="var(--c-ink-2)"]').length).toBe(
+          priority === 'high' ? 3 : priority === 'normal' ? 2 : 1,
+        );
+    },
+  );
+  it.each(['done', 'cancelled'] as const)('hides the priority mark on a %s card', (status) => {
+    const task = { ...taskByKey('AC-24'), priority: 'high' as const, status };
+    renderUi(<TaskCard task={task} state={deriveTaskState(task, ctx)} pipeline={pipeline} to="/task" />);
+    expect(screen.queryByTitle(t('priority.markLabel', { level: t('priority.levels.high') }))).toBeNull();
+  });
   it('shows the title, PR, labels, grouped-stage rows and the status line', () => {
     const card = renderCard('AC-21');
     expect(card.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
@@ -415,6 +436,25 @@ describe('the prerequisite on the card (PM-203)', () => {
     const card = draw(task, state);
     expect(within(card).getAllByText(label('AC-17'))).toHaveLength(1);
   });
+
+  it.each(['claude', 'codex'] as const)(
+    'names the provider that is not logged in in the status line (%s, PM-324)',
+    (provider) => {
+      const { task, state } = on('AC-22', {
+        startWaiting: {
+          reason: 'provider_not_logged_in',
+          provider,
+          member: 'be-1',
+          since: '2026-10-01T10:00:00.000Z',
+        },
+      });
+      const text = t('taskStatus.startWaiting.provider_not_logged_in', {
+        provider: t(`providers.${provider}`),
+      });
+      expect(state).toMatchObject({ phase: 'waiting', label: text });
+      expect(within(draw(task, state)).getByText(text)).toBeTruthy();
+    },
+  );
 
   it('says it in the status line for a start that waits for prerequisites in the work stage', () => {
     const { task, state } = on('AC-22', {

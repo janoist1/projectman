@@ -1,5 +1,50 @@
 # Agent providers
 
+## NanoGPT (PM-329)
+
+NanoGPT uses the interactive Codex CLI with a custom Responses model provider at
+`https://nano-gpt.com/api/v1`, not `--oss`. The default model is
+`z-ai/glm-5.3-flash-uncensored`; effort defaults to medium. Codex >= 0.159.1 is required:
+older 0.117–0.125 releases had MCP issues with custom providers (openai/codex #19871).
+The installation secret comes from PM-328's store, only at launch and resume. A dedicated
+0700 `PROJECTMAN_HOME/providers/nanogpt/codex-home` keeps transcripts separate and rejects
+`auth.json`; there is no ChatGPT fallback. The key is excluded from CLI shell environments.
+Missing keys or incomplete setup defer automatic starts; key changes refresh readiness and
+retry them. Deletion does not stop an existing session. Hook, terminal, team MCP, permission
+and resume behavior follow Codex, without a ChatGPT plan gauge. Managed VM is unsupported
+until PM-331. Real-key tool, effort and process-environment checks are performed by the owner.
+Both Codex and NanoGPT pass `-c notify=[]` so project configuration cannot install a
+notification command running outside the CLI sandbox. Acceptance of this override by
+Codex 0.159.1 remains part of the owner's manual check.
+NanoGPT startup also uses `inspectAmbientConfig` to reject override-capable settings in
+`/etc/codex`, its dedicated Codex home and the workspace's `.codex/config.toml`.
+The `nanogpt_setup_incomplete` error exposes only configuration file and key names.
+Nonempty workspace `.codex` directories and dedicated-home `hooks.json` files are refused;
+escaped quoted TOML roots fail closed in the shared inspector.
+
+NanoGPT disables plugins, remote plugins, ChatGPT apps, tool suggestions and skill-triggered
+MCP installation with per-process feature overrides. Analytics and feedback are disabled.
+Its authentication store is ephemeral; no keychain login is loaded. The environment filter
+removes `CODEX_ACCESS_TOKEN` from every provider's children, since it otherwise takes
+precedence over the selected authentication store. These settings apply on resume too.
+Codex 0.159.1 still fetches the public announcement from
+`raw.githubusercontent.com/openai/codex/main/announcement_tip.toml`: this unconditional GET
+has no authentication or provider key and has no disable setting in that release.
+Before repeating a manual probe, the owner must clear the probe home's previously downloaded
+`codex-home/.tmp` plugins. Check that no ChatGPT or plugin-marketplace request or plugin
+download remains; the public announcement request may remain.
+
+NanoGPT requests for commands outside the sandbox never receive automatic command-policy
+approval, even for reads or routine worktree steps. Publishing and in-place editing denials
+remain unconditional. This prevents installation lifecycle scripts and Git hooks from
+running outside the sandbox without an approver's decision, where they could expose the
+CLI's key. The inbox shows the command; inspect the scripts and hooks before approving it.
+Use a `human` approver for NanoGPT developers (`ai` is permitted but not recommended).
+With the default `approver: 'none'`, requested commits are refused: the shared Git index
+lock lives outside the worktree sandbox. See SECURITY.md for the unresolved same-user
+process-environment risks. The PM-356 local permission profile denies the secret store
+and other `sensitivePaths`; approved host commands remain outside that boundary.
+
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
 on the sponsor's ChatGPT plan (decision 15). Both run as interactive TUIs in a PTY, never
@@ -105,6 +150,15 @@ deadline, the timeline) is PM-219; this is what the runner does and relies on in
   the pause stays stopping until a stop or `release`.
   A Claude turn halted without its Stop hook (`haltStopMs`, 5 s) is settled the same way from the screen,
   and only when no main-agent tool is left running (parallel tools: the turn goes on until the last one).
+- **A turn the transcript ended (PM-343).** A main-conversation assistant entry with `stop_reason`
+  `end_turn` marks the turn over until a later assistant entry, a prompt or a compaction begins. While it
+  is marked, the main agent's tool hooks (a late `ToolSearch`, say) are ignored and cannot reopen the
+  turn; a session still `working` `turnEndGraceMs` (5 s) later is closed (whatever the screen shows) as if
+  the Stop hook had come; a forced pause takes such a session as stopped without an Esc (an Esc already
+  sent is settled by it). A dropped call is remembered by its `tool_use_id`: a turn that begins with no
+  prompt (a background task's notification) can show its first tool hook before the transcript is read,
+  and when the transcript then shows that call the turn begins with it (replayed as a running tool). A
+  ghost call has no transcript entry and is never replayed.
 - **Forced.** `pause` with `forceAfterMs` (when it passes) and `forcePause` send the one Esc as soon as
   the session is `working`; a tool that is running is cut (`interrupted`, `tool` the one cut). A
   compaction asked for and running is not waited for: the Esc cancels it and it is given up at once.
@@ -148,8 +202,20 @@ owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp, ...) and Claude i
 owner's logged-in browser). Every session, new or resumed, therefore also gets
 `--strict-mcp-config` (only the `--mcp-config` team server; no connectors, no `.mcp.json`) and
 `--no-chrome`. No per-member MCP server exists yet; one would be added to `buildMcpConfig`.
-For Codex members the owner's `~/.codex` configuration is not read or checked here (see the
-PM-208 note on what a Codex session reaches).
+Codex startup checks loaded sandbox settings and resolves the user configuration's
+MCP server names (PM-356). It disables each user server before installing `team`, and
+unresolved names refuse startup. Every Codex/NanoGPT launch disables `plugins`,
+`remote_plugin`, `apps`, `tool_suggest`, `skill_mcp_dependency_install`, `computer_use`,
+`browser_use` and `browser_use_external`. User hooks and workspace `.codex/` execution
+are separate work (PM-49 and PM-357).
+
+**Prompt suggestions (PM-345).** Claude Code's prompt suggestion runs a "suggestion mode" step after
+a turn that can put an `AskUserQuestion` ("Topic: Suggestion") at the terminal, which the runner
+would forward as the member's own question (PM-199) and hold the card with `waiting-answer`. Every
+session therefore starts with `promptSuggestionEnabled: false` in `--settings` (the setting that
+`/config` shows as "Prompt suggestions", also `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION`; found in
+Claude Code 2.1.287). It also saves the extra model call. No detection of such a call is
+kept: no structural mark that tells it from a member's question is known, and its text is not reliable.
 
 **Built-in tools and skills (PM-221).** A tool's description and the skill list are read in every
 step (a fresh member session started at 44.4k tokens after PM-208), and several built-in tools act
@@ -386,17 +452,461 @@ and so the inbox:
 In a reading placement (a reviewer, an analyst, a chat; PM-167) every mode but `plan` gets
 `read-only` and `on-request`; an escalation goes through `commandVerdict` to the approver.
 
+For local Codex and NanoGPT sessions, these mode names select an inline `projectman`
+permission profile extending `:read-only` (PM-356), not a `--sandbox` argument. It reads
+the filesystem except `sensitivePaths` and the adapter's Codex home. Writing modes add
+`:workspace_roots` with `.git`, `.codex` and `.agents` read-only, plus the explicit portable
+writable roots. Denied roots and their children are never added as writable roots.
+The CLI must be at least 0.159.1; loaded sandbox/profile configuration refuses startup
+with `codex_setup_incomplete`, and ambiguous user MCP configuration with `mcp_config`.
+Administrator configuration with any content is refused. Errors report paths and key
+names only. No local launch supplies `--sandbox`, `sandbox_mode` or
+`sandbox_workspace_write`: the native probe confirmed `--sandbox` overrides the profile.
+The `managed_vm` profile retains its existing sandbox arguments; its VM is the boundary.
+
+The runner resolves the real CLI file on the session PATH. If it is beneath a denied
+directory, only its official `packages/standalone` installation ancestor may be reopened
+read-only, after the denials; an ancestor containing a denied path is never reopened.
+This also applies to NanoGPT's shared executable despite its different Codex home.
+Unknown installation layouts inside denied directories refuse launch with `cli_location`
+in the provider's setup error; details identify the real executable path. Use the official
+standalone installer or install outside the denied directories. Git writes to the shared
+index still use the existing command-approval path (PM-131/PM-77), not a profile write grant.
+
 **A Codex member never runs in `bypassPermissions`** (decision 19, PM-84). The mode would switch
 Codex's sandbox and its questions off, and Codex does not enforce denied tools, so nothing would
 stop a push from a local-only repository. The configuration refuses it (invariant
 `codex_bypass_not_allowed`), an older configuration that names it reads as `acceptEdits` (logged
 as a warning) and the runner maps it to the sandbox of `acceptEdits` should it arrive anyway.
 
-Developers' Codex sessions get no extra writable roots, and the network stays off. The
+Developers' Codex sessions get one extra writable root, the parent of the machine's heavy-run
+queue folder (`AgentSandbox.portable`, PM-346), and the queue variables
+(`PROJECTMAN_HEAVY_LOCK_DIR`, `npm_config_prefer_offline`) through
+`shell_environment_policy.set.<NAME>`, so their `npm test` waits in the queue like the Claude
+members'. Both are left out in the managed VM profile. The network stays off. The roots
+are filesystem write entries in the permission profile. A command run outside the sandbox
+after a question still queues, and the CLI stops one that cannot use the queue (exit 78).
+
+Codex and NanoGPT sessions in a developer's own placement also receive the member's
+`npm-cache` and `projectman-dev` directories through `AgentSandbox.portable`, with
+`npm_config_cache` and `PROJECTMAN_HOME` set through `shell_environment_policy.set`.
+These are the same private cache and development-data paths Claude uses (PM-193);
+denied paths remain excluded. Only a writing sandbox grants write access to these roots;
+plan mode keeps the variables without granting writes. Reading placements and the managed
+VM receive neither these member-directory variables nor these local write roots.
+
+A Codex session whose sandbox writes (`workspace-write`, a developer's own placement, outside the
+managed VM; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
+by the server before the process starts and removed with the session:
+
+- the folder (`$PROJECTMAN_SESSION_DIR`, as for a Claude member; `PLAYWRIGHT_BROWSERS_PATH` with it) is
+  a writable root, so the member can put an image there, open it with the built-in `view_image`
+  (`tools.view_image = true`: not a sandboxed command, so it asks nothing) and `attach_file` it;
+- the temporary directory (`SessionFolders.allocateTmp`, `<tmpRoot>/<session id>.<6 random hex digits>`,
+  `AgentSandbox.portable.tmpDir`) is a writable root and every command's `TMPDIR`
+  (`shell_environment_policy.set.TMPDIR`); the permission profile omits `:slash_tmp` and
+  `:tmpdir`, closing the shared `/tmp` and the CLI's own `$TMPDIR`. Under both lay the other
+  members' session folders, the server's full-test run directories and the Claude members' `/tmp/claude-<uid>`,
+  which a Codex member could write otherwise. The path is short on purpose
+  (`/tmp/projectman-<uid>-tmp/<instance hash>/<session id>.<6 hex>`, about 72 bytes on macOS, about 91 with a
+  `tsx` socket's `/tsx-<uid>/<pid>.pipe`): a Unix
+  socket's path is 104 bytes at most and tools such as `tsx` open one in `TMPDIR`, which the session folder's
+  long path would not allow. The root is a sibling of the queue folder's parent `/tmp/projectman-<uid>`, never
+  below it or above it: that parent is writable for every member's commands (PM-346), so a path in it could be
+  pre-empted or read by any member (the domain leaves Codex without a folder, and logs an error, when
+  `PROJECTMAN_HEAVY_LOCK_DIR` makes them overlap, also through a link: the paths are compared canonically). The root is 0700 and no member's sandbox names it. The
+  directory is new at every start (random name, made by `SessionFolders.make` without `recursive`, so a link
+  or directory put there beforehand is an error that stops the start), because the Seatbelt rule covers the
+  path itself: a process of an earlier run could re-make a removed path, even as a link. It is removed when
+  the process ends, swept at the server's start, and the empty root is removed at the server's stop.
+
+A read-only session (the default mode, `plan`) gets neither: Codex's read-only sandbox takes no
+writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
+after the closing; give it a targeted writable root, do not reopen `/tmp`. The PM-356
+native probe allowed own TMPDIR writes and denied shared `/tmp` and the original CLI tmp.
+The member-level development acceptance still checks attachments, caches and the heavy-run
+queue; the shared Git index remains outside the sandbox's writable roots.
+
+The
 shared git directory is not made writable (PM-131): it never let `git commit` through, since
 Codex's sandbox denies the worktree's index lock, but it let an agent write the repository's
 hooks and configuration, which run when the host uses git there. The routine git steps
 escalate, and the server allows them itself (see Session policy, PM-77).
+
+## Gemini (agy) (PM-323 probe)
+
+Antigravity CLI (`agy`) is the Gemini branch of PM-319. The adapter (PM-326) lives in
+`runner/providers/gemini`: interactive PTY, per-conversation configuration, PreInvocation
+instruction injection, fail-closed PreToolUse decisions, subscription login checks and
+`transcript_full.jsonl` parsing. It uses `AGY_BIN` (default `agy`) and an explicit
+`PROJECTMAN_HOME/providers/gemini` root, without changing HOME or workspace `.agents` files.
+The initial brief is typed after screen readiness; continuation uses `--conversation`.
+Owner decisions T1–T4 prefill onboarding, disable self-updates, wait for inbox decisions,
+and temporarily allow role shell rules without a sandbox (PM-361). Managed VM support is
+deferred to PM-331. The fake CLI covers this protocol without running real agy.
+
+### Permission modes in projectman (PM-327)
+
+The projectman `PreToolUse` hook enforces these modes; agy's `--mode` flag is not the gate.
+Commands currently run without a sandbox (PM-326, owner decision T4).
+
+| Mode                | Hook behavior                                                                                                                                                                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default`           | Reads inside allowed roots run; edits ask. Role-approved commands run; other commands ask.                                                                                                                                                         |
+| `acceptEdits`       | Workspace edits run; commands behave as above.                                                                                                                                                                                                     |
+| `auto`              | Behaves as `acceptEdits`: there is no classifier or sandbox. Commands outside the role's allowlist ask, using the member's approver setting.                                                                                                       |
+| `plan`              | File edits are denied. Currently, role-approved commands of workspace roles can still run without a sandbox, because the shell allowlist is checked before the plan denial. Reading placements deny all commands. PM-367 corrects this limitation. |
+| `bypassPermissions` | Not selectable.                                                                                                                                                                                                                                    |
+
+Native session controls have a narrow adapter exception in every mode, including `plan`
+(PM-376): `command_status` accepts an opaque `CommandId` of 1–128 ASCII letters, digits,
+underscores or hyphens, with finite numeric or short alphabetic options; `schedule` accepts
+integer `DurationSeconds` from 1 to 600 and a nonempty `Prompt` of at most 2000 characters;
+`manage_task` accepts only `Action: 'status'` and a task identifier containing this conversation's
+UUID, ending in `task-<digits>`. Absolute task identifiers must remain under this session's
+`antigravity-cli` root in every resolved path form. Invalid inputs ask, as do extra fields on
+`schedule` and `manage_task`;
+`toolAction` and `toolSummary` string metadata are accepted. `send_command_input`, `wait`,
+`wait_5_seconds` and other task actions still ask. Foreground waiting with `command_status`
+remains the main path for long checks; scheduled wakeups are bounded below idle closure.
+
+The UI explains the `auto` and `plan` limitations beside the selected mode, including read-only
+profile settings and the hiring preview. `default` and `acceptEdits` need no provider note.
+
+### Probe findings
+
+This chapter records what a real run showed, so the adapter does not guess. The probe ran on
+2026-10-05 on the owner's Mac, in the owner's presence, as 38 small runs in 19 conversations on
+`gemini-3.8-flash-low` with a logged-in Google account. The binary was **agy 1.2.17**: the
+card said 1.2.7, but the background updater had replaced it. Afterwards 98% of the five-hour
+and 99.7% of the weekly Gemini window remained.
+
+Samples are in `apps/server/test/fixtures/gemini/` (secret-free: account names are
+`<account>`, work folders are `/tmp/pm-agy-probe/...`, OAuth `state`/`code_challenge` are
+redacted). Paths below are relative to it. Files named `*.RECONSTRUCTED.json` were rebuilt
+from printed summaries plus the real common fields; all others are raw captures. `screens/` is
+emulated with minor artifacts, `screens-raw/` holds the exact bytes of three of them (ready, logged out, trust).
+
+**Does this work on a remote engine?** The adapter's machine-dependent parts (the `agy` binary
+and its updater, the keyring login, the `--gemini_dir`, the transcript files, the PTY) would
+run on the engine, like Claude Code and Codex today. Nothing crosses the server/engine
+boundary that does not already. No inventory entry in `docs/ARCHITECTURE.md` changes with
+this card (it ships no code); PM-326 adds the entries.
+
+### Summary for the adapter design
+
+1. **Per-process configuration exists: `--gemini_dir <absolute dir>`** (Q1). Hooks and MCP are
+   read from there, the Google login survives, `~/.gemini` stays untouched.
+2. **Hooks are a reliable gate** (Q4). `deny` always wins; a handler that overruns its timeout
+   is killed and the tool does not run. Proposed design: `toolPermission: always-proceed` plus a
+   blocking `PreToolUse` hook that prints `allow` or `deny` from the runner's tool decision
+   (PM-325). The hook is the single gate.
+3. **`--sandbox` is too strict for development** (Q8): no network, no `ps`, no shell writes to
+   the workspace. Gemini members would run unsandboxed with the hook as the gate (the same
+   broad host-read exposure that legacy Codex settings had before PM-356). Commands get the full parent
+   environment plus agy's own `ANTIGRAVITY_CSRF_TOKEN` and friends.
+4. **Instructions** (Q11): `AGENTS.md` and `GEMINI.md` are read, `CLAUDE.md` is not; there is no
+   system-prompt flag; a `PreInvocation` hook can inject an ephemeral message.
+5. **Hazards:** a background updater can replace `~/.local/bin/agy` on any start; a fresh
+   `--gemini_dir` repeats onboarding including the data-use consent screen.
+
+Open, owner decision pending (asked on PM-323, none is decided yet):
+
+- who completes the consent screen, or may projectman seed `cache/onboarding.json`;
+- pin the version with `--release_base_url`;
+- is a hook that holds a session for minutes acceptable while an inbox approval is pending
+  (the alternative is `request-review` plus a hook `ask`, with the adapter pressing `1` or
+  `4` in the dialog);
+- run without `--sandbox`.
+
+### Q1. Per-process configuration
+
+```
+agy --app_data_dir /abs --log-file L models        -> "Failed to start: must not be absolute", exit 1
+agy --app_data_dir ../../../private/tmp/.../app1   -> models listed, but rewrote config/projects/default-cli-project.json in the real ~/.gemini
+agy --gemini_dir /abs/gd1 --log-file L models      -> models listed, exit 0, ~/.gemini unchanged
+HOME=/abs/home1 agy models                         -> exit 1 "Please sign in"
+XDG_CONFIG_HOME=/abs/xdg agy --gemini_dir gd4 models -> nothing created in the XDG dir
+agy --foo_bar models                               -> "flags provided but not defined" (so --gemini_dir is a real flag)
+```
+
+- `--gemini_dir <absolute dir>` is a hidden flag that replaces `~/.gemini` for that process.
+  Hooks come from `<dir>/config/hooks.json`, MCP servers from `<dir>/config/mcp_config.json`;
+  settings, transcripts, conversations and caches go to `<dir>/antigravity-cli/` (Q9).
+- The login survives: the token is in the macOS keyring, and the log shows `keyringAuth: loaded
+token ... authenticated via keyring ... Auth succeeded` even for an empty `--gemini_dir`.
+  Overriding `HOME` loses it; `XDG_CONFIG_HOME` is ignored.
+- Do **not** use `--app_data_dir`: it only takes a path relative to `~/.gemini` and still writes
+  the global `config/projects/default-cli-project.json`.
+- Whether the keyring login works on a Linux server (no macOS keyring) was not probed; see Q2.
+
+**Where hooks are read from** (evidence: the startup log line `hooks_manager: loaded N named
+hooks from M hooks.json file(s)`, and `agy -p "/hooks"`, which lists each hook's source file):
+
+| Location                           | Result                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `<dir>/config/hooks.json`          | loaded                                                                       |
+| `<dir>/antigravity-cli/hooks.json` | also loaded                                                                  |
+| `<workspace>/.agents/hooks.json`   | loaded when a conversation starts, and in print mode even if not yet trusted |
+
+A member's agent can write its own workspace `hooks.json`; a global `deny` beat a workspace
+`allow`, and on a name clash `/hooks` listed the global one. So the gate lives in the
+`--gemini_dir`, which the member's session does not write.
+
+**`hooks.json` format.** The top-level key is the hook _name_. `PreToolUse` and `PostToolUse`
+need a `matcher` wrapper (`"matcher": ""` matches all); `PreInvocation`, `PostInvocation` and
+`Stop` are flat lists. Handlers run through `sh -c` with the cwd set to the folder that holds
+`hooks.json`. Sample: `config/hooks.capture.json`.
+
+**MCP.** `config/mcp_config.http.json`:
+`{"mcpServers":{"probe":{"url":"http://127.0.0.1:47123/mcp","headers":{"Authorization":"Bearer <token>"}}}}`.
+The static headers go on every request. agy connects at **every** start, even for `agy models`:
+`POST server/discover`, `POST initialize` (clientInfo `antigravity-client`), `GET` for SSE,
+`notifications/initialized`, two `/.well-known/oauth-protected-resource` probes, `tools/list`
+(`mcp/client-handshake.sample.jsonl`). The model calls every MCP tool through one built-in tool,
+`call_mcp_tool{ServerName,ToolName,Arguments}`.
+
+**Trust.** In the TUI an untrusted workspace asks "Do you trust the contents of this project?"
+(`screens/trust-folder.txt`); Yes adds the exact path to `trustedWorkspaces` in
+`<dir>/antigravity-cli/settings.json` (`config/settings.json`). Print mode never asks. Pre-seed
+`trustedWorkspaces` to skip the dialog. _Not verified:_ whether a trusted parent covers its
+children.
+
+### Q2. Login detection
+
+| Check                                | Logged in             | Logged out                                                                                                                                 |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `agy models`                         | exit 0, TSV on stdout | exit 1, empty stdout, stderr `Error: Please sign in to view available models. Launch the CLI without arguments to sign in.`                |
+| `agy -p "<anything>"`                | normal                | does not exit; stderr `Authentication required. Please visit the URL to log in: https://accounts.google.com/...` and it tries `open <url>` |
+| `-p ... --output-format stream-json` | normal events         | after the timeout `{"event":"result","result":{"status":"ERROR","error":"authentication failed or timed out"}}`                            |
+
+- **Machine check: the exit code of `agy models`.** Always wrap `-p` in a timeout.
+- The login _mode_ shows only in the CLI log (`authMethod=consumer`) and in the TUI header
+  (`screens/ready.txt`: account line, plan `Google AI Pro`). There is no machine-readable status
+  command like `claude auth status`.
+- Login screen: `Select login method:` with `1. Google OAuth` and `2. Use a Google Cloud
+project` (`screens/login-method.txt`). It prints an OAuth URL; the redirect is
+  `https://antigravity.google/oauth-callback`.
+- The legacy gemini-cli files in `~/.gemini` (`oauth_creds.json`, ...) are not used by agy.
+- _Not tested:_ a real sign-in, and handing the code back on a headless server. The expected
+  step on the UI is: start `agy` on the server in a PTY and choose the Google account (as for
+  the Claude and Codex logins, see Login and plan usage).
+
+Samples: `quota-login/loggedout-*.{err,exit,out}`.
+
+### Q3. Models
+
+`agy models` prints `slug<TAB>display name` (`quota-login/agy-models.tsv`; the first line may
+repeat the default):
+
+- `gemini-3.8-flash-{high,medium,low}`, `gemini-3.7-flash-*`, `gemini-3.6-flash-*`,
+  `gemini-3.1-pro-{high,low}`;
+- `claude-opus-5-5-{low,medium,high}`, `claude-sonnet-5-5-{low,medium,high}`,
+  `gpt-oss-120b-medium`.
+
+Only the Gemini slugs start with `gemini`; the Claude and GPT-OSS models are in a separate quota
+group. The output has no default flag and no `--effort` column: the **effort is the slug
+suffix**, and `--model <family> --effort X` resolves to `<family>-X`. Without `--model` the run
+used `gemini-3.8-flash-high`. `-p "/model" --output-format stream-json` returns
+`{"id","label","effort","is_default"}` (`print-mode/slash-model.tsv`). Errors
+(`print-mode/effort-resolution.txt`): a full slug plus a different `--effort` gives
+`conflicts with --effort=high`; an effort the family lacks gives `gemini-3.1-pro has no
+"medium" effort (available: low, high)`; `xhigh` and `max` are not accepted for flash; an
+unknown model gives `model bogus-model is not recognized`.
+
+### Q4. Hooks
+
+Real stdin payloads are in `hooks/stdin/`, stdout answers in `hooks/stdout/`.
+
+**Fields.** Common: `conversationId`, `workspacePaths`, `transcriptPath` (it points at
+`transcript_full.jsonl`), `artifactDirectoryPath`, `modelName`. `PreInvocation` and
+`PostInvocation` add `invocationNum`, `initialNumSteps`. `PreToolUse` adds `stepIdx` (equal to
+the transcript `step_index` of the tool result step) and `toolCall{name,args}`; `PostToolUse`
+the same plus `error` (`""` on success; the tool output is **not** included). `Stop` adds
+`executionNum`, `terminationReason` (observed `NO_TOOL_CALL`), `error`, `fullyIdle`.
+
+**Tools observed** (the args also carry the UI strings `toolAction` and `toolSummary`):
+`view_file{AbsolutePath}`, `write_to_file{TargetFile,CodeContent,Overwrite,Description}`,
+`run_command{CommandLine,Cwd,WaitMsBeforeAsync}`, `call_mcp_tool{ServerName,ToolName,Arguments}`,
+`read_url_content{Url}`. Edit-in-place and browser tools (`browser_*`) were not exercised (no
+browser session).
+
+**Answers.** `PreToolUse` prints `{"decision":"allow|deny|ask|force_ask","reason":"..."}`
+(`hooks/stdout/observed-PreToolUse.*.json`); the other events print `{}` or, for
+`PreInvocation`, `{"injectSteps":[{"ephemeralMessage":"..."}]}`.
+
+| Test                                                | Result                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `deny` (even with `--dangerously-skip-permissions`) | `tool call denied by pre-tool hook: <reason>`; no PostToolUse; the model repeats the reason       |
+| `ask`, headless                                     | auto-denied: `permission check failed ... user denied permission`; `denied_actions` in the result |
+| `ask`, TUI                                          | dialog with a `Reason:` line; key `4` declines, key `1` runs                                      |
+| `allow`, TUI, `request-review`                      | the built-in dialog still appears                                                                 |
+| `always-proceed` + `allow`                          | runs, no prompt                                                                                   |
+| `always-proceed` + `ask` / `force_ask`              | ignored; the command ran                                                                          |
+| `always-proceed` + `deny`                           | denied                                                                                            |
+| timeout 2 s, handler sleeps 5 s                     | `JSON hook "..." failed: command failed: signal: killed`; the tool did **not** run (fail-closed)  |
+| timeout 3600, handler sleeps 100 s                  | worked; the step took 100.73 s                                                                    |
+| global `deny` + workspace `allow`                   | denied                                                                                            |
+| workspace-only `deny`                               | denied                                                                                            |
+
+- `PreToolUse` also fires for MCP calls (as `call_mcp_tool`), in the TUI and in print mode.
+- The timeout is a field of the handler (`timeout`, default 30 s); 3600 was accepted. Waits
+  beyond about 100 s were not tried.
+- **Consequence:** with `toolPermission: always-proceed` the hook alone decides; `ask` cannot be
+  used for an inbox question there. The inbox question is answered inside the blocking hook.
+- _Not tested_ (documented examples only, `hooks/stdout/documented-*`): `overwrite` (argument
+  rewrite), `PostInvocation.terminationBehavior`, `Stop` with `decision: "continue"`, the
+  `userMessage` and `toolCall` inject steps.
+- There is no `UserPromptSubmit` or `PermissionRequest` hook.
+
+### Q5. Screens in the PTY
+
+Captured with a Python pty driver and a VT emulator at 120x40, `TERM=xterm-256color`, an `open`
+stub first in `PATH`. The TUI uses the alternate screen, bracketed paste and the kitty keyboard
+protocol; it queries OSC 11 and needs no reply.
+
+| State             | What is on screen (sample)                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Ready             | prompt box `>` between `────` rules; footer `? for shortcuts` left, `Gemini 3.8 Flash · low` right (`screens/ready.txt`)                                                                                                       |
+| Working           | braille spinner and `Generating...`; footer `esc to cancel` (`screens/working-generating.txt`)                                                                                                                                 |
+| Permission dialog | `Run this command?` with `1. Yes, run command`, `2. Yes, and always allow in this conversation ...`, `3. ... (Persist to settings.json)`, `4. No, cancel`; a `Reason:` line when a hook asked (`screens/permission-ask-*.txt`) |
+| Tool declined     | `screens/tool-declined.txt`                                                                                                                                                                                                    |
+| Trust             | `Do you trust the contents of this project?` / `Yes, I trust this folder` / `No, exit`                                                                                                                                         |
+| Login             | `Select login method:`                                                                                                                                                                                                         |
+| First run         | `Choose your color scheme:`, then `Terms of Service & Data Use` with a checked consent box and `[Previous]  [Done]` (`screens/onboarding-*.txt`)                                                                               |
+
+**Pitfalls.** A transient "Welcome ... You are currently not signed in." and "Signing in..."
+appears in the first frame even when logged in; do not read it as logged out (the later frames
+show the account). An announcement card ("... esc to dismiss",
+`screens/ready-with-announcement-banner.txt`) can sit above the prompt; `Esc` on an empty
+prompt dismisses it.
+
+**Input.** `write("text\r")` submits. A bracketed paste of two lines does **not** submit
+(`screens/prompt-multiline-paste.txt`), so a pasted brief needs a separate Enter. Ctrl-J,
+Alt-Enter and Shift-Enter (`ESC[13;2u`) insert a newline. In the permission dialog a digit acts
+at once, without Enter.
+
+_Not seen:_ an update screen (updates run in the background), an out-of-quota screen,
+cancelling a turn.
+
+### Q6. Resume
+
+`--conversation <id>` works in print mode and in the TUI: the id is echoed, step indices
+continue, the TUI replays the history (`print-mode/resume-conversation.ndjson`,
+`screens/resumed-conversation.txt`). The `conversationId` first appears
+
+- in print mode: in the first stream event `{"event":"init","conversation_id":...}`;
+- in the TUI: in the first `PreInvocation` hook payload, which also creates
+  `antigravity-cli/brain/<id>/`.
+
+`cache/last_conversations.json` maps a workspace to its last id. So, like Codex, the id is
+learned from the first hook rather than set by us. _Not tested:_ `--continue`, and
+`--input-format stream-json` (multi-turn over stdin, a possible alternative to scraping the PTY).
+
+### Q7. Transcript
+
+`<gemini_dir>/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl`, one JSON
+object per line (`transcript/`):
+
+- **Fields:** `step_index`, `source` (`USER_EXPLICIT`, `MODEL`, `SYSTEM_SDK`), `type`
+  (`USER_INPUT`, `PLANNER_RESPONSE`, `GENERIC` for tool results, `EPHEMERAL_MESSAGE`), `status`,
+  `created_at`, `content`; model lines add `tool_calls[{name,args}]`.
+- **Tokens: yes.** `PLANNER_RESPONSE` lines carry `input_tokens`, `cache_read_tokens` and
+  `output_tokens` (including thinking). A trivial prompt costs about 12k input tokens.
+- **Two variants:** `transcript.jsonl` holds the tool args as JSON-encoded strings;
+  `transcript_full.jsonl` (the hooks' `transcriptPath`) holds native JSON and adds `thinking`.
+- `-p ... --output-format stream-json` reports `usage{input_tokens,output_tokens,thinking_tokens,
+cache_read_tokens,total_tokens}` per step and in the result (`print-mode/ok.ndjson`).
+- Tool names are the lower-case step types: `run_command`, `view_file`, `write_to_file`,
+  `call_mcp_tool`, `read_url_content`, `browser_*`.
+- `conversations/<id>.db` (SQLite) sits beside; the transcript is the simpler source.
+
+### Q8. `--sandbox` and `--mode`
+
+`--sandbox` alone does not auto-approve commands; that needs `toolPermission:
+"proceed-in-sandbox"`. Presets: `request-review` (default), `proceed-in-sandbox`,
+`always-proceed`, `strict`. Probe results (`sandbox/result-under-agy-sandbox.txt`,
+`sandbox/sandbox-test.sh`):
+
+| Probe                                | Without sandbox | With `--sandbox`                                                                                                                     |
+| ------------------------------------ | --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| read outside the workspace/add-dir   | OK              | FAIL (`Operation not permitted`)                                                                                                     |
+| read inside an `--add-dir`           | OK              | OK                                                                                                                                   |
+| write to the workspace               | OK              | FAIL (the workspace was under `/private/tmp`; may be location-related, not retested)                                                 |
+| write to an `--add-dir`              | OK              | FAIL                                                                                                                                 |
+| write to `/tmp`                      | OK              | OK                                                                                                                                   |
+| read `~/.gemini`                     | OK              | FAIL                                                                                                                                 |
+| network (`curl https://example.com`) | OK              | FAIL                                                                                                                                 |
+| `ps -A`                              | 532 processes   | 0 visible                                                                                                                            |
+| environment                          | 59 variables    | the full parent env plus 10 `ANTIGRAVITY_*` (`ANTIGRAVITY_CSRF_TOKEN`, `ANTIGRAVITY_LS_ADDRESS`, `ANTIGRAVITY_CONVERSATION_ID`, ...) |
+
+Under `--sandbox` commands still get the **full** parent environment plus ten `ANTIGRAVITY_*`
+variables that agy adds itself, among them `ANTIGRAVITY_CSRF_TOKEN`. The runner strips billing
+variables before the start (`BILLING_ENV_VARS`) but cannot remove what agy adds; whether the
+unsandboxed run sees the same variables was not compared, and the adapter should treat the
+CSRF token as visible to every command. `--mode` accepts `accept-edits` and `plan`; other values warn and the run
+continues (the log shows `applying agent mode plan`). Its effect on prompts was not exercised.
+
+### Q9. Writes under the gemini dir
+
+Everything follows `--gemini_dir` (`config/gemini_dir.tree.txt`): conversations
+(`antigravity-cli/brain/<id>/`, `conversations/<id>.db`), indexes and state
+(`conversation_summaries.db`, `jetbox_summaries_proto.pb`, `jetski_state.pbtxt`,
+`history.jsonl`), `cache/{onboarding.json,last_conversations.json,...}`, `installation_id`,
+`updater/`, `builtin/skills/`, `presence/`, `implicit/`, `annotations/`, `crashes/`, `mcp/`, and
+`config/{hooks.json,mcp_config.json,projects/default-cli-project.json}`. `--log-file <path>`
+redirects the CLI log.
+
+**Auto-update.** Each start spawns a background updater, at most once per 15 minutes per gemini
+dir, which can replace `~/.local/bin/agy`. The env vars `DISABLE_AUTO_UPDATE`,
+`AGY_DISABLE_AUTO_UPDATE` and `ANTIGRAVITY_DISABLE_AUTO_UPDATE` had no effect. The hidden
+`--release_base_url http://127.0.0.1:9` makes the update fail harmlessly ("Update failed, please
+install from website"), which would pin the version.
+
+**The owner's real `~/.gemini` changed in two places during the probe;** no credential file was
+read or touched: `config/projects/default-cli-project.json` was rewritten (130 to 87 bytes) by
+the one `--app_data_dir` test, and `antigravity-cli/cache/CHANGELOG.md` (133 KB release notes)
+was created by `agy changelog` and is safe to delete.
+
+### Q10. Out of quota
+
+`-p "/usage"` and `-p "/quota"` cost no model turn. Output is tab-separated: group, window
+`... Remaining`, percent, reset time (`print-mode/slash-usage.tsv`, `quota-login/usage.tsv`):
+
+```
+Gemini Models	Five Hour Limit Remaining	98%	2026-10-05T12:40:52Z
+Claude and GPT models	Weekly Limit Remaining	100%	2026-10-12T07:57:13Z
+```
+
+Groups: "Gemini Models" and "Claude and GPT models", each with a weekly and a five-hour window.
+`json` or `stream-json` output gives `groups[].buckets[]{id,name,window,remaining_fraction,
+reset_time,description}` (`print-mode/slash-usage.json-and-stream-json.txt`). Other model-free
+commands: `/model`, `/hooks`, `/permissions`, `/help`, `/config`, `/changelog`.
+
+**Out-of-quota text was not reproduced** (it would burn quota). From release notes and binary
+strings only: the CLI says "Your AI credits balance is too low to continue."; headless runs that
+end on a model or agent error exit with code 3 and print `AGY_ERROR: {...}` JSON on stderr.
+
+### Q11. Context and instructions
+
+Setup: `AGENTS.md` (marker word PINEAPPLE), `GEMINI.md` (MANGO) and `CLAUDE.md` (KIWI) in the
+workspace, plus a `PreInvocation` ephemeral message (ZEBRA). The answers ended with "PINEAPPLE
+MANGO" and ZEBRA appeared in the thinking; KIWI never appeared. So **`AGENTS.md` and `GEMINI.md`
+are read, `CLAUDE.md` is not**. Rule files are capped at 24 KB each, with a 20,000-token rules
+budget. There is no system or developer prompt flag (`--agent <name>` exists, untested). A
+`PreInvocation` hook can add `{"injectSteps":[{"ephemeralMessage":"..."}]}` and the model
+followed it; the transcript stores it as `{"type":"EPHEMERAL_MESSAGE","source":"SYSTEM_SDK"}`
+(`transcript/transcript_full.ephemeral-and-thinking.sample.jsonl`,
+`print-mode/rules-and-ephemeral-injection.ndjson`). Role instructions can therefore go in the
+workspace `AGENTS.md` or in a `PreInvocation` hook of the `--gemini_dir`; a global rules file
+under `<gemini_dir>/config/` (a tamper-proof place) was not tested.
+
+### Not tested
+
+Temp `HOME` with the real keychain (blocked by the permission classifier); browser-tool hooks;
+`--continue`; `--input-format stream-json`; `--mode` effect on prompts; global `config/AGENTS.md`;
+stdio MCP; hook waits beyond about 100 s; the out-of-quota and update screens; a real sign-in
+(credentials were off limits).
 
 ## Session policy
 
@@ -447,8 +957,8 @@ writing:
   `--settings`, on every start and resume. Not `--add-dir`: in `acceptEdits` mode Claude Code
   accepts edits in an extra working directory without asking. A directory whose path holds
   characters that mean something in a rule gets no rules (reading then asks a human).
-- Codex: nothing is added. Its sandbox reads everywhere (see the probe below) and writes only in
-  the working directory; the attachment directory is never a writable root.
+- Codex: the local permission profile reads attachments through `:root=read` while denying
+  sensitive paths (PM-356); the attachment directory is never a writable root.
 - Both: read-only commands inside that directory (`file`, `ls`, `cat` …) pass the command rule
   below like those in the working directory.
 
@@ -581,6 +1091,15 @@ mid-session (Claude Code: "Login expired · Please run /login"; Codex: a turn fa
 `unauthorized`) emits an `auth_error` runner event, stops the session and leaves it `failed`
 with the message as its activity.
 
+Admission checks the login too (PM-324), after the AI limit and before the plan usage: an
+automatic start of a member whose provider is not logged in waits with the reason
+`provider_not_logged_in` (the card shows the provider) and starts on the next retry (every 30
+seconds) once the login is there; a person's start gets the 409. A provider whose login cannot be
+checked (`loggedIn: null`, or the check failing) holds nothing back. The status carries a `problem`
+(`not_logged_in`, `no_key`, `cli_too_old`, `cli_missing`) with `loggedIn: false`, and optionally the CLI's
+`cliVersion` and `minCliVersion`. Only the providers with a measurable plan (`PLAN_USAGE_PROVIDERS`: Claude and
+Codex) have a plan-usage pause and a usage gauge.
+
 Plan usage is per provider: Claude's from Claude Code's usage probe, ChatGPT's from the rate
 limits Codex records in its transcripts (nothing is spent to read either). New AI work pauses
 above `pauseAbovePlanUsagePercent` of the plan of the member's own provider.
@@ -627,7 +1146,18 @@ shows it, sortable by weighted tokens and review rounds.
 
 The runner strips `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`,
 `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CODEX_API_KEY`, `OPENAI_API_KEY` and
-common OpenAI/Azure endpoint overrides from every session's environment.
+common OpenAI/Azure endpoint overrides from every session's environment. For the Gemini
+(Antigravity CLI) and NanoGPT providers (PM-319, PM-324) it also strips `GEMINI_API_KEY`,
+`GOOGLE_API_KEY`, `GOOGLE_GEMINI_BASE_URL`, `GOOGLE_GENAI_USE_VERTEXAI`,
+`GOOGLE_GENAI_USE_ENTERPRISE`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`,
+`GOOGLE_CLOUD_LOCATION`, `AGY_ADC_AUTH`, `AGY_BUSINESS_PAYGO_TIER` and `NANOGPT_API_KEY`, and the
+markers of a parent Gemini session (`GEMINI_CLI`, `ANTIGRAVITY_*`). The list is the same for every
+provider. The NanoGPT key reaches only the sessions of NanoGPT members, handed back by the NanoGPT
+adapter as a trusted `extra` of the child environment.
+
+The file tools and the shell's sandbox also refuse `~/.gemini` and, in the app home, `secrets`
+(the secret store) and `providers` (the providers' own CLI homes, such as the NanoGPT Codex home),
+next to the other credentials (`sensitivePaths`).
 
 ## Sandboxes: what the CLIs enforce (PM-126 probe)
 
@@ -653,17 +1183,25 @@ below. No live instance settings are changed by this migration.
 The revised [manual procedure](SANDBOX-PROBE.md) and `scripts/sandbox-probe.sh` use nested
 worktrees, fictional data and positive host controls. The script never starts an agent CLI;
 real verification is interactive and subscription-only. Automated tests use temporary repos
-and no real agent CLI. No revised native run has yet been recorded here.
+and no real agent CLI. The PM-356 native run was recorded on 2026-10-06 by the integrator
+with owner approval: Codex 0.159.1 on macOS 14.6 arm64. It verified denied shell reads,
+database glob matches (including later siblings), symlink traversal, read-only/writing modes,
+own TMPDIR writes and shared temp denials. `view_image` respected a denied image symlink.
+No `:workspace` fallback or `features.shell_snapshot=false` was needed. The CLI's standalone
+installation required a read exception beneath its otherwise denied Codex home; inline
+`projects={...}` trust and `check_for_update_on_startup=false` prevented startup dialogs.
+Five plugin flags and named user MCP disabling were exercised; the three additional
+computer/browser flags still require the agreed supplementary startup acceptance.
 
-| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                        |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
-| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified          | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict  |
-| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified          | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured |
-| Codex 0.159.1 / macOS / restricted-read permission profile                  | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat              | Repeat                                                                             | Repeat                                                            | No inferred support                   |
+| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools  | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
+| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
+| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified           | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict   |
+| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified           | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured  |
+| Codex 0.159.1 / macOS 14.6 arm64 / restricted-read permission profile       | Denied secrets, credentials, database glob and symlinks     | Denied image symlink | Worktree edits allowed; shared index lock and protected directories denied         | Not verified by the PM-356 run                                    | Not established; PM-356 deny list only |
+| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
+| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
+| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat               | Repeat                                                                             | Repeat                                                            | No inferred support                    |
 
 The old settings used Claude `denyRead` for sibling live/secret folders, `allowWrite` for
 `~/.npm`, strict npm-only networking and `allowLocalBinding: true`. The old report says boolean
@@ -672,8 +1210,9 @@ and enforcement of either type remain version-specific observations to reproduce
 
 Current source differs from that probe: the developer sandbox allows npm/development-data writes
 and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
-no longer grants the shared git root (PM-131), but its legacy sandbox does not implement the
-required restricted-read policy. Command-rule approval of Codex escalations is host execution,
+no longer grants the shared git root (PM-131). Its local permission profile now implements the
+PM-356 sensitive-path deny list, while the wider home boundary remains PM-360.
+Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
 
 ### The sandboxes the server hands out (PM-167)
@@ -682,12 +1221,12 @@ not strict isolation. PM-134's transitional Claude setup is not the final PM-128
 paths; `buildSandboxSettings` renders them, and `test/cli-sandbox.integration.test.ts` checks the
 exact `--settings` the fake CLI receives:
 
-| Session                                               | `filesystem`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | `network`                                   | `excludedCommands`                                             | `credentials.envVars` (`mode: "deny"`) and `env`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Extra deny rules                                      |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`) and the session folder (PM-268, a Claude session only); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`, the session folders' root (the own folder is re-opened by `allowRead`); `allowRead`: the worktree, the task's attachments, the member's two directories, the session folder and the browsers directory (PM-268), the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`, the user's `core.excludesfile` (PM-216); `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SESSION_DIR` and `PLAYWRIGHT_BROWSERS_PATH` (PM-268), `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `GIT_CONFIG_SYSTEM` to a read-only file in the member's directory with `gc.auto=0`, `maintenance.auto=false` and `core.packedRefsTimeout=0`; the "Unable to create packed-refs.lock" message after a commit stays (known, harmless, see SECURITY.md) (PM-216) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
-| Reader (`read_only`, review copy without test opt-in) | `allowWrite`: the session folder (PM-268; else temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                                                                                                                                                                                                                                | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `PROJECTMAN_SESSION_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (PM-268)                                                                                                                                                                                                                                                                                                                                                                                                                         | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
-| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
-| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
+| Session                                               | `filesystem`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | `network`                                   | `excludedCommands`                                             | `credentials.envVars` (`mode: "deny"`) and `env`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Extra deny rules                                      |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`) and the session folder (PM-268, a Claude session only); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the member's two directories, the session folders' root (every member's folder of this instance is read, PM-333) and the browsers directory (PM-268), the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`, the user's `core.excludesfile` (PM-216); `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SESSION_DIR` and `PLAYWRIGHT_BROWSERS_PATH` (PM-268), `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `GIT_CONFIG_SYSTEM` to a read-only file in the member's directory with `gc.auto=0`, `maintenance.auto=false` and `core.packedRefsTimeout=0`; the "Unable to create packed-refs.lock" message after a commit stays (known, harmless, see SECURITY.md) (PM-216) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
+| Reader (`read_only`, review copy without test opt-in) | `allowWrite`: the session folder (PM-268; else temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                                                                                                                                                                                                                        | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `PROJECTMAN_SESSION_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (PM-268)                                                                                                                                                                                                                                                                                                                                                                                                                         | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
+| Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
+| Codex                                                 | local `projectman` permission profile: sensitive paths denied, portable writer roots granted (PM-356); managed VM unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
 
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,
@@ -723,9 +1262,14 @@ restart, a failed start; the restart's new folder is made after the old one is r
 folder is renamed to a `.trash-<random>` name inside the root first, then removed, so the old
 run's rule no longer reaches it while it is removed. The whole root is swept when the server
 starts. A Codex session and the
-managed VM profile get none. The sandbox writes only that folder; a developer reads no other
-session's folder (the root is in `denyRead`, the narrower own folder re-opened by `allowRead`).
-Claude Code's file tools get `Read` and `Edit` rules for it, since they are outside the sandbox.
+managed VM profile get none. The sandbox writes only that folder; every session reads the other
+members' folders of the same instance (PM-333, the owner's decision: a teammate names a
+screenshot): the developer's `allowRead` holds the root, the reader reads everything anyway. Claude
+Code's file tools, which are outside the sandbox, get `Read(//<root>/**)` and, for the own folder,
+`Edit(//<dir>/**)`; the policy carries both paths (`filesystem.sessionFolder`,
+`sessionFoldersRoot`) and the adapter renders the rules (`claudeToolRules`), since beside a policy
+it drops the legacy allow list. No deny rule for the root: it would shut the own folder too. Another
+instance's folders (another home hash) get no rule.
 `attach_file` takes an absolute path inside the folder as well as one inside the working
 directory (SECURITY.md has the checks). A folder inside a denied path, or inside a reader's
 read-only checkout, is left out.

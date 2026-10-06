@@ -17,8 +17,14 @@ made. A choice of your own that the owner should confirm goes to them as a quest
 
 ## Subscription rule
 
-- Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY` or other
-  API-billing variables. The runner strips them from the environment of every session.
+- Never use or set `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, `GEMINI_API_KEY`,
+  `GOOGLE_API_KEY` or other API-billing variables. The runner strips them
+  from the environment of every session (`BILLING_ENV_VARS` in `apps/server/src/runner/env.ts`).
+  The sole exception is the projectman-managed `NANOGPT_API_KEY` from
+  `secrets/nanogpt.json`, passed only to NanoGPT member sessions (decision 34, PM-319).
+  It never permits ChatGPT login fallback or OpenAI API billing.
+  The runner also strips Codex OAuth overrides: `CODEX_APP_SERVER_LOGIN_CLIENT_ID`,
+  `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
 - Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
   `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
   `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.
@@ -38,6 +44,22 @@ made. A choice of your own that the owner should confirm goes to them as a quest
   Configuration migrations live in `apps/server/src/config/migrations.ts`, database
   migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
   event types keep rendering.
+
+## Machine-dependent assumptions
+
+These rules apply to every member, including Codex:
+
+- When adding or changing a machine-dependent part (local paths, processes, sockets,
+  accounts, OS features or a shared-host assumption), update the **Machine-dependent parts**
+  inventory in `docs/ARCHITECTURE.md` in the same change. Record what it does, its code
+  location, the machine assumption, what a remote engine needs and the related task.
+- Every technical plan must answer **"Does this work on a remote engine?"** Refer to the
+  affected inventory entries and state what must run on the engine, what must cross the
+  server/engine boundary, or why no machine-dependent part is affected. An unresolved
+  boundary choice is a planning question, not an implicit local assumption.
+- Codex reads `CLAUDE.md` through `project_doc_fallback_filenames` when there is no
+  `AGENTS.md` (`apps/server/src/runner/providers/codex/args.ts`). If an `AGENTS.md` is added
+  to this repository, include these rules there too so they still reach Codex.
 
 ## Module ownership (parallel workstreams)
 
@@ -81,9 +103,17 @@ npx vitest related <files> --run   # while working: the tests of what you change
 
 One heavy run goes at a time on the machine (PM-332, `docs/ARCHITECTURE.md` "Heavy-run
 queue"): the root `npm test`, `typecheck` and `shots` wait behind the other members' and the
-server's full test, and print who they wait for, so run them in the background. Runs inside
+server's full test, and print who they wait for. Only Claude Code members run them in the
+background: Claude Code sends a completion notification. Codex, Gemini (agy) and NanoGPT
+members run them in the foreground and keep waiting until completion, including when the
+shell tool returns a running command id; follow the provider-specific waiting instructions
+in the context pack. Gemini's native `command_status` follows a running command; bounded
+`schedule` wakeups are an optional path described there. Do not finish the turn while the
+command is still running. Runs inside
 one workspace (`npm test -w …`, `npx vitest related …`) do not queue; use them while working
-and the full run once before the hand-over.
+and the full run once before the hand-over. If a heavy command says its queue cannot be used
+(exit status 78), it did not run: note this on your card and ask for the command to run outside
+your sandbox; never run it another way (PM-346).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
 owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,

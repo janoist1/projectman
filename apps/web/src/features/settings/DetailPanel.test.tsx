@@ -11,9 +11,19 @@ function Fixture() {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('First');
   const [itemKey, setItemKey] = useState('first');
+  const [visible, setVisible] = useState(true);
+  const [hasOpener, setHasOpener] = useState(true);
   return (
     <>
-      <button onClick={() => setOpen(true)}>Open</button>
+      <div data-settings-content>
+        <h2 id="settings-pipeline" tabIndex={-1}>
+          Section
+        </h2>
+      </div>
+      {hasOpener ? <button onClick={() => setOpen(true)}>Open</button> : null}
+      <a href="#other" onClick={() => setVisible(false)}>
+        Other section
+      </a>
       <button
         onClick={() => {
           setTitle('Second');
@@ -22,22 +32,66 @@ function Fixture() {
       >
         Switch
       </button>
-      <DetailPanel
-        open={open}
-        title={title}
-        itemKey={itemKey}
-        kicker="Stage"
-        menu={<MoreMenu>{() => <button>Menu action</button>}</MoreMenu>}
-        footer={<button>Save</button>}
-        empty="Choose an item"
-        onClose={() => setOpen(false)}
-      >
-        <input aria-label="Name" value={title} onChange={(event) => setTitle(event.target.value)} />
-      </DetailPanel>
+      {visible ? (
+        <DetailPanel
+          open={open}
+          title={title}
+          itemKey={itemKey}
+          kicker="Stage"
+          menu={<MoreMenu>{() => <button>Menu action</button>}</MoreMenu>}
+          footer={<button>Save</button>}
+          empty="Choose an item"
+          onClose={() => setOpen(false)}
+        >
+          <input aria-label="Name" value={title} onChange={(event) => setTitle(event.target.value)} />
+          <button onClick={() => setHasOpener(false)}>Remove opener</button>
+        </DetailPanel>
+      ) : null}
     </>
   );
 }
 describe('settings detail panel', () => {
+  it.each([false, true])('keeps navigation focus when an open panel unmounts (wide=%s)', (wide) => {
+    vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      matches: wide,
+      media: query,
+      addEventListener() {},
+      removeEventListener() {},
+      onchange: null,
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }));
+    renderUi(<Fixture />);
+    screen.getByText('Open').focus();
+    fireEvent.click(screen.getByText('Open'));
+    const link = screen.getByRole('link', { name: 'Other section' });
+    link.focus();
+    fireEvent.click(link);
+    expect(document.activeElement).toBe(link);
+    expect(screen.queryByRole('heading', { name: 'First' })).toBeNull();
+  });
+  it.each([false, true])(
+    'falls back to the section heading when the opener was removed (wide=%s)',
+    (wide) => {
+      vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+        matches: wide,
+        media: query,
+        addEventListener() {},
+        removeEventListener() {},
+        onchange: null,
+        addListener() {},
+        removeListener() {},
+        dispatchEvent: () => false,
+      }));
+      renderUi(<Fixture />);
+      screen.getByText('Open').focus();
+      fireEvent.click(screen.getByText('Open'));
+      fireEvent.click(screen.getByText('Remove opener'));
+      fireEvent.click(screen.getByRole('button', { name: t('common.close') }));
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Section' }));
+    },
+  );
   it.each([false, true])('dismisses the real menu before the panel with Escape (wide=%s)', (wide) => {
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       matches: wide,
@@ -107,10 +161,12 @@ describe('settings detail panel', () => {
     fireEvent.change(input, { target: { value: 'Renamed' } });
     expect(document.activeElement).toBe(input);
     expect(wide ? screen.getByRole('complementary') : screen.getByRole('dialog')).toBeTruthy();
-    fireEvent.click(screen.getByText('Switch'));
+    const switcher = screen.getByText('Switch');
+    switcher.focus();
+    fireEvent.click(switcher);
     expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Second' }));
     fireEvent.click(screen.getByRole('button', { name: t('common.close') }));
-    expect(document.activeElement).toBe(opener);
+    expect(document.activeElement).toBe(switcher);
     expect(screen.queryByRole('heading', { name: 'Second' })).toBeNull();
   });
   it('closes with Escape only inside the wide panel', () => {

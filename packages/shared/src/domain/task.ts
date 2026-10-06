@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { TaskDeveloperLevel } from './developer-level';
+import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
@@ -11,6 +13,16 @@ export type TaskKey = z.infer<typeof TaskKey>;
 
 export const TaskStatus = z.enum(['active', 'waiting', 'blocked', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
+
+/** Informational only: priority never changes ordering or starts work. */
+export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
+export type TaskPriority = z.infer<typeof TaskPriority>;
+export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
+
+/** People alone may set or clear a card's priority. */
+export function priorityRefusal(actor: Pick<Actor, 'kind'>): 'priority_humans_only' | null {
+  return actor.kind === 'human' ? null : 'priority_humans_only';
+}
 
 /**
  * `prerequisite`, `related` and `duplicate_of` relate two cards (PM-192): `ref` is the other card's
@@ -78,9 +90,19 @@ export const TaskStartWaiting = z.object({
     // The server's full test of the pinned commit (PM-217) has not ended: the reviewer's start
     // continues once it has.
     'full_test_pending',
+    // The member's provider is not logged in (PM-324): the start continues once it is.
+    'provider_not_logged_in',
+    'nanogpt_key_missing',
+    'nanogpt_setup_incomplete',
+    'codex_setup_incomplete',
+    // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
+    'senior_busy',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
+  /** `senior_busy`: the Seniors the card waits for; `waitDecidedBy` is who chose "wait on" after the question. */
+  seniors: z.array(MemberHandle).optional(),
+  waitDecidedBy: MemberHandle.optional(),
   /** `label_missing`: the labels the start waits for; `member` is the one who sets them. */
   labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),
@@ -175,6 +197,8 @@ export const Task = z.object({
   themeKey: TaskKey.nullable().optional(),
   /** One level of subtasks; omitted by older clients. */
   parentKey: TaskKey.nullable().optional(),
+  /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
+  developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
   reviewPin: TaskReviewPin.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
@@ -204,7 +228,8 @@ export const Task = z.object({
    * not before a person chooses one when it has several.
    */
   repo: z.string().nullable(),
-  priority: z.number().int().nullable(),
+  /** Null: not set, including on a newly created card. */
+  priority: TaskPriority.nullable(),
   /**
    * The card's place in the manual order of its board column (PM-118): ascending, shared by everyone.
    * Independent of `priority`. Only the order of two cards means something, not the value (see

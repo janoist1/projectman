@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import { DEFAULT_AGENT_PROVIDER, hasPlanUsage } from '@projectman/shared';
 import type { BoardView } from '@projectman/shared';
 import { useBoard, useTeamThreads } from '../api/queries';
 import { useConnectionStatus } from '../api/socketHooks';
@@ -18,6 +18,7 @@ import { AccountMenu, ProjectSwitcher } from './Menus';
 import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
+import { MachineIndicator } from '../features/machine/MachineIndicator';
 
 /*
  * The desktop top bar sheds width in steps, so nothing overlaps (the search field gives way first):
@@ -41,8 +42,13 @@ interface NavItem {
   badge?: number;
 }
 
-function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem } {
-  const { key } = useProject();
+function useNavItems(inboxCount: number): {
+  main: NavItem[];
+  /** The "how we work" page: on the rail and in the phone's account menu, not in the tab bar; a client has none. */
+  howWeWork: NavItem | null;
+  settings: NavItem;
+} {
+  const { key, can } = useProject();
   // The server counts the viewer's unread messages across their conversations (PM-78).
   const unread = useTeamThreads(key).data?.unreadCount ?? 0;
   const { pathname } = useLocation();
@@ -69,6 +75,14 @@ function useNavItems(inboxCount: number): { main: NavItem[]; settings: NavItem }
         badge: unread,
       },
     ],
+    howWeWork: can.readConfig
+      ? {
+          to: `${base}/how-we-work`,
+          icon: 'map',
+          label: t('nav.howWeWork'),
+          active: under(`${base}/how-we-work`),
+        }
+      : null,
     settings: {
       to: `${base}/settings`,
       icon: 'settings',
@@ -85,7 +99,7 @@ function BadgeText({ count }: { count: number }) {
 /** Left navigation rail (desktop and tablet). */
 export function NavRail({ inboxCount }: { inboxCount: number }) {
   const { key, openPause, can } = useProject();
-  const { main, settings } = useNavItems(inboxCount);
+  const { main, howWeWork, settings } = useNavItems(inboxCount);
   const pause = useBoard(key).data?.pause;
   const canPause = can.pauseTeam && pause !== undefined && openPauses(pause).length === 0;
   return (
@@ -112,6 +126,16 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
           ) : null}
         </Link>
       ))}
+      {howWeWork ? (
+        <Link
+          to={howWeWork.to}
+          className={clsx(styles.railItem, styles.railItemTall, howWeWork.active && styles.railItemActive)}
+          aria-current={howWeWork.active ? 'page' : undefined}
+        >
+          <Icon name={howWeWork.icon} size={20} strokeWidth={1.8} />
+          <span className={clsx(styles.railLabel, styles.railLabelWrap)}>{howWeWork.label}</span>
+        </Link>
+      ) : null}
       <span className={styles.spacer} />
       <Link
         to={settings.to}
@@ -259,14 +283,14 @@ function Presence({ board, members }: { board: BoardView | undefined; members: M
   );
 }
 
-/** The plan usage of every provider an AI member of the project runs on. */
+/** The plan usage of every provider an AI member of the project runs on that has a measurable one. */
 function planUsages(board: BoardView | undefined) {
   const providers = new Set(
     board?.members.flatMap((member) =>
       member.kind === 'ai' ? [member.provider ?? DEFAULT_AGENT_PROVIDER] : [],
     ) ?? [],
   );
-  return [...providers].map((provider) => ({
+  return [...providers].filter(hasPlanUsage).map((provider) => ({
     provider,
     usage: board?.planUsageByProvider[provider] ?? (provider === 'claude' ? board?.planUsage : null),
   }));
@@ -305,6 +329,7 @@ export function TopBar({
           />
         ))}
       </span>
+      <MachineIndicator />
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />
       </span>
@@ -379,6 +404,7 @@ export function MobileHeader({
         pauseAbove={pauseAbove}
         to={`/p/${key}/team`}
       />
+      <MachineIndicator phone />
       {can.createTasks ? (
         <Button
           variant="primary"
@@ -391,6 +417,7 @@ export function MobileHeader({
       ) : null}
       <AccountMenu
         settingsPath={`/p/${key}/settings`}
+        howWeWorkPath={can.readConfig ? `/p/${key}/how-we-work` : null}
         placement="below"
         onPause={canPause ? openPause : undefined}
       />

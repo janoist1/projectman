@@ -7,6 +7,8 @@ import type {
 } from '../../contracts';
 import type { CommandOutput } from '../cli';
 import type { HookPayload } from '../hook-payload';
+import type { SessionPolicy } from '../../contracts';
+import type { ToolDecision } from '../tool-decision';
 
 /**
  * Provider adapters: what differs between the agent CLIs the runner drives (Claude Code,
@@ -20,6 +22,7 @@ import type { HookPayload } from '../hook-payload';
  * how hooks arrive or where plan usage comes from, is inside the adapter's own functions.)
  */
 export interface ProviderCapabilities {
+  toolGate: 'permission_request' | 'pre_tool_use';
   /**
    * The CLI takes our conversation id at launch (Claude `--session-id`). Otherwise the id is
    * learned from the first hook and reported with a `provider_session_id` event (Codex).
@@ -72,6 +75,11 @@ export interface SessionTiming {
   interruptConfirmMs: number;
   /** After a halting hook answer the CLI should end the turn with a Stop within this long (PM-218). */
   haltStopMs: number;
+  /**
+   * A turn the transcript ended (`end_turn`) whose Stop hook did not follow is closed after this long,
+   * when the screen shows the prompt (PM-343).
+   */
+  turnEndGraceMs: number;
 }
 
 /** Result of parsing transcript lines. */
@@ -79,6 +87,13 @@ export interface TranscriptParseResult {
   items: ChatItem[];
   /** Timestamp of the latest interruption (Esc) the transcript recorded, if any. */
   interruptedAt: string | null;
+  /**
+   * Whether the latest assistant entry of the main conversation in these lines ended the turn
+   * (`true`, Claude Code's `end_turn`) or went on (`false`); absent when there was none (PM-343).
+   */
+  turnEnded?: boolean;
+  /** The timestamp of that entry: one from before the latest prompt belongs to the turn before. */
+  turnAt?: string;
   /** A login failure the transcript recorded, e.g. "Login expired · Please run /login". */
   authError?: string | null;
   /** Tokens these lines add to the session's usage (PM-178), per model and scope. */
@@ -98,6 +113,8 @@ export interface TranscriptLineParser {
 }
 
 export interface LaunchInput {
+  /** Real CLI file resolved on the session PATH; only local Codex providers use it. */
+  cliPath?: string;
   spec: StartSessionSpec;
   /** POST target of the session's hooks, http://127.0.0.1:<port>/hooks/<token>. */
   hookUrl: string;
@@ -105,6 +122,9 @@ export interface LaunchInput {
 }
 
 export interface Launch {
+  /** Trusted adapter-only environment, never recorded in session data or logs. */
+  env?: Record<string, string>;
+  conversationRoot?: string;
   file: string;
   args: string[];
   /** The CLI's own arguments (`args` may start with a script for a fake CLI); the launcher gets these. */
@@ -127,7 +147,9 @@ export interface ProviderAdapter {
   /** Command line of a session (after any preparation, e.g. workspace trust). */
   launch(input: LaunchInput): Promise<Launch>;
   /** A hook body, validated; null when malformed. */
-  parseHook(body: unknown): HookPayload | null;
+  parseHook(body: unknown, event?: string): HookPayload | null;
+  decideToolCall?(policy: SessionPolicy, payload: HookPayload, conversationRoot: string | null): ToolDecision;
+  turnStartOutput?(spec: StartSessionSpec): unknown;
   /** Whether a hook came from a subagent and must not change the session's state. */
   isSubagentHook(payload: HookPayload): boolean;
   /** The PermissionRequest hook answer for a broker decision. */

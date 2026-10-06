@@ -29,6 +29,8 @@ export interface DomainEventMap {
   task_stage_changed: StageChange;
   /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */
   task_assigned: { task: Task; previous: string | null; actor: Actor };
+  /** A card's recommended developer was set or changed (PM-347), after the change committed. */
+  task_level_changed: { task: Task; actor: Actor };
   /** A task was cancelled. */
   task_cancelled: Task;
   /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */

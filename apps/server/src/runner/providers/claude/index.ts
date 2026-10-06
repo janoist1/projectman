@@ -39,6 +39,7 @@ export const CLAUDE_TIMING: SessionTiming = {
   compactTimeoutMs: 300_000,
   interruptConfirmMs: 5_000,
   haltStopMs: 5_000,
+  turnEndGraceMs: 5_000,
 };
 
 /** Claude Code's question tool: it waits for an answer typed in the terminal. */
@@ -158,6 +159,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
     label: 'Claude Code',
     bin: opts.bin,
     capabilities: {
+      toolGate: 'permission_request',
       presetSessionId: true,
       sessionPermissionRules: true,
       readiness: 'session_start',

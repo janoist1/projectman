@@ -27,6 +27,70 @@ tenants into separate OS accounts or machines.
 
 ## Protection
 
+- NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
+  decision 1; PM-328). The server stores the key only in
+  `PROJECTMAN_HOME/secrets/nanogpt.json`: directory 0700, file 0600, atomic replacement
+  through a private temporary file. Only a human who owns every project may set,
+  replace or clear it. Public status contains only whether it is set and when it was
+  set; the value, suffix and length never appear in configuration, SQLite, logs,
+  API responses or errors. Save-time checking inspects only NanoGPT's HTTP status,
+  without reading or recording balances.
+  Key values must be printable ASCII without internal whitespace; the shared schema
+  validates writes before checking and stored values before session delivery. Non-regular
+  secret files, including symbolic links, are refused on read.
+  The `secrets` directory is already denied to member file tools through
+  `sensitivePaths` (PM-324). Environment delivery (PM-329) is restricted to NanoGPT
+  sessions. The local Codex/NanoGPT permission profile denies these paths to sandboxed
+  commands as well (PM-356); explicitly approved host commands remain outside that boundary.
+  The adapter excludes the key from
+  member shell environments, disables Codex notification commands, and rejects ambient
+  configuration that can override provider, permissions, hooks or MCP servers before
+  launch and resume. NanoGPT shell requests never receive automatic command-policy
+  approval; unconditional publishing and in-place editing denials still apply.
+  The inbox approver sees the requested command, not the scripts or hooks it will run.
+  Before approving `npm ci`, `npm install`, `npm run` or `git commit` outside the sandbox,
+  inspect member-controlled lifecycle scripts and Git hooks: they also run outside the
+  sandbox with network access. A human approver is recommended for NanoGPT developers;
+  with `approver: 'none'`, requested commits are refused.
+  If the approver is `ai`, an AI judgment alone decides whether these scripts or hooks
+  may run outside the sandbox and expose the key; this remains a risk, rather than a
+  verified secret-isolation boundary.
+
+  NanoGPT disables plugin loading and synchronization, ChatGPT apps and suggestions,
+  skill-triggered MCP installation, analytics and feedback. Its ephemeral authentication
+  store avoids persisted ChatGPT login and keychain credentials; `CODEX_ACCESS_TOKEN`
+  is stripped from all child environments. Children cannot inherit OAuth client-id,
+  refresh-endpoint or revoke-endpoint overrides either;
+  the filter removes `CODEX_APP_SERVER_LOGIN_CLIENT_ID`, `CODEX_REFRESH_TOKEN_URL_OVERRIDE`
+  and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
+  In the Codex 0.159.1 source, plugin requests
+  take authentication from `AuthManager`, not the custom provider's `env_key`;
+  `load_auth` reads Codex billing variables and auth storage, never `NANOGPT_API_KEY`.
+  This is source verification, not a captured network-header test. See
+  [plugin authentication](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/core-plugins/src/manager.rs)
+  and [authentication loading](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/login/src/auth/manager.rs).
+  The remaining public GitHub announcement request has no authentication attached
+  and no disable setting in 0.159.1; the request builder only supplies a URL and timeout
+  ([announcement fetch](https://github.com/openai/codex/blob/rust-v0.159.1/codex-rs/tui/src/tooltips.rs)).
+  The owner's next manual probe must verify that ChatGPT requests and plugin downloads
+  are gone after clearing the probe's existing plugin cache.
+
+  The owner accepted the following temporary host risks on 2026-10-05 (decision 34,
+  PM-329; closure in PM-356):
+  PM-356 closes the legacy shell-read exposure of `sensitivePaths`, including the secret
+  store and the `providers` directory, using a restricted-read permission profile.
+  The native Codex 0.159.1 probe on macOS 14.6 arm64 (2026-10-06) denied credentials,
+  secrets, database glob matches and symlink traversal; `view_image` also respected the denial.
+  The profile is a deny list: other members' worktrees remain readable (PM-360).
+  Commands approved by a human or an AI approver outside the sandbox still execute as
+  the host user; NanoGPT has no automatic command approval. The NanoGPT CLI process retains
+  the key in its environment: commands approved by a human or an AI approver outside the sandbox may inspect it,
+  and CLI-controlled subprocesses outside the shell environment policy need separate
+  verification. Workspace configuration changes after the launch-time inspection are
+  not a verified isolation boundary (PM-357). Manual testing must distinguish sandboxed
+  shell commands from explicitly approved commands outside the sandbox; environment
+  filtering alone does not establish host-process isolation.
+
 - Signed, HttpOnly, SameSite=Lax cookies; Secure when HTTPS terminates at a loopback
   proxy supplying `X-Forwarded-Proto: https`. Login and invite acceptance replace
   the presented session. Tokens have 256 random bits, are stored as SHA-256 hashes,
@@ -114,7 +178,8 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   paths stay inside their workspace; task worktrees stay inside their project
   folder, including resolved symlinks. Shell forwarder arguments are quoted; curl
   ignores user curl configuration and bypasses proxies. Known billing keys and
-  endpoint overrides are stripped for both agent providers.
+  endpoint overrides are stripped for every agent provider (Claude, Codex, and the Gemini,
+  Antigravity and NanoGPT variables); only a trusted `extra` of the adapter brings one back.
 - Customization keys and version IDs are validated; commits name only the project
   path. Symlinked project paths are rejected. Git hooks/signing are disabled for
   customization commits. YAML is limited to 1 MiB per file, 50 levels and no aliases;
@@ -169,9 +234,10 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
   the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and the plan
-  mode's plan file are there) and the sensitive parts of the app home (database, cookie secret, logs,
-  customization repository, members' memory, publishing identity, spool); `WebFetch` may not reach
+  `~/.codex`, `~/.gemini`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and
+  the plan mode's plan file are there) and the sensitive parts of the app home (database, cookie
+  secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
+  `providers`); `WebFetch` may not reach
   `localhost` or `127.0.0.1`. The list is `sensitivePaths` and `HARD_DENIED_HOSTS` in
   `domain/session-policy.ts`.
 - **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.
@@ -231,8 +297,10 @@ in it for a link while the removal walks it. A process group left running is not
 runner stops the main process only; a separate card). The root is checked before use: a real directory (not
 a symbolic link, nor below one), the server user's, mode 0700, else the folders are off and the
 server logs the reason and runs on (the sweep must never empty a directory somebody else pointed
-the predictable path at; a symbolic link in it is removed as a link). A developer's sandbox reads
-no other session's folder (the root is in `denyRead`, its own folder re-opened). Codex and the
+the predictable path at; a symbolic link in it is removed as a link). Every Claude session of the
+instance reads every member's folder below the root, and writes only its own (PM-333, the owner's
+decision): nothing secret goes into a session folder. Another instance's root (another home hash)
+is not opened. Codex and the
 managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
 (`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 
@@ -275,12 +343,23 @@ are neither written nor read.
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
 that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
-Codex member is not bound by the Claude rules at all before the VM; its own sandbox (`read-only`
-for a reader) is its limit. A developer's file tools have no such `Edit` deny rules outside its
+Codex member uses its own permission profile before the VM: it denies `sensitivePaths`
+and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
+A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
 the CLI's own questions and Auto's classifier hold. The sandbox's denials were checked on the
 owner's machine in the PM-167 manual run; its result and what is still to run (PM-153) are in
 PROVIDERS.md.
+
+The official Codex standalone installation beneath a denied home is reopened read-only
+so the CLI can re-execute its binary (PM-356). The runner resolves the executable on the
+session PATH, then grants only its `packages/standalone` ancestor, never the whole
+`packages` or home. A root containing a denied path gets no exception. Unknown installations
+inside denied directories remain blocked; install outside them or use the official standalone
+layout. The shared Git directory also stays read-only: routine Git writes still go through
+the existing command-approval path (PM-131/PM-77). No Git write grant is added by this profile.
+macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
+checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
 **Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
 directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer

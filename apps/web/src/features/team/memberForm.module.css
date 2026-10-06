@@ -13,6 +13,13 @@
   font-size: var(--text-sm);
 }
 
+/* The note under a checkbox: the `.hint` pull-up is for notes under a field, not under a label of its own. */
+.toggleHint {
+  margin: 4px 0 0;
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
+}
+
 .actions {
   display: flex;
   align-items: center;
@@ -42,6 +49,30 @@
   border-radius: var(--radius-sm);
   color: var(--c-needs-text);
   background: var(--c-needs-bg);
+}
+.providerWarning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.saved {
+  grid-column: 1 / -1;
+  color: var(--c-ink-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.approverWarning {
+  color: var(--c-needs-text);
+  font-size: var(--text-sm);
+  margin: 0;
+}
+@media (max-width: 767px) {
+  .providerWarning {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 767px) {

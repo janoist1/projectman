@@ -27,7 +27,8 @@ async function loadScenario(file) {
   }
   if (typeof module.default !== 'function')
     throw new UsageError(`The scenario ${file} must export a default async function.`);
-  return module.default;
+  // A scenario may also export `fakeEnv`: FAKE_CLAUDE_*, FAKE_CODEX_* variables for the fake CLIs (PM-324).
+  return { run: module.default, fakeEnv: module.fakeEnv ?? {} };
 }
 
 /** The JSON text of the fixed machine the display shows (PM-320); the server checks its shape at start. */
@@ -76,7 +77,7 @@ async function within(promise, ms) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const scenario = await loadScenario(options.scenario);
+  const { run: scenario, fakeEnv } = await loadScenario(options.scenario);
   const machine = options.machine === undefined ? undefined : readMachineFixture(options.machine);
   const out = outputDirectory({ out: options.out, scenario: options.scenario });
   const stopper = interruption(options.timeoutSeconds);
@@ -91,6 +92,7 @@ async function main() {
     starting = startInstance({
       seed: options.seed,
       handleSignals: false,
+      fakeEnv,
       ...(machine === undefined ? {} : { machine }),
       ...(dir ? { dir } : {}),
     });

@@ -6,6 +6,7 @@ export { StageHandOver } from './hand-over';
 export { MessageStarts } from './message-starts';
 export { RefinementSteps } from './refinement';
 export { assertAiEnabled, assertRepoChosen, isDeferrable, waitingOf } from './rules';
+export { SeniorWaits } from './senior-waits';
 export { WorkStarts } from './work-starts';
 export { TaskStarts } from './task-starts';
-export type { StartTaskOptions, StartTaskResult } from './task-starts';
+export type { SeniorWait, SeniorWaitRequest, StartTaskOptions, StartTaskResult } from './task-starts';

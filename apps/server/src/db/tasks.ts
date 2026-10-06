@@ -1,9 +1,13 @@
-import { taskSeq } from '@projectman/shared';
-import type { RankedCard, Task, TaskLink } from '@projectman/shared';
+import { TaskDeveloperLevel, taskSeq } from '@projectman/shared';
+import type { RankedCard, Task, TaskLink, TaskPriority } from '@projectman/shared';
 import { legacyCheckLabels } from '@projectman/templates';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
+
+/** Persisted values: never renumber these levels. */
+const PRIORITY_COLUMN: Record<TaskPriority, number> = { urgent: 1, high: 2, normal: 3, low: 4 };
+const PRIORITY_LEVEL: Record<number, TaskPriority> = { 1: 'urgent', 2: 'high', 3: 'normal', 4: 'low' };
 
 interface TaskRow {
   kind: string;
@@ -31,6 +35,8 @@ interface TaskRow {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  /** A JSON `TaskDeveloperLevel`; NULL: no recommendation. */
+  developer_level: string | null;
 }
 
 interface LinkRow {
@@ -71,6 +77,8 @@ export type TaskPatch = Partial<
     | 'parentKey'
     /** The theme to store: a card's own (null removes it), never a subtask's. */
     | 'themeKey'
+    /** The recommended developer (PM-347). */
+    | 'developerLevel'
   >
 >;
 
@@ -89,6 +97,7 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   closedAt: 'closed_at',
   parentKey: 'parent_key',
   themeKey: 'theme_key',
+  developerLevel: 'developer_level',
 };
 
 /**
@@ -107,11 +116,19 @@ function toLink(r: LinkRow): TaskLink {
   return link;
 }
 
+/** The stored recommendation; a broken value reads as none. */
+function toDeveloperLevel(text: string | null): TaskDeveloperLevel | undefined {
+  const parsed = TaskDeveloperLevel.safeParse(parseJson<unknown>(text, null));
+  return parsed.success ? parsed.data : undefined;
+}
+
 function toTask(r: TaskRow, links: TaskLink[]): Task {
+  const developerLevel = toDeveloperLevel(r.developer_level);
   return {
     // Only what is not the default is present, so a plain card reads as it did before themes.
     ...(r.kind === 'theme' ? { kind: 'theme' as const } : {}),
     ...(r.effective_theme ? { themeKey: r.effective_theme } : {}),
+    ...(developerLevel ? { developerLevel } : {}),
     parentKey: r.parent_key,
     id: r.id,
     projectKey: r.project_key,
@@ -122,7 +139,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     status: r.status as Task['status'],
     assignee: r.assignee,
     repo: r.repo,
-    priority: r.priority,
+    priority: r.priority === null ? null : (PRIORITY_LEVEL[r.priority] ?? null),
     boardRank: r.board_rank,
     // Checks recorded before labels read as their labels; the next label write clears the column.
     labels: [
@@ -169,8 +186,8 @@ export function createTaskRepository(db: Db) {
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
          repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key,
-         kind, theme_key, board_rank)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         kind, theme_key, board_rank, developer_level)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setBoardRank: db.prepare('UPDATE tasks SET board_rank = ? WHERE key = ? AND project_key = ?'),
     // The open cards of a project that stand in these stages (themes are no cards of the board).
@@ -304,7 +321,7 @@ export function createTaskRepository(db: Db) {
           task.status,
           task.assignee,
           task.repo,
-          task.priority,
+          task.priority === null ? null : PRIORITY_COLUMN[task.priority],
           toJson(task.labels),
           '{}',
           task.visibility,
@@ -317,6 +334,7 @@ export function createTaskRepository(db: Db) {
           // A subtask has none of its own: it reads its parent's.
           task.parentKey ? null : (task.themeKey ?? null),
           task.boardRank ?? 0,
+          task.developerLevel ? toJson(task.developerLevel) : null,
         );
         for (const link of task.links) upsertLink(task.id, link, task.createdAt);
       })();
@@ -402,7 +420,10 @@ export function createTaskRepository(db: Db) {
       }
       const values: Record<string, unknown> = { id };
       for (const field of fields) values[field] = patch[field];
+      if (patch.priority !== undefined)
+        values.priority = patch.priority === null ? null : PRIORITY_COLUMN[patch.priority];
       if (patch.labels) values.labels = toJson(patch.labels);
+      if (patch.developerLevel) values.developerLevel = toJson(patch.developerLevel);
       statement.run(values);
     },
 

@@ -2,6 +2,13 @@ import type { ReactNode } from 'react';
 
 /** Stroke icons on a 24×24 grid, drawn after the mockups. Always decorative (aria-hidden). */
 const icons = {
+  alertCircle: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v6M12 17h.01" />
+    </>
+  ),
+  activity: <path d="M2 12h5l3-8 4 16 3-8h5" />,
   logo: (
     <>
       <path d="M6.5 6v12" />
@@ -31,6 +38,12 @@ const icons = {
     </>
   ),
   messages: <path d="M20.5 11.6a8 8 0 0 1-11.7 7.1L4 20l1.3-4.4a8 8 0 1 1 15.2-4z" />,
+  map: (
+    <>
+      <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+      <path d="M9 4v14M15 6v14" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7h9" />
@@ -100,6 +113,13 @@ const icons = {
     </>
   ),
   wait: <path d="M12 6v6.5l3.5 2" />,
+  // A clock face: `wait` is only the hands (the board's task card draws the ring around it).
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5v4.8l3 1.9" />
+    </>
+  ),
   prOpen: (
     <>
       <circle cx="6.5" cy="6" r="2.2" />
@@ -254,7 +274,7 @@ const icons = {
   ),
   play: <path d="M8 5.5v13l10.5-6.5z" />,
   pause: <path d="M9 6v12M15 6v12" />,
-  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" />,
+  stop: <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" />,
   undo: (
     <>
       <path d="M9 5L4.5 9.5 9 14" />

@@ -14,6 +14,7 @@ interface MessageRow {
   body: string;
   created_at: string;
   delivered_at: string | null;
+  answer: string | null;
 }
 
 /** A message without its body: who it is between and who read it. */
@@ -31,14 +32,15 @@ const toMessage = (r: MessageRow): TeamMessage => ({
   createdAt: r.created_at,
   deliveredAt: r.delivered_at,
   ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
+  ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
 });
 
 export function createMessageRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     countUnread: db.prepare(
       `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
@@ -53,6 +55,10 @@ export function createMessageRepository(db: Db) {
     involving: db.prepare(
       `SELECT id, from_handle, to_handles, receipts FROM team_messages WHERE project_key = ?
        AND (from_handle = ? OR EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)) ORDER BY seq`,
+    ),
+    pendingFrom: db.prepare(
+      `SELECT * FROM team_messages WHERE task_key = ? AND project_key = ? AND from_handle = ?
+       AND delivered_at IS NULL AND receipts IS NOT NULL ORDER BY seq`,
     ),
     updateReceipts: db.prepare('UPDATE team_messages SET receipts = ?, delivered_at = ? WHERE id = ?'),
     markDelivered: db.prepare(
@@ -80,6 +86,7 @@ export function createMessageRepository(db: Db) {
         m.createdAt,
         m.deliveredAt,
         m.receipts ? toJson(m.receipts) : null,
+        m.answer ? toJson(m.answer) : null,
       );
     },
     /**
@@ -149,6 +156,13 @@ export function createMessageRepository(db: Db) {
             ? m.receipts.some((r) => r.handle === handle && r.kind === 'ai' && !r.deliveredAt)
             : !m.deliveredAt,
         );
+    },
+    /**
+     * `from`'s messages about a card that are not typed into every AI recipient's session yet (PM-144),
+     * oldest first: `delivered_at` stays null while an AI receipt has none.
+     */
+    pendingFrom(projectKey: string, from: string, taskKey: string): TeamMessage[] {
+      return (statements.pendingFrom.all(taskKey, projectKey, from) as MessageRow[]).map(toMessage);
     },
     updateReceipts(
       id: string,

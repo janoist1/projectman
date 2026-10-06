@@ -36,14 +36,15 @@ export function ConfigProblems({ config, section }: { config: ProjectConfig; sec
                     : config.pipeline.labels
                 ).find((item) => item.id === show.id)
               : undefined;
-          const name = element?.name ?? t(`settings.nav.${target?.section ?? 'project'}`);
+          const name = target ? (element?.name ?? t(`settings.nav.${target.section}`)) : undefined;
           return (
             <li key={i}>
-              {name}: {issueMessage(issue)}{' '}
+              {name ? `${name}: ` : null}
+              {issueMessage(issue)}{' '}
               {target && target.section !== section ? (
                 <Link
                   state={{ settingsIssueTarget: true }}
-                  aria-label={t('settings.problems.openLabel', { name })}
+                  aria-label={t('settings.problems.openLabel', { name: name! })}
                   to={{
                     pathname: `/p/${key}/settings/${target.section}`,
                     search: show ? `?${showParams(show)}` : '',

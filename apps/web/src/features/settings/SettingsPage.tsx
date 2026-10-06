@@ -26,9 +26,11 @@ import { PipelineSection } from './sections/PipelineSection';
 import { ProjectSection } from './sections/ProjectSection';
 import { ReposSection } from './sections/ReposSection';
 import { TeamSection } from './sections/TeamSection';
+import { ProvidersSection } from './sections/ProvidersSection';
 
 function summary(section: SettingsSectionId, view: ConfigView | undefined, name: string): string {
   if (section === 'account') return t('settings.summary.account', { name });
+  if (section === 'providers') return t('settings.summary.providers');
   if (!view) return '';
   const { config, history } = view;
   switch (section) {
@@ -133,7 +135,7 @@ export function SettingsPage() {
           key={id}
           to={`${base}/${id}`}
           className={({ isActive }) =>
-            `${styles.navLink} ${isActive ? styles.active : ''} ${id === 'account' ? styles.account : ''}`
+            `${styles.navLink} ${isActive ? styles.active : ''} ${id === 'providers' ? styles.account : ''}`
           }
         >
           <span className={styles.linkText}>
@@ -191,6 +193,9 @@ export function SettingsPage() {
       case 'history':
         content = <HistorySection history={view.history} current={view.version} canRevert={isOwner} />;
         break;
+      case 'providers':
+        content = <ProvidersSection config={view.config} />;
+        break;
     }
     content = (
       <SettingsEditingProvider key={section} view={view} reload={async () => (await config.refetch()).data}>
@@ -239,7 +244,9 @@ export function SettingsPage() {
                   onRetry={() => void config.refetch()}
                 />
               ) : null}
-              {config.data ? <ConfigProblems config={config.data.config} section={section} /> : null}
+              {config.data && section !== 'providers' ? (
+                <ConfigProblems config={config.data.config} section={section} />
+              ) : null}
             </>
           ) : null}
           {content}

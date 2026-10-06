@@ -81,7 +81,8 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     id: 'task_breakdown',
     group: 'direction',
     holders: 'both',
-    prompt: 'Split work into independently testable tasks with create_task and record dependencies.',
+    prompt:
+      'Split work into independently testable tasks with create_task and record dependencies. Set the recommended developer of every developer card you plan or create with update_task or create_task: developer_level senior, with developer_level_reason, for the runner, the sandbox, security, delicate concurrency and debugging; any for UI and well-bounded parts with an exact contract.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

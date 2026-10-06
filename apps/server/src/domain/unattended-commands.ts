@@ -1,3 +1,5 @@
+import path from 'node:path';
+import type { AgentProvider } from '@projectman/shared';
 import type { AgentSandbox } from '../contracts';
 import { isWithin } from './command-paths';
 import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
@@ -71,6 +73,23 @@ export const PROJECT_CHECK_COMMANDS: readonly string[] = [
 ];
 
 /**
+ * The line about a member's own session folder (PM-268, PM-339), for its system prompt. Claude
+ * looks at an image with the file tool, Codex with `view_image`; both attach with `attach_file`.
+ */
+export function describeSessionFolder(sessionFolder: string, provider: AgentProvider): string {
+  const putThere =
+    provider === 'codex'
+      ? `put images and other files to attach there; ${code('attach_file')} takes their absolute path, and an image there opens with ${code('view_image')} (the shell does not show images). Make screenshots with the ${code('take_screenshots')} tool, not by running the shots script in the shell: the browser does not start in your sandbox, so the server runs the scenario (written as in ${code('docs/SCREENSHOTS.md')}) in its own and the images land in ${code('shots/')} of this folder; if the tool answers ${code('running')}, wait for the end with ${code('get_screenshot_run')}.`
+      : `put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path.`;
+  return `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}): ${putThere} Only you write it; the other members' session folders next to it (below ${code(path.dirname(sessionFolder))}) you read without asking, for example a screenshot a teammate names. A folder is deleted when its session's process stops (a stop, a restart), so attach what should stay before you end your turn. A resumed session gets a new folder: folder paths from earlier in this conversation no longer exist, while the files attached to cards stay (${code('list_attachments')}, ${code('read_attachment')}).`;
+}
+
+/** The line about a Codex member's own temporary directory (PM-339). */
+export function describeSessionTmpDir(tmpDir: string): string {
+  return `- Temporary files: ${code('$TMPDIR')} (${code(tmpDir)}) is your own, deleted with the session; send caches and scratch files there. The shared ${code('/tmp')} is not writable.`;
+}
+
+/**
  * The boundary of a Claude member whose shell runs in Claude Code's own sandbox (PM-167), worded
  * for its system prompt in place of the command forms above: in the sandbox no command waits for
  * a human, and what it refuses stays refused. The lines of the section, without its heading.
@@ -129,11 +148,7 @@ export function describeSandbox(input: {
         ]
       : []),
     // PM-268: the member's own folder for what it attaches, and the shared browsers.
-    ...(sessionFolder
-      ? [
-          `- Your session folder: ${code(sessionFolder)} (${code(`$${SESSION_DIR_VARIABLE}`)}), yours alone: put screenshots and other files to attach there; ${code('attach_file')} takes their absolute path. It is deleted when this session's process stops (a stop, a restart), so attach what should stay before you end your turn.`,
-        ]
-      : []),
+    ...(sessionFolder ? [describeSessionFolder(sessionFolder, 'claude')] : []),
     ...(browsers
       ? [
           `- Browsers: Playwright's are in ${code(browsers)} (${code(BROWSERS_PATH_VARIABLE)}), read-only; a human installs them (${code('npm run browsers -- install')}).`,

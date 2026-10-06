@@ -1,11 +1,13 @@
 import { useEffect, useMemo } from 'react';
 import type { BoardView } from '@projectman/shared';
+import { TASK_PRIORITIES, isOpenTask } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { t } from '../../i18n/t';
 import { matchesFilter } from '../../lib/taskState';
 import type { BoardFilter } from '../../lib/taskState';
 import {
   activeFilterCount,
+  NO_PRIORITY,
   assigneeOptions,
   labelOptions,
   matchesCardFilters,
@@ -91,16 +93,30 @@ export function useBoardFilters({
   );
 
   const clearable = activeFilterCount(filters);
+  const priorityChoices: FilterOption[] = [
+    ...TASK_PRIORITIES.map((level) => ({ value: level, label: t(`priority.levels.${level}`) })),
+    { value: NO_PRIORITY, label: t('priority.none') },
+  ];
   const labelOf = (options: readonly FilterOption[], value: string) =>
     options.find((option) => option.value === value)?.label ?? value;
-  const chips: { id: 'assignee' | 'label'; value: string }[] = [];
+  const priorityValue =
+    filters.priority === NO_PRIORITY
+      ? t('board.filterNoPriority')
+      : t('board.filterPriorityValue', { level: labelOf(priorityChoices, filters.priority) });
+  const chips: { id: 'assignee' | 'label' | 'priority'; value: string }[] = [];
   if (filters.assignee) chips.push({ id: 'assignee', value: labelOf(assignees, filters.assignee) });
   if (filters.label) chips.push({ id: 'label', value: labelOf(labelChoices, filters.label) });
+  if (filters.priority) chips.push({ id: 'priority', value: priorityValue });
   return {
     filters,
     setPhase: (phase: BoardFilter) => setBoardFilters({ ...filters, phase }),
     setAssignee: (assignee: string) => setBoardFilters({ ...filters, assignee }),
     setLabel: (label: string) => setBoardFilters({ ...filters, label }),
+    setPriority: (priority: string) => setBoardFilters({ ...filters, priority }),
+    priorityChoices,
+    showPriority:
+      Boolean(filters.priority) ||
+      entries.some((entry) => isOpenTask(entry.task) && entry.task.priority !== null),
     clear: () => setBoardFilters(noBoardFilters),
     clearable,
     assignees,
@@ -116,6 +132,7 @@ export function useBoardFilters({
       ...(activeTheme ? [activeTheme.title] : []),
       ...(filters.assignee ? [labelOf(assignees, filters.assignee)] : []),
       ...(filters.label ? [labelOf(labelChoices, filters.label)] : []),
+      ...(filters.priority ? [priorityValue] : []),
     ],
     /** The chips of the phone list: what is set and how to take it off. */
     chips,

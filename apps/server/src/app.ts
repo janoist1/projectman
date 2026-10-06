@@ -21,6 +21,7 @@ import type {
   BoundaryOperationAdapter,
   ContextPackBuilder,
   FullTestExecutor,
+  ScreenshotExecutor,
   GithubPublisher,
   GithubService,
   ManagedVmBoundary,
@@ -115,6 +116,7 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
 
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
+  nanogptKeyCheck?: import('./domain').NanogptKeyCheck;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The proof of the managed VM boundary (default: the readiness report, `vmReadinessReport`). */
   managedVmBoundary?: ManagedVmBoundary;
@@ -140,6 +142,11 @@ export interface AppModules {
    * is off; `index.ts` passes the sandboxed one, except for the managed VM profile.
    */
   createFullTestExecutor?: (opts: { logger: FastifyBaseLogger }) => FullTestExecutor;
+  /**
+   * Makes the executor of the screenshot runs of the Codex members (PM-351), in the same sandbox and the
+   * same heavy-run queue as the full test. Default: none, so `take_screenshots` is refused.
+   */
+  createScreenshotExecutor?: (opts: { logger: FastifyBaseLogger }) => ScreenshotExecutor;
   /**
    * Makes what the machine display measures with (PM-320). Default: the operating system's; `index.ts`
    * passes the fixed-data probe of the screenshot mode, tests a fake.
@@ -174,6 +181,8 @@ export interface BuildAppOptions {
   codexBin?: string;
   /** Codex's home, where it keeps transcripts (default: the runner's, ~/.codex). */
   codexHome?: string;
+  geminiBin?: string;
+  geminiConfigDir?: string;
   /** Claude Code's global config file, where workspace trust is recorded (default: ~/.claude.json). */
   claudeConfigPath?: string;
   /**
@@ -205,6 +214,11 @@ export interface BuildAppOptions {
    * below it, for screenshots and other files its commands make. Absent (tests): no folders.
    */
   sessionFoldersDir?: string;
+  /**
+   * The root of the Codex sessions' own temporary directories (PM-339), a short path. Absent
+   * (tests): Codex sessions get no folder.
+   */
+  sessionTmpDir?: string;
   /**
    * Playwright's browsers (PM-268), read-only for the members' commands in `PLAYWRIGHT_BROWSERS_PATH`.
    * Absent (tests): the variable is not set.
@@ -465,7 +479,11 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
         : {}),
       boundaryAdapter: modules.boundaryAdapter,
+      nanogptKeyCheck: modules.nanogptKeyCheck,
       fullTestExecutor: modules.createFullTestExecutor?.({ logger: log.child({ module: 'full-test' }) }),
+      screenshotExecutor: modules.createScreenshotExecutor?.({
+        logger: log.child({ module: 'screenshots' }),
+      }),
       repos,
       configStore,
       logger: log.child({ module: 'domain' }),
@@ -474,11 +492,15 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       machineProbe: modules.createMachineProbe
         ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
         : undefined,
-      createRunner: (broker) =>
+      createRunner: (broker, nanogptKey) =>
         makeRunner({
           claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
           codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
           codexHome: options.codexHome,
+          nanogptCodexHome: join(home, 'providers', 'nanogpt', 'codex-home'),
+          nanogptKey,
+          geminiBin: options.geminiBin,
+          geminiConfigDir: options.geminiConfigDir,
           claudeConfigPath: options.claudeConfigPath,
           env: options.agentEnv,
           terminal: options.terminal,
@@ -503,6 +525,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       appHome: home,
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
+      sessionTmpDir: options.sessionTmpDir,
       browsersDir: options.browsersDir,
       heavyLockDir: options.heavyLockDir,
       memberWorkspaces,

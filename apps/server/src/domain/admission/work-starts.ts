@@ -7,7 +7,7 @@ import type { StageChange, TaskService } from '../tasks';
 import { SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
-import type { LabelWait, LabelWaitRequest, TaskStarts } from './task-starts';
+import type { LabelWait, LabelWaitRequest, SeniorWait, SeniorWaitRequest, TaskStarts } from './task-starts';
 
 type WorkStartSpec = Extract<StartSpec, { kind: 'work_start' }>;
 
@@ -22,8 +22,10 @@ type WorkStartSpec = Extract<StartSpec, { kind: 'work_start' }>;
  * still in the stage it was moved into, still without an assignee other than the one this start
  * assigned itself, is started: a move, a closure, someone's assignment or the Start button ends the
  * wait. A missing repository is not waited for (`repo_required`; the card shows it, see `TaskStore`).
+ * A card recommended for the Senior waits for one the same way (`senior_busy`, PM-348): the start is
+ * deferred while every Senior is busy, and `SeniorWaits` asks the owners after the wait limit.
  */
-export class WorkStarts implements LabelWait {
+export class WorkStarts implements LabelWait, SeniorWait {
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly sessions: SessionOrchestrator;
@@ -103,6 +105,30 @@ export class WorkStarts implements LabelWait {
     this.admission.defer(start, { reason: 'label_missing', labels: wait.labels, member: wait.member });
   }
 
+  /**
+   * PM-348: the person's Start on a card recommended for the Senior, with every Senior busy, leaves
+   * the card in the work stage without an assignee and keeps its start as a work start that waits
+   * (`SeniorWait`, under the admission lock). The stage move's own `begin` may have made a start
+   * for the card too: both use the same key, so the deferral that is stored replaces the other and
+   * keeps when the wait began.
+   */
+  awaitSenior(wait: SeniorWaitRequest): void {
+    const start = this.startFor({
+      kind: 'work_start',
+      projectKey: wait.projectKey,
+      taskKey: wait.taskKey,
+      from: wait.from,
+      to: wait.to,
+      actor: wait.actor,
+      ...(wait.despitePrerequisites ? { despitePrerequisites: true } : {}),
+    });
+    this.admission.defer(start, {
+      reason: 'senior_busy',
+      seniors: wait.seniors,
+      ...(wait.waitDecidedBy ? { waitDecidedBy: wait.waitDecidedBy } : {}),
+    });
+  }
+
   /** A start deferred when the server stopped, made again from what was stored; null when its task is gone. */
   rebuild(spec: WorkStartSpec): AutomaticStart | null {
     return this.tasks.find(spec.projectKey, spec.taskKey) ? this.startFor(spec) : null;
@@ -131,7 +157,7 @@ export class WorkStarts implements LabelWait {
       stillValid,
       waitsFor: () => waitsFor,
       // A card with an open prerequisite waits for the last one to close (PM-204).
-      defers: ['no_free_member', 'prerequisite_open'],
+      defers: ['no_free_member', 'prerequisite_open', 'senior_busy'],
       // Still short of a label the gate asks for: the card does not start yet.
       blocked: (task, config) => task.stageId !== to && evaluateStart(task, config, to).unmet.length > 0,
       retry: () => this.attempt(start),
@@ -149,6 +175,7 @@ export class WorkStarts implements LabelWait {
         await this.starts.startLocked(projectKey, taskKey, {
           actor,
           author: SYSTEM_AUTHOR,
+          automatic: true,
           assignee: spec.developer,
           stillWanted: stillValid,
           despitePrerequisites: spec.despitePrerequisites,

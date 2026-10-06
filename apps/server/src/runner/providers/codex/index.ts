@@ -8,9 +8,27 @@ import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
 import { parseCodexLoginStatus } from '../login';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../types';
-import { buildCodexArgs } from './args';
+import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
+import { inspectCodexMcpServers, type AmbientIssue } from '../../managed-vm';
+
+/** A fail-closed local Codex start; details contain version and setting names, never values. */
+export class CodexStartError extends Error {
+  readonly code = 'codex_setup_incomplete';
+  readonly details: Record<string, unknown>;
+  constructor(details: {
+    problem: 'cli_missing' | 'cli_too_old' | 'sandbox_config' | 'mcp_config' | 'cli_location';
+    cliPath?: string;
+    cliVersion?: string;
+    minCliVersion?: string;
+    ambientConfig?: AmbientIssue[];
+  }) {
+    super('Codex is not ready');
+    this.name = 'CodexStartError';
+    this.details = { provider: 'codex', ...details };
+  }
+}
 
 /**
  * OpenAI Codex CLI (codex-cli 0.159.1) in its interactive TUI, on the owner's ChatGPT login.
@@ -41,6 +59,7 @@ export const CODEX_TIMING: SessionTiming = {
   compactTimeoutMs: 300_000,
   interruptConfirmMs: 5_000,
   haltStopMs: 5_000,
+  turnEndGraceMs: 5_000,
 };
 
 /** Codex's question tool: it waits for an answer typed in the terminal. */
@@ -95,6 +114,8 @@ const CODEX_BLOCKING_SCREENS: Array<[RegExp, string]> = [
 const COMPOSER_LINE = /^›(?:\s|$)(?!\s*\d+\.)/;
 /** The footer under the composer. */
 const FOOTER_LINE = /\? for shortcuts|context left|esc to interrupt|tab to queue/i;
+// Custom models without context-window metadata show model, effort and directory instead.
+const MODEL_FOOTER_LINE = /^\s*\S+\s+(?:low|medium|high|xhigh)\s+·\s+(?:~\/|\/)/;
 const MAX_COMPOSER_LINES = 20;
 
 /** Whether Codex's composer (input line and footer) is on screen, i.e. no dialog covers it. */
@@ -103,7 +124,7 @@ export function codexPromptVisible(text: string): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!COMPOSER_LINE.test(lines[i]!)) continue;
     for (let j = i + 1; j < lines.length && j <= i + MAX_COMPOSER_LINES; j++) {
-      if (FOOTER_LINE.test(lines[j]!)) return true;
+      if (FOOTER_LINE.test(lines[j]!) || MODEL_FOOTER_LINE.test(lines[j]!)) return true;
     }
   }
   return false;
@@ -151,6 +172,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     label: 'Codex',
     bin: opts.bin,
     capabilities: {
+      toolGate: 'permission_request',
       presetSessionId: false,
       sessionPermissionRules: false,
       readiness: 'screen',
@@ -158,9 +180,26 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,
 
-    async launch({ spec, hookUrl, permissionTimeoutMs }) {
+    async launch({ spec, hookUrl, permissionTimeoutMs, cliPath }) {
+      if (
+        spec.policy?.execution?.profile !== 'managed_vm' &&
+        cliPath &&
+        codexCliReadRoot(cliPath, codexDeniedPaths({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
+      )
+        throw new CodexStartError({ problem: 'cli_location', cliPath });
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
-      const { args, initialMessageSent } = buildCodexArgs({ spec, hookUrl, permissionTimeoutMs, realCwd });
+      const userMcp = await inspectCodexMcpServers({ codexHome: opts.codexHome });
+      if (userMcp.unresolved.length)
+        throw new CodexStartError({ problem: 'mcp_config', ambientConfig: userMcp.unresolved });
+      const { args, initialMessageSent } = buildCodexArgs({
+        spec,
+        hookUrl,
+        permissionTimeoutMs,
+        realCwd,
+        codexHome: opts.codexHome,
+        cliPath,
+        disabledMcpServers: userMcp.names,
+      });
       return { ...resolveCommand(opts.bin, args), cliArgs: args, initialMessageSent };
     },
 

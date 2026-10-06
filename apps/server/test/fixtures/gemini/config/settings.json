@@ -1,0 +1,7 @@
+{
+  "colorScheme": "dark",
+  "toolPermission": "always-proceed",
+  "trustedWorkspaces": [
+    "/path/to/worktree"
+  ]
+}

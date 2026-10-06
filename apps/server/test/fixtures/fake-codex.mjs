@@ -31,7 +31,9 @@
  *   --dangerously-bypass-hook-trust: any key continues, and those hooks never run;
  * - after FAKE_CODEX_STARTUP_DELAY_MS (default 50) the history of a resumed session, then the
  *   composer: "› Ask Codex to do anything" above a footer "? for shortcuts ... 100% context
- *   left". A PROMPT argument is submitted right away. SessionStart only fires with that first
+ *   left". FAKE_CODEX_MODEL_FOOTER uses the model/effort/directory footer from the owner's
+ *   NanoGPT 0.159.1 screen instead, with three warnings and no context metadata.
+ *   A PROMPT argument is submitted right away. SessionStart only fires with that first
  *   turn, so a resumed session that is given no prompt reports nothing until someone types.
  *
  * HOOKS (`hooks.<Event> = [{hooks = [{type = "command", command, timeout}]}]`): run with
@@ -76,7 +78,7 @@
  *     turn's `last_token_usage`: input 10 of which 4 cached, output 5 of which 2 reasoning; and
  *     the running `total_token_usage`), the same event once more, task_complete, then Stop.
  *
- * VERSION: `--version` prints `codex-cli <FAKE_CODEX_VERSION, else 0.0.0>`. FAKE_CODEX_FORCE_APPROVAL
+ * VERSION: `--version` prints `codex-cli <FAKE_CODEX_VERSION, else 0.159.1>`. FAKE_CODEX_FORCE_APPROVAL
  *   makes a command that needs escalation ask even where the policy says it never does (a
  *   sandbox of danger-full-access, an approval policy of never): a request that arrives where
  *   none is expected.
@@ -89,11 +91,10 @@
  * fake-tui.mjs.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  VERSION,
   awaitTrust,
   createKeyWaiter,
   createPasteStore,
@@ -105,6 +106,8 @@ import {
   sleep,
   writeArgsFile,
 } from './fake-tui.mjs';
+
+const VERSION = process.env.FAKE_CODEX_VERSION ?? '0.159.1';
 
 // ------------------------------------------------------------------ TOML values (for -c)
 
@@ -349,7 +352,8 @@ for (const feature of opts.disable) applyOverride(config, `features.${feature}=f
 
 const codexHome = process.env.CODEX_HOME || path.join(os.tmpdir(), 'fake-codex-home');
 
-if (process.env.FAKE_CODEX_ARGS_FILE) writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config });
+if (process.env.FAKE_CODEX_ARGS_FILE)
+  writeArgsFile(process.env.FAKE_CODEX_ARGS_FILE, { config, envNames: Object.keys(process.env).sort() });
 
 if (opts.version) {
   process.stdout.write(`codex-cli ${process.env.FAKE_CODEX_VERSION ?? VERSION}\n`);
@@ -461,7 +465,21 @@ async function interactive() {
   const resumeId = opts.subcommand === 'resume' ? (opts.positional[0] ?? null) : null;
   const firstPrompt = (opts.subcommand === 'resume' ? opts.positional[1] : opts.positional[0]) ?? null;
   const model = opts.model ?? config.model ?? 'gpt-fake';
-  const sandbox = opts.sandbox ?? config.sandbox_mode ?? 'read-only';
+  const profileName = config.default_permissions;
+  const profile = typeof profileName === 'string' ? config.permissions?.[profileName] : undefined;
+  const hasWrite = (value) =>
+    value === 'write' || (value && typeof value === 'object' && Object.values(value).some(hasWrite));
+  const legacy =
+    opts.sandbox !== null ||
+    config.sandbox_mode !== undefined ||
+    config.sandbox_workspace_write !== undefined;
+  if (profile && legacy)
+    process.stderr.write('Warning: legacy sandbox settings override the permission profile\n');
+  const sandbox = legacy
+    ? (opts.sandbox ?? config.sandbox_mode ?? 'workspace-write')
+    : profile && hasWrite(profile.filesystem)
+      ? 'workspace-write'
+      : 'read-only';
   const approval = opts.approval ?? config.approval_policy ?? 'on-request';
   const permissionMode = approval === 'never' ? 'bypassPermissions' : 'default';
   const workDelay = Number(process.env.FAKE_CODEX_WORK_DELAY_MS ?? 50);
@@ -592,7 +610,9 @@ async function interactive() {
   const keys = createKeyWaiter();
   let lastCtrlC = 0;
 
-  const FOOTER = '  ? for shortcuts                                              100% context left';
+  const FOOTER = process.env.FAKE_CODEX_MODEL_FOOTER
+    ? `  ${model} ${config.model_reasoning_effort ?? 'medium'} · ${realCwd}   ⚠ 3 warnings · f2 to view`
+    : '  ? for shortcuts                                              100% context left';
   function showPrompt() {
     mode = 'prompt';
     out(`\r\n› ${input.length > 0 ? input.replace(/\n/g, '\r\n  ') : 'Ask Codex to do anything'}`);
@@ -772,7 +792,7 @@ async function interactive() {
       turn_id: turnId,
       cwd,
       approval_policy: approval,
-      sandbox_policy: { type: sandbox },
+      sandbox_policy: { type: sandbox, ...(profile ? { profile: profileName } : {}) },
       model,
     });
     eventMsg({ type: 'task_started', turn_id: turnId });
@@ -1004,7 +1024,15 @@ async function interactive() {
   line(`model: ${model} · directory: ${cwd}`);
   line();
 
-  if (process.env.FAKE_CODEX_LOGGED_OUT) {
+  if (config.model_provider === 'nanogpt' && !process.env.NANOGPT_API_KEY) {
+    line('Not logged in: NanoGPT key missing');
+    await keys.wait();
+    process.exit(1);
+  }
+  if (
+    process.env.FAKE_CODEX_LOGGED_OUT ||
+    (!config.model_provider && existsSync(path.join(codexHome, 'auth.json')))
+  ) {
     line('Sign in with ChatGPT to use Codex as part of your paid plan');
     line('› 1. Sign in with ChatGPT');
     line('  2. Provide your own API key');

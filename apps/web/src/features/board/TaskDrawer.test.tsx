@@ -49,6 +49,28 @@ describe('task drawer lifecycle', () => {
     );
     expect(screen.getByText(t(`taskStatus.startHints.${reason}`))).toBeTruthy();
   });
+  it.each([
+    ['claude', 'claude auth login'],
+    ['codex', 'codex login'],
+  ] as const)(
+    'names the provider and the login command when %s is not logged in (PM-324)',
+    async (provider, command) => {
+      const project = mockProject();
+      const task = project.backend.findTask('AC-20')!;
+      task.startWaiting = {
+        reason: 'provider_not_logged_in',
+        member: 'be-1',
+        provider,
+        since: task.updatedAt,
+      };
+      project.render(drawer, '/p/AC/tasks/AC-20');
+      await screen.findByText(
+        t('taskStatus.startWaiting.provider_not_logged_in', { provider: t(`providers.${provider}`) }),
+      );
+      const hint = screen.getByText(t('taskStatus.startHints.provider_not_logged_in'));
+      expect(within(hint).getByText(command).tagName).toBe('CODE');
+    },
+  );
   it('shows the commit handed over for review (PM-183)', async () => {
     const project = mockProject();
     const task = project.backend.findTask('AC-20')!;
@@ -1148,7 +1170,7 @@ describe('task drawer loop box (PM-261)', () => {
       within(box)
         .getByRole('link', { name: t('loop.box.messages') })
         .getAttribute('href'),
-    ).toBe('/p/AC/messages/all?task=AC-21');
+    ).toBe('/p/AC/tasks/AC-21/thread');
     expect(screen.queryByRole('heading', { name: t('inbox.loop.heading') })).toBeNull();
   });
 

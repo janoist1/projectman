@@ -23,11 +23,13 @@ Documentation map:
 
 ## Hard constraints
 
-1. **Subscription, never API billing** (decisions 1, 15). Agents run as interactive TUIs in
+1. **Subscription, with a narrow NanoGPT exception** (decisions 1, 15, 34). Agents run as interactive TUIs in
    a pseudo-terminal, logged in with the sponsor's Claude or ChatGPT plan. No Agent SDK,
    `claude -p`, `codex exec` or app server for member work. The runner strips API keys and
    endpoint overrides from every session, and refuses to start a CLI that is not logged in
-   with a subscription. The app never collects or stores agent credentials.
+   with a subscription. NanoGPT alone receives the projectman-managed key from its secret
+   store, in a dedicated Codex home without ChatGPT login or OpenAI billing fallback
+   (PM-328, PM-329). The app never collects or stores subscription login credentials.
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
    (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by
@@ -290,6 +292,19 @@ Documentation map:
   through (the label set, or `ui` removed). A move, a cancel or an assignment ends the wait like
   for the other work starts. Only a person's start (`StartTaskOptions.startSetters`, set by the
   route) starts setters.
+  **The Senior card** (PM-348, decisions K2 and K3 of PM-338): the automatic developer choice is
+  `pickDeveloper` in `packages/shared` (a Senior card to a free Senior; any other card to the least
+  loaded free member, a Senior last; a Senior card never to a temp worker). While every Senior is busy
+  or away, `startLocked` leaves the card in the work stage unassigned and the start waits as a
+  `work_start` deferral (`startWaiting.reason` `senior_busy`, with `seniors`); a person's Start gets a
+  normal response with that wait. `SeniorWaits` (`admission/senior-waits.ts`, table `senior_waits`, one
+  open row per card) keeps when the wait began, the question and the answer over a restart. After
+  `seniorWaitMinutes` (30) the 60 s sweep asks the owners once (an inbox decision, `wait_for_senior` or
+  `any_developer`); "any" lets a free developer take it, never a temp worker. A freed Senior takes the
+  card first (`retryDeferred` tries `senior_busy` deferrals first) and the question closes
+  (`senior_took`); an assignment, move, closure, level change or the end of the team's Senior closes it
+  (`senior_wait_ended`). A team without a Senior starts the card by the "any" rule (`no_senior` event).
+  No machine-dependent part is affected.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
   An owner that already has a session for the task gets a notice instead.
@@ -481,6 +496,7 @@ changes) belong in `packages/shared`, so the server and the web's test fake use 
 ```
 db.sqlite                 runtime state
 secret                    cookie signing key
+secrets/nanogpt.json       installation NanoGPT key (0700 directory, 0600 file; PM-328)
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
 worktrees/<KEY>/…         git worktrees created for tasks
@@ -622,7 +638,8 @@ home, the server's own checkout `installDir` from `index.ts`; PM-188) in `denyWr
 `gh pr view`/`gh pr diff` outside it only for a repository on GitHub. Both have the credentials
 and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also denies `Edit` of the
 `denyWrite` paths (and everything below them) with rules, since the sandbox does not bind the
-built-in file tools. Codex ignores the spec's sandbox (its own is `read-only` for readers); the
+built-in file tools. Codex renders the sensitive-path denials and portable writes through its
+own permission profile (PM-356; readers receive no write entries); the
 managed VM profile gets none.
 
 ## Managed VM profile (PM-137, part of PM-135)
@@ -822,22 +839,306 @@ workers follow the machine's size.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
   `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
-  signal is passed on to the command, and an unusable queue folder only warns, so the lock never holds
-  anything back. `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
+  signal is passed on to the command. An unusable queue folder (`heavy_lock_unavailable`) stops the
+  command with exit status 78 and a four-line message; it does not run without the queue (decision 33,
+  PM-346). `PROJECTMAN_HEAVY_LOCK_HELD=1` (set for everything the CLI runs) makes a nested call run
   without queueing. Runs inside one workspace (`npm test -w …`, `npx vitest related …`) do not queue.
 - **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
   run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
-  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again.
+  `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again. With an
+  unusable folder it runs without the queue and logs a warning: the review must not stall on it.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
-  npm cache when there is no clone). A Codex member gets no sandbox environment, so its commands queue in the
-  default folder, or run without the queue when that is not writable there.
+  npm cache when there is no clone). The same folder and variables go to a Codex member as
+  `AgentSandbox.portable` (PM-346): `buildCodexArgs` adds the parent to `sandbox_workspace_write.writable_roots`
+  (only in `workspace-write`; none in the managed VM) and sets each variable with
+  `shell_environment_policy.set.<NAME>`, so every command sees them, also one run outside the sandbox after a
+  question. The server makes the missing parent (0700) before the process starts.
 - **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
 - **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
   script itself.
+
+## Machine-dependent parts (PM-341)
+
+- **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
+  `runner/env.ts`, `app.ts`, `index.ts`
+  (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under
+  `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
+  adapter supplies the secret as trusted child environment and excludes it from CLI shell
+  commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
+  Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** the CLI,
+  home and transcripts belong on the engine; secret delivery requires an authenticated
+  launch/resume boundary, never configuration, public status or logs. The current server and
+  CLI share a machine and filesystem. A remote engine performs local version and auth-file
+  checks and returns readiness status. It never persists or returns the delivered key,
+  including in its spool; a replaced key affects only subsequent launches and resumes.
+  Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
+  `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
+  NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home
+  `hooks.json` files; escaped quoted TOML roots fail closed in the shared inspector.
+  The shared inspector checks separate project and home hook files for every Codex caller;
+  NanoGPT selects `projectFolder: 'any'`, also refusing symlinked or non-directory project folders.
+  On a remote engine this inspection must run beside the CLI, before secret delivery.
+  The engine also applies NanoGPT-only feature overrides disabling plugins, apps and
+  skill-triggered MCP installation, an ephemeral authentication store, and disabled analytics
+  and feedback. All child environments strip `CODEX_ACCESS_TOKEN`. Codex 0.159.1's public,
+  unauthenticated GitHub announcement request remains a CLI network assumption.
+  The environment filter also removes AuthManager's OAuth client-id and token-endpoint
+  overrides, so a host environment cannot redirect child subscription authentication.
+
+- **Gemini (agy) CLI, conversation directories and keychain login** —
+  `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
+  authenticated with the executing account's Google consumer login in its keychain. Each
+  conversation has a private directory under `PROJECTMAN_HOME/providers/gemini`; it stays
+  for resume, holds hook/MCP configuration and local transcripts, and confines transcript
+  reads (`Launch.conversationRoot`). POSIX sh plus curl (Node fallback) forwards hooks to
+  loopback HTTP. Updates are disabled in launches and login probes; maintenance is manual.
+  Commands currently run without a sandbox under owner decision T4: role shell rules allow
+  listed developer commands, other calls use the inbox, and a missing hook answer denies the call.
+  A command's actual working directory must stay in the session placement/writable roots;
+  denied relative paths are resolved there. Read-only placements cannot use the unsandboxed
+  shell-rule exception: commands pass through the inbox's existing read-only rules instead.
+  This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
+  **Remote engine:** the binary, login/keychain, private directories, PTY, forwarder and
+  transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
+  transcript access must use the launcher with the conversation root as its confinement,
+  rather than opening engine paths on the server. Managed VM launches remain unsupported
+  until PM-331. No remote Gemini launcher is implemented by PM-326.
+
+- **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
+  See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
+  The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
+  with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
+  owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
+  **Remote engine:** storage and validation remain on the server; this card does not send
+  the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
+  server/engine boundary, without configuration, database or logging persistence on either side.
+
+This is a living inventory of assumptions that tie execution to a machine, account or OS.
+The current local mode usually places the server and agent CLIs on the same host; the managed
+VM boundary separates accounts on one host, not server and engine across hosts. The remote
+actions below are requirements for planning, not implemented remote support or new contracts.
+Keep entries current under the rule in `CLAUDE.md`.
+
+Unless stated otherwise, server paths below are relative to `apps/server/src/`.
+
+- **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
+  probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
+  the normal failed-session cleanup. Only `ESRCH` proves disappearance; permission errors
+  leave the session running. An unreaped zombie also passes the probe. Across launcher worker
+  accounts an `EPERM` result provides no liveness verdict; the launcher exit event remains necessary.
+  The PID belongs to this host (including local launcher workers).
+  **Remote engine:** run this probe beside the CLI on the engine and transport the exit event;
+  a remote PID must never be checked against the server's process table.
+
+- **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
+  `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
+  phase until a release file exists in the disposable session workspace; PTY readiness
+  markers confirm the phase before a pause is requested. The test and fake must share
+  that temporary filesystem. Interrupting a turn abandons its gate without a release.
+  **Remote engine:** run this integration harness and its fake together on the engine;
+  these test-only paths never cross the production server/engine boundary.
+- **Dependency clones** — `worktree/dependencies.ts`, `cloneDependencies` (PM-334).
+  Copies installed `node_modules` from another checkout with the same lockfile using
+  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe.
+  **Remote engine:** find reference checkouts and probe the filesystem on the engine;
+  retain the existing skip/install fallback on other platforms. The server's installation
+  cannot be cloned across machines, and native dependencies must match the engine.
+- **Heavy-run queue and worker limits** — `full-test/heavy-lock.ts`,
+  `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
+  `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
+  `/tmp/projectman-<uid>/heavy` uses local atomic directory operations, PID liveness and
+  heartbeats; worker limits use the executing host's CPU and memory. Same-host runs must
+  use the same lock directory; different users are not automatically one queue. An unusable
+  folder stops a member's heavy command (exit 78); the server's full test runs without the queue
+  and warns (PM-346).
+  **Remote engine:** queue competing runs on each execution host and size workers there;
+  do not use the server's PID namespace, lock or hardware measurements for another engine. The
+  engine supplies `SandboxPaths.heavyLockDir` from its own `defaultHeavyLockDir()` or setting,
+  and with it the `StartSessionSpec.sandbox.portable` paths; its runner renders the Codex
+  arguments and makes the folder (PM-311, PM-312).
+- **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
+  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339). Legacy Claude
+  sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
+  writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
+  folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
+  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<session id>.<6 random hex>`
+  (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
+  removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
+  and a sibling of the heavy-run queue's parent `projectman-<uid>`, never below or above it (that
+  parent is writable for every member's commands, so a path there could be pre-empted or read by a
+  member; an overlap, compared as written and by canonical path through links, leaves Codex without a folder); a directory is new at every start and made
+  without `recursive`, so a link put there beforehand stops the start. The path is short because a Unix
+  socket's is limited to 104 bytes. The Codex adapter then closes the shared `/tmp` and the CLI's
+  `$TMPDIR` for its commands.
+  The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
+  Every Claude session reads all the folders below the instance's root
+  (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
+  renders (`filesystem.sessionFolder`, `sessionFoldersRoot`; `claudeToolRules`) and a developer's
+  sandbox `allowRead`; it writes only its own folder. A resumed session gets a new folder, and its
+  system prompt says that the old paths are gone and the card's attachments stay. Another
+  instance's root (another home hash) gets no rule.
+  **Remote engine:** allocate and clean up on the executing host, generate its sandbox paths
+  there, and transfer output through an authenticated attachment path rather than reading a
+  remote absolute path on the server. The root is a property of the engine (the PM-312 host's
+  file system), not of the server; the policy carries the two paths to the host that runs the
+  CLI. A member reads only the folders of sessions on its own engine; images move between
+  machines through `attach_file` → `read_attachment`.
+- **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
+  `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270).
+  Playwright loads local Chromium binaries from the configured browser directory (default
+  `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
+  `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
+  and writes images to local output storage. For a Codex member, whose sandbox cannot start
+  Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
+  PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
+  member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
+  the session folder as the output; it queues in the machine's heavy-run queue and is off in the
+  managed VM profile and off macOS.
+  **Remote engine:** provision a compatible browser on the engine, preserve the disposable
+  instance's network fence and read-only browser access, and return images as artifacts. The
+  screenshot run belongs on the engine that owns the member's worktree and session folder (the
+  server cannot run it against a remote path); the server keeps only the tool and the run record.
+- **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
+  `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
+  OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
+  ownership checks and signals use its UID and PID namespace, with process start times
+  checked against PID reuse. **Remote engine:** measure and stop on the owning engine,
+  identify the engine with every process identity, and preserve fresh ownership/orphan
+  checks and owner access. A remote PID must never be signalled on the server.
+- **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
+  `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
+  `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
+  not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
+  explicitly, including reconnects and moves; equal paths on different hosts must not imply
+  equal ownership.
+- **Session process termination** — `runner/session.ts` (`stop`, `kill`),
+  `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
+  SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
+  In local mode stopping the CLI does not itself prove that detached children are gone.
+  **Remote engine:** execute stop/kill on the engine owning that process, return its exit
+  acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
+  is not evidence that a remote session has stopped.
+- **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
+  `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
+  (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
+  The reader selects the shared Codex transcript format with `usesCodexCli` from
+  `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
+  Claude conversations live under `~/.claude/projects`; Codex rollouts under
+  `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
+  checks transcript content; managed worker reads are confined to the worker home.
+  **Remote engine:** keep CLI conversation state and resume checks on its engine/account,
+  stream conversation events to the server, and preserve confinement. A conversation ID
+  without its engine's saved state is insufficient for resume.
+- **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
+  `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
+  `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
+  PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
+  instance; the port is configurable). The internal guard also checks the peer, Host and
+  forwarding/origin headers; merely changing the URL to a public server cannot work.
+  **Remote engine:** plan an authenticated engine transport/local relay for hooks, decisions
+  and MCP while preserving token isolation and the internal endpoint guard.
+- **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
+  `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
+  `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
+  `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
+  common git directory. Canonical paths, branch ownership and cleanup are local filesystem
+  operations. **Remote engine:** maintain repositories/worktrees and git metadata there;
+  plan branch/commit transfer and remote status/cleanup rather than treating server paths
+  as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
+- **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
+  `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
+  value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
+  hosts or even every local worktree volume. **Remote engine:** report capacity for the
+  engine's execution/storage volumes and plan admission against those as well as server
+  storage; keep unavailable measurements distinct from low capacity.
+- **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
+  `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
+  `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
+  access. Pause and shutdown act through the local runner; activation checks local instance
+  markers and database use. Deployment scripts using the control client need access to that
+  host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
+  **Remote engine:** keep the administrative socket local, propagate pause/stop to engines
+  with acknowledgements and reconnect handling, and require the existing human deployment
+  decision before activation; local process exit is not proof that remote work stopped.
+- **Native sandbox and canonical paths** — `domain/session-policy.ts`,
+  `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333).
+  Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
+  are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
+  Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
+  receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
+  the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
+  and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
+  the queue's parent, the session folder and
+  the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
+  The managed VM retains the legacy sandbox flags because its VM is the boundary.
+  PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
+  a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
+  setting names through `codex_setup_incomplete`. User MCP names are resolved beside the CLI;
+  ambiguous names refuse startup. `runner/providers/codex/args.ts` disables each user server
+  and the eight plugin/app/computer/browser features for every Codex provider. The native
+  Codex 0.159.1 probe on macOS 14.6 arm64 is recorded on PM-356 (2026-10-06): glob and
+  symlink denials work, `:workspace` and shell-snapshot overrides are unnecessary.
+  `runner/cli.ts` resolves the real executable on the session PATH; the profile reopens
+  only its `packages/standalone` installation ancestor read-only beneath a denied path,
+  provided that ancestor contains no denied path. Unknown layouts stay closed.
+  macOS MDM-managed Codex preferences are not inspected yet (PM-375).
+  **Remote engine:** build the policy from its filesystem and supported OS/provider
+  enforcement, preserve protected paths and fail closed where required; do not copy Mac
+  path grants or infer Codex permissions from Claude syntax.
+  Version/config inspection must run on the engine hosting the CLI, against that engine's
+  filesystem, PATH, user home and administrator/workspace configuration, including executable
+  symlink resolution and installation grants. Only sanitized setting names and
+  structured setup errors cross back to the server; host-side inspection is not a substitute.
+- **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
+  `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
+  `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
+  See **NanoGPT Codex home and key delivery** (PM-329): token usage is parsed as Codex,
+  but NanoGPT rollouts never feed the ChatGPT plan gauge.
+  Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
+  the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
+  events. These observe the local account, not an arbitrary remote sponsor.
+  **Remote engine:** obtain usage where that sponsor's CLI is logged in and send attributed,
+  timestamped measurements; leave credentials there and retain subscription-only execution.
+- **Claude workspace trust** — `runner/providers/claude/trust.ts`,
+  `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
+  in `~/.claude.json` (or the configured Claude config directory); the managed launcher
+  helper does so as the worker, for that worker's home and local repository path.
+  **Remote engine:** prepare trust on the engine as the executing account, for the actual
+  canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
+- **Server full test before review** — `domain/full-tests.ts`,
+  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336; PM-351 shares the spawn with the
+  screenshot runs). The executor runs the pinned checkout on the server host, using local
+  git metadata, a short temporary run directory, process-group signals and macOS `srt`;
+  it is unavailable without macOS/`srt` and is off in the managed VM profile.
+  **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent
+  isolation and resource queuing there, and transport of the attributed verdict/cancellation.
+  An unavailable executor must not become a passing verdict.
+- **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
+  `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
+  `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
+  PM-138; PM-331). The privileged launcher uses a local Unix socket and worker accounts;
+  egress peer identity comes from Linux's local `/proc/net/tcp*` socket UID tables.
+  Worker workspace hand-over uses local owner-checked spool files and git bundles.
+  **Remote engine:** retain the launcher, account isolation, peer checks and spools inside
+  the execution host; plan authenticated server/engine requests and artifact transfer instead
+  of forwarding Unix paths, UIDs or TCP peer lookup across machines.
+- **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
+  `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
+  Disposable instances reserve loopback ports, spawn local server/web process groups and
+  use local temp homes; migration inventories local repositories, paths and database use,
+  packages data and remaps paths. Cross-machine activation already requires a person's
+  confirmation that the source is retired. **Remote engine:** execute local probes and
+  process management on the target host, inventory engine state separately, and preserve
+  explicit source retirement and rollback checks rather than inferring remote liveness.
+
+After this inventory reaches `main`, the architect must compare the PM-286 hybrid plan and
+its breakdown with it before PM-311 starts, including the related remote-work directions
+PM-310 and PM-331. PM-341 is PM-311's prerequisite; that planning review is separate from
+this documentation change.
 
 ## Housekeeping: worktrees of closed cards and free disk space (PM-243)
 

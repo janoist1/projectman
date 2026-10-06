@@ -7,6 +7,7 @@ export const SETTINGS_SECTIONS = [
   'project',
   'repos',
   'history',
+  'providers',
   'account',
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];

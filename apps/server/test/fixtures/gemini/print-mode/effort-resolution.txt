@@ -1,0 +1,14 @@
+## agy --effort xhigh
+error: invalid model selection (--model "" --effort "xhigh"): gemini-3.8-flash has no "xhigh" effort (available: low, medium, high)
+## agy --effort max
+error: invalid model selection (--model "" --effort "max"): gemini-3.8-flash has no "max" effort (available: low, medium, high)
+## agy --model gemini-3.1-pro --effort high
+error: context canceled
+## agy --model gemini-3.1-pro --effort medium
+error: invalid model selection (--model "gemini-3.1-pro" --effort "medium"): gemini-3.1-pro has no "medium" effort (available: low, high)
+## agy --model claude-opus-5-5 --effort high
+{"event":"command_result","command":{"name":"model","data":{"id":"claude-opus-5-5-high","label":"Claude Opus 5.5 (High)","effort":"high","is_default":false}}}
+## agy --model gpt-oss-120b-medium
+{"event":"command_result","command":{"name":"model","data":{"id":"gpt-oss-120b-medium","label":"GPT-OSS 120B (Medium)","effort":"medium","is_default":false}}}
+## agy --model gemini-3.8-flash-high
+{"event":"command_result","command":{"name":"model","data":{"id":"gemini-3.8-flash-high","label":"Gemini 3.8 Flash (High)","effort":"high","is_default":false}}}

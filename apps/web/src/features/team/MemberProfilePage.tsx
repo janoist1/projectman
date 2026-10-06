@@ -2,10 +2,18 @@ import { InviteDialog } from './InviteDialog';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
-import { cheapSubagentOf, DEFAULT_AGENT_PROVIDER, mergeTokenUsage, roleBundle } from '@projectman/shared';
+import {
+  cheapSubagentOf,
+  DEFAULT_AGENT_PROVIDER,
+  effortForProvider,
+  hasPlanUsage,
+  mergeTokenUsage,
+  roleBundle,
+} from '@projectman/shared';
 import type { SchedulesView, Session, TeamMessage } from '@projectman/shared';
 import {
   useBoard,
+  useProviders,
   useConfig,
   useSchedules,
   useLabels,
@@ -47,6 +55,7 @@ import { MessageList } from '../messages/MessageList';
 import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
+import { ProviderWarning } from './ProviderWarning';
 import { LeaveButton } from './LeaveButton';
 import { MemberMenu } from './MemberMenu';
 import { RetireDialog } from './RetireDialog';
@@ -104,6 +113,7 @@ export function MemberProfilePage() {
   const navigate = useNavigate();
   const profile = useMemberProfile(key, handle);
   const board = useBoard(key);
+  const providers = useProviders();
   const indexes = useProjectIndexes(key);
   const labels = useLabels(key);
   const roles = useRoles(key);
@@ -131,6 +141,9 @@ export function MemberProfilePage() {
   if (!profile.data) return <LoadingState />;
   const data = profile.data;
   const member = data.member;
+  const provider = member.provider ?? DEFAULT_AGENT_PROVIDER;
+  const providerStatus = providers.data?.providers.find((entry) => entry.provider === provider);
+  const effort = effortForProvider(provider, member.effort);
   const ai = member.kind === 'ai';
   const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
@@ -168,7 +181,16 @@ export function MemberProfilePage() {
         title={member.displayName}
         subtitle={
           <>
-            <code>{member.handle}</code> · <span>{status.label}</span>
+            <code>{member.handle}</code> ·{' '}
+            {member.senior ? (
+              <>
+                <Chip tone="accent" title={t('team.seniorTitle')}>
+                  {t('team.senior')}
+                </Chip>{' '}
+                ·{' '}
+              </>
+            ) : null}
+            <span>{status.label}</span>
           </>
         }
       >
@@ -331,19 +353,20 @@ export function MemberProfilePage() {
           </summary>
           <div className={styles.settings}>
             <div className={styles.modelLine}>
-              <ProviderBadge provider={member.provider} />
+              <ProviderBadge provider={provider} status={providerStatus} />
               <span>
                 {member.model
                   ? providerModelLabel(member.provider ?? DEFAULT_AGENT_PROVIDER, member.model)
                   : t('common.dash')}{' '}
-                ·{' '}
-                {member.effort
-                  ? t(`providerSettings.efforts.${member.effort}`)
-                  : member.provider === 'codex'
-                    ? t('providerSettings.efforts.medium')
-                    : t('providerSettings.defaultEffort')}
+                · {effort ? t(`providerSettings.efforts.${effort}`) : t('providerSettings.defaultEffort')}
               </span>
             </div>
+            {provider === 'gemini' &&
+            member.model?.trim() === 'gemini-3.1-pro' &&
+            (!effort || effort === 'medium') ? (
+              <p className={styles.quiet}>{t('providerSettings.geminiProEffortHint')}</p>
+            ) : null}
+            <ProviderWarning provider={provider} status={providerStatus} />
             {cheapSubagent ? (
               <p>
                 {t('providerSettings.cheapSubagentProfile', {
@@ -353,11 +376,17 @@ export function MemberProfilePage() {
             ) : null}
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
             <PermissionLevelControl member={member} />
-            <PlanUsageMeter
-              provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
-              usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
-              pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
-            />
+            {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? (
+              <PlanUsageMeter
+                provider={member.provider ?? DEFAULT_AGENT_PROVIDER}
+                usage={board.data?.planUsageByProvider[member.provider ?? DEFAULT_AGENT_PROVIDER]}
+                pauseAbove={config.data?.config.team.limits.pauseAbovePlanUsagePercent}
+              />
+            ) : (
+              <p className={styles.quiet}>
+                {t(`profile.noPlanUsage.${member.provider === 'nanogpt' ? 'nanogpt' : 'gemini'}`)}
+              </p>
+            )}
           </div>
         </details>
       ) : null}

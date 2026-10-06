@@ -1,0 +1,40 @@
+
+     ▄▀▀▄
+    ▀▀▀▀▀▀
+   ▀▀▀▀▀▀▀▀
+  ▄▀▀    ▀▀▄
+ ▄▀▀      ▀▀▄
+
+ Welcome to the Antigravity CLI. You are currently not signed in.
+
+
+      ▄▀▀▄
+     ▀▀▀▀▀▀
+    ▀▀▀▀▀▀▀▀
+   ▄▀▀    ▀▀▄
+  ▄▀▀      ▀▀▄
+
+  Antigravity CLI 1.2.17
+  <account>
+  Gemini 3.8 Flash ( (Google AI Pro)
+  /tmp/pm-agy-probe/ws
+
+────────────────────────────────────────────────────────────
+> Reply with the single word OK
+
+  OK
+
+────────────────────────────────────────────────────────────
+> In my first message in this conversation, which single word did I ask you to reply with? Answer with only that word.
+
+  OK
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+ ┃ Gemini 3.6 & 3.7 Flash Deprecation───────────────────────────────────────────────────────────────────────────────────
+ ┃ Make sure you are using Gemini 3.8 Flash! We will be turning down Gemini 3.6 Flash and Gemini 3.7 Flash shortly.
+ ┃ esc to dismiss
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                  Gemini 3.8 Flash · high

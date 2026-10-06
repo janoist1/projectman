@@ -24,7 +24,7 @@ export function ProjectLayout() {
   const me = useMeContext();
   const isMobile = useIsMobile();
   const boardIndex = useMatch('/p/:projectKey');
-  const boardTask = useMatch('/p/:projectKey/tasks/:taskKey');
+  const boardTask = useMatch('/p/:projectKey/tasks/:taskKey/*');
   const fixedBoard = !isMobile && !!(boardIndex || boardTask);
   // A session fills the phone: its own header replaces the app's (project, search, new task, account)
   // and its back arrow the tab bar.

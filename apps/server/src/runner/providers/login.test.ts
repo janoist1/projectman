@@ -30,7 +30,12 @@ describe('parseClaudeAuthStatus', () => {
         out('{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"}', '', 1),
         now,
       ),
-    ).toMatchObject({ loggedIn: false, method: 'none', detail: expect.stringContaining('/login') });
+    ).toMatchObject({
+      loggedIn: false,
+      method: 'none',
+      problem: 'not_logged_in',
+      detail: expect.stringContaining('/login'),
+    });
   });
 
   it('does not count API billing as logged in', () => {
@@ -39,7 +44,12 @@ describe('parseClaudeAuthStatus', () => {
         out('{"loggedIn": true, "authMethod": "api_key", "apiProvider": "firstParty"}'),
         now,
       ),
-    ).toMatchObject({ loggedIn: false, method: 'api_key', detail: expect.stringContaining('bills the API') });
+    ).toMatchObject({
+      loggedIn: false,
+      method: 'api_key',
+      problem: 'not_logged_in',
+      detail: expect.stringContaining('bills the API'),
+    });
     expect(
       parseClaudeAuthStatus(
         out('{"loggedIn": true, "authMethod": "claude.ai", "apiProvider": "bedrock"}'),
@@ -73,6 +83,7 @@ describe('parseCodexLoginStatus', () => {
     expect(parseCodexLoginStatus(out('', 'Not logged in\n', 1), now)).toMatchObject({
       loggedIn: false,
       method: 'none',
+      problem: 'not_logged_in',
       detail: expect.stringContaining('codex login'),
     });
   });
@@ -89,6 +100,7 @@ describe('parseCodexLoginStatus', () => {
     expect(parseCodexLoginStatus(out('', 'Logged in using access token\n'), now)).toMatchObject({
       loggedIn: false,
       method: 'access_token',
+      problem: 'not_logged_in',
     });
   });
 

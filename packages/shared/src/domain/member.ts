@@ -17,6 +17,15 @@ export type MemberKind = z.infer<typeof MemberKind>;
 export const HumanAccess = z.enum(['owner', 'admin', 'developer', 'client', 'viewer']);
 export type HumanAccess = z.infer<typeof HumanAccess>;
 
+/** viewer and client can read; developer can work on tasks; admin changes the team; owner everything. */
+const ACCESS_RANK: Record<HumanAccess, number> = { viewer: 0, client: 0, developer: 1, admin: 2, owner: 3 };
+
+export function hasAccess(access: HumanAccess, minimum: HumanAccess): boolean {
+  return ACCESS_RANK[access] >= ACCESS_RANK[minimum];
+}
+
+export const TASK_CREATE_MIN_ACCESS: HumanAccess = 'developer';
+
 /** Claude Code permission modes (passed to `claude --permission-mode`). */
 export const PermissionMode = z.enum(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
 export type PermissionMode = z.infer<typeof PermissionMode>;
@@ -51,7 +60,7 @@ export const DEFAULT_NEW_MEMBER_APPROVER: Approver = 'none';
  * The agent CLI an AI member runs in, on its sponsor's subscription: Claude Code (Claude plan)
  * or OpenAI Codex CLI (ChatGPT plan).
  */
-export const AgentProvider = z.enum(['claude', 'codex']);
+export const AgentProvider = z.enum(['claude', 'codex', 'gemini', 'nanogpt']);
 export type AgentProvider = z.infer<typeof AgentProvider>;
 
 /** Provider of members that do not name one. */
@@ -64,7 +73,21 @@ export type AgentEffort = z.infer<typeof AgentEffort>;
 export const PROVIDER_EFFORT_OPTIONS: Record<AgentProvider, readonly AgentEffort[]> = {
   claude: ['low', 'medium', 'high', 'xhigh', 'max'],
   codex: ['low', 'medium', 'high', 'xhigh'],
+  gemini: ['low', 'medium', 'high'],
+  nanogpt: ['low', 'medium', 'high', 'xhigh'],
 };
+
+/** Keep allowed effort, otherwise use the highest; unset means medium except on Claude. */
+export function effortForProvider(
+  provider: AgentProvider,
+  effort: AgentEffort | undefined,
+): AgentEffort | undefined {
+  const options = PROVIDER_EFFORT_OPTIONS[provider];
+  if (!options.length) return undefined;
+  if (provider === 'claude') return effort;
+  if (!effort) return 'medium';
+  return options.includes(effort) ? effort : options[options.length - 1];
+}
 
 /**
  * The cheaper model of an AI member's "cheap subagent" (PM-179), a Claude Code alias: the member
@@ -77,6 +100,8 @@ export type CheapSubagentModel = z.infer<typeof CheapSubagentModel>;
 export const PROVIDER_CHEAP_SUBAGENT_MODELS: Record<AgentProvider, readonly CheapSubagentModel[]> = {
   claude: CheapSubagentModel.options,
   codex: [],
+  gemini: [],
+  nanogpt: [],
 };
 
 /**

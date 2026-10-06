@@ -1,0 +1,262 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
+import { teamMap } from '@projectman/shared';
+import type { TeamMap } from '@projectman/shared';
+import { useConfig, useRoles } from '../../api/queries';
+import { useProject } from '../../app/contexts';
+import { NotFoundPage } from '../../app/NotFoundPage';
+import { Button, ButtonLink } from '../../components/Button';
+import { Dialog } from '../../components/Dialog';
+import { PageHeader } from '../../components/PageHeader';
+import { ErrorState } from '../../components/States';
+import { t } from '../../i18n/t';
+import { useDocumentTitle, useMediaQuery } from '../../lib/hooks';
+import { buildDetail, idleDetail } from './Details';
+import { DetailsAside, DetailsDialogBody } from './DetailsPanel';
+import { FlowSection } from './FlowSection';
+import { LabelsSection } from './LabelsSection';
+import { MapProvider } from './MapContext';
+import type { MapView } from './MapContext';
+import { changedStageIds, parseShow, showValue } from './model';
+import type { ShowTarget } from './model';
+import { RulesSection } from './rules';
+import { TeamSection } from './TeamSection';
+import styles from './HowWeWork.module.css';
+
+/** The details sit beside the page from this width (the page is the window minus the rail); narrower they open as a dialog. */
+const WIDE_QUERY = '(min-width: 1180px)';
+const FLASH_MS = 1400;
+
+/** "Hogyan dolgozunk": how a card moves through this project's team, drawn from its live configuration. A client gets no such page. */
+export function HowWeWorkPage() {
+  const { can } = useProject();
+  if (!can.readConfig) return <NotFoundPage message={t('app.notFound')} />;
+  return <HowWeWork />;
+}
+
+function HowWeWork() {
+  const { key, can } = useProject();
+  const config = useConfig(key, can.readConfig);
+  const roles = useRoles(key);
+  const data = config.data;
+  const map = useMemo(() => (data ? teamMap(data.config) : null), [data]);
+  useDocumentTitle(t('howWeWork.title'), data?.config.project.name);
+  const flashed = useFlash(map);
+  const wide = useMediaQuery(WIDE_QUERY);
+  const { selected, select, close } = useSelection(wide);
+
+  const view = useMemo<MapView | null>(() => {
+    if (!data || !map) return null;
+    const stageNames = new Map(data.config.pipeline.stages.map((stage) => [stage.id, stage.name]));
+    const members = new Map(data.config.team.members.map((member) => [member.handle, member]));
+    const roleNames = new Map((roles.data?.roles ?? []).map((role) => [role.id, role.name]));
+    return {
+      projectKey: key,
+      map,
+      config: data.config,
+      labels: map.labels.map((entry) => ({ ...entry.label, holders: entry.holders })),
+      canEdit: can.manageTeam,
+      roleName: (id) => roleNames.get(id) ?? id,
+      selected,
+      select,
+      stageName: (id) => stageNames.get(id) ?? id,
+      member: (handle) => members.get(handle),
+    };
+  }, [data, map, roles.data, key, can.manageTeam, selected, select]);
+
+  const detail = view ? (selected ? buildDetail(selected, view) : idleDetail()) : null;
+
+  return (
+    <div className={styles.page}>
+      <PageHeader className={styles.pageHead} title={t('howWeWork.title')} subtitle={t('howWeWork.subtitle')}>
+        {view?.canEdit ? (
+          <ButtonLink
+            to={`/p/${key}/settings#settings-pipeline`}
+            variant="secondary"
+            size="sm"
+            icon="settings"
+          >
+            {t('howWeWork.editInSettings')}
+          </ButtonLink>
+        ) : null}
+      </PageHeader>
+      {view && detail && map ? (
+        <MapProvider value={view}>
+          <div className={styles.layout}>
+            <div className={styles.content}>
+              <section className={styles.section} aria-labelledby="how-we-work-flow">
+                <div className={styles.sectionHead}>
+                  <h2 id="how-we-work-flow">{t('howWeWork.sections.flow')}</h2>
+                  <LegendButton selected={selected} onOpen={select} />
+                </div>
+                <p className={styles.sectionSub}>{t('howWeWork.sections.flowHint')}</p>
+                <FlowSection flashed={flashed} />
+              </section>
+              <section className={styles.section} aria-labelledby="how-we-work-rules">
+                <div className={styles.sectionHead}>
+                  <h2 id="how-we-work-rules">{t('howWeWork.sections.rules')}</h2>
+                </div>
+                <RulesSection />
+              </section>
+              <section className={styles.section} aria-labelledby="how-we-work-team">
+                <div className={styles.sectionHead}>
+                  <h2 id="how-we-work-team">{t('howWeWork.sections.team')}</h2>
+                </div>
+                <TeamSection />
+              </section>
+              <section className={styles.section} aria-labelledby="how-we-work-labels">
+                <div className={styles.sectionHead}>
+                  <h2 id="how-we-work-labels">{t('howWeWork.sections.labels')}</h2>
+                </div>
+                <p className={styles.sectionSub}>{t('howWeWork.sections.labelsHint')}</p>
+                <LabelsSection />
+              </section>
+            </div>
+            {wide ? (
+              <aside className={styles.aside} aria-label={t('howWeWork.detailsRegion')} aria-live="polite">
+                <DetailsAside detail={detail} onClose={selected ? close : undefined} />
+              </aside>
+            ) : null}
+          </div>
+          {!wide && selected ? (
+            <Dialog open onClose={close} title={detail.title} description={detail.subtitle} size="sm">
+              <DetailsDialogBody detail={detail} />
+            </Dialog>
+          ) : null}
+        </MapProvider>
+      ) : config.isError ? (
+        <ErrorState error={config.error} onRetry={() => void config.refetch()} className={styles.errorBox} />
+      ) : (
+        <div className={styles.skel} role="status" aria-busy="true">
+          <span className="visually-hidden">{t('app.loading')}</span>
+          {[0, 1, 2, 3, 4].map((row) => (
+            <div key={row} className={styles.skelRow} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LegendButton({
+  selected,
+  onOpen,
+}: {
+  selected: ShowTarget | null;
+  onOpen: (target: ShowTarget, opener: HTMLElement) => void;
+}) {
+  return (
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-pressed={selected?.kind === 'legend'}
+      data-show="legend"
+      onClick={(event) => onOpen({ kind: 'legend' }, event.currentTarget)}
+    >
+      {t('howWeWork.legendButton')}
+    </Button>
+  );
+}
+
+/** The stages that changed since the map last drew: they flash for a moment, so a live change is easy to find. */
+function useFlash(map: TeamMap | null): ReadonlySet<string> {
+  const previous = useRef<TeamMap | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [flashed, setFlashed] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!map) return;
+    const changed = changedStageIds(previous.current, map);
+    previous.current = map;
+    if (changed.size === 0) return;
+    clearTimeout(timer.current);
+    setFlashed(changed);
+    timer.current = setTimeout(() => setFlashed(new Set()), FLASH_MS);
+  }, [map]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return flashed;
+}
+
+/**
+ * The item on show lives in `?show=`, so a link can point at it. Closing it (the button, Esc, the
+ * dialog) puts the focus back on what opened it.
+ */
+function useSelection(pageEscape: boolean) {
+  const [params, setParams] = useSearchParams();
+  const raw = params.get('show');
+  const selected = useMemo(() => parseShow(raw), [raw]);
+  const value = selected ? showValue(selected) : null;
+  const navigate = useNavigate();
+  const opener = useRef<HTMLElement | null>(null);
+  const lastValue = useRef<string | null>(null);
+  /** Opening the panel made a history entry of its own: closing it is Back. */
+  const pushed = useRef(false);
+  const closing = useRef(false);
+
+  const write = useCallback(
+    (next: string | null, replace: boolean) => {
+      setParams(
+        (current) => {
+          const copy = new URLSearchParams(current);
+          if (next === null) copy.delete('show');
+          else copy.set('show', next);
+          return copy;
+        },
+        { replace },
+      );
+    },
+    [setParams],
+  );
+  const select = useCallback(
+    (target: ShowTarget, from?: HTMLElement | null) => {
+      // Moving from one item to another inside the panel keeps the first opener and the one entry.
+      if (value === null) {
+        if (from) opener.current = from;
+        pushed.current = true;
+      }
+      write(showValue(target), value !== null);
+    },
+    [value, write],
+  );
+  const close = useCallback(() => {
+    // One close per opening: the URL (and so `value`) changes a moment later, and a second call before
+    // that (Esc reaches both the dialog and the page) would step back once more, off this page.
+    if (closing.current) return;
+    closing.current = true;
+    // The panel opened by a click is one step forward in the history, so Back and the phone's back
+    // gesture close it; one opened by a link has no such step, and closing it only drops the parameter.
+    if (pushed.current) void navigate(-1);
+    else write(null, true);
+  }, [navigate, write]);
+
+  useEffect(() => {
+    closing.current = false;
+    if (value !== null) {
+      lastValue.current = value;
+      return;
+    }
+    pushed.current = false;
+    if (lastValue.current === null) return;
+    const shown = lastValue.current;
+    lastValue.current = null;
+    const target = opener.current?.isConnected
+      ? opener.current
+      : [...document.querySelectorAll<HTMLElement>('[data-show]')].find(
+          (element) => element.dataset.show === shown,
+        );
+    target?.focus();
+    opener.current = null;
+  }, [value]);
+
+  // Beside the page the panel has no Esc of its own; as a dialog it has (the Dialog calls `close`).
+  useEffect(() => {
+    if (value === null || !pageEscape) return;
+    const onKey = (event: KeyboardEvent) => {
+      // Another layer (a menu) took the key.
+      if (event.key === 'Escape' && !event.defaultPrevented) close();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [value, close, pageEscape]);
+
+  return { selected, select, close };
+}

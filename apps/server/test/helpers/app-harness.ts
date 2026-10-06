@@ -11,7 +11,7 @@ import type { BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contra
 import { createTemplateRegistry, humanActor } from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain';
 import { createRunnerModule } from '../../src/runner';
-import { FAKE_CLAUDE, FAKE_CODEX, freePort } from '../../src/runner/test-helpers';
+import { FAKE_CLAUDE, FAKE_CODEX, FAKE_GEMINI, freePort } from '../../src/runner/test-helpers';
 import {
   createFakeMcp,
   createFakeRunnerModule,
@@ -26,6 +26,7 @@ import { testTemplate } from './test-template';
 export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password: 'correct horse battery' };
 
 export interface AppHarnessOptions {
+  nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); default: none. */
   runtimeBoundary?: RuntimeBoundary;
@@ -45,6 +46,7 @@ export interface AppHarnessOptions {
     | 'freeDiskBytes'
     | 'controlSocket'
     | 'shutdownPauseMs'
+    | 'logger'
   >;
 }
 
@@ -114,6 +116,7 @@ export async function createAppHarness(
   const worktrees = new FakeWorktreeManager(join(home, 'worktrees'));
   const real = opts.real ?? {};
   const modules: AppModules = {
+    nanogptKeyCheck: opts.nanogptKeyCheck,
     boundaryAdapter: opts.boundaryAdapter,
     runtimeBoundary: opts.runtimeBoundary,
     createRunnerModule: (o) => runnerModule.create(o),
@@ -165,6 +168,8 @@ export async function createAppHarness(
         ? {
             claudeBin: FAKE_CLAUDE,
             codexBin: FAKE_CODEX,
+            geminiBin: FAKE_GEMINI,
+            geminiConfigDir: join(home, 'providers', 'gemini'),
             codexHome,
             claudeConfigPath: claudeConfig,
             publicBaseUrl: `http://127.0.0.1:${port}`,

@@ -2,7 +2,15 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { canSeeAllTeamMessages } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
-import { useBoard, useConfig, useInbox, useMembers, useRoles, useTeamMessages } from '../../api/queries';
+import {
+  useBoard,
+  useConfig,
+  useInbox,
+  useMembers,
+  useRoles,
+  useTeamMessages,
+  useProviders,
+} from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
@@ -58,6 +66,7 @@ export function TeamPage() {
   const isMobile = useIsMobile();
   const membersQuery = useMembers(key);
   const board = useBoard(key);
+  const providers = useProviders();
   const pausedRows = usePausedRows();
   const inbox = useInbox(key);
   const config = useConfig(key, can.manageTeam);
@@ -210,6 +219,7 @@ export function TeamPage() {
           {sorted.length === 0 ? <EmptyState icon="team" title={t('team.empty')} /> : null}
           <Roster
             members={sorted}
+            providers={providers.data?.providers}
             inbox={inbox.data?.items}
             roles={roles.data?.roles}
             titles={titles}

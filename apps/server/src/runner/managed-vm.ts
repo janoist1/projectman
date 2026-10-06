@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { openConfined } from './transcript/confined';
@@ -149,7 +149,7 @@ export function assertProviderVersion(
   installed: string | null,
   attestation: ManagedVmAttestation,
 ): void {
-  const allowed = attestation.providerVersions[provider];
+  const allowed = attestation.providerVersions[provider] ?? [];
   if (installed === null || !allowed.includes(installed)) {
     throw new ManagedVmUnavailableError(
       'provider_version',
@@ -192,7 +192,7 @@ const CLAUDE_OVERRIDING_KEYS: ReadonlySet<string> = new Set([
 const CLAUDE_HARMLESS_PERMISSIONS: ReadonlySet<string> = new Set(['allow', 'additionalDirectories']);
 
 /** Roots of the Codex configuration tables and keys that change approval, sandbox, hooks or login. */
-const CODEX_OVERRIDING_ROOTS: ReadonlySet<string> = new Set([
+export const CODEX_OVERRIDING_ROOTS: ReadonlySet<string> = new Set([
   'approval_policy',
   'sandbox_mode',
   'sandbox_workspace_write',
@@ -210,6 +210,16 @@ const CODEX_OVERRIDING_ROOTS: ReadonlySet<string> = new Set([
   'openai_base_url',
   'chatgpt_base_url',
   'forced_login_method',
+]);
+
+/** Configuration roots that can override the local restricted-read profile (PM-356). */
+export const CODEX_SANDBOX_ROOTS: ReadonlySet<string> = new Set([
+  'sandbox_mode',
+  'sandbox_workspace_write',
+  'default_permissions',
+  'permissions',
+  'profile',
+  'profiles',
 ]);
 
 /**
@@ -277,9 +287,13 @@ function tomlRoots(text: string): Set<string> {
   for (const raw of text.split('\n')) {
     const line = raw.trim();
     if (line === '' || line.startsWith('#')) continue;
-    const header = /^\[\[?\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)/.exec(line);
-    const key = header ?? /^("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*[.=]/.exec(line);
-    if (key) roots.add(key[1]!.replace(/^["']|["']$/g, ''));
+    const header = /^\[\[?\s*("(?:\\.|[^"\\])*"|'[^']*'|[A-Za-z0-9_-]+)/.exec(line);
+    const key = header ?? /^("(?:\\.|[^"\\])*"|'[^']*'|[A-Za-z0-9_-]+)\s*[.=]/.exec(line);
+    if (key) {
+      const root = key[1]!;
+      // Escaped quoted roots require a full TOML parser to resolve. Fail closed instead.
+      roots.add(root.includes('\\') ? root : root.replace(/^["']|["']$/g, ''));
+    }
   }
   return roots;
 }
@@ -288,6 +302,7 @@ async function codexConfigIssue(
   file: string,
   everything: boolean,
   confineTo?: string,
+  restrictedRoots: ReadonlySet<string> = CODEX_OVERRIDING_ROOTS,
 ): Promise<AmbientIssue | null> {
   const text = await readIfPresent(file, confineTo);
   if (text === null) return null;
@@ -296,7 +311,13 @@ async function codexConfigIssue(
   // An administrator's file (managed config, requirements) is a rule over the CLI whatever it
   // says: any content in it counts. The user's and the project's file only when they set one of
   // the roots that change the start (Codex writes harmless bookkeeping there itself).
-  const keys = everything ? [...roots] : [...roots].filter((root) => CODEX_OVERRIDING_ROOTS.has(root));
+  const keys = everything
+    ? text.trim()
+      ? roots.size
+        ? [...roots]
+        : ['(administrator config)']
+      : []
+    : [...roots].filter((root) => root.includes('\\') || restrictedRoots.has(root));
   return keys.length > 0 ? { file, keys } : null;
 }
 
@@ -319,6 +340,58 @@ function defaultLocations(env: NodeJS.ProcessEnv): Required<AmbientConfigLocatio
   };
 }
 
+/** Only names are returned; a local profile must not compete with any loaded sandbox settings. */
+export async function inspectCodexSandboxConfig(input: {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  locations?: AmbientConfigLocations;
+}): Promise<AmbientIssue[]> {
+  const where = { ...defaultLocations(input.env), ...input.locations };
+  const issues: Array<AmbientIssue | null> = [];
+  for (const file of where.codexManaged) issues.push(await codexConfigIssue(file, true));
+  for (const file of [where.codexUser, path.join(input.cwd, '.codex', 'config.toml')])
+    issues.push(await codexConfigIssue(file, false, undefined, CODEX_SANDBOX_ROOTS));
+  return issues.filter((issue): issue is AmbientIssue => issue !== null);
+}
+
+export interface CodexUserMcpServers {
+  names: string[];
+  unresolved: AmbientIssue[];
+}
+
+/** User MCP names only; ambiguous spellings cannot safely receive dotted CLI overrides. */
+export async function inspectCodexMcpServers(input: { codexHome: string }): Promise<CodexUserMcpServers> {
+  const file = path.join(input.codexHome, 'config.toml');
+  const text = await readIfPresent(file);
+  if (text === null) return { names: [], unresolved: [] };
+  if (text === '\u0000unreadable') return { names: [], unresolved: [{ file, keys: ['(unreadable)'] }] };
+  const names = new Set<string>();
+  const problems = new Set<string>();
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    // Escaped roots may spell mcp_servers. Never include the raw line or its value in an issue.
+    if ([...tomlRoots(line)].some((root) => root.includes('\\'))) {
+      problems.add('(escaped config key)');
+      continue;
+    }
+    const root = /^(?:\[\[?\s*)?(?:mcp_servers|"mcp_servers"|'mcp_servers')(?=\s*[.=\]])/.exec(line);
+    if (!root) continue;
+    if (line.startsWith('[[')) {
+      problems.add('mcp_servers');
+      continue;
+    }
+    const suffix = line.slice(root[0].length);
+    const name = /^\s*\.\s*([A-Za-z0-9_-]+)\s*(?=[.\]=])/.exec(suffix)?.[1];
+    if (!name || name === 'team') problems.add(name === 'team' ? 'mcp_servers.team' : 'mcp_servers');
+    else names.add(name);
+  }
+  return {
+    names: [...names],
+    unresolved: problems.size ? [{ file, keys: [...problems] }] : [],
+  };
+}
+
 /**
  * What in the VM's own configuration would override the protected start (PM-49): an
  * administrator's managed policy, the provider's user configuration and, for Codex, the project's
@@ -331,6 +404,8 @@ export async function inspectAmbientConfig(input: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   locations?: AmbientConfigLocations;
+  /** NanoGPT refuses all project Codex files; other callers inspect configuration only. */
+  projectFolder?: 'config' | 'any';
   /** A worker home (PM-140): files below it are read confined (see `readIfPresent`). */
   confineTo?: string;
 }): Promise<AmbientIssue[]> {
@@ -351,6 +426,30 @@ export async function inspectAmbientConfig(input: {
     issues.push(
       await codexConfigIssue(path.join(input.cwd, '.codex', 'config.toml'), false, input.confineTo),
     );
+    if (input.projectFolder === 'any') {
+      // Project files can register subprocesses outside the member shell's environment policy.
+      const dir = path.join(input.cwd, '.codex');
+      try {
+        const info = await lstat(dir);
+        if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(dir)).length)
+          issues.push({ file: dir, keys: ['(project codex folder)'] });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+          issues.push({ file: dir, keys: ['(unreadable)'] });
+      }
+    }
+    for (const hookFile of [
+      path.join(path.dirname(where.codexUser), 'hooks.json'),
+      path.join(input.cwd, '.codex', 'hooks.json'),
+    ]) {
+      try {
+        await lstat(hookFile);
+        issues.push({ file: hookFile, keys: ['(hooks file)'] });
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+          issues.push({ file: hookFile, keys: ['(unreadable)'] });
+      }
+    }
   }
   return issues.filter((issue): issue is AmbientIssue => issue !== null);
 }

@@ -3,7 +3,16 @@ import { describe, expect, it } from 'vitest';
 import type { TaskPullRequest } from '@projectman/shared';
 import { sessions, tasks } from '../../mocks/fixtures';
 import { t } from '../../i18n/t';
-import { PrPanel } from './SessionPanels';
+import { PrPanel, UsagePanel } from './SessionPanels';
+
+describe('NanoGPT session usage', () => {
+  it('shows the Codex subagent limitation even without measured tokens', () => {
+    render(
+      <UsagePanel session={{ ...sessions[0]!, provider: 'nanogpt', usage: undefined }} provider="nanogpt" />,
+    );
+    expect(screen.getByText(t('tokenUsage.codexSubagents'))).toBeTruthy();
+  });
+});
 
 const pr: TaskPullRequest = {
   repo: 'acme/web',

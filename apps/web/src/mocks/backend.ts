@@ -1,4 +1,9 @@
+import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  StopOrphansRequest,
+  canManageInstancePause,
+  canManageProviderKeys,
+  SetProviderKeyRequest,
   AcceptInviteRequest,
   BOARD_RANK_STEP,
   BoardMoveRequest,
@@ -27,6 +32,7 @@ import {
   CreateTaskRequest,
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
+  hasPlanUsage,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -47,6 +53,7 @@ import {
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
+  priorityRefusal,
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
@@ -130,6 +137,17 @@ import {
   fixLimitPlannerForOwner,
   fixLimitReached,
   maxFixRoundsOf,
+  canSetDeveloperLevel,
+  DEVELOPER_LEVEL_REASON_MAX,
+  developerLevelOf,
+  isSenior,
+  pickDeveloper,
+  seniorWaitDecisionOf,
+  seniorWaitMinutesOf,
+  seniorsOf,
+  SENIOR_WAIT_OPTIONS,
+  SENIOR_WAIT_OPTION_ANY,
+  SENIOR_WAIT_OPTION_WAIT,
   FIX_ANOTHER_ROUND_OPTION,
   FIX_REASSIGN_OPTION,
   FIX_REPLAN_OPTION,
@@ -138,6 +156,7 @@ import {
   measureClosedCard,
 } from '@projectman/shared';
 import type {
+  MachineView,
   Actor,
   FixRounds,
   TaskFixLimit,
@@ -182,6 +201,7 @@ import type {
   StartBlock,
   Task,
   TeamMessage,
+  TeamMessageAnswer,
   TokenUsage,
   TimelineEvent,
   TimelineEventData,
@@ -337,11 +357,27 @@ export class MockBackend {
   timeline: TimelineEvent[] = clone(fixtures.timeline);
   /** Where each card's fix rounds are counted from and the rounds people let it have (PM-262). */
   private fixLimitState = new Map<string, { countedFrom: string | null; extraRounds: number }>();
+  /** The cards that wait for a Senior (PM-348): since when, the question asked and the answer given. */
+  private seniorWaits = new Map<
+    string,
+    { since: string; itemId?: string; decision?: { decision: 'wait' | 'any'; by: string } }
+  >();
   scheduleRuns: ScheduleRun[] = [];
   attachments: Attachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
-  providerLoggedIn = { claude: true, codex: true };
+  providerLoggedIn = { claude: true, codex: true, gemini: true, nanogpt: true };
+  /** Per-provider overrides of the /api/providers rows (PM-327, PM-330). */
+  providerStatus: Partial<
+    Record<
+      AgentProvider,
+      Partial<Pick<ProviderLoginStatus, 'loggedIn' | 'method' | 'problem' | 'cliVersion' | 'minCliVersion'>>
+    >
+  > = {};
+  /** While set, GET /api/providers fails. */
+  providersFail = false;
+  canManageKeys: boolean | undefined;
+  nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
@@ -375,6 +411,9 @@ export class MockBackend {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
   planUsage = clone(fixtures.planUsage);
+  /** A fixed sample can be supplied by UI tests; otherwise use the fixture sessions. */
+  machine: MachineView | null = null;
+  orphanStopOutcomes: Record<number, 'stopped' | 'gone' | 'refused' | 'failed'> = {};
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
@@ -1110,6 +1149,8 @@ export class MockBackend {
     taskKey: string | null,
     text: string,
     sessionId?: string,
+    /** What the message answers: the card thread shows it as a question and its answer (PM-249). */
+    answer?: TeamMessageAnswer,
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text);
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1130,6 +1171,7 @@ export class MockBackend {
         deliveredAt: this.findMember(handle)?.kind === 'human' ? nowIso() : null,
         readAt: null,
       })),
+      ...(answer ? { answer } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -1248,10 +1290,12 @@ export class MockBackend {
               .filter((member) => member.kind === 'ai' && member.status !== 'retired')
               .map((member) => member.provider ?? DEFAULT_AGENT_PROVIDER),
           ),
-        ].map((provider) => [
-          provider,
-          provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
-        ]),
+        ]
+          .filter(hasPlanUsage)
+          .map((provider) => [
+            provider,
+            provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
+          ]),
       ),
     };
   }
@@ -1301,18 +1345,77 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
+      if (!this.me().instanceOwner) return error(403, 'insufficient_access', 'Instance owner required');
+      if (path === '/api/machine' && method === 'GET') return ok(this.machine ?? this.machineView());
+      if (path === '/api/machine/orphans/stop' && method === 'POST') {
+        const input = parseBody(StopOrphansRequest, body);
+        if (!input) return error(400, 'invalid_request', 'Invalid orphan identities');
+        const results = input.orphans.map((identity) => {
+          const exists = this.machine?.orphans?.some(
+            (row) => row.pid === identity.pid && row.startedAt === identity.startedAt,
+          );
+          const outcome = this.orphanStopOutcomes[identity.pid] ?? (exists ? 'stopped' : 'gone');
+          if ((outcome === 'stopped' || outcome === 'gone') && this.machine?.orphans)
+            this.machine.orphans = this.machine.orphans.filter(
+              (row) => row.pid !== identity.pid || row.startedAt !== identity.startedAt,
+            );
+          return { ...identity, outcome };
+        });
+        return ok({ results });
+      }
+    }
     if (/^\/api\/pause(\/resume|\/force)?$/.test(path)) return this.instancePause(method, path);
-    if (path === '/api/providers' && method === 'GET') {
+    if ((path === '/api/providers' && method === 'GET') || path === '/api/providers/nanogpt/key') {
+      if (path === '/api/providers' && this.providersFail)
+        return error(503, 'internal_error', 'Providers unavailable');
+      const member = memberOf(this.config, this.viewerHandle);
+      const canManageKeys =
+        this.canManageKeys ?? canManageProviderKeys([member?.kind === 'human' ? member.access : null]);
+      if (path === '/api/providers/nanogpt/key') {
+        if (!canManageKeys)
+          return error(403, 'insufficient_access', 'Only an owner of every project may manage provider keys');
+        if (method === 'PUT') {
+          const input = parseBody(SetProviderKeyRequest, body);
+          if (!input) return error(400, 'invalid_request', 'Invalid key');
+          if (input.key === 'rejected') return error(400, 'nanogpt_key_rejected', 'Provider rejected key');
+          this.nanogptKeyStatus = { set: true, setAt: nowIso() };
+          if (this.providerStatus.nanogpt?.problem === 'no_key') delete this.providerStatus.nanogpt;
+        } else if (method === 'DELETE') {
+          this.nanogptKeyStatus = { set: false, setAt: null };
+          if (
+            this.providerStatus.nanogpt?.loggedIn === true ||
+            this.providerStatus.nanogpt?.problem === 'no_key'
+          )
+            delete this.providerStatus.nanogpt;
+        } else return error(404, 'not_found', 'Unknown provider key route');
+      }
       return ok({
+        keys: { nanogpt: { ...this.nanogptKeyStatus } },
+        canManageKeys,
         providers: AgentProvider.options.map((provider) => ({
           provider,
-          loggedIn: this.providerLoggedIn[provider],
-          method: this.providerLoggedIn[provider]
-            ? provider === 'claude'
-              ? 'claude.ai'
-              : 'chatgpt'
-            : 'none',
+          loggedIn: provider === 'nanogpt' ? this.nanogptKeyStatus.set : this.providerLoggedIn[provider],
+          method:
+            provider === 'nanogpt'
+              ? 'api_key'
+              : this.providerLoggedIn[provider]
+                ? provider === 'claude'
+                  ? 'claude.ai'
+                  : provider === 'gemini'
+                    ? 'google'
+                    : 'chatgpt'
+                : 'none',
           checkedAt: nowIso(),
+          problem:
+            provider === 'nanogpt'
+              ? this.nanogptKeyStatus.set
+                ? undefined
+                : 'no_key'
+              : this.providerLoggedIn[provider]
+                ? undefined
+                : 'not_logged_in',
+          ...this.providerStatus[provider],
         })),
       });
     }
@@ -1350,6 +1453,7 @@ export class MockBackend {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
+      instanceOwner: canManageInstancePause([member?.kind === 'human' ? member.access : null]),
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
       projects:
         member?.kind === 'human'
@@ -1362,6 +1466,50 @@ export class MockBackend {
               },
             ]
           : [],
+    };
+  }
+
+  private machineView(): MachineView {
+    const live = this.sessions.filter((session) => this.isLive(session));
+    return {
+      sampledAt: nowIso(),
+      intervalMs: 15000,
+      summary: {
+        cpuPercent: 34,
+        cores: 8,
+        memoryUsedBytes: 6 * 1024 ** 3,
+        memoryTotalBytes: 16 * 1024 ** 3,
+        memoryPressure: 'normal',
+        swapUsedBytes: 0,
+        swapTotalBytes: 0,
+        sessionsRunning: live.length,
+        sessionsWorking: live.filter((session) => session.state === 'working' || session.state === 'starting')
+          .length,
+      },
+      sessions: live.map((session, index) => ({
+        sessionId: session.id,
+        projectKey: session.projectKey,
+        memberHandle: session.member,
+        member: this.members.find((member) => member.handle === session.member) ?? null,
+        workItem: session.workItem,
+        taskTitle:
+          session.workItem.type === 'task' ? (this.findTask(session.workItem.taskKey)?.title ?? null) : null,
+        state: session.state,
+        stateSince: session.stateSince ?? session.lastActivityAt,
+        paused: !!session.pause,
+        pid: 1000 + index,
+        processStartedAt: session.startedAt,
+        cpuPercent: 8,
+        memoryBytes: (640 + index * 100) * 1024 ** 2,
+        processCount: 1,
+        top: [],
+      })),
+      orphans: [],
+      others: [
+        { kind: 'server', name: 'projectman', cpuPercent: 2, memoryBytes: 120 * 1024 ** 2, processCount: 1 },
+      ],
+      rest: { cpuPercent: 10, memoryBytes: 1024 ** 3 },
+      closedSessions: this.sessions.filter((session) => !this.isLive(session)).length,
     };
   }
 
@@ -1507,6 +1655,11 @@ export class MockBackend {
       const involves = (message: TeamMessage, handle: string) =>
         message.from === handle || message.to.includes(handle);
       const limit = Number(query.get('limit') ?? 200);
+      // Like the server: the conversation of a card the viewer cannot see is not theirs to learn of.
+      if (taskKey) {
+        const card = this.findTask(taskKey);
+        if (card && !this.canSee(card)) return error(404, 'not_found', 'Unknown task');
+      }
       const listed = this.visibleMessages()
         .filter((message) => !peer || threadPeersOf(message, this.viewerHandle).includes(peer))
         .filter((message) => !member || involves(message, member))
@@ -1676,6 +1829,10 @@ export class MockBackend {
 
     if (rest === '/config') {
       if (method === 'PATCH') return this.patchConfig(body);
+      // The server gives the configuration to every member but a client.
+      const reader = memberOf(this.config, this.viewerHandle);
+      if (reader?.kind === 'human' && reader.access === 'client')
+        return error(403, 'insufficient_access', 'Requires internal access');
       return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
     }
     if (rest === '/config/revert' && method === 'POST') {
@@ -2036,6 +2193,9 @@ export class MockBackend {
     const member = this.findMember(handle);
     const config = memberOf(this.config, handle);
     if (!member || !config) return error(404, 'not_found', 'Unknown member');
+    // Like the server: only an AI member that is no stand-in can be the Senior (PM-347).
+    if (input.senior !== undefined && (config.kind === 'human' || config.temp))
+      return error(400, 'senior_not_allowed', 'Only a permanent AI member can be the Senior');
     if (input.roles !== undefined) {
       if (config.kind !== 'human') return error(400, 'not_human_member', 'Not a human member');
       for (const role of input.roles) {
@@ -2087,7 +2247,7 @@ export class MockBackend {
       if (input.model !== undefined) member.model = config.model = input.model;
       if (input.provider !== undefined && input.provider !== (config.provider ?? DEFAULT_AGENT_PROVIDER)) {
         member.provider = config.provider = input.provider;
-        member.model = config.model = modelForProvider(input.provider, config.model);
+        member.model = config.model = modelForProvider(input.provider, input.model);
       }
       if (input.effort !== undefined) {
         if (input.effort === null) {
@@ -2108,6 +2268,13 @@ export class MockBackend {
           delete config.cheapSubagent;
         } else member.cheapSubagent = config.cheapSubagent = input.cheapSubagent;
       }
+      if (input.senior !== undefined) {
+        if (input.senior) member.senior = config.senior = true;
+        else {
+          delete member.senior;
+          delete config.senior;
+        }
+      }
       if (input.schedule !== undefined) config.schedule = input.schedule ?? undefined;
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
@@ -2127,6 +2294,7 @@ export class MockBackend {
     }
     this.commitConfig(`Update member ${handle}`);
     this.memberChanged(handle);
+    this.settleSeniorWaits();
     return ok(clone(member));
   }
 
@@ -2331,9 +2499,43 @@ export class MockBackend {
       isTheme(task) &&
       ((input.stageId !== undefined && input.stageId !== task.stageId) ||
         (input.assignee !== undefined && input.assignee !== null) ||
-        (input.repo !== undefined && input.repo !== null))
+        (input.repo !== undefined && input.repo !== null) ||
+        (input.priority !== undefined && input.priority !== null))
     )
       return error(409, 'task_is_theme', 'A theme has no stage, assignee or repository');
+    // Like the server (`planDeveloperLevel`): who may, theme, closed, then the reason; the same level and reason is no change.
+    let levelEvent: TimelineEventData['task_level_changed'] | null = null;
+    if (input.developerLevel) {
+      if (!canSetDeveloperLevel(this.config, this.viewerHandle))
+        return error(403, 'developer_level_forbidden', 'Not allowed to set the recommended developer');
+      if (isTheme(task)) return error(409, 'task_is_theme', 'A theme has no recommended developer');
+      if (!isOpenTask(task)) return error(409, 'task_closed', `Task ${task.key} is ${task.status}`);
+      const reason = input.developerLevel.reason?.trim() || null;
+      if (reason && reason.length > DEVELOPER_LEVEL_REASON_MAX)
+        return error(400, 'invalid_request', 'The reason is too long');
+      if (input.developerLevel.level === 'senior' && !reason)
+        return error(400, 'developer_level_reason_required', 'A Senior task needs a reason');
+      const before = task.developerLevel
+        ? { level: task.developerLevel.level, reason: task.developerLevel.reason }
+        : null;
+      if (!(before && before.level === input.developerLevel.level && before.reason === reason)) {
+        patch.developerLevel = {
+          level: input.developerLevel.level,
+          reason,
+          setBy: this.viewerHandle,
+          setAt: nowIso(),
+        };
+        levelEvent = { level: input.developerLevel.level, reason, previous: before };
+      }
+    }
+    if (input.priority !== undefined) {
+      const refusal = priorityRefusal(actor);
+      if (refusal) return error(403, refusal, 'The priority of a card is set by people only');
+      if (input.priority !== task.priority) {
+        patch.priority = input.priority;
+        fields.push('priority');
+      }
+    }
     if (input.title !== undefined && input.title.trim() !== task.title) {
       patch.title = input.title.trim();
       if (!patch.title) return error(400, 'invalid_request', 'Empty title');
@@ -2430,14 +2632,29 @@ export class MockBackend {
       if (nobody) return nobody;
     }
 
-    const previous = { assignee: task.assignee, parentKey: task.parentKey ?? null, repo: task.repo };
+    const previous = {
+      assignee: task.assignee,
+      parentKey: task.parentKey ?? null,
+      repo: task.repo,
+      priority: task.priority,
+    };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
-    if (fields.length || patch.assignee !== undefined || patch.themeKey !== undefined || labelsChanged) {
+    if (
+      fields.length ||
+      patch.assignee !== undefined ||
+      patch.themeKey !== undefined ||
+      labelsChanged ||
+      levelEvent
+    ) {
       this.updateTask(task.key, { ...patch, ...(labelsChanged ? { labels: labels.labels } : {}) });
+      if (levelEvent) this.addTimeline(task.key, actor.handle, 'task_level_changed', { ...levelEvent });
       if (fields.length)
         this.addTimeline(task.key, actor.handle, 'task_updated', {
           fields,
           ...(patch.repo !== undefined ? { repo: patch.repo, previousRepo: previous.repo } : {}),
+          ...(patch.priority !== undefined
+            ? { priority: patch.priority, previousPriority: previous.priority }
+            : {}),
         });
       if (labelsChanged) this.recordLabels(task, labels, actor, {});
       if (patch.assignee !== undefined)
@@ -2448,6 +2665,7 @@ export class MockBackend {
       if (patch.parentKey !== undefined)
         this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
       if (patch.themeKey !== undefined) this.recordThemeChange(task.key, ownTheme, themeAfter);
+      this.settleSeniorWaits();
     }
     if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
     this.syncSubtaskThemes();
@@ -3143,10 +3361,15 @@ export class MockBackend {
     const developers = this.members.filter(
       (member) => eligible.includes(member.handle) && member.status !== 'retired' && !member.onLeave,
     );
-    const assignee =
-      input.assignee ??
-      [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ??
-      null;
+    let assignee: string | null = input.assignee ?? null;
+    if (!assignee && workStage) {
+      // The automatic choice is the shared rule (PM-348): a Senior card goes to a free Senior or waits for one.
+      const pick = this.pickAutomatic(task, workStage, developers);
+      if (pick.kind === 'senior_busy') return this.waitForSenior(task, workStage, pick.seniors);
+      if (pick.kind === 'member') assignee = pick.handle;
+    }
+    assignee ??=
+      [...developers].sort((a, b) => a.currentTaskKeys.length - b.currentTaskKeys.length)[0]?.handle ?? null;
     if (!assignee) return error(409, 'no_free_member', 'No developer available');
     if (!eligible.includes(assignee))
       return error(400, 'not_stage_owner', 'Assignee must own the work stage');
@@ -3169,12 +3392,188 @@ export class MockBackend {
     if (this.findMember(assignee)?.kind === 'ai' && !running && this.pauses.isPaused())
       return error(409, 'team_paused', 'The team is paused');
     const from = task.stageId;
-    this.updateTask(task.key, { assignee, stageId: workStage?.id ?? task.stageId, status: 'active' });
+    this.updateTask(task.key, {
+      assignee,
+      stageId: workStage?.id ?? task.stageId,
+      status: 'active',
+      startWaiting: undefined,
+    });
     this.addTimeline(task.key, null, 'task_assigned', { assignee });
-    if (workStage) this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    if (workStage && from !== workStage.id)
+      this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    this.settleSeniorWaits();
     if (this.findMember(assignee)?.kind === 'human' || running) return ok(this.taskDetail(task));
     this.openTaskSession(task, assignee);
     return ok(this.taskDetail(task));
+  }
+
+  /** The automatic choice of the developer (the shared rule, PM-348) among the free AI owners of the work stage. */
+  private pickAutomatic(task: Task, workStage: Stage, developers: readonly MemberView[]) {
+    const eligible = new Set(developers.map((member) => member.handle));
+    const free = this.config.team.members.flatMap((member, index) =>
+      member.kind === 'ai' && eligible.has(member.handle) && this.memberLoad(member.handle) < member.capacity
+        ? [
+            {
+              handle: member.handle,
+              senior: isSenior(member),
+              temp: !!member.temp,
+              load: this.memberLoad(member.handle),
+              index,
+            },
+          ]
+        : [],
+    );
+    return pickDeveloper({
+      level: developerLevelOf(task),
+      anyDecided: this.seniorWaits.get(task.key)?.decision?.decision === 'any',
+      seniors: seniorsOf(this.config, workStage)
+        .map((member) => member.handle)
+        .filter((handle) => stageOwners(this.config, workStage).includes(handle)),
+      free,
+    });
+  }
+
+  /** A card recommended for the Senior while every Senior is busy: it moves into the work stage and waits, with no assignee. */
+  private waitForSenior(task: Task, workStage: Stage, seniors: string[]): MockResponse {
+    const from = task.stageId;
+    const wait = this.seniorWaits.get(task.key) ?? { since: nowIso() };
+    this.seniorWaits.set(task.key, wait);
+    this.updateTask(task.key, {
+      stageId: workStage.id,
+      status: 'active',
+      startWaiting: {
+        reason: 'senior_busy',
+        seniors,
+        ...(wait.decision?.decision === 'wait' ? { waitDecidedBy: wait.decision.by } : {}),
+        since: wait.since,
+      },
+    });
+    if (from !== workStage.id)
+      this.addTimeline(task.key, null, 'task_stage_changed', { from, to: workStage.id });
+    return ok(this.taskDetail(this.findTask(task.key)!));
+  }
+
+  /**
+   * The wait limit has passed: the owners get one question about the card (the server asks from its timer, after
+   * `seniorWaitMinutes`). Asks once per wait; a decided or already asked wait is left alone.
+   */
+  askSeniorWait(taskKey: string): void {
+    const task = this.findTask(taskKey);
+    const wait = this.seniorWaits.get(taskKey);
+    if (!task || !wait || wait.itemId || wait.decision || task.startWaiting?.reason !== 'senior_busy') return;
+    const deciders = this.config.team.members
+      .filter((member) => member.kind === 'human' && member.access === 'owner')
+      .map((member) => member.handle);
+    const minutes = seniorWaitMinutesOf(this.config.team.limits);
+    const seniors = task.startWaiting.seniors ?? [];
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'decision',
+      assignees: deciders,
+      source: 'system',
+      sessionId: null,
+      taskKey,
+      title: `${taskKey} waits for the Senior`,
+      body: null,
+      payload: {
+        seniorWait: {
+          taskKey,
+          since: wait.since,
+          minutes,
+          seniors,
+          reason: task.developerLevel?.reason ?? null,
+        },
+      },
+      options: clone(SENIOR_WAIT_OPTIONS),
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    wait.itemId = item.id;
+    this.upsertInbox(item);
+    this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'asked', minutes, seniors, deciders });
+  }
+
+  /** What a person answered about a card that waits for the Senior: kept for the start, which tries again. */
+  private afterSeniorWaitDecision(item: InboxItem): void {
+    const wait = item.taskKey ? this.seniorWaits.get(item.taskKey) : undefined;
+    const optionId = item.resolution?.optionId;
+    const decision =
+      optionId === SENIOR_WAIT_OPTION_WAIT ? 'wait' : optionId === SENIOR_WAIT_OPTION_ANY ? 'any' : null;
+    if (!item.taskKey || !wait || !decision || !item.resolution) return;
+    wait.decision = { decision, by: item.resolution.by };
+    this.addTimeline(item.taskKey, null, 'task_senior_wait', {
+      phase: 'decided',
+      decision,
+      by: item.resolution.by,
+    });
+    const task = this.findTask(item.taskKey);
+    if (task?.startWaiting?.reason === 'senior_busy')
+      this.updateTask(task.key, {
+        startWaiting: {
+          ...task.startWaiting,
+          ...(decision === 'wait' ? { waitDecidedBy: item.resolution.by } : {}),
+        },
+      });
+    this.settleSeniorWaits();
+  }
+
+  /**
+   * The cards that wait for a Senior are looked at again, as the server does when a session ends, a card or the
+   * roster changes: a free Senior (or a free developer after the "any" answer) starts the card, and a wait whose
+   * card went another way ends, closing its open question by itself.
+   */
+  private settleSeniorWaits(): void {
+    for (const [taskKey, wait] of [...this.seniorWaits]) {
+      const task = this.findTask(taskKey);
+      const stage = task ? stageOf(this.config, task.stageId) : undefined;
+      let ended: 'senior' | 'ended' | null = null;
+      if (!task || !isOpenTask(task) || stage?.kind !== 'work') ended = 'ended';
+      else if (task.assignee) ended = isSenior(memberOf(this.config, task.assignee)) ? 'senior' : 'ended';
+      else if (developerLevelOf(task) !== 'senior') ended = 'ended';
+      else if (seniorsOf(this.config, stage).length === 0) ended = 'ended';
+      if (ended) {
+        this.endSeniorWait(taskKey, wait, ended === 'senior');
+        // A card that lost its Senior wait goes to any developer; the start tries again.
+        if (task && !task.assignee && task.startWaiting?.reason === 'senior_busy' && stage?.kind === 'work') {
+          if (seniorsOf(this.config, stage).length === 0)
+            this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'no_senior' });
+          this.startDeveloper(task, {});
+        }
+        continue;
+      }
+      if (task?.startWaiting?.reason === 'senior_busy' && stage) {
+        const developers = this.members.filter(
+          (member) =>
+            stageOwners(this.config, stage).includes(member.handle) &&
+            member.status !== 'retired' &&
+            !member.onLeave,
+        );
+        if (this.pickAutomatic(task, stage, developers).kind === 'member') this.startDeveloper(task, {});
+      }
+    }
+  }
+
+  /** The wait is over: the card no longer waits, and its open question closes by itself. */
+  private endSeniorWait(taskKey: string, wait: { itemId?: string }, senior: boolean): void {
+    this.seniorWaits.delete(taskKey);
+    if (this.findTask(taskKey)?.startWaiting?.reason === 'senior_busy')
+      this.updateTask(taskKey, { startWaiting: undefined });
+    const item = this.inbox.find((entry) => entry.id === wait.itemId && entry.state === 'open');
+    if (!item) return;
+    this.upsertInbox({
+      ...item,
+      state: 'resolved',
+      resolution: {
+        optionId: 'ended',
+        by: 'system',
+        at: nowIso(),
+        note: null,
+        rule: senior ? 'senior_took' : 'senior_wait_ended',
+      },
+    });
+    if (senior) this.addTimeline(taskKey, null, 'task_senior_wait', { phase: 'senior_took' });
   }
 
   /** Starts the member's session on the card, unless one is live. */
@@ -3253,7 +3652,9 @@ export class MockBackend {
       ...(input.specialty ? { specialty: input.specialty } : {}),
       ...(input.provider ? { provider: input.provider } : {}),
       model:
-        input.provider === 'codex' ? modelForProvider('codex', input.model) : (input.model ?? defaults.model),
+        input.provider && input.provider !== 'claude'
+          ? modelForProvider(input.provider, input.model)
+          : (input.model ?? defaults.model),
       ...(input.effort ? { effort: input.effort } : {}),
       ...(input.cheapSubagent ? { cheapSubagent: input.cheapSubagent } : {}),
       permissionMode: defaults.permissionMode,
@@ -3478,9 +3879,18 @@ export class MockBackend {
       )
     )
       return 'ai_limit_reached';
-    if (Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent)
-      return 'plan_usage_paused';
+    // Like the server: after the AI limit, before the plan usage (PM-324).
+    if (provider === 'nanogpt') {
+      const status = this.providerStatus.nanogpt;
+      if (status?.loggedIn === false && status.problem !== 'no_key') return 'nanogpt_setup_incomplete';
+      if (!this.nanogptKeyStatus.set) return 'nanogpt_key_missing';
+    }
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
+    if (
+      hasPlanUsage(provider) &&
+      Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
+    )
+      return 'plan_usage_paused';
     return null;
   }
 
@@ -3743,6 +4153,13 @@ export class MockBackend {
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
     this.closeSession(sessionId, { kind: 'manual', by: this.viewerActor() });
+    if (this.machine?.sessions.some((row) => row.sessionId === sessionId)) {
+      const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
+      this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);
+      this.machine.summary.sessionsRunning--;
+      if (row.state === 'working' || row.state === 'starting') this.machine.summary.sessionsWorking--;
+      this.machine.closedSessions++;
+    }
     return ok();
   }
 
@@ -3765,6 +4182,8 @@ export class MockBackend {
       );
     }
     this.setMemberState(session.member, 'idle', null);
+    // A Senior who has finished takes the card that waited for one.
+    this.settleSeniorWaits();
   }
 
   private resolve(itemId: string, body: unknown): MockResponse {
@@ -3941,6 +4360,10 @@ export class MockBackend {
       this.afterFixLimitDecision(item);
       return;
     }
+    if (seniorWaitDecisionOf(item)) {
+      this.afterSeniorWaitDecision(item);
+      return;
+    }
     if (item.kind === 'permission') {
       const allowed = resolution.optionId !== 'deny';
       this.addTimeline(
@@ -3967,7 +4390,12 @@ export class MockBackend {
         { inboxItemId: item.id, answer },
         sessionId,
       );
-      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer);
+      const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
+      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer, undefined, {
+        inboxItemId: item.id,
+        question,
+        answer,
+      });
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

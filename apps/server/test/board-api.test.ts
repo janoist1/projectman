@@ -126,7 +126,7 @@ describe('board API', () => {
     module.planUsageFor = (provider) => ({
       get: async () => {
         calls.push(provider);
-        return values[provider];
+        return provider === 'gemini' || provider === 'nanogpt' ? null : values[provider];
       },
     });
     await h.app.projectman.domain.members.hire('AR', { role: 'qa', provider: 'codex' }, by);

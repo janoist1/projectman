@@ -8,7 +8,7 @@ import {
   sessionSandbox,
 } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
-import { buildCodexArgs, tomlValue } from '../src/runner/providers/codex/args';
+import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
 import { testConfig } from './helpers/test-template';
 
 const source = '/fictional/source';
@@ -63,6 +63,51 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
+  it.each(['codex', 'nanogpt'] as const)(
+    'renders the member cache and development data for %s sandboxed commands',
+    (provider) => {
+      const p = development();
+      const memberDir = '/fictional/app/member-caches/PM/dev';
+      const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
+      const s = { ...spec(p, false), sandbox };
+      const c = codexOverrides(
+        buildCodexArgs({
+          spec: s,
+          provider: provider === 'nanogpt' ? NANOGPT_CODEX_PROVIDER : undefined,
+          realCwd: s.cwd,
+          hookUrl: 'http://fake/hooks',
+          permissionTimeoutMs: 1000,
+        }).args,
+      );
+      expect(c.get('permissions.projectman')).toBe(
+        '{extends=":read-only",filesystem={":root"="read",":workspace_roots"={"."="write",".git"="read",".codex"="read",".agents"="read"},"/fictional/app/member-caches/PM/dev/npm-cache"="write","/fictional/app/member-caches/PM/dev/projectman-dev"="write",":tmpdir"="write",":slash_tmp"="write"}}',
+      );
+      expect(c.get('shell_environment_policy.set.npm_config_cache')).toBe(
+        tomlValue(`${memberDir}/npm-cache`),
+      );
+      expect(c.get('shell_environment_policy.set.PROJECTMAN_HOME')).toBe(
+        tomlValue(`${memberDir}/projectman-dev`),
+      );
+      expect(sandbox.allowWrite).toEqual(sandbox.portable!.allowWrite);
+      expect(c.get('permissions.projectman')).not.toContain('/fictional/user/.npm');
+      expect(c.has('shell_environment_policy.set.GIT_CONFIG_SYSTEM')).toBe(false);
+    },
+  );
+
+  it('does not share denied member directories or give readers member-cache writes', () => {
+    const memberDir = '/fictional/app/member-caches/PM/dev';
+    const p = development();
+    p.filesystem.deniedPaths = [`${memberDir}/npm-cache`];
+    const sandbox = sessionSandbox(p, { userHome: '/fictional/user', memberDir })!;
+    expect(sandbox.portable).toEqual({
+      allowWrite: [`${memberDir}/projectman-dev`],
+      env: { PROJECTMAN_HOME: `${memberDir}/projectman-dev` },
+    });
+    expect(sessionSandbox(review(), { memberDir })!.portable).toBeUndefined();
+    p.filesystem.deniedPaths = [memberDir];
+    expect(sessionSandbox(p, { userHome: '/fictional/user', memberDir })!.portable).toBeUndefined();
+  });
+
   it('refuses unsupported strict enforcement instead of rendering a weaker profile', () => {
     const p: SessionPolicy = { ...development(), enforcement: 'strict', outsideSandbox: 'deny' };
     expect(() =>
@@ -426,6 +471,10 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.projectman/memory',
         // The control socket pauses the whole team (PM-219): not for the members.
         '/Users/anna/.projectman/control.sock',
+        // The Gemini CLI's login, and the secret store and the providers' CLI homes (PM-324).
+        '/Users/anna/.gemini',
+        '/Users/anna/.projectman/secrets',
+        '/Users/anna/.projectman/providers',
       ]),
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.
@@ -455,11 +504,32 @@ describe('provider-neutral session policy', () => {
           'Read(//Users/anna/.claude.json)',
           'Edit(//Users/anna/.projectman/db.sqlite*)',
           'Read(//Users/anna/.projectman/secret/**)',
+          'Read(//Users/anna/.gemini/**)',
+          'Read(//Users/anna/.projectman/secrets/**)',
+          'Edit(//Users/anna/.projectman/providers/**)',
           'WebFetch(domain:localhost)',
           'WebFetch(domain:127.0.0.1)',
         ]),
       );
     }
+    // The shell's sandbox closes the same paths (PM-324).
+    const sandbox = sessionSandbox(
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'developer',
+        task: { repo: 'web' },
+        placement: development().placement,
+        deniedPaths,
+      }),
+      { userHome: '/Users/anna', appHome: '/Users/anna/.projectman' },
+    )!;
+    expect(sandbox.denyRead).toEqual(
+      expect.arrayContaining([
+        '/Users/anna/.gemini',
+        '/Users/anna/.projectman/secrets',
+        '/Users/anna/.projectman/providers',
+      ]),
+    );
   });
 
   it.each([false, true])('renders semantic grants on both providers with resume=%s', (resume) => {
@@ -485,16 +555,16 @@ describe('provider-neutral session policy', () => {
       hookUrl: 'http://fake/hooks',
       permissionTimeoutMs: 1000,
     }).args;
-    expect(codex.slice(codex.indexOf('--sandbox'), codex.indexOf('--sandbox') + 4)).toEqual([
-      '--sandbox',
-      'read-only',
-      '--ask-for-approval',
-      'on-request',
-    ]);
+    expect(codex).not.toContain('--sandbox');
+    expect(codex.slice(codex.indexOf('--ask-for-approval'), codex.indexOf('--ask-for-approval') + 2)).toEqual(
+      ['--ask-for-approval', 'on-request'],
+    );
     const c = codexOverrides(
       buildCodexArgs({ spec: s, realCwd: s.cwd, hookUrl: 'http://fake/hooks', permissionTimeoutMs: 1000 })
         .args,
     );
+    expect(c.get('default_permissions')).toBe('"projectman"');
+    expect(c.get('permissions.projectman')).toContain('extends=":read-only"');
     expect(c.get('mcp_servers.team')).toBe(
       tomlValue({
         url: s.mcpUrl,

@@ -16,6 +16,29 @@ const creation: TimelineEvent = {
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
 describe('creation timeline labels', () => {
+  it('names previous and new priority, including setting and clearing', () => {
+    for (const [previousPriority, priority] of [
+      [null, 'urgent'],
+      ['normal', 'high'],
+      ['high', null],
+    ]) {
+      const name = (value: string | null | undefined) =>
+        value ? t(`priority.levels.${value as 'urgent' | 'normal' | 'high'}`) : t('timeline.noPriority');
+      expect(
+        describeEvent(
+          { ...creation, type: 'task_updated', data: { fields: ['priority'], previousPriority, priority } },
+          context,
+        ).text,
+      ).toBe(
+        t('timeline.events.task_updated', {
+          fields: t('timeline.priorityChange', {
+            previous: name(previousPriority),
+            priority: name(priority),
+          }),
+        }),
+      );
+    }
+  });
   it('describes an AI boundary decision and keeps old check events readable', () => {
     const decision = {
       ...creation,
@@ -474,6 +497,51 @@ describe('fix round limit timeline rows (PM-262)', () => {
     );
     expect(text({ phase: 'ended', endReason: 'something_new' })).toBe(
       t('fixLimit.events.ended', { reason: 'something_new' }),
+    );
+  });
+});
+
+describe('Senior timeline texts (PM-349)', () => {
+  const text = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
+    describeEvent({ ...creation, type, data }, context).text;
+
+  it('tells a first recommendation, a change, and the reason', () => {
+    expect(text('task_level_changed', { level: 'senior', reason: 'Kényes migráció' })).toBe(
+      t('timeline.levelSet', { level: t('timeline.levelSenior') }) +
+        t('timeline.levelReason', { reason: 'Kényes migráció' }),
+    );
+    expect(text('task_level_changed', { level: 'any', previous: { level: 'senior', reason: 'x' } })).toBe(
+      t('timeline.levelChanged', { previous: t('timeline.levelSenior'), level: t('timeline.levelAny') }),
+    );
+    // Only the reason changed: no arrow.
+    expect(
+      text('task_level_changed', {
+        level: 'senior',
+        reason: 'Új',
+        previous: { level: 'senior', reason: 'Régi' },
+      }),
+    ).toBe(
+      t('timeline.levelSet', { level: t('timeline.levelSenior') }) +
+        t('timeline.levelReason', { reason: 'Új' }),
+    );
+  });
+
+  it('tells the phases of the wait for the Senior, and falls back for what it does not know', () => {
+    expect(text('task_senior_wait', { phase: 'asked', minutes: 30, deciders: ['owner'] })).toBe(
+      t('timeline.seniorWaitAsked', { minutes: 30, names: t('common.you') }),
+    );
+    expect(text('task_senior_wait', { phase: 'decided', decision: 'wait', by: 'owner' })).toBe(
+      t('timeline.seniorWaitDecidedWait', { name: t('common.you') }),
+    );
+    expect(text('task_senior_wait', { phase: 'decided', decision: 'any', by: 'owner' })).toBe(
+      t('timeline.seniorWaitDecidedAny', { name: t('common.you') }),
+    );
+    expect(text('task_senior_wait', { phase: 'senior_took' })).toBe(t('timeline.seniorWaitTook'));
+    expect(text('task_senior_wait', { phase: 'no_senior' })).toBe(t('timeline.seniorWaitNoSenior'));
+    expect(text('task_senior_wait', { phase: 'something_new' })).toBe(t('timeline.seniorWaitOther'));
+    expect(text('task_senior_wait', { phase: 'asked' })).toBe(t('timeline.seniorWaitOther'));
+    expect(text('task_senior_wait', { phase: 'decided', decision: 'maybe', by: 'owner' })).toBe(
+      t('timeline.seniorWaitOther'),
     );
   });
 });

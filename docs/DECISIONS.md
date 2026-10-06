@@ -242,3 +242,58 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     whole instance or one project, not a single member; and every stop of the server pauses the team
     first and the next start resumes it, so that an update loses no session's place. PM-219 builds it
     on the server (`PauseService`, the control socket), PM-220 the app.
+33. **When the machine's heavy-run queue cannot be used, a member's heavy command does not run.**
+    Decided by the owner on 2026-10-05 (PM-346; the architect's question, answer: „Álljon le”). The
+    full test, the type check and the screenshot runs of a member stop with exit status 78 and a
+    four-line message instead of running at full speed beside the others, which overloaded the
+    machine. The server's own full test before review still runs without the queue and logs a
+    warning, because the review must not stall on it.
+34. **NanoGPT is a narrow API-key exception.** Decided by the owner on 2026-10-04
+    (PM-319). Open models run through the interactive Codex CLI with NanoGPT as its custom
+    model provider, not through Ollama or `--oss`. The key is a projectman secret and reaches
+    only NanoGPT members' session environments. The `ANTHROPIC_*`, `OPENAI_*` and `CODEX_*` billing-key
+    prohibitions remain; there is no fallback to ChatGPT login or OpenAI billing. This
+    modifies decision 15 only for the projectman-managed NanoGPT key (PM-328, PM-329).
+    On 2026-10-05, the owner accepted the temporary residual risk on PM-329:
+    „Elfogadom átmenetileg, külön kártyán javítjuk” and „Indulhat, a lezárás később”.
+    The legacy Codex sandbox can read the NanoGPT secret file and the `providers` directory
+    from both Codex and NanoGPT sessions. The environment key is still delivered only to
+    NanoGPT sessions. The accepted exposure routes are chat and team tools, or commands
+    outside the sandbox approved by a human or an AI approver; NanoGPT has no automatic
+    command approval. Such approved commands may inspect the parent CLI's environment.
+    PM-356 will close the broad filesystem reads for all Codex CLI members. This acceptance
+    does not waive PM-329's ambient configuration checks or its manual verification.
+35. **Every live release gets a git tag and a GitHub release.** Decided by the owner on
+    2026-10-05 („minden release-t git taggel kéne csinálni meg valami egyszerűbb release-t
+    githubon ilyen összefoglalóval - persze ezt angolul”). The tag is the UTC date the build
+    went live, `vYYYY.M.D`, and `vYYYY.M.D.N` for the N-th release of that day; it points at the
+    merge commit the live instance runs. The GitHub release has the same name and a short English
+    summary of what changed, with the card keys. The integrator creates both after the switch,
+    once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
+    switch backups, without GitHub releases.
+36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
+    triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
+    futásához”). This supersedes decision 25. The members keep running on the owner's machine in
+    the CLIs' own sandboxes (PM-153, PM-167, PM-356). PM-135, PM-163, PM-175, PM-266 and PM-331
+    are cancelled; the VM files and the finished parts (PM-137–146, PM-168) stay for reference.
+37. **Phase 2 team rituals are not planned now.** Decided by the owner on 2026-10-06 (board
+    triage). Meetings, retrospectives, the daily status and the „System” member (PM-44, PM-52–58)
+    are cancelled; browser notifications (PM-59) stay as a card of their own beside the phone
+    view (PM-284).
+38. **Hosting: the board in the cloud, AI work in an „office” or as „remote work”.** Decided by
+    the owner on 2026-10-06. The non-AI part of projectman runs in the cloud, like a Trello board
+    (PM-286). AI members work either in an „office”, today the owner's Mac and later possibly a
+    cloud machine such as EC2 (PM-378, a direction, not needed now), or as „remote work”, for
+    example on RunPod, which keeps working while the Mac sleeps (PM-310). No separate always-on
+    server (Hetzner, PM-45, cancelled).
+39. **The public repository's history is rewritten to remove a client's name.** Decided by the
+    owner on 2026-10-06 (PM-354). Six old commits name a client and its GitHub organization; the
+    current tree no longer does. The integrating session rewrites the history and force-pushes
+    `main` at a quiet time, tells the owner beforehand, and restarts the members' worktrees
+    afterwards. This revises the PM-48 answer that the repository stays as it is.
+40. **Members run targeted tests only; the full test runs once, at the merge.** Decided by the
+    owner on 2026-10-06 (PM-380). In this project, members run `npx vitest related` and the type
+    check of the workspaces they touched, also before a hand-over and in fix rounds. The one full
+    check of a card is the integrating session's merge test before `main` moves (the whole suite
+    when shared code or configuration changed). The owner's first idea, a full test only when a
+    collecting card is finished, was set aside because its parts reach `main` one by one.

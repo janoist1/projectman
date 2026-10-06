@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost } from './app';
-import { createFullTestExecutor, defaultHeavyLockDir } from './full-test';
+import { defaultSessionTmpRoot } from './domain/session-folders';
+import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
+import { createNanogptKeyCheck } from './domain';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -134,6 +136,12 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
         'projectman-sessions',
         createHash('sha256').update(home).digest('hex').slice(0, 12),
       ),
+      // The Codex sessions' own TMPDIR root (PM-339): short, because a Unix socket's path may be 104
+      // bytes at most; a folder per installation, like the session folders above.
+      sessionTmpDir: join(
+        defaultSessionTmpRoot(),
+        createHash('sha256').update(home).digest('hex').slice(0, 8),
+      ),
       browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
       heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
       publicBaseUrl: loopbackBaseUrl(host, port),
@@ -141,6 +149,8 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       cloneDependencies: cloneDependencies !== 'off',
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
+      geminiBin: env.AGY_BIN,
+      geminiConfigDir: join(home, 'providers', 'gemini'),
       codexHome: env.CODEX_HOME || undefined,
       claudeConfigPath: env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : undefined,
       agentEnv: env,
@@ -175,13 +185,17 @@ async function main(): Promise<void> {
   // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
   const app = await buildApp({
     ...config.app,
+    // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
     modules:
       config.app.executionProfile === 'managed_vm'
-        ? config.app.modules
+        ? { ...config.app.modules, nanogptKeyCheck: createNanogptKeyCheck() }
         : {
             ...config.app.modules,
+            nanogptKeyCheck: createNanogptKeyCheck(),
             createFullTestExecutor: ({ logger }) =>
               createFullTestExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
+            createScreenshotExecutor: ({ logger }) =>
+              createScreenshotExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },
   });
   if (config.app.executionProfile === 'managed_vm')

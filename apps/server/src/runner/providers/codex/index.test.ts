@@ -15,6 +15,21 @@ const composer = [
 ];
 
 describe('Codex screen checks', () => {
+  it('recognizes the owner-captured 0.159.1 NanoGPT composer without context metadata', () => {
+    const screen = [
+      '  >_ OpenAI Codex (v0.159.1)',
+      '     ~/.projectman-nanogpt-probe-work-02061e',
+      '  May the source be with you.',
+      '  Tip: Maximize usage with GPT-6.1 Sol. ...',
+      '› Ask Codex to do anything',
+      '  z-ai/glm-5.3-flash-uncensored medium · ~/.projectman-nanogpt-probe-work-02061e   ⚠ 3 warnings · f2 to view',
+    ].join('\n');
+    expect(codexPromptVisible(screen)).toBe(true);
+    expect(detectCodexBlockingScreen(screen)).toBeNull();
+    expect(codexPromptVisible(screen.replace('   ⚠ 3 warnings · f2 to view', ''))).toBe(true);
+    expect(codexPromptVisible(screen.replace('› Ask Codex to do anything', '› 1. Continue'))).toBe(false);
+    expect(codexPromptVisible('› Ask Codex to do anything\n  ⚠ 3 warnings · f2 to view')).toBe(false);
+  });
   it('sees the composer, even below history that quotes a dialog', () => {
     const screen = [
       '› fix the login',
@@ -115,6 +130,7 @@ describe('Codex adapter', () => {
       presetSessionId: false,
       sessionPermissionRules: false,
       readiness: 'screen',
+      toolGate: 'permission_request',
     });
     expect(adapter.inputTools.has('request_user_input')).toBe(true);
     expect(adapter.timing.enterDelayMs).toBeGreaterThan(120);

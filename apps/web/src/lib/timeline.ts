@@ -4,6 +4,7 @@ import {
   FullTestErrorReason,
   LabelChangeReason,
   TaskRelationKind,
+  TaskPriority,
 } from '@projectman/shared';
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
@@ -56,7 +57,16 @@ function stageName(ctx: TimelineContext, id: string): string {
   return ctx.pipeline?.stageById.get(id)?.name ?? id;
 }
 
-const fieldKeys = ['title', 'description', 'labels', 'visibility', 'stageId', 'parentKey', 'repo'] as const;
+const fieldKeys = [
+  'title',
+  'description',
+  'labels',
+  'visibility',
+  'stageId',
+  'parentKey',
+  'repo',
+  'priority',
+] as const;
 
 function fieldLabel(field: string): string {
   return (fieldKeys as readonly string[]).includes(field)
@@ -74,6 +84,16 @@ function repoName(value: unknown): string {
  * (events recorded without them name the field only).
  */
 function fieldText(field: string, data: Record<string, unknown>): string {
+  if (field === 'priority' && 'priority' in data) {
+    const name = (value: unknown) => {
+      const parsed = TaskPriority.safeParse(value);
+      return parsed.success ? t(`priority.levels.${parsed.data}`) : t('timeline.noPriority');
+    };
+    return t('timeline.priorityChange', {
+      previous: name(data.previousPriority),
+      priority: name(data.priority),
+    });
+  }
   return field === 'repo' && 'repo' in data
     ? t('timeline.repoChange', { previous: repoName(data.previousRepo), repo: repoName(data.repo) })
     : fieldLabel(field);
@@ -164,6 +184,47 @@ function loopEventText(d: Record<string, unknown>, ctx: TimelineContext): string
 
 const FIX_LIMIT_DECISIONS = ['continue', 'another_round', 'replan', 'reassign'] as const;
 const FIX_LIMIT_END_REASONS = ['decided', 'assignee_changed', 'closed'] as const;
+
+function levelName(level: unknown): string {
+  return t(level === 'senior' ? 'timeline.levelSenior' : 'timeline.levelAny');
+}
+
+/** The recommended developer of a card (PM-349): set, or changed from another level, with the reason if any. */
+function levelEventText(d: Record<string, unknown>): string {
+  const previous = record(d.previous);
+  const level = levelName(d.level);
+  const reason = str(d.reason).trim() ? t('timeline.levelReason', { reason: str(d.reason).trim() }) : '';
+  const changed = previous !== null && levelName(previous.level) !== level;
+  return (
+    (changed
+      ? t('timeline.levelChanged', { previous: levelName(previous.level), level })
+      : t('timeline.levelSet', { level })) + reason
+  );
+}
+
+/** The wait of a Senior card (PM-348): asked, decided, over because a Senior took it, or no Senior at all. */
+function seniorWaitEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
+  const deciders = strings(d.deciders);
+  switch (d.phase) {
+    case 'asked':
+      if (typeof d.minutes !== 'number' || deciders.length === 0) return t('timeline.seniorWaitOther');
+      return t('timeline.seniorWaitAsked', {
+        minutes: d.minutes,
+        names: joinNames(namesOf(deciders, ctx.members, ctx.myHandle)),
+      });
+    case 'decided':
+      if ((d.decision !== 'wait' && d.decision !== 'any') || !d.by) return t('timeline.seniorWaitOther');
+      return t(d.decision === 'any' ? 'timeline.seniorWaitDecidedAny' : 'timeline.seniorWaitDecidedWait', {
+        name: nameOf(str(d.by), ctx.members, ctx.myHandle),
+      });
+    case 'senior_took':
+      return t('timeline.seniorWaitTook');
+    case 'no_senior':
+      return t('timeline.seniorWaitNoSenior');
+    default:
+      return t('timeline.seniorWaitOther');
+  }
+}
 
 /** A card held at its fix round limit (PM-262): reached, passed on to the people, decided, or over. */
 function fixLimitEventText(d: Record<string, unknown>, ctx: TimelineContext): string {
@@ -390,6 +451,10 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         previous ? t('timeline.themeMoved', { previous, themeKey }) : t('timeline.themeSet', { themeKey }),
       );
     }
+    case 'task_level_changed':
+      return normal(levelEventText(d));
+    case 'task_senior_wait':
+      return normal(seniorWaitEventText(d, ctx));
     case 'task_prerequisite_closed': {
       const remaining = strings(d.remaining);
       return normal(

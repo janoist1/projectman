@@ -223,6 +223,25 @@ describe('notices to the members working on a card', () => {
       expect(h.repos.messages.pending('AR', 'dev-2')).toEqual([]);
     });
 
+    it('marks the answer message with the question and the answer, in the record and in the event', async () => {
+      const dev1 = await developer('working');
+      const id = await ask(dev1, 'Which export format?');
+      const events: Array<{ id: string; answer?: unknown }> = [];
+      h.domain.bus.subscribe((event) => {
+        if (event.type === 'team_message') events.push(event.message);
+      });
+
+      await h.domain.inbox.resolve('AR', id, { optionId: 'answer', note: 'CSV, please' }, OWNER_RESOLVER);
+      await flush();
+
+      const marked = { inboxItemId: id, question: 'Which export format?', answer: 'CSV, please' };
+      const stored = h.repos.messages.list('AR', { taskKey: 'AR-1' }).filter((m) => m.answer);
+      expect(stored).toHaveLength(1);
+      expect(stored[0]).toMatchObject({ from: 'owner', to: ['dev-1'], answer: marked });
+      expect(stored[0]!.body).toContain('Answer to your question "Which export format?"');
+      expect(events.filter((m) => m.id === stored[0]!.id).map((m) => m.answer)).toContainEqual(marked);
+    });
+
     it('cuts a long question and answer, and names the event that has them whole', async () => {
       const { dev1, dev2 } = await threeWorkers();
       const question = `Q${'x'.repeat(250)}`;

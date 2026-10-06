@@ -39,6 +39,8 @@ export function DialogActions({ error, children }: { error?: ReactNode; children
 interface DialogProps {
   open: boolean;
   onClose: () => void;
+  /** A nested confirmation may consume Escape while the close button still closes the dialog. */
+  onEscape?: () => void;
   title: ReactNode;
   kicker?: ReactNode;
   menu?: ReactNode;
@@ -47,6 +49,7 @@ interface DialogProps {
   focusTitle?: boolean;
   focusKey?: string;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  returnFocusFallback?: () => HTMLElement | null;
   description?: string;
   children?: ReactNode;
   /** The buttons, pinned under the scrolling body: [Cancel] [Primary], the primary one last. */
@@ -65,6 +68,7 @@ interface DialogProps {
 export function Dialog({
   open,
   onClose,
+  onEscape,
   title,
   description,
   children,
@@ -78,11 +82,13 @@ export function Dialog({
   focusTitle,
   focusKey,
   returnFocusRef,
+  returnFocusFallback,
 }: DialogProps) {
   if (!open) return null;
   return (
     <DialogInner
       onClose={onClose}
+      onEscape={onEscape}
       title={title}
       description={description}
       footer={footer}
@@ -95,6 +101,7 @@ export function Dialog({
       focusTitle={focusTitle}
       focusKey={focusKey}
       returnFocusRef={returnFocusRef}
+      returnFocusFallback={returnFocusFallback}
     >
       {children}
     </DialogInner>
@@ -103,6 +110,7 @@ export function Dialog({
 
 function DialogInner({
   onClose,
+  onEscape,
   title,
   description,
   children,
@@ -116,6 +124,7 @@ function DialogInner({
   focusTitle,
   focusKey,
   returnFocusRef,
+  returnFocusFallback,
 }: Omit<DialogProps, 'open'>) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -124,6 +133,8 @@ function DialogInner({
   const onCloseRef = useRef(onClose);
   const detailed = focusTitle || kicker !== undefined || menu !== undefined || back !== undefined;
   onCloseRef.current = onClose;
+  const onEscapeRef = useRef(onEscape ?? onClose);
+  onEscapeRef.current = onEscape ?? onClose;
   const [errorSlot, setErrorSlot] = useState<HTMLElement | null>(null);
   const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
   const slots = useMemo(() => ({ error: errorSlot, footer: footerSlot }), [errorSlot, footerSlot]);
@@ -138,13 +149,16 @@ function DialogInner({
       dialog.setAttribute('open', '');
     }
     return () => {
+      const active = document.activeElement;
+      const restore = active === document.body || (active instanceof Node && dialog.contains(active));
       if (typeof dialog.close === 'function' && dialog.open) dialog.close();
+      if (!restore) {
+        if (active instanceof HTMLElement && active.isConnected) active.focus();
+        return;
+      }
       const target = returnFocusRef ? returnFocusRef.current : previous;
       if (target?.isConnected) target.focus();
-      else
-        document
-          .querySelector<HTMLElement>('[data-settings-content] h2[id^="settings-"]:not(#settings-problems)')
-          ?.focus();
+      else returnFocusFallback?.()?.focus();
     };
   }, []);
 
@@ -160,6 +174,8 @@ function DialogInner({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault();
+        // React also bubbles native dialog cancellation through a nested portal.
+        event.stopPropagation();
         const popover = ref.current?.querySelector<HTMLElement>('[data-popover-open]');
         if (popover) {
           // Native cancel can arrive without keydown; dismiss the popover through its trigger.
@@ -170,7 +186,7 @@ function DialogInner({
           trigger?.focus();
           return;
         }
-        onCloseRef.current();
+        onEscapeRef.current();
       }}
       onKeyDown={(event) => {
         if (event.key === 'Escape' && ref.current?.querySelector('[data-popover-open]')) {
@@ -178,7 +194,7 @@ function DialogInner({
           event.preventDefault();
           return;
         }
-        if (event.key === 'Escape' && typeof ref.current?.showModal !== 'function') onCloseRef.current();
+        if (event.key === 'Escape' && typeof ref.current?.showModal !== 'function') onEscapeRef.current();
       }}
       onMouseDown={(event) => {
         if (event.target === ref.current) onCloseRef.current();

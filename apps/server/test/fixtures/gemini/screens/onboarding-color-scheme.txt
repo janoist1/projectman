@@ -1,0 +1,30 @@
+
+    ▄▀▀▄
+   ▀▀▀▀▀▀
+  ▀▀▀▀▀▀▀▀
+ ▄▀▀    ▀▀▄
+▄▀▀      ▀▀▄
+
+Terms of Service &vity CLI!
+
+Choose your color scheme:        ╭─────────────────────────────────────────────────────────────╮
+                                 │ > you: add a greeting function                              │
+  > terminal                     │                                                             │
+    light                        │   Here's the change:                                        │
+    solarized light              │                                                             │
+    colorblind-friendly light    │  3   import "fmt"                                           │
+    dark                         │  4                                                          │
+    solarized dark               │  5 - func main() {                                          │
+    colorblind-friendly dark     │  5 + func greet(name string) {                              │
+    tokyo night                  │  6 +     fmt.Printf("Hello, %s!\n", name)                   │
+                                 │  7   }                                                      │
+                                 │                                                             │
+                                 │   ▾ Thought Process                                         │
+                                 │     I need to add a greeting function. I'll use fmt.Printf. │
+                                 │   ⚙ tool: write_file main.go                                │
+                                 ╰─────────────────────────────────────────────────────────────╯
+
+    [Next]
+
+  ↑/↓ Navigate · enter Confirm
+                                                                                                 Gemini 3.8 Flash · high

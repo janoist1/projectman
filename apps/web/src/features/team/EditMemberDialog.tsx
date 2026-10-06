@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
   DEFAULT_AGENT_PROVIDER,
+  effortForProvider,
   DEFAULT_PROVIDER_MODELS,
   holdersAllow,
   HumanAccess,
@@ -56,7 +57,7 @@ function EditMemberForm({
     ai?.provider ?? member.provider ?? DEFAULT_AGENT_PROVIDER,
   );
   const [effort, setEffort] = useState<AgentEffort | undefined>(
-    ai?.effort ?? member.effort ?? (provider === 'codex' ? 'medium' : undefined),
+    effortForProvider(provider, ai?.effort ?? member.effort),
   );
   const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>(
     ai?.cheapSubagent ?? member.cheapSubagent,
@@ -65,6 +66,9 @@ function EditMemberForm({
   const [compactWindow, setCompactWindow] = useState(
     String(ai?.autoCompactWindowTokens ?? member.autoCompactWindowTokens ?? ''),
   );
+  // The Senior (PM-347) is an AI member that is no stand-in; the choice is the form's own, saved with it.
+  const canBeSenior = member.kind === 'ai' && !member.temp;
+  const [senior, setSenior] = useState(member.senior === true);
   const [model, setModel] = useState(ai?.model ?? member.model ?? DEFAULT_PROVIDER_MODELS[provider]);
   const [instructions, setInstructions] = useState(ai?.instructions ?? '');
   const [schedule, setSchedule] = useState<ScheduleDraft>({
@@ -98,6 +102,8 @@ function EditMemberForm({
             : {
                 displayName: displayName.trim(),
                 specialty: specialty.trim(),
+                // Sent only when it changes: a stand-in has none, and the server refuses it for one.
+                ...(canBeSenior && senior !== (member.senior === true) ? { senior } : {}),
                 provider,
                 effort: effort ?? null,
                 autoCompactWindowTokens: compactWindow.trim() ? Number(compactWindow) : null,
@@ -187,6 +193,22 @@ function EditMemberForm({
               value={specialty}
               onChange={(event) => setSpecialty(event.target.value)}
             />
+            {canBeSenior ? (
+              <div>
+                <label className={styles.toggle}>
+                  <input
+                    type="checkbox"
+                    checked={senior}
+                    aria-describedby={`${formId}-senior`}
+                    onChange={(event) => setSenior(event.target.checked)}
+                  />
+                  {t('memberEdit.senior')}
+                </label>
+                <p id={`${formId}-senior`} className={styles.toggleHint}>
+                  {t('memberEdit.seniorHint')}
+                </p>
+              </div>
+            ) : null}
             <ProviderFields
               provider={provider}
               model={model}
@@ -206,6 +228,7 @@ function EditMemberForm({
                 provider === 'claude'
                   ? 'memberEdit.autoCompactWindowHint'
                   : 'memberEdit.autoCompactWindowCodex',
+                { provider: t(`providers.${provider}`) },
               )}
               type="number"
               min={100_000}
@@ -226,7 +249,7 @@ function EditMemberForm({
             />
             <ScheduleFields value={schedule} onChange={setSchedule} showErrors={scheduleError} />
             {/* These save at once, apart from the form's own button: show the current roster entry. */}
-            <PermissionLevelControl member={members.get(member.handle) ?? member} />
+            <PermissionLevelControl member={members.get(member.handle) ?? member} provider={provider} />
           </>
         )}
       </form>

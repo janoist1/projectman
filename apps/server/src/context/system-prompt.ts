@@ -6,14 +6,22 @@ import {
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
+  teamRules,
+  usesCodexCli,
 } from '@projectman/shared';
 import type { DutyId } from '@projectman/shared';
 import { roleLabel } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
-import { describeSandbox, describeUnattendedCommands } from '../domain';
+import {
+  describeSandbox,
+  describeSessionFolder,
+  describeSessionTmpDir,
+  describeUnattendedCommands,
+} from '../domain';
 import { isHumanOnlyLabel, labelHolders } from '@projectman/shared';
 import { code, codeList, describeGate, labelRef, languageName, repoText, stageLabel } from './format';
 import { recentMemory } from './memory';
+import { describeTeamRule } from './team-rules';
 import { cheapSubagentSection } from './subagents';
 import { dutyPrompt, expectedSteps, type Situation } from './work-item';
 
@@ -32,10 +40,13 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     tokenEconomySection(),
     pipelineSection(input, situation),
     labelsSection(input),
+    teamRulesSection(input),
     workItemSection(input, situation),
     sessionPolicySection(input),
     workspaceSection(input),
     unattendedCommandsSection(input),
+    heavyCommandsSection(input),
+    codexSessionFolderSection(input),
     boundarySection(input),
     cheapSubagentSection(input.member),
     guardrailsSection(input),
@@ -48,7 +59,22 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
 
 /** Codex members differ in a few words: their plan, the tool naming and the project's rules file. */
 function isCodex(member: ContextPackInput['member']): boolean {
-  return member.provider === 'codex';
+  return usesCodexCli(member.provider);
+}
+function isGemini(member: ContextPackInput['member']): boolean {
+  return member.provider === 'gemini';
+}
+
+/** Provider-specific waiting for queued checks and native command completion (PM-376). */
+function heavyCommandsSection({ member }: ContextPackInput): string {
+  if (member.provider === 'claude') return '';
+  const wait =
+    member.provider === 'gemini'
+      ? 'agy run_command may return asynchronously after WaitMsBeforeAsync: use command_status with the returned CommandId and its waiting option until it finishes. If you use schedule to wake this conversation, DurationSeconds must be at most 600; keep foreground waiting as the main path.'
+      : 'Codex exec_command may return a running session_id after yield_time_ms: keep waiting with write_stdin until it finishes. Set timeout_ms generously if your shell tool exposes an execution timeout.';
+  const notification =
+    member.provider === 'gemini' ? '' : ' This provider receives no background-completion notification.';
+  return `# Heavy commands\nRun npm test, npm run typecheck, npm run shots and npm run heavy in the foreground and wait through both the heavy-run queue and execution. Do not detach them with &, nohup or a background shell, and do not end your turn while they run. ${wait} A tool returning before completion is not a completed check: read the final output and exit status before committing or handing over.${notification} This overrides repository instructions to run heavy commands in the background.`;
 }
 
 function boundarySection({ project }: ContextPackInput): string {
@@ -59,7 +85,14 @@ function boundarySection({ project }: ContextPackInput): string {
 function identitySection({ project, member }: ContextPackInput): string {
   const sponsor = project.team.members.find((m) => m.handle === member.sponsor);
   const specialty = member.specialty ? ` (${member.specialty})` : '';
-  const plan = isCodex(member) ? 'ChatGPT subscription (Codex)' : 'Claude subscription';
+  const plan =
+    member.provider === 'nanogpt'
+      ? 'Codex CLI'
+      : isGemini(member)
+        ? 'Google AI subscription'
+        : isCodex(member)
+          ? 'ChatGPT subscription (Codex)'
+          : 'Claude subscription';
   const lines = [
     '# Who you are',
     `You are ${member.displayName} (handle ${code(member.handle)}), the ${roleLabel(member.role, project.team.roles)}${specialty} of the ${project.project.name} team (project key ${code(project.project.key)}); you run on ${sponsor?.displayName ?? member.sponsor}'s ${plan}.`,
@@ -146,12 +179,14 @@ function teamSection(input: ContextPackInput): string {
  */
 function teamworkSection({ project, member }: ContextPackInput): string {
   const language = project.project.language;
-  const cli = isCodex(member) ? 'Codex' : 'Claude Code';
+  const cli = isGemini(member) ? 'Gemini' : isCodex(member) ? 'Codex' : 'Claude Code';
   const rules = isCodex(member) ? "The project's AGENTS.md (or CLAUDE.md)" : "The project's CLAUDE.md";
   return [
     '# How the team works',
     '- You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.',
-    `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
+    isGemini(member)
+      ? '- Work with the others through the team tools on the MCP server "team", using call_mcp_tool. Each tool description says when and how to use it. Read the project CLAUDE.md at the start: this CLI does not load it automatically.'
+      : `- Work with the others through the team tools (MCP server "team"; in ${cli} they are named mcp__team__<tool>). Each tool's description says when and how to use it.`,
     '- Text you write in your own session reaches nobody: to tell a teammate something, or to answer a team message, use send_message. Team messages arrive in your session as "[team message from <handle> about <task key>]" followed by the text. Messages without that prefix come from the app (like the kick-off brief) or from a human using it.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
     '- Message only when someone has something to do, and send humans only what needs their decision or action.',
@@ -191,12 +226,20 @@ function pipelineSection(input: ContextPackInput, situation: Situation): string 
   });
   return [
     '# The pipeline',
-    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task. Approvals are labels only humans may set; the app asks them.',
+    'Tasks move through these stages in order. A gate must hold before a task may enter its stage: labels that must (or must not) be on the task.',
     ...lines,
   ].join('\n');
 }
 
 /** The project's label vocabulary: what each label means and who may set it. */
+function teamRulesSection({ project }: ContextPackInput): string {
+  return [
+    '# Team rules',
+    'Rules the system enforces on every task, beyond the gates and labels above.',
+    ...teamRules(project).map((rule) => `- ${describeTeamRule(rule, project)}`),
+  ].join('\n');
+}
+
 function labelsSection({ project }: ContextPackInput): string {
   const labels = project.pipeline.labels;
   if (labels.length === 0) return '';
@@ -285,6 +328,23 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
 }
 
 /**
+ * A Codex member's own session folder and temporary directory (PM-339), when its sandbox has them
+ * (`portable.env` carries the folder: only a writing Codex sandbox outside the managed VM gets
+ * one). No browsers and no screenshots yet: the image-making path comes with its own card.
+ */
+function codexSessionFolderSection({ member, sandbox }: ContextPackInput): string {
+  if (!isCodex(member)) return '';
+  const folder = sandbox?.portable?.env['PROJECTMAN_SESSION_DIR'];
+  if (!folder) return '';
+  const tmpDir = sandbox?.portable?.tmpDir;
+  return [
+    '# Your session folder',
+    describeSessionFolder(folder, 'codex'),
+    ...(tmpDir ? [describeSessionTmpDir(tmpDir)] : []),
+  ].join('\n');
+}
+
+/**
  * The shell commands the server allows without a human: generated from its rules (domain), so a
  * member writes commands in a form that passes instead of waiting for approval. Only task work
  * items have such rules (`commandVerdict` gives no verdict without a task).
@@ -298,6 +358,15 @@ function unattendedCommandsSection({
   sandbox,
 }: ContextPackInput): string {
   const repo = repoOf(project, effectiveRepo(project, task));
+  if (member.provider === 'nanogpt') {
+    return [
+      '# Command permission decisions',
+      'The server does not automatically approve CLI permission requests, including read-only commands and routine worktree steps. Wait for the configured approver to decide. With no approver, these requests are refused.',
+      'Publishing from a local-only repository and in-place file editing remain refused outright. Use the file-editing tools for changes.',
+    ].join('\n');
+  }
+  if (isGemini(member))
+    return '# Commands\nYour role commands and reading commands within the allowed roots run immediately; other commands wait for a permission decision in the inbox. Do not chain commands with && or |. Use file tools for reading. Never retry a refused command in another form.';
   // A Claude member in the CLI's own sandbox (PM-167) is told its boundary instead: nothing there
   // waits for a human, whatever the work item. Codex's text does not change.
   if (sandbox && !isCodex(member) && sessionPolicy) {
@@ -381,6 +450,7 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
  * for this task, so that a resumed session knows it too (the system prompt is rebuilt on resume).
  */
 function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackInput): string {
+  if (isGemini(member)) return '';
   const placement = policy?.placement;
   // The commit handed over with the task's current review or test stage (PM-183).
   const pin = task?.reviewPin;
@@ -447,12 +517,6 @@ function guardrailsSection({ project, member }: ContextPackInput): string {
     '- When you are blocked or a decision is needed, ask with ask_human instead of guessing. Nobody reads your terminal: never ask with AskUserQuestion or any other question at the terminal.',
     '- Never put secrets (passwords, tokens, keys, connection strings, personal data) in messages, notes, task text, commits or pull requests; say where they are stored instead.',
     '- Do not ask a teammate to do what you are not allowed to do; tell a human instead.',
-    // The self-review rule is per label (notByAuthor), marked in the Labels section.
-    ...(project.pipeline.labels.some((label) => label.notByAuthor)
-      ? [
-          '- Never set a label marked "not on your own work" on a task you are assigned to or whose pull request you authored.',
-        ]
-      : []),
     '- Do not ask humans again about what they have already decided.',
     '- If you told the team something wrong, correct it yourself and tell everyone who relied on it.',
   ];

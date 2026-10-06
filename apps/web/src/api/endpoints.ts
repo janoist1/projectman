@@ -1,4 +1,6 @@
 import {
+  MachineView,
+  StopOrphansResult,
   AttachmentListResponse,
   BoardMoveResult,
   BoundaryRequest,
@@ -36,6 +38,7 @@ import {
   routes,
 } from '@projectman/shared';
 import type {
+  StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
   DecideBoundaryRequest,
@@ -69,6 +72,10 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  machine: (panel: boolean, signal?: AbortSignal) =>
+    apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
+  stopOrphans: (body: StopOrphansRequest) =>
+    apiRequest(routes.machineOrphansStop(), { method: 'POST', body, schema: StopOrphansResult }),
   boundaryRequest: (key: string, id: string) =>
     apiRequest(routes.boundaryRequest(key, id), { schema: BoundaryRequestView }),
   decideBoundary: (key: string, id: string, body: DecideBoundaryRequest) =>
@@ -78,6 +85,9 @@ export const api = {
   addHumanMember: (key: string, body: AddHumanMemberRequest) =>
     apiRequest(routes.addHumanMember(key), { method: 'POST', body, schema: MemberView }),
   providers: () => apiRequest(routes.providers(), { schema: ProvidersView }),
+  setNanogptKey: (key: string) =>
+    apiRequest(routes.nanogptKey(), { method: 'PUT', body: { key }, schema: ProvidersView }),
+  deleteNanogptKey: () => apiRequest(routes.nanogptKey(), { method: 'DELETE', schema: ProvidersView }),
   setupStatus: () => apiRequest(routes.setupStatus(), { schema: SetupStatus }),
   setup: (body: SetupRequest) => apiRequest<unknown>(routes.setup(), { method: 'POST', body }),
   login: (body: LoginRequest) => apiRequest<unknown>(routes.login(), { method: 'POST', body }),
@@ -107,7 +117,7 @@ export const api = {
   createTask: (key: string, body: CreateTaskRequest) =>
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
-    apiRequest<unknown>(routes.startTask(key, taskKey), { method: 'POST', body }),
+    apiRequest(routes.startTask(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),

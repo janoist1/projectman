@@ -77,11 +77,17 @@ export type WaitingReason = TaskStartWaiting['reason'];
  * card into work (`AutomaticStart.defers`). `label_missing` is no refusal at all: the start of a
  * person's Start button that waits for a label (PM-236) is kept with it directly. `full_test_pending`
  * is one only for the stage hand-over (`AutomaticStart.defers`), which waits for the server's full test
- * of the pinned commit (PM-217).
+ * of the pinned commit (PM-217). `senior_busy` is one only for the start that picks its developer
+ * itself (`AutomaticStart.defers`): a card recommended for the Senior waits for one (PM-348).
  */
 type DeferrableReason = Exclude<
   WaitingReason,
-  'repo_required' | 'no_free_member' | 'prerequisite_open' | 'label_missing' | 'full_test_pending'
+  | 'repo_required'
+  | 'no_free_member'
+  | 'prerequisite_open'
+  | 'label_missing'
+  | 'full_test_pending'
+  | 'senior_busy'
 >;
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */
@@ -98,6 +104,11 @@ const DEFERRABLE = new Set<ErrorCode>([
   'workspace_busy',
   'workspace_dirty',
   'workspace_fetch_failed',
+  // The member's provider is not logged in (PM-324): the retry loop starts it once it is.
+  'provider_not_logged_in',
+  'nanogpt_key_missing',
+  'nanogpt_setup_incomplete',
+  'codex_setup_incomplete',
 ] satisfies DeferrableReason[]);
 
 /** `also`: the further refusals the start in question waits for. */
@@ -117,14 +128,35 @@ export function waitingOf(
   opts: { member?: string; previous?: TaskStartWaiting; at: string },
 ): TaskStartWaiting {
   const details = err.details as
-    { provider?: AgentProvider; threshold?: number; prerequisites?: string[] } | undefined;
+    | {
+        provider?: AgentProvider;
+        threshold?: number;
+        prerequisites?: string[];
+        seniors?: string[];
+        waitDecidedBy?: string;
+      }
+    | undefined;
   return {
     reason: err.code,
     member: opts.member,
     ...(err.code === 'plan_usage_paused'
       ? { provider: details?.provider, threshold: details?.threshold }
       : {}),
+    ...([
+      'provider_not_logged_in',
+      'nanogpt_key_missing',
+      'nanogpt_setup_incomplete',
+      'codex_setup_incomplete',
+    ].includes(err.code)
+      ? { provider: details?.provider }
+      : {}),
     ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
+    ...(err.code === 'senior_busy'
+      ? {
+          seniors: details?.seniors,
+          ...(details?.waitDecidedBy ? { waitDecidedBy: details.waitDecidedBy } : {}),
+        }
+      : {}),
     since: opts.previous?.since ?? opts.at,
   };
 }

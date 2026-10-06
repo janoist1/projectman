@@ -22,6 +22,19 @@ interface DetailPanelProps {
   itemKey?: string;
 }
 
+function sectionHeading(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    '[data-settings-content] h2[id^="settings-"]:not(#settings-problems)',
+  );
+}
+
+function restorePanelFocus(element: HTMLElement | null, opener: HTMLElement | null) {
+  const active = document.activeElement;
+  if (active !== document.body && !element?.contains(active)) return;
+  if (opener?.isConnected) opener.focus();
+  else sectionHeading()?.focus();
+}
+
 /** A shared list/panel grid; narrow screens keep the modal outside the document flow. */
 export function SettingsDetailLayout({ children }: { children: ReactNode }) {
   return <div className={styles.layout}>{children}</div>;
@@ -56,17 +69,21 @@ export function DetailPanel({
   const opener = useRef<HTMLElement | null>(null);
   const panel = useRef<HTMLElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
   useLayoutEffect(() => {
-    if (!open) return;
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    return () => {
-      if (opener.current?.isConnected) opener.current.focus();
-      else
-        document
-          .querySelector<HTMLElement>('[data-settings-content] h2[id^="settings-"]:not(#settings-problems)')
-          ?.focus();
-    };
-  }, [open]);
+    if (open) {
+      const active = document.activeElement;
+      // Item switches come from another row; edits inside the panel keep the current opener.
+      if (active instanceof HTMLElement && !panel.current?.contains(active) && !active.closest('dialog'))
+        opener.current = active;
+    } else if (wasOpen.current && wide) restorePanelFocus(panel.current, opener.current);
+    wasOpen.current = open;
+  }, [open, itemKey, wide]);
+  useLayoutEffect(() => {
+    if (!wide) return;
+    const element = panel.current;
+    return () => restorePanelFocus(element, opener.current);
+  }, [wide]);
   useEffect(() => {
     if (open && wide) heading.current?.focus();
     if (open && wide && !window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -110,6 +127,7 @@ export function DetailPanel({
         focusTitle
         focusKey={itemKey}
         returnFocusRef={opener}
+        returnFocusFallback={sectionHeading}
       >
         {children}
       </Dialog>

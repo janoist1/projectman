@@ -1,5 +1,6 @@
+import { mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
 import type { PermissionDecision } from '../src/contracts';
 import { DomainError } from '../src/domain';
@@ -219,6 +220,52 @@ describe('inbox: automatic permission decisions', () => {
     }
   });
 
+  it('uses the tool working directory and never auto-approves malformed working directories', async () => {
+    const ownCwd = h.repos.sessions.get(sessionId)!.cwd!;
+    mkdirSync(ownCwd, { recursive: true });
+    const otherWorktree = join(h.dir, 'other-task-worktree');
+    mkdirSync(otherWorktree);
+    const link = join(ownCwd, 'foreign-link');
+    symlinkSync(otherWorktree, link);
+    for (const cwd of [otherWorktree, link, join(ownCwd, 'missing'), '/elsewhere', 'relative', null, 42]) {
+      const controller = new AbortController();
+      const pending = h.runnerModule.broker().decide(
+        {
+          sessionId,
+          toolName: 'Bash',
+          toolInput: { command: 'npm ci', cwd },
+          raw: {},
+        },
+        controller.signal,
+      );
+      await flush();
+      await vi.waitFor(() => expect(h.domain.inbox.list('AR', { state: 'open' })).toHaveLength(1));
+      const items = h.domain.inbox.list('AR', { state: 'open' });
+      expect(items).toHaveLength(1);
+      expect(items[0]!.payload).toMatchObject({ toolInput: { cwd } });
+      if (typeof cwd === 'string' && cwd.startsWith('/')) expect(items[0]!.title).toContain(`${cwd}$ npm ci`);
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+    }
+  });
+
+  it('auto-approves a read from a real subdirectory using that directory as the base', async () => {
+    const ownCwd = h.repos.sessions.get(sessionId)!.cwd!;
+    const cwd = join(ownCwd, 'src');
+    mkdirSync(cwd, { recursive: true });
+    const decision = await h.runnerModule.broker().decide(
+      {
+        sessionId,
+        toolName: 'Bash',
+        toolInput: { command: 'git status', cwd },
+        raw: {},
+      },
+      new AbortController().signal,
+    );
+    expect(decision.behavior).toBe('allow');
+    expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+  });
+
   it('still asks for a rewriting commit, a merge of another branch and a chain with a second command', async () => {
     const commands = [
       'git commit --amend -am "Clarify the settings history section"',
@@ -255,13 +302,14 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
   let h: DomainHarness;
   afterEach(() => h.cleanup());
 
-  async function start(approver: 'human' | 'ai' | 'none' | undefined) {
+  async function start(approver: 'human' | 'ai' | 'none' | undefined, provider?: 'nanogpt') {
     h = await createDomainHarness({
       adjust: (config) => {
         delete config.project.repos[0]!.github;
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
         if (dev?.kind === 'ai') {
           dev.permissionMode = 'auto';
+          if (provider) dev.provider = provider;
           if (approver) dev.approver = approver;
         }
       },
@@ -275,6 +323,32 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
     h.runnerModule.broker().decide({ sessionId, toolName: 'Bash', toolInput: { command }, raw: {} }, signal);
   const permissionEvents = () =>
     h.domain.timeline.list('AR', { taskKey: 'AR-1' }).filter((e) => e.type.startsWith('permission_'));
+
+  it.each(['git status', 'npm ci'])(
+    'routes NanoGPT %s to its approver and still refuses publishing',
+    async (command) => {
+      const sessionId = await start('human', 'nanogpt');
+      const controller = new AbortController();
+      const pending = ask(sessionId, command, controller.signal);
+      await flush();
+      const items = h.domain.inbox.list('AR', { kind: 'permission', state: 'open' });
+      expect(items).toHaveLength(1);
+      expect(items[0]).toMatchObject({ assignees: ['owner'], sessionId });
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+      expect(await ask(sessionId, 'git push')).toMatchObject({ behavior: 'deny' });
+      expect(h.domain.inbox.list('AR', { state: 'open' })).toEqual([]);
+    },
+  );
+
+  it('refuses NanoGPT npm ci with no approver and records the refusal', async () => {
+    const sessionId = await start('none', 'nanogpt');
+    expect(await ask(sessionId, 'npm ci')).toEqual({ behavior: 'deny', message: APPROVER_NONE_REFUSAL });
+    expect(h.domain.inbox.list('AR', {})).toEqual([]);
+    expect(permissionEvents()).toMatchObject([
+      { type: 'permission_refused', sessionId, data: { summary: 'npm ci', by: 'approver_none' } },
+    ]);
+  });
 
   it('refuses a question of a member with approver none, without an inbox item, and says so on the timeline', async () => {
     const sessionId = await start('none');

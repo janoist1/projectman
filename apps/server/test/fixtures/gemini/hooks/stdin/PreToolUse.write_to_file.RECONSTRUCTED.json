@@ -1,0 +1,21 @@
+{
+  "artifactDirectoryPath": "/tmp/pm-agy-probe/gd1/antigravity-cli/brain/e5067b4c-681e-42bd-9287-940c833b2a14",
+  "conversationId": "e5067b4c-681e-42bd-9287-940c833b2a14",
+  "modelName": "gemini-3.8-flash-low",
+  "transcriptPath": "/tmp/pm-agy-probe/gd1/antigravity-cli/brain/e5067b4c-681e-42bd-9287-940c833b2a14/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/tmp/pm-agy-probe/ws"
+  ],
+  "stepIdx": 4,
+  "toolCall": {
+    "args": {
+      "CodeContent": "hi",
+      "Description": "Create note.txt with content hi",
+      "Overwrite": true,
+      "TargetFile": "/tmp/pm-agy-probe/ws/note.txt",
+      "toolAction": "Writing note.txt",
+      "toolSummary": "Create note.txt"
+    },
+    "name": "write_to_file"
+  }
+}

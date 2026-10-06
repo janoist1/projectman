@@ -91,6 +91,21 @@ describe('links', () => {
 });
 
 describe('describeEvent', () => {
+  it('describes priority changes by name, including clearing, and keeps legacy updates readable', () => {
+    expect(
+      describeEvent(
+        event('task_updated', { fields: ['priority'], priority: 'high', previousPriority: null }),
+        100,
+      ),
+    ).toBe('updated priority (none -> high)');
+    expect(
+      describeEvent(
+        event('task_updated', { fields: ['priority'], priority: null, previousPriority: 'high' }),
+        100,
+      ),
+    ).toBe('updated priority (high -> none)');
+    expect(describeEvent(event('task_updated', { fields: ['priority'] }), 100)).toBe('updated priority');
+  });
   it('names the labels of a label change', () => {
     const changed = event('task_labels_changed', { added: ['qa-ok'], removed: ['qa-failed', 'qa-retest'] });
     expect(describeEvent(changed, 100)).toBe('labels added: qa-ok; labels removed: qa-failed, qa-retest');

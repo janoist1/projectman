@@ -76,11 +76,21 @@ export function claudeBuiltinTools(): string[] {
 
 export function claudeToolRules(
   policy: Pick<SessionPolicy, 'tools' | 'deniedOperations'> & {
-    filesystem?: Pick<SessionPolicy['filesystem'], 'readOnlyPaths' | 'deniedPaths'>;
+    filesystem?: Pick<
+      SessionPolicy['filesystem'],
+      'readOnlyPaths' | 'deniedPaths' | 'sessionFolder' | 'sessionFoldersRoot'
+    >;
     network?: Pick<SessionPolicy['network'], 'deniedHosts'>;
   },
 ) {
   const readOnly = policy.filesystem?.readOnlyPaths ?? [];
+  // The session folders (PM-268, PM-333): every member's is read, only its own is changed. No deny
+  // rule for the root: a deny beats an allow, and would shut the session's own folder too. A path a
+  // rule cannot name gets no rule, and the session is asked, as anywhere else outside its directories.
+  const folderRoot = policy.filesystem?.sessionFoldersRoot;
+  const folder = policy.filesystem?.sessionFolder;
+  const rootPaths = (folderRoot && directoryRulePaths(folderRoot)) || [];
+  const folderPaths = (folder && directoryRulePaths(folder)) || [];
   return {
     allow: [
       ...new Set([
@@ -91,6 +101,8 @@ export function claudeToolRules(
         // Read without asking, never edit: not an extra working directory, whose files
         // acceptEdits would let it change.
         ...readOnly.map((dir) => `Read(${belowDirectory(dir)})`),
+        ...rootPaths.map((p) => `Read(${p})`),
+        ...folderPaths.flatMap((p) => [`Read(${p})`, `Edit(${p})`]),
       ]),
     ],
     deny: [

@@ -73,6 +73,8 @@ interface World {
   persist?: boolean;
   /** The project's configuration cannot be loaded. */
   configFails?: boolean;
+  /** The providers whose CLI is not logged in. */
+  loggedOut?: AgentProvider[];
 }
 
 /** Admission over an in-memory world: tasks, sessions, running processes and plan usage. */
@@ -103,6 +105,10 @@ function admissionFor(world: World = {}) {
     busyCount: () => world.busy ?? 0,
     // No member workspaces in this world: nothing holds one.
     assertWorkspaceFree: () => undefined,
+    assertProviderReady: async (provider: AgentProvider) => {
+      if (world.loggedOut?.includes(provider))
+        throw conflict('provider_not_logged_in', `${provider} is not logged in`, { provider });
+    },
     findRunning: (_projectKey: string, member: string, workItem: WorkItemRef) =>
       sessions.find(
         (s) =>
@@ -368,6 +374,43 @@ describe('admission checks', () => {
     ],
     ['allows the exact threshold', { usage: { claude: planUsage(80) } }, { handle: 'dev-1' }, null],
     [
+      'refuses a member whose provider is not logged in',
+      { loggedOut: ['claude'] },
+      { handle: 'dev-1', workItem: general },
+      'provider_not_logged_in',
+    ],
+    [
+      'does not look at the login of another provider',
+      { loggedOut: ['codex'] },
+      { handle: 'dev-1', workItem: general },
+      null,
+    ],
+    [
+      'checks the AI limit before the login, and the login before plan usage',
+      { busy: 3, loggedOut: ['claude'], usage: { claude: planUsage(99) } },
+      { handle: 'dev-1', workItem: general },
+      'ai_limit_reached',
+    ],
+    [
+      'checks the login before plan usage',
+      { loggedOut: ['claude'], usage: { claude: planUsage(99) } },
+      { handle: 'dev-1', workItem: general },
+      'provider_not_logged_in',
+    ],
+    ['does not check the login of a temp worker yet to be hired', { loggedOut: ['claude'] }, {}, null],
+    [
+      'does not pause on the usage of a provider that has none to measure',
+      {
+        usage: { gemini: planUsage(99) } as never,
+        adjust: (c) => {
+          const dev = c.team.members.find((m) => m.handle === 'dev-1');
+          if (dev?.kind === 'ai') dev.provider = 'gemini' as never;
+        },
+      },
+      { handle: 'dev-1', workItem: general },
+      null,
+    ],
+    [
       "reads the plan usage of the member's own provider",
       {
         usage: { claude: planUsage(99), codex: planUsage(10) },
@@ -499,6 +542,31 @@ describe('admission checks', () => {
 });
 
 describe('deferred starts', () => {
+  it('keeps an automatic Codex start waiting for setup and retries after repair', async () => {
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+    const { admission, deferred } = admissionFor({ tasks: [reviewing] });
+    const { automatic, retry } = start('hand-over:AR-1', { taskKey: 'AR-1', member: 'cr' });
+    let incomplete = true;
+    automatic.run = async () => {
+      if (incomplete)
+        throw conflict('codex_setup_incomplete', 'Codex is not ready', {
+          provider: 'codex',
+          problem: 'sandbox_config',
+        });
+    };
+    await admission.attempt(automatic);
+    expect(deferred.waitingFor(reviewing)).toMatchObject({
+      reason: 'codex_setup_incomplete',
+      member: 'cr',
+      provider: 'codex',
+      since: AT,
+    });
+    await admission.retryDeferred();
+    expect(retry).toHaveBeenCalledOnce();
+    incomplete = false;
+    await admission.attempt(automatic);
+    expect(deferred.list()).toEqual([]);
+  });
   /** A start that the admission refuses with `code` until it is set to null. */
   function start(
     key: string,
@@ -553,6 +621,34 @@ describe('deferred starts', () => {
     expect(deferred.list()).toEqual([]);
   });
 
+  it('keeps a start whose member is not logged in, with the provider, and retries it (PM-324)', async () => {
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+    const loggedOut: AgentProvider[] = ['codex'];
+    const { admission, deferred, config, member } = admissionFor({
+      tasks: [reviewing],
+      loggedOut,
+      adjust: (c) => {
+        const cr = c.team.members.find((m) => m.handle === 'cr');
+        if (cr?.kind === 'ai') cr.provider = 'codex';
+      },
+    });
+    const { automatic, retry } = start('hand-over:AR-1', { taskKey: 'AR-1', member: 'cr' });
+    automatic.run = () => admission.check({ config, member: member('cr'), workItem: onTask('AR-1') });
+    await admission.attempt(automatic);
+    expect(deferred.waitingFor(reviewing)).toMatchObject({
+      reason: 'provider_not_logged_in',
+      member: 'cr',
+      provider: 'codex',
+      since: AT,
+    });
+    await admission.retryDeferred();
+    expect(retry).toHaveBeenCalledOnce();
+    // Once the provider is logged in, the next attempt starts it.
+    loggedOut.length = 0;
+    await admission.attempt(automatic);
+    expect(deferred.list()).toEqual([]);
+  });
+
   it('waits for no_free_member only when the start asks for it (PM-119: it picks its developer itself)', async () => {
     expect(isDeferrable(conflict('no_free_member', 'fictional refusal'))).toBe(false);
     expect(isDeferrable(conflict('no_free_member', 'fictional refusal'), ['no_free_member'])).toBe(true);
@@ -582,6 +678,7 @@ describe('deferred starts', () => {
       'ai_disabled',
       'member_at_capacity',
       'member_on_leave',
+      'provider_not_logged_in',
     ] as const)
       expect(isDeferrable(conflict(code, 'fictional refusal')), code).toBe(true);
     expect(isDeferrable(conflict('repo_required', 'fictional refusal'))).toBe(false);

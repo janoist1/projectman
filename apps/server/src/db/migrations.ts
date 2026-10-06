@@ -675,5 +675,42 @@ export const migrations: Migration[] = [
     // a row from before it was kept.
     sql: `ALTER TABLE sessions ADD COLUMN last_stop TEXT NULL;`,
   },
+  {
+    version: 34,
+    name: 'team message answers',
+    // PM-249: the message that carries a person's answer to an AI member's question points at it
+    // (JSON `{ inboxItemId, question, answer }`), so that the card thread shows a question and its
+    // answer. NULL for every other message and for the answers sent before this.
+    sql: 'ALTER TABLE team_messages ADD COLUMN answer TEXT;',
+  },
+  {
+    version: 35,
+    name: 'task developer level',
+    // PM-347: the recommended developer of the card, a JSON `TaskDeveloperLevel`; NULL: no
+    // recommendation (which counts as `any`), as on every card from before it.
+    sql: 'ALTER TABLE tasks ADD COLUMN developer_level TEXT;',
+  },
+  {
+    version: 36,
+    name: 'senior waits',
+    // PM-348: the wait of a card recommended for the Senior for one, with the question the owners
+    // got after the wait limit and what they answered. At most one is open per card.
+    sql: `CREATE TABLE senior_waits (
+        id             TEXT PRIMARY KEY,
+        project_key    TEXT NOT NULL,
+        task_key       TEXT NOT NULL,
+        since          TEXT NOT NULL,
+        inbox_item_id  TEXT,
+        asked_at       TEXT,
+        decision       TEXT CHECK (decision IN ('wait', 'any')),
+        decided_by     TEXT,
+        decided_at     TEXT,
+        ended_at       TEXT,
+        end_reason     TEXT CHECK (end_reason IN
+          ('senior', 'assigned', 'moved', 'closed', 'level_changed', 'no_senior'))
+      );
+      CREATE UNIQUE INDEX senior_waits_open ON senior_waits(project_key, task_key)
+        WHERE ended_at IS NULL;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

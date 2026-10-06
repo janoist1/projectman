@@ -25,6 +25,28 @@ function Fixture() {
   );
 }
 describe('settings navigation', () => {
+  it('keeps providers in the server group and omits project problems on its page', async () => {
+    const project = mockProject();
+    project.backend.config.pipeline.labels.push({ ...project.backend.config.pipeline.labels[0]! });
+    project.render(<Fixture />, '/p/AC/settings');
+    const nav = screen.getByRole('navigation');
+    expect(
+      within(nav)
+        .getAllByRole('link')
+        .slice(-2)
+        .map((link) => link.textContent),
+    ).toEqual([
+      expect.stringContaining(t('settings.nav.providers')),
+      expect.stringContaining(t('settings.nav.account')),
+    ]);
+    expect(within(nav).getByText(t('settings.summary.providers'))).toBeTruthy();
+    fireEvent.click(within(nav).getByRole('link', { name: new RegExp(t('settings.nav.providers')) }));
+    const heading = await screen.findByRole('heading', { name: t('providerSettings.boxTitle') });
+    expect(document.activeElement).toBe(heading);
+    expect(screen.queryByRole('heading', { name: t('settings.problems.count', { n: 1 }) })).toBeNull();
+    fireEvent.click(screen.getByRole('link', { name: t('settings.backLabel') }));
+    expect(document.activeElement?.id).toBe('settings-nav-providers');
+  });
   it('shows summaries and restores the list focus after visiting a narrow section', async () => {
     const project = mockProject();
     project.render(<Fixture />, '/p/AC/settings');

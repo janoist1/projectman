@@ -45,6 +45,38 @@ npm run shots -- <scenario.mjs> [--out <dir>] [--widths 1512,800,390,375] [--ful
 | `--keep-data` | Keep the instance's data folder (its path is printed) instead of removing it                                                 |
 | `--machine`   | A JSON file of a fixed machine for the machine display (see below), e.g. `scripts/fixtures/machine/busy.json`                |
 
+### Codex members: the server makes the images (PM-351)
+
+Chromium does not start in the Codex sandbox, so a Codex member does not run `npm run shots`. It
+calls the `take_screenshots` tool, and the server runs the command in the member's worktree,
+inside projectman's own `srt` sandbox (the one of the server full test), as the member's session:
+
+```
+take_screenshots scenario=shots/card-question.mjs widths=[1512,390] full_page=true scale=1 seed=demo
+get_screenshot_run run_id=shr_…
+```
+
+- `scenario` is the scenario file, relative to the working directory or absolute; it must be a file
+  inside the working directory or the session folder (links are resolved). `widths` (1–8 numbers,
+  200–4000), `full_page`, `scale` (1 or 2), `timeout_seconds` (1–600) and `seed` (`demo` or `none`)
+  are the options above. `--out`, `--keep-data` and `--machine` cannot be given: the images always go
+  to `$PROJECTMAN_SESSION_DIR/shots/<scenario name>`.
+- The tool waits at most 40 s. A run that is still going is answered as `running` with its `run_id`;
+  ask again with `get_screenshot_run` (it waits 40 s more). The run takes its turn in the machine's
+  heavy-run queue (the wait is not part of its time), and its time limit is 15 minutes.
+- An ended run lists the images it wrote (absolute paths in the session folder), the exit code and
+  the end of the output. A failure says why: `scenario` (the scenario failed, exit code 1), `usage`
+  (wrong options or no browser installed, exit code 2), `timeout`, `stopped` (the session ended) or
+  `sandbox` (the sandbox did not start). Open an image with the image tool, and attach it with
+  `attach_file` as below.
+- One run at a time per session; the server keeps an ended run for an hour (the last five).
+- When the session ends, its run is signalled (SIGTERM, then SIGKILL after a grace) and the session
+  folder is removed at once, without waiting for the process group to go: a browser that is still
+  writing can for a moment re-create a folder below the removed one. When the server stops, it
+  waits for the runs to end, so their run directories and the queue place are released.
+- The tools exist for sessions with a session folder in a worktree (Codex in `acceptEdits` mode or
+  more), on macOS with `srt`; otherwise they answer `forbidden`.
+
 ### A fixed machine for the machine display
 
 The machine display (PM-300) measures the real machine with `ps`, which a member's sandbox does not
@@ -78,6 +110,11 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
   /* ... */
 };
 ```
+
+A scenario may also export `fakeEnv`, an object of `FAKE_CLAUDE_*` / `FAKE_CODEX_*` variables for the
+fake CLIs of its instance (for example `{ FAKE_CLAUDE_LOGGED_OUT: '1' }`:
+`scripts/scenarios/provider-not-logged-in.mjs`). Variables of the shell running `npm run shots` never
+reach the fake CLIs.
 
 - `instance` is the running disposable instance: `instance.api(path, { method, body, as })`,
   `invite`, `startSession`, `say`, `waitIdle`, `setFakeCalls` and the rest of PM-269's API. Use it
@@ -154,6 +191,48 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 ```sh
 npm run shots -- scripts/scenarios/card-with-question.mjs
 ```
+
+### PM-287: card priority
+
+Run `npm run shots -- scripts/scenarios/priority.mjs --timeout 300` on the final PM-287 branch.
+The integrator captures and inspects these images; Chromium is not run in the Codex sandbox.
+The scenario creates fictional cards in the disposable instance and reads UI wording from `hu.ts`.
+
+| Images                                                                          | What to inspect                                                                                                |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `priority-first-use` (1512, 390)                                                | No priority filter before an open card has a level.                                                            |
+| `priority-board` (1512, 800, 390, 375), `priority-board-dark` (1512, 390)       | Four distinct 14px shapes after the key; space for stage progress; readable light/dark tokens.                 |
+| `priority-drawer-saved` (1512, 390)                                             | Priority below assignee, saved High value, board mark and timeline change; clearing is exercised afterwards.   |
+| `priority-drawer-picker` (1512, 390)                                            | Native priority picker opened in the drawer after the viewport is settled.                                     |
+| `priority-large` (1512, 800), `priority-large-dark` (1512)                      | PM-283 uses the same priority property in both large layouts.                                                  |
+| `priority-save-failed` (1512, 390)                                              | Simulated PATCH failure: Normal remains stored, the select regains focus, the localized alert appears.         |
+| `priority-filter-high`, `priority-filter-unset`, `priority-filter-empty` (1512) | Correct matching, subtitle and empty state; selected filter remains available after its last match is cleared. |
+| `priority-phone-sheet`, `priority-phone-chip` (390, 375)                        | Third field, selected level, counter and removable chip.                                                       |
+| `priority-closed-details` (1512)                                                | Cancelled card still has editable priority in its details.                                                     |
+| `priority-viewer` (1512, 390), `priority-viewer-unset` (1512)                   | Viewer sees the set level as text; no select and no unset row.                                                 |
+
+Check keyboard focus, overflow at 375px, and reduced-motion behavior during visual review.
+The automated card tests verify that done/cancelled cards have no board mark; priority filters still
+use their stored value. The scenario's deliberate error affects only its disposable instance.
+Inspect the two picker images before attaching them: Chromium may omit an operating-system native
+popup from a page screenshot. If the options are missing, capture the open native picker manually
+at the same widths; keep the real select rather than replacing it with a simulated menu.
+
+### PM-349: the recommended developer (Senior)
+
+Run `npm run shots -- scripts/scenarios/senior-developer.mjs --timeout 600 --widths 1512,390`. The
+scenario makes one AI developer the Senior, keeps them busy on a card, recommends the Senior for two more
+cards and sets the wait limit to 5 minutes (the smallest the settings allow). The last scene waits for the
+server's question to the owners (a one-minute sweep after the limit), so the run takes about 7 minutes.
+
+| Images                                | What to inspect                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `a-board-mark`                        | The Senior chip on the Senior card only; none on cards without a recommendation.           |
+| `b-who-takes`, `b-confirm`            | "Ki vigye?" names the Senior and why; the confirm dialog for a developer who is no Senior. |
+| `c-level-row`, `c-level-editor`       | The "Ajánlott" row with the reason, and its inline editor.                                 |
+| `d-waiting-drawer`, `d-waiting-board` | A card started while the Senior is busy: "A Seniorra vár", no assignee, the hint text.     |
+| `e-team`, `e-member-form`, `e-limits` | The Senior chip, the "Senior fejlesztő" checkbox and the "Senior-várakozás (perc)" field.  |
+| `f-inbox-question`                    | The question after the wait limit, with its two answers and what each does.                |
 
 ### Widths
 

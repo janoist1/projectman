@@ -1,6 +1,4 @@
-import { spawn } from 'node:child_process';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
@@ -9,27 +7,28 @@ import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
-import { failedFiles, outputTail, OutputTail } from './output';
-import {
-  FULL_TEST_GIT_CONFIG,
-  closedStdin,
-  fullTestEnv,
-  niceSrtCommand,
-  runDirOf,
-  runPaths,
-  srtSettings,
-} from './sandbox';
+import { failedFiles, outputTail } from './output';
+import { runSandboxed, srtCli } from './run-sandboxed';
+import type { SandboxedEnd } from './run-sandboxed';
+import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
 import type { RunPaths } from './sandbox';
 
 export { failedFiles, outputTail, stripAnsi } from './output';
 export { acquireHeavyLock, defaultHeavyLockDir, HeavyLockError, readHeavyQueue } from './heavy-lock';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
-export { closedStdin, fullTestEnv, niceSrtCommand, runDirOf, runPaths, srtSettings } from './sandbox';
+export { runSandboxed, srtCli } from './run-sandboxed';
+export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';
+export { createScreenshotExecutor, screenshotEnv, screenshotSettings } from './screenshots';
+export {
+  closedStdin,
+  fullTestEnv,
+  niceSrtCommand,
+  quoteShellWord,
+  runDirOf,
+  runPaths,
+  srtSettings,
+} from './sandbox';
 
-/** A short temporary root for when `tmpDir` is too deep for the sandbox's socket (macOS: `/tmp` is a link to this). */
-const SHORT_ROOT = process.platform === 'darwin' ? '/private/tmp' : '/tmp';
-/** How long a stopped run gets to end on its own before the process group is killed. */
-const KILL_GRACE_MS = 10_000;
 /** The probes (a sandbox start each) must be quick. */
 const PROBE_TIMEOUT_MS = 60_000;
 
@@ -46,15 +45,6 @@ export interface FullTestExecutorOptions {
   heavyLockDir?: string;
 }
 
-interface Ended {
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-  spawnError?: Error;
-  timedOut: boolean;
-  aborted: boolean;
-  output: string;
-}
-
 /**
  * Runs the full test in the Anthropic Sandbox Runtime (`srt`, pinned in package.json) as a child
  * process (PM-217): macOS (Seatbelt) only. The run directory (`<tmp>/pmft-<end of the run id>`)
@@ -66,70 +56,22 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
   const baseEnv = options.env ?? process.env;
   const tmpRoot = options.tmpDir ?? os.tmpdir();
 
-  const srtCli = (): string => {
-    const manifest = createRequire(import.meta.url).resolve('@anthropic-ai/sandbox-runtime/package.json');
-    return path.join(path.dirname(manifest), 'dist', 'cli.js');
-  };
-
   /** One sandboxed command; the process group is stopped on abort and after `timeoutMs`. */
-  async function execute(
+  const execute = (
     paths: RunPaths,
     spec: FullTestSpec,
     command: string,
     timeoutMs: number,
     signal: AbortSignal,
-  ): Promise<Ended> {
-    return await new Promise<Ended>((resolve) => {
-      const tail = new OutputTail();
-      let timedOut = false;
-      let aborted = false;
-      let killTimer: NodeJS.Timeout | undefined;
-      let settled = false;
-      const start = niceSrtCommand(process.execPath, srtCli(), paths.settings, closedStdin(command));
-      const child = spawn(start.file, start.args, {
-        cwd: spec.cwd,
-        env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
-        detached: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      const killGroup = (sig: NodeJS.Signals): void => {
-        if (child.pid === undefined) return;
-        try {
-          process.kill(-child.pid, sig);
-        } catch {
-          // The group is already gone.
-        }
-      };
-      const stop = (): void => {
-        killGroup('SIGTERM');
-        killTimer ??= setTimeout(() => killGroup('SIGKILL'), KILL_GRACE_MS);
-      };
-      const timer = setTimeout(() => {
-        timedOut = true;
-        stop();
-      }, timeoutMs);
-      const onAbort = (): void => {
-        aborted = true;
-        stop();
-      };
-      if (signal.aborted) onAbort();
-      else signal.addEventListener('abort', onAbort, { once: true });
-      const finish = (ended: Omit<Ended, 'timedOut' | 'aborted' | 'output'>): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        signal.removeEventListener('abort', onAbort);
-        // A child that detached itself may outlive the shell; the group is stopped either way.
-        killGroup('SIGKILL');
-        if (killTimer) clearTimeout(killTimer);
-        resolve({ ...ended, timedOut, aborted, output: tail.value() });
-      };
-      child.stdout.setEncoding('utf8').on('data', (chunk: string) => tail.push(chunk));
-      child.stderr.setEncoding('utf8').on('data', (chunk: string) => tail.push(chunk));
-      child.on('error', (spawnError) => finish({ exitCode: null, signal: null, spawnError }));
-      child.on('close', (exitCode, exitSignal) => finish({ exitCode, signal: exitSignal }));
+  ): Promise<SandboxedEnd> =>
+    runSandboxed({
+      cwd: spec.cwd,
+      env: fullTestEnv(paths, spec.maxWorkers, baseEnv),
+      settings: paths.settings,
+      command,
+      timeoutMs,
+      signal,
     });
-  }
 
   const failure = (
     reason: FullTestErrorReason,

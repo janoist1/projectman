@@ -1,5 +1,5 @@
-import { Approver, SelectablePermissionMode } from '@projectman/shared';
-import type { MemberView, UpdateMemberRequest } from '@projectman/shared';
+import { Approver, SelectablePermissionMode, approverBlocksProvider } from '@projectman/shared';
+import type { AgentProvider, PermissionMode, MemberView, UpdateMemberRequest } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
@@ -9,8 +9,21 @@ import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import styles from './PermissionLevelControl.module.css';
 
+/** Explain provider-specific behavior for the selected mode, including read-only views. */
+export function PermissionProviderNote({
+  provider,
+  mode,
+}: {
+  provider?: AgentProvider;
+  mode?: PermissionMode;
+}) {
+  return provider === 'gemini' && (mode === 'auto' || mode === 'plan') ? (
+    <span className={styles.providerNote}>{t(`permissionControls.providerNotes.gemini.${mode}`)}</span>
+  ) : null;
+}
+
 /** The two permission settings as everyone but an owner sees them: no way to change them. */
-function PermissionText({ member }: { member: MemberView }) {
+function PermissionText({ member, provider }: { member: MemberView; provider?: AgentProvider }) {
   return (
     <span className={styles.control}>
       <span className={styles.line}>
@@ -26,6 +39,12 @@ function PermissionText({ member }: { member: MemberView }) {
       {member.permissionLegacy ? (
         <span className={styles.note}>{t('permissionControls.legacyHint')}</span>
       ) : null}
+      {approverBlocksProvider({ provider, approver: member.approver }) ? (
+        <span className={styles.warning}>{t('permissionControls.nanogptApproverNone')}</span>
+      ) : null}
+      {!member.permissionLegacy ? (
+        <PermissionProviderNote provider={provider} mode={member.permissionMode} />
+      ) : null}
     </span>
   );
 }
@@ -36,12 +55,18 @@ function PermissionText({ member }: { member: MemberView }) {
  * choice is saved at once (`PATCH` of the member). The AI approver is disabled, with the reason,
  * while the server says it cannot be chosen. Everyone else only reads the values.
  */
-export function PermissionLevelControl({ member }: { member: MemberView }) {
+export function PermissionLevelControl({
+  member,
+  provider = member.provider,
+}: {
+  member: MemberView;
+  provider?: AgentProvider;
+}) {
   const { key, isOwner } = useProject();
   const update = useUpdateMember(key);
   const toast = useToast();
   if (member.kind !== 'ai') return null;
-  if (!isOwner) return <PermissionText member={member} />;
+  if (!isOwner) return <PermissionText member={member} provider={provider} />;
   const blocker = member.aiApproverBlocker;
   const save = (body: UpdateMemberRequest, saved: string) =>
     update.mutate(
@@ -79,6 +104,9 @@ export function PermissionLevelControl({ member }: { member: MemberView }) {
           </option>
         ))}
       </SelectField>
+      {!member.permissionLegacy ? (
+        <PermissionProviderNote provider={provider} mode={member.permissionMode ?? 'auto'} />
+      ) : null}
       {member.permissionLegacy ? (
         <span className={styles.note}>{t('permissionControls.legacyHint')}</span>
       ) : null}
@@ -104,6 +132,9 @@ export function PermissionLevelControl({ member }: { member: MemberView }) {
         ))}
       </SelectField>
       {blocker ? <span className={styles.note}>{t(`permissionControls.blocked.${blocker}`)}</span> : null}
+      {approverBlocksProvider({ provider, approver: member.approver }) ? (
+        <span className={styles.warning}>{t('permissionControls.nanogptApproverNone')}</span>
+      ) : null}
     </span>
   );
 }

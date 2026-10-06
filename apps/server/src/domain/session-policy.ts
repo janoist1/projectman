@@ -12,7 +12,7 @@ import {
   managedVmPermissions,
   placementReadsOnly,
 } from '@projectman/shared';
-import type { RoleId, ProjectConfig, Task } from '@projectman/shared';
+import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
 import type { FullTestSandbox, SessionPolicy } from '../contracts';
 import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
@@ -96,6 +96,52 @@ function heavyLockAccess(
   return {
     allowWrite: [parent],
     env: { [HEAVY_LOCK_DIR_VARIABLE]: heavyLockDir, [PREFER_OFFLINE_VARIABLE]: 'true' },
+  };
+}
+
+/** The part of a sandbox every provider's own sandbox takes (`AgentSandbox.portable`, PM-346). */
+function portableOf(shared: {
+  allowWrite: string[];
+  env: Record<string, string>;
+  tmpDir?: string;
+}): Pick<AgentSandbox, 'portable'> {
+  if (shared.allowWrite.length === 0 && !shared.tmpDir) return {};
+  return {
+    portable: {
+      allowWrite: [...shared.allowWrite],
+      env: { ...shared.env },
+      ...(shared.tmpDir ? { tmpDir: shared.tmpDir } : {}),
+    },
+  };
+}
+
+/**
+ * What the CLIs' own sandboxes take besides the heavy-run queue (PM-339): the session's folder and
+ * Playwright's browsers, the member's own cache and development data, and the commands' own
+ * temporary directory.
+ */
+function portableShared(
+  heavy: { allowWrite: string[]; env: Record<string, string> },
+  own: {
+    sessionDir?: string;
+    browsersDir?: string;
+    tmpDir?: string;
+    memberDirs?: readonly { path: string; variable: string }[];
+  },
+): Parameters<typeof portableOf>[0] {
+  return {
+    allowWrite: [
+      ...heavy.allowWrite,
+      ...(own.memberDirs ?? []).map((dir) => dir.path),
+      ...(own.sessionDir ? [own.sessionDir] : []),
+    ],
+    env: {
+      ...heavy.env,
+      ...Object.fromEntries((own.memberDirs ?? []).map((dir) => [dir.variable, dir.path])),
+      ...(own.sessionDir ? { [SESSION_DIR_VARIABLE]: own.sessionDir } : {}),
+      ...(own.browsersDir ? { [BROWSERS_PATH_VARIABLE]: own.browsersDir } : {}),
+    },
+    ...(own.tmpDir ? { tmpDir: own.tmpDir } : {}),
   };
 }
 
@@ -198,6 +244,13 @@ export interface SandboxPaths {
   browsersDir?: string;
   /** The machine's heavy-run queue folder (`PROJECTMAN_HEAVY_LOCK_DIR`, PM-332): its parent is writable. */
   heavyLockDir?: string;
+  /**
+   * The commands' own temporary directory (`SessionFolders.allocateTmp`, PM-339; Codex only): writable
+   * for them and their TMPDIR in the CLI's own sandbox, which closes the shared `/tmp`. Made by the
+   * caller before the start, as a new directory (`SessionFolders.make`), never below a path another
+   * member's sandbox writes.
+   */
+  tmpDir?: string;
 }
 
 /**
@@ -237,6 +290,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
     : [];
+  const writableOwn = own.filter((dir) => !isWithinAny(denied, dir.path));
   const gitConfig = memberDir ? path.join(memberDir, SANDBOX_GIT_CONFIG_FILE) : undefined;
   const allowRead = [
     ...policy.filesystem.readableRoots,
@@ -244,7 +298,8 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     ...own.map((dir) => dir.path),
     ...(gitConfig ? [gitConfig] : []),
     ...(gitDir ? [gitDir] : []),
-    ...(sessionDir ? [sessionDir] : []),
+    // The instance's whole folder root: every member's folder is read, only its own is written (PM-333).
+    ...(sessionDir ? [path.dirname(sessionDir)] : []),
     ...(browsersDir ? [browsersDir] : []),
     ...SANDBOX_HOME_READS.map((name) => path.join(userHome, name)),
     // Never the home or a directory above it, whatever the config says.
@@ -254,19 +309,13 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
     allowWrite: [
-      ...own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
+      ...writableOwn.map((dir) => dir.path),
       ...(sessionDir ? [sessionDir] : []),
       ...heavy.allowWrite,
     ],
     ...(gitDir && defaultBranch ? { denyWrite: sharedGitDenials(gitDir, defaultBranch) } : {}),
     denyRead: [
-      ...new Set([
-        userHome,
-        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
-        // The folders of the other sessions, as the other worktrees: only this session's own is read.
-        ...(sessionDir ? [path.dirname(sessionDir)] : []),
-        ...denied,
-      ]),
+      ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
     ],
     allowRead: [...new Set(allowRead)],
     env: {
@@ -280,6 +329,14 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
     allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
     allowLocalBinding: true,
+    ...portableOf(
+      portableShared(heavy, {
+        memberDirs: writableOwn,
+        sessionDir,
+        browsersDir,
+        tmpDir: paths.tmpDir && !isWithinAny(denied, paths.tmpDir) ? paths.tmpDir : undefined,
+      }),
+    ),
   };
 }
 
@@ -357,6 +414,16 @@ export function sessionSandbox(
       ...heavy.env,
     },
     ...(options.github ? { excludedCommands: [...READER_UNSANDBOXED_COMMANDS] } : {}),
+    ...portableOf(
+      portableShared(heavy, {
+        sessionDir,
+        browsersDir,
+        tmpDir:
+          options.tmpDir && !isWithinAny(denied, options.tmpDir) && !isWithinAny(denyWrite, options.tmpDir)
+            ? options.tmpDir
+            : undefined,
+      }),
+    ),
   };
 }
 
@@ -379,6 +446,7 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     '.claude/hooks',
     '.claude.json',
     '.codex',
+    '.gemini',
     '.npmrc',
   ];
   // `logs` is not created by the server itself: the owner's live home has it (the process logs of
@@ -386,6 +454,9 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
   const app = [
     'db.sqlite*',
     'secret',
+    // The secret store and the providers' own CLI homes (PM-324): the NanoGPT key, the NanoGPT Codex home.
+    'secrets',
+    'providers',
     'logs',
     'customization',
     'memory',
@@ -499,14 +570,23 @@ export function attachmentToolRules(dir: string | null): { allow: string[]; deny
 }
 
 /**
- * Claude Code rules for the session folder (PM-268): its files are read and written without
- * asking (a screenshot is looked at with Read). Not an extra working directory (`--add-dir`). A
- * path with characters that mean something in a rule gets no rules.
+ * The policy with the session folder the sandbox kept (PM-268) and its root (PM-333); unchanged
+ * without one. The adapter renders the file-tool rules from them (`claudeToolRules`). A folder
+ * that is not directly below the root gets no root: only its own is then read and written.
  */
-export function sessionFolderToolRules(dir: string | null): { allow: string[] } {
-  const paths = dir ? directoryRulePaths(dir) : null;
-  if (!paths) return { allow: [] };
-  return { allow: paths.flatMap((p) => [`Read(${p})`, `Edit(${p})`]) };
+export function withSessionFolders(
+  policy: SessionPolicy,
+  folders: { own: string; root: string } | undefined,
+): SessionPolicy {
+  if (!folders) return policy;
+  return {
+    ...policy,
+    filesystem: {
+      ...policy.filesystem,
+      sessionFolder: folders.own,
+      ...(path.dirname(folders.own) === folders.root ? { sessionFoldersRoot: folders.root } : {}),
+    },
+  };
 }
 
 /**
@@ -527,7 +607,7 @@ export function sessionFolderToolRules(dir: string | null): { allow: string[] } 
  */
 export function commandVerdict(input: {
   config: ProjectConfig;
-  session: { cwd: string; role: RoleId };
+  session: { cwd: string; role: RoleId; provider?: AgentProvider };
   task: Pick<Task, 'repo'> | null;
   toolName: string;
   toolInput: unknown;
@@ -551,6 +631,9 @@ export function commandVerdict(input: {
   if (!parsed) return null;
   // Whoever the session is, a file is edited with the editing tools: nobody needs to be asked.
   if (editsFilesInPlace(parsed)) return { behavior: 'deny', message: IN_PLACE_EDIT_MESSAGE };
+  // NanoGPT commands require an explicit decision, including reads and routine worktree steps.
+  // Keep unconditional denials above this guard so they cannot become approval requests.
+  if (session.provider === 'nanogpt') return null;
   if (inTaskWorktree(input)) {
     const defaultBranch = repoOf(config, effectiveRepo(config, task))?.defaultBranch;
     if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch })) return { behavior: 'allow' };

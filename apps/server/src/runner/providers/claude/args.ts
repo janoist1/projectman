@@ -114,6 +114,7 @@ export const AUTO_MODE_SETTINGS: ClaudeAutoModeSettings = {
     'Never publish: no git push, no gh pr create, no gh pr merge, whatever the target.',
     "Never read or copy credential files (SSH keys, the GitHub CLI's configuration, the login and settings files of Claude Code and Codex, .npmrc) or the data of the live projectman instance (its database, secret, logs and customization).",
     'Never call the live projectman instance on localhost port 4800.',
+    "Never create, change, move or delete files in another session's folder (a sibling of $PROJECTMAN_SESSION_DIR below projectman-sessions); reading them is fine.",
   ],
 };
 
@@ -126,6 +127,12 @@ export interface ClaudeSettings {
   env?: Record<string, string>;
   /** Claude Code's own auto memory is off: the team keeps its memory in projectman (PM-208). */
   autoMemoryEnabled: false;
+  /**
+   * Claude Code's prompt suggestions are off (PM-345): after a turn the CLI otherwise runs a
+   * "suggestion mode" step that can put an AskUserQuestion at the terminal, which the runner would
+   * take for the member's own question (PM-199) and hold the card with `waiting-answer`.
+   */
+  promptSuggestionEnabled: false;
   /**
    * No skills that ship with Claude Code (dataviz, loop, schedule, claude-api, the artifact skills...):
    * their list with the descriptions is read in every step and a member uses none (PM-221).
@@ -309,6 +316,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
     ...(managed ? {} : { autoMode: AUTO_MODE_SETTINGS }),
     hooks,
     autoMemoryEnabled: false,
+    promptSuggestionEnabled: false,
     disableBundledSkills: true,
     skillOverrides: accountSkillOverrides(),
     ...(input.autoCompactWindowTokens !== undefined

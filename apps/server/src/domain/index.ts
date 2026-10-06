@@ -1,9 +1,12 @@
 import os from 'node:os';
+import path from 'node:path';
 import {
   canManageInstancePause,
   isOnLeave,
+  isSenior,
   memberOf,
   permissionDelegationOf,
+  seniorWaitMinutesOf,
   stageOf,
 } from '@projectman/shared';
 import type { ExecutionProfile, Me } from '@projectman/shared';
@@ -16,6 +19,7 @@ import type {
   ContextPackBuilder,
   EventBus,
   FullTestExecutor,
+  ScreenshotExecutor,
   GithubPublisher,
   GithubService,
   MachineProbe,
@@ -38,6 +42,7 @@ import {
   DeferredStarts,
   MessageStarts,
   RefinementSteps,
+  SeniorWaits,
   StageHandOver,
   TaskStarts,
   WorkStarts,
@@ -71,9 +76,16 @@ import type { ScheduleTimer } from './schedules';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
-import { prepareSessionFoldersRoot, SessionFolders } from './session-folders';
+import { isWithin } from './command-paths';
+import {
+  prepareSessionFoldersRoot,
+  prepareSessionTmpRoot,
+  realpathOfNearest,
+  SessionFolders,
+} from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
+import { ScreenshotRuns } from './screenshot-runs';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
@@ -96,6 +108,7 @@ export {
   DeferredStarts,
   MessageStarts,
   RefinementSteps,
+  SeniorWaits,
   StageHandOver,
   TaskStarts,
   WorkStarts,
@@ -148,6 +161,8 @@ export type { ScheduleTimer } from './schedules';
 export * from './session-policy';
 export {
   describeSandbox,
+  describeSessionFolder,
+  describeSessionTmpDir,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
@@ -165,7 +180,13 @@ export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
+import { ProviderKeys } from './provider-keys';
+export { ProviderKeys } from './provider-keys';
+export type { NanogptKeyCheck } from './provider-keys';
+export { createNanogptKeyCheck } from './nanogpt-key-check';
+
 export interface DomainOptions {
+  nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
   runtimeBoundary?: RuntimeBoundary;
@@ -177,7 +198,7 @@ export interface DomainOptions {
   /** Base URL the claude CLI reaches this server at (MCP endpoint), e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
   /** Creates the runner module once the permission broker (the inbox) exists. */
-  createRunner: (broker: PermissionBroker) => RunnerModule;
+  createRunner: (broker: PermissionBroker, nanogptKey?: () => Promise<string | null>) => RunnerModule;
   github: GithubService;
   /**
    * The VM's GitHub publishing identity (PM-142): without it `publish_task_branch` refuses. It is
@@ -215,6 +236,12 @@ export interface DomainOptions {
    * the folders off. Absent: no folders.
    */
   sessionFoldersDir?: string;
+  /**
+   * The root of the Codex sessions' own temporary directories (PM-339), a short path (a Unix
+   * socket's is 104 bytes at most): each gets one below it, the TMPDIR of its commands, removed with
+   * its folder. Checked here (`prepareSessionTmpRoot`). Absent or unsafe: Codex gets no folder.
+   */
+  sessionTmpDir?: string;
   /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
   /** The machine's heavy-run queue folder (PM-332): its parent is writable for the members' commands. */
@@ -254,8 +281,15 @@ export interface DomainOptions {
    * (tests, the managed VM, a platform without the sandbox), the feature is off.
    */
   fullTestExecutor?: FullTestExecutor;
+  /**
+   * Runs `npm run shots` for a member whose own sandbox cannot start the browser (Codex, PM-351) in the
+   * server's sandbox. Absent, `take_screenshots` is refused.
+   */
+  screenshotExecutor?: ScreenshotExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
+  /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
+  seniorWaitMs?: number;
   /**
    * The free bytes of the disk the installation's data is on (PM-243); null: not measurable. Without
    * it nothing is measured, so no start is refused for disk space.
@@ -292,6 +326,14 @@ export function createDomain(opts: DomainOptions) {
   const { events } = ctx;
   const templates = opts.templates ?? defaultTemplateRegistry;
   const background = new BackgroundTasks();
+  const providerKeys = opts.appHome
+    ? new ProviderKeys({
+        home: opts.appHome,
+        now,
+        logger: opts.logger,
+        check: opts.nanogptKeyCheck ?? (async () => 'unknown'),
+      })
+    : null;
 
   const timeline = new TimelineService(ctx);
   const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
@@ -306,11 +348,14 @@ export function createDomain(opts: DomainOptions) {
     attachmentDirectory,
   });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
-  const runnerModule = opts.createRunner({
-    ...inbox.broker,
-    forwardQuestion: ({ sessionId, toolName, toolInput }) =>
-      agentQuestions.forward(sessionId, toolName, toolInput),
-  });
+  const runnerModule = opts.createRunner(
+    {
+      ...inbox.broker,
+      forwardQuestion: ({ sessionId, toolName, toolInput }) =>
+        agentQuestions.forward(sessionId, toolName, toolInput),
+    },
+    () => providerKeys?.nanogptKey() ?? Promise.resolve(null),
+  );
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
@@ -341,7 +386,33 @@ export function createDomain(opts: DomainOptions) {
     try {
       prepareSessionFoldersRoot(opts.sessionFoldersDir);
       // One registry for the sessions (which make the folders) and the team tools (which attach from them).
-      sessionFolders = new SessionFolders(opts.sessionFoldersDir);
+      let tmpRoot: string | undefined;
+      if (opts.sessionTmpDir) {
+        try {
+          // The queue folder's parent is writable for every member's commands: a tmp root in it (or
+          // above it) would be too.
+          // Compared as written and canonically: a link (or macOS `/tmp` -> `/private/tmp`) must not hide it.
+          const queueParent = opts.heavyLockDir ? path.dirname(opts.heavyLockDir) : undefined;
+          if (queueParent) {
+            const overlaps = (a: string, b: string) => isWithin(a, b) || isWithin(b, a);
+            if (
+              overlaps(queueParent, opts.sessionTmpDir) ||
+              overlaps(realpathOfNearest(queueParent), realpathOfNearest(opts.sessionTmpDir))
+            )
+              throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
+          }
+          prepareSessionTmpRoot(opts.sessionTmpDir);
+          tmpRoot = opts.sessionTmpDir;
+        } catch (err) {
+          opts.logger.error(
+            { err, dir: opts.sessionTmpDir },
+            'the Codex session folders are off: their temporary root is not a safe directory',
+          );
+        }
+      }
+      sessionFolders = new SessionFolders(opts.sessionFoldersDir, tmpRoot, (err, dir) =>
+        opts.logger.warn({ err, dir }, 'could not remove a temporary directory of a session'),
+      );
     } catch (err) {
       opts.logger.error(
         { err, dir: opts.sessionFoldersDir },
@@ -417,6 +488,12 @@ export function createDomain(opts: DomainOptions) {
     disk,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages });
+  providerKeys?.onChange(() => {
+    void runnerModule.runner
+      .providerStatus?.('nanogpt', { refresh: true })
+      .then(() => admission.retryDeferred())
+      .catch(() => ctx.logger.warn('could not refresh NanoGPT readiness'));
+  });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
   const sessionCloser = new SessionCloser({
@@ -484,10 +561,20 @@ export function createDomain(opts: DomainOptions) {
       () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
     );
   });
-  const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission });
+  // The wait of a card recommended for the Senior (PM-348); an answer tries the deferred starts again.
+  const seniorWaits = new SeniorWaits({
+    ctx,
+    projects,
+    tasks,
+    inbox,
+    timeline,
+    retry: () => retryDeferredStarts(),
+  });
+  const taskStarts = new TaskStarts({ projects, tasks, members, sessions, admission, seniorWaits });
   const workStarts = new WorkStarts({ projects, tasks, sessions, admission, starts: taskStarts });
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
+  taskStarts.useSeniorWait(workStarts);
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.
@@ -586,7 +673,13 @@ export function createDomain(opts: DomainOptions) {
     memberWorkspaces: opts.memberWorkspaces,
   });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
+  // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
+  const screenshotRuns = opts.screenshotExecutor
+    ? new ScreenshotRuns({ executor: opts.screenshotExecutor, sessions, logger: opts.logger })
+    : undefined;
+  if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const teamTools = new TeamToolsService({
+    screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
     boundary,
@@ -671,6 +764,37 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', () => {
     setImmediate(() => usage.refresh()).unref();
   });
+  // A card that waits for the Senior: the wait ends with its card's assignment, move, closure or level, or
+  // with the team's Senior, and the owners' answer to the question is kept (PM-348). These run before the
+  // listeners that retry the deferred starts, so a retry sees the wait settled.
+  const settleSeniorWait = (task: { projectKey: string; key: string }) => {
+    const config = projects.cachedConfig(task.projectKey);
+    const current = tasks.find(task.projectKey, task.key);
+    if (config && current) seniorWaits.settle(current, config);
+  };
+  events.on('task_assigned', ({ task }) => settleSeniorWait(task));
+  events.on('task_stage_changed', (change) => settleSeniorWait(change.task));
+  events.on('task_cancelled', (task) => settleSeniorWait(task));
+  events.on('task_level_changed', ({ task }) => {
+    settleSeniorWait(task);
+    retryDeferredStarts();
+  });
+  events.on('config_changed', (change) => {
+    seniorWaits.configChanged(change);
+    const { previous, next } = change;
+    const seniors = (config: typeof next) =>
+      config.team.members
+        .filter((m) => isSenior(m))
+        .map((m) => m.handle)
+        .join(',');
+    if (
+      previous &&
+      (seniors(previous) !== seniors(next) ||
+        seniorWaitMinutesOf(previous.team.limits) !== seniorWaitMinutesOf(next.team.limits))
+    )
+      retryDeferredStarts();
+  });
+  events.on('inbox_resolved', (item) => seniorWaits.decided(item));
   // Human decisions.
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
@@ -862,6 +986,7 @@ export function createDomain(opts: DomainOptions) {
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
   let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
@@ -877,6 +1002,7 @@ export function createDomain(opts: DomainOptions) {
     egress,
     runtimeBoundary: opts.runtimeBoundary ?? null,
     runnerModule,
+    providerKeys,
     presence,
     messages,
     messaging,
@@ -900,6 +1026,7 @@ export function createDomain(opts: DomainOptions) {
     reviewWatch,
     fullTests,
     loopWatch,
+    seniorWaits,
     fixLimit,
     disk,
     worktreeSweep,
@@ -981,6 +1108,16 @@ export function createDomain(opts: DomainOptions) {
         opts.loopWatchMs ?? 60_000,
       );
       loopWatchTimer.unref();
+      // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
+      seniorWaitTimer = setInterval(
+        () =>
+          background.run(
+            async () => seniorWaits.sweep(),
+            (err) => opts.logger.warn({ err }, 'Senior wait sweep failed'),
+          ),
+        opts.seniorWaitMs ?? 60_000,
+      );
+      seniorWaitTimer.unref();
       // Free disk space (PM-243): warn the owners early, so that admission need not be the first to find out.
       const checkDisk = () =>
         background.run(
@@ -1019,15 +1156,18 @@ export function createDomain(opts: DomainOptions) {
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       if (loopWatchTimer) clearInterval(loopWatchTimer);
+      if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
       if (idleCloseTimer) clearInterval(idleCloseTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await screenshotRuns?.stop();
       await background.stop();
       pauses.dispose();
       sessions.dispose();
+      sessionFolders?.releaseTmpRoot();
       await machine.stop();
       await drained;
     },

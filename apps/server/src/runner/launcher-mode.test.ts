@@ -27,7 +27,7 @@ import type { AgentSession } from './session';
  */
 
 class FakeLaunched implements LaunchedSession {
-  readonly pid = 777;
+  readonly pid = process.pid;
   readonly writes: string[] = [];
   readonly signals: string[] = [];
   private exitListener: ((event: { exitCode: number; signal?: number }) => void) | null = null;
@@ -130,7 +130,7 @@ const session = (id = 'ses_1') =>
 describe('sessions through the launcher', () => {
   it('starts the CLI through the launcher with its own arguments, member, directory and egress token', async () => {
     const info = await manager.start(spec());
-    expect(info.pid).toBe(777);
+    expect(info.pid).toBe(process.pid);
     expect(starts).toHaveLength(1);
     const request = starts[0]!;
     expect(request).toMatchObject({
@@ -215,7 +215,7 @@ describe('a question-free session (PM-141) through the launcher', () => {
   const attestation: ManagedVmAttestation = {
     profile: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION },
     verifiedAt: '2026-10-01T12:00:00.000Z',
-    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'] },
+    providerVersions: { claude: ['0.0.0'], codex: ['0.159.1'], nanogpt: [] },
   };
   const managedSpec = (provider: AgentProvider = 'claude') =>
     spec({

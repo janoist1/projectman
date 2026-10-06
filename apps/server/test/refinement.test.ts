@@ -646,6 +646,17 @@ describe('Refinement line', () => {
       expect(firstInputs()[1]).toContain('[team message from owner about AR-1]');
     });
 
+    it('tells the sender that the message is held until the recipient’s turn (PM-144)', async () => {
+      await refining();
+
+      const { recipients } = await h.domain.messaging.sendReporting('AR', 'owner', {
+        to: ['des'],
+        text: 'Please keep the header sticky.',
+        taskKey: 'AR-1',
+      });
+      expect(recipients).toEqual([{ handle: 'des', delivery: 'held', hold: 'refinement_turn' }]);
+    });
+
     it('keeps a note that mentions the designer the same way', async () => {
       await refining();
 

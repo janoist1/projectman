@@ -1,13 +1,18 @@
 import {
   DEFAULT_AUTO_COMPACT_WINDOW_TOKENS,
+  AgentProvider,
+  DEFAULT_AGENT_PROVIDER,
+  hasPlanUsage,
   DEFAULT_LOOP_WATCH,
   DEFAULT_MAX_FIX_ROUNDS,
   DEFAULT_MIN_FREE_DISK_GB,
+  DEFAULT_SENIOR_WAIT_MINUTES,
   boundaryOwners,
   loopDeciders,
   loopWatchOf,
   loopWatchers,
   maxFixRoundsOf,
+  seniorWaitMinutesOf,
 } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import clsx from 'clsx';
@@ -31,6 +36,23 @@ const DEFAULT_MAX_CONCURRENT_AI_CHOICE = 3;
 
 /** The number the token warning field starts at when the owner turns "no warning" off (PM-187). */
 const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
+
+function pauseHint(config: ProjectConfig): string | undefined {
+  const providers = AgentProvider.options.filter(
+    (provider) =>
+      !hasPlanUsage(provider) &&
+      config.team.members.some(
+        (member) => member.kind === 'ai' && (member.provider ?? DEFAULT_AGENT_PROVIDER) === provider,
+      ),
+  );
+  return providers.length
+    ? t('settings.limits.pauseAboveHelp', {
+        providers: providers
+          .map((provider) => t(`providers.${provider}`))
+          .join(t('settings.limits.providerJoin')),
+      })
+    : undefined;
+}
 
 /** Who is told when a loop is found: the AI holder of the scheduling duty, or the viewer when nobody is. */
 function LoopWatcherLine({ config }: { config: ProjectConfig }) {
@@ -100,6 +122,7 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
       ) : null}
       <InstantRange
         label={t('settings.limits.pauseAbove')}
+        hint={pauseHint(shown)}
         min={10}
         max={100}
         value={limits.pauseAbovePlanUsagePercent}
@@ -165,6 +188,19 @@ function LimitsControls({ config }: { config: ProjectConfig }) {
           </SelectField>
         </div>
       ) : null}
+      <InstantNumber
+        label={t('settings.limits.seniorWait')}
+        hint={t('settings.limits.seniorWaitHelp')}
+        min={5}
+        max={1440}
+        step={1}
+        value={seniorWaitMinutesOf(limits)}
+        onCommit={(minutes) =>
+          commit((draft) => {
+            draft.team.limits.seniorWaitMinutes = minutes ?? DEFAULT_SENIOR_WAIT_MINUTES;
+          })
+        }
+      />
       <ToggleField
         label={t('settings.limits.noTokenWarning')}
         help={t('settings.limits.noTokenWarningHelp')}
@@ -346,7 +382,10 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
           </div>
           <div>
             <dt>{t('settings.limits.pauseAbove')}</dt>
-            <dd>{t('settings.limits.pauseAboveValue', { percent: limits.pauseAbovePlanUsagePercent })}</dd>
+            <dd>
+              {t('settings.limits.pauseAboveValue', { percent: limits.pauseAbovePlanUsagePercent })}
+              {pauseHint(config) ? <p className={shared.help}>{pauseHint(config)}</p> : null}
+            </dd>
           </div>
           <div>
             <dt>{t('settings.limits.minFreeDisk')}</dt>
@@ -355,6 +394,10 @@ export function LimitsSection({ config }: { config: ProjectConfig }) {
                 ? t('settings.limits.minFreeDiskOff')
                 : t('settings.limits.minFreeDiskValue', { count: limits.minFreeDiskGb })}
             </dd>
+          </div>
+          <div>
+            <dt>{t('settings.limits.seniorWaitSummary')}</dt>
+            <dd>{t('settings.limits.seniorWaitValue', { minutes: seniorWaitMinutesOf(limits) })}</dd>
           </div>
           <div>
             <dt>{t('settings.limits.warnAboveSessionTokens')}</dt>

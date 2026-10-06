@@ -19,7 +19,7 @@ import type { AgentSession } from './session';
 export interface HookRouteDeps {
   sessionForToken(token: string): AgentSession | undefined;
   /** Validates a hook body for the session's CLI; null when malformed. */
-  parse(session: AgentSession, body: unknown): HookPayload | null;
+  parse(session: AgentSession, body: unknown, event?: string): HookPayload | null;
   logger: FastifyBaseLogger;
 }
 
@@ -27,40 +27,43 @@ export interface HookRouteDeps {
 const BODY_LIMIT = 32 * 1024 * 1024;
 
 export function registerHookRoutes(app: FastifyInstance, deps: HookRouteDeps): void {
-  app.post<{ Params: { token: string } }>(
-    '/hooks/:token',
-    {
-      bodyLimit: BODY_LIMIT,
-      onRequest: async (request, reply) => {
-        if (nonLocalReason({ remoteAddress: request.socket.remoteAddress, headers: request.headers }))
-          return reply.code(403).send();
-        if (!deps.sessionForToken(request.params.token)) return reply.code(404).send();
+  for (const route of ['/hooks/:token', '/hooks/:token/:event'])
+    app.post<{ Params: { token: string; event?: string } }>(
+      route,
+      {
+        bodyLimit: BODY_LIMIT,
+        onRequest: async (request, reply) => {
+          if (request.params.event !== undefined && !/^[A-Za-z]{1,40}$/.test(request.params.event))
+            return reply.code(404).send();
+          if (nonLocalReason({ remoteAddress: request.socket.remoteAddress, headers: request.headers }))
+            return reply.code(403).send();
+          if (!deps.sessionForToken(request.params.token)) return reply.code(404).send();
+        },
       },
-    },
-    async (request, reply) => {
-      const session = deps.sessionForToken(request.params.token);
-      if (!session) return reply.code(404).send();
+      async (request, reply) => {
+        const session = deps.sessionForToken(request.params.token);
+        if (!session) return reply.code(404).send();
 
-      const payload = deps.parse(session, request.body);
-      if (!payload) {
-        deps.logger.warn({ sessionId: session.id }, 'malformed hook payload');
-        return reply.code(400).send();
-      }
+        const payload = deps.parse(session, request.body, request.params.event);
+        if (!payload) {
+          deps.logger.warn({ sessionId: session.id }, 'malformed hook payload');
+          return reply.code(400).send();
+        }
 
-      // The CLI closes the request when it stops waiting (e.g. the prompt was answered in the
-      // terminal, or its own hook timeout); a pending permission request is then withdrawn.
-      const withdrawn = new AbortController();
-      const onClose = () => {
-        if (!reply.raw.writableEnded) withdrawn.abort();
-      };
-      reply.raw.on('close', onClose);
-      try {
-        const body = await session.handleHook(payload, withdrawn.signal);
-        if (body === null) return reply.code(200).send();
-        return reply.code(200).header('content-type', 'application/json').send(JSON.stringify(body));
-      } finally {
-        reply.raw.off('close', onClose);
-      }
-    },
-  );
+        // The CLI closes the request when it stops waiting (e.g. the prompt was answered in the
+        // terminal, or its own hook timeout); a pending permission request is then withdrawn.
+        const withdrawn = new AbortController();
+        const onClose = () => {
+          if (!reply.raw.writableEnded) withdrawn.abort();
+        };
+        reply.raw.on('close', onClose);
+        try {
+          const body = await session.handleHook(payload, withdrawn.signal);
+          if (body === null) return reply.code(200).send();
+          return reply.code(200).header('content-type', 'application/json').send(JSON.stringify(body));
+        } finally {
+          reply.raw.off('close', onClose);
+        }
+      },
+    );
 }

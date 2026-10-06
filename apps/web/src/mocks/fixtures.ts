@@ -487,6 +487,7 @@ function task(partial: Partial<Task> & Pick<Task, 'key' | 'title' | 'stageId' | 
 export const tasks: Task[] = [
   task({
     key: 'AC-24',
+    priority: 'high',
     title: 'Hibariasztás a fizetési hibákra',
     description:
       'Jelezzen a rendszer, ha a fizetési vagy a rendelési kérések hibára futnak.\n\n- Riasztás a `/checkout` és a `/orders` hibáira\n- Napi összesítő a Kommunikációnak',
@@ -1783,6 +1784,23 @@ export const teamMessages: TeamMessage[] = [
     'AC-21',
     'A PR #14 kint van az integrationön, mehet a teszt.',
   ),
+  {
+    // fe-1's question on AC-21 and the owner's answer to it: the card's conversation shows them as one row.
+    ...msg(
+      'msg_qa',
+      minutesAgo(160),
+      'owner',
+      ['fe-1'],
+      'AC-21',
+      'Az e-mail a megrendelés összegét is mutassa: igen.',
+    ),
+    answer: {
+      inboxItemId: 'inbox_qa',
+      question:
+        'Mutassa az e-mail az összeget?\n\nA sablon ma csak a tételeket listázza. Az összeg a rendelés-visszaigazoló oldalon már látszik; az e-mailben külön sor kellene hozzá, a szállítási díj és az ÁFA bontásával.',
+      answer: 'Igen, az összeget is.',
+    },
+  },
   msg(
     'msg_04',
     minutesAgo(138),

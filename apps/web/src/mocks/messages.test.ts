@@ -90,6 +90,27 @@ describe('mock team messaging and profiles', () => {
     b.findMember('kata')!.role = 'admin';
     expect(bodies()).toEqual(['fe-1 writes', 'qa writes', 'kata writes']);
   });
+  it('answers 404 for the messages of a card the viewer cannot see, and keeps an unknown card empty (PM-273)', () => {
+    const b = new MockBackend();
+    b.messages = [];
+    const hidden = b.tasks.find((task) => task.visibility === 'internal');
+    expect(hidden).toBeTruthy();
+    b.viewerHandle = 'kata';
+    const status = (key: string) =>
+      b.handle('GET', `${base}/messages`, {}, new URLSearchParams(`taskKey=${key}`)).status;
+    expect(status(hidden!.key)).toBe(404);
+    expect(status('AC-999')).toBe(200);
+    b.viewerHandle = 'owner';
+    expect(status(hidden!.key)).toBe(200);
+  });
+  it('keeps the question with the message that answers it (PM-273)', () => {
+    const b = new MockBackend();
+    const item = b.inbox.find((candidate) => candidate.id === 'inb_q_ga4')!;
+    const before = b.messages.length;
+    b.handle('POST', `${base}/inbox/${item.id}/resolve`, { optionId: item.options[0]!.id });
+    const answered = b.messages.slice(before).find((message) => message.answer);
+    expect(answered?.answer).toMatchObject({ inboxItemId: item.id });
+  });
   it('lists the viewer conversations and reads several messages in one request (PM-78)', () => {
     const b = backend();
     b.sendTeamMessage('qa', ['owner'], null, 'qa 1');

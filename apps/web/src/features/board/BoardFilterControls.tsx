@@ -48,6 +48,16 @@ export function DesktopFilters({ view }: { view: FilterView }) {
         options={view.labelChoices}
         onChange={view.setLabel}
       />
+      {view.showPriority ? (
+        <FilterSelect
+          className={styles.priority}
+          label={t('board.filterPriority')}
+          anyLabel={t('board.filterAny')}
+          value={view.filters.priority}
+          options={view.priorityChoices}
+          onChange={view.setPriority}
+        />
+      ) : null}
       {view.clearable > 0 ? (
         <Button variant="ghost" size="sm" onClick={view.clear}>
           {t('board.clearFilters')}
@@ -127,6 +137,20 @@ export function PhoneFilters({ view }: { view: FilterView }) {
               </option>
             ))}
           </SelectField>
+          {view.showPriority ? (
+            <SelectField
+              label={t('board.filterPriority')}
+              value={view.filters.priority}
+              onChange={(event) => view.setPriority(event.target.value)}
+            >
+              <option value="">{t('board.filterAny')}</option>
+              {view.priorityChoices.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </SelectField>
+          ) : null}
         </div>
       </Dialog>
     </>
@@ -144,7 +168,13 @@ export function FilterChips({ view }: { view: FilterView }) {
             type="button"
             className={styles.chip}
             aria-label={t('board.filterChipRemove', { value: chip.value })}
-            onClick={() => (chip.id === 'assignee' ? view.setAssignee('') : view.setLabel(''))}
+            onClick={() =>
+              chip.id === 'assignee'
+                ? view.setAssignee('')
+                : chip.id === 'priority'
+                  ? view.setPriority('')
+                  : view.setLabel('')
+            }
           >
             <span className={styles.chipValue}>{chip.value}</span>
             <Icon name="close" size={14} strokeWidth={2.4} />

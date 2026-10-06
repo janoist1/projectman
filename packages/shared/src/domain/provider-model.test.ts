@@ -2,12 +2,64 @@ import { describe, expect, it } from 'vitest';
 import { AiMemberConfig, HireMemberRequest, PermissionMode, UpdateMemberRequest } from '../index';
 import {
   FALLBACK_PERMISSION_MODE,
+  hasPlanUsage,
   modelForProvider,
+  PLAN_USAGE_PROVIDERS,
   PROVIDER_PERMISSION_MODES,
   permissionModeFitsProvider,
+  usesCodexCli,
+  approverBlocksProvider,
+  cliVersionAtLeast,
+  CODEX_PERMISSION_PROFILE_MIN_VERSION,
+  NANOGPT_MIN_CODEX_VERSION,
 } from './provider-model';
 
 describe('provider settings contracts', () => {
+  it.each([
+    ['0.159.1', true],
+    ['0.159.0', false],
+    ['0.160.0', true],
+    ['1.0.0', true],
+    ['0.9.99', false],
+    ['0.159.1-beta', false],
+    ['bad', false],
+    ['0.159', false],
+    ['0.159.1.2', false],
+    ['99999999999999999999.0.0', false],
+  ])('compares CLI version %s numerically', (version, expected) => {
+    expect(cliVersionAtLeast(version as string, '0.159.1')).toBe(expected);
+    expect(cliVersionAtLeast('0.159.1', 'invalid')).toBe(false);
+  });
+  it('keeps the NanoGPT minimum at least as strict as the shared profile minimum', () => {
+    expect(cliVersionAtLeast(NANOGPT_MIN_CODEX_VERSION, CODEX_PERMISSION_PROFILE_MIN_VERSION)).toBe(true);
+  });
+  it('shares Codex CLI capabilities and explains only the NanoGPT none approver', () => {
+    expect(usesCodexCli('nanogpt')).toBe(true);
+    expect(usesCodexCli('codex')).toBe(true);
+    expect(usesCodexCli('gemini')).toBe(false);
+    expect(usesCodexCli(undefined)).toBe(false);
+    expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'none' })).toBe(true);
+    expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'human' })).toBe(false);
+    expect(approverBlocksProvider({ provider: 'nanogpt', approver: 'ai' })).toBe(false);
+    expect(approverBlocksProvider({ provider: 'nanogpt' })).toBe(false);
+    expect(approverBlocksProvider({ provider: 'codex', approver: 'none' })).toBe(false);
+  });
+  it('rejects Gemini models for NanoGPT while retaining open model ids', () => {
+    expect(modelForProvider('nanogpt', 'gemini-3.8-flash')).toBe('z-ai/glm-5.3-flash-uncensored');
+    expect(modelForProvider('nanogpt', 'claude-opus')).toBe('z-ai/glm-5.3-flash-uncensored');
+    expect(modelForProvider('nanogpt', 'fictional/open-model')).toBe('fictional/open-model');
+    expect(modelForProvider('gemini', 'z-ai/glm-5.3-flash-uncensored')).toBe('gemini-3.8-flash');
+    expect(hasPlanUsage('nanogpt')).toBe(false);
+  });
+  it('keeps Gemini models within Gemini and does not report its plan usage', () => {
+    expect(modelForProvider('gemini')).toBe('gemini-3.8-flash');
+    expect(modelForProvider('gemini', 'gemini-3.1-pro-high')).toBe('gemini-3.1-pro-high');
+    expect(modelForProvider('gemini', 'claude-opus')).toBe('gemini-3.8-flash');
+    expect(modelForProvider('codex', 'gemini-3.8-flash')).toBe('gpt-6.1-sol');
+    expect(modelForProvider('claude', 'gemini-3.8-flash')).toBe('opus');
+    expect(permissionModeFitsProvider('gemini', 'bypassPermissions')).toBe(false);
+    expect(hasPlanUsage('gemini')).toBe(false);
+  });
   it.each(['low', 'medium', 'high', 'xhigh', 'max'] as const)(
     'accepts effort %s on config, hire and update',
     (effort) => {
@@ -67,8 +119,15 @@ describe('permission modes per provider', () => {
     }
   });
 
+  it('measures the plan usage of Claude and Codex (PM-324)', () => {
+    expect(PLAN_USAGE_PROVIDERS).toEqual(['claude', 'codex']);
+    expect(hasPlanUsage('claude')).toBe(true);
+    expect(hasPlanUsage('codex')).toBe(true);
+    expect(hasPlanUsage('fictional' as never)).toBe(false);
+  });
+
   it('has a fallback every provider allows', () => {
-    for (const provider of ['claude', 'codex'] as const) {
+    for (const provider of ['claude', 'codex', 'gemini', 'nanogpt'] as const) {
       expect(permissionModeFitsProvider(provider, FALLBACK_PERMISSION_MODE)).toBe(true);
     }
   });

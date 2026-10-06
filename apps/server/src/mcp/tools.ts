@@ -4,6 +4,8 @@ import {
   AttachmentId,
   BoundaryId,
   BoundaryReason,
+  DEVELOPER_LEVEL_REASON_MAX,
+  DeveloperLevel,
   MemberHandle,
   questionChoices,
   StageId,
@@ -15,6 +17,7 @@ import {
   WORK_DOING_SUMMARY_MAX,
   WorkDoing,
 } from '@projectman/shared';
+import type { DeveloperLevelRequest } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError, type TeamToolsHandler, type ToolContext } from '../contracts';
 import {
@@ -28,6 +31,7 @@ import {
   formatPublished,
   formatQuestionAsked,
   formatRemoteState,
+  formatScreenshotRun,
   formatSentMessage,
   formatTaskCreated,
   formatTaskDetail,
@@ -66,6 +70,8 @@ export const TEAM_TOOL_NAMES = [
   'list_attachments',
   'read_attachment',
   'attach_file',
+  'take_screenshots',
+  'get_screenshot_run',
   'delete_attachment',
 ] as const;
 export type TeamToolName = (typeof TEAM_TOOL_NAMES)[number];
@@ -82,6 +88,36 @@ export const TEAM_INSTRUCTIONS =
 
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_NOTE_CHARS = 10_000;
+
+const developerLevelInput = DeveloperLevel.optional().describe(
+  'The recommended developer of the card: senior (a task that suits the Senior; developer_level_reason is ' +
+    'required) or any (any developer may take it). Only an owner, or a member who plans tasks or analyses ' +
+    'requirements, may set it; it can be changed on a card that has started too, and it does not replace the ' +
+    'developer who already carries the card.',
+);
+const developerLevelReasonInput = z
+  .string()
+  .trim()
+  .min(1)
+  .max(DEVELOPER_LEVEL_REASON_MAX)
+  .optional()
+  .describe(
+    `Why the card is recommended for that developer, at most ${DEVELOPER_LEVEL_REASON_MAX} characters; ` +
+      'required with developer_level senior, and only with developer_level.',
+  );
+
+/** The recommended developer the call asked for; a reason without a level is refused. */
+function developerLevelArg(args: {
+  developer_level?: DeveloperLevel | undefined;
+  developer_level_reason?: string | undefined;
+}): DeveloperLevelRequest | undefined {
+  if (args.developer_level === undefined) {
+    if (args.developer_level_reason !== undefined)
+      throw new TeamToolError('invalid', 'developer_level_reason needs developer_level: pass both.');
+    return undefined;
+  }
+  return { level: args.developer_level, reason: args.developer_level_reason ?? null };
+}
 const MAX_TITLE_CHARS = 200;
 const MAX_LABEL_CHARS = 40;
 const MAX_REPO_CHARS = 64;
@@ -118,6 +154,8 @@ function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   readOnly: boolean;
   /** The tool removes something that cannot be brought back (default false). */
   destructive?: boolean;
+  /** Unknown parameters with a specific refusal instead of a generic schema error. */
+  refused?: Record<string, string>;
   input: Shape;
   /**
    * Rules that span several parameters (e.g. a recommendation must name one of the options).
@@ -128,7 +166,12 @@ function defineTool<Shape extends z.core.$ZodLooseShape>(def: {
   run(call: ToolRun<ToolInput<Shape>>): Promise<string>;
 }): TeamTool {
   // Strict: an unknown key (e.g. a misspelled parameter) is an error instead of being ignored.
-  const schema = z.strictObject(def.input);
+  const schema = z.strictObject(def.input, {
+    error: (issue) =>
+      issue.code === 'unrecognized_keys'
+        ? issue.keys.map((key) => def.refused?.[key]).find((reason) => reason !== undefined)
+        : undefined,
+  });
   const { check } = def;
   return {
     name: def.name,
@@ -271,7 +314,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: false,
     description:
       'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
-      'the task; humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
+      'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
+      'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
       'message.',
     input: {
       to: z
@@ -389,6 +433,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
 
   defineTool({
     name: 'update_task',
+    refused: {
+      priority:
+        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+    },
     title: 'Update a task',
     readOnly: false,
     description:
@@ -406,9 +454,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'description. You cannot mark a card that has started as a duplicate. theme_key puts the card into a ' +
       'theme (an open card of kind theme in this project; null removes it); a card belongs to one theme, ' +
       'a subtask takes the theme of its parent and cannot be given one, and a theme cannot be given one or ' +
-      'moved.',
+      'moved. developer_level (with developer_level_reason) sets the recommended developer of the card.',
     input: {
       task_key: taskKeyInput,
+      developer_level: developerLevelInput,
+      developer_level_reason: developerLevelReasonInput,
       stage_id: StageId.optional().describe(
         'Id of the stage to move the task to (the pipeline is in your instructions).',
       ),
@@ -507,9 +557,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         remove_relations: removeRelations,
         theme_key: themeKey,
       } = args;
+      const developerLevel = developerLevelArg(args);
       if (
         !stageId &&
         themeKey === undefined &&
+        !developerLevel &&
         !addLabels?.length &&
         !removeLabels?.length &&
         !note &&
@@ -522,7 +574,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         throw new TeamToolError(
           'invalid',
           'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-            'add_relations, remove_relations and/or theme_key.',
+            'add_relations, remove_relations, theme_key and/or developer_level.',
         );
       }
       const relations = {
@@ -540,9 +592,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(repo !== undefined ? { repo } : {}),
         ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
         ...(themeKey !== undefined ? { themeKey } : {}),
+        ...(developerLevel ? { developerLevel } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
+        ...(developerLevel ? { developerLevel: true } : {}),
         ...(themeKey !== undefined ? { themeKey } : {}),
         labels: { added: addLabels ?? [], removed: removeLabels ?? [] },
         note: !!note,
@@ -556,6 +610,10 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
 
   defineTool({
     name: 'create_task',
+    refused: {
+      priority:
+        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+    },
     title: 'Create a task',
     readOnly: false,
     description:
@@ -605,10 +663,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
             ADDED_RELATIONS_HELP +
             ' One refused relation refuses the creation.',
         ),
+      developer_level: developerLevelInput,
+      developer_level_reason: developerLevelReasonInput,
     },
     async run({ ctx, args, handler }) {
+      const developerLevel = developerLevelArg(args);
       const { task } = await handler.createTask(ctx, {
         title: args.title,
+        ...(developerLevel ? { developerLevel } : {}),
         ...(args.relations?.length
           ? { relations: args.relations.map((r) => ({ kind: r.kind, key: r.task_key })) }
           : {}),
@@ -942,6 +1004,78 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const { attachment } = await handler.attachFile(ctx, { taskKey: args.task_key, path: args.path });
       return formatAttached(args.task_key, attachment);
+    },
+  }),
+
+  defineTool({
+    name: 'take_screenshots',
+    title: 'Take screenshots',
+    readOnly: false,
+    description:
+      'Take screenshots with `npm run shots` (docs/SCREENSHOTS.md): the server runs the scenario of your working ' +
+      'directory in its own sandbox, where the browser starts (it does not in yours). The images go to the ' +
+      "'shots' folder of your session folder; open one with your image viewing tool and attach it with " +
+      'attach_file. The call waits up to 40 seconds: if the run is not over then, it answers `running`, and ' +
+      'you ask for its end with get_screenshot_run. One run at a time per session.',
+    input: {
+      scenario: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .describe(
+          "The scenario module (an ES module, e.g. 'scripts/scenarios/card-with-question.mjs'): relative to your " +
+            'working directory, or an absolute path inside it or inside your session folder.',
+        ),
+      widths: z
+        .array(z.number().int().min(200).max(4000))
+        .min(1)
+        .max(8)
+        .optional()
+        .describe('Widths of the images in pixels (default 1512, 800, 390, 375).'),
+      full_page: z.boolean().optional().describe('Capture the whole page by default.'),
+      scale: z
+        .union([z.literal(1), z.literal(2)])
+        .optional()
+        .describe('Device pixel ratio, 1 (default) or 2.'),
+      timeout_seconds: z
+        .number()
+        .int()
+        .min(1)
+        .max(600)
+        .optional()
+        .describe("The scenario's own time limit in seconds, instance start included (default 240)."),
+      seed: z
+        .enum(['demo', 'none'])
+        .optional()
+        .describe('demo (default: the Acme webshop with four cards) or none (an empty instance).'),
+    },
+    async run({ ctx, args, handler }) {
+      const run = await handler.takeScreenshots(ctx, {
+        scenario: args.scenario,
+        ...(args.widths ? { widths: args.widths } : {}),
+        ...(args.full_page !== undefined ? { fullPage: args.full_page } : {}),
+        ...(args.scale !== undefined ? { scale: args.scale } : {}),
+        ...(args.timeout_seconds !== undefined ? { timeoutSeconds: args.timeout_seconds } : {}),
+        ...(args.seed !== undefined ? { seed: args.seed } : {}),
+      });
+      return formatScreenshotRun(run);
+    },
+  }),
+
+  defineTool({
+    name: 'get_screenshot_run',
+    title: 'Get a screenshot run',
+    readOnly: true,
+    description:
+      'The state of a screenshot run you started with take_screenshots: while it is not over it waits up to ' +
+      '40 seconds for its end, then answers its state. The answer lists the images it wrote and the end of its ' +
+      'output.',
+    input: {
+      run_id: z.string().trim().min(1).max(64).describe('The run id, e.g. "shr_…".'),
+    },
+    async run({ ctx, args, handler }) {
+      return formatScreenshotRun(await handler.getScreenshotRun(ctx, args.run_id));
     },
   }),
 

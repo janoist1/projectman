@@ -95,6 +95,7 @@ beforeEach(async () => {
   process.env.FAKE_CLAUDE_CONFIG_FILE = configFile;
   process.env.FAKE_CLAUDE_ARGS_FILE = argsFile;
   process.env.ANTHROPIC_API_KEY = 'sk-ant-must-not-leak';
+  process.env.NANOGPT_API_KEY = 'inherited-nanogpt-must-not-leak';
   // A dead proxy: the SessionStart forwarder (curl honours http_proxy) only reaches the
   // server because the runner puts the loopback hosts into no_proxy.
   process.env.http_proxy = 'http://127.0.0.1:9';
@@ -279,6 +280,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     expect(flag('--permission-mode')).toBe('acceptEdits');
     expect(flag('-n')).toBe('Anna · fe-1');
     expect(env).not.toHaveProperty('ANTHROPIC_API_KEY');
+    expect(env).not.toHaveProperty('NANOGPT_API_KEY');
     expect(env).toMatchObject({
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
@@ -475,6 +477,32 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     await assistantSaid(s.sessionId, 'Echo: after the question');
   });
 
+  it("keeps the CLI's own prompt suggestion out of the inbox and still forwards a real question (PM-345)", async () => {
+    forwardResult = true;
+    process.env.FAKE_CLAUDE_SUGGESTION_MODE = '1';
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+
+    // The CLI is started with its prompt suggestions off: no suggestion question after a turn.
+    await runner.runner.sendUserMessage(s.sessionId, 'plain turn');
+    await assistantSaid(s.sessionId, 'Echo: plain turn');
+    await waitState(s.sessionId, 'idle');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(forwarded).toEqual([]);
+    expect(statesOf(s.sessionId)).not.toContain('waiting_input');
+
+    // The member's own question still goes to the inbox (PM-199).
+    await runner.runner.sendUserMessage(s.sessionId, 'ASK me something');
+    await assistantSaid(s.sessionId, 'Echo: ASK me something');
+    await waitState(s.sessionId, 'idle');
+    expect(forwarded).toHaveLength(1);
+    expect(forwarded[0]!.toolInput).toEqual({
+      questions: [{ question: 'Which option?', options: [{ label: 'One' }, { label: 'Two' }] }],
+    });
+  });
+
   it('leaves the question to the terminal when the broker cannot take it', async () => {
     forwardResult = false;
     await setup();
@@ -521,6 +549,14 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
         (e) => (e.type === 'session_pausing' || e.type === 'session_paused') && e.sessionId === id,
       );
     const toolCalls = (id: string) => chatOf(id).filter((i) => i.kind === 'tool_call');
+    const toolResult = (id: string) => waitChat(id, (i) => i.kind === 'tool_result', 'the tool result');
+    const holdFake = (phase: 'WORK' | 'TOOL') => {
+      const file = path.join(cwd, `${phase.toLowerCase()}-release`);
+      process.env[`FAKE_CLAUDE_${phase}_RELEASE_FILE`] = file;
+      return () => writeFile(file, 'release');
+    };
+    const waitPausing = (id: string) =>
+      waitFor(() => pausedEvents(id).some((e) => e.type === 'session_pausing'), { what: 'pause requested' });
 
     it('stops an idle session and a session waiting for permission at once', async () => {
       await setup();
@@ -541,7 +577,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     });
 
     it('lets a running tool finish and halts the turn after it (after_tool)', async () => {
-      process.env.FAKE_CLAUDE_TOOL_MS = '1500';
+      const finishTool = holdFake('TOOL');
       answers = [{ behavior: 'allow' }];
       await setup();
       const s = spec();
@@ -549,19 +585,22 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await waitState(s.sessionId, 'idle');
 
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
-      await waitFor(() => toolCalls(s.sessionId).length > 0, { what: 'the tool call' });
-      const outcome = await runner.runner.pause(s.sessionId);
+      // This marker follows PreToolUse and permission approval, with the tool held at its gate.
+      await waitSnapshot(s.sessionId, 'Long tool running: LONGTOOL go');
+      const pause = runner.runner.pause(s.sessionId);
+      await waitPausing(s.sessionId);
+      await finishTool();
+      const outcome = await pause;
       expect(outcome).toEqual({ point: 'after_tool', tool: 'Bash' });
       expect(pausedEvents(s.sessionId).map((e) => e.type)).toEqual(['session_pausing', 'session_paused']);
       // The tool ran to its end; the model did not answer afterwards.
-      const result = chatOf(s.sessionId).find((i) => i.kind === 'tool_result');
-      expect(result).toBeDefined();
+      expect(await toolResult(s.sessionId)).toEqual(expect.objectContaining({ ok: true }));
+      await waitState(s.sessionId, 'idle');
       expect(chatOf(s.sessionId).some((i) => i.kind === 'assistant_text')).toBe(false);
     });
 
     it('halts the next tool call while the model is still writing it (before_tool)', async () => {
-      // A wide window: on a loaded machine the pause must still arrive before the tool call is written.
-      process.env.FAKE_CLAUDE_WORK_DELAY_MS = '3000';
+      const finishWriting = holdFake('WORK');
       answers = [{ behavior: 'allow' }];
       await setup();
       const s = spec();
@@ -570,14 +609,19 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
 
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
       await waitState(s.sessionId, 'working');
-      const outcome = await runner.runner.pause(s.sessionId);
+      await waitSnapshot(s.sessionId, 'Waiting before tool: LONGTOOL go');
+      const pause = runner.runner.pause(s.sessionId);
+      await waitPausing(s.sessionId);
+      expect(toolCalls(s.sessionId)).toHaveLength(0);
+      await finishWriting();
+      const outcome = await pause;
       expect(outcome).toEqual({ point: 'before_tool', tool: 'Bash' });
-      const result = chatOf(s.sessionId).find((i) => i.kind === 'tool_result');
-      expect(result).toEqual(expect.objectContaining({ ok: false }));
+      expect(await toolResult(s.sessionId)).toEqual(expect.objectContaining({ ok: false }));
+      await waitState(s.sessionId, 'idle');
     });
 
     it('interrupts with Esc when the deadline passes or forcePause is called', async () => {
-      process.env.FAKE_CLAUDE_TOOL_MS = '20000';
+      holdFake('TOOL');
       answers = [{ behavior: 'allow' }, { behavior: 'allow' }];
       await setup();
       const s = spec();
@@ -585,7 +629,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await waitState(s.sessionId, 'idle');
 
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
-      await waitFor(() => toolCalls(s.sessionId).length > 0, { what: 'the tool call' });
+      await waitSnapshot(s.sessionId, 'Long tool running: LONGTOOL go');
       await expect(runner.runner.pause(s.sessionId, { forceAfterMs: 500 })).resolves.toEqual({
         point: 'interrupted',
         tool: 'Bash',
@@ -594,10 +638,18 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       expect(runner.runner.release(s.sessionId)).toBe(true);
 
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL again');
-      await waitFor(() => toolCalls(s.sessionId).length > 1, { what: 'the second tool call' });
+      await waitSnapshot(s.sessionId, 'Long tool running: LONGTOOL again');
       const pause = runner.runner.pause(s.sessionId);
       await runner.runner.forcePause(s.sessionId);
       await expect(pause).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
+      await waitState(s.sessionId, 'idle');
+      await waitFor(
+        () =>
+          chatOf(s.sessionId).filter((i) => i.kind === 'system_note' && i.text === 'Interrupted by user')
+            .length === 2,
+        { what: 'both Esc interruption notes' },
+      );
+      expect(chatOf(s.sessionId).some((i) => i.kind === 'tool_result')).toBe(false);
     });
 
     it('types a message queued during the pause only after the release, the nudge first', async () => {
@@ -608,7 +660,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await runner.runner.pause(s.sessionId);
 
       void runner.runner.sendUserMessage(s.sessionId, 'queued during the pause').catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      // Holding the input is synchronous; the delivery order below also checks that it stays held.
       expect(chatOf(s.sessionId).some((i) => i.kind === 'user_text')).toBe(false);
 
       runner.runner.release(s.sessionId, { nudge: 'Carry on.' });
@@ -622,7 +674,7 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
     });
 
     it('delivers the halting PostToolUse answer through the sandbox forwarder', async () => {
-      process.env.FAKE_CLAUDE_TOOL_MS = '1500';
+      const finishTool = holdFake('TOOL');
       answers = [{ behavior: 'allow' }];
       await setup();
       // The sandboxed session sends every hook through the command forwarder (PM-153).
@@ -631,8 +683,12 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       await waitState(s.sessionId, 'idle');
 
       await runner.runner.sendUserMessage(s.sessionId, 'LONGTOOL go');
-      await waitFor(() => toolCalls(s.sessionId).length > 0, { what: 'the tool call' });
-      await expect(runner.runner.pause(s.sessionId)).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+      await waitSnapshot(s.sessionId, 'Long tool running: LONGTOOL go');
+      const pause = runner.runner.pause(s.sessionId);
+      await waitPausing(s.sessionId);
+      await finishTool();
+      await expect(pause).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
+      expect(await toolResult(s.sessionId)).toEqual(expect.objectContaining({ ok: true }));
     });
   });
 
@@ -688,6 +744,61 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
         .slice(before)
         .flatMap((i) => (i.kind === 'user_text' ? [i.text] : [])),
     ).toEqual(['Your session was restarted.', 'A message queued during the restart']);
+  });
+
+  describe('a tool hook after the turn ended (PM-343)', () => {
+    const noteCount = (id: string) =>
+      chatOf(id).filter((i) => i.kind === 'system_note' && i.text === 'Interrupted by user').length;
+
+    it('does not reopen a turn closed by its Stop hook', async () => {
+      process.env.FAKE_CLAUDE_LATE_TOOL = 'after_stop';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'hello');
+      await assistantSaid(s.sessionId, 'Echo: hello');
+      await waitState(s.sessionId, 'idle');
+      // The fake sends its late PreToolUse of ToolSearch 300 ms after the Stop hook.
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(statesOf(s.sessionId).slice(-3)).toEqual(['idle', 'working', 'idle']);
+    });
+
+    it('closes a turn whose Stop hook never came, and is not reopened by the late hook', async () => {
+      process.env.FAKE_CLAUDE_LATE_TOOL = 'no_stop';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'hello');
+      await assistantSaid(s.sessionId, 'Echo: hello');
+      await waitState(s.sessionId, 'idle');
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(statesOf(s.sessionId).slice(-3)).toEqual(['idle', 'working', 'idle']);
+    });
+
+    it('lets a forced pause take the session whose turn ended as stopped, without an Esc', async () => {
+      process.env.FAKE_CLAUDE_LATE_TOOL = 'no_stop';
+      await setup();
+      const s = spec();
+      await runner.runner.start(s);
+      await waitState(s.sessionId, 'idle');
+
+      await runner.runner.sendUserMessage(s.sessionId, 'hello');
+      await assistantSaid(s.sessionId, 'Echo: hello');
+      // The late hook came after the answer; the session still works, as the Stop hook never came.
+      await waitSnapshot(s.sessionId, 'Echo: hello');
+      await expect(runner.runner.pause(s.sessionId, { forceAfterMs: 0 })).resolves.toEqual(
+        expect.objectContaining({ point: expect.stringMatching(/^(turn_end|idle|interrupted)$/) }),
+      );
+      expect(stateOf(s.sessionId)).toBe('idle');
+      expect(noteCount(s.sessionId)).toBe(0);
+      expect(runner.runner.release(s.sessionId)).toBe(true);
+    });
   });
 
   describe('compaction (PM-213)', () => {

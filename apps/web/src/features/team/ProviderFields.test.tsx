@@ -6,7 +6,7 @@ import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { ProviderFields } from './ProviderFields';
-import { CLAUDE_FIXED_LABELS, CLAUDE_ALIAS_LABELS } from './providerModels';
+import { CLAUDE_FIXED_LABELS, CLAUDE_ALIAS_LABELS, GEMINI_LABELS } from './providerModels';
 
 function Fields({ initialModel = 'opus' }: { initialModel?: string }) {
   const [provider, setProvider] = useState<AgentProvider>('claude');
@@ -30,6 +30,34 @@ function Fields({ initialModel = 'opus' }: { initialModel?: string }) {
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 describe('ProviderFields', () => {
+  it('explains the effective high effort of Gemini Pro with medium selected', () => {
+    mockProject().render(<Fields />);
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'gemini' } });
+    fireEvent.change(screen.getByLabelText(t('hire.model')), { target: { value: 'gemini-3.1-pro' } });
+    expect(screen.getByText(t('providerSettings.geminiProEffortHint'))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'low' } });
+    expect(screen.queryByText(t('providerSettings.geminiProEffortHint'))).toBeNull();
+  });
+  it('shows provider runtime hints and clamps NanoGPT effort', () => {
+    mockProject().render(<Fields />);
+    expect(screen.getByText(t('providerSettings.runsOn.claude'))).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'max' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'nanogpt' } });
+    expect(screen.getByText(t('providerSettings.runsOn.nanogpt'))).toBeTruthy();
+    expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('xhigh');
+  });
+  it('offers Gemini families and resets the model and unsupported effort on provider change', () => {
+    mockProject().render(<Fields />);
+    fireEvent.change(screen.getByLabelText(t('providerSettings.effort')), { target: { value: 'max' } });
+    fireEvent.change(screen.getByLabelText(t('providerSettings.provider')), { target: { value: 'gemini' } });
+    expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gemini-3.8-flash');
+    expect((screen.getByLabelText(t('providerSettings.effort')) as HTMLSelectElement).value).toBe('high');
+    for (const [id, key] of Object.entries(GEMINI_LABELS)) {
+      expect((screen.getByRole('option', { name: t(key) }) as HTMLOptionElement).value).toBe(id);
+    }
+    expect(screen.queryByRole('option', { name: t('providerSettings.models.sol') })).toBeNull();
+    expect(screen.getByText(t('providerSettings.runsOn.gemini'))).toBeTruthy();
+  });
   it('groups fixed Claude versions and latest aliases with translated labels and custom ids', () => {
     mockProject().render(<Fields />);
     for (const [group, labels] of [

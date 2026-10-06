@@ -487,11 +487,13 @@ members'. Both are left out in the managed VM profile. The network stays off. Th
 are filesystem write entries in the permission profile. A command run outside the sandbox
 after a question still queues, and the CLI stops one that cannot use the queue (exit 78).
 
-Writing Codex and NanoGPT sessions also receive the member's own `npm-cache` and
-`projectman-dev` directories through `AgentSandbox.portable`, with `npm_config_cache` and
-`PROJECTMAN_HOME` set through `shell_environment_policy.set`. These are the same private
-cache and development-data paths Claude uses (PM-193); denied paths remain excluded.
-Reading sessions and the managed VM do not receive these local write roots.
+Codex and NanoGPT sessions in a developer's own placement also receive the member's
+`npm-cache` and `projectman-dev` directories through `AgentSandbox.portable`, with
+`npm_config_cache` and `PROJECTMAN_HOME` set through `shell_environment_policy.set`.
+These are the same private cache and development-data paths Claude uses (PM-193);
+denied paths remain excluded. Only a writing sandbox grants write access to these roots;
+plan mode keeps the variables without granting writes. Reading placements and the managed
+VM receive neither these member-directory variables nor these local write roots.
 
 A Codex session whose sandbox writes (`workspace-write`, a developer's own placement, outside the
 managed VM; PM-339) also gets its own **session folder** and its own **temporary directory**, both made

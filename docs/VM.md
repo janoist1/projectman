@@ -1,5 +1,8 @@
 # The managed VM profile
 
+> **Archived.** The managed-VM direction was dropped on 2026-10-06 (decision 36). This page is
+> kept for reference; nothing here is planned or maintained.
+
 A reproducible Ubuntu guest that runs projectman apart from the owner's own machine (PM-137,
 the first part of PM-135). It is built from files in `deploy/vm/` and measured by a readiness
 report. The same files build a rented Ubuntu server later (PM-45): a Mac with Multipass is only

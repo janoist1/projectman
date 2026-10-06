@@ -1,5 +1,8 @@
 # External operation requests
 
+> **Archived.** The managed-VM direction was dropped on 2026-10-06 (decision 36). This page is
+> kept for reference; nothing here is planned or maintained.
+
 PM-139 adds authorization records; it does not execute external operations, change CLI
 permissions or activate a VM profile. Without an injected `BoundaryOperationAdapter`, operation
 ids are refused. PM-140 supplies the first protected registry/executor (egress, below); PM-141 and

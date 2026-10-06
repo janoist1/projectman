@@ -1,7 +1,11 @@
 # projectman
 
-Run and track a team of humans and AI members (Claude Code sessions) from the browser.
+Run and track a team of humans and AI members from the browser. AI members run the vendors'
+interactive CLIs on subscriptions: Claude Code, OpenAI Codex, Gemini (Antigravity CLI) and open
+models through NanoGPT (see [docs/PROVIDERS.md](docs/PROVIDERS.md)).
 
+- Vision: [docs/VISION.md](docs/VISION.md)
+- Roadmap: [docs/ROADMAP.md](docs/ROADMAP.md)
 - Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Decisions: [docs/DECISIONS.md](docs/DECISIONS.md)
 - Working rules for contributors and agents: [CLAUDE.md](CLAUDE.md)
@@ -24,8 +28,8 @@ Ctrl+C stops the demo. Later runs reuse `.demo/`; `npm run demo -- --reset` star
 
 ## Run it for real
 
-AI members run on the owner's Claude subscription through the standalone `claude` CLI.
-Log in once with `claude auth login` and choose the Claude subscription account, not the
+AI members run on the owner's subscriptions through the providers' standalone CLIs; Claude Code
+is described here, the others in [docs/PROVIDERS.md](docs/PROVIDERS.md). Log in once with `claude auth login` and choose the Claude subscription account, not the
 Console/API account. The desktop app's login is separate. Never set `ANTHROPIC_API_KEY`.
 GitHub integration optionally uses the GitHub CLI (`gh auth login`).
 

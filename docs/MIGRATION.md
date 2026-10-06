@@ -1,5 +1,8 @@
 # Moving the live installation to the VM (PM-143, last part of PM-135)
 
+> **Archived.** The managed-VM direction was dropped on 2026-10-06 (decision 36). This page is
+> kept for reference; nothing here is planned or maintained.
+
 How the owner's installation moves from the Mac to the managed VM ([VM.md](VM.md)), how the move is
 rehearsed, what the owner approves, and how it is taken back. **This page is not a permission to move.**
 The real move needs its own, concrete approval by the owner (the approval sheet below); until then the

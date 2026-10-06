@@ -291,3 +291,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     current tree no longer does. The integrating session rewrites the history and force-pushes
     `main` at a quiet time, tells the owner beforehand, and restarts the members' worktrees
     afterwards. This revises the PM-48 answer that the repository stays as it is.
+40. **Members run targeted tests only; the full test runs once, at the merge.** Decided by the
+    owner on 2026-10-06 (PM-380). In this project, members run `npx vitest related` and the type
+    check of the workspaces they touched, also before a hand-over and in fix rounds. The one full
+    check of a card is the integrating session's merge test before `main` moves (the whole suite
+    when shared code or configuration changed). The owner's first idea, a full test only when a
+    collecting card is finished, was set aside because its parts reach `main` one by one.

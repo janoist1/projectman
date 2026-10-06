@@ -924,6 +924,15 @@ Keep entries current under the rule in `CLAUDE.md`.
 
 Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
+- **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
+  probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
+  the normal failed-session cleanup. Only `ESRCH` proves disappearance; permission errors
+  leave the session running. An unreaped zombie also passes the probe. Across launcher worker
+  accounts an `EPERM` result provides no liveness verdict; the launcher exit event remains necessary.
+  The PID belongs to this host (including local launcher workers).
+  **Remote engine:** run this probe beside the CLI on the engine and transport the exit event;
+  a remote PID must never be checked against the server's process table.
+
 - **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
   `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
   phase until a release file exists in the disposable session workspace; PTY readiness

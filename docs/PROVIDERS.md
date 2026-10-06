@@ -530,6 +530,18 @@ Commands currently run without a sandbox (PM-326, owner decision T4).
 | `plan`              | File edits are denied. Currently, role-approved commands of workspace roles can still run without a sandbox, because the shell allowlist is checked before the plan denial. Reading placements deny all commands. PM-367 corrects this limitation. |
 | `bypassPermissions` | Not selectable.                                                                                                                                                                                                                                    |
 
+Native session controls have a narrow adapter exception in every mode, including `plan`
+(PM-376): `command_status` accepts an opaque `CommandId` of 1–128 ASCII letters, digits,
+underscores or hyphens, with finite numeric or short alphabetic options; `schedule` accepts
+integer `DurationSeconds` from 1 to 600 and a nonempty `Prompt` of at most 2000 characters;
+`manage_task` accepts only `Action: 'status'` and a task identifier containing this conversation's
+UUID, ending in `task-<digits>`. Absolute task identifiers must remain under this session's
+`antigravity-cli` root in every resolved path form. Invalid inputs ask, as do extra fields on
+`schedule` and `manage_task`;
+`toolAction` and `toolSummary` string metadata are accepted. `send_command_input`, `wait`,
+`wait_5_seconds` and other task actions still ask. Foreground waiting with `command_status`
+remains the main path for long checks; scheduled wakeups are bounded below idle closure.
+
 The UI explains the `auto` and `plan` limitations beside the selected mode, including read-only
 profile settings and the hiring preview. `default` and `acceptEdits` need no provider note.
 

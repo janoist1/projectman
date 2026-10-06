@@ -23,6 +23,59 @@ const object = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
+export const GEMINI_SCHEDULE_MAX_SECONDS = 600;
+
+const ControlMetadata = {
+  toolAction: z.string().optional(),
+  toolSummary: z.string().optional(),
+};
+const ControlNumber = z
+  .union([z.number().finite(), z.string().regex(/^\d+$/).transform(Number)])
+  .pipe(z.number().finite());
+const CommandStatus = z
+  .object({ CommandId: z.string().regex(/^[A-Za-z0-9_-]{1,128}$/), ...ControlMetadata })
+  .catchall(z.union([ControlNumber, z.string().regex(/^[A-Za-z]{1,16}$/)]));
+const Schedule = z.strictObject({
+  DurationSeconds: ControlNumber.pipe(z.number().int().min(1).max(GEMINI_SCHEDULE_MAX_SECONDS)),
+  Prompt: z.string().min(1).max(2000),
+  ...ControlMetadata,
+});
+const TaskStatus = z.strictObject({
+  Action: z.literal('status'),
+  TaskId: z.string().min(1).max(1024),
+  ...ControlMetadata,
+});
+
+/** Narrow native session controls approved by the owner (PM-376); other calls keep asking. */
+export function geminiSessionControl(
+  name: string,
+  args: Record<string, unknown>,
+  ctx: { conversationId: string; root: string | null; cwd: string },
+): { decision: 'allow' } | null {
+  if (!z.uuid().safeParse(ctx.conversationId).success) return null;
+  if (name === 'command_status') return CommandStatus.safeParse(args).success ? { decision: 'allow' } : null;
+  if (name === 'schedule') return Schedule.safeParse(args).success ? { decision: 'allow' } : null;
+  if (name !== 'manage_task') return null;
+  const parsed = TaskStatus.safeParse(args);
+  if (!parsed.success) return null;
+  const id = parsed.data.TaskId;
+  if (id.includes('\0') || id.includes('\\')) return null;
+  const segments = (id.startsWith('/') ? id.slice(1) : id).split('/');
+  if (
+    segments.some((s) => s === '' || s === '.' || s === '..') ||
+    !/^task-\d+$/.test(segments.at(-1)!) ||
+    !segments.includes(ctx.conversationId)
+  )
+    return null;
+  if (id.startsWith('/') || id.startsWith('~')) {
+    if (ctx.root === null) return null;
+    const base = path.join(ctx.root, 'antigravity-cli');
+    if (!toolPathForms(ctx.cwd, id, homedir()).every((p) => p === base || p.startsWith(`${base}/`)))
+      return null;
+  } else if (!segments.every((s) => /^[A-Za-z0-9._-]+$/.test(s))) return null;
+  return { decision: 'allow' };
+}
+
 export function mapGeminiTool(
   name: string,
   args: Record<string, unknown>,
@@ -152,6 +205,12 @@ export function decideGeminiToolCall(
   payload: HookPayload,
   root: string | null,
 ): ToolDecision {
+  const control = geminiSessionControl(str(payload.gemini_tool) ?? '', object(payload.gemini_args), {
+    conversationId: payload.session_id ?? '',
+    root,
+    cwd: policy.placement.path,
+  });
+  if (control) return control;
   const call = mapGeminiTool(str(payload.gemini_tool) ?? '', object(payload.gemini_args)).call;
   if (call.category === 'command' && (!call.cwd || !path.isAbsolute(call.cwd)))
     return { decision: 'deny', reason: 'cwd_outside_workspace' };

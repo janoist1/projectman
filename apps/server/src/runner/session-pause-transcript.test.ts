@@ -39,7 +39,7 @@ function start() {
   const writes: string[] = [];
   let exit: ((event: { exitCode: number }) => void) | null = null;
   const pty: PtyProcess = {
-    pid: 4242,
+    pid: process.pid,
     write: (data) => writes.push(data),
     resize: () => undefined,
     kill: () => exit?.({ exitCode: 0 }),

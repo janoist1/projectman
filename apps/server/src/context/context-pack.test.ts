@@ -32,6 +32,24 @@ import { describeTeamRule } from './team-rules';
 const builder = createContextPackBuilder();
 
 describe('team rules in the system prompt', () => {
+  it.each(['codex', 'gemini', 'nanogpt'] as const)('requires %s to await heavy commands', (provider) => {
+    const project = buildProject();
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider };
+    const prompt = builder.build(input({ project, member })).appendSystemPrompt;
+    expect(prompt).toContain('# Heavy commands');
+    expect(prompt).toContain('in the foreground');
+    expect(prompt).toContain('do not end your turn while they run');
+    if (provider === 'gemini') {
+      expect(prompt).toContain('command_status with the returned CommandId');
+      expect(prompt).toContain('schedule');
+      expect(prompt).toContain('DurationSeconds must be at most 600');
+      expect(prompt).not.toContain('This provider receives no background-completion notification');
+    } else expect(prompt).toContain('write_stdin');
+  });
+
+  it('leaves Claude background completion to its native notification', () => {
+    expect(builder.build(input()).appendSystemPrompt).not.toContain('# Heavy commands');
+  });
   it('describes explicit approval instead of unattended commands for NanoGPT members', () => {
     const project = buildProject();
     const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'nanogpt' };
@@ -508,7 +526,8 @@ describe('token economy (PM-181)', () => {
   });
 
   it('does not grow the system prompt of a custom role', () => {
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(8822);
+    // PM-376 adds provider-specific waiting instructions, avoiding stranded background checks.
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(9550);
   });
 });
 
@@ -2591,7 +2610,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('`take_screenshots`');
     expect(text).toContain('`get_screenshot_run`');
     expect(prompt).toContain('# Commands that run without asking');
-    expect(prompt).not.toContain('npm run shots');
+    expect(section(prompt, '# Your session folder')).not.toContain('npm run shots');
     expect(prompt).not.toContain('# Your sandbox');
     expect(prompt).not.toContain('Browsers:');
   });

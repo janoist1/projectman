@@ -102,11 +102,13 @@ describe('ConfigStore (customization repository)', () => {
 
   it('saves YAML files per project, loads them back and commits with the author', async () => {
     const config = testConfig();
+    config.project.repos[0]!.fullTestAtMerge = true;
     const { version } = await store.save('AR', config, { author, message: 'Create project AR' });
     expect(version).toMatch(/^[0-9a-f]{40}$/);
 
     const projectYaml = readFileSync(join(store.rootDir, 'projects/AR/project.yaml'), 'utf8');
     expect(projectYaml).toContain('schemaVersion: 1');
+    expect(projectYaml).toContain('fullTestAtMerge: true');
     expect(projectYaml).toContain('maxConcurrentAi: 3');
     expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain('handle: dev-1');
     expect(readFileSync(join(store.rootDir, 'projects/AR/pipeline.yaml'), 'utf8')).toContain('id: release');

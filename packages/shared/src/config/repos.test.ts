@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { roleUsesWorktree } from './duties';
 import { effectiveRepo, needsRepoChoice, repoOf, repoRequired } from './repos';
-import { ProjectConfig } from './schema';
+import { ProjectConfig, RepoConfig } from './schema';
+
+describe('fullTestAtMerge configuration', () => {
+  it('leaves older repositories unchanged when the field is absent', () => {
+    expect(RepoConfig.parse({ name: 'app', path: '.' })).not.toHaveProperty('fullTestAtMerge');
+  });
+
+  it.each([true, false])('preserves the explicit value %s', (fullTestAtMerge) => {
+    expect(RepoConfig.parse({ name: 'app', path: '.', fullTestAtMerge }).fullTestAtMerge).toBe(
+      fullTestAtMerge,
+    );
+  });
+
+  it('rejects a non-boolean policy', () => {
+    expect(RepoConfig.safeParse({ name: 'app', path: '.', fullTestAtMerge: 'true' }).success).toBe(false);
+  });
+});
 
 /** A project with the given repositories, a developer, a code reviewer and a custom role. */
 function project(repos: string[]): ProjectConfig {

@@ -243,6 +243,11 @@ export const RepoConfig = z.object({
       timeoutMinutes: z.number().int().min(1).max(60).default(15),
     })
     .optional(),
+  /**
+   * Developers run targeted checks only; the integrator owns the full check before merge (PM-380).
+   * Absent or false: retain the existing hand-over policy. Does not disable `reviewTest`.
+   */
+  fullTestAtMerge: z.boolean().optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 

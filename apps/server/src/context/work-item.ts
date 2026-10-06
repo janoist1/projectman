@@ -17,7 +17,7 @@ import {
 } from '@projectman/shared';
 import type { DutyId, LabelDefinition, RepoConfig, Stage, Task } from '@projectman/shared';
 import type { ContextPackInput } from '../contracts';
-import { code, codeList, labelRef, lowerFirst, stageLabel } from './format';
+import { code, codeList, fullTestLine, labelRef, lowerFirst, stageLabel } from './format';
 
 /** Where the member's work item stands in the pipeline. */
 export interface Situation {
@@ -249,6 +249,7 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
         localOnly
           ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
           : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
+        ...(testsAtMerge(input, c.task) ? [developerTests(input, c.task)] : []),
       ];
     }
     return [c.notOwner];
@@ -361,6 +362,12 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
         placement.review?.sourceBranch !== undefined;
   const pin = task.reviewPin;
   return [
+    ...(repoOf(input.project, effectiveRepo(input.project, task))?.fullTestAtMerge &&
+    fullTestLine(input.project, task) === null
+      ? [
+          'Do not run the whole test suite: the integrator or merge step owns the full check before merge. Run only targeted tests if needed for this review.',
+        ]
+      : []),
     ...(pin
       ? [
           `The commit handed over for this review is ${code(pin.commit)} on the branch ${code(pin.branch)} (pinned on the card): review exactly that commit.`,
@@ -413,12 +420,20 @@ function technicalWork({ localOnly }: StepContext): string[] {
   ];
 }
 
-/** The checks a developer runs depend on whether the server owns the full test. */
+/** Whether merge owns the full check instead of the server's earlier review gate. */
+function testsAtMerge(input: ContextPackInput, task: Task): boolean {
+  const repo = repoOf(input.project, effectiveRepo(input.project, task));
+  return repo?.fullTestAtMerge === true && !(input.serverFullTest && repo.reviewTest);
+}
+
+/** The checks a developer runs depend on who owns the full test. */
 function developerTests(input: ContextPackInput, task: Task): string {
   const reviewTest = repoOf(input.project, effectiveRepo(input.project, task))?.reviewTest;
   return input.serverFullTest && reviewTest
     ? `While you work, run only the tests that cover your change (single test files, or your test runner's related or changed mode) and the type check of the parts you touched. Do not run the whole test suite: the server runs ${code(reviewTest.command)} once on the commit you hand over, PTY tests included, and sends the task back if it fails.`
-    : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
+    : testsAtMerge(input, task)
+      ? "While you work, before hand-over and in fix rounds, run only the tests that cover your change (your test runner's related or changed mode) and the type check of the workspaces you touched. Do not run the whole test suite: the integrator or merge step runs the full check once before the task enters the default branch."
+      : "While you work, run the tests that cover your change; run the project's full tests and type check once, on the commit you hand over.";
 }
 
 const INSTALL_DEPENDENCIES =

@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { t } from '../i18n/t';
@@ -19,8 +19,14 @@ interface ToastEntry {
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastEntry[]>([]);
   const nextId = useRef(1);
+  const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   const dismiss = useCallback((id: number) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
     setToasts((list) => list.filter((toast) => toast.id !== id));
   }, []);
 
@@ -28,10 +34,29 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (message: string, tone: ToastTone = 'ok', options: ToastOptions = {}) => {
       const id = nextId.current++;
       setToasts((list) => [...list.slice(-2), { id, message, tone, items: options.items ?? [] }]);
-      if (!options.sticky) setTimeout(() => dismiss(id), tone === 'error' ? 7000 : 4500);
+      if (!options.sticky) {
+        const timer = setTimeout(
+          () => {
+            timers.current.delete(id);
+            dismiss(id);
+          },
+          tone === 'error' ? 7000 : 4500,
+        );
+        timers.current.set(id, timer);
+      }
     },
     [dismiss],
   );
+
+  useEffect(() => {
+    const activeTimers = timers.current;
+    return () => {
+      for (const timer of activeTimers.values()) {
+        clearTimeout(timer);
+      }
+      activeTimers.clear();
+    };
+  }, []);
 
   const api = useMemo(() => ({ show }), [show]);
 

@@ -3,6 +3,7 @@ import { AiMemberConfig, HireMemberRequest, PermissionMode, UpdateMemberRequest 
 import {
   FALLBACK_PERMISSION_MODE,
   hasPlanUsage,
+  pausesOnPlanUsage,
   modelForProvider,
   PLAN_USAGE_PROVIDERS,
   PROVIDER_PERMISSION_MODES,
@@ -49,7 +50,8 @@ describe('provider settings contracts', () => {
     expect(modelForProvider('nanogpt', 'claude-opus')).toBe('z-ai/glm-5.3-flash-uncensored');
     expect(modelForProvider('nanogpt', 'fictional/open-model')).toBe('fictional/open-model');
     expect(modelForProvider('gemini', 'z-ai/glm-5.3-flash-uncensored')).toBe('gemini-3.8-flash');
-    expect(hasPlanUsage('nanogpt')).toBe(false);
+    expect(hasPlanUsage('nanogpt')).toBe(true);
+    expect(pausesOnPlanUsage('nanogpt')).toBe(false);
   });
   it('keeps Gemini models within Gemini and does not report its plan usage', () => {
     expect(modelForProvider('gemini')).toBe('gemini-3.8-flash');
@@ -120,7 +122,9 @@ describe('permission modes per provider', () => {
   });
 
   it('measures the plan usage of Claude and Codex (PM-324)', () => {
-    expect(PLAN_USAGE_PROVIDERS).toEqual(['claude', 'codex']);
+    expect(PLAN_USAGE_PROVIDERS).toEqual(['claude', 'codex', 'nanogpt']);
+    expect(pausesOnPlanUsage('claude')).toBe(true);
+    expect(pausesOnPlanUsage('codex')).toBe(true);
     expect(hasPlanUsage('claude')).toBe(true);
     expect(hasPlanUsage('codex')).toBe(true);
     expect(hasPlanUsage('fictional' as never)).toBe(false);

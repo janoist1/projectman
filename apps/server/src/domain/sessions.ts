@@ -32,6 +32,7 @@ import type {
   MemberConfig,
   MemberStatus,
   PausePoint,
+  PlanUsage,
   ProjectConfig,
   Session,
   SessionDetail,
@@ -104,7 +105,8 @@ import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
 import type { UsageAlerts } from './usage-alerts';
-import { ProviderCooldowns } from './provider-cooldown';
+import { ProviderQuotaHolds } from './provider-quota-hold';
+import type { PlanUsageCache } from './plan-usage';
 import type { InboxService } from './inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 import { MemberWorkspaces } from './workspaces';
@@ -296,7 +298,7 @@ export interface SessionOrchestratorDeps {
   onExecutionProfileChange?: (projectKey: string, sessionId: string) => Promise<unknown>;
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
-  /** Quota alerts are raised once per shared-provider failure streak (PM-377). */
+  /** Quota alerts are raised once per shared-provider hold (PM-377). */
   inbox?: Pick<InboxService, 'create'>;
   /** Tells the owners of a session that waits for input unseen (PM-199). */
   inputStall?: Pick<InputStallAlerts, 'raise'>;
@@ -461,7 +463,10 @@ export class SessionOrchestrator {
   /** Told when a session's folder is removed (the session ended), before it is (PM-351). */
   private readonly folderListeners = new Set<(sessionId: string) => void>();
   private readonly unsubscribe: () => void;
-  private readonly providerCooldowns = new ProviderCooldowns();
+  private readonly providerHolds = new ProviderQuotaHolds();
+  private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
+  private quotaResume: ((session: Session, stageId: string) => Promise<void>) | undefined;
+  private quotaProbe: Promise<PlanUsage | null> | null = null;
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
 
@@ -483,6 +488,31 @@ export class SessionOrchestrator {
   /** Wire the full-test policy into every session brief, including resumes. */
   useFullTests(fullTests: { runsFor(task: Task, config: ProjectConfig): boolean }): void {
     this.fullTests = fullTests;
+  }
+
+  useQuotaRecovery(
+    usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
+    resume: (session: Session, stageId: string) => Promise<void>,
+  ): void {
+    this.quotaUsage = usage;
+    this.quotaResume = resume;
+  }
+
+  observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {
+    if (provider === 'nanogpt' && !this.quotaProbe)
+      this.providerHolds.observed(provider, usage, this.ctx.now());
+  }
+
+  /** Persisted quota deferrals must check usage again before any restart-time inference. */
+  restoreProviderQuota(): void {
+    if (this.providerHolds.start('nanogpt', this.ctx.now())) this.quotaUsage?.invalidate();
+  }
+
+  /** Unknown quota holds retry only the read-only usage probe, never inference. */
+  async refreshProviderQuota(): Promise<void> {
+    if (this.providerHolds.check('nanogpt', this.ctx.now())?.kind !== 'unknown' || this.quotaProbe) return;
+    const usage = (await this.quotaUsage?.get('nanogpt')) ?? null;
+    this.providerHolds.observed('nanogpt', usage, this.ctx.now());
   }
 
   dispose(): void {
@@ -2160,15 +2190,17 @@ export class SessionOrchestrator {
         status.detail,
       );
     }
+    await this.refreshProviderQuota();
     this.assertProviderCooldown(provider);
   }
 
   assertProviderCooldown(provider: AgentProvider): void {
-    const cooldown = this.providerCooldowns.check(provider, this.ctx.now());
-    if (cooldown)
+    const hold = this.providerHolds.check(provider, this.ctx.now());
+    if (hold)
       throw conflict('provider_rate_limited', 'Provider request limit reached', {
         provider,
-        until: cooldown.until.toISOString(),
+        until: hold.until?.toISOString() ?? null,
+        kind: hold.kind,
       });
   }
 
@@ -2305,8 +2337,6 @@ export class SessionOrchestrator {
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
           if (updated.state === 'idle' && session.state !== 'idle') {
-            if (session.state === 'working' && session.provider === 'nanogpt' && event.activity === null)
-              this.providerCooldowns.succeeded('nanogpt', this.ctx.now());
             void this.ctx.events.emit('session_idle', updated);
           }
           if (updated.state === 'idle') this.turnEnded(updated.id);
@@ -2395,39 +2425,26 @@ export class SessionOrchestrator {
         }
         case 'rate_limited': {
           if (event.provider !== 'nanogpt') return;
-          const alreadyCooling = this.providerCooldowns.check(event.provider, this.ctx.now()) !== null;
-          const cooldown = this.providerCooldowns.hit(event.provider, this.ctx.now());
-          this.ctx.logger.warn(
-            {
-              sessionId: session.id,
-              provider: event.provider,
-              until: cooldown.until.toISOString(),
-              streak: cooldown.streak,
-            },
-            'provider request limit reached',
-          );
-          const config = this.deps.projects.cachedConfig(session.projectKey);
-          if (!alreadyCooling && cooldown.streak === 1 && config) {
-            const owners = ownerHandles(config);
-            if (owners.length > 0)
-              this.deps.inbox?.create({
-                projectKey: session.projectKey,
-                kind: 'alert',
-                assignees: owners,
-                source: session.member,
-                sessionId: session.id,
-                taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-                title: 'NanoGPT request limit reached',
-                payload: {
-                  alert: 'provider_rate_limited',
-                  provider: event.provider,
-                  until: cooldown.until.toISOString(),
-                  message: event.message,
-                  workItem: session.workItem,
-                },
-                options: [ALERT_SEEN_OPTION],
-              });
+          const started = this.providerHolds.start(event.provider, this.ctx.now());
+          if (started) {
+            this.quotaUsage?.invalidate();
+            this.quotaProbe = Promise.resolve()
+              .then(() => this.quotaUsage?.get('nanogpt') ?? null)
+              .catch(() => null);
           }
+          const stageId =
+            session.workItem.type === 'task'
+              ? this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId
+              : undefined;
+          // Persist the continuation while the usage request is still pending: a restart
+          // during its timeout must not lose the affected task's wake-up.
+          if (stageId)
+            void this.quotaResume?.(session, stageId).catch((err: unknown) =>
+              this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
+            );
+          void this.finishQuotaFailure(session, event.message, started, stageId).catch((err: unknown) =>
+            this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota recovery failed'),
+          );
           return;
         }
       }
@@ -2437,6 +2454,42 @@ export class SessionOrchestrator {
         'runner event handling failed',
       );
     }
+  }
+
+  private async finishQuotaFailure(
+    session: Session,
+    message: string,
+    started: boolean,
+    stageId?: string,
+  ): Promise<void> {
+    const usage = await this.quotaProbe;
+    if (started) {
+      this.providerHolds.settle('nanogpt', usage, this.ctx.now());
+      this.quotaProbe = null;
+      const hold = this.providerHolds.check('nanogpt', this.ctx.now());
+      const config = this.deps.projects.cachedConfig(session.projectKey);
+      const owners = config ? ownerHandles(config) : [];
+      if (owners.length > 0)
+        this.deps.inbox?.create({
+          projectKey: session.projectKey,
+          kind: 'alert',
+          assignees: owners,
+          source: session.member,
+          sessionId: session.id,
+          taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+          title: 'NanoGPT request limit reached',
+          payload: {
+            alert: 'provider_rate_limited',
+            provider: 'nanogpt',
+            until: hold?.until?.toISOString() ?? null,
+            weeklyPercent: usage?.weeklyPercent ?? null,
+            message,
+            workItem: session.workItem,
+          },
+          options: [ALERT_SEEN_OPTION],
+        });
+    }
+    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId);
   }
 
   /**

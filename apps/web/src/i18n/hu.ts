@@ -791,6 +791,7 @@ export const hu = {
       ai_limit_reached: 'Indulásra vár: túl sok AI dolgozik',
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
       provider_rate_limited: '{provider}: korlát, újrapróba {until}',
+      provider_rate_limited_unknown: 'NanoGPT: korlát, a keret állapotára vár',
       disk_low: 'Indulásra vár: kevés a szabad lemezhely',
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       team_paused: 'Indulásra vár: a csapat szünetel',
@@ -1926,6 +1927,8 @@ export const hu = {
       provider_rate_limited: {
         heading: 'NanoGPT: korlát',
         body: '{member} munkamenete megállt: a {provider} korlátot jelzett. Újrapróba: {until}. A szolgáltató üzenete: {message}',
+        unknown:
+          '{member} munkamenete megállt: NanoGPT: korlát, a keret állapotára vár. A szolgáltató üzenete: {message}',
       },
       unknown: 'Figyelmeztetés',
       session_tokens: {

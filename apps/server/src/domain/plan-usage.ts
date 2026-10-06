@@ -114,6 +114,7 @@ export class PlanUsageMonitor {
     background: BackgroundTasks;
     /** How long a probe result is fresh, and how often the providers are probed (default 1 minute). */
     ttlMs?: number;
+    onFetched?: (provider: AgentProvider, usage: PlanUsage | null) => void;
   }) {
     this.projects = opts.projects;
     this.bus = opts.bus;
@@ -126,7 +127,10 @@ export class PlanUsageMonitor {
       logger: opts.logger,
       now: opts.now,
       ttlMs: opts.ttlMs,
-      onFetched: (provider, usage) => this.publish(provider, usage),
+      onFetched: (provider, usage) => {
+        opts.onFetched?.(provider, usage);
+        return this.publish(provider, usage);
+      },
     });
   }
 

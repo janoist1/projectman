@@ -131,7 +131,7 @@ export function waitingOf(
   const details = err.details as
     | {
         provider?: AgentProvider;
-        until?: string;
+        until?: string | null;
         threshold?: number;
         prerequisites?: string[];
         seniors?: string[];
@@ -141,7 +141,9 @@ export function waitingOf(
   return {
     reason: err.code,
     member: opts.member,
-    ...(err.code === 'provider_rate_limited' ? { provider: details?.provider, until: details?.until } : {}),
+    ...(err.code === 'provider_rate_limited'
+      ? { provider: details?.provider, ...(details?.until ? { until: details.until } : {}) }
+      : {}),
     ...(err.code === 'plan_usage_paused'
       ? { provider: details?.provider, threshold: details?.threshold }
       : {}),

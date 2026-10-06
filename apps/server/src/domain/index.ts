@@ -467,6 +467,7 @@ export function createDomain(opts: DomainOptions) {
     now,
     background,
     ttlMs: opts.planUsageTtlMs,
+    onFetched: (provider, value) => sessions.observeProviderUsage(provider, value),
   });
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, freeBytes: opts.freeDiskBytes });
@@ -595,6 +596,9 @@ export function createDomain(opts: DomainOptions) {
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
+  sessions.useQuotaRecovery(planUsage, (session, stageId) =>
+    messageStarts.resumeAfterQuota(session, stageId),
+  );
   const schedules = new ScheduleService({
     ctx,
     projects,
@@ -732,6 +736,8 @@ export function createDomain(opts: DomainOptions) {
         return refinement.rebuild(spec);
       case 'message_wake':
         return messageStarts.rebuild(spec);
+      case 'provider_resume':
+        return messageStarts.rebuildQuota(spec);
       case 'loop_notice':
         return loopWatch.rebuild(spec);
     }
@@ -1056,6 +1062,8 @@ export function createDomain(opts: DomainOptions) {
       }
       githubSync.start();
       background.start();
+      // Restore quota holds before schedulers or background probes can admit inference.
+      const restoredStarts = admission.restoreDeferred(rebuildDeferredStart);
       usage.start();
       schedules.start();
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
@@ -1063,7 +1071,7 @@ export function createDomain(opts: DomainOptions) {
       await fullTests.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
-      if (admission.restoreDeferred(rebuildDeferredStart) > 0) retryDeferredStarts();
+      if (restoredStarts > 0) retryDeferredStarts();
       // ... and the pause that stopping the server made ends: its sessions start again (PM-219).
       // In the background: starting the sessions again must not hold the server back.
       background.run(

@@ -16,7 +16,7 @@ import type {
   Task,
   WorkDoing,
 } from '@projectman/shared';
-import { formatAge, formatTime } from '../i18n/format';
+import { formatAge, formatStamp } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
@@ -286,10 +286,12 @@ export function startWaitingHint(task: Task, members: MemberIndex, myHandle: str
 
 function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
   const waiting = task.startWaiting!;
+  if (waiting.reason === 'provider_rate_limited' && !waiting.until)
+    return t('taskStatus.startWaiting.provider_rate_limited_unknown');
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     percent: waiting.threshold ?? '',
-    until: waiting.until ? formatTime(waiting.until) : '',
+    until: waiting.until ? formatStamp(waiting.until) : '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),
     labels: (waiting.labels ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', '),
     name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),

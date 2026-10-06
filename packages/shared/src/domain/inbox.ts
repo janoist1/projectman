@@ -302,11 +302,12 @@ export const RefinementAlert = z.object({
 });
 export type RefinementAlert = z.infer<typeof RefinementAlert>;
 
-/** A provider quota stopped a session; the owners are told once per failure streak (PM-377). */
+/** A provider quota stopped a session; the owners are told once per hold (PM-377). */
 export const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
   provider: AgentProvider,
-  until: z.string(),
+  until: z.string().nullable(),
+  weeklyPercent: z.number().nullable(),
   message: z.string(),
   workItem: WorkItemRef,
 });

@@ -59,12 +59,21 @@ this manual deployment check does not block the PM-377 implementation handover.
 
 An empty `task_complete` error ends the runner turn even if no Stop hook follows.
 NanoGPT quota failures additionally fail and stop the session, alert the owners once per
-failure streak, and hold all NanoGPT starts and message wakeups for 15 minutes. Subsequent
-failures double the delay, up to 240 minutes; a completed quota-free turn resets it. These
-are backoff constants, not a measured quota reset time. The cooldown is in memory and is
-lost on server restart. A generic 429 does not distinguish subscription exhaustion from
-upstream throttling. Check the account's usage and subscription reset time; never enable
-paid overage as part of diagnosis. NanoGPT's
+provider hold, and defer the affected task's continuation for the same member. The adapter
+reads the documented [subscription usage endpoint](https://docs.nano-gpt.com/api-reference/endpoint/subscription-usage)
+with the existing managed key, a ten-second timeout and redirects refused. Weekly
+`percentUsed` is a fraction and `resetAt` is epoch milliseconds. At least 99% with a known
+reset holds all NanoGPT starts and message wakeups until that reset, without inference
+retries. Initially known lower usage gives one fifteen-minute rate hold
+(`NANOGPT_RATE_HOLD_MS`). An unavailable or degraded usage response, or exhausted usage
+without a reset, holds indefinitely while only the read-only usage probe retries. A later
+known lower usage releases an unknown hold immediately. NanoGPT's measured usage is shown
+in the gauges but does not apply the configurable plan-usage pause threshold.
+The hold is in memory and is lost on server restart. Persisted quota deferrals restore an
+unknown hold without a new alert; only a usage probe can allow inference to resume. A new
+429 also arms the hold for sessions without a deferral. A generic 429 alone does not distinguish
+subscription exhaustion from upstream throttling. Never enable paid overage as part of
+diagnosis. NanoGPT's
 [support page](https://nano-gpt.com/support) describes input-token allowances, model
 multipliers and rate limits; the account's actual allowance must be checked separately.
 

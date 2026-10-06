@@ -1,5 +1,5 @@
 import { isOpenTask, memberOf } from '@projectman/shared';
-import type { Session, WorkItemRef } from '@projectman/shared';
+import type { Session, Task, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
 import type { MessageDelivery, MessageService } from '../messaging';
@@ -57,6 +57,61 @@ export class MessageStarts {
   /** A wake-up that was deferred when the server stopped, made again from what was stored. */
   rebuild(spec: Extract<StartSpec, { kind: 'message_wake' }>): AutomaticStart {
     return this.startFor(spec.projectKey, spec.handle, spec.workItem, spec.stageId ?? undefined);
+  }
+
+  async resumeAfterQuota(session: Session, stageId: string): Promise<void> {
+    if (session.workItem.type !== 'task') return;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task || task.status !== 'active' || task.stageId !== stageId || task.assignee !== session.member)
+      return;
+    await this.admission.attempt(
+      this.quotaStartFor({
+        kind: 'provider_resume',
+        projectKey: session.projectKey,
+        taskKey: task.key,
+        handle: session.member,
+        stageId,
+      }),
+    );
+  }
+
+  rebuildQuota(spec: Extract<StartSpec, { kind: 'provider_resume' }>): AutomaticStart {
+    return this.quotaStartFor(spec);
+  }
+
+  private quotaStartFor(spec: Extract<StartSpec, { kind: 'provider_resume' }>): AutomaticStart {
+    const { projectKey, taskKey, handle, stageId } = spec;
+    const valid = (task: Task | null): boolean =>
+      task?.status === 'active' && task.stageId === stageId && task.assignee === handle;
+    const start: AutomaticStart = {
+      key: `provider-resume:${projectKey}:${taskKey}:${handle}`,
+      projectKey,
+      taskKey,
+      spec: () => spec,
+      stillValid: valid,
+      waitsFor: () => handle,
+      retry: () => this.admission.attempt(start),
+      log: {
+        deferred: 'provider quota task resume deferred',
+        retryFailed: 'provider quota task resume failed',
+        fields: () => ({ projectKey, taskKey, member: handle }),
+      },
+      run: async () => {
+        if (!valid(this.tasks.find(projectKey, taskKey))) return;
+        const config = await this.projects.config(projectKey);
+        const member = memberOf(config, handle);
+        if (member?.kind !== 'ai') return;
+        await this.admission.start({
+          config,
+          member,
+          workItem: { type: 'task', taskKey },
+          messages: [
+            'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
+          ],
+        });
+      },
+    };
+    return start;
   }
 
   /** `stageId`: the task's stage when the wake-up was tried before (the stored one, when rebuilt). */

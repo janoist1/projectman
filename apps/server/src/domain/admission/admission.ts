@@ -1,7 +1,7 @@
 import {
   aiLimitReached,
   DEFAULT_AGENT_PROVIDER,
-  hasPlanUsage,
+  pausesOnPlanUsage,
   isHandleOnLeave,
   isOpenTask,
   isTheme,
@@ -159,7 +159,7 @@ export class Admission {
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
     if (member) await this.sessions.assertProviderReady(provider, member.handle);
-    if (hasPlanUsage(provider)) {
+    if (pausesOnPlanUsage(provider)) {
       const percent = highestUsagePercent(await this.planUsage.get(provider));
       const threshold = config.team.limits.pauseAbovePlanUsagePercent;
       if (percent !== null && percent > threshold) {
@@ -193,6 +193,7 @@ export class Admission {
   ): Promise<EnsureSessionResult> {
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
+    await this.sessions.refreshProviderQuota();
     this.sessions.assertProviderCooldown(request.member.provider ?? DEFAULT_AGENT_PROVIDER);
     if (running)
       return {
@@ -267,6 +268,16 @@ export class Admission {
    */
   restoreDeferred(rebuild: (spec: StartSpec) => AutomaticStart | null): number {
     const { restored, removed } = this.deferred.restore(rebuild);
+    if (
+      this.deferred
+        .list()
+        .some(
+          ({ start, waiting }) =>
+            start.spec().kind === 'provider_resume' ||
+            (waiting.reason === 'provider_rate_limited' && waiting.provider === 'nanogpt'),
+        )
+    )
+      this.sessions.restoreProviderQuota();
     if (restored + removed > 0)
       this.ctx.logger.info({ restored, removed }, 'deferred session starts restored');
     return restored;
@@ -281,6 +292,7 @@ export class Admission {
    * waits for any free developer (PM-348).
    */
   async retryDeferred(): Promise<void> {
+    await this.sessions.refreshProviderQuota();
     const configs = new Map<string, ProjectConfig | null>();
     const entries = this.deferred.list();
     const waitsForSenior = (entry: DeferredStart) => entry.waiting.reason === 'senior_busy';

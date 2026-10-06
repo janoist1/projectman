@@ -880,11 +880,18 @@ workers follow the machine's size.
   that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
   events beside the CLI and forward the resulting session state to the server.
   NanoGPT-only quota detection emits `rate_limited` over the existing RunnerEvent boundary;
-  `domain/provider-cooldown.ts` keeps a provider-wide, in-memory exponential cooldown on the
-  server (15 minutes, doubling up to 240 minutes), blocking starts and message wakeups.
-  The first failure of a streak alerts the owners; a completed quota-free turn resets it.
-  Server restart loses the cooldown; the next 429 arms it again. No new machine-dependent
-  boundary is required (PM-377).
+  `domain/provider-quota-hold.ts` keeps a provider-wide, in-memory hold on the server,
+  blocking starts and message wakeups until the measured weekly reset. The adapter's
+  `planUsage.get()` reads `GET https://api.nano-gpt.com/api/subscription/v1/usage` with the
+  managed key, without logging credentials or response bodies (10-second timeout, no
+  redirects). Unknown usage holds inference while only usage probes retry; initially
+  known lower usage gives a fifteen-minute rate hold. Owners receive one alert per hold.
+  `domain/admission/message-starts.ts` persists the affected task's deferred continuation.
+  Server restart loses the hold, but stored quota deferrals restore an unknown hold
+  without an alert and require a usage probe before inference. **Remote engine:** usage HTTP runs on the server where the managed key
+  is stored, as the key check already does, using the existing `api.nano-gpt.com` host;
+  transcript parsing stays on the engine and sends `rate_limited` across RunnerEvent.
+  No new machine-dependent boundary is required (PM-377).
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home

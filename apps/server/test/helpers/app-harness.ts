@@ -145,8 +145,12 @@ export async function createAppHarness(
     vi.stubEnv('FAKE_CLAUDE_TRANSCRIPT_DIR', join(userHome, 'transcripts'));
     modules.createRunnerModule = (options) => {
       const module = createRunnerModule(options);
-      // Plan usage would start `claude -p`; the fake CLIs have no plan.
-      return { ...module, planUsage: { get: async () => null } };
+      // Fake CLI tests must not probe real subscription accounts or usage endpoints.
+      return {
+        ...module,
+        planUsage: { get: async () => null },
+        planUsageFor: () => ({ get: async () => null }),
+      };
     };
   }
 

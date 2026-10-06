@@ -220,7 +220,6 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     );
     expect(await readFile(transcript.path, 'utf8')).not.toContain(key!);
     expect(JSON.stringify(events)).not.toContain(key!);
-    expect(await runner.planUsageFor!('nanogpt').get()).toBeNull();
     expect(await runner.planUsageFor!('codex').get()).toBeNull();
     const learned = providerIdOf(s.sessionId)!;
     key = null;

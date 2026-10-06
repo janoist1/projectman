@@ -8,6 +8,14 @@ import type { DeferredStartRecord } from '../../db';
  * as JSON next to why the start waits. The kind says which module rebuilds it.
  */
 export const StartSpec = z.discriminatedUnion('kind', [
+  /** Resume the same member's task after a provider quota hold (PM-377). */
+  z.object({
+    kind: z.literal('provider_resume'),
+    projectKey: z.string(),
+    taskKey: TaskKey,
+    handle: MemberHandle,
+    stageId: z.string(),
+  }),
   /** A stage hand-over: the move into stage `to`, and who made it. */
   z.object({
     kind: z.literal('hand_over'),

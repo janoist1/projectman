@@ -35,7 +35,9 @@ export function fullTestLine(project: ProjectConfig, task: Pick<Task, 'repo' | '
   if (test.status === 'passed')
     return `The full test (${code(command)}, PTY tests included) passed on this commit at ${test.at}: you need not run the tests or the type check again.`;
   if (test.status === 'error')
-    return `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
+    return repoOf(project, effectiveRepo(project, task))?.fullTestAtMerge
+      ? `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run only targeted checks if needed for this review. Do not run the whole test suite: the integrator or merge step runs the full check before merge.`
+      : `The full test could not run on this commit (${test.reason ? code(test.reason) : 'unknown reason'}): run the checks yourself as usual; your sandbox leaves out the PTY tests.`;
   return null;
 }
 

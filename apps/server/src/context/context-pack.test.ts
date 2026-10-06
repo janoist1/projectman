@@ -2862,6 +2862,16 @@ describe('member workspaces (PM-138)', () => {
       // No result (not asked for, queued, running, failed and sent back): no line.
       for (const none of [undefined, { status: 'running' as const, at }, { status: 'failed' as const, at }])
         expect(pack(none).initialMessage).not.toContain('full test');
+      project.project.repos[0]!.fullTestAtMerge = true;
+      const mergeError = pack({ status: 'error', at, reason: 'timeout' });
+      for (const message of [mergeError.initialMessage, mergeError.continueMessage]) {
+        expect(message).toContain('run only targeted checks if needed for this review');
+        expect(message).toContain('the integrator or merge step runs the full check before merge');
+        expect(message).not.toContain('run the checks yourself as usual');
+      }
+      const mergePassed = pack({ status: 'passed', at });
+      expect(mergePassed.initialMessage).toBe(passed.initialMessage);
+      expect(mergePassed.continueMessage).toBe(passed.continueMessage);
     });
 
     it("tells the task's developer nothing about it", () => {

@@ -160,11 +160,21 @@ function DialogInner({
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {
         event.preventDefault();
-        if (focusTitle && ref.current?.querySelector('[role="menu"]')) return;
+        const popover = ref.current?.querySelector<HTMLElement>('[data-popover-open]');
+        if (popover) {
+          // Native cancel can arrive without keydown; dismiss the popover through its trigger.
+          const trigger = Array.from(
+            ref.current?.querySelectorAll<HTMLButtonElement>('button[aria-controls]') ?? [],
+          ).find((button) => button.getAttribute('aria-controls') === popover.id);
+          trigger?.click();
+          trigger?.focus();
+          return;
+        }
         onCloseRef.current();
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && focusTitle && ref.current?.querySelector('[role="menu"]')) {
+        if (event.key === 'Escape' && ref.current?.querySelector('[data-popover-open]')) {
+          // Keep bubbling to useDismiss, but suppress the dialog's native cancel default.
           event.preventDefault();
           return;
         }

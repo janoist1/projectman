@@ -124,7 +124,7 @@ export function DetailPanel({
         if (
           event.key === 'Escape' &&
           !event.defaultPrevented &&
-          !event.currentTarget.querySelector('[role="menu"]')
+          !event.currentTarget.querySelector('[data-popover-open]')
         ) {
           event.stopPropagation();
           onClose();

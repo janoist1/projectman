@@ -279,7 +279,9 @@ describe('member profiles', () => {
     expect(fold.closest('section')?.hasAttribute('aria-label')).toBe(false);
     const panel = within(fold);
     expect(panel.getByText('Work in your own worktree.')).toBeTruthy();
-    expect(panel.getByRole('link', { name: t('profile.roleInstructionsEdit') })).toBeTruthy();
+    expect(panel.getByRole('link', { name: t('profile.roleInstructionsEdit') }).getAttribute('href')).toBe(
+      '/p/AC/settings/duties',
+    );
     await chooseFromMenu(
       p,
       'fe-1',

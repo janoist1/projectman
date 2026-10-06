@@ -33,8 +33,10 @@ export function ErrorState({
   onRetry,
   className,
   compact,
+  message,
 }: {
   error: unknown;
+  message?: string;
   onRetry?: () => void;
   className?: string;
   compact?: boolean;
@@ -46,11 +48,12 @@ export function ErrorState({
         <Icon name="exclamation" size={18} strokeWidth={2.6} />
       </span>
       <div className={styles.errorText}>
-        <span className={styles.errorMessage}>{errorMessage(error)}</span>
-        {code ? (
+        <span className={styles.errorMessage}>{message ?? errorMessage(error)}</span>
+        {code || message ? (
           <details className={styles.details}>
             <summary>{t('errors.details')}</summary>
-            <span className={styles.code}>{t('errors.code', { code })}</span>
+            {message ? <p>{errorMessage(error)}</p> : null}
+            {code ? <span className={styles.code}>{t('errors.code', { code })}</span> : null}
           </details>
         ) : null}
       </div>

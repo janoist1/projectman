@@ -2866,6 +2866,42 @@ export const hu = {
     purple: 'Lila',
   },
   settings: {
+    nav: {
+      label: 'Beállítások részei',
+      pipeline: 'Folyamat',
+      labels: 'Címkék',
+      duties: 'Szerepek és feladatkörök',
+      team: 'Csapat',
+      limits: 'Keretek',
+      project: 'Projekt',
+      repos: 'Repók',
+      history: 'Előzmények',
+      providers: 'AI-szolgáltatók',
+      account: 'Fiók',
+    },
+    back: 'Beállítások',
+    backLabel: 'Vissza a Beállításokhoz',
+    loadError: 'Nem sikerült betölteni a beállításokat.',
+    detail: {
+      gone: 'Ez az elem már nincs meg',
+      goneBody: 'Lehet, hogy közben valaki törölte vagy átnevezte.',
+    },
+    summary: {
+      pipeline: '{stages} lépés · {columns} oszlop',
+      labels: '{count} címke',
+      labelsEmpty: 'Még nincs címke',
+      duties: 'Ki melyik feladatkört látja el',
+      team: '{count} tag',
+      limitsOn: 'AI-munka: bekapcsolva',
+      limitsOff: 'AI-munka: kikapcsolva',
+      project: '{name} · {language}',
+      repos: '{count} repó',
+      reposEmpty: 'Nincs repó',
+      history: 'Utoljára: {time} · {author}',
+      historyEmpty: 'Még nem módosult semmi',
+      providers: 'A szerveren, minden projektre',
+      account: 'Bejelentkezve: {name}',
+    },
     labels: {
       title: 'Címkék',
       intro:
@@ -2908,8 +2944,6 @@ export const hu = {
       define: 'Jelentés megadása',
     },
     title: 'Beállítások',
-    subtitle:
-      'A projekt beállításait külön őrizzük: minden változás megmarad az előzményekben, és visszaállítható.',
     version: 'Mentett változat',
     versionId: 'Azonosító: {version}',
     sections: {
@@ -3108,11 +3142,12 @@ export const hu = {
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',
     },
     problems: {
-      title: 'Javítandó a beállításokban',
-      intro:
-        '{n} hiba van a mentett beállításokban. Amíg nincs kijavítva, csak olyan módosítás menthető, amely nem ront rajta.',
+      count: '{n} hiba van a mentett beállításokban.',
+      rule: 'Amíg nincs kijavítva, csak olyan módosítás menthető, amely nem ront rajta.',
+      open: 'Megnyitás',
+      openLabel: 'Megnyitás: {name}',
+      mark: '{n} hiba van benne',
     },
-    unavailable: 'A projekt beállításai most nem érhetők el.',
   },
 
   toast: {

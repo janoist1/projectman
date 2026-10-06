@@ -16,7 +16,7 @@ export function SettingsSection({
 }) {
   const heading =
     title !== undefined ? (
-      <h2 id={id} className={styles.cardTitle}>
+      <h2 id={id} tabIndex={-1} className={styles.cardTitle}>
         {title}
       </h2>
     ) : null;

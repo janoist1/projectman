@@ -66,7 +66,7 @@ function LoopWatcherLine({ config }: { config: ProjectConfig }) {
       {watcher
         ? t('settings.limits.loopWatchTo', { name })
         : t('loop.who.no_watcher', { decides: decidesText(deciders, members, myHandle) })}{' '}
-      <Link to={`/p/${key}/settings#settings-duties`}>{t('settings.limits.loopWatchDuties')}</Link>
+      <Link to={`/p/${key}/settings/duties`}>{t('settings.limits.loopWatchDuties')}</Link>
     </p>
   );
 }

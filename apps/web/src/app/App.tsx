@@ -80,6 +80,7 @@ export function AppRoutes() {
           <Route path="messages/all" element={messagesPage} />
           <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
+          <Route path="settings/:section" element={settingsPage} />
           <Route path="*" element={notFound} />
         </Route>
       </Route>

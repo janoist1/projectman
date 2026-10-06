@@ -7,7 +7,7 @@ import { TaskDrawer } from '../features/board/TaskDrawer';
 import { TeamStrip } from '../features/board/TeamStrip';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { SessionPage } from '../features/session/SessionPage';
-import { SettingsPage } from '../features/settings/SettingsPage';
+import { SettingsTestRoutes } from '../features/settings/testRoutes';
 import { t } from '../i18n/t';
 import { mockProject } from '../test/mockProject';
 import { LeaveChip, leaveSuffix, MemberNames } from './LeaveChip';
@@ -171,7 +171,7 @@ describe('where a member on leave is marked (PM-227)', () => {
   it('marks a stage owner on leave in settings, and keeps it selectable in the editor', async () => {
     const project = mockProject();
     sendOnLeave(project, 'fe-1');
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="pipeline" />);
     const region = within(await screen.findByRole('region', { name: t('settings.sections.pipeline') }));
     const owners = (await region.findByText(nameOfMember(project, 'fe-1'))).closest('span')!;
     expect(within(owners).getByText(onLeave)).toBeTruthy();

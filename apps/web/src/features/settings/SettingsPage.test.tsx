@@ -6,17 +6,35 @@ import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import type { MockRequest } from '../../test/mockProject';
-import { SettingsPage } from './SettingsPage';
+import { SettingsTestRoutes, SettingsEditingFixture } from './testRoutes';
+
+async function goTo(section: string) {
+  if (
+    screen.queryByRole('region', {
+      name: section === 'duties' ? t('duties.title') : t(`settings.sections.${section as 'project'}`),
+    })
+  )
+    return;
+  const back = screen.queryByRole('link', { name: t('settings.backLabel') });
+  if (!back && !screen.queryByRole('navigation')) return;
+  if (back) fireEvent.click(back);
+  const nav = screen.getByRole('navigation', { name: t('settings.nav.label') });
+  fireEvent.click(
+    within(nav).getByRole('link', { name: new RegExp(t(`settings.nav.${section as 'project'}`)) }),
+  );
+}
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 async function editSection(section: 'project' | 'pipeline' | 'labels') {
+  await goTo(section);
   const region = await screen.findByRole('region', { name: t(`settings.sections.${section}`) });
   fireEvent.click(within(region).getByRole('button', { name: t('memberEdit.edit') }));
   return within(region);
 }
 /** The limits are controls that save at once: there is nothing to open. */
 async function limitsSection() {
+  await goTo('limits');
   return within(await screen.findByRole('region', { name: t('settings.sections.limits') }));
 }
 /** Every change made so far has been sent and answered. */
@@ -40,7 +58,7 @@ function selectMembers(select: HTMLElement, handles: string[]) {
 describe('settings history', () => {
   it('explains saved settings changes below the history heading', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="history" />);
     const section = within(await screen.findByRole('region', { name: t('settings.sections.history') }));
     const heading = section.getByRole('heading', { name: t('settings.sections.history'), level: 2 });
     expect(heading.nextElementSibling).toBe(section.getByText(t('settings.history.intro')));
@@ -50,17 +68,13 @@ describe('settings history', () => {
 describe('settings section editors', () => {
   it('edits project fields, cancels drafts and permits one active section', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const initial = structuredClone(project.backend.config);
     let section = await editSection('project');
     fireEvent.change(section.getByLabelText(t('settings.project.name')), {
       target: { value: 'Cancelled edit' },
     });
-    expect(
-      screen
-        .getAllByRole('button', { name: t('memberEdit.edit') })
-        .every((button) => (button as HTMLButtonElement).disabled),
-    ).toBe(true);
+    expect(screen.queryByRole('button', { name: t('memberEdit.edit') })).toBeNull();
     fireEvent.click(section.getByRole('button', { name: t('common.cancel') }));
     expect(project.requests.some((request) => request.method === 'PATCH')).toBe(false);
     section = await editSection('project');
@@ -78,6 +92,7 @@ describe('settings section editors', () => {
       baseVersion: 'c3f9a21',
       project: { name: 'Acme webshop', language: 'en', timezone: 'UTC' },
     });
+    await goTo('history');
     const history = await screen.findByRole('region', { name: t('settings.sections.history') });
     expect(await within(history).findByText('Update project')).toBeTruthy();
   });
@@ -85,7 +100,7 @@ describe('settings section editors', () => {
   it('offers the language and the time zone as choices, keeping a value the project already has', async () => {
     const project = mockProject();
     project.backend.config.project.timezone = 'Mars/Olympus';
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('project');
     const language = section.getByLabelText(t('settings.project.language')) as HTMLSelectElement;
     const timezone = section.getByLabelText(t('settings.project.timezone')) as HTMLSelectElement;
@@ -100,7 +115,7 @@ describe('settings section editors', () => {
 
   it('lists the team in short with a link to the Team page', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="team" />);
     const section = within(await screen.findByRole('region', { name: t('settings.sections.team') }));
     expect(section.queryByRole('table')).toBeNull();
     const owner = project.backend.config.team.members.find((m) => m.handle === 'owner')!;
@@ -112,7 +127,7 @@ describe('settings section editors', () => {
 
   it('lists each repository as a row with its path below the name', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="repos" />);
     const section = within(await screen.findByRole('region', { name: t('settings.sections.repos') }));
     expect(section.queryByRole('table')).toBeNull();
     const repo = project.backend.config.project.repos[0]!;
@@ -124,7 +139,7 @@ describe('settings section editors', () => {
 
   it('saves the AI switch the moment it is flipped, with no edit mode', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const toggle = section.getByRole('checkbox', {
       name: t('settings.limits.aiEnabled'),
@@ -146,7 +161,7 @@ describe('settings section editors', () => {
 
   it('puts the AI switch first and shows a dependent field only while its switch is on', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     expect(section.getAllByRole('checkbox')[0]).toBe(
       section.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }),
@@ -160,7 +175,7 @@ describe('settings section editors', () => {
 
   it('locks the limits while another section is being edited, so the open editor keeps its version', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsEditingFixture />);
     const limits = await limitsSection();
     const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
     // Disabled by the fieldset around the controls, which only the :disabled selector sees.
@@ -176,7 +191,7 @@ describe('settings section editors', () => {
 
   it('locks the limits while the duty matrix holds unsaved changes, so its draft is not lost', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsEditingFixture />);
     const limits = await limitsSection();
     const toggle = limits.getByRole('checkbox', { name: t('settings.limits.aiEnabled') }) as HTMLInputElement;
     const matrix = within(await screen.findByRole('region', { name: t('duties.title') }));
@@ -192,7 +207,7 @@ describe('settings section editors', () => {
 
   it('turns the cap on concurrent AI sessions off and on (decision 23)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const noLimit = section.getByRole('checkbox', {
       name: t('settings.limits.noAiLimit'),
@@ -220,7 +235,7 @@ describe('settings section editors', () => {
 
   it('does not save a number outside its range and says so', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const field = section.getByLabelText(t('settings.limits.maxConcurrentAi'));
     fireEvent.change(field, { target: { value: '99' } });
@@ -235,7 +250,7 @@ describe('settings section editors', () => {
 
   it('shows the refusal and the latest values when the settings changed meanwhile', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     project.backend.configVersion = 'changed-elsewhere';
     const toggle = section.getByRole('checkbox', {
@@ -249,7 +264,7 @@ describe('settings section editors', () => {
 
   it('sets the compaction window of conversations and removes it again (PM-212)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const field = () => section.getByLabelText(t('settings.limits.autoCompactWindow')) as HTMLInputElement;
     // Not set in the mock project: the field is empty and names the default.
@@ -271,7 +286,7 @@ describe('settings section editors', () => {
 
   it('sets the free disk space limit, and 0 turns it off (PM-243)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const field = section.getByLabelText(t('settings.limits.minFreeDisk')) as HTMLInputElement;
     expect(field.value).toBe('10');
@@ -288,7 +303,7 @@ describe('settings section editors', () => {
 
   it('sets how long a Senior card waits before the owners are asked, from 5 to 1440 minutes (PM-349)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="limits" />);
     const section = await limitsSection();
     const field = section.getByLabelText(t('settings.limits.seniorWait')) as HTMLInputElement;
     // Not set in the mock project: the default of 30 minutes is shown.
@@ -314,14 +329,14 @@ describe('settings section editors', () => {
   it('shows a Senior wait that was set before in its field, and in minutes to those who cannot change it (PM-349)', async () => {
     const project = mockProject();
     project.backend.config.team.limits.seniorWaitMinutes = 45;
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes initialSection="limits" />);
     const section = await limitsSection();
     expect((section.getByLabelText(t('settings.limits.seniorWait')) as HTMLInputElement).value).toBe('45');
   });
 
   it('lists the Senior wait to a member who cannot change the limits, with the default when none is set', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />, '/', {
+    project.render(<SettingsTestRoutes initialSection="limits" />, '/p/AC/settings/limits', {
       can: { manageTeam: false, createTasks: true, workInSessions: true, readConfig: true },
     });
     const section = await limitsSection();
@@ -333,7 +348,7 @@ describe('settings section editors', () => {
 
   it('sets the limit of the fix rounds, from 1 to 10 (PM-262)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const field = section.getByLabelText(t('settings.limits.maxFixRounds')) as HTMLInputElement;
     expect(field.value).toBe('3');
@@ -346,7 +361,7 @@ describe('settings section editors', () => {
 
   it("sets and removes the warning limit of a session's tokens (PM-187)", async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const noWarning = section.getByRole('checkbox', {
       name: t('settings.limits.noTokenWarning'),
@@ -376,7 +391,7 @@ describe('settings section editors', () => {
 
   it('sets the loop watch, 6 messages in 30 minutes until then, and says who is told (PM-261)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const count = section.getByLabelText(t('settings.limits.loopWatchCount')) as HTMLInputElement;
     const minutes = section.getByLabelText(t('settings.limits.loopWatchMinutes')) as HTMLInputElement;
@@ -385,7 +400,7 @@ describe('settings section editors', () => {
     expect(section.getByText(/Az Ütemezést senki nem tölti be, ezért .* róla\./)).toBeTruthy();
     expect(
       section.getByRole('link', { name: t('settings.limits.loopWatchDuties') }).getAttribute('href'),
-    ).toBe('/p/AC/settings#settings-duties');
+    ).toBe('/p/AC/settings/duties');
     // Two quick changes in a row are saved one after the other and keep each other's value.
     fireEvent.change(count, { target: { value: '8' } });
     fireEvent.blur(count);
@@ -419,7 +434,7 @@ describe('settings section editors', () => {
     const project = mockProject();
     const devops = project.backend.config.team.members.find((member) => member.handle === 'devops');
     if (devops?.kind === 'ai') devops.role = 'project_manager';
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     await waitFor(() =>
       expect(
@@ -430,7 +445,7 @@ describe('settings section editors', () => {
 
   it('edits limits with a 10–100 slider and AI-capable role choices', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     // The temp worker fields appear once the temp workers are on.
     expect(section.queryByLabelText(t('settings.edit.tempMax'))).toBeNull();
@@ -475,7 +490,7 @@ describe('settings section editors', () => {
 
   it('shows the limits as plain values to those who cannot change them', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />, '/', {
+    project.render(<SettingsTestRoutes />, '/', {
       can: { manageTeam: false, createTasks: false, workInSessions: false },
     });
     const section = await limitsSection();
@@ -485,7 +500,7 @@ describe('settings section editors', () => {
 
   it('renames, describes, reorders stages and edits owners and all gate condition types', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const initialStageCount = project.backend.config.pipeline.stages.length;
     const section = await editSection('pipeline');
     const stage = within(section.getAllByRole('listitem')[1]!);
@@ -531,7 +546,7 @@ describe('settings section editors', () => {
 
   it('saves and reloads a condition that binds only the cards with a label (when)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const stage = within(section.getAllByRole('listitem')[1]!);
     fireEvent.click(stage.getByRole('button', { name: t('settings.edit.addCondition') }));
@@ -562,7 +577,7 @@ describe('settings section editors', () => {
 
   it('offers no label to bind a release gate condition to (a release approval holds for every card)', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const release = within(section.getByRole('listitem', { name: 'Élesítés' }));
     const when = release.getAllByLabelText(t('settings.edit.when'))[0]!;
@@ -573,7 +588,7 @@ describe('settings section editors', () => {
   it('gives a tag in use a meaning and rules, and keeps approvals for the owner', async () => {
     const project = mockProject();
     project.backend.findTask('AC-20')!.labels.push('Sürgős');
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('labels');
     const row = within(section.getByText('Sürgős').closest('div')!);
     fireEvent.click(row.getByRole('button', { name: t('settings.labels.define') }));
@@ -599,7 +614,7 @@ describe('settings section editors', () => {
     const admin = project.backend.config.team.members.find((member) => member.handle === 'kata')!;
     if (admin.kind === 'human') admin.access = 'admin';
     project.backend.viewerHandle = 'kata';
-    project.render(<SettingsPage />, '/', { isOwner: false, myHandle: 'kata' });
+    project.render(<SettingsTestRoutes />, '/', { isOwner: false, myHandle: 'kata' });
     const section = await editSection('pipeline');
     // The release approval is a label only humans may set: locked for an admin.
     const condition = within(section.getByText(t('settings.edit.approvalOwnerOnly')).closest('div')!);
@@ -627,7 +642,7 @@ describe('settings section editors', () => {
       ...approval,
       setBy: { duties: ['final_decision'], humansOnly: true },
     });
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const release = within(section.getByRole('listitem', { name: 'Élesítés' }));
     const integration = within(section.getByRole('listitem', { name: 'Integration' }));
@@ -653,22 +668,24 @@ describe('settings section editors', () => {
 
   it('tells the owner which rules the stored configuration breaks, and nothing when it breaks none', async () => {
     const valid = mockProject();
-    const validUi = valid.render(<SettingsPage />);
+    const validUi = valid.render(<SettingsTestRoutes />);
     await screen.findByRole('region', { name: t('settings.sections.project') });
-    expect(screen.queryByRole('region', { name: t('settings.problems.title') })).toBeNull();
+    expect(screen.queryByRole('region', { name: t('settings.problems.count', { n: 2 }) })).toBeNull();
     validUi.unmount();
 
     const project = mockProject();
     const { columns } = project.backend.config.pipeline;
     columns.push({ ...columns[0]! });
     project.backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!.setBy = 'humans';
-    project.render(<SettingsPage />);
-    const notice = within(await screen.findByRole('region', { name: t('settings.problems.title') }));
-    expect(notice.getByText(t('settings.problems.intro', { n: 2 }))).toBeTruthy();
+    project.render(<SettingsTestRoutes />);
+    const notice = within(
+      await screen.findByRole('region', { name: t('settings.problems.count', { n: 2 }) }),
+    );
+    expect(notice.getByText(t('settings.problems.rule'))).toBeTruthy();
     const items = notice.getAllByRole('listitem').map((item) => item.textContent);
     expect(items).toEqual([
-      `pipeline.columns[${columns.length - 1}].id ${t('settings.issues.duplicate_column')}`,
-      `pipeline.stages[7].gate.conditions[1] ${t('settings.issues.release_approval_needs_duty')}`,
+      `${columns[0]!.name}: ${t('settings.issues.duplicate_column')} ${t('settings.problems.open')}`,
+      `${project.backend.config.pipeline.stages[7]!.name}: ${t('settings.issues.release_approval_needs_duty')} ${t('settings.problems.open')}`,
     ]);
 
     const section = await editSection('project');
@@ -682,7 +699,7 @@ describe('settings section editors', () => {
 
   it('shows a conflict and reloads the latest version before retrying', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('project');
     fireEvent.change(section.getByLabelText(t('settings.project.name')), {
       target: { value: 'Stale draft' },
@@ -713,7 +730,7 @@ describe('settings section editors', () => {
 
   it('shows translated invariant issues beside the edited section', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     fireEvent.click(
       within(section.getAllByRole('listitem')[0]!).getByRole('button', { name: t('settings.edit.moveDown') }),
@@ -727,7 +744,7 @@ describe('settings section editors', () => {
 
   it('adds a stage after the chosen stage with a duty, a column and no gate', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const initial = structuredClone(project.backend.config.pipeline);
     fireEvent.click(section.getByRole('button', { name: t('settings.pipeline.addStage') }));
@@ -767,7 +784,7 @@ describe('settings section editors', () => {
 
   it('generates unique bounded stage IDs and supports explicit owners and gates on new stages', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const name = 'Acme quality verification with an exceptionally long name';
     for (let index = 0; index < 2; index++) {
@@ -798,7 +815,7 @@ describe('settings section editors', () => {
   it('confirms stage removal and cancels it before saving an unoccupied stage removal', async () => {
     const project = mockProject();
     project.backend.tasks = [];
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const name = project.backend.config.pipeline.stages[1]!.name;
     const stage = within(section.getByRole('listitem', { name }));
@@ -827,7 +844,7 @@ describe('settings section editors', () => {
     task.status = 'done';
     task.closedAt = new Date().toISOString();
     project.backend.tasks = [task];
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const name = current.pipeline.stages[1]!.name;
     fireEvent.click(
@@ -851,7 +868,7 @@ describe('settings section editors', () => {
 
   it('saves a column colour through config PATCH and retains it when reopened', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const name = project.backend.config.pipeline.columns[0]!.name;
     const columns = within(section.getByRole('group', { name: t('settings.pipeline.columns') }));
@@ -877,7 +894,7 @@ describe('settings section editors', () => {
 
   it('adds, renames and removes columns, refusing removal until their stages move away', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const columns = within(section.getByRole('group', { name: t('settings.pipeline.columns') }));
     const names = columns.getAllByLabelText(t('settings.pipeline.columnName'));
@@ -932,7 +949,7 @@ describe('settings section editors', () => {
 
   it('shows release approval and orphan duty issues on their stage, retaining them after reordering', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const initial = structuredClone(project.backend.config.pipeline);
     const name = initial.stages[1]!.name;
@@ -953,7 +970,7 @@ describe('settings section editors', () => {
 
   it('places translated schema issues beside the stage named by a dot-indexed path', async () => {
     const project = mockProject();
-    project.render(<SettingsPage />);
+    project.render(<SettingsTestRoutes />);
     const section = await editSection('pipeline');
     const stage = within(section.getAllByRole('listitem')[1]!);
     fireEvent.change(stage.getByLabelText(t('settings.project.name')), { target: { value: '' } });
@@ -966,7 +983,7 @@ describe('settings section editors', () => {
     const project = mockProject();
     const member = project.backend.config.team.members.find((member) => member.handle === 'owner')!;
     if (member.kind === 'human') member.access = access;
-    project.render(<SettingsPage />, '/', {
+    project.render(<SettingsTestRoutes />, '/', {
       isOwner: false,
       can: { manageTeam: false, createTasks: false, workInSessions: false },
     });

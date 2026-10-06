@@ -1409,6 +1409,92 @@ describe('kick-off brief', () => {
 
 describe('expected steps', () => {
   it.each(['developer', 'maintainer'])(
+    'asks %s for targeted checks at hand-over and in fix rounds when merge owns the full test',
+    (role) => {
+      const project = buildProject();
+      const handle = role === 'developer' ? 'fe-1' : 'maintainer';
+      if (role === 'maintainer') {
+        addMember(project, handle, role);
+        (project.pipeline.stages.find((stage) => stage.id === 'dev')!.owners ??= []).push(handle);
+      }
+      project.project.repos[0]!.fullTestAtMerge = true;
+      for (const stageId of ['dev', 'qa']) {
+        const source = input({ project, handle, task: makeTask({ stageId, assignee: handle }) });
+        const steps = doneSteps(builder.build(source).appendSystemPrompt);
+        expect(steps).toContain('before hand-over and in fix rounds, run only the tests');
+        expect(steps).toContain('the type check of the workspaces you touched');
+        expect(steps).toContain('the integrator or merge step runs the full check once');
+        expect(steps).not.toContain("run the project's full tests and type check once");
+      }
+    },
+  );
+
+  it('preserves the default steps when merge testing is explicitly disabled', () => {
+    const project = buildProject();
+    const task = makeTask({ stageId: 'dev', assignee: 'fe-1' });
+    const original = doneSteps(builder.build(input({ project, task, handle: 'fe-1' })).appendSystemPrompt);
+    project.project.repos[0]!.fullTestAtMerge = false;
+    expect(doneSteps(builder.build(input({ project, task, handle: 'fe-1' })).appendSystemPrompt)).toBe(
+      original,
+    );
+  });
+
+  it('uses the task repository rather than another repository merge policy', () => {
+    const project = buildProjectWithTwoRepos();
+    project.project.repos.find((repo) => repo.name === 'app')!.fullTestAtMerge = true;
+    for (const repo of project.project.repos) {
+      const steps = doneSteps(
+        builder.build(
+          input({
+            project,
+            handle: 'fe-1',
+            task: makeTask({ repo: repo.name, stageId: 'dev', assignee: 'fe-1' }),
+          }),
+        ).appendSystemPrompt,
+      );
+      expect(steps.includes('the integrator or merge step runs the full check once')).toBe(
+        repo.name === 'app',
+      );
+    }
+  });
+
+  it('keeps the server review test first and falls back to merge testing when unavailable', () => {
+    const project = buildProject();
+    project.project.repos[0]!.fullTestAtMerge = true;
+    project.project.repos[0]!.reviewTest = {
+      command: 'custom-check --all',
+      maxWorkers: 2,
+      timeoutMinutes: 15,
+    };
+    const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+    const server = doneSteps(builder.build({ ...source, serverFullTest: true }).appendSystemPrompt);
+    expect(server).toContain('the server runs `custom-check --all` once');
+    expect(server).not.toContain('the integrator or merge step');
+    expect(doneSteps(builder.build(source).appendSystemPrompt)).toContain(
+      'the integrator or merge step runs the full check once',
+    );
+  });
+
+  it('asks reviewers for targeted tests only in merge mode without a server result', () => {
+    const project = buildProject();
+    project.project.repos[0]!.fullTestAtMerge = true;
+    const task = makeTask({ stageId: 'code_review' });
+    const source = input({ project, task, handle: 'code-review' });
+    expect(doneSteps(builder.build(source).appendSystemPrompt)).toContain(
+      'Run only targeted tests if needed for this review',
+    );
+    task.reviewPin = {
+      commit: 'c1',
+      branch: 'task/AR-1',
+      pinnedAt: '2026-10-06T10:00:00Z',
+      fullTest: { status: 'passed', at: '2026-10-06T10:01:00Z' },
+    };
+    expect(doneSteps(builder.build(source).appendSystemPrompt)).not.toContain(
+      'Run only targeted tests if needed for this review',
+    );
+  });
+
+  it.each(['developer', 'maintainer'])(
     'asks %s for targeted checks when the server runs the full test',
     (role) => {
       const project = buildProject();

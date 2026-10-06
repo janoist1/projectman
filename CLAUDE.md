@@ -99,6 +99,7 @@ npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
+npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
 
 One heavy run goes at a time on the machine (PM-332, `docs/ARCHITECTURE.md` "Heavy-run
@@ -109,9 +110,12 @@ members run them in the foreground and keep waiting until completion, including 
 shell tool returns a running command id; follow the provider-specific waiting instructions
 in the context pack. Gemini's native `command_status` follows a running command; bounded
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
-command is still running. Runs inside
-one workspace (`npm test -w …`, `npx vitest related …`) do not queue; use them while working
-and the full run once before the hand-over. If a heavy command says its queue cannot be used
+command is still running. Developers run only related tests (`npx vitest related <files> --run`
+inside the affected workspace) and the type check of the workspaces they touched, including
+before hand-over and in fix rounds. They never run the full suite. The integrating session
+checks each card once before it enters `main`; shared code, `packages/shared` or configuration
+changes require a full run. Workspace checks do not queue; the integrating session's full run
+uses the heavy-run queue above (decision 40, PM-380). If a heavy command says its queue cannot be used
 (exit status 78), it did not run: note this on your card and ask for the command to run outside
 your sandbox; never run it another way (PM-346).
 

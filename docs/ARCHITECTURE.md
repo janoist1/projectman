@@ -1062,7 +1062,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
-  and the roots of `AgentSandbox.portable` (the queue's parent, the session folder and
+  and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
+  the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
   The managed VM retains the legacy sandbox flags because its VM is the boundary.
   PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:

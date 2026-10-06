@@ -48,9 +48,15 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
   it('hands the runner the parent of the folder, makes it, and gives Codex the writable root and the variable', async () => {
     const spec = await start();
     expect(spec.provider).toBe('codex');
+    const memberDir = join(base, 'app-home', 'member-caches', 'AR', 'dev-1');
     expect(spec.sandbox!.portable).toEqual({
-      allowWrite: [lockParent],
-      env: { PROJECTMAN_HEAVY_LOCK_DIR: lockDir, npm_config_prefer_offline: 'true' },
+      allowWrite: [lockParent, join(memberDir, 'npm-cache'), join(memberDir, 'projectman-dev')],
+      env: {
+        PROJECTMAN_HEAVY_LOCK_DIR: lockDir,
+        npm_config_prefer_offline: 'true',
+        npm_config_cache: join(memberDir, 'npm-cache'),
+        PROJECTMAN_HOME: join(memberDir, 'projectman-dev'),
+      },
     });
     expect(statSync(lockParent).isDirectory()).toBe(true);
     expect(statSync(lockParent).mode & 0o777).toBe(0o700);
@@ -71,6 +77,8 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
     expect(text).toContain(`"${lockParent}"="write"`);
     expect(text).not.toContain('sandbox_workspace_write');
     expect(text).toContain(`shell_environment_policy.set.PROJECTMAN_HEAVY_LOCK_DIR="${lockDir}"`);
+    expect(text).toContain(`"${join(memberDir, 'npm-cache')}"="write"`);
+    expect(text).toContain(`shell_environment_policy.set.npm_config_cache="${join(memberDir, 'npm-cache')}"`);
   });
 
   it('leaves an existing folder as it is', async () => {
@@ -84,7 +92,7 @@ describe('the heavy-run queue folder of a Codex developer session (PM-346)', () 
     // A file where the parent should be: the folder cannot be made.
     writeFileSync(lockParent, '');
     const spec = await start();
-    expect(spec.sandbox!.portable!.allowWrite).toEqual([lockParent]);
+    expect(spec.sandbox!.portable!.allowWrite).toContain(lockParent);
     expect(
       h!.log.warnings.some((entry) => JSON.stringify(entry).includes('could not make a writable path')),
     ).toBe(true);

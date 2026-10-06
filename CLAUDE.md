@@ -107,7 +107,9 @@ server's full test, and print who they wait for. Only Claude Code members run th
 background: Claude Code sends a completion notification. Codex, Gemini (agy) and NanoGPT
 members run them in the foreground and keep waiting until completion, including when the
 shell tool returns a running command id; follow the provider-specific waiting instructions
-in the context pack. Do not finish the turn while the command is still running. Runs inside
+in the context pack. Gemini's native `command_status` follows a running command; bounded
+`schedule` wakeups are an optional path described there. Do not finish the turn while the
+command is still running. Runs inside
 one workspace (`npm test -w …`, `npx vitest related …`) do not queue; use them while working
 and the full run once before the hand-over. If a heavy command says its queue cannot be used
 (exit status 78), it did not run: note this on your card and ask for the command to run outside

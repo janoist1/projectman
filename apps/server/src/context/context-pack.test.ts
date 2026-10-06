@@ -39,7 +39,12 @@ describe('team rules in the system prompt', () => {
     expect(prompt).toContain('# Heavy commands');
     expect(prompt).toContain('in the foreground');
     expect(prompt).toContain('do not end your turn while they run');
-    expect(prompt).toContain(provider === 'gemini' ? 'WaitMsBeforeAsync' : 'write_stdin');
+    if (provider === 'gemini') {
+      expect(prompt).toContain('command_status with the returned CommandId');
+      expect(prompt).toContain('schedule');
+      expect(prompt).toContain('DurationSeconds must be at most 600');
+      expect(prompt).not.toContain('This provider receives no background-completion notification');
+    } else expect(prompt).toContain('write_stdin');
   });
 
   it('leaves Claude background completion to its native notification', () => {

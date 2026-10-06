@@ -211,6 +211,7 @@ export const hu = {
       provider_not_logged_in: 'A szolgáltatónál nincs aktív bejelentkezés.',
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
+      codex_setup_incomplete: 'A Codex-beállítás hiányos, ezért a munkamenet nem indul.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
@@ -452,6 +453,7 @@ export const hu = {
       provider_not_logged_in: 'A szolgáltatónál nincs aktív előfizetéses bejelentkezés.',
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
+      codex_setup_incomplete: 'A Codex-beállítás hiányos, ezért a munkamenet nem indul.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
       bad_request: 'A kérés érvénytelen.',
@@ -803,6 +805,7 @@ export const hu = {
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
       nanogpt_key_missing: 'Indulásra vár: nincs NanoGPT-kulcs',
       nanogpt_setup_incomplete: 'Indulásra vár: hiányos a NanoGPT-beállítás',
+      codex_setup_incomplete: 'Indulásra vár: hiányos a Codex-beállítás',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
@@ -844,7 +847,9 @@ export const hu = {
       nanogpt_key_missing:
         'A tulajdonos a Beállítások → AI-szolgáltatók alatt adhatja meg a kulcsot; utána a munka magától elindul.',
       nanogpt_setup_incomplete:
-        'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Javítás után a munka magától elindul.',
+        'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
+      codex_setup_incomplete:
+        'Frissítsd a Codexet legalább {minCliVersion} verzióra, vagy a hibában megnevezett konfigurációs fájlból vedd ki a homokozó-beállítást (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles). MCP-beállítási hibánál a felhasználói config.toml mcp_servers neveit kell egyértelművé tenni; a team név a projectmané. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',

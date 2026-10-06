@@ -148,6 +148,7 @@ export const ERROR_CODES = [
   'provider_not_logged_in',
   'nanogpt_key_missing',
   'nanogpt_setup_incomplete',
+  'codex_setup_incomplete',
   'provider_unsupported',
   'nanogpt_key_rejected',
   'session_start_failed',

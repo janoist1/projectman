@@ -117,16 +117,27 @@ function portableOf(shared: {
 
 /**
  * What the CLIs' own sandboxes take besides the heavy-run queue (PM-339): the session's folder and
- * Playwright's browsers, and the commands' own temporary directory.
+ * Playwright's browsers, the member's own cache and development data, and the commands' own
+ * temporary directory.
  */
 function portableShared(
   heavy: { allowWrite: string[]; env: Record<string, string> },
-  own: { sessionDir?: string; browsersDir?: string; tmpDir?: string },
+  own: {
+    sessionDir?: string;
+    browsersDir?: string;
+    tmpDir?: string;
+    memberDirs?: readonly { path: string; variable: string }[];
+  },
 ): Parameters<typeof portableOf>[0] {
   return {
-    allowWrite: [...heavy.allowWrite, ...(own.sessionDir ? [own.sessionDir] : [])],
+    allowWrite: [
+      ...heavy.allowWrite,
+      ...(own.memberDirs ?? []).map((dir) => dir.path),
+      ...(own.sessionDir ? [own.sessionDir] : []),
+    ],
     env: {
       ...heavy.env,
+      ...Object.fromEntries((own.memberDirs ?? []).map((dir) => [dir.variable, dir.path])),
       ...(own.sessionDir ? { [SESSION_DIR_VARIABLE]: own.sessionDir } : {}),
       ...(own.browsersDir ? { [BROWSERS_PATH_VARIABLE]: own.browsersDir } : {}),
     },
@@ -279,6 +290,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
   const own = memberDir
     ? MEMBER_SANDBOX_DIRS.map((dir) => ({ ...dir, path: path.join(memberDir, dir.name) }))
     : [];
+  const writableOwn = own.filter((dir) => !isWithinAny(denied, dir.path));
   const gitConfig = memberDir ? path.join(memberDir, SANDBOX_GIT_CONFIG_FILE) : undefined;
   const allowRead = [
     ...policy.filesystem.readableRoots,
@@ -297,7 +309,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
   ].filter((dir) => !isWithinAny(denied, dir));
   return {
     allowWrite: [
-      ...own.map((dir) => dir.path).filter((dir) => !isWithinAny(denied, dir)),
+      ...writableOwn.map((dir) => dir.path),
       ...(sessionDir ? [sessionDir] : []),
       ...heavy.allowWrite,
     ],
@@ -319,6 +331,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     allowLocalBinding: true,
     ...portableOf(
       portableShared(heavy, {
+        memberDirs: writableOwn,
         sessionDir,
         browsersDir,
         tmpDir: paths.tmpDir && !isWithinAny(denied, paths.tmpDir) ? paths.tmpDir : undefined,

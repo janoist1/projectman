@@ -638,7 +638,8 @@ home, the server's own checkout `installDir` from `index.ts`; PM-188) in `denyWr
 `gh pr view`/`gh pr diff` outside it only for a repository on GitHub. Both have the credentials
 and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also denies `Edit` of the
 `denyWrite` paths (and everything below them) with rules, since the sandbox does not bind the
-built-in file tools. Codex ignores the spec's sandbox (its own is `read-only` for readers); the
+built-in file tools. Codex renders the sensitive-path denials and portable writes through its
+own permission profile (PM-356; readers receive no write entries); the
 managed VM profile gets none.
 
 ## Managed VM profile (PM-137, part of PM-135)
@@ -1067,13 +1068,31 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333).
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
-  Codex has its own permission mapping in `runner/providers/codex/args.ts`; its `workspace-write`
-  sandbox writes the roots of `AgentSandbox.portable` (the queue's parent, the session folder and
-  the own tmp, PM-339) and no longer the shared `/tmp` or the CLI's `$TMPDIR`
-  (`exclude_slash_tmp`, `exclude_tmpdir_env_var`; the queue's parent, a sibling of the tmp root, stays writable).
+  Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
+  receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
+  the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
+  and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
+  the queue's parent, the session folder and
+  the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
+  The managed VM retains the legacy sandbox flags because its VM is the boundary.
+  PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
+  a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
+  setting names through `codex_setup_incomplete`. User MCP names are resolved beside the CLI;
+  ambiguous names refuse startup. `runner/providers/codex/args.ts` disables each user server
+  and the eight plugin/app/computer/browser features for every Codex provider. The native
+  Codex 0.159.1 probe on macOS 14.6 arm64 is recorded on PM-356 (2026-10-06): glob and
+  symlink denials work, `:workspace` and shell-snapshot overrides are unnecessary.
+  `runner/cli.ts` resolves the real executable on the session PATH; the profile reopens
+  only its `packages/standalone` installation ancestor read-only beneath a denied path,
+  provided that ancestor contains no denied path. Unknown layouts stay closed.
+  macOS MDM-managed Codex preferences are not inspected yet (PM-375).
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax.
+  Version/config inspection must run on the engine hosting the CLI, against that engine's
+  filesystem, PATH, user home and administrator/workspace configuration, including executable
+  symlink resolution and installation grants. Only sanitized setting names and
+  structured setup errors cross back to the server; host-side inspection is not a substitute.
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).

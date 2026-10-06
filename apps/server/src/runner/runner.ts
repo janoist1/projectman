@@ -1,7 +1,13 @@
 import { randomBytes } from 'node:crypto';
-import { stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import type { FastifyBaseLogger } from 'fastify';
-import { DEFAULT_AGENT_PROVIDER, isManagedVmProvider, type AgentProvider } from '@projectman/shared';
+import {
+  cliVersionAtLeast,
+  CODEX_PERMISSION_PROFILE_MIN_VERSION,
+  DEFAULT_AGENT_PROVIDER,
+  isManagedVmProvider,
+  type AgentProvider,
+} from '@projectman/shared';
 import {
   PROVIDER_NOT_LOGGED_IN,
   type PauseOptions,
@@ -14,7 +20,7 @@ import {
   type SessionRunner,
   type StartSessionSpec,
 } from '../contracts';
-import { cliExists, runQuietly } from './cli';
+import { cliExists, resolveCliPath, runQuietly } from './cli';
 import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
 import {
@@ -23,10 +29,12 @@ import {
   assertProviderVersion,
   ManagedVmUnavailableError,
   parseCliVersion,
+  inspectCodexSandboxConfig,
 } from './managed-vm';
 import type { ProviderAdapter } from './providers/types';
 import { createProviderAdapters, type ProviderAdapters } from './providers';
 import { NanogptStartError } from './providers/nanogpt';
+import { CodexStartError, defaultCodexHome } from './providers/codex';
 import { pipeSpawn } from './pipe-spawn';
 import { AgentSession, UUID_RE } from './session';
 
@@ -103,11 +111,20 @@ export class SessionManager implements SessionRunner {
       instanceTag: this.opts.instanceTag,
     });
     if (provider !== 'nanogpt' && !(await cliExists(adapter.bin, env.PATH))) {
+      if (provider === 'codex' && !managedVm)
+        throw new CodexStartError({
+          problem: 'cli_missing',
+          minCliVersion: CODEX_PERMISSION_PROFILE_MIN_VERSION,
+        });
       throw new Error(`${adapter.label} CLI not found: ${adapter.bin}`);
     }
     // The question-free profile starts only on a proven boundary, with a CLI it is proven for and
     // without configuration of the VM's own that would override the protected start (PM-141).
     if (managedVm) await this.assertManagedVm(spec, adapter, env);
+    else if (provider === 'codex') {
+      env.CODEX_HOME = this.opts.codexHome ?? defaultCodexHome(env);
+      await this.assertCodexProfileStart(spec, adapter, env);
+    }
     // A CLI without a subscription login can only sit at its login screen: do not spawn it.
     const status = await this.providerStatus(provider, { refresh: provider === 'nanogpt' });
     if (status.loggedIn === false) {
@@ -121,6 +138,9 @@ export class SessionManager implements SessionRunner {
 
     const token = randomBytes(24).toString('base64url');
     const launch = await adapter.launch({
+      ...(!managedVm && (provider === 'codex' || provider === 'nanogpt')
+        ? { cliPath: (await resolveCliPath(adapter.bin, env.PATH)) ?? undefined }
+        : {}),
       spec,
       hookUrl: hookUrlFor(this.opts.publicBaseUrl, token),
       permissionTimeoutMs: this.opts.permissionTimeoutMs,
@@ -257,11 +277,31 @@ export class SessionManager implements SessionRunner {
     return session.info();
   }
 
+  /** Refuse local profile starts that lack a supported CLI or have competing sandbox settings. */
+  private async assertCodexProfileStart(
+    spec: StartSessionSpec,
+    adapter: ProviderAdapter,
+    env: Record<string, string>,
+  ): Promise<void> {
+    const version = await runQuietly(adapter.bin, ['--version'], env);
+    const cliVersion = parseCliVersion(version.stdout);
+    const minCliVersion = CODEX_PERMISSION_PROFILE_MIN_VERSION;
+    if (version.error || version.code !== 0 || cliVersion === null)
+      throw new CodexStartError({ problem: 'cli_missing', minCliVersion });
+    if (!cliVersionAtLeast(cliVersion, minCliVersion))
+      throw new CodexStartError({ problem: 'cli_too_old', cliVersion, minCliVersion });
+    const ambientConfig = await inspectCodexSandboxConfig({
+      cwd: await realpath(spec.cwd),
+      env,
+      locations: this.opts.ambientConfig,
+    });
+    if (ambientConfig.length)
+      throw new CodexStartError({ problem: 'sandbox_config', cliVersion, minCliVersion, ambientConfig });
+  }
+
   /**
-   * The managed VM profile's conditions, asked at every start, resume included: the boundary is
-   * proven now (never from a flag), the policy is for that boundary's profile, the installed CLI
-   * is a version the question-free settings are proven for, and no configuration of the VM's own
-   * would override them. Any failure is `managed_vm_unavailable`; nothing is spawned.
+   * Prove the managed VM boundary, CLI version and protected configuration before spawning.
+   * Any failure is `managed_vm_unavailable`; nothing is spawned.
    */
   private async assertManagedVm(
     spec: StartSessionSpec,

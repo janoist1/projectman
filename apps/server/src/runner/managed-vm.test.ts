@@ -22,10 +22,102 @@ import {
   inspectAmbientConfig,
   ManagedVmUnavailableError,
   parseCliVersion,
+  CODEX_OVERRIDING_ROOTS,
+  CODEX_SANDBOX_ROOTS,
+  inspectCodexSandboxConfig,
+  inspectCodexMcpServers,
 } from './managed-vm';
 import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
 
 const dirs = tempDirs();
+describe('local Codex configuration checks', () => {
+  async function fixture() {
+    const cwd = await dirs.make();
+    const home = await dirs.make();
+    const admin = path.join(home, 'administrator.toml');
+    const user = path.join(home, 'config.toml');
+    await mkdir(path.join(cwd, '.codex'));
+    const project = path.join(cwd, '.codex', 'config.toml');
+    return {
+      cwd,
+      codexHome: home,
+      admin,
+      user,
+      project,
+      env: { CODEX_HOME: home },
+      locations: { codexManaged: [admin], codexUser: user },
+    };
+  }
+
+  it('keeps local sandbox roots within the broader ambient refusal roots', () => {
+    for (const root of CODEX_SANDBOX_ROOTS) expect(CODEX_OVERRIDING_ROOTS.has(root)).toBe(true);
+  });
+
+  it.each([...CODEX_SANDBOX_ROOTS])(
+    'refuses %s in every loaded source, without returning values',
+    async (root) => {
+      for (const source of ['admin', 'user', 'project'] as const) {
+        const input = await fixture();
+        await writeFile(input[source], `${root} = "fictional-private-value"\n`);
+        expect(await inspectCodexSandboxConfig(input)).toEqual([{ file: input[source], keys: [root] }]);
+      }
+    },
+  );
+
+  it('allows harmless user settings but refuses escaped roots and any administrator content', async () => {
+    const input = await fixture();
+    await writeFile(input.user, 'model = "fictional-model"\n[mcp_servers.example]\ncommand = "fictional"');
+    expect(await inspectCodexSandboxConfig(input)).toEqual([]);
+    await writeFile(input.project, String.raw`"sandbox_\u006dode" = "fictional-value"`);
+    expect(await inspectCodexSandboxConfig(input)).toEqual([
+      { file: input.project, keys: [String.raw`"sandbox_\u006dode"`] },
+    ]);
+    await writeFile(input.admin, '# administrator policy\n');
+    expect((await inspectCodexSandboxConfig(input))[0]).toEqual({
+      file: input.admin,
+      keys: ['(administrator config)'],
+    });
+  });
+
+  it('reads user MCP names in order from tables, subtables and dotted keys', async () => {
+    const input = await fixture();
+    await writeFile(
+      input.user,
+      '[mcp_servers.node_repl]\ncommand = "fictional-private"\n[mcp_servers.other.env]\nVALUE = "fictional-private"\nmcp_servers.third.enabled = true\n[mcp_servers.node_repl.env]\n',
+    );
+    expect(await inspectCodexMcpServers(input)).toEqual({
+      names: ['node_repl', 'other', 'third'],
+      unresolved: [],
+    });
+  });
+
+  it.each([
+    '[mcp_servers."quoted"]\ncommand = "fictional-private"',
+    String.raw`[mcp_servers."esca\u0070ed"]`,
+    'mcp_servers = { hidden = { command = "fictional-private" } }',
+    '[mcp_servers.team]\ncommand = "fictional-private"',
+    String.raw`["mcp_\u0073ervers".hidden]`,
+    '[mcp_servers]\nhidden = { command = "fictional-private" }',
+    '[[mcp_servers.example]]\ncommand = "fictional-private"',
+  ])('fails closed on ambiguous user MCP configuration %#', async (text) => {
+    const input = await fixture();
+    await writeFile(input.user, text);
+    const result = await inspectCodexMcpServers(input);
+    expect(result.unresolved).toHaveLength(1);
+    expect(result.unresolved[0]?.file).toBe(input.user);
+    expect(JSON.stringify(result)).not.toContain('fictional-private');
+  });
+
+  it('reports an unreadable user config and accepts a missing one', async () => {
+    const input = await fixture();
+    expect(await inspectCodexMcpServers(input)).toEqual({ names: [], unresolved: [] });
+    await mkdir(input.user);
+    expect(await inspectCodexMcpServers(input)).toEqual({
+      names: [],
+      unresolved: [{ file: input.user, keys: ['(unreadable)'] }],
+    });
+  });
+});
 it('fails closed when an attestation has no version for a provider', () => {
   expect(() =>
     assertProviderVersion('gemini', '1.2.17', {
@@ -356,7 +448,7 @@ describe('a managed VM start through the runner (no pseudo-terminal: it is refus
   const ATTESTATION: ManagedVmAttestation = {
     profile: { name: VM_PROFILE_NAME, version: VM_PROFILE_VERSION },
     verifiedAt: '2026-10-01T12:00:00.000Z',
-    providerVersions: { claude: ['0.0.0'], codex: ['0.0.0'], nanogpt: [] },
+    providerVersions: { claude: ['0.0.0'], codex: ['0.159.1'], nanogpt: [] },
   };
   const saved = { ...process.env };
   afterEach(() => {
@@ -451,7 +543,7 @@ describe('a managed VM start through the runner (no pseudo-terminal: it is refus
       process.env[provider === 'claude' ? 'FAKE_CLAUDE_VERSION' : 'FAKE_CODEX_VERSION'] = '9.9.9';
       await expect(module.runner.start(spec(provider))).rejects.toMatchObject({
         reason: 'provider_version',
-        details: { provider, installed: '9.9.9', allowed: ['0.0.0'] },
+        details: { provider, installed: '9.9.9', allowed: [provider === 'codex' ? '0.159.1' : '0.0.0'] },
       });
       expect(await spawned(provider)).toBe(false);
     },

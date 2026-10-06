@@ -63,6 +63,14 @@ describe('NanoGPT adapter', () => {
     });
     expect(await readFile(path.join(h.codexHome, 'auth.json'), 'utf8')).toBe('{}');
   });
+  it('refuses an unknown CLI installation inside its denied home', async () => {
+    const h = await harness();
+    const cliPath = path.join(h.codexHome, 'tmp', 'codex');
+    await expect(h.adapter.launch({ ...h.input, cliPath })).rejects.toMatchObject({
+      code: 'nanogpt_setup_incomplete',
+      details: { provider: 'nanogpt', problem: 'cli_location', cliPath },
+    });
+  });
   it('checks CLI version and key without running login or falling back', async () => {
     const h = await harness(null);
     expect(await h.adapter.checkLogin({ FAKE_CODEX_VERSION: '0.159.1' })).toMatchObject({

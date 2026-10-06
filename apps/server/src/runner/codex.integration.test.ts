@@ -277,7 +277,14 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     expect(argv).toEqual(
       expect.arrayContaining(['--no-alt-screen', '--no-daemon', '--dangerously-bypass-hook-trust']),
     );
-    expect(argv[argv.indexOf('--sandbox') + 1]).toBe('workspace-write');
+    expect(argv).not.toContain('--sandbox');
+    expect(argv).toContain('default_permissions="projectman"');
+    expect(
+      argv.some(
+        (arg: string) =>
+          arg.startsWith('permissions.projectman=') && arg.includes('":workspace_roots"={"."="write"'),
+      ),
+    ).toBe(true);
     expect(argv[argv.indexOf('--ask-for-approval') + 1]).toBe('on-request');
     // "opus" is a Claude alias: Codex members get projectman's default model and effort.
     expect(argv[argv.indexOf('--model') + 1]).toBe('gpt-6.1-sol');
@@ -324,7 +331,12 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     await waitState(other.sessionId, 'idle');
     const second = JSON.parse(await readFile(argsFile, 'utf8'));
     expect(second.argv[second.argv.indexOf('--model') + 1]).toBe('gpt-fake-codex');
-    expect(second.argv[second.argv.indexOf('--sandbox') + 1]).toBe('read-only');
+    expect(second.argv).not.toContain('--sandbox');
+    expect(
+      second.argv.some(
+        (arg: string) => arg.startsWith('permissions.projectman=') && !arg.includes('"write"'),
+      ),
+    ).toBe(true);
     expect(second.argv).not.toContain('--');
   });
 

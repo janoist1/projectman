@@ -113,6 +113,8 @@ export interface TranscriptLineParser {
 }
 
 export interface LaunchInput {
+  /** Real CLI file resolved on the session PATH; only local Codex providers use it. */
+  cliPath?: string;
   spec: StartSessionSpec;
   /** POST target of the session's hooks, http://127.0.0.1:<port>/hooks/<token>. */
   hookUrl: string;

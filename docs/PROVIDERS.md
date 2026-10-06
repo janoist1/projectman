@@ -42,8 +42,8 @@ CLI's key. The inbox shows the command; inspect the scripts and hooks before app
 Use a `human` approver for NanoGPT developers (`ai` is permitted but not recommended).
 With the default `approver: 'none'`, requested commits are refused: the shared Git index
 lock lives outside the worktree sandbox. See SECURITY.md for the unresolved same-user
-filesystem and process-environment risks; environment filtering does not isolate the
-secret file from broad Codex reads.
+process-environment risks. The PM-356 local permission profile denies the secret store
+and other `sensitivePaths`; approved host commands remain outside that boundary.
 
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
@@ -202,8 +202,12 @@ owner's claude.ai connectors (Gmail, Drive, Calendar, ClickUp, ...) and Claude i
 owner's logged-in browser). Every session, new or resumed, therefore also gets
 `--strict-mcp-config` (only the `--mcp-config` team server; no connectors, no `.mcp.json`) and
 `--no-chrome`. No per-member MCP server exists yet; one would be added to `buildMcpConfig`.
-For Codex members the owner's `~/.codex` configuration is not read or checked here (see the
-PM-208 note on what a Codex session reaches).
+Codex startup checks loaded sandbox settings and resolves the user configuration's
+MCP server names (PM-356). It disables each user server before installing `team`, and
+unresolved names refuse startup. Every Codex/NanoGPT launch disables `plugins`,
+`remote_plugin`, `apps`, `tool_suggest`, `skill_mcp_dependency_install`, `computer_use`,
+`browser_use` and `browser_use_external`. User hooks and workspace `.codex/` execution
+are separate work (PM-49 and PM-357).
 
 **Prompt suggestions (PM-345).** Claude Code's prompt suggestion runs a "suggestion mode" step after
 a turn that can put an `AskUserQuestion` ("Topic: Suggestion") at the terminal, which the runner
@@ -448,6 +452,27 @@ and so the inbox:
 In a reading placement (a reviewer, an analyst, a chat; PM-167) every mode but `plan` gets
 `read-only` and `on-request`; an escalation goes through `commandVerdict` to the approver.
 
+For local Codex and NanoGPT sessions, these mode names select an inline `projectman`
+permission profile extending `:read-only` (PM-356), not a `--sandbox` argument. It reads
+the filesystem except `sensitivePaths` and the adapter's Codex home. Writing modes add
+`:workspace_roots` with `.git`, `.codex` and `.agents` read-only, plus the explicit portable
+writable roots. Denied roots and their children are never added as writable roots.
+The CLI must be at least 0.159.1; loaded sandbox/profile configuration refuses startup
+with `codex_setup_incomplete`, and ambiguous user MCP configuration with `mcp_config`.
+Administrator configuration with any content is refused. Errors report paths and key
+names only. No local launch supplies `--sandbox`, `sandbox_mode` or
+`sandbox_workspace_write`: the native probe confirmed `--sandbox` overrides the profile.
+The `managed_vm` profile retains its existing sandbox arguments; its VM is the boundary.
+
+The runner resolves the real CLI file on the session PATH. If it is beneath a denied
+directory, only its official `packages/standalone` installation ancestor may be reopened
+read-only, after the denials; an ancestor containing a denied path is never reopened.
+This also applies to NanoGPT's shared executable despite its different Codex home.
+Unknown installation layouts inside denied directories refuse launch with `cli_location`
+in the provider's setup error; details identify the real executable path. Use the official
+standalone installer or install outside the denied directories. Git writes to the shared
+index still use the existing command-approval path (PM-131/PM-77), not a profile write grant.
+
 **A Codex member never runs in `bypassPermissions`** (decision 19, PM-84). The mode would switch
 Codex's sandbox and its questions off, and Codex does not enforce denied tools, so nothing would
 stop a push from a local-only repository. The configuration refuses it (invariant
@@ -458,13 +483,17 @@ Developers' Codex sessions get one extra writable root, the parent of the machin
 queue folder (`AgentSandbox.portable`, PM-346), and the queue variables
 (`PROJECTMAN_HEAVY_LOCK_DIR`, `npm_config_prefer_offline`) through
 `shell_environment_policy.set.<NAME>`, so their `npm test` waits in the queue like the Claude
-members'. Both are left out in the managed VM profile. The network stays off. Real-CLI probe of
-`sandbox_workspace_write.writable_roots` on codex-cli 0.159.1: _not run yet_ (a developer's
-sandbox cannot read `~/.codex`; the integrator or the owner runs the command on PM-346's card:
-`codex sandbox macos --full-auto -c 'sandbox_workspace_write.writable_roots=["/private/tmp/projectman-501"]' -- /bin/sh -c 'mkdir /private/tmp/projectman-501/probe-pm346 && rmdir /private/tmp/projectman-501/probe-pm346'`,
-with and without the `-c`) and its result goes here. If Codex ignores the setting, a command run
-outside its sandbox after a question still queues, and the CLI stops one that cannot use the
-queue (exit 78).
+members'. Both are left out in the managed VM profile. The network stays off. The roots
+are filesystem write entries in the permission profile. A command run outside the sandbox
+after a question still queues, and the CLI stops one that cannot use the queue (exit 78).
+
+Codex and NanoGPT sessions in a developer's own placement also receive the member's
+`npm-cache` and `projectman-dev` directories through `AgentSandbox.portable`, with
+`npm_config_cache` and `PROJECTMAN_HOME` set through `shell_environment_policy.set`.
+These are the same private cache and development-data paths Claude uses (PM-193);
+denied paths remain excluded. Only a writing sandbox grants write access to these roots;
+plan mode keeps the variables without granting writes. Reading placements and the managed
+VM receive neither these member-directory variables nor these local write roots.
 
 A Codex session whose sandbox writes (`workspace-write`, a developer's own placement, outside the
 managed VM; PM-339) also gets its own **session folder** and its own **temporary directory**, both made
@@ -475,8 +504,8 @@ by the server before the process starts and removed with the session:
   (`tools.view_image = true`: not a sandboxed command, so it asks nothing) and `attach_file` it;
 - the temporary directory (`SessionFolders.allocateTmp`, `<tmpRoot>/<session id>.<6 random hex digits>`,
   `AgentSandbox.portable.tmpDir`) is a writable root and every command's `TMPDIR`
-  (`shell_environment_policy.set.TMPDIR`), while `sandbox_workspace_write.exclude_slash_tmp` and
-  `exclude_tmpdir_env_var` close the shared `/tmp` and the CLI's own `$TMPDIR`. Under both lay the other
+  (`shell_environment_policy.set.TMPDIR`); the permission profile omits `:slash_tmp` and
+  `:tmpdir`, closing the shared `/tmp` and the CLI's own `$TMPDIR`. Under both lay the other
   members' session folders, the server's full-test run directories and the Claude members' `/tmp/claude-<uid>`,
   which a Codex member could write otherwise. The path is short on purpose
   (`/tmp/projectman-<uid>-tmp/<instance hash>/<session id>.<6 hex>`, about 72 bytes on macOS, about 91 with a
@@ -493,11 +522,10 @@ by the server before the process starts and removed with the session:
 
 A read-only session (the default mode, `plan`) gets neither: Codex's read-only sandbox takes no
 writable root, and the mode changes only with a restart. A tool that writes a hard-coded `/tmp` path stops
-after the closing; give it a targeted writable root, do not reopen `/tmp`. Real-CLI probe on codex-cli
-0.159.1: _not run yet_ (the integrator runs it once, with a real Codex session: `touch
-"$PROJECTMAN_SESSION_DIR/x"` works; another member's folder, `/tmp` and the CLI's original `TMPDIR` are
-not writable; `echo $TMPDIR` shows the own directory; `npx vitest related`, `npm run typecheck` and `git
-commit` work; a png in the folder opens with `view_image` without a question) and its result goes here.
+after the closing; give it a targeted writable root, do not reopen `/tmp`. The PM-356
+native probe allowed own TMPDIR writes and denied shared `/tmp` and the original CLI tmp.
+The member-level development acceptance still checks attachments, caches and the heavy-run
+queue; the shared Git index remains outside the sandbox's writable roots.
 
 The
 shared git directory is not made writable (PM-131): it never let `git commit` through, since
@@ -575,7 +603,7 @@ this card (it ships no code); PM-326 adds the entries.
    (PM-325). The hook is the single gate.
 3. **`--sandbox` is too strict for development** (Q8): no network, no `ps`, no shell writes to
    the workspace. Gemini members would run unsandboxed with the hook as the gate (the same
-   "reads everything" exposure as Codex today, PM-356). Commands get the full parent
+   broad host-read exposure that legacy Codex settings had before PM-356). Commands get the full parent
    environment plus agy's own `ANTIGRAVITY_CSRF_TOKEN` and friends.
 4. **Instructions** (Q11): `AGENTS.md` and `GEMINI.md` are read, `CLAUDE.md` is not; there is no
    system-prompt flag; a `PreInvocation` hook can inject an ephemeral message.
@@ -929,8 +957,8 @@ writing:
   `--settings`, on every start and resume. Not `--add-dir`: in `acceptEdits` mode Claude Code
   accepts edits in an extra working directory without asking. A directory whose path holds
   characters that mean something in a rule gets no rules (reading then asks a human).
-- Codex: nothing is added. Its sandbox reads everywhere (see the probe below) and writes only in
-  the working directory; the attachment directory is never a writable root.
+- Codex: the local permission profile reads attachments through `:root=read` while denying
+  sensitive paths (PM-356); the attachment directory is never a writable root.
 - Both: read-only commands inside that directory (`file`, `ls`, `cat` …) pass the command rule
   below like those in the working directory.
 
@@ -1155,17 +1183,25 @@ below. No live instance settings are changed by this migration.
 The revised [manual procedure](SANDBOX-PROBE.md) and `scripts/sandbox-probe.sh` use nested
 worktrees, fictional data and positive host controls. The script never starts an agent CLI;
 real verification is interactive and subscription-only. Automated tests use temporary repos
-and no real agent CLI. No revised native run has yet been recorded here.
+and no real agent CLI. The PM-356 native run was recorded on 2026-10-06 by the integrator
+with owner approval: Codex 0.159.1 on macOS 14.6 arm64. It verified denied shell reads,
+database glob matches (including later siblings), symlink traversal, read-only/writing modes,
+own TMPDIR writes and shared temp denials. `view_image` respected a denied image symlink.
+No `:workspace` fallback or `features.shell_snapshot=false` was needed. The CLI's standalone
+installation required a read exception beneath its otherwise denied Codex home; inline
+`projects={...}` trust and `check_for_update_on_startup=false` prevented startup dialogs.
+Five plugin flags and named user MCP disabling were exercised; the three additional
+computer/browser flags still require the agreed supplementary startup acceptance.
 
-| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                        |
-| --------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------- |
-| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified          | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict  |
-| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified          | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured |
-| Codex 0.159.1 / macOS / restricted-read permission profile                  | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified          | Unverified                                                                         | Unverified                                                        | Not established                       |
-| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat              | Repeat                                                                             | Repeat                                                            | No inferred support                   |
+| CLI / OS / policy                                                           | Shell file boundary                                         | Built-in file tools  | Own git / protected shared git                                                     | Network / test servers                                            | Strict minimum                         |
+| --------------------------------------------------------------------------- | ----------------------------------------------------------- | -------------------- | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
+| Claude 2.1.223 / macOS                                                      | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
+| Claude 2.1.284 / macOS 14.6 arm64 / old probe settings                      | Reported sibling-folder denial; nested exception unverified | Unverified           | Reported commit allowed, hooks/config blocked; other protected metadata unverified | Reported npm allowed; local binding also opened other local ports | Not established; local-port conflict   |
+| Codex 0.159.1 / macOS 14.6 arm64 / legacy settings plus writable shared git | Reported broad reads, limited writes                        | Unverified           | Reported index lock blocked but hooks/config writable                              | Reported network/binding blocked; npm used warm cache             | Fails the strict policy as configured  |
+| Codex 0.159.1 / macOS 14.6 arm64 / restricted-read permission profile       | Denied secrets, credentials, database glob and symlinks     | Denied image symlink | Worktree edits allowed; shared index lock and protected directories denied         | Not verified by the PM-356 run                                    | Not established; PM-356 deny list only |
+| Claude 2.1.223 and 2.1.284 / Linux                                          | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
+| Codex 0.159.1 / Linux                                                       | Unverified                                                  | Unverified           | Unverified                                                                         | Unverified                                                        | Not established                        |
+| Any later proposed release / macOS or Linux                                 | Repeat full procedure                                       | Repeat               | Repeat                                                                             | Repeat                                                            | No inferred support                    |
 
 The old settings used Claude `denyRead` for sibling live/secret folders, `allowWrite` for
 `~/.npm`, strict npm-only networking and `allowLocalBinding: true`. The old report says boolean
@@ -1174,8 +1210,9 @@ and enforcement of either type remain version-specific observations to reproduce
 
 Current source differs from that probe: the developer sandbox allows npm/development-data writes
 and local binding, and closes the home but its own work (PM-153). Codex's normal session spec
-no longer grants the shared git root (PM-131), but its legacy sandbox does not implement the
-required restricted-read policy. Command-rule approval of Codex escalations is host execution,
+no longer grants the shared git root (PM-131). Its local permission profile now implements the
+PM-356 sensitive-path deny list, while the wider home boundary remains PM-360.
+Command-rule approval of Codex escalations is host execution,
 not strict isolation. PM-134's transitional Claude setup is not the final PM-128/129 proof.
 
 ### The sandboxes the server hands out (PM-167)
@@ -1189,7 +1226,7 @@ exact `--settings` the fake CLI receives:
 | Developer (`task_worktree`, PM-153, PM-193)           | `allowWrite`: the member's npm cache and development data (`<app home>/member-caches/<KEY>/<handle>/npm-cache`, `…/projectman-dev`) and the session folder (PM-268, a Claude session only); `denyRead`: the user's home, the app home (when not below it), `sensitivePaths`; `allowRead`: the worktree, the task's attachments, the member's two directories, the session folders' root (every member's folder of this instance is read, PM-333) and the browsers directory (PM-268), the shared git directory, `~/.gitconfig`, `~/.config/git`, `~/.claude/shell-snapshots`, the user's `core.excludesfile` (PM-216); `denyWrite`: see below | `registry.npmjs.org`, local binding allowed | none                                                           | `GH_TOKEN`, `GITHUB_TOKEN`, `NPM_TOKEN`, `NODE_AUTH_TOKEN`, `SSH_AUTH_SOCK` unset; `env`: `npm_config_cache`, `PROJECTMAN_HOME` to the member's directories, `PROJECTMAN_SESSION_DIR` and `PLAYWRIGHT_BROWSERS_PATH` (PM-268), `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `GIT_CONFIG_SYSTEM` to a read-only file in the member's directory with `gc.auto=0`, `maintenance.auto=false` and `core.packedRefsTimeout=0`; the "Unable to create packed-refs.lock" message after a commit stays (known, harmless, see SECURITY.md) (PM-216) | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
 | Reader (`read_only`, review copy without test opt-in) | `allowWrite`: the session folder (PM-268; else temp only); `denyWrite`: working directory, every `--add-dir` directory, the project's workspace, the app home, the server's own checkout; `denyRead`: `sensitivePaths`                                                                                                                                                                                                                                                                                                                                                                                                                        | `registry.npmjs.org`, local binding allowed | `gh pr view:*`, `gh pr diff:*`, only on a repository on GitHub | `env`: `PROJECTMAN_SKIP_PTY_TESTS=1` (PM-194), `PROJECTMAN_SESSION_DIR`, `PLAYWRIGHT_BROWSERS_PATH` (PM-268)                                                                                                                                                                                                                                                                                                                                                                                                                         | `Edit(//<path>)`, `Edit(//<path>/**)` per `denyWrite` |
 | Managed VM profile, sessions behind the VM boundary   | none (the boundary is outside the CLI)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
-| Codex                                                 | not rendered: Codex's own `--sandbox` (`read-only` for a reader, unchanged)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
+| Codex                                                 | local `projectman` permission profile: sensitive paths denied, portable writer roots granted (PM-356); managed VM unchanged                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |                                             |                                                                |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |                                                       |
 
 All paths are absolute, from the actual user home and app home. A developer in a task worktree
 gets `denyWrite` in the shared git directory (`sharedGitDenials`): `refs/heads/<default branch>`,

@@ -1,5 +1,6 @@
 import {
   DEFAULT_AGENT_PROVIDER,
+  CODEX_PERMISSION_PROFILE_MIN_VERSION,
   fixLimitDecisionOf,
   labelDefinition,
   openPrerequisites,
@@ -278,7 +279,9 @@ export function startWaitingHint(task: Task, members: MemberIndex, myHandle: str
           name: nameOf(waiting.waitDecidedBy, members, myHandle),
         });
   }
-  return t(`taskStatus.startHints.${waiting.reason}`);
+  return t(`taskStatus.startHints.${waiting.reason}`, {
+    minCliVersion: CODEX_PERMISSION_PROFILE_MIN_VERSION,
+  });
 }
 
 function startWaitingLabel(task: Task, ctx: TaskStateContext): string {

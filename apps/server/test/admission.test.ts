@@ -542,6 +542,31 @@ describe('admission checks', () => {
 });
 
 describe('deferred starts', () => {
+  it('keeps an automatic Codex start waiting for setup and retries after repair', async () => {
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+    const { admission, deferred } = admissionFor({ tasks: [reviewing] });
+    const { automatic, retry } = start('hand-over:AR-1', { taskKey: 'AR-1', member: 'cr' });
+    let incomplete = true;
+    automatic.run = async () => {
+      if (incomplete)
+        throw conflict('codex_setup_incomplete', 'Codex is not ready', {
+          provider: 'codex',
+          problem: 'sandbox_config',
+        });
+    };
+    await admission.attempt(automatic);
+    expect(deferred.waitingFor(reviewing)).toMatchObject({
+      reason: 'codex_setup_incomplete',
+      member: 'cr',
+      provider: 'codex',
+      since: AT,
+    });
+    await admission.retryDeferred();
+    expect(retry).toHaveBeenCalledOnce();
+    incomplete = false;
+    await admission.attempt(automatic);
+    expect(deferred.list()).toEqual([]);
+  });
   /** A start that the admission refuses with `code` until it is set to null. */
   function start(
     key: string,

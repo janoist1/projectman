@@ -83,8 +83,9 @@ export interface SessionPolicy {
     /**
      * Files and directories the built-in file tools never read or change, in every permission mode
      * (the credentials of the user and the sensitive parts of the live instance, PM-165). Claude
-     * Code renders them as deny rules, which hold in Auto too; the shell is bounded by the CLI's
-     * sandbox (`denyRead`, PM-167), not by these. Absent in the managed VM profile.
+     * Code renders them as deny rules, which hold in Auto too; its shell uses `denyRead` (PM-167).
+     * Local Codex/NanoGPT shell commands use the same denials in their permission profile (PM-356).
+     * Approved host commands are outside that boundary. Absent in the managed VM profile.
      */
     deniedPaths?: string[];
     /**

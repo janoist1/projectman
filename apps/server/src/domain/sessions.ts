@@ -1774,12 +1774,19 @@ export class SessionOrchestrator {
         throw providerNotLoggedIn(provider, { sessionId: session.id, ...status }, (err as Error).message);
       }
       if (
-        ['nanogpt_key_missing', 'nanogpt_setup_incomplete', 'provider_unsupported'].includes(
-          errorCode(err) ?? '',
-        )
+        [
+          'nanogpt_key_missing',
+          'nanogpt_setup_incomplete',
+          'codex_setup_incomplete',
+          'provider_unsupported',
+        ].includes(errorCode(err) ?? '')
       ) {
         const failure = err as Error & {
-          code: 'nanogpt_key_missing' | 'nanogpt_setup_incomplete' | 'provider_unsupported';
+          code:
+            | 'nanogpt_key_missing'
+            | 'nanogpt_setup_incomplete'
+            | 'codex_setup_incomplete'
+            | 'provider_unsupported';
           details?: Record<string, unknown>;
         };
         throw conflict(failure.code, failure.message, failure.details);

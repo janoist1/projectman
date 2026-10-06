@@ -1,12 +1,12 @@
 import { chmod, lstat, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared';
+import { cliVersionAtLeast, NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
-import { inspectAmbientConfig } from '../../managed-vm';
+import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
 import { createCodexAdapter } from '../codex';
-import { buildCodexArgs, NANOGPT_CODEX_PROVIDER } from '../codex/args';
+import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
 import type { ProviderAdapter } from '../types';
 
 export class NanogptStartError extends Error {
@@ -38,13 +38,7 @@ export function createNanogptAdapter(opts: {
   }
   const parseVersion = (out: Awaited<ReturnType<typeof runQuietly>>): ProviderStatus => {
     const cliVersion = out.stdout.match(/codex-cli\s+(\d+\.\d+\.\d+)/)?.[1];
-    const version = cliVersion?.split('.').map(Number);
-    const minimum = NANOGPT_MIN_CODEX_VERSION.split('.').map(Number);
-    const good =
-      version &&
-      (version[0]! > minimum[0]! ||
-        (version[0] === minimum[0] &&
-          (version[1]! > minimum[1]! || (version[1] === minimum[1] && version[2]! >= minimum[2]!))));
+    const good = cliVersion !== undefined && cliVersionAtLeast(cliVersion, NANOGPT_MIN_CODEX_VERSION);
     return {
       provider: 'nanogpt',
       loggedIn: Boolean(good && out.code === 0 && !out.error),
@@ -75,6 +69,15 @@ export function createNanogptAdapter(opts: {
       return status;
     },
     async launch(input) {
+      if (
+        input.cliPath &&
+        codexCliReadRoot(input.cliPath, codexDeniedPaths({ spec: input.spec, codexHome: opts.codexHome }))
+          .kind === 'misplaced'
+      )
+        throw new NanogptStartError('nanogpt_setup_incomplete', {
+          problem: 'cli_location',
+          cliPath: input.cliPath,
+        });
       if (input.spec.permissionMode === 'bypassPermissions')
         throw new NanogptStartError('nanogpt_setup_incomplete');
       if (input.spec.policy?.execution?.profile === 'managed_vm')
@@ -91,11 +94,23 @@ export function createNanogptAdapter(opts: {
       });
       if (ambientConfig.length > 0)
         throw new NanogptStartError('nanogpt_setup_incomplete', { ambientConfig });
+      const userMcp = await inspectCodexMcpServers({ codexHome: opts.codexHome });
+      if (userMcp.unresolved.length)
+        throw new NanogptStartError('nanogpt_setup_incomplete', {
+          problem: 'mcp_config',
+          ambientConfig: userMcp.unresolved,
+        });
       const key = await opts.nanogptKey();
       if (!key) throw new NanogptStartError('nanogpt_key_missing');
       await mkdir(opts.codexHome, { recursive: true, mode: 0o700 });
       await chmod(opts.codexHome, 0o700);
-      const command = buildCodexArgs({ ...input, realCwd, provider: NANOGPT_CODEX_PROVIDER });
+      const command = buildCodexArgs({
+        ...input,
+        realCwd,
+        codexHome: opts.codexHome,
+        provider: NANOGPT_CODEX_PROVIDER,
+        disabledMcpServers: userMcp.names,
+      });
       return {
         ...resolveCommand(opts.bin, command.args),
         cliArgs: command.args,

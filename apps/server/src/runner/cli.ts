@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, stat } from 'node:fs/promises';
+import { access, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -22,20 +22,28 @@ export function resolveCommand(bin: string, args: string[]): { file: string; arg
  * file, and a bare name must be found on `pathEnv`.
  */
 export async function cliExists(bin: string, pathEnv: string | undefined): Promise<boolean> {
+  return (await resolveCliPath(bin, pathEnv)) !== null;
+}
+
+/** Resolve the first usable CLI on the session PATH, including symbolic link chains. */
+export async function resolveCliPath(bin: string, pathEnv: string | undefined): Promise<string | null> {
   const usable = async (file: string, mode: number) => {
     try {
       await access(file, mode);
-      return (await stat(file)).isFile();
+      return (await stat(file)).isFile() ? await realpath(file) : null;
     } catch {
-      return false;
+      return null;
     }
   };
   if (SCRIPT_RE.test(bin)) return usable(bin, constants.R_OK);
   if (bin.includes('/')) return usable(path.resolve(bin), constants.X_OK);
   for (const dir of (pathEnv ?? '').split(path.delimiter)) {
-    if (dir && (await usable(path.join(dir, bin), constants.X_OK))) return true;
+    if (dir) {
+      const resolved = await usable(path.join(dir, bin), constants.X_OK);
+      if (resolved) return resolved;
+    }
   }
-  return false;
+  return null;
 }
 
 export interface CommandOutput {

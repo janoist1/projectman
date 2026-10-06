@@ -503,6 +503,10 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
   const common = () => ({
     // Neither `~/.npm` (the host's `npx` runs code from its `_npx`) nor `~/.projectman-dev`.
     allowWrite: memberDirs(),
+    portable: {
+      allowWrite: memberDirs(),
+      env: { npm_config_cache: memberDirs()[0], PROJECTMAN_HOME: memberDirs()[1] },
+    },
     env: {
       npm_config_cache: memberDirs()[0],
       PROJECTMAN_HOME: memberDirs()[1],

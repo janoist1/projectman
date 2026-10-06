@@ -19,7 +19,7 @@ import { ENTER_KEY, PASTE_END, PASTE_START } from './typing';
  */
 
 class FakePty implements PtyProcess {
-  readonly pid = 4242;
+  readonly pid = process.pid;
   readonly writes: string[] = [];
   readonly signals: string[] = [];
   private readonly dataListeners: Array<(data: string) => void> = [];
@@ -189,7 +189,44 @@ async function ready(opts: Parameters<typeof start>[0] = {}) {
 beforeEach(() => {
   vi.useFakeTimers();
 });
+describe('process liveness', () => {
+  it('closes a working session when its process disappears without an exit event', async () => {
+    const s = await ready();
+    await s.hook({ hook_event_name: 'UserPromptSubmit' });
+    expect(s.session.state.state).toBe('working');
+    vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    await s.session.exited;
+    expect(s.session.isRunning).toBe(false);
+    expect(s.session.state.state).toBe('failed');
+    expect(s.events.filter((e) => e.type === 'exit')).toHaveLength(1);
+    s.pty.exit();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(s.events.filter((e) => e.type === 'exit')).toHaveLength(1);
+  });
+
+  it('keeps a live or inaccessible process running and stops probing after exit', async () => {
+    const s = await ready();
+    const probe = vi.spyOn(process, 'kill').mockReturnValue(true);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(probe).toHaveBeenCalledWith(process.pid, 0);
+    expect(s.session.isRunning).toBe(true);
+    probe.mockImplementation(() => {
+      throw Object.assign(new Error('denied'), { code: 'EPERM' });
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(s.session.isRunning).toBe(true);
+    s.pty.exit();
+    await s.session.exited;
+    probe.mockClear();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(probe).not.toHaveBeenCalled();
+  });
+});
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.useRealTimers();
   for (const session of sessions.splice(0)) session.dispose();
 });
@@ -210,7 +247,7 @@ describe('AgentSession', () => {
         },
       },
     ]);
-    expect(session.info()).toMatchObject({ pid: 4242, state: 'starting' });
+    expect(session.info()).toMatchObject({ pid: process.pid, state: 'starting' });
     expect(states()).toEqual<SessionState[]>(['starting']);
   });
 

@@ -105,6 +105,7 @@ export class AgentSession {
   private readonly log: FastifyBaseLogger;
   private readonly timing: SessionTiming;
   private proc: PtyProcess | null = null;
+  private processTimer: NodeJS.Timeout | null = null;
   private current: StateSnapshot = { state: 'starting', activity: null };
   private resolveExited!: () => void;
   private hasExited = false;
@@ -270,6 +271,7 @@ export class AgentSession {
       this.deps.emit({ type: 'first_input_sent', sessionId: this.id });
     }
     this.startWatch();
+    this.watchProcess();
     this.emitState();
   }
 
@@ -1231,6 +1233,24 @@ export class AgentSession {
 
   // ---------------------------------------------------------------- stop / exit
 
+  /** Recover a missed PTY exit event, including after host sleep (PM-376). */
+  private watchProcess(): void {
+    this.processTimer = setInterval(() => {
+      if (this.hasExited || !this.proc) return;
+      try {
+        process.kill(this.proc.pid, 0);
+      } catch (err) {
+        // EPERM (another worker account) and unavailable probes do not prove an exit.
+        if ((err as NodeJS.ErrnoException).code === 'ESRCH') {
+          this.log.warn({ sessionId: this.id, pid: this.proc.pid }, 'agent CLI process disappeared');
+          void this.onExit(1, null);
+          return;
+        }
+      }
+    }, 30_000);
+    this.processTimer.unref();
+  }
+
   /** Graceful stop (SIGTERM, then SIGKILL after a timeout), or an immediate kill. */
   async stop(force = false): Promise<void> {
     if (this.hasExited) return this.exited;
@@ -1252,6 +1272,8 @@ export class AgentSession {
   private async onExit(exitCode: number, signal: number | null): Promise<void> {
     if (this.hasExited) return;
     this.hasExited = true;
+    if (this.processTimer) clearInterval(this.processTimer);
+    this.processTimer = null;
     this.deps.onExited(this);
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
@@ -1291,6 +1313,8 @@ export class AgentSession {
 
   /** Frees the headless terminal (after the session is no longer needed for snapshots). */
   dispose(): void {
+    if (this.processTimer) clearInterval(this.processTimer);
+    this.processTimer = null;
     this.screen.dispose();
   }
 

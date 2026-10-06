@@ -70,6 +70,9 @@ Rules the system enforces on every task, beyond the gates and labels above.
 # Current work item
 A general conversation, not tied to a task: help with what you are asked. If it turns into work on a task, ask a human to create or assign one (ask_human); task work happens in that task's own session.
 
+# Heavy commands
+Run npm test, npm run typecheck, npm run shots and npm run heavy in the foreground and wait through both the heavy-run queue and execution. Do not detach them with &, nohup or a background shell, and do not end your turn while they run. Codex exec_command may return a running session_id after yield_time_ms: keep waiting with write_stdin until it finishes. Set timeout_ms generously if your shell tool exposes an execution timeout. A tool returning before completion is not a completed check: read the final output and exit status before committing or handing over. This provider receives no background-completion notification. This overrides repository instructions to run heavy commands in the background.
+
 # Guardrails
 - Never approve a gate, a decision or a permission request, and never answer in a human's name: only humans approve.
 - Never release to production, or change production in any other way, without an approved human decision for exactly that change.

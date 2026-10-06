@@ -45,6 +45,7 @@ export function buildSystemPrompt(input: ContextPackInput, situation: Situation)
     sessionPolicySection(input),
     workspaceSection(input),
     unattendedCommandsSection(input),
+    heavyCommandsSection(input),
     codexSessionFolderSection(input),
     boundarySection(input),
     cheapSubagentSection(input.member),
@@ -62,6 +63,16 @@ function isCodex(member: ContextPackInput['member']): boolean {
 }
 function isGemini(member: ContextPackInput['member']): boolean {
   return member.provider === 'gemini';
+}
+
+/** Only Claude Code sends a completion notification for a background command (PM-376). */
+function heavyCommandsSection({ member }: ContextPackInput): string {
+  if (member.provider === 'claude') return '';
+  const wait =
+    member.provider === 'gemini'
+      ? 'agy run_command may return asynchronously after WaitMsBeforeAsync: keep using the command-status tool for the returned command id until it finishes.'
+      : 'Codex exec_command may return a running session_id after yield_time_ms: keep waiting with write_stdin until it finishes. Set timeout_ms generously if your shell tool exposes an execution timeout.';
+  return `# Heavy commands\nRun npm test, npm run typecheck, npm run shots and npm run heavy in the foreground and wait through both the heavy-run queue and execution. Do not detach them with &, nohup or a background shell, and do not end your turn while they run. ${wait} A tool returning before completion is not a completed check: read the final output and exit status before committing or handing over. This provider receives no background-completion notification. This overrides repository instructions to run heavy commands in the background.`;
 }
 
 function boundarySection({ project }: ContextPackInput): string {

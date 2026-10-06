@@ -271,3 +271,23 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     summary of what changed, with the card keys. The integrator creates both after the switch,
     once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
     switch backups, without GitHub releases.
+36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
+    triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
+    futásához”). This supersedes decision 25. The members keep running on the owner's machine in
+    the CLIs' own sandboxes (PM-153, PM-167, PM-356). PM-135, PM-163, PM-175, PM-266 and PM-331
+    are cancelled; the VM files and the finished parts (PM-137–146, PM-168) stay for reference.
+37. **Phase 2 team rituals are not planned now.** Decided by the owner on 2026-10-06 (board
+    triage). Meetings, retrospectives, the daily status and the „System” member (PM-44, PM-52–58)
+    are cancelled; browser notifications (PM-59) stay as a card of their own beside the phone
+    view (PM-284).
+38. **Hosting: the board in the cloud, AI work in an „office” or as „remote work”.** Decided by
+    the owner on 2026-10-06. The non-AI part of projectman runs in the cloud, like a Trello board
+    (PM-286). AI members work either in an „office”, today the owner's Mac and later possibly a
+    cloud machine such as EC2 (PM-378, a direction, not needed now), or as „remote work”, for
+    example on RunPod, which keeps working while the Mac sleeps (PM-310). No separate always-on
+    server (Hetzner, PM-45, cancelled).
+39. **The public repository's history is rewritten to remove a client's name.** Decided by the
+    owner on 2026-10-06 (PM-354). Six old commits name a client and its GitHub organization; the
+    current tree no longer does. The integrating session rewrites the history and force-pushes
+    `main` at a quiet time, tells the owner beforehand, and restarts the members' worktrees
+    afterwards. This revises the PM-48 answer that the repository stays as it is.

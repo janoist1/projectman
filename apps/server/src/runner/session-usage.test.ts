@@ -13,7 +13,7 @@ import { silentLogger, tempDirs, waitFor } from './test-helpers';
  */
 
 const fakePty = (): PtyProcess => ({
-  pid: 4242,
+  pid: process.pid,
   write: () => undefined,
   resize: () => undefined,
   kill: () => undefined,

@@ -27,7 +27,7 @@ import type { AgentSession } from './session';
  */
 
 class FakeLaunched implements LaunchedSession {
-  readonly pid = 777;
+  readonly pid = process.pid;
   readonly writes: string[] = [];
   readonly signals: string[] = [];
   private exitListener: ((event: { exitCode: number; signal?: number }) => void) | null = null;
@@ -130,7 +130,7 @@ const session = (id = 'ses_1') =>
 describe('sessions through the launcher', () => {
   it('starts the CLI through the launcher with its own arguments, member, directory and egress token', async () => {
     const info = await manager.start(spec());
-    expect(info.pid).toBe(777);
+    expect(info.pid).toBe(process.pid);
     expect(starts).toHaveLength(1);
     const request = starts[0]!;
     expect(request).toMatchObject({

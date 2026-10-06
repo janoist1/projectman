@@ -49,11 +49,13 @@ and other `sensitivePaths`; approved host commands remain outside that boundary.
 
 The launch arguments retain `mcp_servers.team`; the disabled `apps` feature concerns
 ChatGPT connectors. Fake CLI tests cover argument delivery and simulated team calls,
-not whether a real custom model receives and invokes the team tools. The owner's manual
-check must exercise a read-only `get_task` call in both a new and a resumed NanoGPT
-conversation, using each affected model. Record the CLI version, MCP startup status,
-model-visible tool names and the call outcome, without URLs containing session tokens,
-keys or raw request bodies. A text-only `TEAM_OK` response is insufficient evidence.
+not whether a real custom model receives and invokes the team tools. No configuration
+change is justified by the available evidence. After deployment, the integrator checks
+the first NanoGPT member session's tool list and a read-only `get_task` call. Record the
+CLI version, MCP startup status, model-visible tool names and the call outcome, without
+URLs containing session tokens, keys or raw request bodies. A text-only `TEAM_OK` response
+is insufficient evidence. If the failure persists, investigate it on a follow-up card;
+this manual deployment check does not block the PM-377 implementation handover.
 
 An empty `task_complete` error ends the runner turn even if no Stop hook follows.
 NanoGPT quota failures additionally fail and stop the session, alert the owners once per

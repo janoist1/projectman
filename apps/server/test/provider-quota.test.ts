@@ -161,27 +161,49 @@ describe('NanoGPT provider quota recovery', () => {
     expect(h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key })).not.toBeNull();
   });
 
-  it('restores the deferred continuation after a server restart without inference before reset', async () => {
-    const { task, session } = await setup(100, true);
-    await fail(session);
-    await waitFor(() => waiting(task.key));
-    expect(
-      h.repos.deferredStarts.list().some((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
-    ).toBe(true);
-    h = await restartDomainHarness(h, { now: () => now });
-    h.runnerModule.planUsage.value = usage(100);
-    await h.domain.start();
-    await h.domain.admission.retryDeferred();
-    expect(h.runner.started).toHaveLength(0);
-    expect(alerts()).toHaveLength(1);
-    now = new Date(reset);
-    await h.domain.admission.retryDeferred();
-    await waitFor(() =>
-      h.runner.started.some((spec) =>
-        spec.initialMessage?.includes('Your previous turn stopped because NanoGPT'),
-      ),
-    );
-  });
+  it.each([40, 100])(
+    'restores two continuations without inference before observing usage %i',
+    async (percent) => {
+      const { task, session } = await setup(100, true);
+      const otherTask = await h.domain.tasks.create('AR', { title: 'Another quota recovery' }, OWNER_ACTOR);
+      const other = await h.domain.taskStarts.start('AR', otherTask.key, {
+        assignee: 'dev-2',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      await Promise.all([fail(session), fail(other.session!)]);
+      await waitFor(() => waiting(task.key));
+      await waitFor(() => waiting(otherTask.key));
+      expect(
+        h.repos.deferredStarts.list().filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume'),
+      ).toHaveLength(2);
+      h = await restartDomainHarness(h, { now: () => now });
+      // The restarted fake source is unknown: persisted continuations must not launch inference.
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(0);
+      expect(alerts()).toHaveLength(1);
+      h.runnerModule.planUsage.value = usage(percent);
+      h.domain.planUsage.invalidate();
+      await h.domain.admission.retryDeferred();
+      if (percent >= 99) {
+        expect(h.runner.started).toHaveLength(0);
+        now = new Date('2026-10-11T11:59:59Z');
+        await h.domain.admission.retryDeferred();
+        expect(h.runner.started).toHaveLength(0);
+        now = new Date(reset);
+        await h.domain.admission.retryDeferred();
+      }
+      await waitFor(() => h.runner.started.length === 2);
+      for (const taskKey of [task.key, otherTask.key]) {
+        const resumed = h.runner.started.find((spec) => {
+          const restoredSession = h.domain.sessions.get('AR', spec.sessionId);
+          return restoredSession.workItem.type === 'task' && restoredSession.workItem.taskKey === taskKey;
+        });
+        expect(resumed?.initialMessage).toContain('Your previous turn stopped because NanoGPT');
+      }
+      expect(alerts()).toHaveLength(1);
+    },
+  );
 
   it('drops a continuation when its task is reassigned', async () => {
     const { task, session } = await setup(100);

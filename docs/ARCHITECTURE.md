@@ -817,8 +817,8 @@ sets `ContextPackInput.serverFullTest` in the session brief. Implementation and 
 then ask only for targeted tests and the type check of touched parts while working: the server runs
 the configured full command on the handed-over commit, PTY tests included. Otherwise the steps ask
 for targeted tests while working and one full test and type check on the handed-over commit.
-A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session or merge step
-(PM-380): developers and maintainers then run only related tests and the type check of touched
+A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
+or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
 workspaces, including at hand-over and in fix rounds. This is an instruction policy; it does not
 execute a merge test or add a pipeline step. The integrator checks the card before it enters
 the default branch, using the heavy-run queue for a full run. PM uses this mode (decision 40);
@@ -827,8 +827,8 @@ other projects retain their existing default (absent or false). The two settings
 precedence in the developer's instructions. Setting both requests two full checks per card,
 one before review and one before merge. To check only at merge, omit `reviewTest`. Reviewers
 without a server result also receive instructions to run only targeted tests.
-No machine boundary changes: the check runs
-where the integrator runs. Dependencies are installed only when missing from the working directory.
+No machine boundary changes: the check runs where the integrator runs. Dependencies are
+installed only when missing from the working directory.
 
 ## Heavy-run queue (PM-332)
 

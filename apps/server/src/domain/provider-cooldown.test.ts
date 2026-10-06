@@ -13,8 +13,22 @@ describe('ProviderCooldowns', () => {
       expect(cooldowns.check('codex', at)).toBeNull();
       at = hit.until;
     }
-    cooldowns.succeeded('nanogpt');
+    cooldowns.succeeded('nanogpt', at);
     expect(cooldowns.hit('nanogpt', at).streak).toBe(1);
     expect(cooldowns.check('nanogpt', at)?.until.getTime()).toBe(at.getTime() + 15 * 60_000);
+  });
+
+  it('keeps an active wait unchanged after simultaneous failures and a concurrent successful turn', () => {
+    const cooldowns = new ProviderCooldowns();
+    const at = new Date('2026-10-06T12:00:00Z');
+    const first = cooldowns.hit('nanogpt', at);
+    const during = new Date(at.getTime() + 60_000);
+    expect(cooldowns.hit('nanogpt', during)).toEqual(first);
+    cooldowns.succeeded('nanogpt', during);
+    expect(cooldowns.check('nanogpt', during)).toEqual({ until: first.until });
+    expect(cooldowns.hit('nanogpt', during)).toEqual(first);
+    const second = cooldowns.hit('nanogpt', first.until);
+    expect(second.streak).toBe(2);
+    expect(second.until.getTime() - first.until.getTime()).toBe(30 * 60_000);
   });
 });

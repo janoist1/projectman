@@ -2306,7 +2306,7 @@ export class SessionOrchestrator {
           this.wakeForNewRound(updated);
           if (updated.state === 'idle' && session.state !== 'idle') {
             if (session.state === 'working' && session.provider === 'nanogpt' && event.activity === null)
-              this.providerCooldowns.succeeded('nanogpt');
+              this.providerCooldowns.succeeded('nanogpt', this.ctx.now());
             void this.ctx.events.emit('session_idle', updated);
           }
           if (updated.state === 'idle') this.turnEnded(updated.id);
@@ -2395,6 +2395,7 @@ export class SessionOrchestrator {
         }
         case 'rate_limited': {
           if (event.provider !== 'nanogpt') return;
+          const alreadyCooling = this.providerCooldowns.check(event.provider, this.ctx.now()) !== null;
           const cooldown = this.providerCooldowns.hit(event.provider, this.ctx.now());
           this.ctx.logger.warn(
             {
@@ -2406,7 +2407,7 @@ export class SessionOrchestrator {
             'provider request limit reached',
           );
           const config = this.deps.projects.cachedConfig(session.projectKey);
-          if (cooldown.streak === 1 && config) {
+          if (!alreadyCooling && cooldown.streak === 1 && config) {
             const owners = ownerHandles(config);
             if (owners.length > 0)
               this.deps.inbox?.create({

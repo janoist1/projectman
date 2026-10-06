@@ -11,7 +11,9 @@ export class ProviderCooldowns {
   private readonly entries = new Map<AgentProvider, { until: Date; streak: number }>();
 
   hit(provider: AgentProvider, at: Date): { until: Date; streak: number } {
-    const streak = (this.entries.get(provider)?.streak ?? 0) + 1;
+    const existing = this.entries.get(provider);
+    if (existing && existing.until > at) return { ...existing, until: new Date(existing.until) };
+    const streak = (existing?.streak ?? 0) + 1;
     const delay = Math.min(
       PROVIDER_COOLDOWN_INITIAL_MS * 2 ** Math.min(streak - 1, 4),
       PROVIDER_COOLDOWN_MAX_MS,
@@ -26,7 +28,8 @@ export class ProviderCooldowns {
     return entry && entry.until > now ? { until: new Date(entry.until) } : null;
   }
 
-  succeeded(provider: AgentProvider): void {
-    this.entries.delete(provider);
+  succeeded(provider: AgentProvider, now: Date): void {
+    const entry = this.entries.get(provider);
+    if (entry && entry.until <= now) this.entries.delete(provider);
   }
 }

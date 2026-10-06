@@ -38,10 +38,18 @@ describe('NanoGPT provider cooldown admission', () => {
     expect(() => h.domain.sessions.typeInto(second.session, 'Blocked input')).toThrow(
       expect.objectContaining({ code: 'provider_rate_limited' }),
     );
+    h.runner.setState(second.session.id, 'working');
+    h.runner.setState(second.session.id, 'idle');
+    expect(() => h.domain.sessions.typeInto(second.session, 'Still blocked')).toThrow(
+      expect.objectContaining({ code: 'provider_rate_limited' }),
+    );
     await h.domain.messaging.send('AR', 'owner', { to: ['dev-2'], text: 'Deferred live input' });
     await waitFor(() => h.repos.deferredStarts.list().length > 0);
     expect(h.runner.messages.some((message) => message.text.includes('Deferred live input'))).toBe(false);
-    now = new Date('2026-10-06T12:30:00Z');
+    now = new Date('2026-10-06T12:14:59Z');
+    await h.domain.admission.retryDeferred();
+    expect(h.runner.messages.some((message) => message.text.includes('Deferred live input'))).toBe(false);
+    now = new Date('2026-10-06T12:15:00Z');
     await h.domain.admission.retryDeferred();
     await waitFor(() => h.runner.messages.some((message) => message.text.includes('Deferred live input')));
     expect(h.runner.started).toHaveLength(2);

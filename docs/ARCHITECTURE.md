@@ -875,6 +875,10 @@ workers follow the machine's size.
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
   checks and returns readiness status. It never persists or returns the delivered key,
   including in its spool; a replaced key affects only subsequent launches and resumes.
+  Codex rollout `task_complete` (including an empty failed response) and `turn_aborted`
+  events end the runner's turn even without a Stop hook; a later `task_started` supersedes
+  that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
+  events beside the CLI and forward the resulting session state to the server.
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home

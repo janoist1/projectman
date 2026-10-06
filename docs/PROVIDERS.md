@@ -45,6 +45,24 @@ lock lives outside the worktree sandbox. See SECURITY.md for the unresolved same
 process-environment risks. The PM-356 local permission profile denies the secret store
 and other `sensitivePaths`; approved host commands remain outside that boundary.
 
+### Investigating a missing team MCP or a 429 (PM-377)
+
+The launch arguments retain `mcp_servers.team`; the disabled `apps` feature concerns
+ChatGPT connectors. Fake CLI tests cover argument delivery and simulated team calls,
+not whether a real custom model receives and invokes the team tools. The owner's manual
+check must exercise a read-only `get_task` call in both a new and a resumed NanoGPT
+conversation, using each affected model. Record the CLI version, MCP startup status,
+model-visible tool names and the call outcome, without URLs containing session tokens,
+keys or raw request bodies. A text-only `TEAM_OK` response is insufficient evidence.
+
+An empty `task_complete` error ends the runner turn even if no Stop hook follows.
+This recovers the working state; it does not establish a quota reset time or prevent
+future starts. A generic 429 does not distinguish subscription exhaustion from upstream
+throttling. Check the account's usage and subscription reset time before deciding when
+to retry; never enable paid overage as part of diagnosis. NanoGPT's
+[support page](https://nano-gpt.com/support) describes input-token allowances, model
+multipliers and rate limits; the account's actual allowance must be checked separately.
+
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
 on the sponsor's ChatGPT plan (decision 15). Both run as interactive TUIs in a PTY, never

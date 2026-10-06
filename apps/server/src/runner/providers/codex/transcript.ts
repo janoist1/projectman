@@ -324,7 +324,13 @@ export class CodexTranscriptParser implements TranscriptLineParser {
 
   private event(payload: Json, id: string, ts: string, out: CodexParseResult): void {
     switch (payload.type) {
+      case 'task_started':
+        out.turnEnded = false;
+        out.turnAt = ts;
+        return;
       case 'turn_aborted': {
+        out.turnEnded = true;
+        out.turnAt = ts;
         if (payload.reason === 'interrupted') {
           out.items.push({ kind: 'system_note', id, ts, text: 'Interrupted by user' });
           out.interruptedAt = ts;
@@ -333,6 +339,8 @@ export class CodexTranscriptParser implements TranscriptLineParser {
         return;
       }
       case 'task_complete':
+        out.turnEnded = true;
+        out.turnAt = ts;
         this.turnError(rec(payload.error), id, ts, out);
         return;
       case 'token_count': {

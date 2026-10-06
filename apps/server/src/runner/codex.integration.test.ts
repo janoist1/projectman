@@ -442,6 +442,23 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     ]);
   });
 
+  it('closes an empty failed turn without a Stop hook and accepts the next message', async () => {
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+    await runner.runner.sendUserMessage(s.sessionId, 'EMPTY_FAILURE');
+    await waitState(s.sessionId, 'working');
+    await waitChat(
+      s.sessionId,
+      (i) => i.kind === 'system_note' && i.text === 'stream disconnected before completion',
+      'failed turn',
+    );
+    await waitState(s.sessionId, 'idle');
+    await runner.runner.sendUserMessage(s.sessionId, 'after the failure');
+    await assistantSaid(s.sessionId, 'Echo: after the failure');
+  });
+
   it('maps the permission mode to the sandbox: edits are asked in default mode only', async () => {
     await setup();
     const reviewer = spec({ permissionMode: 'default' });

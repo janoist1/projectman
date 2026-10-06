@@ -176,6 +176,7 @@ describe('CodexTranscriptParser', () => {
       { kind: 'system_note', text: 'stream disconnected before completion' },
     ]);
     expect(failed.authError).toBeNull();
+    expect(failed.turnEnded).toBe(true);
 
     const lost = new CodexTranscriptParser().parseLines([
       line('event_msg', {
@@ -204,6 +205,24 @@ describe('CodexTranscriptParser', () => {
     expect(
       new CodexTranscriptParser().parseLines(['{', '', 'null', '{"type":"response_item"}']).items,
     ).toEqual([]);
+  });
+
+  it('ends an empty failed turn and lets a later start supersede it', () => {
+    const complete = line('event_msg', {
+      type: 'task_complete',
+      last_agent_message: null,
+      error: { message: 'exceeded retry limit, last status: 429 Too Many Requests' },
+    });
+    const parser = new CodexTranscriptParser();
+    expect(parser.parseLines([complete])).toMatchObject({ turnEnded: true, turnAt: expect.any(String) });
+    expect(parser.parseLines([complete, line('event_msg', { type: 'task_started' })])).toMatchObject({
+      turnEnded: false,
+    });
+    expect(
+      parser.parseLines([line('event_msg', { type: 'turn_aborted', reason: 'replaced' })]),
+    ).toMatchObject({
+      turnEnded: true,
+    });
   });
 });
 

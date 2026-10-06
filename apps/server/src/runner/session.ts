@@ -134,6 +134,7 @@ export class AgentSession {
   /** The CLI's own conversation id, when it chooses it (Codex). */
   private providerSessionId: string | null = null;
   private authFailure: string | null = null;
+  private rateLimitFailure: string | null = null;
 
   private readonly timers = new Set<NodeJS.Timeout>();
   /** The compaction the server asked for, until PostCompact or until it is given up (PM-213). */
@@ -1047,7 +1048,7 @@ export class AgentSession {
 
   private onTranscriptLines(parser: TranscriptLineParser, lines: string[]): void {
     if (parser !== this.parser) return;
-    const { items, interruptedAt, turnEnded, turnAt, authError, usage, contextTokens } =
+    const { items, interruptedAt, turnEnded, turnAt, authError, rateLimit, usage, contextTokens } =
       parser.parseLines(lines);
     if (items.length > 0) this.deps.emit({ type: 'chat', sessionId: this.id, items });
     if (usage?.length || contextTokens !== undefined) {
@@ -1060,6 +1061,20 @@ export class AgentSession {
     }
     if (authError) {
       this.authFailed(authError);
+      return;
+    }
+    if (rateLimit && Date.parse(rateLimit.at) >= this.lastPromptAt) {
+      if (!this.rateLimitFailure) {
+        this.rateLimitFailure = rateLimit.message;
+        this.deps.emit({
+          type: 'rate_limited',
+          sessionId: this.id,
+          provider: this.adapter.provider,
+          ...rateLimit,
+        });
+        this.apply({ kind: 'rate_limited', message: rateLimit.message });
+        void this.stop(false);
+      }
       return;
     }
     // Esc during a turn ends it without a Stop hook; the transcript records the interruption.
@@ -1289,7 +1304,8 @@ export class AgentSession {
       tailer.stop();
     }
 
-    const failed = !this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0);
+    const failed =
+      this.rateLimitFailure !== null || (!this.stopRequested && (exitCode !== 0 || (signal ?? 0) !== 0));
     // Leave a trace in the terminal, so its snapshot shows why the session is gone.
     const note = `\r\n\x1b[2m[session ended: exit code ${exitCode}${signal ? `, signal ${signal}` : ''}]\x1b[0m\r\n`;
     this.screen.write(note);
@@ -1299,7 +1315,7 @@ export class AgentSession {
         { sessionId: this.id, exitCode, signal, provider: this.adapter.provider },
         'agent CLI exited before it was ready',
       );
-    this.apply({ kind: 'exit', failed });
+    this.apply({ kind: 'exit', failed, message: this.rateLimitFailure ?? undefined });
     // A pause still stopping the session ends with it.
     const p = this.pauseState;
     if (p?.phase === 'stopping') {

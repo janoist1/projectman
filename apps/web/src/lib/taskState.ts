@@ -16,7 +16,7 @@ import type {
   Task,
   WorkDoing,
 } from '@projectman/shared';
-import { formatAge } from '../i18n/format';
+import { formatAge, formatTime } from '../i18n/format';
 import { joinNames, t } from '../i18n/t';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
@@ -289,6 +289,7 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     percent: waiting.threshold ?? '',
+    until: waiting.until ? formatTime(waiting.until) : '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),
     labels: (waiting.labels ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', '),
     name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),

@@ -43,7 +43,8 @@ export type SessionSignal =
   | { kind: 'setup_cleared'; ready: boolean }
   /** The CLI lost its login (e.g. "Login expired · Please run /login"); the session is stopped. */
   | { kind: 'auth_failed'; message: string }
-  | { kind: 'exit'; failed: boolean };
+  | { kind: 'rate_limited'; message: string }
+  | { kind: 'exit'; failed: boolean; message?: string };
 
 export interface StateSnapshot {
   state: SessionState;
@@ -142,9 +143,10 @@ export function nextState(current: StateSnapshot, signal: SessionSignal): StateS
       return current;
 
     case 'auth_failed':
+    case 'rate_limited':
       return { state: 'failed', activity: signal.message };
 
     case 'exit':
-      return { state: signal.failed ? 'failed' : 'exited', activity: null };
+      return { state: signal.failed ? 'failed' : 'exited', activity: signal.message ?? null };
   }
 }

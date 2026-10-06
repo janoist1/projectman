@@ -227,6 +227,13 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'provider_rate_limited')
+    return t('inbox.alerts.provider_rate_limited.body', {
+      provider: t(`providers.${alert.provider}`),
+      member: nameOf(item.source, members, myHandle),
+      until: formatStamp(alert.until),
+      message: alert.message,
+    });
   if (alert.alert === 'message_burst')
     return t('inbox.alerts.message_burst.body', {
       key: alert.taskKey,

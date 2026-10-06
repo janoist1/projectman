@@ -421,6 +421,7 @@ export function createDomain(opts: DomainOptions) {
     }
   }
   const sessions = new SessionOrchestrator({
+    inbox,
     ctx,
     projects,
     tasks,

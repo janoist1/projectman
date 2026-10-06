@@ -6,6 +6,7 @@ import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts'
 import { resolveCommand, runQuietly } from '../../cli';
 import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
 import { createCodexAdapter } from '../codex';
+import { CodexTranscriptParser } from '../codex/transcript';
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
 import type { ProviderAdapter } from '../types';
 
@@ -55,6 +56,8 @@ export function createNanogptAdapter(opts: {
     ...codex,
     provider: 'nanogpt',
     label: 'NanoGPT',
+    createTranscriptParser: (parserOpts) =>
+      new CodexTranscriptParser({ ...parserOpts, detectRateLimit: true }),
     planUsage: { get: async () => null },
     noteTranscript: undefined,
     loginCommand: ['--version'],

@@ -879,6 +879,12 @@ workers follow the machine's size.
   events end the runner's turn even without a Stop hook; a later `task_started` supersedes
   that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
   events beside the CLI and forward the resulting session state to the server.
+  NanoGPT-only quota detection emits `rate_limited` over the existing RunnerEvent boundary;
+  `domain/provider-cooldown.ts` keeps a provider-wide, in-memory exponential cooldown on the
+  server (15 minutes, doubling up to 240 minutes), blocking starts and message wakeups.
+  The first failure of a streak alerts the owners; a completed quota-free turn resets it.
+  Server restart loses the cooldown; the next 429 arms it again. No new machine-dependent
+  boundary is required (PM-377).
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home

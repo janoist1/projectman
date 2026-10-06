@@ -167,6 +167,26 @@ const providerIdOf = (id: string) =>
   )?.providerSessionId;
 
 describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
+  it('fails and stops a NanoGPT session on an empty 429 completion without a Stop hook', async () => {
+    const nanoHome = await dirs.make('nano-limit-home-');
+    process.env.FAKE_CODEX_VERSION = '0.159.1';
+    await setup({ nanogptKey: async () => 'fictional-quota-key', nanogptCodexHome: nanoHome });
+    const s = spec({ provider: 'nanogpt', initialMessage: 'RATE_LIMIT' });
+    await runner.runner.start(s);
+    const event = await waitFor(() =>
+      events.find((e) => e.type === 'rate_limited' && e.sessionId === s.sessionId),
+    );
+    expect(event).toMatchObject({
+      provider: 'nanogpt',
+      message: expect.stringContaining('429'),
+      at: expect.any(String),
+    });
+    await waitState(s.sessionId, 'failed');
+    await waitFor(() => events.find((e) => e.type === 'exit' && e.sessionId === s.sessionId));
+    expect(events.filter((e) => e.type === 'rate_limited')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'auth_error')).toHaveLength(0);
+    expect(statesOf(s.sessionId)).not.toContain('exited');
+  });
   it('runs NanoGPT hooks, team tools, permissions and resume in its own home without exposing the key', async () => {
     const nanoHome = await dirs.make('nano-home-');
     process.env.FAKE_CODEX_VERSION = '0.159.1';

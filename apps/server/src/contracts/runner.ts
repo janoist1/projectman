@@ -169,6 +169,7 @@ export interface StartSessionSpec {
 }
 
 export type RunnerEvent =
+  | { type: 'rate_limited'; sessionId: string; provider: AgentProvider; message: string; at: string }
   | { type: 'state'; sessionId: string; state: SessionState; activity: string | null }
   | { type: 'terminal_data'; sessionId: string; data: string }
   | { type: 'transcript_path'; sessionId: string; path: string }

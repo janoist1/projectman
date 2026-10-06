@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   approverBlocker,
+  ALERT_SEEN_OPTION,
   autoCompactWindowOf,
   cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
@@ -70,7 +71,7 @@ import type {
 } from '../contracts';
 import { encodeWorkItem } from '../db';
 import { roleLabel } from '../agent-text';
-import { requireAiMember } from './access';
+import { ownerHandles, requireAiMember } from './access';
 import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from './admission/rules';
 import { QUESTION_LIMIT } from './card-questions';
 import type { CardQuestions } from './card-questions';
@@ -103,6 +104,8 @@ import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
 import type { UsageAlerts } from './usage-alerts';
+import { ProviderCooldowns } from './provider-cooldown';
+import type { InboxService } from './inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 import { MemberWorkspaces } from './workspaces';
 import type { ProcessProbe, WorkspacePlacement } from './workspaces';
@@ -293,6 +296,8 @@ export interface SessionOrchestratorDeps {
   onExecutionProfileChange?: (projectKey: string, sessionId: string) => Promise<unknown>;
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
+  /** Quota alerts are raised once per shared-provider failure streak (PM-377). */
+  inbox?: Pick<InboxService, 'create'>;
   /** Tells the owners of a session that waits for input unseen (PM-199). */
   inputStall?: Pick<InputStallAlerts, 'raise'>;
   /** How long a session may wait for input before they are told (default `INPUT_STALL_MS`). */
@@ -456,6 +461,7 @@ export class SessionOrchestrator {
   /** Told when a session's folder is removed (the session ended), before it is (PM-351). */
   private readonly folderListeners = new Set<(sessionId: string) => void>();
   private readonly unsubscribe: () => void;
+  private readonly providerCooldowns = new ProviderCooldowns();
   /** Member workspaces (PM-138), when the server runs with them. */
   readonly workspaces: MemberWorkspaces | null;
 
@@ -905,6 +911,7 @@ export class SessionOrchestrator {
 
   /** Types text into a running session (queued by the runner until the session is idle). */
   typeInto(session: Session, text: string): Promise<void> {
+    this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER);
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
     if (this.closing.has(session.id)) throw new Error(`session ${session.id} is closing`);
     return this.deps.runner.sendUserMessage(session.id, text);
@@ -2140,7 +2147,6 @@ export class SessionOrchestrator {
       status = await this.deps.runner.providerStatus?.(provider, { member });
     } catch (err) {
       this.ctx.logger.warn({ err, provider }, 'could not check the provider login');
-      return;
     }
     if (status?.loggedIn === false) {
       throw providerNotLoggedIn(
@@ -2154,6 +2160,16 @@ export class SessionOrchestrator {
         status.detail,
       );
     }
+    this.assertProviderCooldown(provider);
+  }
+
+  assertProviderCooldown(provider: AgentProvider): void {
+    const cooldown = this.providerCooldowns.check(provider, this.ctx.now());
+    if (cooldown)
+      throw conflict('provider_rate_limited', 'Provider request limit reached', {
+        provider,
+        until: cooldown.until.toISOString(),
+      });
   }
 
   private issueToken(session: Session): string {
@@ -2288,8 +2304,11 @@ export class SessionOrchestrator {
           this.watchInputWait(updated);
           this.recomputeMemberState(session.projectKey, session.member);
           this.wakeForNewRound(updated);
-          if (updated.state === 'idle' && session.state !== 'idle')
+          if (updated.state === 'idle' && session.state !== 'idle') {
+            if (session.state === 'working' && session.provider === 'nanogpt' && event.activity === null)
+              this.providerCooldowns.succeeded('nanogpt');
             void this.ctx.events.emit('session_idle', updated);
+          }
           if (updated.state === 'idle') this.turnEnded(updated.id);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
           if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)
@@ -2372,6 +2391,42 @@ export class SessionOrchestrator {
             { sessionId: session.id, provider: event.provider, message: event.message },
             'agent CLI lost its login',
           );
+          return;
+        }
+        case 'rate_limited': {
+          if (event.provider !== 'nanogpt') return;
+          const cooldown = this.providerCooldowns.hit(event.provider, this.ctx.now());
+          this.ctx.logger.warn(
+            {
+              sessionId: session.id,
+              provider: event.provider,
+              until: cooldown.until.toISOString(),
+              streak: cooldown.streak,
+            },
+            'provider request limit reached',
+          );
+          const config = this.deps.projects.cachedConfig(session.projectKey);
+          if (cooldown.streak === 1 && config) {
+            const owners = ownerHandles(config);
+            if (owners.length > 0)
+              this.deps.inbox?.create({
+                projectKey: session.projectKey,
+                kind: 'alert',
+                assignees: owners,
+                source: session.member,
+                sessionId: session.id,
+                taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
+                title: 'NanoGPT request limit reached',
+                payload: {
+                  alert: 'provider_rate_limited',
+                  provider: event.provider,
+                  until: cooldown.until.toISOString(),
+                  message: event.message,
+                  workItem: session.workItem,
+                },
+                options: [ALERT_SEEN_OPTION],
+              });
+          }
           return;
         }
       }

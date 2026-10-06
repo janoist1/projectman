@@ -5,6 +5,7 @@ import type { RunnerEvent, StartSessionSpec } from '../contracts';
 import type { HookPayload } from './hook-payload';
 import { createClaudeAdapter } from './providers/claude';
 import { createGeminiAdapter } from './providers/gemini';
+import { createNanogptAdapter } from './providers/nanogpt';
 import { geminiSpec } from './providers/gemini/test-helpers';
 import { AgentSession, type PtyProcess } from './session';
 import { silentLogger, tempDirs } from './test-helpers';
@@ -38,7 +39,7 @@ afterEach(async () => {
   await dirs.cleanup();
 });
 
-async function start(graceMs = GRACE_MS, gemini = false) {
+async function start(graceMs = GRACE_MS, gemini = false, nanogpt = false) {
   const home = await dirs.make();
   const transcript = path.join(home, 'conversation.jsonl');
   await writeFile(transcript, '');
@@ -56,7 +57,16 @@ async function start(graceMs = GRACE_MS, gemini = false) {
     },
   };
   const claude = createClaudeAdapter({ bin: 'claude', logger: silentLogger() });
-  const adapter = gemini ? createGeminiAdapter({ bin: 'unused', logger: silentLogger() }) : claude;
+  const adapter = nanogpt
+    ? createNanogptAdapter({
+        bin: 'unused',
+        codexHome: home,
+        nanogptKey: async () => null,
+        logger: silentLogger(),
+      })
+    : gemini
+      ? createGeminiAdapter({ bin: 'unused', logger: silentLogger() })
+      : claude;
   const session = new AgentSession({
     spec: gemini ? geminiSpec('/work', { initialMessage: null }) : spec,
     hookToken: 'tok',
@@ -103,7 +113,12 @@ async function start(graceMs = GRACE_MS, gemini = false) {
       .map((e) => e.state);
   await hook({ hook_event_name: 'SessionStart', source: 'startup' });
   await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'go' });
-  return { session, hook, assistant, writes, events, states };
+  const quota = (at: Date = new Date()) =>
+    appendFile(
+      transcript,
+      `${JSON.stringify({ timestamp: at.toISOString(), type: 'event_msg', payload: { type: 'task_complete', error: { message: '429 Too Many Requests' } } })}\n`,
+    );
+  return { session, hook, assistant, quota, pty, writes, events, states };
 }
 
 const waitFor = async (check: () => boolean, ms = 3_000) => {
@@ -116,6 +131,22 @@ const ENDING = [{ type: 'text', text: 'Done.' }];
 const lateTool = { hook_event_name: 'PreToolUse', tool_name: 'ToolSearch', tool_use_id: 'late' };
 
 describe('a turn the transcript ended (PM-343)', () => {
+  it('ignores a stale NanoGPT quota failure from before the latest prompt', async () => {
+    const { session, quota, events } = await start(GRACE_MS, false, true);
+    await quota(new Date(Date.now() - 60_000));
+    expect(await waitFor(() => events.some((e) => e.type === 'chat'))).toBe(true);
+    expect(session.state.state).toBe('working');
+    expect(events.some((e) => e.type === 'rate_limited')).toBe(false);
+  });
+
+  it('keeps the quota failure when the final transcript is read during process exit', async () => {
+    const { session, quota, pty, events } = await start(GRACE_MS, false, true);
+    await quota();
+    pty.kill();
+    expect(await waitFor(() => events.some((e) => e.type === 'exit'))).toBe(true);
+    expect(session.state).toMatchObject({ state: 'failed', activity: '429 Too Many Requests' });
+    expect(events.filter((e) => e.type === 'rate_limited')).toHaveLength(1);
+  });
   it('still decides late Gemini calls without reopening the ended turn', async () => {
     const { session, hook, assistant, states } = await start(GRACE_MS, true);
     await assistant('gm1', 'end_turn', ENDING);

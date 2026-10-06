@@ -56,10 +56,13 @@ model-visible tool names and the call outcome, without URLs containing session t
 keys or raw request bodies. A text-only `TEAM_OK` response is insufficient evidence.
 
 An empty `task_complete` error ends the runner turn even if no Stop hook follows.
-This recovers the working state; it does not establish a quota reset time or prevent
-future starts. A generic 429 does not distinguish subscription exhaustion from upstream
-throttling. Check the account's usage and subscription reset time before deciding when
-to retry; never enable paid overage as part of diagnosis. NanoGPT's
+NanoGPT quota failures additionally fail and stop the session, alert the owners once per
+failure streak, and hold all NanoGPT starts and message wakeups for 15 minutes. Subsequent
+failures double the delay, up to 240 minutes; a completed quota-free turn resets it. These
+are backoff constants, not a measured quota reset time. The cooldown is in memory and is
+lost on server restart. A generic 429 does not distinguish subscription exhaustion from
+upstream throttling. Check the account's usage and subscription reset time; never enable
+paid overage as part of diagnosis. NanoGPT's
 [support page](https://nano-gpt.com/support) describes input-token allowances, model
 multipliers and rate limits; the account's actual allowance must be checked separately.
 

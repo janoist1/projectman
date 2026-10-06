@@ -193,6 +193,7 @@ export class Admission {
   ): Promise<EnsureSessionResult> {
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
+    this.sessions.assertProviderCooldown(request.member.provider ?? DEFAULT_AGENT_PROVIDER);
     if (running)
       return {
         session: running,

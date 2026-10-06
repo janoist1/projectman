@@ -802,12 +802,16 @@ async function interactive() {
     await sleep(text.includes('SLOW') ? 800 : workDelay);
     if (!busy || turn !== myTurn) return;
 
-    if (text.includes('EMPTY_FAILURE')) {
+    if (text.includes('EMPTY_FAILURE') || text.includes('RATE_LIMIT')) {
       eventMsg({
         type: 'task_complete',
         turn_id: turnId,
         last_agent_message: null,
-        error: { message: 'stream disconnected before completion' },
+        error: {
+          message: text.includes('RATE_LIMIT')
+            ? 'exceeded retry limit, last status: 429 Too Many Requests'
+            : 'stream disconnected before completion',
+        },
       });
       busy = false;
       return showPrompt();

@@ -94,6 +94,7 @@ type DeferrableReason = Exclude<
 const DEFERRABLE = new Set<ErrorCode>([
   'ai_limit_reached',
   'plan_usage_paused',
+  'provider_rate_limited',
   'disk_low',
   'ai_disabled',
   'team_paused',
@@ -130,6 +131,7 @@ export function waitingOf(
   const details = err.details as
     | {
         provider?: AgentProvider;
+        until?: string;
         threshold?: number;
         prerequisites?: string[];
         seniors?: string[];
@@ -139,6 +141,7 @@ export function waitingOf(
   return {
     reason: err.code,
     member: opts.member,
+    ...(err.code === 'provider_rate_limited' ? { provider: details?.provider, until: details?.until } : {}),
     ...(err.code === 'plan_usage_paused'
       ? { provider: details?.provider, threshold: details?.threshold }
       : {}),

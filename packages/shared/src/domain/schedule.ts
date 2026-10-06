@@ -7,6 +7,7 @@ export const ScheduleSkipReason = z.enum([
   'member_on_leave',
   'ai_limit_reached',
   'plan_usage_paused',
+  'provider_rate_limited',
   'disk_low',
   'ai_disabled',
   'team_paused',

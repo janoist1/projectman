@@ -28,7 +28,7 @@ export class ProviderQuotaHolds {
     }
     if (percent >= 99) {
       const reset = usage?.weeklyResetsAt ? new Date(usage.weeklyResetsAt) : null;
-      if (!reset || !Number.isFinite(reset.getTime())) {
+      if (!reset || !Number.isFinite(reset.getTime()) || reset.getTime() <= at.getTime()) {
         entry.until = null;
         entry.kind = 'unknown';
         return;

@@ -47,4 +47,16 @@ describe('ProviderQuotaHolds', () => {
     holds.settle('nanogpt', null, at);
     expect(holds.check('nanogpt', reset)).toEqual({ until: null, kind: 'unknown' });
   });
+  it.each([-1, 0])('keeps high usage held when its reset is %i milliseconds from now', (offset) => {
+    const holds = new ProviderQuotaHolds();
+    holds.start('nanogpt', at);
+    const staleUsage = usage(100, new Date(at.getTime() + offset).toISOString());
+    holds.settle('nanogpt', staleUsage, at);
+    expect(holds.check('nanogpt', at)).toEqual({ until: null, kind: 'unknown' });
+    expect(holds.start('nanogpt', at)).toBe(false);
+    holds.observed('nanogpt', staleUsage, at);
+    expect(holds.check('nanogpt', at)).toEqual({ until: null, kind: 'unknown' });
+    holds.observed('nanogpt', usage(40), at);
+    expect(holds.check('nanogpt', at)).toBeNull();
+  });
 });

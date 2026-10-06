@@ -71,10 +71,19 @@ function profile(): Record<ProfileKey, string> {
   });
 }
 
-function bash(script: string, args: string[] = [], env: Record<string, string> = {}) {
-  return spawnSync('bash', [script, ...args], {
+function bash(
+  scriptOrArgs: string | string[],
+  argsOrEnv: string[] | Record<string, string> = [],
+  env: Record<string, string> = {},
+) {
+  const [args, actualEnv] = Array.isArray(scriptOrArgs)
+    ? [scriptOrArgs, (argsOrEnv as Record<string, string>) || {}]
+    : Array.isArray(argsOrEnv)
+      ? [[scriptOrArgs, ...argsOrEnv], env]
+      : [[scriptOrArgs], argsOrEnv];
+  return spawnSync('bash', args, {
     encoding: 'utf8',
-    env: { PATH: process.env.PATH ?? '', ...env },
+    env: { PATH: process.env.PATH ?? '', LC_ALL: 'C', ...actualEnv },
   });
 }
 
@@ -170,16 +179,12 @@ describe('profile, units and rules agree', () => {
     const bootstrap = read('deploy/vm/bootstrap.sh');
     const loop = /base_json=\n(for destination in \$EGRESS_BASE; do[\s\S]*?\ndone)\n/.exec(bootstrap)![1]!;
     const heredoc = /cat > "\$work\/boundary\.json" <<EOF\n([\s\S]*?)\nEOF\n/.exec(bootstrap)![1]!;
-    const result = spawnSync(
-      'bash',
-      [
-        '-c',
-        `set -eu\n. "$1"\nbase_json=\n${loop}\ncat <<EOF\n${heredoc}\nEOF`,
-        '_',
-        join(vmDir, 'profile.env'),
-      ],
-      { encoding: 'utf8' },
-    );
+    const result = bash([
+      '-c',
+      `set -eu\n. "$1"\nbase_json=\n${loop}\ncat <<EOF\n${heredoc}\nEOF`,
+      '_',
+      join(vmDir, 'profile.env'),
+    ]);
     expect(result.stderr).toBe('');
     const config = BoundaryConfig.parse(JSON.parse(result.stdout));
     expect(config.profileVersion).toBe(VM_PROFILE_VERSION);
@@ -245,7 +250,7 @@ describe('profile, units and rules agree', () => {
 
 describe('the shell scripts', () => {
   it.each(scripts)('%s parses', (name) => {
-    const result = spawnSync('bash', ['-n', join(vmDir, name)], { encoding: 'utf8' });
+    const result = bash(['-n', join(vmDir, name)]);
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
   });
@@ -264,18 +269,14 @@ describe('the shell scripts', () => {
       .find((l) => l.startsWith('tcp_connect()'));
     expect(line).toBeDefined();
     const probe = (host: string, port: number) =>
-      spawnSync(
-        'bash',
-        [
-          '-uc',
-          `as_user() { [ "$1" = pmw-x ] || exit 9; shift; "$@"; }
+      bash([
+        '-uc',
+        `as_user() { [ "$1" = pmw-x ] || exit 9; shift; "$@"; }
 timeout() { shift; "$@"; }
 bash() { [ "$4" = "${host}" ] && [ "$5" = "${port}" ] || exit 8; }
 ${line}
 tcp_connect pmw-x ${host} ${port} && echo probed`,
-        ],
-        { encoding: 'utf8' },
-      );
+      ]);
     const result = probe('10.0.0.1', 8099);
     expect(result.stderr).toBe('');
     expect(result.stdout.trim()).toBe('probed');
@@ -306,14 +307,10 @@ tcp_connect pmw-x ${host} ${port} && echo probed`,
 
 describe('the report the shell helpers write', () => {
   function emit(body: string): unknown {
-    const result = spawnSync(
-      'bash',
-      [
-        '-c',
-        `. "${join(vmDir, 'lib.sh')}"\n${body}\nemit_report ${VM_PROFILE_NAME} ${VM_PROFILE_VERSION} 'Ubuntu 24.04' '6.8.0' aarch64`,
-      ],
-      { encoding: 'utf8' },
-    );
+    const result = bash([
+      '-c',
+      `. "${join(vmDir, 'lib.sh')}"\n${body}\nemit_report ${VM_PROFILE_NAME} ${VM_PROFILE_VERSION} 'Ubuntu 24.04' '6.8.0' aarch64`,
+    ]);
     expect(result.stderr).toBe('');
     return JSON.parse(result.stdout);
   }
@@ -350,20 +347,16 @@ line two $(printf '\\001\\302\\251')"`);
   });
 
   it('matches socket patterns and compares versions like the probes need', () => {
-    const result = spawnSync(
-      'bash',
-      [
-        '-c',
-        `. "${join(vmDir, 'lib.sh')}"
+    const result = bash([
+      '-c',
+      `. "${join(vmDir, 'lib.sh')}"
 matches_any /run/dbus/system_bus_socket '/run/dbus/* /dev/log' && echo allow1
 matches_any /run/docker.sock '/run/dbus/* /dev/log' || echo deny1
 matches_any /run/systemd/journal/socket '/run/systemd/*' && echo allow2
 version_at_least 22.12.0 22.12.0 && echo v1
 version_at_least 22.12.0 22.9.0 || echo v2
 version_at_least 22.12.0 23.1.0 && echo v3`,
-      ],
-      { encoding: 'utf8' },
-    );
+    ]);
     expect(result.stdout.split('\n').filter(Boolean)).toEqual([
       'allow1',
       'deny1',

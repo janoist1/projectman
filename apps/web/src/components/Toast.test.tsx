@@ -118,16 +118,11 @@ describe('ToastProvider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show Toast' }));
     expect(screen.getByText('Will unmount')).toBeTruthy();
+    expect(vi.getTimerCount()).toBe(1);
 
     // Unmount before the 7000ms timer fires
     unmount();
-
-    // Advancing timers should not throw any unhandled error (e.g. ReferenceError: window is not defined)
-    expect(() => {
-      act(() => {
-        vi.advanceTimersByTime(10000);
-      });
-    }).not.toThrow();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('renders listed items with router link when provided', () => {

@@ -98,7 +98,25 @@ describe('NanoGPT UI', () => {
       'z-ai/glm-5.3-flash-uncensored',
       'z-ai/glm-5.3-uncensored',
       'z-ai/glm-5.3-flash-cybersecurity',
+      'z-ai/glm-5.3',
+      'deepseek/deepseek-v4-pro',
+      'moonshotai/kimi-k2.7-code',
+      'minimax/minimax-m3',
+      'z-ai/glm-5.3-flash-apex-abliterated',
+      'qwen/qwen3.8-27b-uncensored',
       'custom',
+    ]);
+    expect(options.map((option) => option.textContent)).toEqual([
+      t('providerSettings.models.glm'),
+      t('providerSettings.models.glmUncensored'),
+      t('providerSettings.models.glmCybersecurity'),
+      t('providerSettings.models.glmFull'),
+      t('providerSettings.models.deepseekV4Pro'),
+      t('providerSettings.models.kimiK27Code'),
+      t('providerSettings.models.minimaxM3'),
+      t('providerSettings.models.glmApexAbliterated'),
+      t('providerSettings.models.qwenUncensored'),
+      t('providerSettings.customModel'),
     ]);
     const add = await screen.findByRole('button', { name: t('nanogptKey.add') });
     add.focus();

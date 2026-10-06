@@ -29,6 +29,12 @@ export const NANOGPT_LABELS: Record<string, PlainMessageKey> = {
   'z-ai/glm-5.3-flash-uncensored': 'providerSettings.models.glm',
   'z-ai/glm-5.3-uncensored': 'providerSettings.models.glmUncensored',
   'z-ai/glm-5.3-flash-cybersecurity': 'providerSettings.models.glmCybersecurity',
+  'z-ai/glm-5.3': 'providerSettings.models.glmFull',
+  'deepseek/deepseek-v4-pro': 'providerSettings.models.deepseekV4Pro',
+  'moonshotai/kimi-k2.7-code': 'providerSettings.models.kimiK27Code',
+  'minimax/minimax-m3': 'providerSettings.models.minimaxM3',
+  'z-ai/glm-5.3-flash-apex-abliterated': 'providerSettings.models.glmApexAbliterated',
+  'qwen/qwen3.8-27b-uncensored': 'providerSettings.models.qwenUncensored',
 };
 export const PROVIDER_MODEL_LABELS: Record<AgentProvider, Record<string, PlainMessageKey>> = {
   claude: { ...CLAUDE_FIXED_LABELS, ...CLAUDE_ALIAS_LABELS },

@@ -25,6 +25,7 @@ import { buildChildEnv, buildSessionEnv } from './env';
 import { hookUrlFor } from './hook-forwarder';
 import {
   assertManagedVmPolicy,
+  assertCodexMemberWorkspace,
   assertNoAmbientOverride,
   assertProviderVersion,
   ManagedVmUnavailableError,
@@ -67,6 +68,9 @@ export class ProviderNotLoggedInError extends Error {
  * do, and can be resumed.
  */
 export class SessionManager implements SessionRunner {
+  async assertWorkspaceConfig(input: { provider: AgentProvider; cwd: string }): Promise<void> {
+    if (input.provider === 'codex') await assertCodexMemberWorkspace(input.cwd);
+  }
   private readonly opts: RunnerModuleOptions;
   private readonly log: FastifyBaseLogger;
   readonly adapters: ProviderAdapters;
@@ -100,6 +104,7 @@ export class SessionManager implements SessionRunner {
         `invalid ${provider === 'claude' ? 'Claude' : adapter.label} session id: ${spec.claudeSessionId}`,
       );
     if (this.sessions.has(spec.sessionId)) throw new Error(`session ${spec.sessionId} is already running`);
+    await this.assertWorkspaceConfig({ provider, cwd: spec.cwd });
     const launcher = this.opts.launcher;
     if (launcher) return this.startThroughLauncher(spec, provider, launcher);
     const dir = await stat(spec.cwd).catch(() => null);

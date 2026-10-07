@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { ChatItem, SessionState } from '@projectman/shared';
@@ -106,6 +106,27 @@ const assistantSaid = (id: string, text: string) =>
   });
 const waitIdle = (id: string) =>
   waitFor(() => statesOf(id).at(-1) === 'idle', { what: `idle (now ${statesOf(id).at(-1)})` });
+
+describe('Codex project configuration admission (PM-357)', () => {
+  it('rejects unsafe configuration without starting a session, then accepts model settings', async () => {
+    await mkdir(path.join(cwd, '.codex'));
+    const file = path.join(cwd, '.codex/config.toml');
+    await writeFile(file, '[mcp_servers.x]\ncommand = "fictional-command"');
+    const start = spec('codex');
+    await expect(runner.runner.start(start)).rejects.toMatchObject({ code: 'workspace_codex_config' });
+    expect(events).toEqual([]);
+    expect(runner.runner.isRunning(start.sessionId)).toBe(false);
+    await writeFile(file, 'model = "fictional-model"');
+    await runner.runner.start(start);
+    await waitIdle(start.sessionId);
+  });
+  it('leaves Claude and NanoGPT workspace preflight alone', async () => {
+    await mkdir(path.join(cwd, '.codex'));
+    await writeFile(path.join(cwd, '.codex/hooks.json'), '{}');
+    await expect(runner.runner.assertWorkspaceConfig!({ provider: 'claude', cwd })).resolves.toBeUndefined();
+    await expect(runner.runner.assertWorkspaceConfig!({ provider: 'nanogpt', cwd })).resolves.toBeUndefined();
+  });
+});
 
 describe('the fake CLIs and a closed standard input', () => {
   it.each([FAKE_CLAUDE, FAKE_CODEX])('%s exits when its input ends, as when the server dies', async (bin) => {

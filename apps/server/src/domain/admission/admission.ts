@@ -235,7 +235,16 @@ export class Admission {
           });
           // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
           if (previous?.waiting.reason !== err.code)
-            this.ctx.logger.info({ ...start.log.fields(), reason: err.code }, start.log.deferred);
+            this.ctx.logger.info(
+              {
+                ...start.log.fields(),
+                reason: err.code,
+                ...(err.code === 'workspace_codex_config'
+                  ? { issues: (err.details as { issues?: unknown })?.issues }
+                  : {}),
+              },
+              start.log.deferred,
+            );
           return;
         }
         // The start happened, or it no longer applies.

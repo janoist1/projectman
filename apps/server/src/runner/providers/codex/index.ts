@@ -11,7 +11,7 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../ty
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
-import { inspectCodexMcpServers, type AmbientIssue } from '../../managed-vm';
+import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../managed-vm';
 
 /** A fail-closed local Codex start; details contain version and setting names, never values. */
 export class CodexStartError extends Error {
@@ -188,6 +188,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       )
         throw new CodexStartError({ problem: 'cli_location', cliPath });
       const realCwd = await realpath(spec.cwd).catch(() => spec.cwd);
+      await assertCodexMemberWorkspace(realCwd);
       const userMcp = await inspectCodexMcpServers({ codexHome: opts.codexHome });
       if (userMcp.unresolved.length)
         throw new CodexStartError({ problem: 'mcp_config', ambientConfig: userMcp.unresolved });

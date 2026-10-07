@@ -213,6 +213,8 @@ export const hu = {
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
       codex_setup_incomplete: 'A Codex-beállítás hiányos, ezért a munkamenet nem indul.',
+      workspace_codex_config:
+        'A munkafa saját .codex mappájában olyan Codex-beállítás van, amely a homokozón kívül futtathatna parancsot (például hook, MCP-szerver vagy szabály), ezért a Codex-tag nem indul el.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
@@ -455,6 +457,7 @@ export const hu = {
       nanogpt_key_missing: 'Nincs megadva NanoGPT-kulcs, ezért a munkamenet nem indul.',
       nanogpt_setup_incomplete: 'A NanoGPT-beállítás hiányos, ezért a munkamenet nem indul.',
       codex_setup_incomplete: 'A Codex-beállítás hiányos, ezért a munkamenet nem indul.',
+      workspace_codex_config: 'A munkafa .codex mappája nem engedélyezett Codex-beállítást tartalmaz.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
       nanogpt_key_rejected: 'A NanoGPT nem fogadta el a kulcsot. Ellenőrizd, és próbáld újra.',
       bad_request: 'A kérés érvénytelen.',
@@ -810,9 +813,12 @@ export const hu = {
       nanogpt_key_missing: 'Indulásra vár: nincs NanoGPT-kulcs',
       nanogpt_setup_incomplete: 'Indulásra vár: hiányos a NanoGPT-beállítás',
       codex_setup_incomplete: 'Indulásra vár: hiányos a Codex-beállítás',
+      workspace_codex_config: 'Indulásra vár: a munkafa .codex mappájában nem engedélyezett beállítás van',
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
+      workspace_codex_config:
+        'A Codex a munkafa .codex mappáját megbízhatóként tölti be, és az ottani hookok, MCP-szerverek és szabályok a homokozón kívül futnának. Töröld a mappát a feladat ágáról, vagy hagyj benne csak egy config.toml-t modellbeállításokkal. A munka ezután magától elindul (a szerver félpercenként újrapróbálja). A szerver naplója megnevezi a fájlt és a kulcsokat.',
       provider_rate_limited:
         'A szolgáltató 429-es korlátot jelzett. A munka a várakozás után magától újrapróbálkozik.',
       ai_limit_reached: 'Várj, amíg felszabadul egy AI, vagy emeld a korlátot a Beállítások → Keretek alatt.',

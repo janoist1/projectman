@@ -266,6 +266,13 @@ export const PROVIDER_NOT_LOGGED_IN = 'provider_not_logged_in';
 export const MANAGED_VM_UNAVAILABLE = 'managed_vm_unavailable';
 
 /**
+ * Codex start refused because a project `.codex/` layer contains more than a `config.toml`
+ * of allowed roots (PM-357). Details: `{ provider: 'codex', issues: Array<{ file: string;
+ * keys: string[] }> }`; names only, never values.
+ */
+export const WORKSPACE_CODEX_CONFIG = 'workspace_codex_config';
+
+/**
  * The answer to a permission request that reaches a managed VM session anyway (read by the agent,
  * so English): the profile has no local approvals, and nothing is queued for a human.
  */
@@ -320,6 +327,12 @@ export interface PauseOptions {
 }
 
 export interface SessionRunner {
+  /**
+   * Reads only, spawns nothing. Rejects with code `workspace_codex_config` when the session's
+   * own project configuration could run or allow commands outside the sandbox; resolves for
+   * other providers and a clean directory.
+   */
+  assertWorkspaceConfig?(input: { provider: AgentProvider; cwd: string }): Promise<void>;
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
   /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
   sendUserMessage(sessionId: string, text: string): Promise<void>;

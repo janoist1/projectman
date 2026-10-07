@@ -150,6 +150,7 @@ export const ERROR_CODES = [
   'nanogpt_key_missing',
   'nanogpt_setup_incomplete',
   'codex_setup_incomplete',
+  'workspace_codex_config',
   'provider_unsupported',
   'nanogpt_key_rejected',
   'session_start_failed',

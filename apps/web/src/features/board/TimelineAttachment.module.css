@@ -1,0 +1,28 @@
+/* The file name of an attachment row: a link in the timeline's own text, not a button. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--c-accent-text);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration-thickness: 2px;
+}
+
+@media (pointer: coarse) {
+  .link {
+    min-height: 44px;
+  }
+}

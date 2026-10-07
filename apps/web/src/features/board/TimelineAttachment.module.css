@@ -1,6 +1,5 @@
 /* The file name of an attachment row: an inline link that flows with the timeline's own text. */
 .link {
-  position: relative;
   display: inline;
   padding: 0;
   border: 0;
@@ -28,9 +27,8 @@
 
 /* A finger needs more than the text: the target grows around it without growing the line. */
 @media (pointer: coarse) {
-  .link::after {
-    content: '';
-    position: absolute;
-    inset: -12px -6px;
+  .link {
+    padding-block: 12px;
+    margin-block: -12px;
   }
 }

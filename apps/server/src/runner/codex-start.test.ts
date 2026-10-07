@@ -93,11 +93,10 @@ describe('fail-closed Codex start', () => {
     await writeFile(file, 'sandbox_mode = "fictional-private-value"');
     const runner = createRunnerModule(options).runner;
     await expect(runner.start(spec)).rejects.toMatchObject({
-      code: 'codex_setup_incomplete',
+      code: 'workspace_codex_config',
       details: {
         provider: 'codex',
-        problem: 'sandbox_config',
-        ambientConfig: [{ file, keys: ['sandbox_mode'] }],
+        issues: [{ file, keys: ['sandbox_mode'] }],
       },
     });
     expect(runner.list()).toEqual([]);

@@ -337,6 +337,8 @@ export const hu = {
     withReset: '{value} (visszaáll: {time})',
     paused: 'A keret {limit}% fölött van: új AI-munka nem indul.',
     badgeLabel: 'Legmagasabb AI-keret: {percent}. Részletek a Csapat oldalon.',
+    compactLabel: '{provider}-keret: {percent}',
+    dropdownTitle: '{provider}-keret',
   },
 
   /** Token usage of sessions, cards and members (PM-178). */

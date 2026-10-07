@@ -204,3 +204,105 @@ describe('plan usage tooltip', () => {
     expect(codexTip!.textContent).not.toMatch(/A keret 80%/);
   });
 });
+
+describe('provider plan usage meter, compact', () => {
+  it('shows the provider name and higher of the two windows in a button trigger', () => {
+    render(<PlanUsageMeter provider="claude" variant="compact" usage={usage} />);
+    const button = screen.getByRole('button', {
+      name: t('planUsage.compactLabel', { provider: t('providers.claude'), percent: '60%' }),
+    });
+    expect(button).toBeTruthy();
+    expect(button.textContent).toContain(t('providers.claude'));
+    expect(button.textContent).toContain('60%');
+  });
+
+  it('omits the provider when usage is null or all windows are unknown', () => {
+    const { container: nullUsage } = render(
+      <PlanUsageMeter provider="codex" variant="compact" usage={null} />,
+    );
+    expect(nullUsage.querySelector('button')).toBeNull();
+
+    const { container: unknownUsage } = render(
+      <PlanUsageMeter
+        provider="codex"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: null }}
+      />,
+    );
+    expect(unknownUsage.querySelector('button')).toBeNull();
+  });
+
+  it('shows the known window when the other is unknown in compact variant', () => {
+    render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 42 }}
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(button.textContent).toContain('42%');
+  });
+
+  it('marks the level by the value style in compact variant', () => {
+    const { container: highContainer } = render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        pauseAbove={80}
+      />,
+    );
+    expect(highContainer.querySelector('button span:nth-of-type(2)')!.className).toMatch(/value_high/);
+
+    const { container: critContainer } = render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 10, weeklyPercent: 96 }}
+        pauseAbove={80}
+      />,
+    );
+    expect(critContainer.querySelector('button span:nth-of-type(2)')!.className).toMatch(/value_critical/);
+  });
+
+  it('opens dropdown on click showing both meters, reset times and pause warning', () => {
+    render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        pauseAbove={80}
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(screen.getByText(t('planUsage.dropdownTitle', { provider: t('providers.claude') }))).toBeTruthy();
+    expect(screen.getByText(t('planUsage.fiveHour'))).toBeTruthy();
+    expect(screen.getByText(t('planUsage.weekly'))).toBeTruthy();
+    expect(screen.getByText(t('planUsage.paused', { limit: 80 }))).toBeTruthy();
+
+    // Closes on Escape
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('closes dropdown when clicking outside', () => {
+    render(
+      <div>
+        <div data-testid="outside">Outside</div>
+        <PlanUsageMeter provider="claude" variant="compact" usage={usage} />
+      </div>,
+    );
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByTestId('outside'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

@@ -114,20 +114,21 @@ describe('desktop top bar steps', () => {
     );
   }
 
-  it.each([
-    [1920, 'full'],
-    [1600, 'full'],
-    [1500, 'full'],
-    [1499, 'peak'],
-    [1280, 'peak'],
-  ] as const)('at %s px the plan usage is %s', async (width, variant) => {
-    renderAt(width);
-    await screen.findAllByRole('group', { name: /Claude|Codex/ });
-    const header = document.querySelector('header')!;
-    const meters = within(header).getAllByRole('meter');
-    const providers = within(header).getAllByRole('group').length;
-    expect(meters).toHaveLength(variant === 'full' ? providers * 2 : providers);
-  });
+  it.each([1920, 1600, 1500, 1499, 1280])(
+    'at %s px the plan usage is compact and opens dropdown on click',
+    async (width) => {
+      renderAt(width);
+      const claudeTrigger = await screen.findByRole('button', { name: /Claude/ });
+      expect(claudeTrigger).toBeTruthy();
+      expect(within(claudeTrigger).getByText(t('providers.claude'))).toBeTruthy();
+      const header = document.querySelector('header')!;
+      expect(within(header).queryAllByRole('meter')).toHaveLength(0);
+
+      fireEvent.click(claudeTrigger);
+      const meters = within(header).getAllByRole('meter');
+      expect(meters.length).toBeGreaterThan(0);
+    },
+  );
 
   it('keeps "Új feladat" with its text above 900 px and shows an icon with the same name at 900 px', async () => {
     renderAt(901);

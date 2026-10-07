@@ -1,11 +1,14 @@
 import clsx from 'clsx';
+import { useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
 import { pausesOnPlanUsage } from '@projectman/shared';
+import { Icon } from '../components/Icon';
 import { MiniMeter, meterLevel } from '../components/MiniMeter';
 import { Tooltip } from '../components/Tooltip';
 import { formatPercent, formatStamp } from '../i18n/format';
 import { t } from '../i18n/t';
+import { useDismiss } from '../lib/hooks';
 import styles from './PlanUsageMeter.module.css';
 
 /**
@@ -48,8 +51,11 @@ function valueWithReset(value: number | null, resetsAt: string | null): string {
 }
 
 /**
- * Subscription usage for one provider. `full` shows both plan windows; `peak` one meter with the
- * higher of the two. Either way the tooltip (hover, focus) has both windows and when they reset.
+ * Subscription usage for one provider.
+ * - `compact`: top bar mode; a short item with provider name and higher value, opening a dropdown
+ *   with full details on click. Renders nothing when all values are unknown ("n. a.").
+ * - `full`: shows both plan windows with MiniMeters; used in member profile.
+ * - `peak`: one meter with the higher of the two windows.
  */
 export function PlanUsageMeter({
   usage,
@@ -60,8 +66,16 @@ export function PlanUsageMeter({
   usage: PlanUsage | null | undefined;
   provider?: AgentProvider;
   pauseAbove?: number;
-  variant?: 'full' | 'peak';
+  variant?: 'full' | 'peak' | 'compact';
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const refs = useMemo(() => [wrapRef, panelRef], []);
+  const panelId = useId();
+  useDismiss(open, () => setOpen(false), refs, triggerRef);
+
   const name = t(`providers.${provider}`);
   const five = usage?.fiveHourPercent ?? null;
   const week = usage?.weeklyPercent ?? null;
@@ -82,6 +96,85 @@ export function PlanUsageMeter({
     const percent = value === null ? t('planUsage.unknown') : formatPercent(value);
     return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
   };
+
+  if (variant === 'compact') {
+    if (peak === null) return null;
+    const level = meterLevel(peak, pauseAbove);
+    const formattedPercent = formatPercent(peak);
+    return (
+      <span ref={wrapRef} className={styles.compactWrap}>
+        <button
+          ref={triggerRef}
+          type="button"
+          className={clsx(
+            styles.compactTrigger,
+            open && styles.compactTriggerOpen,
+            styles[`trigger_${level}`],
+          )}
+          aria-expanded={open}
+          aria-controls={panelId}
+          aria-haspopup="dialog"
+          aria-label={t('planUsage.compactLabel', { provider: name, percent: formattedPercent })}
+          title={tip}
+          onClick={() => setOpen((prev) => !prev)}
+        >
+          <span className={styles.compactName}>{name}</span>
+          <span className={clsx(styles.compactValue, styles[`value_${level}`])}>{formattedPercent}</span>
+          <span className={clsx(styles.compactChevron, open && styles.compactChevronOpen)} aria-hidden="true">
+            <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+          </span>
+        </button>
+        {open && (
+          <div
+            ref={panelRef}
+            id={panelId}
+            role="dialog"
+            aria-label={t('planUsage.dropdownTitle', { provider: name })}
+            className={styles.dropdownPanel}
+          >
+            <div className={styles.dropdownHeader}>
+              <span className={styles.dropdownTitle}>{t('planUsage.dropdownTitle', { provider: name })}</span>
+            </div>
+            <div className={styles.dropdownContent}>
+              <div className={styles.dropdownSection}>
+                <MiniMeter
+                  label={t('planUsage.fiveHour')}
+                  value={five}
+                  pauseAbove={pauseAbove}
+                  valueText={resetText(five, usage?.fiveHourResetsAt)}
+                />
+                {usage?.fiveHourResetsAt ? (
+                  <span className={styles.resetText}>
+                    {t('planUsage.resets', { time: formatStamp(usage.fiveHourResetsAt) })}
+                  </span>
+                ) : null}
+              </div>
+              <div className={styles.dropdownSection}>
+                <MiniMeter
+                  label={t('planUsage.weekly')}
+                  value={week}
+                  pauseAbove={pauseAbove}
+                  valueText={resetText(week, usage?.weeklyResetsAt)}
+                />
+                {usage?.weeklyResetsAt ? (
+                  <span className={styles.resetText}>
+                    {t('planUsage.resets', { time: formatStamp(usage.weeklyResetsAt) })}
+                  </span>
+                ) : null}
+              </div>
+              {paused ? (
+                <div className={styles.pausedNotice}>
+                  <Icon name="alertCircle" size={14} className={styles.pausedIcon} />
+                  <span>{t('planUsage.paused', { limit: pauseAbove })}</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+      </span>
+    );
+  }
+
   return (
     <Tooltip label={name} content={tip} className={styles.provider}>
       {variant === 'full' ? (

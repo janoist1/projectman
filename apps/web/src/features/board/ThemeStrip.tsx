@@ -5,7 +5,8 @@ import type { Task } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
-import { percentOf, progressOf, sortedThemes } from './themeModel';
+import type { PipelineIndex } from '../../lib/pipeline';
+import { columnProgressOf, progressOf, sortedThemes } from './themeModel';
 import styles from './ThemeStrip.module.css';
 
 /**
@@ -15,12 +16,14 @@ import styles from './ThemeStrip.module.css';
  */
 export function ThemeStrip({
   tasks,
+  pipeline,
   active,
   onFilter,
   onOpen,
   onNew,
 }: {
   tasks: readonly Task[];
+  pipeline: PipelineIndex;
   /** The theme the board is filtered to. */
   active: string | null;
   onFilter: (themeKey: string | null) => void;
@@ -36,10 +39,13 @@ export function ThemeStrip({
   const shown = themes.filter((theme) => isOpenTask(theme) || showClosed || theme.key === active);
   return (
     <section className={styles.strip} aria-label={t('board.themes.title')}>
-      <h2 className={styles.title}>{t('board.themes.title')}</h2>
       <ul className={styles.tiles}>
         {shown.map((theme) => {
           const progress = progressOf(theme, tasks);
+          const segments = columnProgressOf(theme, tasks, pipeline);
+          const distribution = segments
+            .map(({ column, count }) => t('board.themes.columnCount', { column: column.name, count }))
+            .join(', ');
           const pressed = theme.key === active;
           return (
             <li
@@ -55,6 +61,8 @@ export function ThemeStrip({
                   done: progress.done,
                   total: progress.total,
                 })}
+                aria-describedby={segments.length > 0 ? `theme-distribution-${theme.key}` : undefined}
+                title={distribution || undefined}
                 onClick={() => onFilter(pressed ? null : theme.key)}
               >
                 <span className={styles.name}>
@@ -63,8 +71,21 @@ export function ThemeStrip({
                 </span>
                 <span className={styles.progress}>
                   <span className={styles.bar} aria-hidden="true">
-                    <span className={styles.barDone} style={{ width: `${percentOf(progress)}%` }} />
+                    {segments.map(({ column, count }) => (
+                      <span
+                        key={column.id}
+                        className={styles.segment}
+                        data-column-color={column.color}
+                        style={{ width: `${(count / progress.total) * 100}%` }}
+                        title={t('board.themes.columnCount', { column: column.name, count })}
+                      />
+                    ))}
                   </span>
+                  {segments.length > 0 ? (
+                    <span id={`theme-distribution-${theme.key}`} className="visually-hidden">
+                      {distribution}
+                    </span>
+                  ) : null}
                   <span className={styles.count}>
                     {t('board.themes.progress', { done: progress.done, total: progress.total })}
                   </span>

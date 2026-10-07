@@ -7,15 +7,6 @@
   padding: 0 24px 12px;
 }
 
-.title {
-  flex-shrink: 0;
-  font-size: var(--text-xs);
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--c-ink-4);
-}
-
 .tiles {
   flex: 0 1 auto;
   min-width: 0;
@@ -97,16 +88,18 @@
 
 .bar {
   flex: 1 1 0;
+  display: flex;
   height: 4px;
   border-radius: 2px;
   background: var(--c-seg-todo);
   overflow: hidden;
 }
 
-.barDone {
+.segment {
   display: block;
+  flex: none;
   height: 100%;
-  background: var(--c-ok);
+  background: var(--column-fg);
   transition: width 300ms ease;
 }
 
@@ -174,7 +167,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .tile,
-  .barDone {
+  .segment {
     transition: none;
   }
 }

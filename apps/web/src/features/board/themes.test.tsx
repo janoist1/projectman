@@ -65,6 +65,54 @@ const hasCard = (title: string) =>
   withoutTeamStrip(screen.queryAllByRole('link', { name: new RegExp(title) })).length > 0;
 
 describe('themes on the board', () => {
+  it('shows proportional column segments, including subtasks and grouped stages, with an accessible description', async () => {
+    const { project, backend, theme, collector, subtask } = themed();
+    backend.updateTask(collector.key, { stageId: 'integration' });
+    backend.updateTask(subtask.key, { stageId: 'qa' });
+    const columns = backend.config.pipeline.columns;
+    columns[2]!.color = 'purple';
+    // A custom board order must also be the order of its theme segments.
+    backend.config.pipeline.columns = [
+      columns[2]!,
+      columns[0]!,
+      ...columns.filter((_, i) => i !== 0 && i !== 2),
+    ];
+    project.render(<BoardPage />, '/', { search: 'subtask' });
+    const button = await tile(theme.title, 1, 4);
+    const strip = screen.getByRole('region', { name: t('board.themes.title') });
+    expect(within(strip).queryByRole('heading')).toBeNull();
+    expect(within(strip).queryByText(t('board.themes.title'))).toBeNull();
+    const label = [
+      t('board.themes.columnCount', { column: columns[2]!.name, count: 2 }),
+      t('board.themes.columnCount', { column: columns[0]!.name, count: 1 }),
+      t('board.themes.columnCount', { column: columns[5]!.name, count: 1 }),
+    ].join(', ');
+    expect(button.title).toBe(label);
+    expect(document.getElementById(button.getAttribute('aria-describedby')!)?.textContent).toBe(label);
+    const segments = Array.from(button.querySelectorAll<HTMLElement>('[data-column-color]'));
+    expect(segments.map((segment) => segment.title)).toEqual(label.split(', '));
+    expect(segments.map((segment) => segment.style.width)).toEqual(['50%', '25%', '25%']);
+    expect(segments.map((segment) => segment.getAttribute('data-column-color'))).toEqual([
+      'purple',
+      'blue',
+      'orange',
+    ]);
+    expect(within(button).getByText(t('board.themes.progress', { done: 1, total: 4 }))).toBeTruthy();
+    fireEvent.click(button);
+    expect(button.title).toBe(label);
+  });
+
+  it('leaves empty and cancelled-only themes without coloured segments or a distribution', async () => {
+    const { project, backend, other } = themed();
+    const cancelled = create(backend, 'Cancelled card', { themeKey: other.key });
+    backend.handle('POST', `${base}/${cancelled.key}/cancel`, {});
+    project.render(<BoardPage />);
+    const button = await tile(other.title, 0, 0);
+    expect(button.querySelectorAll('[data-column-color]')).toHaveLength(0);
+    expect(button.hasAttribute('aria-describedby')).toBe(false);
+    expect(button.title).toBe('');
+  });
+
   it('lists the themes in a strip and keeps them out of the columns', async () => {
     const { project, theme, other } = themed();
     project.render(<BoardPage />);

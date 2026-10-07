@@ -759,6 +759,7 @@ export const hu = {
       hideClosed: 'Lezártak elrejtése',
       new: 'Téma',
       progress: '{done}/{total}',
+      columnCount: '{column} {count}',
     },
   },
 

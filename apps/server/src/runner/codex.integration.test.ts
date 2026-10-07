@@ -256,6 +256,27 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     expect(chatOf(s.sessionId).filter((item) => item.kind === 'user_text')).toHaveLength(1);
   });
 
+  it('delivers a queued general-chat message with the 0.159.1 status footer', async () => {
+    const screen = await readFile(
+      new URL('../../test/fixtures/codex-0.159.1-composer.txt', import.meta.url),
+      'utf8',
+    );
+    process.env.FAKE_CODEX_MODEL_FOOTER = screen.trimEnd().split('\n').at(-1)!;
+    await setup();
+    const s = spec({ model: 'gpt-6-astra', effort: 'high' });
+    await runner.runner.start(s);
+    const delivered = runner.runner.sendUserMessage(s.sessionId, 'Hello from general chat');
+    await assistantSaid(s.sessionId, 'Echo: Hello from general chat');
+    await delivered;
+    await waitState(s.sessionId, 'idle');
+    expect(statesOf(s.sessionId)).toEqual(['starting', 'idle', 'working', 'idle']);
+    expect(chatOf(s.sessionId).filter((i) => i.kind === 'user_text')).toEqual([
+      expect.objectContaining({ text: 'Hello from general chat', origin: 'human' }),
+    ]);
+    const { argv } = JSON.parse(await readFile(argsFile, 'utf8'));
+    expect(argv).not.toContain('--');
+  });
+
   it('passes the brief on the command line, learns the session id and follows the turn', async () => {
     await setup();
     const s = spec({ initialMessage: 'Hello from the brief' });

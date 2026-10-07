@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import type { SessionState } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PermissionBroker, PermissionDecision, RunnerEvent, StartSessionSpec } from '../contracts';
@@ -674,6 +675,30 @@ describe('AgentSession of Codex', () => {
   const codex = () => createCodexAdapter({ bin: 'codex', codexHome: '/nonexistent', logger: silentLogger() });
   /** Time to type a one-piece message and press Enter in Codex. */
   const TYPE_CODEX_MS = CODEX_TIMING.stepDelayMs + CODEX_TIMING.enterDelayMs;
+
+  it('types a queued general-chat message when the 0.159.1 composer appears before any hook', async () => {
+    const { session, pty, hook, states } = start({
+      adapter: codex(),
+      spec: { provider: 'codex', initialMessage: null, cols: 120, rows: 30 },
+    });
+    const queued = session.enqueue('Hello from general chat');
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.startupCheckMs);
+    expect(pty.typed()).toEqual({ pastes: [], enters: 0 });
+    const screen = readFileSync(
+      new URL('../../test/fixtures/codex-0.159.1-composer.txt', import.meta.url),
+      'utf8',
+    );
+    pty.print(screen.replace(/\n/g, '\r\n'));
+    await vi.advanceTimersByTimeAsync(
+      CODEX_TIMING.startupCheckMs + CODEX_TIMING.readySettleMs + TYPE_CODEX_MS,
+    );
+    await expect(queued).resolves.toBeUndefined();
+    expect(pty.typed()).toEqual({ pastes: ['Hello from general chat'], enters: 1 });
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Hello from general chat' });
+    await hook({ hook_event_name: 'Stop' });
+    await vi.advanceTimersByTimeAsync(CODEX_TIMING.startupTimeoutMs);
+    expect(states()).toEqual<SessionState[]>(['starting', 'idle', 'working', 'idle']);
+  });
 
   /** A resumed session whose first message is on the command line, on a screen without a composer. */
   function resumedWithPrompt() {

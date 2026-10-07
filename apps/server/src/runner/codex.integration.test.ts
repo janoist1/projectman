@@ -18,7 +18,7 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import { createRunnerModule } from './index';
-import { buildSessionPolicy } from '../domain';
+import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
 import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';
 

@@ -10,6 +10,7 @@ import type { AttachmentStorage } from '../src/contracts';
 import {
   allowedToolsFor,
   DomainError,
+  HARD_DENIED_HOSTS,
   LOCAL_ONLY_DENIED_TOOLS,
   SANDBOX_DENIED_ENV_VARS,
   SANDBOX_GIT_CONFIG,
@@ -337,7 +338,8 @@ describe('session orchestrator', () => {
     expect(deniedPaths).toContainEqual(expect.stringMatching(/\/\.ssh$/));
     expect(h.runner.lastStarted().sandbox).toMatchObject({
       denyRead: expect.arrayContaining(deniedPaths),
-      allowedDomains: ['registry.npmjs.org'],
+      allowedDomains: ['*'],
+      deniedDomains: expect.any(Array),
       allowLocalBinding: true,
     });
     expect(h.runner.lastStarted().deniedTools).toEqual(files.deny);
@@ -373,7 +375,8 @@ describe('session orchestrator', () => {
       allowWrite: [],
       denyWrite: [h.workspace, developer.session.cwd, join(h.dir, 'worktrees')],
       denyRead: reviewer.policy!.filesystem.deniedPaths,
-      allowedDomains: ['registry.npmjs.org'],
+      allowedDomains: ['*'],
+      deniedDomains: expect.any(Array),
       allowLocalBinding: true,
       env: SANDBOX_PTY_ENV,
     });
@@ -514,7 +517,9 @@ describe("a developer's sandbox reads only its own work (PM-153)", () => {
       GIT_CONFIG_SYSTEM: memberGitConfig(),
     },
     deniedEnvVars: SANDBOX_DENIED_ENV_VARS,
-    allowedDomains: ['registry.npmjs.org'],
+    // The outbound network is on unless the owner switched it off (PM-355).
+    allowedDomains: ['*'],
+    deniedDomains: HARD_DENIED_HOSTS,
     allowLocalBinding: true,
   });
 

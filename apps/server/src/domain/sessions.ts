@@ -16,6 +16,7 @@ import {
   isWorkPaused,
   memberOf,
   messageRoute,
+  outboundNetworkOf,
   repoOf,
   routes,
   sameWorkItem,
@@ -1521,6 +1522,7 @@ export class SessionOrchestrator {
       task,
       permissionMode,
       deniedPaths: sensitivePaths({ userHome, appHome: this.deps.appHome }),
+      outboundNetwork: outboundNetworkOf(member),
       placement: vm
         ? memberWorkspacePlacement(ws, cwd)
         : ws

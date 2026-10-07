@@ -1093,9 +1093,12 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
-  `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333).
+  `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333, PM-355).
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
+  The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
+  Claude member with it on gets the sandbox network allowlist `*` minus the blocked hosts, with it
+  off only the npm registry (the legacy profile; the managed VM profile is not changed by it).
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
@@ -1116,7 +1119,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   macOS MDM-managed Codex preferences are not inspected yet (PM-375).
   **Remote engine:** build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
-  path grants or infer Codex permissions from Claude syntax.
+  path grants or infer Codex permissions from Claude syntax. The outbound network intent
+  (`SessionPolicy.network.outbound`) is abstract: the remote engine enforces it with its own
+  tools (sandbox, firewall, proxy) and keeps the blocked hosts closed.
   Version/config inspection must run on the engine hosting the CLI, against that engine's
   filesystem, PATH, user home and administrator/workspace configuration, including executable
   symlink resolution and installation grants. Only sanitized setting names and

@@ -178,3 +178,47 @@
   color: var(--c-ink-4);
   line-height: 1.35;
 }
+
+.checkField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.checkInput {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--c-accent);
+}
+
+.checkLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-ink);
+  cursor: pointer;
+}
+
+.checkLabelText {
+  display: block;
+}
+
+@media (max-width: 767px) {
+  .checkLabel {
+    min-height: 44px;
+  }
+}
+
+.checkNote {
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--c-ink-4);
+  line-height: 1.35;
+  padding-left: 24px;
+}

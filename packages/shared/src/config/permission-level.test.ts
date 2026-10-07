@@ -7,6 +7,7 @@ import {
   approverOf,
   effectiveSessionPermissions,
   isLegacyBypass,
+  outboundNetworkOf,
   permissionView,
 } from './permission-level';
 import { ProjectConfig } from './schema';
@@ -48,6 +49,14 @@ describe('the approver', () => {
   it('reads as a person when none is stored', () => {
     expect(approverOf({})).toBe('human');
     for (const approver of Approver.options) expect(approverOf({ approver })).toBe(approver);
+  });
+});
+
+describe('the outbound network', () => {
+  it('is true by default when none is stored', () => {
+    expect(outboundNetworkOf({})).toBe(true);
+    expect(outboundNetworkOf({ outboundNetwork: false })).toBe(false);
+    expect(outboundNetworkOf({ outboundNetwork: true })).toBe(true);
   });
 });
 
@@ -98,12 +107,13 @@ describe('the roster fields', () => {
     expect(permissionView(config(), { handle: 'dev-1', permissionMode: 'bypassPermissions' })).toEqual({
       permissionMode: 'bypassPermissions',
       approver: 'human',
+      outboundNetwork: true,
       permissionLegacy: true,
       aiApproverBlocker: 'delegation_off',
     });
     expect(
       permissionView(config({ boundary: true }), { handle: 'dev-1', permissionMode: 'auto', approver: 'ai' }),
-    ).toEqual({ permissionMode: 'auto', approver: 'ai' });
+    ).toEqual({ permissionMode: 'auto', approver: 'ai', outboundNetwork: true });
   });
 });
 

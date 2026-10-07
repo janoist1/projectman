@@ -2213,6 +2213,7 @@ export class MockBackend {
         input.onLeave !== undefined ||
         input.instructions !== undefined ||
         input.permissionMode !== undefined ||
+        input.outboundNetwork !== undefined ||
         input.approver !== undefined)
     )
       return error(400, 'not_ai_member', 'Not an AI member');
@@ -2226,6 +2227,7 @@ export class MockBackend {
     if (nextMember.kind === 'ai') {
       if (input.permissionMode !== undefined) nextMember.permissionMode = input.permissionMode;
       if (input.approver !== undefined) nextMember.approver = input.approver;
+      if (input.outboundNetwork !== undefined) nextMember.outboundNetwork = input.outboundNetwork;
     }
     if (input.access !== undefined && nextMember.kind !== 'human')
       return error(400, 'not_human_member', 'Access is for humans');
@@ -2277,6 +2279,7 @@ export class MockBackend {
       if (input.instructions !== undefined) config.instructions = input.instructions.trim();
       if (input.permissionMode !== undefined) config.permissionMode = input.permissionMode;
       if (input.approver !== undefined) config.approver = input.approver;
+      if (input.outboundNetwork !== undefined) config.outboundNetwork = input.outboundNetwork;
       if (input.onLeave !== undefined) {
         if (input.onLeave) {
           config.onLeave = member.onLeave = true;
@@ -3657,6 +3660,7 @@ export class MockBackend {
       ...(input.cheapSubagent ? { cheapSubagent: input.cheapSubagent } : {}),
       permissionMode: defaults.permissionMode,
       approver: defaults.approver,
+      outboundNetwork: input.outboundNetwork ?? defaults.outboundNetwork,
       capacity: defaults.capacity,
       instructions: defaults.instructions,
       sponsor: this.sponsor(),

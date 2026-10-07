@@ -175,7 +175,12 @@ export function describeSandbox(input: {
     ...(sandbox.deniedEnvVars?.length
       ? [`- Environment: ${sandbox.deniedEnvVars.map(code).join(', ')} are unset for your commands.`]
       : []),
-    `- Network: only ${sandbox.allowedDomains.length > 0 ? sandbox.allowedDomains.map(code).join(', ') : 'nothing'}${sandbox.allowLocalBinding ? '; tests may listen on local ports' : ''}.`,
+    // PM-355: with the member's outbound network on, every host but the denied ones.
+    `- Network: ${
+      sandbox.allowedDomains.includes('*')
+        ? `any outbound host${sandbox.deniedDomains?.length ? ` except ${sandbox.deniedDomains.map(code).join(', ')}` : ''}`
+        : `only ${sandbox.allowedDomains.length > 0 ? sandbox.allowedDomains.map(code).join(', ') : 'nothing'}`
+    }${sandbox.allowLocalBinding ? '; tests may listen on local ports' : ''}.`,
     // Claude Code 2.1.284 asks for a command with a here-document whenever it cannot analyse the
     // command, sandbox or not (PM-153: an empty here-document at 12:44 on PM-142).
     `- One exception that still waits for a human: a here-document (${code('<<')}). Write files with your file-editing tools and pass text as a quoted argument (${code("git commit -m '…'")}).`,

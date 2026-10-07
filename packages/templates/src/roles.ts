@@ -2,6 +2,7 @@ import {
   isBuiltInRole,
   roleHolders,
   DEFAULT_NEW_MEMBER_APPROVER,
+  DEFAULT_OUTBOUND_NETWORK,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_PROVIDER_MODELS,
   type AiBuiltInRoleId,
@@ -22,6 +23,8 @@ export interface AiRoleDefaults {
   /** Who answers when the CLI asks: nobody for a new member (`DEFAULT_NEW_MEMBER_APPROVER`). */
   approver: Approver;
   capacity: number;
+  /** Whether a new member's commands can reach the network (`DEFAULT_OUTBOUND_NETWORK`, PM-355). */
+  outboundNetwork: boolean;
 }
 
 /** Built-in roles whose members run more than one work item at a time by default. */
@@ -46,6 +49,7 @@ function defaultsFor(capacity = 1): AiRoleDefaults {
     permissionMode: DEFAULT_PERMISSION_MODE,
     approver: DEFAULT_NEW_MEMBER_APPROVER,
     capacity,
+    outboundNetwork: DEFAULT_OUTBOUND_NETWORK,
   };
 }
 

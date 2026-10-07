@@ -240,3 +240,54 @@ export function ChoiceCard({ name, value, checked, onChange, title, description,
     </label>
   );
 }
+
+interface CheckFieldProps {
+  id?: string;
+  label: ReactNode;
+  hint?: ReactNode;
+  error?: string | null;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+  className?: string;
+}
+
+export function CheckField({
+  id: idProp,
+  label,
+  hint,
+  error,
+  checked,
+  disabled,
+  onChange,
+  className,
+}: CheckFieldProps) {
+  const generated = useId();
+  const id = idProp ?? generated;
+  return (
+    <div className={clsx(styles.checkField, className)}>
+      <label htmlFor={id} className={styles.checkLabel}>
+        <input
+          id={id}
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className={styles.checkInput}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy(id, hint, error)}
+        />
+        <span className={styles.checkLabelText}>{label}</span>
+      </label>
+      {error ? (
+        <div id={`${id}-error`} className={clsx(styles.error, styles.checkNote)} role="alert">
+          {error}
+        </div>
+      ) : hint ? (
+        <div id={`${id}-hint`} className={clsx(styles.hint, styles.checkNote)}>
+          {hint}
+        </div>
+      ) : null}
+    </div>
+  );
+}

@@ -319,4 +319,32 @@ describe('HireDialog', () => {
     expect((screen.getByLabelText(t('hire.model')) as HTMLSelectElement).value).toBe('gpt-6.1-sol');
     expect(screen.queryByText(t('providerSettings.astraWarning'))).toBeNull();
   });
+
+  it('sends outboundNetwork false when the owner disables it', async () => {
+    const project = mockProject();
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click((await screen.findByText(t('hire.details'))).closest('summary')!);
+    const networkCheckbox = await screen.findByRole('checkbox', { name: t('permissionControls.network') });
+    fireEvent.click(networkCheckbox);
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() =>
+      expect(project.requests.find((request) => request.method === 'POST')?.body).toMatchObject({
+        outboundNetwork: false,
+      }),
+    );
+  });
+
+  it('does not send outboundNetwork for a non-owner, keeping the default on the server', async () => {
+    const project = mockProject();
+    project.context.isOwner = false;
+    project.render(<HireDialog open onClose={() => {}} config={project.backend.config} />);
+    fireEvent.click((await screen.findByText(t('hire.details'))).closest('summary')!);
+    expect(screen.queryByRole('checkbox', { name: t('permissionControls.network') })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: t('hire.submit') }));
+    await waitFor(() => {
+      const body = project.requests.find((request) => request.method === 'POST')?.body;
+      expect(body).toBeTruthy();
+      expect(body).not.toHaveProperty('outboundNetwork');
+    });
+  });
 });

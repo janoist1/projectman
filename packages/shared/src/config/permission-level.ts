@@ -1,5 +1,6 @@
 import { boundaryLeads } from '../domain/boundary';
 import type { Approver, PermissionMode } from '../domain/member';
+import { DEFAULT_OUTBOUND_NETWORK } from '../domain/member';
 import { memberOf } from './lookup';
 import type { ProjectConfig } from './schema';
 
@@ -7,11 +8,18 @@ import type { ProjectConfig } from './schema';
 export interface PermissionFields {
   permissionMode?: PermissionMode;
   approver?: Approver;
+  /** Whether the member's commands can reach the network. */
+  outboundNetwork?: boolean;
 }
 
 /** Who answers when the CLI asks: the stored approver, else a person (the behaviour from before the setting). */
 export function approverOf(member: Pick<PermissionFields, 'approver'>): Approver {
   return member.approver ?? 'human';
+}
+
+/** Whether the member's commands can reach the network. */
+export function outboundNetworkOf(member: Pick<PermissionFields, 'outboundNetwork'>): boolean {
+  return member.outboundNetwork ?? DEFAULT_OUTBOUND_NETWORK;
 }
 
 /** The part of a session the permission rules read: an owner's settings for that session only (PM-170). */
@@ -86,6 +94,7 @@ export function permissionView(config: ProjectConfig, member: PermissionFields &
   return {
     permissionMode: member.permissionMode,
     approver: approverOf(member),
+    outboundNetwork: outboundNetworkOf(member),
     ...(isLegacyBypass(member) ? { permissionLegacy: true as const } : {}),
     ...(blocker ? { aiApproverBlocker: blocker } : {}),
   };

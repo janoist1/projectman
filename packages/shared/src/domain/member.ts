@@ -40,6 +40,9 @@ export type SelectablePermissionMode = z.infer<typeof SelectablePermissionMode>;
 /** The mode every new AI member starts in, whatever its role or provider. */
 export const DEFAULT_PERMISSION_MODE: PermissionMode = 'auto';
 
+/** Whether an AI member's commands can reach the network by default. */
+export const DEFAULT_OUTBOUND_NETWORK = true;
+
 /**
  * Who answers when the agent CLI asks for a permission (set by an owner, next to the mode):
  * - `human`: a person (the sponsor, else an owner): today's behaviour, and what an absent value means;

@@ -190,6 +190,35 @@ describe('buildSettings', () => {
     ]);
   });
 
+  describe('outboundNetwork', () => {
+    it('sets strictAllowlist and allowedDomains based on the policy', () => {
+      const off = buildSettings({
+        hookUrl: 'http://h/hooks/t',
+        allowedTools: [],
+        permissionTimeoutMs: 1000,
+        sandbox: { allowWrite: [], allowedDomains: ['registry.npmjs.org'], allowLocalBinding: true },
+      });
+      expect(off.sandbox?.network).toEqual({
+        allowedDomains: ['registry.npmjs.org'],
+        strictAllowlist: true,
+        allowLocalBinding: true,
+      });
+
+      const on = buildSettings({
+        hookUrl: 'http://h/hooks/t',
+        allowedTools: [],
+        permissionTimeoutMs: 1000,
+        sandbox: { allowWrite: [], allowedDomains: ['*'], deniedDomains: ['h'], allowLocalBinding: true },
+      });
+      expect(on.sandbox?.network).toEqual({
+        allowedDomains: ['*'],
+        deniedDomains: ['h'],
+        strictAllowlist: true,
+        allowLocalBinding: true,
+      });
+    });
+  });
+
   it('refuses to start a read-only directory that a rule cannot name as it is', () => {
     expect(() =>
       buildSettings({

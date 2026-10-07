@@ -29,6 +29,8 @@ export interface AgentSandbox {
   allowWrite: string[];
   /** Hosts commands may reach; every other host is refused without asking. */
   allowedDomains: string[];
+  /** Hosts refused even when `allowedDomains` is the open `*` (outbound network on, PM-355); omitted: none. */
+  deniedDomains?: string[];
   /** Commands may listen on local ports (the test servers); they then reach every local port. */
   allowLocalBinding: boolean;
   /**

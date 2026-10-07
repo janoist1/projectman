@@ -4,7 +4,7 @@ import { VM_PROFILE_NAME, VM_PROFILE_VERSION } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { testConfig } from '../../test/helpers/test-template';
-import { buildSessionPolicy } from '../domain';
+import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import type {
   LaunchSessionRequest,
   LaunchedSession,

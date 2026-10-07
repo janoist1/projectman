@@ -77,7 +77,13 @@ export interface ClaudeSandboxSettings {
   /** No sandbox, no session: never a silent fallback to unsandboxed commands. */
   failIfUnavailable: true;
   filesystem: { allowWrite: string[]; denyWrite?: string[]; denyRead?: string[]; allowRead?: string[] };
-  network: { allowedDomains: string[]; strictAllowlist: true; allowLocalBinding: boolean };
+  network: {
+    allowedDomains: string[];
+    /** Hosts refused even when `allowedDomains` is the open `*` (PM-355). */
+    deniedDomains?: string[];
+    strictAllowlist: true;
+    allowLocalBinding: boolean;
+  };
   /** Environment variables unset for sandboxed commands (`mode: "deny"`, PM-153). */
   credentials?: { envVars: Array<{ name: string; mode: 'deny' }> };
   /**
@@ -175,6 +181,7 @@ export function buildSandboxSettings(sandbox: AgentSandbox): ClaudeSandboxSettin
     },
     network: {
       allowedDomains: [...sandbox.allowedDomains],
+      ...(sandbox.deniedDomains?.length ? { deniedDomains: [...sandbox.deniedDomains] } : {}),
       strictAllowlist: true,
       allowLocalBinding: sandbox.allowLocalBinding,
     },

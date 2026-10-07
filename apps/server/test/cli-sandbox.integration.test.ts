@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
-import { SANDBOX_DENIED_ENV_VARS, SANDBOX_PTY_ENV, sensitivePaths } from '../src/domain';
+import { HARD_DENIED_HOSTS, SANDBOX_DENIED_ENV_VARS, SANDBOX_PTY_ENV, sensitivePaths } from '../src/domain';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';
@@ -41,6 +41,8 @@ it(
         if (member.kind !== 'ai') continue;
         member.permissionMode = 'auto';
         member.approver = 'none';
+        // PM-355: the network is on by default; the reader has it switched off, to see both shapes.
+        if (member.handle === 'cr') member.outboundNetwork = false;
       }
       return 'Run every AI member in Auto with approver none';
     });
@@ -106,7 +108,13 @@ it(
         denyRead: [userHome, home, ...denyRead],
         allowRead: expect.arrayContaining([worktree, ...own, gitConfig, join(userHome, '.gitconfig')]),
       },
-      network: { allowedDomains: ['registry.npmjs.org'], strictAllowlist: true, allowLocalBinding: true },
+      // PM-355: the network is open by default, minus the blocked hosts.
+      network: {
+        allowedDomains: ['*'],
+        deniedDomains: HARD_DENIED_HOSTS,
+        strictAllowlist: true,
+        allowLocalBinding: true,
+      },
       credentials: { envVars: SANDBOX_DENIED_ENV_VARS.map((name) => ({ name, mode: 'deny' })) },
     });
     expect(developer.env).toEqual({

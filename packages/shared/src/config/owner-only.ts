@@ -1,10 +1,14 @@
 import { isHumanOnlyLabel } from '../domain/label';
-import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
+import {
+  DEFAULT_NEW_MEMBER_APPROVER,
+  DEFAULT_PERMISSION_MODE,
+  DEFAULT_OUTBOUND_NETWORK,
+} from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
-import { approverOf } from './permission-level';
+import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, ProjectConfig } from './schema';
 
 /**
@@ -41,14 +45,14 @@ export function ownerOnlyChanges(
 }
 
 /**
- * An existing AI member's mode or approver differs, or a new AI member does not start with the
- * default mode and approver. An absent approver counts as `human`, so restating it changes nothing.
+ * An existing AI member's mode, approver, or outbound network setting differs, or a new AI member does not start with the
+ * default mode, approver, and outbound network setting. An absent approver counts as `human`, so restating it changes nothing.
  */
 function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
   const signature = (member: AiMemberConfig | undefined) =>
     member
-      ? `${member.permissionMode}:${approverOf(member)}`
-      : `${DEFAULT_PERMISSION_MODE}:${DEFAULT_NEW_MEMBER_APPROVER}`;
+      ? `${member.permissionMode}:${approverOf(member)}:${outboundNetworkOf(member)}`
+      : `${DEFAULT_PERMISSION_MODE}:${DEFAULT_NEW_MEMBER_APPROVER}:${DEFAULT_OUTBOUND_NETWORK}`;
   return next.team.members.some((member) => {
     if (member.kind !== 'ai') return false;
     const old = previous.team.members.find((m) => m.handle === member.handle);

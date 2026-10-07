@@ -101,6 +101,7 @@ describe('aiMemberDefaults', () => {
       model: 'opus',
       permissionMode: 'auto',
       approver: 'none',
+      outboundNetwork: true,
       capacity: 1,
     });
     expect(aiMemberDefaults('data_steward', [dataSteward])).not.toBe(

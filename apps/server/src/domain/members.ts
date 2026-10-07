@@ -1,5 +1,6 @@
 import {
   AiMemberConfig,
+  DEFAULT_OUTBOUND_NETWORK,
   HumanMemberConfig,
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
@@ -283,6 +284,7 @@ export class MemberService {
         sponsor: sponsor.handle,
         temp: opts.temp ?? false,
         ...(req.schedule ? { schedule: req.schedule } : {}),
+        outboundNetwork: req.outboundNetwork ?? DEFAULT_OUTBOUND_NETWORK,
       });
       draft.team.members.push(member);
       if (opts.temp && opts.stageId) {
@@ -343,11 +345,12 @@ export class MemberService {
           req.onLeave !== undefined ||
           req.instructions !== undefined ||
           req.permissionMode !== undefined ||
-          req.approver !== undefined
+          req.approver !== undefined ||
+          req.outboundNetwork !== undefined
         ) {
           throw invalid(
             'not_ai_member',
-            'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode and approver apply to AI members only',
+            'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver and outbound network apply to AI members only',
           );
         }
         if (req.roles !== undefined) {
@@ -419,6 +422,10 @@ export class MemberService {
           }
           member.approver = req.approver;
           fields.push('approver');
+        }
+        if (req.outboundNetwork !== undefined) {
+          member.outboundNetwork = req.outboundNetwork;
+          fields.push('outbound network');
         }
         if (req.onLeave !== undefined) {
           if (req.onLeave) member.onLeave = true;

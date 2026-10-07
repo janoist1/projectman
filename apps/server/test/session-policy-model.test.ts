@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
-import {
-  attachmentToolRules,
-  buildSessionPolicy,
-  sensitivePaths,
-  sessionSandbox,
-} from '../src/domain/session-policy';
+import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
+import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
 const source = '/fictional/source';

@@ -72,6 +72,16 @@
   line-height: 1.15;
 }
 
+.titleLink {
+  color: inherit;
+}
+
+.titleLink:hover {
+  color: var(--c-accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .chips {
   display: flex;
   align-items: center;

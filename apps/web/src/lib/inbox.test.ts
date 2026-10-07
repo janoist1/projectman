@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
-import { inboxHeading, questionExtras, resolutionLabel, shortCommand, splitQuestion } from './inbox';
+import {
+  alertText,
+  inboxHeading,
+  questionExtras,
+  resolutionLabel,
+  shortCommand,
+  splitQuestion,
+} from './inbox';
 
 const item: InboxItem = {
   id: 'fictional-inbox',
@@ -21,6 +28,32 @@ const item: InboxItem = {
 };
 
 describe('splitQuestion', () => {
+  it('renders a provider quota alert with its message and retry time', () => {
+    const quota: InboxItem = {
+      ...item,
+      kind: 'alert',
+      payload: {
+        alert: 'provider_rate_limited',
+        provider: 'nanogpt',
+        weeklyPercent: 100,
+        until: '2026-10-06T12:15:00.000Z',
+        message: '429 Too Many Requests',
+        workItem: { type: 'general' },
+      },
+    };
+    expect(inboxHeading(quota)).toBe(t('inbox.alerts.provider_rate_limited.heading'));
+    const text = alertText(quota, new Map(), null);
+    expect(text).toContain('NanoGPT');
+    expect(text).toContain('429 Too Many Requests');
+    expect(text).not.toContain('{until}');
+    const unknown = alertText(
+      { ...quota, payload: { ...(quota.payload as object), until: null, weeklyPercent: null } },
+      new Map(),
+      null,
+    );
+    expect(unknown).toContain('a keret állapotára vár');
+    expect(unknown).not.toContain('Újrapróba:');
+  });
   it('keeps a short one-line question whole, without marks', () => {
     expect(splitQuestion('Mehet ma este a kiadás az élesbe?')).toEqual({
       title: 'Mehet ma este a kiadás az élesbe?',

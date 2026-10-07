@@ -2,6 +2,7 @@ import { CODEX_PERMISSION_PROFILE_MIN_VERSION } from '@projectman/shared';
 import type { InboxItem, MemberView, Stage, Task, WorkDoing } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import { t } from '../i18n/t';
+import { formatStamp } from '../i18n/format';
 import { buildConfig, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
 import { cardsLine, workingCardKeys } from './members';
@@ -13,6 +14,34 @@ const base = mockIndexes();
 const config = buildConfig();
 
 describe('NanoGPT waiting cards', () => {
+  it('renders an unknown quota hold without a retry timestamp', () => {
+    const task: Task = {
+      ...tasks[0]!,
+      startWaiting: {
+        reason: 'provider_rate_limited',
+        provider: 'nanogpt',
+        since: '2026-10-06T12:00:00.000Z',
+      },
+    };
+    expect(deriveTaskState(task, contextWith([])).label).toBe(
+      t('taskStatus.startWaiting.provider_rate_limited_unknown'),
+    );
+  });
+  it('renders the quota wait with its retry time', () => {
+    const until = '2026-10-06T12:15:00.000Z';
+    const task: Task = {
+      ...tasks[0]!,
+      startWaiting: {
+        reason: 'provider_rate_limited',
+        provider: 'nanogpt',
+        until,
+        since: '2026-10-06T12:00:00.000Z',
+      },
+    };
+    expect(deriveTaskState(task, contextWith([])).label).toBe(
+      t('taskStatus.startWaiting.provider_rate_limited', { provider: 'NanoGPT', until: formatStamp(until) }),
+    );
+  });
   it('shows a Codex setup wait with a resolved minimum version in its hint', () => {
     const ctx = contextWith([]);
     const task: Task = {

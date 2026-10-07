@@ -37,13 +37,19 @@ export function cliVersionAtLeast(installed: string, minimum: string): boolean {
 }
 
 /**
- * The providers whose plan usage the server can measure (PM-324): the plan-usage pause and the
- * usage gauges apply to these only.
+ * The providers whose plan usage the server can measure (PM-324, PM-377).
  */
-export const PLAN_USAGE_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+export const PLAN_USAGE_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'nanogpt'];
 
 export function hasPlanUsage(provider: AgentProvider): boolean {
   return PLAN_USAGE_PROVIDERS.includes(provider);
+}
+
+/** NanoGPT is paused on quota failures, independently of the configurable usage threshold. */
+export const PLAN_USAGE_PAUSE_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex'];
+
+export function pausesOnPlanUsage(provider: AgentProvider): boolean {
+  return PLAN_USAGE_PAUSE_PROVIDERS.includes(provider);
 }
 
 /** Claude aliases and full model ids must never be sent to Codex. */

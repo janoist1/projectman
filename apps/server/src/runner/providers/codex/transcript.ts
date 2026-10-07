@@ -88,6 +88,32 @@ function isAuthError(error: Json): boolean {
   return CODEX_AUTH_ERROR.test(str(error.message) ?? '');
 }
 
+function isRateLimit(error: Json): boolean {
+  const info = error.codex_error_info;
+  const structured = rec(info);
+  const detail =
+    structured &&
+    Object.values(structured)
+      .map(rec)
+      .find((value) => value?.http_status_code !== undefined);
+  const status =
+    error.http_status ??
+    error.http_status_code ??
+    error.status ??
+    structured?.http_status ??
+    structured?.status ??
+    detail?.http_status_code;
+  if (status !== undefined) return status === 429 || status === '429';
+  if (
+    info === 'usage_limit_exceeded' ||
+    info === 'rate_limit_exceeded' ||
+    structured?.usage_limit_exceeded !== undefined ||
+    structured?.rate_limit_exceeded !== undefined
+  )
+    return true;
+  return /\b429\b|too many requests/i.test(str(error.message) ?? '');
+}
+
 /** The command of a shell tool call: exec_command `cmd`, shell `command` (list or string). */
 function shellCommand(args: Json): string | null {
   const cmd = str(args.cmd) ?? str(args.command);
@@ -141,8 +167,17 @@ export class CodexTranscriptParser implements TranscriptLineParser {
   private model: string | null = null;
   /** The conversation's latest running token total. */
   private total: CodexTokens | null = null;
+  private readonly detectRateLimit: boolean;
 
-  constructor(opts: { self?: string | null; cwd?: string | null; firstUserOrigin?: 'brief' | 'human' } = {}) {
+  constructor(
+    opts: {
+      self?: string | null;
+      cwd?: string | null;
+      firstUserOrigin?: 'brief' | 'human';
+      detectRateLimit?: boolean;
+    } = {},
+  ) {
+    this.detectRateLimit = opts.detectRateLimit ?? false;
     this.self = selfHandle(opts.self);
     this.cwd = opts.cwd ?? null;
     this.turns = new UserTurns(this.self, opts.firstUserOrigin);
@@ -324,7 +359,14 @@ export class CodexTranscriptParser implements TranscriptLineParser {
 
   private event(payload: Json, id: string, ts: string, out: CodexParseResult): void {
     switch (payload.type) {
+      case 'task_started':
+        out.rateLimit = null;
+        out.turnEnded = false;
+        out.turnAt = ts;
+        return;
       case 'turn_aborted': {
+        out.turnEnded = true;
+        out.turnAt = ts;
         if (payload.reason === 'interrupted') {
           out.items.push({ kind: 'system_note', id, ts, text: 'Interrupted by user' });
           out.interruptedAt = ts;
@@ -333,6 +375,8 @@ export class CodexTranscriptParser implements TranscriptLineParser {
         return;
       }
       case 'task_complete':
+        out.turnEnded = true;
+        out.turnAt = ts;
         this.turnError(rec(payload.error), id, ts, out);
         return;
       case 'token_count': {
@@ -386,6 +430,8 @@ export class CodexTranscriptParser implements TranscriptLineParser {
     const message = str(error.message)?.trim() || 'The turn failed';
     out.items.push({ kind: 'system_note', id, ts, text: oneLine(message, 300) });
     if (isAuthError(error)) out.authError = oneLine(message, 300);
+    if (this.detectRateLimit && isRateLimit(error))
+      out.rateLimit = { message: oneLine(message, 300), at: ts };
   }
 }
 

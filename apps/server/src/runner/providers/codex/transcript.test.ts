@@ -4,6 +4,47 @@ import { patchSummary } from '../../tools';
 import { CodexTranscriptParser, outputSummary, parseCodexTranscript } from './transcript';
 
 const ID = '019a0b1c-2d3e-7f40-8a5b-6c7d8e9f0a1b';
+describe('NanoGPT quota failures', () => {
+  it.each(['task_complete', 'turn_aborted'])(
+    'detects %s failures only with the NanoGPT parser option',
+    (type) => {
+      const entry = JSON.stringify({
+        timestamp: '2026-10-06T12:00:00Z',
+        type: 'event_msg',
+        payload: { type, error: { message: 'exceeded retry limit, last status: 429 Too Many Requests' } },
+      });
+      expect(new CodexTranscriptParser().parseLines([entry]).rateLimit).toBeUndefined();
+      expect(new CodexTranscriptParser({ detectRateLimit: true }).parseLines([entry]).rateLimit).toEqual({
+        at: '2026-10-06T12:00:00Z',
+        message: 'exceeded retry limit, last status: 429 Too Many Requests',
+      });
+    },
+  );
+  it.each([
+    [{ http_status: 429, message: 'Request failed' }, true],
+    [{ codex_error_info: 'rate_limit_exceeded', message: 'Request failed' }, true],
+    [{ codex_error_info: 'usage_limit_exceeded', message: 'Request failed' }, true],
+    [
+      {
+        codex_error_info: { response_too_many_failed_attempts: { http_status_code: 429 } },
+        message: 'Request failed',
+      },
+      true,
+    ],
+    [{ codex_error_info: { stream_error: { http_status_code: 429 } }, message: 'Request failed' }, true],
+    [{ http_status: 500, message: 'Request failed after 429 tokens' }, false],
+    [{ message: 'unrelated failure' }, false],
+  ])('uses structured status before message matching: %j', (error, limited) => {
+    const entry = JSON.stringify({
+      timestamp: '2026-10-06T12:00:00Z',
+      type: 'event_msg',
+      payload: { type: 'task_complete', error },
+    });
+    expect(Boolean(new CodexTranscriptParser({ detectRateLimit: true }).parseLines([entry]).rateLimit)).toBe(
+      limited,
+    );
+  });
+});
 let second = 0;
 /** One rollout line, with increasing timestamps. */
 function line(type: string, payload: unknown): string {
@@ -176,6 +217,7 @@ describe('CodexTranscriptParser', () => {
       { kind: 'system_note', text: 'stream disconnected before completion' },
     ]);
     expect(failed.authError).toBeNull();
+    expect(failed.turnEnded).toBe(true);
 
     const lost = new CodexTranscriptParser().parseLines([
       line('event_msg', {
@@ -204,6 +246,24 @@ describe('CodexTranscriptParser', () => {
     expect(
       new CodexTranscriptParser().parseLines(['{', '', 'null', '{"type":"response_item"}']).items,
     ).toEqual([]);
+  });
+
+  it('ends an empty failed turn and lets a later start supersede it', () => {
+    const complete = line('event_msg', {
+      type: 'task_complete',
+      last_agent_message: null,
+      error: { message: 'exceeded retry limit, last status: 429 Too Many Requests' },
+    });
+    const parser = new CodexTranscriptParser();
+    expect(parser.parseLines([complete])).toMatchObject({ turnEnded: true, turnAt: expect.any(String) });
+    expect(parser.parseLines([complete, line('event_msg', { type: 'task_started' })])).toMatchObject({
+      turnEnded: false,
+    });
+    expect(
+      parser.parseLines([line('event_msg', { type: 'turn_aborted', reason: 'replaced' })]),
+    ).toMatchObject({
+      turnEnded: true,
+    });
   });
 });
 

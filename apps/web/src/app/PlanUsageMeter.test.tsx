@@ -75,6 +75,19 @@ describe('provider plan usage meter, full', () => {
 });
 
 describe('provider plan usage meter, peak', () => {
+  it('does not claim a threshold pause for measured NanoGPT weekly usage', () => {
+    render(
+      <PlanUsageMeter
+        provider="nanogpt"
+        variant="peak"
+        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 100 }}
+        pauseAbove={80}
+      />,
+    );
+    expect(screen.getByRole('meter').getAttribute('aria-valuetext')).not.toContain(
+      t('planUsage.paused', { limit: 80 }),
+    );
+  });
   function peakText(five: number | null, week: number | null) {
     const { unmount } = render(
       <PlanUsageMeter

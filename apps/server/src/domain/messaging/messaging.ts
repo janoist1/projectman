@@ -1,4 +1,5 @@
 import {
+  DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
   isRefining,
@@ -566,6 +567,13 @@ export class Messaging {
       return { delivery: 'held', hold: 'pause' };
     }
     if (running) {
+      try {
+        this.sessions.assertProviderCooldown(running.provider ?? DEFAULT_AGENT_PROVIDER);
+      } catch (err) {
+        if (!(err instanceof DomainError) || err.code !== 'provider_rate_limited') throw err;
+        void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+        return { delivery: 'wake' };
+      }
       this.delivery.deliver(running, message);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }

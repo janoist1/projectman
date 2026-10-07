@@ -1,13 +1,24 @@
 import { chmod, lstat, mkdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 import { cliVersionAtLeast, NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared';
+import type { PlanUsage } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
 import { createCodexAdapter } from '../codex';
+import { CodexTranscriptParser } from '../codex/transcript';
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths, NANOGPT_CODEX_PROVIDER } from '../codex/args';
 import type { ProviderAdapter } from '../types';
+
+const SubscriptionUsage = z.object({
+  degraded: z.boolean().optional(),
+  weeklyInputTokens: z.object({
+    percentUsed: z.number().nonnegative(),
+    resetAt: z.number().int().nonnegative().nullable(),
+  }),
+});
 
 export class NanogptStartError extends Error {
   readonly code: 'nanogpt_key_missing' | 'nanogpt_setup_incomplete' | 'provider_unsupported';
@@ -25,6 +36,7 @@ export function createNanogptAdapter(opts: {
   nanogptKey: () => Promise<string | null>;
   logger: FastifyBaseLogger;
   ambientConfig?: AmbientConfigLocations;
+  fetch?: typeof fetch;
 }): ProviderAdapter {
   const codex = createCodexAdapter(opts);
   async function hasAuth(): Promise<boolean> {
@@ -55,7 +67,42 @@ export function createNanogptAdapter(opts: {
     ...codex,
     provider: 'nanogpt',
     label: 'NanoGPT',
-    planUsage: { get: async () => null },
+    createTranscriptParser: (parserOpts) =>
+      new CodexTranscriptParser({ ...parserOpts, detectRateLimit: true }),
+    planUsage: {
+      async get(): Promise<PlanUsage | null> {
+        try {
+          const key = await opts.nanogptKey();
+          if (!key) return null;
+          const response = await (opts.fetch ?? fetch)('https://api.nano-gpt.com/api/subscription/v1/usage', {
+            headers: { 'x-api-key': key },
+            signal: AbortSignal.timeout(10_000),
+            redirect: 'error',
+          });
+          if (!response.ok) {
+            await response.body?.cancel();
+            return null;
+          }
+          const parsed = SubscriptionUsage.safeParse(await response.json());
+          if (!parsed.success || parsed.data.degraded) return null;
+          const weekly = parsed.data.weeklyInputTokens;
+          const reset = weekly.resetAt === null ? null : new Date(weekly.resetAt);
+          if (reset && !Number.isFinite(reset.getTime())) return null;
+          const percent = weekly.percentUsed * 100;
+          if (!Number.isFinite(percent)) return null;
+          return {
+            fiveHourPercent: null,
+            fiveHourResetsAt: null,
+            weeklyPercent: percent,
+            weeklyResetsAt: reset?.toISOString() ?? null,
+            fetchedAt: new Date().toISOString(),
+          };
+        } catch {
+          // Neither credentials nor provider response bodies belong in logs.
+          return null;
+        }
+      },
+    },
     noteTranscript: undefined,
     loginCommand: ['--version'],
     parseLogin: parseVersion,

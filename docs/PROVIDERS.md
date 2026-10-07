@@ -45,6 +45,38 @@ lock lives outside the worktree sandbox. See SECURITY.md for the unresolved same
 process-environment risks. The PM-356 local permission profile denies the secret store
 and other `sensitivePaths`; approved host commands remain outside that boundary.
 
+### Investigating a missing team MCP or a 429 (PM-377)
+
+The launch arguments retain `mcp_servers.team`; the disabled `apps` feature concerns
+ChatGPT connectors. Fake CLI tests cover argument delivery and simulated team calls,
+not whether a real custom model receives and invokes the team tools. No configuration
+change is justified by the available evidence. After deployment, the integrator checks
+the first NanoGPT member session's tool list and a read-only `get_task` call. Record the
+CLI version, MCP startup status, model-visible tool names and the call outcome, without
+URLs containing session tokens, keys or raw request bodies. A text-only `TEAM_OK` response
+is insufficient evidence. If the failure persists, investigate it on a follow-up card;
+this manual deployment check does not block the PM-377 implementation handover.
+
+An empty `task_complete` error ends the runner turn even if no Stop hook follows.
+NanoGPT quota failures additionally fail and stop the session, alert the owners once per
+provider hold, and defer the affected task's continuation for the same member. The adapter
+reads the documented [subscription usage endpoint](https://docs.nano-gpt.com/api-reference/endpoint/subscription-usage)
+with the existing managed key, a ten-second timeout and redirects refused. Weekly
+`percentUsed` is a fraction and `resetAt` is epoch milliseconds. At least 99% with a known
+reset holds all NanoGPT starts and message wakeups until that reset, without inference
+retries. Initially known lower usage gives one fifteen-minute rate hold
+(`NANOGPT_RATE_HOLD_MS`). An unavailable or degraded usage response, or exhausted usage
+without a reset, holds indefinitely while only the read-only usage probe retries. A later
+known lower usage releases an unknown hold immediately. NanoGPT's measured usage is shown
+in the gauges but does not apply the configurable plan-usage pause threshold.
+The hold is in memory and is lost on server restart. Persisted quota deferrals restore an
+unknown hold without a new alert; only a usage probe can allow inference to resume. A new
+429 also arms the hold for sessions without a deferral. A generic 429 alone does not distinguish
+subscription exhaustion from upstream throttling. Never enable paid overage as part of
+diagnosis. NanoGPT's
+[support page](https://nano-gpt.com/support) describes input-token allowances, model
+multipliers and rate limits; the account's actual allowance must be checked separately.
+
 An AI member runs in one of two agent CLIs, set per member (`provider` in `team.yaml`,
 default `claude`): **Claude Code** on the sponsor's Claude plan, or **OpenAI Codex CLI**
 on the sponsor's ChatGPT plan (decision 15). Both run as interactive TUIs in a PTY, never

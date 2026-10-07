@@ -109,6 +109,9 @@ function admissionFor(world: World = {}) {
       if (world.loggedOut?.includes(provider))
         throw conflict('provider_not_logged_in', `${provider} is not logged in`, { provider });
     },
+    assertProviderCooldown: () => undefined,
+    refreshProviderQuota: async () => undefined,
+    restoreProviderQuota: () => undefined,
     findRunning: (_projectKey: string, member: string, workItem: WorkItemRef) =>
       sessions.find(
         (s) =>

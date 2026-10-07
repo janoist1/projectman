@@ -2,7 +2,7 @@ import {
   DEFAULT_AUTO_COMPACT_WINDOW_TOKENS,
   AgentProvider,
   DEFAULT_AGENT_PROVIDER,
-  hasPlanUsage,
+  pausesOnPlanUsage,
   DEFAULT_LOOP_WATCH,
   DEFAULT_MAX_FIX_ROUNDS,
   DEFAULT_MIN_FREE_DISK_GB,
@@ -40,7 +40,7 @@ const DEFAULT_TOKEN_WARNING_CHOICE = 5_000_000;
 function pauseHint(config: ProjectConfig): string | undefined {
   const providers = AgentProvider.options.filter(
     (provider) =>
-      !hasPlanUsage(provider) &&
+      !pausesOnPlanUsage(provider) &&
       config.team.members.some(
         (member) => member.kind === 'ai' && (member.provider ?? DEFAULT_AGENT_PROVIDER) === provider,
       ),

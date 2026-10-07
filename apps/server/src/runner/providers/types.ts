@@ -96,6 +96,8 @@ export interface TranscriptParseResult {
   turnAt?: string;
   /** A login failure the transcript recorded, e.g. "Login expired · Please run /login". */
   authError?: string | null;
+  /** A provider quota failure, enabled only for NanoGPT rollout parsing. */
+  rateLimit?: { message: string; at: string } | null;
   /** Tokens these lines add to the session's usage (PM-178), per model and scope. */
   usage?: TokenUsage[];
   /** The context of the latest step of the main conversation in these lines (PM-213). */

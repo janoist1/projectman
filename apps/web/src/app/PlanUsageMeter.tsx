@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
+import { pausesOnPlanUsage } from '@projectman/shared';
 import { MiniMeter, meterLevel } from '../components/MiniMeter';
 import { Tooltip } from '../components/Tooltip';
 import { formatPercent, formatStamp } from '../i18n/format';
@@ -64,7 +65,7 @@ export function PlanUsageMeter({
   const name = t(`providers.${provider}`);
   const five = usage?.fiveHourPercent ?? null;
   const week = usage?.weeklyPercent ?? null;
-  const paused = (five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove;
+  const paused = pausesOnPlanUsage(provider) && ((five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove);
   const tip = [
     t('planUsage.title', {
       provider: name,

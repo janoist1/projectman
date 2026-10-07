@@ -73,6 +73,7 @@
  *   - "SUBAGENT": a subagent's PreToolUse and Stop hooks (with agent_id) mid-turn.
  *   - "EXPIRE" (or any prompt while FAKE_CODEX_LOGGED_OUT is set): the turn fails with the
  *     refresh-token error (codex_error_info "unauthorized"); no Stop hook.
+ *   - "EMPTY_FAILURE": task_complete with an error and no assistant message or Stop hook.
  *   - always: the answer "Echo: <first line of the prompt>", a token_count event with the plan
  *     rate limits (FAKE_CODEX_RATE_LIMITS = JSON, or canned ones) and the token usage (the
  *     turn's `last_token_usage`: input 10 of which 4 cached, output 5 of which 2 reasoning; and
@@ -800,6 +801,21 @@ async function interactive() {
     line('  Working (esc to interrupt)');
     await sleep(text.includes('SLOW') ? 800 : workDelay);
     if (!busy || turn !== myTurn) return;
+
+    if (text.includes('EMPTY_FAILURE') || text.includes('RATE_LIMIT')) {
+      eventMsg({
+        type: 'task_complete',
+        turn_id: turnId,
+        last_agent_message: null,
+        error: {
+          message: text.includes('RATE_LIMIT')
+            ? 'exceeded retry limit, last status: 429 Too Many Requests'
+            : 'stream disconnected before completion',
+        },
+      });
+      busy = false;
+      return showPrompt();
+    }
 
     if (process.env.FAKE_CODEX_LOGGED_OUT || text.includes('EXPIRE')) {
       const message =

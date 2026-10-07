@@ -205,6 +205,7 @@ export const hu = {
       member_on_leave: 'A tag szabadságon van.',
       ai_limit_reached: 'Elértük az egyidejű AI-munkák korlátját.',
       plan_usage_paused: 'A szolgáltató előfizetésének használata túl magas.',
+      provider_rate_limited: 'A szolgáltató korlátja miatt a munkamenet később próbálkozik újra.',
       disk_low: 'Kevés a szabad lemezhely, ezért új munkamenet most nem indul.',
       ai_disabled: 'Az AI-munka ki van kapcsolva ebben a projektben.',
       team_paused: 'A csapat szünetelt.',
@@ -532,6 +533,7 @@ export const hu = {
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
       ai_limit_reached: 'Most dolgozik a megengedett számú AI-tag; az új munka később indul.',
       plan_usage_paused: 'A szolgáltatói keret magas, ezért új AI-munka most nem indul.',
+      provider_rate_limited: 'NanoGPT: korlát. Az újrapróba automatikusan indul a várakozás után.',
       disk_low: 'Kevés a szabad lemezhely, ezért új AI-munka most nem indul.',
       ai_disabled: 'Ebben a projektben ki van kapcsolva az AI-munka (Beállítások → Keretek).',
       team_paused: 'A csapat szünetel: amíg tart, új munka nem indul.',
@@ -788,6 +790,8 @@ export const hu = {
     startWaiting: {
       ai_limit_reached: 'Indulásra vár: túl sok AI dolgozik',
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
+      provider_rate_limited: '{provider}: korlát, újrapróba {until}',
+      provider_rate_limited_unknown: 'NanoGPT: korlát, a keret állapotára vár',
       disk_low: 'Indulásra vár: kevés a szabad lemezhely',
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       team_paused: 'Indulásra vár: a csapat szünetel',
@@ -809,6 +813,8 @@ export const hu = {
     },
     stageOwners: 'a lépés összes felelőse',
     startHints: {
+      provider_rate_limited:
+        'A szolgáltató 429-es korlátot jelzett. A munka a várakozás után magától újrapróbálkozik.',
       ai_limit_reached: 'Várj, amíg felszabadul egy AI, vagy emeld a korlátot a Beállítások → Keretek alatt.',
       plan_usage_paused:
         'Várj a keret megújulására, vagy emeld a szüneteltetési küszöböt a Beállítások → Keretek alatt.',
@@ -1918,6 +1924,12 @@ export const hu = {
     },
     /** Alerts: something to notice, with nothing to decide. */
     alerts: {
+      provider_rate_limited: {
+        heading: 'NanoGPT: korlát',
+        body: '{member} munkamenete megállt: a {provider} korlátot jelzett. Újrapróba: {until}. A szolgáltató üzenete: {message}',
+        unknown:
+          '{member} munkamenete megállt: NanoGPT: korlát, a keret állapotára vár. A szolgáltató üzenete: {message}',
+      },
       unknown: 'Figyelmeztetés',
       session_tokens: {
         heading: 'Sok tokent használ egy munkamenet',

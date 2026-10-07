@@ -209,6 +209,12 @@ export function createFakeRunnerModule(): FakeRunnerModule {
         return planUsage.value;
       },
     },
+    planUsageFor: () => ({
+      async get() {
+        planUsage.calls += 1;
+        return planUsage.value;
+      },
+    }),
     registerHookRoutes() {},
   };
   return {

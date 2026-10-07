@@ -167,6 +167,26 @@ const providerIdOf = (id: string) =>
   )?.providerSessionId;
 
 describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
+  it('fails and stops a NanoGPT session on an empty 429 completion without a Stop hook', async () => {
+    const nanoHome = await dirs.make('nano-limit-home-');
+    process.env.FAKE_CODEX_VERSION = '0.159.1';
+    await setup({ nanogptKey: async () => 'fictional-quota-key', nanogptCodexHome: nanoHome });
+    const s = spec({ provider: 'nanogpt', initialMessage: 'RATE_LIMIT' });
+    await runner.runner.start(s);
+    const event = await waitFor(() =>
+      events.find((e) => e.type === 'rate_limited' && e.sessionId === s.sessionId),
+    );
+    expect(event).toMatchObject({
+      provider: 'nanogpt',
+      message: expect.stringContaining('429'),
+      at: expect.any(String),
+    });
+    await waitState(s.sessionId, 'failed');
+    await waitFor(() => events.find((e) => e.type === 'exit' && e.sessionId === s.sessionId));
+    expect(events.filter((e) => e.type === 'rate_limited')).toHaveLength(1);
+    expect(events.filter((e) => e.type === 'auth_error')).toHaveLength(0);
+    expect(statesOf(s.sessionId)).not.toContain('exited');
+  });
   it('runs NanoGPT hooks, team tools, permissions and resume in its own home without exposing the key', async () => {
     const nanoHome = await dirs.make('nano-home-');
     process.env.FAKE_CODEX_VERSION = '0.159.1';
@@ -200,7 +220,6 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
     );
     expect(await readFile(transcript.path, 'utf8')).not.toContain(key!);
     expect(JSON.stringify(events)).not.toContain(key!);
-    expect(await runner.planUsageFor!('nanogpt').get()).toBeNull();
     expect(await runner.planUsageFor!('codex').get()).toBeNull();
     const learned = providerIdOf(s.sessionId)!;
     key = null;
@@ -440,6 +459,23 @@ describe('runner with the fake Codex CLI', { timeout: 30_000 }, () => {
       expect.objectContaining({ direction: 'in', from: 'qa', to: ['fe-1'], text: 'Please TEAM check' }),
       expect.objectContaining({ direction: 'out', from: 'fe-1', to: ['qa'], text: 'Ready for review' }),
     ]);
+  });
+
+  it('closes an empty failed turn without a Stop hook and accepts the next message', async () => {
+    await setup();
+    const s = spec();
+    await runner.runner.start(s);
+    await waitState(s.sessionId, 'idle');
+    await runner.runner.sendUserMessage(s.sessionId, 'EMPTY_FAILURE');
+    await waitState(s.sessionId, 'working');
+    await waitChat(
+      s.sessionId,
+      (i) => i.kind === 'system_note' && i.text === 'stream disconnected before completion',
+      'failed turn',
+    );
+    await waitState(s.sessionId, 'idle');
+    await runner.runner.sendUserMessage(s.sessionId, 'after the failure');
+    await assistantSaid(s.sessionId, 'Echo: after the failure');
   });
 
   it('maps the permission mode to the sandbox: edits are asked in default mode only', async () => {

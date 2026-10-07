@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
-import { MemberHandle } from './member';
+import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -302,6 +302,17 @@ export const RefinementAlert = z.object({
 });
 export type RefinementAlert = z.infer<typeof RefinementAlert>;
 
+/** A provider quota stopped a session; the owners are told once per hold (PM-377). */
+export const ProviderRateLimitAlert = z.object({
+  alert: z.literal('provider_rate_limited'),
+  provider: AgentProvider,
+  until: z.string().nullable(),
+  weeklyPercent: z.number().nullable(),
+  message: z.string(),
+  workItem: WorkItemRef,
+});
+export type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
   SessionTokensAlert,
   MessageBurstAlert,
@@ -309,6 +320,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   DiskLowAlert,
   WorktreeKeptAlert,
   RefinementAlert,
+  ProviderRateLimitAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

@@ -1,6 +1,6 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildChildEnv } from '../../env';
 import { FAKE_CODEX, silentLogger, tempDirs } from '../../test-helpers';
 import { createNanogptAdapter } from './index';
@@ -17,6 +17,7 @@ describe('NanoGPT adapter', () => {
       nanogptKey: async () => key,
       logger: silentLogger(),
       ambientConfig: { codexManaged: [] },
+      fetch: async () => new Response(null, { status: 503 }),
     });
     const input = {
       spec: {
@@ -37,7 +38,7 @@ describe('NanoGPT adapter', () => {
     };
     return { adapter, input, codexHome };
   }
-  it('uses custom provider arguments and private home, hides keys from shells and reports no plan usage', async () => {
+  it('uses custom provider arguments and private home and hides keys from shells', async () => {
     const h = await harness();
     const launch = await h.adapter.launch(h.input);
     expect(launch.cliArgs).toContain('model_provider="nanogpt"');
@@ -113,6 +114,77 @@ describe('NanoGPT adapter', () => {
     expect(buildChildEnv(clean, { NANOGPT_API_KEY: 'private-test-sentinel' })).toEqual({
       NANOGPT_API_KEY: 'private-test-sentinel',
     });
+  });
+  it('reads documented weekly token units through an authenticated read-only request', async () => {
+    const resetAt = Date.parse('2026-10-11T12:00:00Z');
+    const request = vi.fn(async () =>
+      Response.json({
+        active: true,
+        state: 'active',
+        degraded: false,
+        weeklyInputTokens: { used: 59_977_486, limit: 60_000_000, percentUsed: 0.9996247667, resetAt },
+        dailyInputTokens: null,
+        routing: { paidFallbackEnabled: false },
+      }),
+    );
+    const adapter = createNanogptAdapter({
+      bin: FAKE_CODEX,
+      codexHome: await dirs.make(),
+      nanogptKey: async () => 'private-test-sentinel',
+      logger: silentLogger(),
+      fetch: request,
+    });
+    expect(await adapter.planUsage.get()).toMatchObject({
+      fiveHourPercent: null,
+      fiveHourResetsAt: null,
+      weeklyPercent: 99.96247667,
+      weeklyResetsAt: new Date(resetAt).toISOString(),
+    });
+    expect(request).toHaveBeenCalledWith('https://api.nano-gpt.com/api/subscription/v1/usage', {
+      headers: { 'x-api-key': 'private-test-sentinel' },
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
+    });
+  });
+  it.each([
+    { degraded: true, weeklyInputTokens: { percentUsed: 1, resetAt: 1791720000000 } },
+    { weeklyInputTokens: { percentUsed: null, resetAt: 1791720000000 } },
+    { weeklyInputTokens: { percentUsed: '100', resetAt: 1791720000000 } },
+    { weeklyInputTokens: { percentUsed: 1, resetAt: 'private-response-sentinel' } },
+    { weeklyInputTokens: null },
+  ])('returns unknown for degraded or invalid usage without logging response bodies', async (body) => {
+    const logger = silentLogger();
+    const warn = vi.spyOn(logger, 'warn');
+    const error = vi.spyOn(logger, 'error');
+    const adapter = createNanogptAdapter({
+      bin: FAKE_CODEX,
+      codexHome: await dirs.make(),
+      nanogptKey: async () => 'private-test-sentinel',
+      logger,
+      fetch: async () => Response.json(body),
+    });
+    expect(await adapter.planUsage.get()).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+  it('returns unknown for missing keys, rejected responses and network failures without logging secrets', async () => {
+    const logger = silentLogger();
+    const warn = vi.spyOn(logger, 'warn');
+    for (const key of [null, 'private-test-sentinel']) {
+      const request = vi.fn(async () => {
+        throw new Error('private-test-sentinel private-response-sentinel');
+      });
+      const adapter = createNanogptAdapter({
+        bin: FAKE_CODEX,
+        codexHome: await dirs.make(),
+        nanogptKey: async () => key,
+        logger,
+        fetch: request,
+      });
+      expect(await adapter.planUsage.get()).toBeNull();
+      expect(request).toHaveBeenCalledTimes(key ? 1 : 0);
+    }
+    expect(warn).not.toHaveBeenCalled();
   });
   it.each(['project', 'user', 'managed'] as const)(
     'refuses dangerous %s configuration with names only',

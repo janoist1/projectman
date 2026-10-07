@@ -886,6 +886,23 @@ workers follow the machine's size.
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
   checks and returns readiness status. It never persists or returns the delivered key,
   including in its spool; a replaced key affects only subsequent launches and resumes.
+  Codex rollout `task_complete` (including an empty failed response) and `turn_aborted`
+  events end the runner's turn even without a Stop hook; a later `task_started` supersedes
+  that end (PM-377, `runner/providers/codex/transcript.ts`). The engine must parse these
+  events beside the CLI and forward the resulting session state to the server.
+  NanoGPT-only quota detection emits `rate_limited` over the existing RunnerEvent boundary;
+  `domain/provider-quota-hold.ts` keeps a provider-wide, in-memory hold on the server,
+  blocking starts and message wakeups until the measured weekly reset. The adapter's
+  `planUsage.get()` reads `GET https://api.nano-gpt.com/api/subscription/v1/usage` with the
+  managed key, without logging credentials or response bodies (10-second timeout, no
+  redirects). Unknown usage holds inference while only usage probes retry; initially
+  known lower usage gives a fifteen-minute rate hold. Owners receive one alert per hold.
+  `domain/admission/message-starts.ts` persists the affected task's deferred continuation.
+  Server restart loses the hold, but stored quota deferrals restore an unknown hold
+  without an alert and require a usage probe before inference. **Remote engine:** usage HTTP runs on the server where the managed key
+  is stored, as the key check already does, using the existing `api.nano-gpt.com` host;
+  transcript parsing stays on the engine and sends `rate_limited` across RunnerEvent.
+  No new machine-dependent boundary is required (PM-377).
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
   `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home

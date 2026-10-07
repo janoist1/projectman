@@ -66,6 +66,7 @@ export const TaskStartWaiting = z.object({
   reason: z.enum([
     'ai_limit_reached',
     'plan_usage_paused',
+    'provider_rate_limited',
     // Too little free disk space (PM-243): the start continues once there is room again.
     'disk_low',
     'ai_disabled',
@@ -107,6 +108,7 @@ export const TaskStartWaiting = z.object({
   labels: z.array(LabelId).optional(),
   member: MemberHandle.optional(),
   provider: AgentProvider.optional(),
+  until: z.string().optional(),
   /** Admission threshold, rather than current usage. */
   threshold: z.number().optional(),
   since: z.string(),

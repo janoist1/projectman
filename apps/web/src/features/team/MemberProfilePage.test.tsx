@@ -54,15 +54,27 @@ describe('member profiles', () => {
     expect(await screen.findByText('agy')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
-  it('shows a NanoGPT account usage note, medium default effort and no plan meter', async () => {
+  it('shows measured NanoGPT weekly usage with unknown five-hour usage and medium default effort', async () => {
     const p = mockProject();
     const member = p.backend.findMember('fe-1')!;
     member.provider = 'nanogpt';
     member.effort = undefined;
     p.backend.providerStatus.nanogpt = { loggedIn: false, problem: 'no_key' };
+    p.backend.providerPlanUsage.nanogpt = {
+      fiveHourPercent: null,
+      fiveHourResetsAt: null,
+      weeklyPercent: 100,
+      weeklyResetsAt: '2026-10-11T12:00:00Z',
+      fetchedAt: new Date().toISOString(),
+    };
     p.render(page(), '/team/fe-1');
-    await screen.findByText(t('profile.noPlanUsage.nanogpt'));
-    expect(screen.queryByRole('meter')).toBeNull();
+    const group = await screen.findByRole('group', { name: t('providers.nanogpt') });
+    expect(
+      within(group)
+        .getByRole('meter', { name: t('planUsage.weekly') })
+        .getAttribute('aria-valuenow'),
+    ).toBe('100');
+    expect(screen.queryByText(t('profile.noPlanUsage.nanogpt'))).toBeNull();
     expect(
       screen.getByText((text) => text.endsWith(`· ${t('providerSettings.efforts.medium')}`)),
     ).toBeTruthy();

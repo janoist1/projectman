@@ -33,6 +33,7 @@ import {
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
   hasPlanUsage,
+  pausesOnPlanUsage,
   HireMemberRequest,
   INLINE_MEDIA_TYPES,
   InvitationView,
@@ -1292,10 +1293,7 @@ export class MockBackend {
           ),
         ]
           .filter(hasPlanUsage)
-          .map((provider) => [
-            provider,
-            provider === 'claude' ? { ...this.planUsage, fetchedAt: nowIso() } : this.codexPlanUsage,
-          ]),
+          .map((provider) => [provider, this.planUsageFor(provider)]),
       ),
     };
   }
@@ -3853,7 +3851,10 @@ export class MockBackend {
   }
 
   private planUsageFor(provider: AgentProvider): PlanUsage | null {
-    return this.providerPlanUsage[provider] ?? (provider === 'claude' ? this.planUsage : this.codexPlanUsage);
+    return (
+      this.providerPlanUsage[provider] ??
+      (provider === 'claude' ? this.planUsage : provider === 'codex' ? this.codexPlanUsage : null)
+    );
   }
 
   /**
@@ -3887,7 +3888,7 @@ export class MockBackend {
     }
     if (!this.providerLoggedIn[provider]) return 'provider_not_logged_in';
     if (
-      hasPlanUsage(provider) &&
+      pausesOnPlanUsage(provider) &&
       Math.max(plan?.fiveHourPercent ?? 0, plan?.weeklyPercent ?? 0) > limits.pauseAbovePlanUsagePercent
     )
       return 'plan_usage_paused';

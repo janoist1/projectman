@@ -110,6 +110,7 @@ const DEFERRABLE = new Set<ErrorCode>([
   'nanogpt_key_missing',
   'nanogpt_setup_incomplete',
   'codex_setup_incomplete',
+  'workspace_codex_config',
 ] satisfies DeferrableReason[]);
 
 /** `also`: the further refusals the start in question waits for. */
@@ -152,6 +153,7 @@ export function waitingOf(
       'nanogpt_key_missing',
       'nanogpt_setup_incomplete',
       'codex_setup_incomplete',
+      'workspace_codex_config',
     ].includes(err.code)
       ? { provider: details?.provider }
       : {}),

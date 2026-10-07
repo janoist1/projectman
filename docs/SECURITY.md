@@ -189,6 +189,29 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   secrets. Authentication records are not broadcast. Markdown builds escaped React
   elements, permits HTTP(S) links only, and uses `noopener noreferrer`.
 
+### Codex project configuration (PM-357)
+
+Codex trusts the workspace and bypasses hook trust for projectman's own hooks. Its project
+layer must therefore not introduce subprocesses or sandbox exemptions. Starts and resumes
+allow only `.codex/config.toml` with model and project-document keys (the exact list is in
+`runner/managed-vm.ts`). Every layer from the nearest `.git` ancestor to the canonical cwd is
+checked, rejecting symlinked folders, symlinked/nonregular/multiply-linked files and every
+other entry, including hooks, MCP servers, rules, agents and skills. The domain checks before
+recording the session or creating its folder; the adapter checks again before building arguments.
+Automatic starts wait with `workspace_codex_config`, retrying every 30 seconds. Errors and
+deferral logs contain only file/key names. The question-free VM also uses the member allowlist.
+
+Residual risks: the [0.159.1 release notes](https://github.com/openai/codex/releases/tag/rust-v0.159.1)
+mention model-catalog changes, not configuration or hook reloads. This is not proof that reloads
+cannot happen; the policy assumes startup loading and checks the next start/resume after a
+running session changes files. A short check/load race remains, writable by a human or a leftover
+process, as accepted in the plan. The owner's `project_root_markers`, home/system configuration
+(PM-49, PM-214) and `.agents` skills/plugin marketplaces are outside this check. Legitimate
+project `.codex` skills and rules also stop Codex members; expanding the allowlist needs another
+card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry behavior (PM-329)
+is outside this change. On remote engines inspection must run beside the CLI, returning only
+relative file/key names to the server.
+
 ## Automatic command decisions
 
 PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)

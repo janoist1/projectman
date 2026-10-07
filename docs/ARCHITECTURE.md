@@ -874,6 +874,17 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Codex project layer check** — `runner/managed-vm.ts` (`inspectProjectCodex`,
+  `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
+  `runner/providers/codex/index.ts` (`launch`), `domain/sessions.ts` (PM-357).
+  The server reads the CLI's canonical working directory and each `.codex` layer from the
+  nearest ancestor with a `.git` entry. Member starts and resumes allow only `config.toml`
+  with model and project-document roots; confined reads reject links and nonregular files.
+  Preflight runs before session rows/folders, and the adapter checks again before launch.
+  **Remote engine:** run both inspections beside the CLI on the engine. The domain preflight
+  becomes a server/engine call; return relative file names and key names only, never values.
+  Today the server and CLI share the filesystem. NanoGPT retains its separate `any` rule.
+
 - **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
   `runner/env.ts`, `app.ts`, `index.ts`
   (PM-329). The engine runs Codex >= 0.159.1 with a dedicated 0700 home under

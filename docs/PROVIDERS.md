@@ -454,6 +454,15 @@ tool use id and whether the prompt is visible on the screen, to find where a str
 
 ## Codex
 
+Project configuration (PM-357): every start and resume inspects `.codex` directories from the
+nearest `.git` ancestor through the canonical working directory. Only `config.toml` is allowed,
+with roots `model`, `model_reasoning_effort`, `model_reasoning_summary`, `model_verbosity`,
+`project_doc_max_bytes` and `project_doc_fallback_filenames`. Empty directories/files are safe;
+hooks, MCP servers, rules, agents, skills, other entries and linked configuration refuse with
+`workspace_codex_config`. Automatic starts wait and retry every 30 seconds; removing the unsafe
+project layer lets work start. Refusals report file/key names only. The owner's home and system
+configuration are separate policies. Claude is unaffected; NanoGPT keeps its stricter `any` rule.
+
 Codex is started as `codex [resume] --no-alt-screen --no-daemon
 --dangerously-bypass-hook-trust --enable hooks -c … --sandbox <s> --ask-for-approval <a>
 [--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update

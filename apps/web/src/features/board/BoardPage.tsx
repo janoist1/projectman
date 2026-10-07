@@ -677,6 +677,7 @@ export function BoardPage() {
       {isMobile ? <FilterChips view={view} /> : null}
       <ThemeStrip
         tasks={board.data.tasks}
+        pipeline={pipeline}
         active={activeTheme?.key ?? null}
         onFilter={setThemeFilter}
         onOpen={(themeKey) => navigate(`/p/${key}/tasks/${themeKey}`)}

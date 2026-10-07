@@ -73,6 +73,7 @@ describe('Codex screen checks', () => {
     expect(detectCodexBlockingScreen(screen)).toBeNull();
     expect(codexPromptVisible(screen.replace('   ⚠ 3 warnings · f2 to view', ''))).toBe(true);
     expect(codexPromptVisible(screen.replace('› Ask Codex to do anything', '› 1. Continue'))).toBe(false);
+    expect(codexPromptVisible('› Ask Codex to do anything\n  ⚠ 3 warnings · f2 to view')).toBe(false);
   });
   it('recognises the 0.159.1 composer reported on PM-125', () => {
     // Transcribed from the real terminal lines recorded by the owner on PM-125.
@@ -90,8 +91,6 @@ describe('Codex screen checks', () => {
     'z-ai/glm-5.3-flash-uncensored medium fast · ~/work/project',
     'deepseek/custom-model high fast auto · /work/project',
     'GPT-6-Astra high · C:\\work\\project',
-    '⚠ 3 warnings · f2 to view',
-    '⚠ 1 warning · f2 to view',
   ])('recognises the status footer without legacy shortcuts: %s', (footer) => {
     expect(codexPromptVisible(`› Ask Codex to do anything\n\n${footer}`)).toBe(true);
   });

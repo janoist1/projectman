@@ -356,9 +356,17 @@ so the CLI can re-execute its binary (PM-356). The runner resolves the executabl
 session PATH, then grants only its `packages/standalone` ancestor, never the whole
 `packages` or home. A root containing a denied path gets no exception. Unknown installations
 inside denied directories remain blocked; install outside them or use the official standalone
-layout. The shared Git directory also stays read-only: routine Git writes still go through
-the existing command-approval path (PM-131/PM-77). No Git write grant is added by this profile.
-macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
+layout. A Codex member in a task worktree writes the worktree's shared Git directory (PM-399):
+`git add` and `git commit` write the worktree's index and the objects and refs there, and
+without that grant they failed with EPERM in v2026.10.7, even when approved (the PM-356
+profile had no write root for it). The grant is the same as a Claude developer's (the
+paragraph on the shared git directory below): the directory is writable, but the profile keeps
+`config`, `config.lock` and `hooks` read-only, and the integrating checkout's files of
+`sharedGitDenials` (the default branch, `HEAD`, `index`, `packed-refs`, `refs/replace`,
+`info/grafts`, with their lock files). It is given only in a writing sandbox, only for a task
+worktree, and not when the directory lies in a denied path. A member workspace is an
+independent clone, whose `.git` is inside the workspace. The residual risk is the same as
+below. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
 checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
 **Residual risk (PM-355, outbound network, accepted by the owner).** The member's "Outbound

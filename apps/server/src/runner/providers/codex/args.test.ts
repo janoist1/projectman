@@ -464,6 +464,66 @@ describe('buildCodexArgs', () => {
     });
   });
 
+  describe('the shared git directory of a task worktree (PM-399)', () => {
+    const gitDir = '/main/repo/.git';
+    const policy = (
+      sandboxMode: 'read-only' | 'workspace-write',
+      placement: NonNullable<StartSessionSpec['policy']>['placement'] = {
+        kind: 'task_worktree',
+        path: '/work',
+        gitDir,
+      },
+    ): NonNullable<StartSessionSpec['policy']> => ({
+      version: 1,
+      enforcement: 'legacy',
+      access: 'task_worktree',
+      placement,
+      tools: { team: { all: true, names: [] }, files: [], shell: [] },
+      filesystem: { readableRoots: ['/work'], writableRoots: ['/work'], protectedPaths: [gitDir] },
+      deniedOperations: [],
+      network: { allowedDomains: [], allowLocalBinding: false },
+      outsideSandbox: 'ask',
+      permissions: { claude: 'acceptEdits', sandbox: sandboxMode, approval: 'on-request' },
+    });
+    const sandbox = {
+      allowWrite: [],
+      denyWrite: [`${gitDir}/HEAD`, `${gitDir}/index`, `${gitDir}/refs/heads/main`, '/elsewhere/file'],
+      allowedDomains: [],
+      allowLocalBinding: true,
+    };
+    const profile = (p: NonNullable<StartSessionSpec['policy']>, sb = sandbox) =>
+      overrides(buildCodexArgs({ ...input, spec: { ...spec, policy: p, sandbox: sb } }).args).get(
+        'permissions.projectman',
+      );
+
+    it('writes the shared git directory so git add and git commit work in the worktree', () => {
+      expect(profile(policy('workspace-write'))).toContain(`"${gitDir}"="write"`);
+    });
+
+    it('keeps its configuration, hooks and the integrating checkout files read-only', () => {
+      const rendered = profile(policy('workspace-write'))!;
+      for (const name of ['config', 'config.lock', 'hooks', 'HEAD', 'index', 'refs/heads/main'])
+        expect(rendered).toContain(`"${gitDir}/${name}"="read"`);
+      expect(rendered).not.toContain('/elsewhere/file');
+    });
+
+    it('opens nothing in a read-only sandbox or outside a worktree', () => {
+      expect(profile(policy('read-only'))).not.toContain(gitDir);
+      expect(
+        profile(policy('workspace-write', { kind: 'member_workspace', path: '/work', use: 'work' })),
+      ).not.toContain(gitDir);
+    });
+
+    it('does not open the git directory when it lies in a denied path', () => {
+      const p = policy('workspace-write');
+      const c = buildCodexArgs({
+        ...input,
+        spec: { ...spec, policy: { ...p, filesystem: { ...p.filesystem, deniedPaths: ['/main'] } } },
+      }).args;
+      expect(overrides(c).get('permissions.projectman')).not.toContain(`"${gitDir}"="write"`);
+    });
+  });
+
   describe('what our sandbox shares with Codex: the heavy-run queue folder (PM-346)', () => {
     const lockParent = '/fictional/tmp/projectman-501';
     const lockDir = `${lockParent}/heavy`;

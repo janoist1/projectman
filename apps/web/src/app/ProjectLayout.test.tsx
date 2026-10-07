@@ -1,4 +1,5 @@
 import styles from './Shell.module.css';
+import menuStyles from './Menus.module.css';
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -193,5 +194,13 @@ describe('phone header', () => {
     expect(view.container.querySelector('header')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('topbar.searchOpen') }));
     expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('');
+  });
+
+  it('prevents the account menu from shrinking in the phone header', async () => {
+    const view = renderPhone();
+    await screen.findByRole('button', { name: t('topbar.searchOpen') });
+    const header = view.container.querySelector('header')!;
+    const accountWrap = header.querySelector(`.${menuStyles.accountWrap}`);
+    expect(accountWrap).toBeTruthy();
   });
 });

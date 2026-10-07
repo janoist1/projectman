@@ -142,14 +142,14 @@
 
 @media (max-width: 767px) {
   .strip {
-    flex-wrap: wrap;
-    gap: 6px 10px;
+    gap: 10px;
     padding: 0 14px 10px;
+    overflow-x: auto;
   }
 
   .tiles {
-    order: 2;
-    flex-basis: 100%;
+    flex: none;
+    overflow: visible;
   }
 
   .tile {
@@ -158,10 +158,6 @@
 
   .open {
     width: 44px;
-  }
-
-  .actions {
-    margin-left: auto;
   }
 }
 

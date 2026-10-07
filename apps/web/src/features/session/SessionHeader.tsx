@@ -21,6 +21,7 @@ import { isLiveSession } from '../../lib/sessions';
 import type { SessionStatus } from '../../lib/sessions';
 import type { TaskPhase } from '../../lib/taskState';
 import { prChip } from '../board/cardModel';
+import { withCardSize } from '../board/cardSize';
 import { pointExplanation, pointText, runningText } from '../pause/pauseView';
 import styles from './SessionHeader.module.css';
 
@@ -155,6 +156,13 @@ export function SessionHeader({
     </Chip>
   ) : null;
   const hasChips = stageChip || prBadge || alertChip || pointChip;
+  const heading = task ? (
+    <Link to={withCardSize(`/p/${key}/tasks/${task.key}`, 'large')} className={styles.titleLink}>
+      {title}
+    </Link>
+  ) : (
+    title
+  );
 
   return (
     <div className={styles.header}>
@@ -164,7 +172,7 @@ export function SessionHeader({
             <Icon name="chevronLeft" size={22} strokeWidth={2.2} />
           </Link>
           <div className={styles.phoneTitle}>
-            <h1 className={styles.phoneHeading}>{title}</h1>
+            <h1 className={styles.phoneHeading}>{heading}</h1>
             <div className={styles.phoneSub}>
               {memberTag}
               {liveStatus}
@@ -192,7 +200,7 @@ export function SessionHeader({
             {liveStatus}
             {stopMenu}
           </div>
-          <h1 className={styles.title}>{title}</h1>
+          <h1 className={styles.title}>{heading}</h1>
         </>
       )}
       {hasChips || (!isMobile && memberTag) ? (

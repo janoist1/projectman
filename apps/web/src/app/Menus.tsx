@@ -118,7 +118,7 @@ export function AccountMenu({
   };
 
   return (
-    <div className={styles.wrap}>
+    <div className={clsx(styles.wrap, styles.accountWrap)}>
       <button
         ref={triggerRef}
         type="button"

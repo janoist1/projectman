@@ -47,6 +47,7 @@ import type {
 import {
   COMPACTING_PROVIDERS,
   MANAGED_VM_UNAVAILABLE,
+  WORKSPACE_CODEX_CONFIG,
   openingTurnOrigin,
   PROVIDER_NOT_LOGGED_IN,
 } from '../contracts';
@@ -1528,7 +1529,12 @@ export class SessionOrchestrator {
         : ws
           ? ws.placement
           : placed
-            ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
+            ? {
+                kind: 'task_worktree',
+                path: cwd,
+                ...(placed.gitDir ? { gitDir: placed.gitDir } : {}),
+                ...(placed.worktreeGitDir ? { worktreeGitDir: placed.worktreeGitDir } : {}),
+              }
             : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
@@ -1628,6 +1634,13 @@ export class SessionOrchestrator {
           { taskKey: task.key },
         );
       }
+    }
+    try {
+      await this.deps.runner.assertWorkspaceConfig?.({ provider, cwd });
+    } catch (err) {
+      if (errorCode(err) !== WORKSPACE_CODEX_CONFIG) throw err;
+      const failure = err as Error & { details?: Record<string, unknown> };
+      throw conflict(WORKSPACE_CODEX_CONFIG, failure.message, { ...failure.details, provider });
     }
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
@@ -1832,6 +1845,14 @@ export class SessionOrchestrator {
       }
       if (errorCode(err) === MANAGED_VM_UNAVAILABLE) {
         throw managedVmUnavailable(err, { sessionId: session.id });
+      }
+      if (errorCode(err) === WORKSPACE_CODEX_CONFIG) {
+        const failure = err as Error & { details?: Record<string, unknown> };
+        throw conflict(WORKSPACE_CODEX_CONFIG, failure.message, {
+          ...failure.details,
+          sessionId: session.id,
+          provider,
+        });
       }
       throw new DomainError(
         'session_start_failed',

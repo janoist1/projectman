@@ -454,6 +454,15 @@ tool use id and whether the prompt is visible on the screen, to find where a str
 
 ## Codex
 
+Project configuration (PM-357): every start and resume inspects `.codex` directories from the
+nearest `.git` ancestor through the canonical working directory. Only `config.toml` is allowed,
+with roots `model`, `model_reasoning_effort`, `model_reasoning_summary`, `model_verbosity`,
+`project_doc_max_bytes` and `project_doc_fallback_filenames`. Empty directories/files are safe;
+hooks, MCP servers, rules, agents, skills, other entries and linked configuration refuse with
+`workspace_codex_config`. Automatic starts wait and retry every 30 seconds; removing the unsafe
+project layer lets work start. Refusals report file/key names only. The owner's home and system
+configuration are separate policies. Claude is unaffected; NanoGPT keeps its stricter `any` rule.
+
 Codex is started as `codex [resume] --no-alt-screen --no-daemon
 --dangerously-bypass-hook-trust --enable hooks -c … --sandbox <s> --ask-for-approval <a>
 [--model <m>] -- [<id>] [<brief>]`. Every setting is a per-process `-c` override (update
@@ -502,8 +511,12 @@ read-only, after the denials; an ancestor containing a denied path is never reop
 This also applies to NanoGPT's shared executable despite its different Codex home.
 Unknown installation layouts inside denied directories refuse launch with `cli_location`
 in the provider's setup error; details identify the real executable path. Use the official
-standalone installer or install outside the denied directories. Git writes to the shared
-index still use the existing command-approval path (PM-131/PM-77), not a profile write grant.
+standalone installer or install outside the denied directories. In a task worktree the
+writing profile also makes the shared `objects`, `refs` and `logs` and the worktree's own admin
+directory writable (PM-399), so `git add` and `git commit` work in the sandbox; the
+configuration, hooks, `objects/info`, the admin directory's links and the integrating checkout's
+files stay read-only (PM-131; see SECURITY.md). Routine git steps that escalate still use the
+command-approval path (PM-77).
 
 **A Codex member never runs in `bypassPermissions`** (decision 19, PM-84). The mode would switch
 Codex's sandbox and its questions off, and Codex does not enforce denied tools, so nothing would
@@ -557,13 +570,17 @@ writable root, and the mode changes only with a restart. A tool that writes a ha
 after the closing; give it a targeted writable root, do not reopen `/tmp`. The PM-356
 native probe allowed own TMPDIR writes and denied shared `/tmp` and the original CLI tmp.
 The member-level development acceptance still checks attachments, caches and the heavy-run
-queue; the shared Git index remains outside the sandbox's writable roots.
+queue.
 
-The
-shared git directory is not made writable (PM-131): it never let `git commit` through, since
-Codex's sandbox denies the worktree's index lock, but it let an agent write the repository's
-hooks and configuration, which run when the host uses git there. The routine git steps
-escalate, and the server allows them itself (see Session policy, PM-77).
+The shared git directory is not made writable as a whole (PM-131): that let an agent write the
+repository's hooks and configuration, which run when the host uses git there. Since PM-399 the
+profile grants only what `git commit` writes (the shared `objects`, `refs`, `logs` and the
+worktree's own admin directory) and keeps the configuration, hooks, `objects/info`, the admin
+directory's `commondir`, `gitdir`, `config.worktree` and the integrating checkout's files
+read-only. Without it the v2026.10.7 profile made `git add` and `git commit` fail with EPERM,
+also when approved. The profile semantics (a nested `read` under a `write` root) are to be
+checked in a live Codex session. Other routine git steps that escalate are allowed by the
+server itself (see Session policy, PM-77).
 
 ## Gemini (agy) (PM-323 probe)
 

@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { openConfined } from './transcript/confined';
@@ -10,6 +10,7 @@ import {
 import type { AgentProvider } from '@projectman/shared';
 import {
   MANAGED_VM_UNAVAILABLE,
+  WORKSPACE_CODEX_CONFIG,
   type AmbientConfigLocations,
   type ManagedVmAttestation,
   type ManagedVmBoundary,
@@ -298,6 +299,102 @@ function tomlRoots(text: string): Set<string> {
   return roots;
 }
 
+/** Allowed project configuration roots; new Codex capabilities refuse by default (PM-357). */
+const PROJECT_CODEX_ALLOWED_ROOTS: ReadonlySet<string> = new Set([
+  'model',
+  'model_reasoning_effort',
+  'model_reasoning_summary',
+  'model_verbosity',
+  'project_doc_max_bytes',
+  'project_doc_fallback_filenames',
+]);
+
+export type ProjectCodexRule = 'config' | 'member' | 'any';
+
+/** Inspect every project layer from the closest git root to the canonical session directory. */
+export async function inspectProjectCodex(input: {
+  cwd: string;
+  rule: ProjectCodexRule;
+  confineTo?: string;
+}): Promise<AmbientIssue[]> {
+  const directories = [input.cwd];
+  let root = input.cwd;
+  for (let dir = input.cwd; ; dir = path.dirname(dir)) {
+    try {
+      await lstat(path.join(dir, '.git'));
+      root = dir;
+      break;
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+        return [{ file: path.join(dir, '.git'), keys: ['(unreadable)'] }];
+    }
+    if (path.dirname(dir) === dir) break;
+  }
+  for (let dir = input.cwd; dir !== root;) {
+    dir = path.dirname(dir);
+    directories.push(dir);
+  }
+  const issues: AmbientIssue[] = [];
+  for (const directory of directories.reverse()) {
+    const folder = path.join(directory, '.codex');
+    let entries: string[];
+    try {
+      const info = await lstat(folder);
+      if (info.isSymbolicLink() || !info.isDirectory()) {
+        issues.push({ file: folder, keys: ['(project codex folder)'] });
+        continue;
+      }
+      entries = (await readdir(folder)).sort();
+    } catch (error) {
+      if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? ''))
+        issues.push({ file: folder, keys: ['(unreadable)'] });
+      continue;
+    }
+    if (input.rule === 'any' && entries.length)
+      issues.push({ file: folder, keys: ['(project codex folder)'] });
+    for (const entry of entries) {
+      const file = path.join(folder, entry);
+      if (input.rule === 'member' && entry !== 'config.toml') {
+        issues.push({ file, keys: ['(not allowed)'] });
+      } else if (entry === 'config.toml') {
+        if (input.rule === 'member') {
+          const text = await readIfPresent(file, input.confineTo ?? root);
+          const keys =
+            text === '\u0000unreadable'
+              ? ['(unreadable)']
+              : [...tomlRoots(text ?? '')].filter((key) => !PROJECT_CODEX_ALLOWED_ROOTS.has(key));
+          if (keys.length) issues.push({ file, keys });
+        } else {
+          const issue = await codexConfigIssue(file, false, input.confineTo ?? root);
+          if (issue) issues.push(issue);
+        }
+      } else if (entry === 'hooks.json') {
+        issues.push({ file, keys: ['(hooks file)'] });
+      }
+    }
+  }
+  return issues;
+}
+
+/** A refusal containing only paths and key names, never configuration values. */
+export class WorkspaceCodexConfigError extends Error {
+  readonly code = WORKSPACE_CODEX_CONFIG;
+  readonly details: { provider: 'codex'; issues: AmbientIssue[] };
+
+  constructor(issues: AmbientIssue[]) {
+    super(
+      `the session directory's own Codex configuration could run commands outside the sandbox: ${issues.map(({ file, keys }) => `${file} (${keys.join(', ')})`).join('; ')}`,
+    );
+    this.name = 'WorkspaceCodexConfigError';
+    this.details = { provider: 'codex', issues };
+  }
+}
+
+export async function assertCodexMemberWorkspace(cwd: string): Promise<void> {
+  const issues = await inspectProjectCodex({ cwd: await realpath(cwd).catch(() => cwd), rule: 'member' });
+  if (issues.length) throw new WorkspaceCodexConfigError(issues);
+}
+
 async function codexConfigIssue(
   file: string,
   everything: boolean,
@@ -424,24 +521,13 @@ export async function inspectAmbientConfig(input: {
     for (const file of where.codexManaged) issues.push(await codexConfigIssue(file, true));
     issues.push(await codexConfigIssue(where.codexUser, false, input.confineTo));
     issues.push(
-      await codexConfigIssue(path.join(input.cwd, '.codex', 'config.toml'), false, input.confineTo),
+      ...(await inspectProjectCodex({
+        cwd: input.cwd,
+        rule: input.projectFolder === 'any' ? 'any' : 'config',
+        confineTo: input.confineTo,
+      })),
     );
-    if (input.projectFolder === 'any') {
-      // Project files can register subprocesses outside the member shell's environment policy.
-      const dir = path.join(input.cwd, '.codex');
-      try {
-        const info = await lstat(dir);
-        if (!info.isDirectory() || info.isSymbolicLink() || (await readdir(dir)).length)
-          issues.push({ file: dir, keys: ['(project codex folder)'] });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
-          issues.push({ file: dir, keys: ['(unreadable)'] });
-      }
-    }
-    for (const hookFile of [
-      path.join(path.dirname(where.codexUser), 'hooks.json'),
-      path.join(input.cwd, '.codex', 'hooks.json'),
-    ]) {
+    for (const hookFile of [path.join(path.dirname(where.codexUser), 'hooks.json')]) {
       try {
         await lstat(hookFile);
         issues.push({ file: hookFile, keys: ['(hooks file)'] });

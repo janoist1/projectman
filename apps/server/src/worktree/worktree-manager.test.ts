@@ -144,6 +144,7 @@ describe('worktree manager', { timeout: 30_000 }, () => {
       branch: 'AR-21-fix-the-booking-confirmation-email',
       repo: 'app',
       gitDir: path.join(clone, '.git'),
+      worktreeGitDir: path.join(clone, '.git', 'worktrees', 'AR-21-app'),
     });
     expect(await git('-C', info.path, 'rev-parse', 'HEAD')).toBe(remoteHead);
     expect(await git('-C', info.path, 'rev-parse', '--abbrev-ref', 'HEAD')).toBe(info.branch);
@@ -352,6 +353,7 @@ describe('worktree manager', { timeout: 30_000 }, () => {
       branch: 'AR-5-local-only',
       repo: 'solo',
       gitDir: path.join(solo, '.git'),
+      worktreeGitDir: path.join(solo, '.git', 'worktrees', 'AR-5-solo'),
     });
     expect(await manager.status(info.path)).toEqual({ dirty: false, unpushedCommits: 0 });
 

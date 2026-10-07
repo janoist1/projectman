@@ -96,6 +96,8 @@ export const TaskStartWaiting = z.object({
     'nanogpt_key_missing',
     'nanogpt_setup_incomplete',
     'codex_setup_incomplete',
+    // PM-357: the workspace's own .codex folder.
+    'workspace_codex_config',
     // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
     'senior_busy',
   ]),

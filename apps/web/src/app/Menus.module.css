@@ -4,6 +4,10 @@
   min-width: 0;
 }
 
+.accountWrap {
+  flex-shrink: 0;
+}
+
 .projectTrigger {
   min-width: 0;
   height: 40px;

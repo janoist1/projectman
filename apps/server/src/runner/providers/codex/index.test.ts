@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { silentLogger } from '../../test-helpers';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { StartSessionSpec } from '../../../contracts';
+import { silentLogger, tempDirs } from '../../test-helpers';
+import * as codexArgs from './args';
 import {
   codexPermissionOutput,
   codexPromptVisible,
@@ -13,6 +17,46 @@ const composer = [
   '',
   '  ? for shortcuts                                              100% context left',
 ];
+
+describe('Codex launch workspace check (PM-357)', () => {
+  const dirs = tempDirs();
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await dirs.cleanup();
+  });
+  it.each([false, true])('rejects before building arguments, including resume=%s', async (resume) => {
+    const cwd = await dirs.make();
+    const home = await dirs.make();
+    await mkdir(path.join(cwd, '.codex'));
+    const file = path.join(cwd, '.codex/config.toml');
+    await writeFile(file, '[hooks.Stop]\ncommand = "fictional-command"');
+    const args = vi.spyOn(codexArgs, 'buildCodexArgs');
+    const adapter = createCodexAdapter({ bin: 'codex', codexHome: home, logger: silentLogger() });
+    const spec: StartSessionSpec = {
+      sessionId: 'ses_test',
+      claudeSessionId: '0b8a3c2e-1f5d-4c4e-9a7b-2d6e8f1a3b5c',
+      resume,
+      cwd,
+      displayName: 'Fictional member',
+      model: 'gpt-test',
+      permissionMode: 'default',
+      appendSystemPrompt: 'Test',
+      initialMessage: null,
+      mcpUrl: 'http://127.0.0.1:1/mcp/test',
+      allowedTools: [],
+      provider: 'codex',
+    };
+    const input = { spec, hookUrl: 'http://127.0.0.1:1/hooks/test', permissionTimeoutMs: 1000 };
+    await expect(adapter.launch(input)).rejects.toMatchObject({ code: 'workspace_codex_config' });
+    expect(args).not.toHaveBeenCalled();
+    await writeFile(file, 'model = "gpt-test"');
+    const launch = await adapter.launch(input);
+    expect(args).toHaveBeenCalledOnce();
+    expect(launch.cliArgs).toEqual(
+      codexArgs.buildCodexArgs({ ...input, realCwd: cwd, codexHome: home, disabledMcpServers: [] }).args,
+    );
+  });
+});
 
 describe('Codex screen checks', () => {
   it('recognizes the owner-captured 0.159.1 NanoGPT composer without context metadata', () => {

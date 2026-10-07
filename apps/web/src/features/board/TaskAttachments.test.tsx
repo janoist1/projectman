@@ -9,12 +9,21 @@ import { applyServerEvent } from '../../api/cache';
 import { setFetchImplementation } from '../../api/client';
 import { formatBytes } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { findAddedRow } from '../../test/attachmentTimeline';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
 
 type Project = ReturnType<typeof mockProject>;
+
+/** A file name also shows as a link on the timeline: these look only in the card's file list. */
+const fileList = () => screen.queryByRole('list', { name: t('attachments.listLabel') });
+const listed = async (fileName: string) =>
+  within(await screen.findByRole('list', { name: t('attachments.listLabel') })).findByText(fileName);
+/** The card's file list, once it is there: the timeline repeats its action labels on its own links. */
+const fromList = async () => within(await screen.findByRole('list', { name: t('attachments.listLabel') }));
+const inList = (fileName: string) => (fileList() ? within(fileList()!).queryByText(fileName) : null);
 
 /** Feeds the backend's websocket events into the query cache, like the app's socket provider. */
 function LiveEvents({ backend }: { backend: Project['backend'] }) {
@@ -122,7 +131,7 @@ describe('attachments: list', () => {
     expect(list.getByText(name)).toBeTruthy();
     expect(container.querySelector('img[src="x"]')).toBeNull();
     // The same name on the timeline.
-    expect(await screen.findByText(t('timeline.attachmentAdded', { fileName: name }))).toBeTruthy();
+    expect(await findAddedRow(name)).toBeTruthy();
   });
 
   it('says so when a task has none', async () => {
@@ -137,7 +146,9 @@ describe('attachments: preview', () => {
     const project = mockProject();
     const image = project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    const open = await screen.findByRole('button', {
+    const open = await (
+      await fromList()
+    ).findByRole('button', {
       name: t('attachments.previewLabel', { fileName: 'shot.png' }),
     });
     const thumb = open.querySelector('img')!;
@@ -160,7 +171,9 @@ describe('attachments: preview', () => {
     const image = project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
     fireEvent.click(
-      await screen.findByRole('button', { name: t('attachments.previewLabel', { fileName: 'shot.png' }) }),
+      (await fromList()).getByRole('button', {
+        name: t('attachments.previewLabel', { fileName: 'shot.png' }),
+      }),
     );
     await screen.findByRole('dialog');
     project.backend.removeAttachment(image.id);
@@ -176,7 +189,8 @@ describe('attachments: preview', () => {
       type: 'application/pdf',
     });
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    const link = await screen.findByRole('link', {
+    const list = await fromList();
+    const link = await list.findByRole('link', {
       name: t('attachments.openPdfLabel', { fileName: 'spec.pdf' }),
     });
     expect(link.getAttribute('href')).toBe(routes.attachmentContent('AC', 'AC-20', pdf.id));
@@ -185,8 +199,70 @@ describe('attachments: preview', () => {
     expect(link.getAttribute('rel')).toContain('noreferrer');
     expect(document.querySelector('iframe, embed, object')).toBeNull();
     expect(
-      screen.getByRole('link', { name: t('attachments.downloadLabel', { fileName: 'spec.pdf' }) }),
+      list.getByRole('link', { name: t('attachments.downloadLabel', { fileName: 'spec.pdf' }) }),
     ).toBeTruthy();
+  });
+});
+
+describe('attachments: timeline links', () => {
+  it('opens an image from its timeline row in the same large view as the list', async () => {
+    const project = mockProject();
+    const image = project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const row = await findAddedRow('shot.png');
+    const open = within(row).getByRole('button', {
+      name: t('attachments.previewLabel', { fileName: 'shot.png' }),
+    });
+    expect(open.getAttribute('title')).toBe(t('attachments.previewLabel', { fileName: 'shot.png' }));
+    fireEvent.click(open);
+    const dialog = await screen.findByRole('dialog');
+    const large = within(dialog).getByAltText(t('attachments.previewOf', { fileName: 'shot.png' }));
+    expect(large.getAttribute('src')).toBe(routes.attachmentContent('AC', 'AC-20', image.id));
+    fireEvent(dialog, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('opens a PDF in a new tab from its timeline row', async () => {
+    const project = mockProject();
+    const pdf = project.backend.addAttachment('AC-20', {
+      name: 'spec.pdf',
+      size: 900,
+      type: 'application/pdf',
+    });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const link = within(await findAddedRow('spec.pdf')).getByRole('link', {
+      name: t('attachments.openPdfLabel', { fileName: 'spec.pdf' }),
+    });
+    expect(link.getAttribute('href')).toBe(routes.attachmentContent('AC', 'AC-20', pdf.id));
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+  });
+
+  it('offers any other file, an HTML page too, as a download', async () => {
+    const project = mockProject();
+    const page = project.backend.addAttachment('AC-20', { name: 'page.html', size: 90, type: 'text/html' });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const link = within(await findAddedRow('page.html')).getByRole('link', {
+      name: t('attachments.downloadLabel', { fileName: 'page.html' }),
+    });
+    expect(link.getAttribute('href')).toBe(routes.attachmentDownload('AC', 'AC-20', page.id));
+    expect(link.hasAttribute('download')).toBe(true);
+    expect(link.getAttribute('target')).toBeNull();
+  });
+
+  it('leaves the row of a deleted file as plain text', async () => {
+    const project = mockProject();
+    const gone = project.backend.addAttachment('AC-20', { name: 'gone.png', size: 5000, type: 'image/png' });
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const row = await findAddedRow('gone.png');
+    expect(
+      within(row).getByRole('button', { name: t('attachments.previewLabel', { fileName: 'gone.png' }) }),
+    ).toBeTruthy();
+    project.backend.removeAttachment(gone.id);
+    await screen.findByText(t('timeline.attachmentDeleted', { fileName: 'gone.png' }));
+    const plain = await findAddedRow('gone.png');
+    expect(within(plain).queryByRole('button')).toBeNull();
+    expect(within(plain).queryByRole('link')).toBeNull();
   });
 });
 
@@ -205,8 +281,8 @@ describe('attachments: upload', () => {
     const a = makeFile('a.txt');
     const b = makeFile('b.png', 'image/png');
     choose(a, b);
-    await screen.findByText('b.png');
-    await screen.findByText('a.txt');
+    await listed('b.png');
+    await listed('a.txt');
     const sent = uploads(project);
     expect(sent).toHaveLength(2);
     for (const request of sent) {
@@ -218,7 +294,7 @@ describe('attachments: upload', () => {
     for (const names of headers) expect(names).not.toContain('content-type');
     expect(sent.map((request) => (request.body as FormData).get('file'))).toEqual([a, b]);
     // The timeline of the task shows the uploads (the detail was read again).
-    expect(await screen.findByText(t('timeline.attachmentAdded', { fileName: 'a.txt' }))).toBeTruthy();
+    expect(await findAddedRow('a.txt')).toBeTruthy();
     expect(project.backend.attachments.map((entry) => entry.fileName).sort()).toEqual(['a.txt', 'b.png']);
   });
 
@@ -298,14 +374,14 @@ describe('attachments: upload', () => {
     expect(alert.textContent).toBe(
       t('attachments.uploadFailed', { reason: t('errors.codes.attachment_storage_failed') }),
     );
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'good.txt' }));
+    await findAddedRow('good.txt');
     expect(calls.sort()).toEqual(['bad.txt', 'good.txt']);
 
     failing = false;
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.retryLabel', { fileName: 'bad.txt' }) }),
     );
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'bad.txt' }));
+    await findAddedRow('bad.txt');
     expect(calls.sort()).toEqual(['bad.txt', 'bad.txt', 'good.txt']);
     expect(screen.queryByRole('alert')).toBeNull();
     expect(project.backend.attachments.map((entry) => entry.fileName).sort()).toEqual([
@@ -332,7 +408,7 @@ describe('attachments: upload', () => {
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.retryLabel', { fileName: 'later.txt' }) }),
     );
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'later.txt' }));
+    await findAddedRow('later.txt');
   });
 
   it('runs at most three uploads at once, with a progress bar per running file', async () => {
@@ -387,7 +463,7 @@ describe('attachments: upload', () => {
     expect(
       fireEvent.drop(region, { dataTransfer: { types: ['Files'], files: [dropped], items: [{}] } }),
     ).toBe(false);
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'dropped.txt' }));
+    await findAddedRow('dropped.txt');
     expect(screen.queryByText(t('attachments.dropActive'))).toBeNull();
   });
 });
@@ -406,7 +482,7 @@ describe('attachments: paste', () => {
     await screen.findByText(t('attachments.none'));
     const image = makeFile('image.png', 'image/png');
     expect(fireEvent.paste(document.body, { clipboardData: clipboard([image]) })).toBe(false);
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'image.png' }));
+    await findAddedRow('image.png');
     expect(((uploads(project)[0]!.body as FormData).get('file') as File).name).toBe('image.png');
   });
 
@@ -432,7 +508,7 @@ describe('attachments: paste', () => {
     expect(uploads(project)).toHaveLength(0);
     // A screenshot has no text: a text field cannot take it, so it is attached.
     expect(fireEvent.paste(field, { clipboardData: clipboard([image]) })).toBe(false);
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'image.png' }));
+    await findAddedRow('image.png');
   });
 
   it('ignores a paste while a dialog is open', async () => {
@@ -440,7 +516,9 @@ describe('attachments: paste', () => {
     project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
     fireEvent.click(
-      await screen.findByRole('button', { name: t('attachments.previewLabel', { fileName: 'shot.png' }) }),
+      (await fromList()).getByRole('button', {
+        name: t('attachments.previewLabel', { fileName: 'shot.png' }),
+      }),
     );
     await screen.findByRole('dialog');
     expect(
@@ -467,7 +545,7 @@ describe('attachments: delete', () => {
     // The actor of the event is named next to it.
     expect(within(deleted.closest('li')!).getByText(t('common.you'))).toBeTruthy();
     // The file's own addition stays on the timeline as well.
-    expect(screen.getByText(t('timeline.attachmentAdded', { fileName: 'old.txt' }))).toBeTruthy();
+    expect(await findAddedRow('old.txt')).toBeTruthy();
   });
 
   it('can be cancelled', async () => {
@@ -506,21 +584,21 @@ describe('attachments: delete', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(
       t('attachments.deleteFailed', { reason: t('errors.codes.insufficient_access') }),
     );
-    expect(screen.getByText('kept.txt')).toBeTruthy();
+    expect(await listed('kept.txt')).toBeTruthy();
   });
 
   it('reads the list again when the file is already gone', async () => {
     const project = mockProject();
     const att = project.backend.addAttachment('AC-20', { name: 'gone.txt', size: 100, type: 'text/plain' });
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('gone.txt');
+    await listed('gone.txt');
     // Someone else removes it just before the click: the list on screen is stale until it is read again.
     project.backend.attachments = project.backend.attachments.filter((entry) => entry.id !== att.id);
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'gone.txt' }) }),
     );
     fireEvent.click(screen.getByRole('button', { name: t('attachments.deleteYes') }));
-    await waitFor(() => expect(screen.queryByText('gone.txt')).toBeNull());
+    await waitFor(() => expect(inList('gone.txt')).toBeNull());
   });
 });
 
@@ -540,7 +618,9 @@ describe('attachments: who may do what', () => {
     expect(screen.queryByLabelText(t('attachments.inputLabel'))).toBeNull();
     expect(screen.queryByRole('button', { name: new RegExp(t('attachments.delete')) })).toBeNull();
     expect(
-      screen.getByRole('link', { name: t('attachments.downloadLabel', { fileName: 'mine.txt' }) }),
+      (await fromList()).getByRole('link', {
+        name: t('attachments.downloadLabel', { fileName: 'mine.txt' }),
+      }),
     ).toBeTruthy();
     const image = makeFile('image.png', 'image/png');
     expect(
@@ -617,7 +697,7 @@ describe('attachments: who may do what', () => {
       screen.queryByRole('button', { name: t('attachments.deleteLabel', { fileName: 'ours.txt' }) }),
     ).toBeNull();
     choose(makeFile('from-client.txt'));
-    await screen.findByText(t('timeline.attachmentAdded', { fileName: 'from-client.txt' }));
+    await findAddedRow('from-client.txt');
     expect(project.backend.attachments.at(-1)).toMatchObject({
       fileName: 'from-client.txt',
       uploadedBy: { kind: 'human', handle: 'bence' },
@@ -641,7 +721,7 @@ describe('attachments: cover choice', () => {
     project.backend.addAttachment('AC-20', jpg);
     project.backend.addAttachment('AC-20', { name: 'plan.pdf', size: 10, type: 'application/pdf' });
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    const first = (await screen.findByText('one.png')).closest('li')!;
+    const first = (await listed('one.png')).closest('li')!;
     expect(within(first).getByText(t('attachments.cover'))).toBeTruthy();
     expect(hideButton('one.png')).toBeTruthy();
     expect(makeButton('one.png')).toBeNull();
@@ -669,7 +749,7 @@ describe('attachments: cover choice', () => {
     project.backend.addAttachment('AC-20', png);
     project.backend.addAttachment('AC-20', jpg);
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    const row = (await screen.findByText('two.jpg')).closest('li')!;
+    const row = (await listed('two.jpg')).closest('li')!;
     const controls = Array.from(row.querySelectorAll('a, button')).map((element) =>
       element.getAttribute('aria-label'),
     );
@@ -687,14 +767,14 @@ describe('attachments: cover choice', () => {
     project.backend.addAttachment('AC-20', png);
     const second = project.backend.addAttachment('AC-20', jpg);
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('two.jpg');
+    await listed('two.jpg');
     fireEvent.click(makeButton('two.jpg')!);
     await waitFor(() => expect(hideButton('two.jpg')).toBeTruthy());
     expect(covers(project)).toHaveLength(1);
     expect(covers(project)[0]!.path).toBe(routes.taskCover('AC', 'AC-20'));
     expect(covers(project)[0]!.body).toEqual({ mode: 'pinned', attachmentId: second.id });
     expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBe(second.id);
-    const first = screen.getByText('one.png').closest('li')!;
+    const first = (await listed('one.png')).closest('li')!;
     expect(within(first).queryByText(t('attachments.cover'))).toBeNull();
     expect(makeButton('one.png')).toBeTruthy();
   });
@@ -730,7 +810,7 @@ describe('attachments: cover choice', () => {
     const first = project.backend.addAttachment('AC-20', png);
     const second = project.backend.addAttachment('AC-20', jpg);
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('two.jpg');
+    await listed('two.jpg');
     fireEvent.click(makeButton('two.jpg')!);
     await waitFor(() => expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBe(second.id));
     fireEvent.click(
@@ -794,11 +874,11 @@ describe('attachments: live and lost access', () => {
     project.render(drawerFor(project), '/p/AC/tasks/AC-20');
     await screen.findByText(t('attachments.none'));
     const att = project.backend.addAttachment('AC-20', { name: 'remote.txt', size: 10, type: 'text/plain' });
-    await screen.findByText('remote.txt');
+    await listed('remote.txt');
     // The change is on the timeline too (a client reads the timeline, not the file list, for history).
-    expect(await screen.findByText(t('timeline.attachmentAdded', { fileName: 'remote.txt' }))).toBeTruthy();
+    expect(await findAddedRow('remote.txt')).toBeTruthy();
     project.backend.removeAttachment(att.id);
-    await waitFor(() => expect(screen.queryByText('remote.txt')).toBeNull());
+    await waitFor(() => expect(inList('remote.txt')).toBeNull());
     expect(await screen.findByText(t('timeline.attachmentDeleted', { fileName: 'remote.txt' }))).toBeTruthy();
   });
 
@@ -807,17 +887,15 @@ describe('attachments: live and lost access', () => {
     project.backend.addAttachment('AC-19', { name: 'secret.txt', size: 10, type: 'text/plain' }, OWNER_ACTOR);
     project.backend.addAttachment('AC-19', { name: 'secret.png', size: 10, type: 'image/png' }, OWNER_ACTOR);
     project.render(drawerFor(project), '/p/AC/tasks/AC-19', actAs(project, 'bence', 'client'));
-    await screen.findByText('secret.txt');
-    expect(
-      screen.getByRole('button', { name: t('attachments.previewLabel', { fileName: 'secret.png' }) }),
-    ).toBeTruthy();
-    fireEvent.click(
-      screen.getByRole('button', { name: t('attachments.previewLabel', { fileName: 'secret.png' }) }),
-    );
+    await listed('secret.txt');
+    const preview = (await fromList()).getByRole('button', {
+      name: t('attachments.previewLabel', { fileName: 'secret.png' }),
+    });
+    fireEvent.click(preview);
     await screen.findByRole('dialog');
 
     project.backend.updateTask('AC-19', { visibility: 'internal' });
-    await waitFor(() => expect(screen.queryByText('secret.txt')).toBeNull());
+    await waitFor(() => expect(inList('secret.txt')).toBeNull());
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.querySelector('img[src*="/attachments/"]')).toBeNull();
     expect(screen.queryByRole('button', { name: t('attachments.chooseFiles') })).toBeNull();

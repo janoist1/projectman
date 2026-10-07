@@ -11,6 +11,7 @@ import { formatBytes } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { ProjectContext } from '../../app/contexts';
 import type { ProjectContextValue } from '../../app/contexts';
+import { findAddedRow } from '../../test/attachmentTimeline';
 import { findBoardCardLinks } from '../../test/boardCards';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { renderUi } from '../../test/render';
@@ -244,7 +245,7 @@ describe('the open card takes files too', () => {
     // The board under the drawer is not told: it shows no hint of its own.
     expect(screen.queryByText(t('attachments.boardHint'))).toBeNull();
     expect(fireEvent.drop(heading, { dataTransfer: drag })).toBe(false);
-    await within(drawer).findByText(t('timeline.attachmentAdded', { fileName: 'shot.png' }));
+    await findAddedRow('shot.png', within(drawer));
     expect(screen.queryByText(t('attachments.dropActive'))).toBeNull();
     expect(uploads(project, 'AC-20')).toHaveLength(1);
   });
@@ -283,7 +284,7 @@ describe('the open card takes files too', () => {
     await within(drawer).findByLabelText(t('attachments.uploadingLabel', { fileName: 'slow.png' }));
     release();
     await waitFor(() => expect(project.backend.attachments).toHaveLength(1));
-    await within(drawer).findByText(t('timeline.attachmentAdded', { fileName: 'slow.png' }));
+    await findAddedRow('slow.png', within(drawer));
   });
 });
 

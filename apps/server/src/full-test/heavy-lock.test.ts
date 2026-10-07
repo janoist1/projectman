@@ -46,9 +46,13 @@ async function acquire(label: string, extra: Partial<Parameters<typeof acquireHe
   return lock;
 }
 
-async function until(condition: () => boolean, what: string, timeoutMs = 10_000): Promise<void> {
+async function until(
+  condition: () => boolean | Promise<boolean>,
+  what: string,
+  timeoutMs = 10_000,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  while (!condition()) {
+  while (!(await condition())) {
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -142,11 +146,13 @@ describe('the heavy-run lock', () => {
   it('is handed out in the order the processes queued, one at a time', async () => {
     const log = path.join(root, 'log.txt');
     const first = await acquire('first');
-    // Three real processes queue behind it, each only after the earlier one's ticket is there.
+    // Wait for each published ticket: an atomic write's temporary file is not a queued waiter.
     for (const label of ['a', 'b', 'c']) {
-      const before = ticketFiles().length;
       holder(label, log, 100);
-      await until(() => ticketFiles().length > before, `the ticket of ${label}`);
+      await until(
+        async () => (await readHeavyQueue(dir)).waiting.some((entry) => entry.label === label),
+        `the ticket of ${label}`,
+      );
     }
     expect((await readHeavyQueue(dir)).waiting.map((e) => e.label)).toEqual(['a', 'b', 'c']);
     expect(logLines(log)).toEqual([]);

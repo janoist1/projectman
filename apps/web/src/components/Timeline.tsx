@@ -20,6 +20,8 @@ interface TimelineProps {
   next?: ReactNode;
   /** Where a row of a team message links to the whole message (null: the row has no link, the viewer may not read it). */
   fullMessageHref?: (event: TimelineEvent) => string | null;
+  /** A row's own content in place of its text (null: the plain text), for rows that carry a link. */
+  renderText?: (event: TimelineEvent) => ReactNode;
   emptyText?: string;
   className?: string;
 }
@@ -47,7 +49,15 @@ function CommentText({ text, ctx }: { text: string; ctx: TimelineContext }) {
 }
 
 /** Attributed history: who did what, when. Oldest first, like a log. */
-export function Timeline({ events, ctx, next, fullMessageHref, emptyText, className }: TimelineProps) {
+export function Timeline({
+  events,
+  ctx,
+  next,
+  fullMessageHref,
+  renderText,
+  emptyText,
+  className,
+}: TimelineProps) {
   if (events.length === 0 && !next) {
     return <p className={styles.empty}>{emptyText ?? t('task.timelineEmpty')}</p>;
   }
@@ -91,7 +101,7 @@ export function Timeline({ events, ctx, next, fullMessageHref, emptyText, classN
               <span
                 className={clsx(styles.text, comment && styles.comment, emphasis === 'needs' && styles.needs)}
               >
-                {comment ? <CommentText text={text} ctx={ctx} /> : text}
+                {comment ? <CommentText text={text} ctx={ctx} /> : (renderText?.(event) ?? text)}
               </span>
               {fullMessage ? (
                 <Link to={fullMessage} className={styles.fullMessage}>

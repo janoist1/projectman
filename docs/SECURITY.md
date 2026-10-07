@@ -189,6 +189,29 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   secrets. Authentication records are not broadcast. Markdown builds escaped React
   elements, permits HTTP(S) links only, and uses `noopener noreferrer`.
 
+### Codex project configuration (PM-357)
+
+Codex trusts the workspace and bypasses hook trust for projectman's own hooks. Its project
+layer must therefore not introduce subprocesses or sandbox exemptions. Starts and resumes
+allow only `.codex/config.toml` with model and project-document keys (the exact list is in
+`runner/managed-vm.ts`). Every layer from the nearest `.git` ancestor to the canonical cwd is
+checked, rejecting symlinked folders, symlinked/nonregular/multiply-linked files and every
+other entry, including hooks, MCP servers, rules, agents and skills. The domain checks before
+recording the session or creating its folder; the adapter checks again before building arguments.
+Automatic starts wait with `workspace_codex_config`, retrying every 30 seconds. Errors and
+deferral logs contain only file/key names. The question-free VM also uses the member allowlist.
+
+Residual risks: the [0.159.1 release notes](https://github.com/openai/codex/releases/tag/rust-v0.159.1)
+mention model-catalog changes, not configuration or hook reloads. This is not proof that reloads
+cannot happen; the policy assumes startup loading and checks the next start/resume after a
+running session changes files. A short check/load race remains, writable by a human or a leftover
+process, as accepted in the plan. The owner's `project_root_markers`, home/system configuration
+(PM-49, PM-214) and `.agents` skills/plugin marketplaces are outside this check. Legitimate
+project `.codex` skills and rules also stop Codex members; expanding the allowlist needs another
+card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry behavior (PM-329)
+is outside this change. On remote engines inspection must run beside the CLI, returning only
+relative file/key names to the server.
+
 ## Automatic command decisions
 
 PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)
@@ -202,9 +225,12 @@ The temporary-repository tests in `apps/server/test/sandbox-probe.test.js` repro
 execution through shared `post-checkout`, `core.hooksPath` and `core.fsmonitor` using the actual
 worktree manager. This proves the host trigger if planting is possible, not native sandbox
 planting. PM-131 removed the normal Codex shared-git writable root, but the host git wrapper
-still trusts repository executable configuration and hooks. A root grant must not be restored
-to work around denied git operations. Narrow trusted git operations need their own validation;
-blanket hook disabling alone would leave other executable git settings to review.
+still trusts repository executable configuration and hooks. The whole shared git directory must
+not be restored as a writable root to work around denied git operations: PM-399 grants only
+the narrow set of the paragraph on the Codex profile (objects, refs, logs and the worktree's own
+admin directory, with the configuration, hooks and links read-only). Other narrow trusted git
+operations need their own validation; blanket hook disabling alone would leave other executable
+git settings to review.
 
 When the server auto-allows a Codex escalation (the routine git steps of a developer, lockfile
 installs), that command runs outside Codex's sandbox with the server user's rights, including
@@ -356,9 +382,23 @@ so the CLI can re-execute its binary (PM-356). The runner resolves the executabl
 session PATH, then grants only its `packages/standalone` ancestor, never the whole
 `packages` or home. A root containing a denied path gets no exception. Unknown installations
 inside denied directories remain blocked; install outside them or use the official standalone
-layout. The shared Git directory also stays read-only: routine Git writes still go through
-the existing command-approval path (PM-131/PM-77). No Git write grant is added by this profile.
-macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
+layout. A Codex member in a task worktree writes a narrow part of the shared Git directory
+(PM-399): `git add` and `git commit` write the worktree's index and the objects and refs, and
+without a grant they failed with EPERM in v2026.10.7 (the PM-356 profile had no write root for
+them). Writable: the shared `objects`, `refs` and `logs`, and the worktree's own admin
+directory (`worktrees/<name>`, `WorktreeInfo.worktreeGitDir`). Not writable: the rest of the
+shared directory, including **every other worktree's admin directory**, and, inside the
+writable ones, `config`, `config.lock`, `hooks`, `objects/info` (alternates), the own admin
+directory's `commondir`, `gitdir`, `config.worktree` and `hooks`, and the integrating
+checkout's files of `sharedGitDenials` (the default branch, `HEAD`, `index`, `packed-refs`,
+`refs/replace`, `info/grafts`, with their lock files). The reason is the host's git, which reads
+these outside the sandbox: a rewritten `commondir` (pointing into the worktree) or `config`
+(`core.fsmonitor`) would run a program there (PM-131). It is given only in a writing sandbox,
+only for a task worktree that has both directories, and not when they lie in a denied path. A
+member workspace is an independent clone, whose `.git` is inside the workspace. The residual
+risk: refs of other tasks' branches and the object store are writable (as for a Claude
+developer, below). The profile semantics (a nested `read` under a `write` root) must be checked
+in a live Codex session before the release. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
 checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
 **Residual risk (PM-355, outbound network, accepted by the owner).** The member's "Outbound
@@ -431,7 +471,8 @@ boundary: current starts explicitly use legacy enforcement and retain the broker
 automatic decisions and remembered permissions. Both adapters reject strict enforcement
 until it can be implemented and verified; listing protected paths or network domains alone
 does not enforce them. Codex consumes semantic team-tool grants without interpreting Claude
-allow rules. Shared git metadata is not granted as an extra writable root (PM-131).
+allow rules. The shared git directory is not granted as a writable root as a whole (PM-131);
+only the narrow set for `git commit` is (PM-399, Codex profile).
 
 A review-copy placement alone grants no writes, even with historical `acceptEdits`.
 The separate `reviewCopyMode: test` requires strict intent, and grants only the copy's own

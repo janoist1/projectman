@@ -190,6 +190,8 @@ export interface MemberMemoryStore {
 export interface WorktreeInfo {
   /** Absolute shared git directory where commits and branches are written. */
   gitDir?: string;
+  /** The worktree's own admin directory inside `gitDir` (`worktrees/<name>`, PM-399). */
+  worktreeGitDir?: string;
   path: string;
   branch: string;
   /** Repo name from the project config. */

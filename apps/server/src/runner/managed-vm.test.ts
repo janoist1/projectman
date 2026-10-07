@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   MANAGED_VM_ACTIVATION_CHECKS,
@@ -26,10 +26,109 @@ import {
   CODEX_SANDBOX_ROOTS,
   inspectCodexSandboxConfig,
   inspectCodexMcpServers,
+  inspectProjectCodex,
+  assertCodexMemberWorkspace,
 } from './managed-vm';
 import { FAKE_CLAUDE, FAKE_CODEX, silentLogger, tempDirs } from './test-helpers';
 
 const dirs = tempDirs();
+describe('project Codex allowlist (PM-357)', () => {
+  afterEach(() => dirs.cleanup());
+  it('accepts missing and empty folders, empty files and model settings with comments', async () => {
+    const cwd = await dirs.make();
+    const inspect = () => inspectProjectCodex({ cwd, rule: 'member' });
+    expect(await inspect()).toEqual([]);
+    await mkdir(path.join(cwd, '.codex'));
+    expect(await inspect()).toEqual([]);
+    const config = path.join(cwd, '.codex/config.toml');
+    await writeFile(config, '');
+    expect(await inspect()).toEqual([]);
+    await writeFile(config, '# model settings\nmodel = "x" # comment\nmodel_reasoning_effort = "high"');
+    expect(await inspect()).toEqual([]);
+  });
+  it.each([
+    ['[hooks.Stop]', 'hooks'],
+    ['[[hooks.PreToolUse]]', 'hooks'],
+    ['[mcp_servers.x]', 'mcp_servers'],
+    ['mcp_servers.x.command = "private-value"', 'mcp_servers'],
+    ['sandbox_workspace_write.writable_roots = ["private-value"]', 'sandbox_workspace_write'],
+    ['["h\\u006foks".Stop]', '"h\\u006foks"'],
+    ['future_capability = "private-value"', 'future_capability'],
+  ])('refuses %s with key names only', async (text, key) => {
+    const cwd = await dirs.make();
+    await mkdir(path.join(cwd, '.codex'));
+    const file = path.join(cwd, '.codex/config.toml');
+    await writeFile(file, text);
+    const issues = await inspectProjectCodex({ cwd, rule: 'member' });
+    expect(issues).toEqual([{ file, keys: [key] }]);
+    expect(JSON.stringify(issues)).not.toContain('private-value');
+    const refusal = assertCodexMemberWorkspace(cwd);
+    await expect(refusal).rejects.toMatchObject({
+      code: 'workspace_codex_config',
+      details: { provider: 'codex', issues },
+    });
+    await expect(refusal).rejects.not.toThrow('private-value');
+  });
+  it.each(['hooks.json', 'rules', 'agents', 'skills'])('refuses the %s entry', async (entry) => {
+    const cwd = await dirs.make();
+    await mkdir(path.join(cwd, '.codex'));
+    const file = path.join(cwd, '.codex', entry);
+    if (entry === 'hooks.json') await writeFile(file, '{}');
+    else {
+      await mkdir(file);
+      if (entry !== 'skills')
+        await writeFile(path.join(file, entry === 'rules' ? 'default.rules' : 'x.toml'), '');
+    }
+    expect(await inspectProjectCodex({ cwd, rule: 'member' })).toEqual([{ file, keys: ['(not allowed)'] }]);
+  });
+  it.each(['folder', 'nonfolder', 'file', 'hardlink', 'directory'])(
+    'refuses a %s in the configuration path',
+    async (kind) => {
+      const cwd = await dirs.make();
+      const other = await dirs.make();
+      const folder = path.join(cwd, '.codex');
+      const file = path.join(folder, 'config.toml');
+      if (kind === 'folder') await symlink(other, folder);
+      else if (kind === 'nonfolder') await writeFile(folder, '');
+      else {
+        await mkdir(folder);
+        const target = path.join(other, 'config.toml');
+        await writeFile(target, 'model = "x"');
+        if (kind === 'file') await symlink(target, file);
+        else if (kind === 'hardlink') await link(target, file);
+        else await mkdir(file);
+      }
+      expect(await inspectProjectCodex({ cwd, rule: 'member' })).toEqual([
+        {
+          file: ['folder', 'nonfolder'].includes(kind) ? folder : file,
+          keys: [['folder', 'nonfolder'].includes(kind) ? '(project codex folder)' : '(unreadable)'],
+        },
+      ]);
+    },
+  );
+  it.each(['file', 'directory'])(
+    'walks to the closest %s git root, excluding higher layers',
+    async (kind) => {
+      const base = await dirs.make();
+      const root = path.join(base, 'repo');
+      const middle = path.join(root, 'nested');
+      const cwd = path.join(middle, 'work');
+      await mkdir(cwd, { recursive: true });
+      if (kind === 'file') await writeFile(path.join(root, '.git'), 'gitdir: fictional');
+      else await mkdir(path.join(root, '.git'));
+      for (const dir of [base, root, middle, cwd]) {
+        await mkdir(path.join(dir, '.codex'));
+        await writeFile(path.join(dir, '.codex/hooks.json'), '{}');
+      }
+      for (const rule of ['member', 'config', 'any'] as const) {
+        const issues = await inspectProjectCodex({ cwd, rule });
+        expect(issues.some((issue) => issue.file === path.join(base, '.codex/hooks.json'))).toBe(false);
+        for (const dir of [root, middle, cwd])
+          expect(issues.some((issue) => issue.file === path.join(dir, '.codex/hooks.json'))).toBe(true);
+      }
+    },
+  );
+});
 describe('local Codex configuration checks', () => {
   async function fixture() {
     const cwd = await dirs.make();
@@ -385,7 +484,9 @@ describe("the VM's own provider configuration", () => {
       file: folder,
       keys: ['(project codex folder)'],
     });
-    expect(await inspectAmbientConfig(request)).toEqual([]);
+    expect(await inspectAmbientConfig(request)).toEqual(
+      kind === 'content' ? [] : [{ file: folder, keys: ['(project codex folder)'] }],
+    );
   });
 });
 

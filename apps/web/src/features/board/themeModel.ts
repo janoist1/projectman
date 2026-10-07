@@ -1,5 +1,6 @@
 import { isOpenTask, isTheme, taskSeq, themeCards, themeProgress } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView, ThemeProgress } from '@projectman/shared';
+import type { PipelineIndex } from '../../lib/pipeline';
 
 /** The themes of the project: the open ones first, each group by number. */
 export function sortedThemes(tasks: readonly Task[]): Task[] {
@@ -15,6 +16,19 @@ export function openThemes(tasks: readonly Task[]): Task[] {
 
 export function progressOf(theme: Pick<Task, 'key'>, tasks: readonly Task[]): ThemeProgress {
   return themeProgress(theme.key, tasks);
+}
+
+/** Count the same cards as themeProgress, grouped in board column order. */
+export function columnProgressOf(theme: Pick<Task, 'key'>, tasks: readonly Task[], pipeline: PipelineIndex) {
+  const counts = new Map<string, number>();
+  for (const card of themeCards(theme.key, tasks).flatMap((card) => [card, ...card.subtasks])) {
+    if (card.status === 'cancelled') continue;
+    const column = pipeline.columnOfStage.get(card.stageId);
+    if (column) counts.set(column.id, (counts.get(column.id) ?? 0) + 1);
+  }
+  return pipeline.columns
+    .map((column) => ({ column, count: counts.get(column.id) ?? 0 }))
+    .filter(({ count }) => count > 0);
 }
 
 export function percentOf(progress: ThemeProgress): number {

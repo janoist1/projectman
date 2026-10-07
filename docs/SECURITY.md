@@ -368,8 +368,10 @@ command can send the contents of the working copy, including what the member cou
 server outside. The owner judged the risk no greater than using Claude Desktop. The protections
 that do not depend on the network stay: the secrets and denied paths cannot be read, the billing
 and secret variables are removed from the environment, `git push`, `gh pr create` and
-`gh pr merge` are refused, and the blocked hosts stay closed. With the setting off, only the npm
-registry is reachable.
+`gh pr merge` are refused, and the blocked hosts stay closed. The blocked hosts are only the
+live instance's own addresses (`localhost`, `127.0.0.1`): with the network on, the other devices
+of the local network (the router, a printer, a NAS, other machines of the tailnet) are reachable
+through the proxy as well. With the setting off, only the npm registry is reachable.
 
 **Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
 directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer

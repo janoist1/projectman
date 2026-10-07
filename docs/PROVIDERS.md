@@ -924,6 +924,10 @@ sandbox's network rules.
   the sandbox without asking anyone (decision 41).
 - **Codex:** the setting is carried in the policy but not mapped yet: Codex stays without
   network whatever the setting is (PM-358).
+- **Gemini (agy) and NanoGPT:** the setting does not take effect for them either, as for Codex:
+  their adapters do not follow `network.outbound`, so the setting is only shown. The hint under
+  the checkbox tells the user that other addresses are refused; a Gemini mapping needs its own
+  card.
 - **Managed VM:** the profile ignores the setting; its network rules are unchanged.
 
 The session policy (`apps/server/src/domain/session-policy.ts`) is the union of the member's

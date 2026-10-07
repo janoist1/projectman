@@ -225,7 +225,22 @@ describe('the permission settings in the member profile of a member', () => {
     aiConfig(project, 'code-review').approver = 'none';
     project.backend.syncPermissionViews();
     row = await settingsRow(project, 'code-review');
-    expect(row.getByText(t('permissionControls.networkHints.offNone'))).toBeTruthy();
+    expect(row.getByText(t('permissionControls.networkHints.offRefused'))).toBeTruthy();
+    row.unmount();
+
+    // Codex with an AI approver asks as well
+    aiConfig(project, 'code-review').approver = 'ai';
+    project.backend.syncPermissionViews();
+    row = await settingsRow(project, 'code-review');
+    expect(row.getByText(t('permissionControls.networkHints.off'))).toBeTruthy();
+    row.unmount();
+
+    // Gemini with a human approver: refused as well, only Codex asks
+    setProvider(project, 'code-review', 'gemini');
+    aiConfig(project, 'code-review').approver = 'human';
+    project.backend.syncPermissionViews();
+    row = await settingsRow(project, 'code-review');
+    expect(row.getByText(t('permissionControls.networkHints.offRefused'))).toBeTruthy();
     row.unmount();
   });
 
@@ -246,7 +261,7 @@ describe('the permission settings in the member profile of a member', () => {
     const row = await settingsRow(project, 'code-review');
     expect(row.getByText(t('permissionControls.networkHints.off'))).toBeTruthy();
     fireEvent.change(select(row, approverLabel()), { target: { value: 'none' } });
-    await waitFor(() => expect(row.getByText(t('permissionControls.networkHints.offNone'))).toBeTruthy());
+    await waitFor(() => expect(row.getByText(t('permissionControls.networkHints.offRefused'))).toBeTruthy());
     fireEvent.click(row.getByLabelText(t('permissionControls.network')));
     await waitFor(() => expect(aiConfig(project, 'code-review').outboundNetwork).toBe(true));
     expect(patches(project, 'code-review').at(-1)!.body).toEqual({ outboundNetwork: true });

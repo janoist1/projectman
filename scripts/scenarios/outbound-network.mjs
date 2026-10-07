@@ -53,6 +53,22 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'b-profile-off', { widths: WIDTHS, highlight: `label:has-text("${TEXT.network}")` });
   });
 
+  await step('b2. a Codex member with a human approver asks for other addresses', async () => {
+    const codexMember = members.find((m) => m.kind === 'ai' && m.handle !== developer.handle);
+    if (!codexMember) throw new Error('The demo project needs a second AI member.');
+    await instance.api(`/api/projects/AC/members/${codexMember.handle}`, {
+      method: 'PATCH',
+      body: { provider: 'codex', model: 'gpt-5.5', approver: 'human', outboundNetwork: false },
+    });
+    const page = await open({ path: `/p/AC/team/${codexMember.handle}` });
+    await openSettings(page);
+    await page.getByLabel(TEXT.network).waitFor();
+    await shoot(page, 'b2-profile-codex-off-asks', {
+      widths: WIDTHS,
+      highlight: `label:has-text("${TEXT.network}")`,
+    });
+  });
+
   await step('c. the profile as a developer who is not the owner', async () => {
     const page = await open({ as: colleague, path: profilePath });
     await openSettings(page);
@@ -70,6 +86,14 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByLabel(TEXT.network).waitFor();
     // The dialog scrolls inside: the highlight brings the row into view at each width.
     await shoot(page, 'd-hire-owner', { widths: WIDTHS, highlight: `label:has-text("${TEXT.network}")` });
+  });
+
+  await step('d1. the hire dialog as the owner with the network off', async () => {
+    const page = await open({ path: '/p/AC/team' });
+    await page.getByRole('button', { name: TEXT.hire }).first().click();
+    await page.getByRole('dialog').getByText(TEXT.details, { exact: true }).first().click();
+    await page.getByLabel(TEXT.network).click();
+    await shoot(page, 'd-hire-owner-off', { widths: WIDTHS, highlight: `label:has-text("${TEXT.network}")` });
   });
 
   await step('d2. the hire dialog as a non-owner', async () => {

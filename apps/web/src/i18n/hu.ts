@@ -1807,8 +1807,7 @@ export const hu = {
     networkHints: {
       on: 'A parancsai bármilyen címet elérnek, az élő példány címein kívül.',
       off: 'Csak az npm érhető el. Más címhez engedélyt kér, a „Ha kérdez” beállítás szerint.',
-      offNone: 'Csak az npm érhető el. Más címet a rendszer elutasít, mert senki nem dönt.',
-      offRefused: 'Csak az npm érhető el. Más címet a rendszer elutasít, nem kérdez rá.',
+      offRefused: 'Csak az npm érhető el. Más címet a rendszer elutasít.',
     },
     networkValues: {
       on: 'be',

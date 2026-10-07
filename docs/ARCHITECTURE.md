@@ -999,6 +999,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   engine supplies `SandboxPaths.heavyLockDir` from its own `defaultHeavyLockDir()` or setting,
   and with it the `StartSessionSpec.sandbox.portable` paths; its runner renders the Codex
   arguments and makes the folder (PM-311, PM-312).
+  The FIFO test (`full-test/heavy-lock.test.ts`, PM-408) starts local child processes and waits
+  for each named ticket to be readable through `readHeavyQueue` before starting the next;
+  temporary files from atomic writes do not count as queued waiters. Run it on the execution
+  host, using its own temporary directory and PID namespace.
 - **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process

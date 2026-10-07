@@ -31,7 +31,6 @@ import { Icon } from '../../components/Icon';
 import { leaveSuffix } from '../../components/LeaveChip';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { ErrorState, LoadingState } from '../../components/States';
-import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
 import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
@@ -59,6 +58,7 @@ import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
 import { useFileDrop } from './useFileDrop';
 import { TaskAttachments } from './TaskAttachments';
+import { TaskTimeline } from './TimelineAttachment';
 import { TaskCommentComposer } from './TaskCommentComposer';
 import { TaskDescription } from './TaskEdit';
 import { TaskProperties } from './TaskProperties';
@@ -511,7 +511,8 @@ export function TaskDrawer() {
           ) : detail.isError ? (
             <ErrorState compact error={detail.error} onRetry={() => void detail.refetch()} />
           ) : (
-            <Timeline
+            <TaskTimeline
+              task={task}
               events={detail.data.timeline}
               ctx={{ pipeline, members, labels, myHandle, openInboxIds: openIds }}
               fullMessageHref={fullMessageHref}

@@ -2396,6 +2396,8 @@ export const hu = {
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',
+    /** The words before the file's link on the timeline row. */
+    attachmentAddedLead: 'Csatolmány hozzáadva:',
     attachmentDeleted: 'Csatolmány törölve: {fileName}',
     /** Checks were replaced by labels; task_check_changed events recorded before still name them. */
     legacyChecks: {

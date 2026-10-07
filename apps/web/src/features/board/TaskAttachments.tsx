@@ -6,7 +6,6 @@ import { isApiError } from '../../api/client';
 import { useAttachments, useDeleteAttachment, useSetTaskCover } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
-import { Dialog } from '../../components/Dialog';
 import { Icon } from '../../components/Icon';
 import { ErrorState, LoadingState } from '../../components/States';
 import { formatBytes, formatStamp } from '../../i18n/format';
@@ -16,6 +15,7 @@ import { errorMessage } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import drawer from './drawer.module.css';
+import { AttachmentImageDialog } from './AttachmentImageDialog';
 import styles from './TaskAttachments.module.css';
 import { useAttachmentUploads } from './attachmentUploads';
 import type { UploadItem } from './attachmentUploads';
@@ -395,21 +395,10 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
         </>
       )}
 
-      <Dialog
-        open={previewed !== undefined}
+      <AttachmentImageDialog
+        image={previewed ? { ...previewed, src: urls.content(previewed.id) } : null}
         onClose={() => setPreviewId(null)}
-        title={previewed?.fileName ?? ''}
-        description={previewed ? formatBytes(previewed.size) : undefined}
-        size="lg"
-      >
-        {previewed ? (
-          <img
-            className={styles.large}
-            src={urls.content(previewed.id)}
-            alt={t('attachments.previewOf', { fileName: previewed.fileName })}
-          />
-        ) : null}
-      </Dialog>
+      />
     </section>
   );
 }

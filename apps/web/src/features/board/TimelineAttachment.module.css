@@ -1,0 +1,34 @@
+/* The file name of an attachment row: an inline link that flows with the timeline's own text. */
+.link {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 700;
+  color: var(--c-accent-text);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration-thickness: 2px;
+}
+
+/* On the first line, in front of the name, level with the text. */
+.icon {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+/* A finger needs more than the text: the target grows around it without growing the line. */
+@media (pointer: coarse) {
+  .link {
+    padding-block: 12px;
+    margin-block: -12px;
+  }
+}

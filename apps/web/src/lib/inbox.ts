@@ -156,6 +156,14 @@ export function splitQuestion(text: string): { title: string | null; body: strin
   const lines = source.split('\n');
   const first = lines[0] ?? '';
   const rest = lines.slice(1).join('\n');
+  // A short date-led question is a heading, even though its year resembles a list marker.
+  if (
+    lines.length === 1 &&
+    /^\d{4}\.\s+\p{L}/u.test(first) &&
+    plainMarkdown(source).length <= SHORT_QUESTION_LIMIT
+  ) {
+    return { title: plainMarkdown(source), body: null };
+  }
   // A list, a code block or a heading line is checked first: a short one-line question may be one too.
   if (LIST_OR_CODE.test(first)) return { title: null, body: source };
   const heading = /^#{1,4}\s+(.*)$/.exec(first);
@@ -389,6 +397,7 @@ export function decisionSubject(item: InboxItem): string {
   if (fixLimit) return t('inbox.fixLimit.subject', { key: fixLimit.taskKey });
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
+  if (item.kind === 'question') return inboxHeading(item);
   return item.title;
 }
 

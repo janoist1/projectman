@@ -3,6 +3,7 @@ import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
 import {
   alertText,
+  decisionSubject,
   inboxHeading,
   questionExtras,
   resolutionLabel,
@@ -68,6 +69,13 @@ describe('splitQuestion', () => {
   it('keeps a short one-line question of two sentences whole', () => {
     const text = 'A teszt lefutott. Mehet a kiadás az élesbe?';
     expect(splitQuestion(text)).toEqual({ title: text, body: null });
+  });
+
+  it('keeps a short date-led question whole as its heading', () => {
+    const text = '2026. október 10-ig kiadhatjuk?';
+    expect(splitQuestion(text)).toEqual({ title: text, body: null });
+    expect(inboxHeading({ ...item, kind: 'question', title: text })).toBe(text);
+    expect(splitQuestion('1. Release now?')).toEqual({ title: null, body: '1. Release now?' });
   });
 
   it('ends the title at the first question mark and keeps the rest as the body', () => {
@@ -191,6 +199,24 @@ describe('automatic permission resolution labels', () => {
     );
     expect(resolutionLabel({ ...item, resolution: { ...item.resolution!, optionId, by: 'owner' } })).toBe(
       t(`inbox.resolutions.${optionId}`),
+    );
+  });
+});
+
+describe('decisionSubject', () => {
+  it('uses the plain short question heading in history', () => {
+    expect(
+      decisionSubject({
+        ...item,
+        kind: 'question',
+        title: '**Release now?** Background.\n- First\n- Second',
+      }),
+    ).toBe('Release now?');
+  });
+
+  it('uses the fallback heading for a question starting with a list', () => {
+    expect(decisionSubject({ ...item, kind: 'question', title: '- First\n- Second' })).toBe(
+      t('inbox.question.untitled'),
     );
   });
 });

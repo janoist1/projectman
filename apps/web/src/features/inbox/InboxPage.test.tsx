@@ -37,6 +37,32 @@ function automaticDecision(
 }
 
 describe('inbox history', () => {
+  it('shows short plain headings for answered markdown questions and keeps date-led headings', async () => {
+    const project = mockProject();
+    const titles = [
+      '**Release now?** Background.\n- First\n- Second',
+      '- First\n- Second',
+      '2026. október 10-ig kiadhatjuk?',
+    ];
+    project.backend.inbox.push(
+      ...titles.map((title, index): InboxItem => ({
+        ...plainLanguageQuestion(),
+        id: `inb_answered_${index}`,
+        title,
+        state: 'resolved',
+        resolution: { optionId: 'answer', by: 'owner', at: new Date().toISOString(), note: null },
+      })),
+    );
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const history = await screen.findByRole('complementary');
+    expect(await within(history).findByText('Release now?')).toBeTruthy();
+    expect(within(history).getByText(t('inbox.question.untitled'))).toBeTruthy();
+    expect(within(history).getByText(titles[2]!)).toBeTruthy();
+    expect(history.textContent).not.toContain('**');
+    expect(history.textContent).not.toContain('Background.');
+    expect(history.textContent).not.toContain('- First');
+  });
+
   it('names the rule of an automatic decision and shows an older decision note as a note', async () => {
     const project = mockProject();
     project.backend.inbox.push(
@@ -167,6 +193,16 @@ describe('plain-language questions in the inbox', () => {
   /** The card of the open item with this heading. */
   const cardOf = async (title: string) =>
     (await screen.findByRole('heading', { name: title })).closest('article')!;
+
+  it('shows a short date-led question as a whole heading without a list', async () => {
+    const project = mockProject();
+    const title = '2026. október 10-ig kiadhatjuk?';
+    project.backend.inbox.push({ ...question, title });
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const card = await cardOf(title);
+    expect(card.querySelector('ol')).toBeNull();
+    expect(within(card).queryByText(t('inbox.question.untitled'))).toBeNull();
+  });
 
   it('shows the question with its recommendation, consequences and folded details, and answers it', async () => {
     const project = mockProject();

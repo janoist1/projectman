@@ -33,6 +33,7 @@ interface TaskRow {
   visibility: string;
   created_by: string;
   created_at: string;
+  stage_entered_at: string | null;
   updated_at: string;
   closed_at: string | null;
   /** A JSON `TaskDeveloperLevel`; NULL: no recommendation. */
@@ -72,6 +73,7 @@ export type TaskPatch = Partial<
     | 'boardRank'
     | 'labels'
     | 'visibility'
+    | 'stageEnteredAt'
     | 'updatedAt'
     | 'closedAt'
     | 'parentKey'
@@ -93,6 +95,7 @@ const COLUMNS: Record<keyof TaskPatch, string> = {
   boardRank: 'board_rank',
   labels: 'labels',
   visibility: 'visibility',
+  stageEnteredAt: 'stage_entered_at',
   updatedAt: 'updated_at',
   closedAt: 'closed_at',
   parentKey: 'parent_key',
@@ -152,6 +155,7 @@ function toTask(r: TaskRow, links: TaskLink[]): Task {
     visibility: r.visibility as Task['visibility'],
     createdBy: r.created_by,
     createdAt: r.created_at,
+    stageEnteredAt: r.stage_entered_at ?? r.created_at,
     updatedAt: r.updated_at,
     closedAt: r.closed_at,
   };
@@ -185,9 +189,9 @@ export function createTaskRepository(db: Db) {
     deleteLink: db.prepare(`DELETE FROM task_links WHERE task_id = ? AND kind = ? AND repo = '' AND ref = ?`),
     insert: db.prepare(
       `INSERT INTO tasks (id, project_key, key, seq, title, description, stage_id, status, assignee,
-         repo, priority, labels, checks, visibility, created_by, created_at, updated_at, closed_at, parent_key,
+         repo, priority, labels, checks, visibility, created_by, created_at, stage_entered_at, updated_at, closed_at, parent_key,
          kind, theme_key, board_rank, developer_level)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     setBoardRank: db.prepare('UPDATE tasks SET board_rank = ? WHERE key = ? AND project_key = ?'),
     // The open cards of a project that stand in these stages (themes are no cards of the board).
@@ -327,6 +331,7 @@ export function createTaskRepository(db: Db) {
           task.visibility,
           task.createdBy,
           task.createdAt,
+          task.stageEnteredAt ?? task.createdAt,
           task.updatedAt,
           task.closedAt,
           task.parentKey ?? null,

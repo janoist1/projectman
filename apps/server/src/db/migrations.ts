@@ -712,5 +712,15 @@ export const migrations: Migration[] = [
       CREATE UNIQUE INDEX senior_waits_open ON senior_waits(project_key, task_key)
         WHERE ended_at IS NULL;`,
   },
+  {
+    version: 37,
+    name: 'task stage entered at',
+    sql: `ALTER TABLE tasks ADD COLUMN stage_entered_at TEXT;
+UPDATE tasks SET stage_entered_at = COALESCE(
+  (SELECT e.created_at FROM timeline_events e
+    WHERE e.task_key = tasks.key AND e.type = 'task_stage_changed'
+    ORDER BY e.seq DESC LIMIT 1),
+  created_at);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

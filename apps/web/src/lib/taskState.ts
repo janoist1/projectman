@@ -30,7 +30,8 @@ import type { PipelineIndex } from './pipeline';
  * Where a task stands from the viewer's point of view. The board, the phone list and
  * the drawer all use this, so "Rád vár" means the same everywhere.
  */
-export type TaskPhase = 'needs_you' | 'working' | 'waiting' | 'blocked' | 'ready' | 'done' | 'cancelled';
+import type { TaskPhase } from '@projectman/shared';
+export type { TaskPhase };
 
 /**
  * The prerequisites a card still waits for (PM-192): the first in the order of the card's prerequisite

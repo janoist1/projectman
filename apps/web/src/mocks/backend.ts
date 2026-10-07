@@ -3007,6 +3007,7 @@ export class MockBackend {
   ): void {
     const from = task.stageId;
     const patch: Partial<Task> = { stageId: target.id };
+    if (from !== target.id) patch.stageEnteredAt = nowIso();
     if (target.kind === 'done') Object.assign(patch, { status: 'done', closedAt: nowIso() });
     else if (task.status === 'done' || task.status === 'waiting')
       Object.assign(patch, { status: 'active', closedAt: null });
@@ -3261,6 +3262,7 @@ export class MockBackend {
       visibility: input.visibility ?? 'internal',
       createdBy: this.viewerHandle,
       createdAt: at,
+      stageEnteredAt: at,
       updatedAt: at,
       closedAt: null,
     };

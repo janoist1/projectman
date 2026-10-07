@@ -39,7 +39,12 @@ Less churn, less load, safer providers. Roughly in this order:
 - **Housekeeping:** rewrite the public repository's history to remove a client's name (PM-354,
   decision 39); these documents (PM-381).
 
-## Next: hybrid mode (PM-286)
+## Next: the operator's UI (decision 41)
+
+Features for the person who runs the team: the flow map (PM-379), intent-driven control
+(PM-384), then the views and smaller UI work listed under Later. Critical fixes go first.
+
+## Then: hybrid mode (PM-286)
 
 The board in the cloud, AI work in an office or as remote work (decision 38). In order: an engine
 interface in front of the machine-dependent parts (PM-311), disk and terminal behind it (PM-312),

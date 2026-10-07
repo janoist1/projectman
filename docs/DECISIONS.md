@@ -308,3 +308,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     are never migrated to a freer mode"): a member saved before this setting existed has the
     network on, because the owner chose „Mindenkinek be”. Protections that stay with the
     network on are listed in `docs/SECURITY.md`.
+41. **Now: critical fixes, and the operator's UI as the new feature work.** Decided by the owner
+    on 2026-10-07. Besides fixing critical bugs and wrong behaviour, new features serve the person
+    who runs the team: talking to the AI members easily, seeing the work at a glance, keeping up
+    with fast changes, reading only what matters to them, and having the right context for every
+    decision. First cards: the flow map (PM-379) and intent-driven control (PM-384). Hybrid mode
+    (PM-286) comes after this.

@@ -32,6 +32,8 @@ export interface SessionPolicy {
         path: string;
         /** A shared git directory outside `path` (a git worktree's); absent for an independent clone. */
         gitDir?: string;
+        /** The worktree's own admin directory inside `gitDir` (`worktrees/<name>`, PM-399): its index and `HEAD`. */
+        worktreeGitDir?: string;
         /** The member's durable workspace (PM-138): the task branch in it and where it started. */
         workspace?: { branch: string; baseCommit: string | null };
       }

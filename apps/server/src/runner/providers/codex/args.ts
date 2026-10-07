@@ -205,21 +205,30 @@ export function codexCliReadRoot(cliPath: string, denied: readonly string[]): Co
 }
 
 /**
- * The shared git directory of a task worktree (PM-399): `git add` and `git commit` write the
- * worktree's index and the objects and refs here, so it is a writable root. These stay read-only:
- * the configuration and the hooks, which git runs outside the sandbox, and the files of the
- * integrating checkout (`AgentSandbox.denyWrite`, `sharedGitDenials`).
+ * What `git add` and `git commit` write in a task worktree's git directories (PM-399): the shared
+ * `objects`, `refs` and `logs`, and the worktree's own admin directory (`worktreeGitDir`: its index
+ * and `HEAD`). Not the shared directory as a whole, and not another worktree's admin directory:
+ * the host's git reads those outside the sandbox (a rewritten `commondir` or `config` runs a
+ * program there, PM-131). These stay read-only inside the writable ones: the configuration and
+ * the hooks, `objects/info` (alternates), the own admin directory's links (`commondir`, `gitdir`,
+ * `config.worktree`), and the files of the integrating checkout (`AgentSandbox.denyWrite`,
+ * `sharedGitDenials`). Nothing without both directories (an independent clone has its own `.git`).
  */
 export function codexSharedGitAccess(
   policy: CodexArgsInput['spec']['policy'],
   denyWrite: readonly string[] = [],
 ): { writable: string[]; readOnly: string[] } {
-  const gitDir = policy?.placement.kind === 'task_worktree' ? policy.placement.gitDir : undefined;
-  if (!gitDir) return { writable: [], readOnly: [] };
+  const placement = policy?.placement;
+  const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
+  const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
+  if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
   return {
-    writable: [gitDir],
+    writable: [...['objects', 'refs', 'logs'].map((name) => path.join(gitDir, name)), adminDir],
     readOnly: [
-      ...['config', 'config.lock', 'hooks'].map((name) => path.join(gitDir, name)),
+      ...['config', 'config.lock', 'hooks', path.join('objects', 'info')].map((name) =>
+        path.join(gitDir, name),
+      ),
+      ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => path.join(adminDir, name)),
       ...denyWrite.filter((entry) => insidePath(entry, gitDir)),
     ],
   };

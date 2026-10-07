@@ -1528,7 +1528,12 @@ export class SessionOrchestrator {
         : ws
           ? ws.placement
           : placed
-            ? { kind: 'task_worktree', path: cwd, ...(placed.gitDir ? { gitDir: placed.gitDir } : {}) }
+            ? {
+                kind: 'task_worktree',
+                path: cwd,
+                ...(placed.gitDir ? { gitDir: placed.gitDir } : {}),
+                ...(placed.worktreeGitDir ? { worktreeGitDir: placed.worktreeGitDir } : {}),
+              }
             : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),

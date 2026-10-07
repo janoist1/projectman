@@ -466,12 +466,14 @@ describe('buildCodexArgs', () => {
 
   describe('the shared git directory of a task worktree (PM-399)', () => {
     const gitDir = '/main/repo/.git';
+    const adminDir = `${gitDir}/worktrees/PM-1-repo`;
     const policy = (
       sandboxMode: 'read-only' | 'workspace-write',
       placement: NonNullable<StartSessionSpec['policy']>['placement'] = {
         kind: 'task_worktree',
         path: '/work',
         gitDir,
+        worktreeGitDir: adminDir,
       },
     ): NonNullable<StartSessionSpec['policy']> => ({
       version: 1,
@@ -496,31 +498,55 @@ describe('buildCodexArgs', () => {
         'permissions.projectman',
       );
 
-    it('writes the shared git directory so git add and git commit work in the worktree', () => {
-      expect(profile(policy('workspace-write'))).toContain(`"${gitDir}"="write"`);
+    it('writes the shared objects, refs and logs and the own admin directory, so git commit works', () => {
+      const rendered = profile(policy('workspace-write'))!;
+      for (const dir of [`${gitDir}/objects`, `${gitDir}/refs`, `${gitDir}/logs`, adminDir])
+        expect(rendered).toContain(`"${dir}"="write"`);
     });
 
-    it('keeps its configuration, hooks and the integrating checkout files read-only', () => {
+    it('does not write the shared git directory as a whole, nor another worktree admin directory', () => {
       const rendered = profile(policy('workspace-write'))!;
-      for (const name of ['config', 'config.lock', 'hooks', 'HEAD', 'index', 'refs/heads/main'])
+      expect(rendered).not.toContain(`"${gitDir}"="write"`);
+      expect(rendered).not.toContain(`"${gitDir}/worktrees"`);
+      expect(rendered).not.toContain('PM-2-repo');
+    });
+
+    it('keeps the configuration, hooks, alternates, worktree links and checkout files read-only', () => {
+      const rendered = profile(policy('workspace-write'))!;
+      for (const name of [
+        'config',
+        'config.lock',
+        'hooks',
+        'objects/info',
+        'HEAD',
+        'index',
+        'refs/heads/main',
+        'worktrees/PM-1-repo/commondir',
+        'worktrees/PM-1-repo/gitdir',
+        'worktrees/PM-1-repo/config.worktree',
+        'worktrees/PM-1-repo/hooks',
+      ])
         expect(rendered).toContain(`"${gitDir}/${name}"="read"`);
       expect(rendered).not.toContain('/elsewhere/file');
     });
 
-    it('opens nothing in a read-only sandbox or outside a worktree', () => {
+    it('opens nothing in a read-only sandbox, outside a worktree or without its admin directory', () => {
       expect(profile(policy('read-only'))).not.toContain(gitDir);
       expect(
         profile(policy('workspace-write', { kind: 'member_workspace', path: '/work', use: 'work' })),
       ).not.toContain(gitDir);
+      expect(
+        profile(policy('workspace-write', { kind: 'task_worktree', path: '/work', gitDir })),
+      ).not.toContain(gitDir);
     });
 
-    it('does not open the git directory when it lies in a denied path', () => {
+    it('does not open the git directories when they lie in a denied path', () => {
       const p = policy('workspace-write');
       const c = buildCodexArgs({
         ...input,
         spec: { ...spec, policy: { ...p, filesystem: { ...p.filesystem, deniedPaths: ['/main'] } } },
       }).args;
-      expect(overrides(c).get('permissions.projectman')).not.toContain(`"${gitDir}"="write"`);
+      expect(overrides(c).get('permissions.projectman')).not.toContain(`"${gitDir}/refs"="write"`);
     });
   });
 

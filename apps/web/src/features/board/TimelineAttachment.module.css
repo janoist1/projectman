@@ -1,9 +1,7 @@
-/* The file name of an attachment row: a link in the timeline's own text, not a button. */
+/* The file name of an attachment row: an inline link that flows with the timeline's own text. */
 .link {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 100%;
+  position: relative;
+  display: inline;
   padding: 0;
   border: 0;
   background: none;
@@ -21,8 +19,18 @@
   text-decoration-thickness: 2px;
 }
 
+/* On the first line, in front of the name, level with the text. */
+.icon {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+/* A finger needs more than the text: the target grows around it without growing the line. */
 @media (pointer: coarse) {
-  .link {
-    min-height: 44px;
+  .link::after {
+    content: '';
+    position: absolute;
+    inset: -12px -6px;
   }
 }

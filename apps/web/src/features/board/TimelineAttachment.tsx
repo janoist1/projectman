@@ -45,21 +45,41 @@ export function TaskTimeline({
     const preview = attachmentPreviewOf(text(event.data.mediaType));
     const size = Number(event.data.size) || 0;
     const content = routes.attachmentContent(key, task.key, id);
+    // The same words as the card's file list name the action (label and tooltip).
     const link =
       preview === 'image' ? (
-        <button type="button" className={styles.link} onClick={() => setOpen({ id, fileName, size })}>
-          <Icon name="eye" size={14} strokeWidth={2.1} />
+        <button
+          type="button"
+          className={styles.link}
+          aria-label={t('attachments.previewLabel', { fileName })}
+          title={t('attachments.previewLabel', { fileName })}
+          onClick={() => setOpen({ id, fileName, size })}
+        >
+          <Icon name="eye" size={14} strokeWidth={2.1} className={styles.icon} />
           {fileName}
         </button>
       ) : preview === 'pdf' ? (
         // A PDF opens in a tab of its own, from the protected route: never inside this page.
-        <a className={styles.link} href={content} target="_blank" rel="noopener noreferrer">
-          <Icon name="external" size={14} strokeWidth={2.1} />
+        <a
+          className={styles.link}
+          href={content}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t('attachments.openPdfLabel', { fileName })}
+          title={t('attachments.openPdfLabel', { fileName })}
+        >
+          <Icon name="external" size={14} strokeWidth={2.1} className={styles.icon} />
           {fileName}
         </a>
       ) : (
-        <a className={styles.link} href={routes.attachmentDownload(key, task.key, id)} download>
-          <Icon name="download" size={14} strokeWidth={2.1} />
+        <a
+          className={styles.link}
+          href={routes.attachmentDownload(key, task.key, id)}
+          download
+          aria-label={t('attachments.downloadLabel', { fileName })}
+          title={t('attachments.downloadLabel', { fileName })}
+        >
+          <Icon name="download" size={14} strokeWidth={2.1} className={styles.icon} />
           {fileName}
         </a>
       );

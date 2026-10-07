@@ -105,7 +105,16 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     const commonDir =
       (await tryGit(['-C', dir, 'rev-parse', '--path-format=absolute', '--git-common-dir'])) ??
       (await git(['-C', dir, 'rev-parse', '--git-common-dir']));
-    return { path: dir, branch, repo, gitDir: path.resolve(dir, commonDir.trim()) };
+    const adminDir =
+      (await tryGit(['-C', dir, 'rev-parse', '--absolute-git-dir'])) ??
+      (await git(['-C', dir, 'rev-parse', '--git-dir']));
+    return {
+      path: dir,
+      branch,
+      repo,
+      gitDir: path.resolve(dir, commonDir.trim()),
+      worktreeGitDir: path.resolve(dir, adminDir.trim()),
+    };
   }
 
   async function find(args: {

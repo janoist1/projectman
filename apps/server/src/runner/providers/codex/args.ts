@@ -204,10 +204,42 @@ export function codexCliReadRoot(cliPath: string, denied: readonly string[]): Co
   return { kind: 'misplaced' };
 }
 
+/**
+ * What `git add` and `git commit` write in a task worktree's git directories (PM-399): the shared
+ * `objects`, `refs` and `logs`, and the worktree's own admin directory (`worktreeGitDir`: its index
+ * and `HEAD`). Not the shared directory as a whole, and not another worktree's admin directory:
+ * the host's git reads those outside the sandbox (a rewritten `commondir` or `config` runs a
+ * program there, PM-131). These stay read-only inside the writable ones: the configuration and
+ * the hooks, `objects/info` (alternates), the own admin directory's links (`commondir`, `gitdir`,
+ * `config.worktree`), and the files of the integrating checkout (`AgentSandbox.denyWrite`,
+ * `sharedGitDenials`). Nothing without both directories (an independent clone has its own `.git`).
+ */
+export function codexSharedGitAccess(
+  policy: CodexArgsInput['spec']['policy'],
+  denyWrite: readonly string[] = [],
+): { writable: string[]; readOnly: string[] } {
+  const placement = policy?.placement;
+  const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
+  const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
+  if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
+  return {
+    writable: [...['objects', 'refs', 'logs'].map((name) => path.join(gitDir, name)), adminDir],
+    readOnly: [
+      ...['config', 'config.lock', 'hooks', path.join('objects', 'info')].map((name) =>
+        path.join(gitDir, name),
+      ),
+      ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => path.join(adminDir, name)),
+      ...denyWrite.filter((entry) => insidePath(entry, gitDir)),
+    ],
+  };
+}
+
 export function codexPermissionProfile(input: {
   sandbox: 'read-only' | 'workspace-write';
   deniedPaths: readonly string[];
   writableRoots: readonly string[];
+  /** Paths inside a writable root that stay readable but not writable. */
+  readOnlyPaths?: readonly string[];
   tmpDir?: string;
   cliPath?: string;
 }): CodexPermissionProfile {
@@ -218,6 +250,8 @@ export function codexPermissionProfile(input: {
   if (writes) {
     for (const root of new Set([...input.writableRoots, ...(input.tmpDir ? [input.tmpDir] : [])]))
       if (!input.deniedPaths.some((denied) => insidePath(root, denied))) filesystem[root] = 'write';
+    for (const readOnly of new Set(input.readOnlyPaths ?? []))
+      if (!input.deniedPaths.some((denied) => insidePath(readOnly, denied))) filesystem[readOnly] = 'read';
     if (!input.tmpDir) {
       filesystem[':tmpdir'] = 'write';
       filesystem[':slash_tmp'] = 'write';
@@ -313,8 +347,11 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
   // The commands' own temporary directory (PM-339): their TMPDIR and a writable root, while the
   // shared ones (`/tmp`, the CLI's TMPDIR) are closed. Only where the sandbox writes.
   const tmpDir = writes ? portable?.tmpDir : undefined;
+  // A worktree's shared git directory (PM-399): without it `git add` / `git commit` fail with EPERM.
+  const sharedGit = writes ? codexSharedGitAccess(spec.policy, spec.sandbox?.denyWrite) : undefined;
   const writableRoots = [
     ...(!spec.policy ? (spec.writableRoots ?? []) : []),
+    ...(sharedGit?.writable ?? []),
     ...(portable?.allowWrite ?? []),
     ...(tmpDir ? [tmpDir] : []),
   ];
@@ -326,6 +363,7 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
         sandbox: writes ? 'workspace-write' : 'read-only',
         deniedPaths: codexDeniedPaths(input),
         writableRoots,
+        readOnlyPaths: sharedGit?.readOnly ?? [],
         tmpDir,
         cliPath: input.cliPath,
       }),

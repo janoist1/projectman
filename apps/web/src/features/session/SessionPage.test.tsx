@@ -8,6 +8,8 @@ import { plainLanguageQuestion } from '../../mocks/fixtures';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { MeContext } from '../../app/contexts';
 import { ProjectLayout } from '../../app/ProjectLayout';
+import { BoardPage } from '../board/BoardPage';
+import { TaskDrawer } from '../board/TaskDrawer';
 import { SessionPage } from './SessionPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -102,6 +104,34 @@ describe('session details public settings', () => {
 describe('session header', () => {
   afterEach(() => vi.restoreAllMocks());
 
+  it.each(['desktop', 'phone'])(
+    'opens a queued task in the full card view from its %s heading',
+    async (layout) => {
+      if (layout === 'phone') phone();
+      const project = mockProject();
+      const task = project.backend.findTask('AC-21')!;
+      task.stageId = project.backend.config.pipeline.stages[0]!.id;
+      project.render(
+        <Routes>
+          <Route path="/sessions/:sessionId" element={<SessionPage />} />
+          <Route path="/p/:key" element={<BoardPage />}>
+            <Route path="tasks/:taskKey" element={<TaskDrawer />} />
+          </Route>
+        </Routes>,
+        '/sessions/ses_ac21_fe1',
+      );
+      const heading = await screen.findByRole('heading', { level: 1, name: task.title });
+      const link = within(heading).getByRole('link', { name: task.title });
+      expect(link.getAttribute('href')).toBe('/p/AC/tasks/AC-21?size=large');
+      fireEvent.click(link);
+      const card = await screen.findByRole(layout === 'phone' ? 'complementary' : 'dialog', {
+        name: t('task.drawerLabel'),
+      });
+      expect(await within(card).findByRole('heading', { name: task.title })).toBeTruthy();
+      expect(screen.queryByRole('tab', { name: t('session.tabs.chat') })).toBeNull();
+    },
+  );
+
   it('names the member the session belongs to by avatar and name, and keeps only the stage and PR chips', async () => {
     const project = mockProject();
     const member = project.backend.findMember('fe-1')!;
@@ -154,6 +184,7 @@ describe('session header', () => {
     project.render(sessionRoute, '/sessions/ses_gen_comm');
     const title = await screen.findByRole('heading', { level: 1 });
     expect(title.textContent).toContain(member.displayName);
+    expect(within(title).queryByRole('link')).toBeNull();
     expect(title.parentElement!.querySelector('[data-tone]')).toBeNull();
   });
 });

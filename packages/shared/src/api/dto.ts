@@ -175,6 +175,12 @@ export const MemberView = z.object({
   /** AI members only: on leave, nothing starts a session for the member (omitted: at work). */
   onLeave: z.boolean().optional(),
   /**
+   * AI members only: whether the member's commands can reach any outbound address (PM-355). The server
+   * always fills it in (a member without the setting reads `true`); a missing value (an older server,
+   * a test fake) is read as on.
+   */
+  outboundNetwork: z.boolean().optional(),
+  /**
    * The team's Senior (PM-347, `isSenior`): an AI member marked so, and not a temp worker. The server
    * always fills it in; a missing value (an older server, a test fake) is `false`.
    */
@@ -204,6 +210,8 @@ export const HireMemberRequest = z.object({
   schedule: MemberSchedule.optional(),
   /** The agent CLI the member runs in (default "claude"). */
   provider: AgentProvider.optional(),
+  /** Owner only (PM-355): whether the new member's commands can reach the network; default on. */
+  outboundNetwork: z.boolean().optional(),
 });
 export type HireMemberRequest = z.infer<typeof HireMemberRequest>;
 
@@ -215,6 +223,8 @@ export const UpdateMemberRequest = z.object({
   effort: AgentEffort.nullable().optional(),
   /** AI only; the compaction window in tokens (PM-212), null falls back to the project's. */
   autoCompactWindowTokens: AutoCompactWindowTokens.nullable().optional(),
+  /** AI only, owner only (PM-355): whether the member's commands can reach the network. */
+  outboundNetwork: z.boolean().optional(),
   /** AI only; the cheap subagent's model (PM-179), null switches it off. */
   cheapSubagent: CheapSubagentModel.nullable().optional(),
   displayName: z.string().trim().min(1).optional(),

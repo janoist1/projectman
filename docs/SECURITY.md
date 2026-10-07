@@ -361,6 +361,16 @@ the existing command-approval path (PM-131/PM-77). No Git write grant is added b
 macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
 checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
+**Residual risk (PM-355, outbound network, accepted by the owner).** The member's "Outbound
+network" setting is on by default for every AI member (decision 41). With it on, a member's
+commands can reach any address except the blocked hosts (the live instance's own addresses), so a
+command can send the contents of the working copy, including what the member could read, to a
+server outside. The owner judged the risk no greater than using Claude Desktop. The protections
+that do not depend on the network stay: the secrets and denied paths cannot be read, the billing
+and secret variables are removed from the environment, `git push`, `gh pr create` and
+`gh pr merge` are refused, and the blocked hosts stay closed. With the setting off, only the npm
+registry is reachable.
+
 **Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
 directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer
 write everything in it but `hooks`, `config` and the PM-153 files. So a developer's commands can

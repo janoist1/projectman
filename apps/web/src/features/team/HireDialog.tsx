@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import {
+  DEFAULT_OUTBOUND_NETWORK,
   DEFAULT_PROVIDER_MODELS,
   modelForProvider,
   MemberHandle,
@@ -13,7 +14,7 @@ import { useHireMember, useRoles } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
-import { SelectField, TextField } from '../../components/Field';
+import { SelectField, TextField, CheckField } from '../../components/Field';
 import { Dialog } from '../../components/Dialog';
 import { Fold } from '../../components/Fold';
 import { useToast } from '../../components/toastContext';
@@ -26,6 +27,7 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { ScheduleFields } from './ScheduleFields';
 import type { ScheduleDraft } from './ScheduleFields';
 import { previewFor } from './hirePreview';
+import { networkHint } from './networkHint';
 import { ProviderFields } from './ProviderFields';
 import { PermissionProviderNote } from './PermissionLevelControl';
 import styles from './HireDialog.module.css';
@@ -53,6 +55,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
   const [effort, setEffort] = useState<AgentEffort | undefined>();
   const [cheapSubagent, setCheapSubagent] = useState<CheapSubagentModel | undefined>();
   const [model, setModel] = useState<string | null>(null);
+  const [outboundNetwork, setOutboundNetwork] = useState(DEFAULT_OUTBOUND_NETWORK);
   const [handleError, setHandleError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const formId = useId();
@@ -109,6 +112,7 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
         schedule: schedule.enabled
           ? { cron: schedule.cron.trim(), prompt: schedule.prompt.trim() }
           : undefined,
+        outboundNetwork: isOwner ? outboundNetwork : undefined,
       },
       {
         onSuccess: () => {
@@ -240,6 +244,12 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
                   <dt>{t('hire.approver')}</dt>
                   <dd>{t(`permissionControls.approvers.${preview.approver}`)}</dd>
                 </div>
+                {!isOwner ? (
+                  <div>
+                    <dt>{t('permissionControls.network')}</dt>
+                    <dd>{t('permissionControls.networkFacts.on')}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>{t('hire.capacity')}</dt>
                   <dd>{t('hire.capacityValue', { count: preview.capacity })}</dd>
@@ -249,6 +259,15 @@ function HireForm({ config, onDone }: { config: ProjectConfig | undefined; onDon
                   <dd>{t(provider === 'nanogpt' ? 'hire.nanogptSubscription' : 'hire.subscriptionYours')}</dd>
                 </div>
               </dl>
+              {isOwner ? (
+                <CheckField
+                  label={t('permissionControls.network')}
+                  checked={outboundNetwork}
+                  disabled={hire.isPending}
+                  onChange={setOutboundNetwork}
+                  hint={networkHint({ network: outboundNetwork, provider, approver: preview.approver })}
+                />
+              ) : null}
               <TextField
                 label={t('hire.handle')}
                 hint={t('hire.handleHint')}

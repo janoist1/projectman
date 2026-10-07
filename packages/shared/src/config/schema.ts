@@ -109,6 +109,11 @@ export const AiMemberConfig = z.object({
    * assignee or stage owner. Absent means at work (see `isOnLeave`).
    */
   onLeave: z.boolean().optional(),
+  /**
+   * Whether the member's commands can reach the network (PM-355); owner only. Absent means on
+   * (`DEFAULT_OUTBOUND_NETWORK`), so members from before the setting have it on.
+   */
+  outboundNetwork: z.boolean().optional(),
 });
 export type AiMemberConfig = z.infer<typeof AiMemberConfig>;
 

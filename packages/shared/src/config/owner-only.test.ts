@@ -161,6 +161,35 @@ describe('ownerOnlyChanges', () => {
       (c) => void c.team.members.push({ ...ai(c, 'dev-1'), handle: 'dev-2', permissionMode: 'auto' }),
       ['permissions'],
     ],
+    [
+      'an AI member outbound network setting',
+      (c) => void (ai(c, 'dev-1').outboundNetwork = false),
+      ['permissions'],
+    ],
+    [
+      'a new AI member with outbound network off',
+      (c) =>
+        void c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'auto',
+          approver: 'none',
+          outboundNetwork: false,
+        }),
+      ['permissions'],
+    ],
+    [
+      'a new AI member with outbound network on (default)',
+      (c) =>
+        void c.team.members.push({
+          ...ai(c, 'dev-1'),
+          handle: 'dev-2',
+          permissionMode: 'auto',
+          approver: 'none',
+          outboundNetwork: true,
+        }),
+      [],
+    ],
   ])('%s', (_name, edit, expected) => {
     expect(changed(edit)).toEqual(expected);
   });

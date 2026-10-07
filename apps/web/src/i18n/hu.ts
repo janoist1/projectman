@@ -1803,6 +1803,23 @@ export const hu = {
     },
     legacy: 'régi beállítás',
     legacyHint: 'Régi „mindent szabad” beállítás. Egy új mód kiválasztása lecseréli.',
+    network: 'Kimenő hálózat',
+    networkHints: {
+      on: 'A parancsai bármilyen címet elérnek, az élő példány címein kívül.',
+      off: 'Csak az npm érhető el. Más címhez engedélyt kér, a „Ha kérdez” beállítás szerint.',
+      offNone: 'Csak az npm érhető el. Más címet a rendszer elutasít, mert senki nem dönt.',
+      offRefused: 'Csak az npm érhető el. Más címet a rendszer elutasít, nem kérdez rá.',
+    },
+    networkValues: {
+      on: 'be',
+      off: 'ki',
+    },
+    networkFacts: {
+      on: 'Be',
+      off: 'Ki',
+    },
+    networkState: 'Kimenő hálózat: {value}',
+    savedNetwork: '{name} kimenő hálózata: {value}. A következő munkamenettől érvényes.',
     blocked: {
       delegation_off: 'Nem választható: a külső műveletek delegálása ki van kapcsolva.',
       no_ai_decider: 'Nem választható: nincs olyan AI-tag, aki a külső műveletekről dönthetne.',

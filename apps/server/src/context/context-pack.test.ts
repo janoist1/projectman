@@ -22,7 +22,8 @@ import type {
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
 import type { CardQuestion, CardWorker, ContextPackInput, SessionPolicy } from '../contracts';
-import { buildSessionPolicy, commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
+import { commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
+import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
@@ -2553,7 +2554,7 @@ describe("the CLI's own sandbox (PM-167)", () => {
     expect(text).toContain('Writing: only the temp directory');
     expect(text).toContain('`/work/acme` and `/worktrees/AR/AR-21-app` are read-only');
     expect(text).toContain('`/home/anna/.ssh`');
-    expect(text).toContain('only `registry.npmjs.org`');
+    expect(text).toContain('any outbound host except `localhost`, `127.0.0.1`');
     // A local-only repository has no pull request to read with `gh` (PM-188).
     expect(text).not.toContain('`gh pr view`');
     expect(text).toContain('Refused outright: `git push`');

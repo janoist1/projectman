@@ -910,6 +910,22 @@ stdio MCP; hook waits beyond about 100 s; the out-of-quota and update screens; a
 
 ## Session policy
 
+### Outbound network (PM-355)
+
+Every AI member has an `outboundNetwork` setting (default ON for everyone, including members
+saved before it existed; only the owner changes it). It becomes `SessionPolicy.network.outbound`
+(`open` or `allowlist`), and `sandboxNetwork` in `session-policy.ts` turns that into the
+sandbox's network rules.
+
+- **Claude Code, ON:** `allowedDomains` is `['*']` and `deniedDomains` is `HARD_DENIED_HOSTS`
+  (`localhost`, `127.0.0.1`). `strictAllowlist` stays true; the publishing deny rules and the
+  unreadable credential paths are unchanged.
+- **Claude Code, OFF:** `allowedDomains` is the npm registry only. Any other host is refused by
+  the sandbox without asking anyone (decision 41).
+- **Codex:** the setting is carried in the policy but not mapped yet: Codex stays without
+  network whatever the setting is (PM-358).
+- **Managed VM:** the profile ignores the setting; its network rules are unchanged.
+
 The session policy (`apps/server/src/domain/session-policy.ts`) is the union of the member's
 duties: editing duties work in the task worktree, read-only duties pre-approve reading tools,
 and developer roles get everyday git and npm commands pre-approved. Reviewers get the

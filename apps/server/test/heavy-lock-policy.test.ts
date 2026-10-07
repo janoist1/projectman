@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentSandbox, SessionPolicy } from '../src/contracts';
-import { buildSessionPolicy, sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
+import { sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
 import { describeSandbox } from '../src/domain/unattended-commands';
+import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
 /** The machine's heavy-run queue in the members' sandboxes (PM-336). */

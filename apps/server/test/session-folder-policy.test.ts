@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionPolicy } from '../src/contracts';
-import {
-  buildSessionPolicy,
-  sensitivePaths,
-  sessionSandbox,
-  withSessionFolders,
-} from '../src/domain/session-policy';
+import { sensitivePaths, sessionSandbox, withSessionFolders } from '../src/domain/session-policy';
+import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
 const source = '/fictional/source';

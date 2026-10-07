@@ -106,6 +106,11 @@ export interface SessionPolicy {
     allowLocalBinding: boolean;
     /** Hosts the built-in web fetch tool never reaches (the live instance on localhost, PM-165). */
     deniedHosts?: string[];
+    /**
+     * The member's outbound network (PM-355): `open` reaches any host but `deniedHosts`, `allowlist` only
+     * the npm registry. The legacy profile applies it; the managed VM profile ignores it (its boundary decides).
+     */
+    outbound?: 'open' | 'allowlist';
   };
   outsideSandbox: 'ask' | 'deny';
   permissions: {

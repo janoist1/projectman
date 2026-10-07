@@ -1,6 +1,7 @@
 import {
   roleBundle,
   DEFAULT_NEW_MEMBER_APPROVER,
+  DEFAULT_OUTBOUND_NETWORK,
   DEFAULT_PERMISSION_MODE,
   DEFAULT_PROVIDER_MODELS,
   DUTIES,
@@ -16,7 +17,7 @@ export function previewFor(
   role: RoleId,
   specialty: string,
   config: ProjectConfig | undefined,
-): Pick<AiMemberConfig, 'model' | 'permissionMode' | 'capacity' | 'instructions'> & {
+): Pick<AiMemberConfig, 'model' | 'permissionMode' | 'outboundNetwork' | 'capacity' | 'instructions'> & {
   approver: Approver;
 } {
   const ai = (config?.team.members ?? []).filter(
@@ -30,6 +31,7 @@ export function previewFor(
     // The server gives every new member the same mode and approver, whatever the role or provider.
     permissionMode: defaults?.permissionMode ?? DEFAULT_PERMISSION_MODE,
     approver: defaults?.approver ?? DEFAULT_NEW_MEMBER_APPROVER,
+    outboundNetwork: defaults?.outboundNetwork ?? DEFAULT_OUTBOUND_NETWORK,
     capacity: match?.capacity ?? 1,
     instructions: config
       ? [

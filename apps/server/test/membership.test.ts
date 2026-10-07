@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Me, ServerEvent } from '@projectman/shared';
+import { Me, ServerEvent, routes } from '@projectman/shared';
 import { createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -70,5 +70,86 @@ describe('memberships and member snapshots', () => {
         member: expect.objectContaining({ kind: 'human', role: 'viewer', roles: ['qa'] }),
       }),
     ]);
+  });
+
+  describe('the outbound network setting (PM-355)', () => {
+    /** Invites a human with the given access and returns their login cookie. */
+    async function inviteAs(access: 'admin' | 'developer', email: string): Promise<string> {
+      const invite = await inject(h.app, 'POST', '/api/projects/AR/invites', cookie, {
+        email,
+        access,
+        roles: ['qa'],
+      });
+      const accepted = await inject(
+        h.app,
+        'POST',
+        invite.json().path.replace('/invite/', '/api/invites/') + '/accept',
+        null,
+        { name: 'Fictional person', password: 'correct horse battery' },
+      );
+      const setCookie = accepted.headers['set-cookie'];
+      return Array.isArray(setCookie) ? setCookie[0]! : setCookie!;
+    }
+
+    it('is on for a new member unless the owner hires it with the network off', async () => {
+      const defaulted = await inject(h.app, 'POST', routes.members('AR'), cookie, { role: 'developer' });
+      expect(defaulted.statusCode).toBe(201);
+      expect(defaulted.json().outboundNetwork).toBe(true);
+
+      const off = await inject(h.app, 'POST', routes.members('AR'), cookie, {
+        role: 'qa',
+        outboundNetwork: false,
+      });
+      expect(off.statusCode).toBe(201);
+      expect(off.json().outboundNetwork).toBe(false);
+    });
+
+    it('is changed by the owner and by nobody else', async () => {
+      const hired = await inject(h.app, 'POST', routes.members('AR'), cookie, { role: 'developer' });
+      const handle: string = hired.json().handle;
+
+      const changed = await inject(h.app, 'PATCH', routes.member('AR', handle), cookie, {
+        outboundNetwork: false,
+      });
+      expect(changed.statusCode).toBe(200);
+      expect(changed.json().outboundNetwork).toBe(false);
+
+      // An admin may hire and edit members, but not the permission settings (owner only).
+      const admin = await inviteAs('admin', 'admin@example.test');
+      const patched = await inject(h.app, 'PATCH', routes.member('AR', handle), admin, {
+        outboundNetwork: true,
+      });
+      expect(patched.statusCode).toBe(403);
+      const hiredOff = await inject(h.app, 'POST', routes.members('AR'), admin, {
+        role: 'qa',
+        outboundNetwork: false,
+      });
+      expect(hiredOff.statusCode).toBe(403);
+      const hiredDefault = await inject(h.app, 'POST', routes.members('AR'), admin, { role: 'qa' });
+      expect(hiredDefault.statusCode).toBe(201);
+      expect(hiredDefault.json().outboundNetwork).toBe(true);
+    });
+
+    it('applies to AI members only', async () => {
+      const res = await inject(h.app, 'PATCH', routes.member('AR', 'owner'), cookie, {
+        outboundNetwork: false,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error.code).toBe('not_ai_member');
+    });
+
+    it('reads as on for a member saved before the setting existed', async () => {
+      const members = h.app.projectman.domain.members;
+      const member = await members.hire('AR', { role: 'qa', outboundNetwork: false }, by);
+      await h.app.projectman.domain.projects.update('AR', by, (draft) => {
+        const saved = draft.team.members.find((m) => m.handle === member.handle);
+        if (saved?.kind === 'ai') delete saved.outboundNetwork;
+        return 'Drop the outbound network setting';
+      });
+
+      const roster = await inject(h.app, 'GET', routes.members('AR'), cookie);
+      const view = roster.json().find((m: { handle: string }) => m.handle === member.handle);
+      expect(view.outboundNetwork).toBe(true);
+    });
   });
 });

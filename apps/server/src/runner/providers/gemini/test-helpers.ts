@@ -1,5 +1,5 @@
-import { buildSessionPolicy } from '../../../domain';
 import type { StartSessionSpec } from '../../../contracts';
+import { buildSessionPolicy } from '../../../../test/helpers/session-policy';
 import { testConfig } from '../../../../test/helpers/test-template';
 export const CONVERSATION_ID = '05d4a6ce-ca76-4cf2-8487-9d94557688ae';
 export function geminiSpec(cwd = '/work', extra: Partial<StartSessionSpec> = {}): StartSessionSpec {

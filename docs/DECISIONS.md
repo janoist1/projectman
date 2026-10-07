@@ -297,3 +297,14 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     check of a card is the integrating session's merge test before `main` moves (the whole suite
     when shared code or configuration changed). The owner's first idea, a full test only when a
     collecting card is finished, was set aside because its parts reach `main` one by one.
+41. **Outbound network is a per-member setting, on by default.** Decided by the owner on
+    2026-10-05 (PM-355), in three answers: the scope is „Csak a kimenő hálózat, ki/be” (one
+    on/off switch, no address list); the default is „Mindenkinek be” (every role, the read-only
+    ones and the existing members included); and for a Claude member with the network off,
+    „Elfogadom: Claude-nál elutasítás” (an address other than the npm registry is refused, not
+    asked about). Only the owner changes it, like the other permission settings (decision 26).
+    The managed VM profile and the full test's own sandbox are unchanged, and the Codex mapping
+    is a separate card (PM-358). This deviates from the last line of decision 26 ("old settings
+    are never migrated to a freer mode"): a member saved before this setting existed has the
+    network on, because the owner chose „Mindenkinek be”. Protections that stay with the
+    network on are listed in `docs/SECURITY.md`.

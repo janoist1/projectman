@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { managedVmPermissions, parseExecutionProfile, sessionPermissions } from '@projectman/shared';
 import { buildApp } from '../src/app';
 import type { ManagedVmBoundary, SessionPolicy } from '../src/contracts';
-import { buildSessionPolicy } from '../src/domain/session-policy';
+import { buildSessionPolicy } from './helpers/session-policy';
 import { freePort } from '../src/runner/test-helpers';
 import { testBoundaryConfig } from '../src/runtime-boundary/test-helpers';
 import { testConfig } from './helpers/test-template';

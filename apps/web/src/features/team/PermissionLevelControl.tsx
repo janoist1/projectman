@@ -1,12 +1,18 @@
-import { Approver, SelectablePermissionMode, approverBlocksProvider } from '@projectman/shared';
+import {
+  Approver,
+  SelectablePermissionMode,
+  approverBlocksProvider,
+  outboundNetworkOf,
+} from '@projectman/shared';
 import type { AgentProvider, PermissionMode, MemberView, UpdateMemberRequest } from '@projectman/shared';
 import { useUpdateMember } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
-import { SelectField } from '../../components/Field';
+import { SelectField, CheckField } from '../../components/Field';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { networkHint } from './networkHint';
 import styles from './PermissionLevelControl.module.css';
 
 /** Explain provider-specific behavior for the selected mode, including read-only views. */
@@ -34,6 +40,12 @@ function PermissionText({ member, provider }: { member: MemberView; provider?: A
         <span aria-hidden="true">·</span>
         <span>
           {member.approver ? t(`permissionControls.approvers.${member.approver}`) : t('common.dash')}
+        </span>
+        <span aria-hidden="true">·</span>
+        <span>
+          {t('permissionControls.networkState', {
+            value: t(`permissionControls.networkValues.${outboundNetworkOf(member) ? 'on' : 'off'}`),
+          })}
         </span>
       </span>
       {member.permissionLegacy ? (
@@ -132,6 +144,21 @@ export function PermissionLevelControl({
         ))}
       </SelectField>
       {blocker ? <span className={styles.note}>{t(`permissionControls.blocked.${blocker}`)}</span> : null}
+      <CheckField
+        label={t('permissionControls.network')}
+        checked={outboundNetworkOf(member)}
+        disabled={update.isPending}
+        onChange={(checked) => {
+          save(
+            { outboundNetwork: checked },
+            t('permissionControls.savedNetwork', {
+              name: member.displayName,
+              value: t(`permissionControls.networkValues.${checked ? 'on' : 'off'}`),
+            }),
+          );
+        }}
+        hint={networkHint({ network: outboundNetworkOf(member), provider, approver: member.approver })}
+      />
       {approverBlocksProvider({ provider, approver: member.approver }) ? (
         <span className={styles.warning}>{t('permissionControls.nanogptApproverNone')}</span>
       ) : null}

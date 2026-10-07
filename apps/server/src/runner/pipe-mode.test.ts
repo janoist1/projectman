@@ -6,7 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import type { ChatItem, SessionState } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PermissionBroker, RunnerEvent, RunnerModule, StartSessionSpec } from '../contracts';
-import { buildSessionPolicy } from '../domain';
+import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { testConfig } from '../../test/helpers/test-template';
 import { createRunnerModule } from './index';
 import { FAKE_CLAUDE, FAKE_CODEX, freePort, silentLogger, tempDirs, waitFor } from './test-helpers';

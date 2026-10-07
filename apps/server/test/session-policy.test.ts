@@ -4,6 +4,7 @@ import { testConfig, testTemplate } from './helpers/test-template';
 import { aiRoleDefaults } from '@projectman/templates';
 import {
   allowedToolsFor,
+  buildSessionPolicy,
   DEVELOPMENT_TOOLS,
   LOCAL_ONLY_DENIED_TOOLS,
   deniedToolsFor,
@@ -2412,5 +2413,30 @@ describe('a command that rewrites a file in place is refused at once (PM-104)', 
 
   it('still lets the developer routine run next to refused commands', () => {
     expect(run('git add -A && git commit -m "Edit sed -i docs"')).toEqual({ behavior: 'allow' });
+  });
+});
+
+describe('buildSessionPolicy', () => {
+  it('translates outboundNetwork to network.outbound', () => {
+    const config = testConfig();
+    const placement = { kind: 'task_worktree', path: '/work' } as const;
+
+    const open = buildSessionPolicy({
+      config,
+      role: 'developer',
+      task: { repo: 'web' },
+      placement,
+      outboundNetwork: true,
+    });
+    expect(open.network.outbound).toBe('open');
+
+    const allowlist = buildSessionPolicy({
+      config,
+      role: 'developer',
+      task: { repo: 'web' },
+      placement,
+      outboundNetwork: false,
+    });
+    expect(allowlist.network.outbound).toBe('allowlist');
   });
 });

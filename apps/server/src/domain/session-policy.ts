@@ -53,6 +53,21 @@ export function deniedToolsFor(config: ProjectConfig, task: Pick<Task, 'repo'> |
 /** The only hosts sandboxed commands reach: the npm registry (local ports too, decision 24). */
 export const SANDBOX_ALLOWED_DOMAINS = ['registry.npmjs.org'];
 
+/** The network rule of a member whose outbound network is on (PM-355): every host except the denied ones. */
+export const OPEN_OUTBOUND_DOMAINS = ['*'];
+
+/**
+ * The hosts sandboxed commands reach under a policy: the npm registry only, or (outbound network on)
+ * every host except the denied hosts. The denied hosts are named only beside the open rule.
+ */
+function sandboxNetwork(policy: SessionPolicy): Pick<AgentSandbox, 'allowedDomains' | 'deniedDomains'> {
+  if (policy.network.outbound !== 'open') return { allowedDomains: [...SANDBOX_ALLOWED_DOMAINS] };
+  return {
+    allowedDomains: [...OPEN_OUTBOUND_DOMAINS],
+    ...(policy.network.deniedHosts?.length ? { deniedDomains: [...policy.network.deniedHosts] } : {}),
+  };
+}
+
 /**
  * Environment variables a developer's sandboxed commands never see (PM-153): publishing tokens and
  * the SSH agent, with which a command could push or sign in elsewhere.
@@ -327,7 +342,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...(gitConfig ? { [GIT_SETTINGS_VARIABLE]: gitConfig } : {}),
     },
     deniedEnvVars: [...SANDBOX_DENIED_ENV_VARS],
-    allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
+    ...sandboxNetwork(policy),
     allowLocalBinding: true,
     ...portableOf(
       portableShared(heavy, {
@@ -405,7 +420,7 @@ export function sessionSandbox(
     allowWrite: [...(sessionDir ? [sessionDir] : []), ...heavy.allowWrite],
     denyWrite,
     ...(policy.filesystem.deniedPaths?.length ? { denyRead: [...policy.filesystem.deniedPaths] } : {}),
-    allowedDomains: [...SANDBOX_ALLOWED_DOMAINS],
+    ...sandboxNetwork(policy),
     allowLocalBinding: true,
     env: {
       ...SANDBOX_PTY_ENV,
@@ -683,6 +698,8 @@ export function buildSessionPolicy(input: {
   readOnlyPaths?: string[];
   /** Files and directories the file tools never touch (`sensitivePaths`); the legacy profile only. */
   deniedPaths?: string[];
+  /** Whether the member's commands can reach the network. */
+  outboundNetwork: boolean;
   /**
    * The managed VM profile (PM-141), given only after its boundary was verified for this start:
    * the placement is the member's own workspace and the CLI asks nothing locally.
@@ -736,7 +753,12 @@ export function buildSessionPolicy(input: {
     },
     deniedOperations: repo && !repo.github ? [...LOCAL_PUBLISHING_OPERATIONS] : [],
     // No network widening: adapters retain their current enforcement until PM-128/129/130.
-    network: { allowedDomains: [], allowLocalBinding: false, deniedHosts: [...HARD_DENIED_HOSTS] },
+    network: {
+      allowedDomains: [],
+      allowLocalBinding: false,
+      deniedHosts: [...HARD_DENIED_HOSTS],
+      outbound: input.outboundNetwork ? 'open' : 'allowlist',
+    },
     outsideSandbox: enforcement === 'strict' ? 'deny' : 'ask',
     permissions,
   };

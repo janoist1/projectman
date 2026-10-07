@@ -1,11 +1,13 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import type { PermissionMode } from '@projectman/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentProvider } from '@projectman/shared';
 import type { ProjectContextValue } from '../../app/contexts';
 import { setFetchImplementation } from '../../api/client';
+import { ToastContext } from '../../components/toastContext';
 import { t } from '../../i18n/t';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { MemberProfilePage } from './MemberProfilePage';
 import { TeamPage } from './TeamPage';
 import { PermissionLevelControl } from './PermissionLevelControl';
@@ -24,6 +26,11 @@ function aiConfig(project: Project, handle: string) {
   const member = project.backend.config.team.members.find((m) => m.handle === handle);
   if (member?.kind !== 'ai') throw new Error(`no AI member ${handle}`);
   return member;
+}
+/** The agent CLI of a member, in the configuration and in the roster the pages read. */
+function setProvider(project: Project, handle: string, provider: AgentProvider) {
+  aiConfig(project, handle).provider = provider;
+  project.backend.findMember(handle)!.provider = provider;
 }
 /** The delegation is on and `code-review` can decide for the others. */
 function enableAiApprover(project: Project) {
@@ -141,6 +148,128 @@ describe('the permission settings in the member profile of a member', () => {
     expect(patches(project, 'qa')[0]!.body).toEqual({ approver: 'none' });
     await waitFor(() => expect(select(row, approverLabel()).value).toBe('none'));
     expect(aiConfig(project, 'qa').approver).toBe('none');
+  });
+
+  it('lets an owner set the network, saved at once', async () => {
+    const project = mockProject();
+    const row = await settingsRow(project, 'qa');
+    const checkbox = row.getByLabelText(t('permissionControls.network'));
+    fireEvent.click(checkbox);
+    await waitFor(() => expect(patches(project, 'qa')).toHaveLength(1));
+    expect(patches(project, 'qa')[0]!.body).toEqual({ outboundNetwork: false });
+  });
+
+  it('tells the owner the network is saved, from the next session on', async () => {
+    const project = mockProject();
+    const member = project.backend.findMember('qa')!;
+    const show = vi.fn();
+    project.render(
+      <ToastContext.Provider value={{ show }}>
+        <PermissionLevelControl member={member} />
+      </ToastContext.Provider>,
+    );
+    fireEvent.click(screen.getByLabelText(t('permissionControls.network')));
+    await waitFor(() =>
+      expect(show).toHaveBeenCalledWith(
+        t('permissionControls.savedNetwork', {
+          name: member.displayName,
+          value: t('permissionControls.networkValues.off'),
+        }),
+      ),
+    );
+  });
+
+  it('shows an error and the stored value when saving the network fails', async () => {
+    const project = mockProject();
+    const member = project.backend.findMember('qa')!;
+    const show = vi.fn();
+    const fetch = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (path, init) =>
+      init?.method === 'PATCH'
+        ? new Response(JSON.stringify({ error: { code: 'forbidden', message: 'No' } }), { status: 403 })
+        : fetch(path, init),
+    );
+    project.render(
+      <ToastContext.Provider value={{ show }}>
+        <PermissionLevelControl member={member} />
+      </ToastContext.Provider>,
+    );
+    const box = screen.getByLabelText(t('permissionControls.network')) as HTMLInputElement;
+    fireEvent.click(box);
+    await waitFor(() => expect(show).toHaveBeenCalledWith(expect.any(String), 'error'));
+    expect(box.checked).toBe(true);
+  });
+
+  it('shows the correct hint for disconnected network based on provider and approver', async () => {
+    const project = mockProject();
+
+    // Claude with human approver
+    aiConfig(project, 'qa').outboundNetwork = false;
+    setProvider(project, 'qa', 'claude');
+    aiConfig(project, 'qa').approver = 'human';
+    project.backend.syncPermissionViews();
+    let row = await settingsRow(project, 'qa');
+    expect(row.getByText(t('permissionControls.networkHints.offRefused'))).toBeTruthy();
+    row.unmount();
+
+    // Codex with human approver
+    aiConfig(project, 'code-review').outboundNetwork = false;
+    setProvider(project, 'code-review', 'codex');
+    aiConfig(project, 'code-review').approver = 'human';
+    project.backend.syncPermissionViews();
+    row = await settingsRow(project, 'code-review');
+    expect(row.getByText(t('permissionControls.networkHints.off'))).toBeTruthy();
+    row.unmount();
+
+    // Codex with no approver
+    aiConfig(project, 'code-review').approver = 'none';
+    project.backend.syncPermissionViews();
+    row = await settingsRow(project, 'code-review');
+    expect(row.getByText(t('permissionControls.networkHints.offNone'))).toBeTruthy();
+    row.unmount();
+  });
+
+  it('shows the network on for a member without the setting, with the hint of the open network', async () => {
+    const project = mockProject();
+    delete aiConfig(project, 'qa').outboundNetwork;
+    project.backend.syncPermissionViews();
+    const row = await settingsRow(project, 'qa');
+    expect((row.getByLabelText(t('permissionControls.network')) as HTMLInputElement).checked).toBe(true);
+    expect(row.getByText(t('permissionControls.networkHints.on'))).toBeTruthy();
+  });
+
+  it('lets an owner switch the network back on, and follows the approver in the hint of Codex', async () => {
+    const project = mockProject();
+    setProvider(project, 'code-review', 'codex');
+    aiConfig(project, 'code-review').outboundNetwork = false;
+    project.backend.syncPermissionViews();
+    const row = await settingsRow(project, 'code-review');
+    expect(row.getByText(t('permissionControls.networkHints.off'))).toBeTruthy();
+    fireEvent.change(select(row, approverLabel()), { target: { value: 'none' } });
+    await waitFor(() => expect(row.getByText(t('permissionControls.networkHints.offNone'))).toBeTruthy());
+    fireEvent.click(row.getByLabelText(t('permissionControls.network')));
+    await waitFor(() => expect(aiConfig(project, 'code-review').outboundNetwork).toBe(true));
+    expect(patches(project, 'code-review').at(-1)!.body).toEqual({ outboundNetwork: true });
+    await waitFor(() => expect(row.getByText(t('permissionControls.networkHints.on'))).toBeTruthy());
+  });
+
+  it('shows everyone else the network as text, with no checkbox', () => {
+    const project = mockProject();
+    const member = project.backend.findMember('qa')!;
+    for (const [stored, value] of [
+      [false, 'off'],
+      [undefined, 'on'],
+    ] as const) {
+      member.outboundNetwork = stored;
+      const ui = project.render(<PermissionLevelControl member={member} />, '/', asAdmin);
+      expect(screen.queryByLabelText(t('permissionControls.network'))).toBeNull();
+      expect(
+        screen.getByText(
+          t('permissionControls.networkState', { value: t(`permissionControls.networkValues.${value}`) }),
+        ),
+      ).toBeTruthy();
+      ui.unmount();
+    }
   });
 
   it('offers the four CLI modes and the three approvers, and no bypassPermissions', async () => {

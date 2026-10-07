@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { testConfig } from '../../test/helpers/test-template';
 import type { ManagedVmAttestation, ManagedVmBoundary, SessionPolicy, StartSessionSpec } from '../contracts';
 import { MANAGED_VM_UNAVAILABLE } from '../contracts';
-import { buildSessionPolicy } from '../domain';
+import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createRunnerModule } from './index';
 import {
   assertManagedVmPolicy,

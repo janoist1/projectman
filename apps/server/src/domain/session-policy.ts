@@ -188,7 +188,7 @@ export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-s
  *   Claude keeps denying it. packed-refs itself stays read-only. A leftover lock can block host
  *   ref deletions, and replacing the lock while the host rewrites packed-refs can inject content
  *   into that rewrite. The owner accepted these two risks on 2026-10-08 (PM-411), conditional
- *   on a follow-up card. A live hard-link write probe is still required before release.
+ *   on the mitigation follow-up PM-413. A live hard-link creation probe is still required before release.
  */
 export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
 export const GIT_SETTINGS_VARIABLE = 'GIT_CONFIG_SYSTEM';

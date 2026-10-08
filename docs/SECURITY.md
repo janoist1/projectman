@@ -405,7 +405,7 @@ by this lock-only exception. Two residual risks remain: a leftover lock blocks t
 deletions until removed, and a session can replace the writable lock while the host rewrites
 `packed-refs` (gc/pack-refs or packed-ref deletion), injecting content into that host rewrite.
 On 2026-10-08, the owner explicitly accepted these two risks on PM-411, conditional on a
-follow-up card ("Elfogadom, utókártyával"). That follow-up must track their mitigation.
+follow-up card ("Elfogadom, utókártyával"). PM-413 tracks their mitigation.
 Existing sessions need a restart with the updated runner to receive the new profile.
 Before release, a live Codex probe in a disposable repository must also attempt to hard-link
 the read-only `packed-refs` to the writable `packed-refs.lock`; creating the link must fail with

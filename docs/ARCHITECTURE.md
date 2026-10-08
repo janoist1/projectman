@@ -1129,7 +1129,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:
   a leftover lock can block host ref deletions, and lock replacement during a host packed-refs
   rewrite can inject content into that rewrite. The owner accepted these two risks on PM-411
-  on 2026-10-08, conditional on a follow-up card; see SECURITY.md for the separate, still
+  on 2026-10-08, conditional on the mitigation follow-up PM-413; see SECURITY.md for the separate, still
   unverified hard-link probe required before release.
   This file-path exception relies on macOS Seatbelt enforcement. A Linux engine may keep a
   nonexistent lock path closed; verify provider grants on that engine before claiming rebase

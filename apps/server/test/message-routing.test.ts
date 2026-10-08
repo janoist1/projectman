@@ -199,7 +199,7 @@ describe('a message about a closed card', () => {
     expect(message.receipts?.[0]?.route).toBeUndefined();
   });
 
-  it('delivers an unknown-version human message even after its card closed', async () => {
+  it('leaves an older message that waits on the closed card where it is', async () => {
     // Written before routes existed: no route on its receipt, so it waits on its card.
     const old = h.domain.messages.record({
       projectKey: 'AR',
@@ -211,14 +211,13 @@ describe('a message about a closed card', () => {
     });
     await h.domain.messageStarts.wake('AR', 'dev-2', task('AR-2'));
     await flush();
-    expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.lastStarted().initialMessage).toContain('Fictional old news.');
+    expect(h.runner.started).toHaveLength(0);
 
     // A general chat that starts later does not take it either.
     const chat = (await h.domain.sessions.ensureSession('AR', 'dev-2', general)).session;
     await flush();
     expect(h.runner.messages.filter((m) => m.sessionId === chat.id)).toEqual([]);
-    expect(h.repos.messages.get(old.id)?.deliveredAt).toBeTruthy();
+    expect(h.repos.messages.get(old.id)?.deliveredAt).toBeNull();
   });
 
   it('tells the sender where each recipient gets it (send_message)', async () => {

@@ -91,7 +91,7 @@ export function formatTeamMessageBatch(
           `The card now: stage ${card.stageName} (${card.stageId}), commit ${card.commit?.slice(0, 7) ?? 'unknown'}, labels: ${card.labels.join(', ') || 'none'}.`,
         ]
       : []),
-    `${items.length} messages waited for you; ${staleCount} are out of date: read them, but do not act on or answer them.`,
+    `${items.length} ${items.length === 1 ? 'message' : 'messages'} waited for you.${staleCount > 0 ? ` ${staleCount} ${staleCount === 1 ? 'is' : 'are'} out of date: read the out-of-date messages, but do not act on or answer those messages.` : ''}`,
   ].join('\n');
   const reasons = (item: TeamMessageBatchItem): string => {
     switch (item.stale) {

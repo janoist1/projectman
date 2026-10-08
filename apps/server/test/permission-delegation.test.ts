@@ -99,7 +99,8 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       await h.domain.admission.retryDeferred();
       await flush();
       expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(1);
-      expect(h.runner.lastStarted().initialMessage).toContain('2 messages waited for you; 0 are out of date');
+      expect(h.runner.lastStarted().initialMessage).toContain('2 messages waited for you.');
+      expect(h.runner.lastStarted().initialMessage).not.toContain('do not act');
       await h.domain.admission.retryDeferred();
       expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(1);
       first.abort();
@@ -112,6 +113,7 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       const pending = ask('curl https://example.com/data.json');
       await flush();
       const item = onlyOpen();
+      const priorInputs = h.runner.messages.filter((m) => m.sessionId === sessionId).length;
       for (const text of ['One', 'Two', 'Three']) {
         const sent = await h.domain.messaging.sendReporting('AR', 'dev-2', {
           to: ['dev-1'],
@@ -126,7 +128,7 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
           },
         ]);
       }
-      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(0);
+      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs);
       const detail = await h.domain.teamTools.getTask(tool('cr'), { taskKey: 'AR-1' });
       expect(detail.cardWorkers?.find((w) => w.handle === 'dev-1')?.waitingPermission?.deciders).toEqual([
         'cr',
@@ -134,17 +136,17 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
       // A human message still follows the existing immediate queue path.
       await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], taskKey: 'AR-1', text: 'Owner note' });
       await flush();
-      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(1);
+      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs + 1);
       await decide('cr', item, 'allow');
       expect(await pending).toEqual({ behavior: 'allow' });
       h.runner.setState(sessionId, 'working');
       await flush();
-      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(1);
+      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs + 1);
       h.runner.setState(sessionId, 'idle');
       await vi.waitFor(() =>
-        expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(2),
+        expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs + 2),
       );
-      const delivered = h.runner.messages.filter((m) => m.sessionId === sessionId);
+      const delivered = h.runner.messages.filter((m) => m.sessionId === sessionId).slice(priorInputs);
       expect(delivered).toHaveLength(2);
       expect(delivered[1]!.text).toContain('3 messages waited for you');
       for (const text of ['One', 'Two', 'Three']) expect(delivered[1]!.text).toContain(text);

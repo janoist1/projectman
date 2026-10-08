@@ -21,6 +21,7 @@ describe('team message batch text', () => {
     );
     expect(text).toContain('stage Review (review), commit ccccccc, labels: code-review-ok');
     expect(text).toContain('OUT OF DATE: dev sent a newer request');
+    expect(text).toContain('2 messages waited for you. 1 is out of date');
     expect(text).toContain('version unknown');
     expect(userTextOrigin(text, 'brief')).toBe('team_message');
     const batch = splitTeamMessageBatch(text)!;
@@ -39,6 +40,8 @@ describe('team message batch text', () => {
     ]);
     expect(text).toMatch(/^\[team messages\]\n/);
     expect(text).not.toContain('The card now');
+    expect(text).toContain('1 message waited for you.');
+    expect(text).not.toContain('do not act');
     expect(splitTeamMessageBatch(text)?.items[0]?.taskKey).toBeNull();
     expect(splitTeamMessageBatch('[team message from dev]\nHello')).toBeNull();
   });

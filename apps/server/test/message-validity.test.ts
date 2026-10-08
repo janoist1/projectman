@@ -29,7 +29,7 @@ describe('versioned message wake-up', () => {
     await vi.waitFor(() => expect(h.runner.messages).toHaveLength(1));
     const text = h.runner.messages[0]!.text;
     expect(text).toContain('[team messages about AR-1]');
-    expect(text).toContain('3 messages waited for you; 2 are out of date');
+    expect(text).toContain('3 messages waited for you. 2 are out of date');
     expect(text.indexOf('First')).toBeLessThan(text.indexOf('Second'));
     expect(text.indexOf('Second')).toBeLessThan(text.indexOf('Third'));
     expect(h.repos.messages.pending('AR', 'cr')).toHaveLength(0);
@@ -149,7 +149,6 @@ describe('versioned message wake-up', () => {
     }));
     h.runner.setState(developer.id, 'working');
     await flush();
-    const deliveredBefore = h.runner.messages.filter((m) => m.sessionId === developer.id).length;
     await h.domain.messaging.send('AR', 'cr', {
       to: ['dev-1'],
       text: 'Revert and fix the old commit.',
@@ -166,6 +165,8 @@ describe('versioned message wake-up', () => {
     );
     const rounds = vi.spyOn(h.domain.sessions, 'requestReviewRound');
     const starts = h.runner.started.length;
+    await flush();
+    const deliveredBefore = h.runner.messages.filter((m) => m.sessionId === developer.id).length;
     h.runner.setState(developer.id, 'idle');
     await vi.waitFor(() =>
       expect(h.runner.messages.filter((m) => m.sessionId === developer.id)).toHaveLength(deliveredBefore + 1),
@@ -248,7 +249,7 @@ describe('versioned message wake-up', () => {
     const messages = h.runner.messages.length;
     h.runner.setState(reviewer.id, 'idle');
     await vi.waitFor(() => expect(h.runner.messages.length).toBe(messages + 1));
-    expect(h.runner.messages.at(-1)!.text).toContain('3 messages waited for you; 3 are out of date');
+    expect(h.runner.messages.at(-1)!.text).toContain('3 messages waited for you. 3 are out of date');
     expect(h.runner.messages.at(-1)!.text).toContain('you already recorded your result for this commit');
     expect(h.runner.started).toHaveLength(starts);
     expect(rounds).not.toHaveBeenCalled();

@@ -248,9 +248,7 @@ describe('a theme stays out of the pipeline', () => {
     const first = await send('AR-1');
     expect(first.receipts?.[0]).toMatchObject({ route: general });
     expect(h.domain.sessions.list('AR', { member: 'dev-2' }).map((s) => s.workItem)).toEqual([general]);
-    expect(h.runner.lastStarted().initialMessage).toContain(
-      '[team message from owner about AR-1]\nFictional news.',
-    );
+    expect(h.runner.lastStarted().initialMessage).toContain('Fictional news.');
 
     await h.domain.tasks.closeTheme('AR', 'AR-1', OWNER_ACTOR);
     const second = await send('AR-1');

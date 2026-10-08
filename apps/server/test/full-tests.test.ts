@@ -223,7 +223,17 @@ describe('the full test before review', () => {
       { outcome: 'failed', failedFiles: failed.failedFiles, outputTail: failed.outputTail },
     ]);
 
-    // The developer is told, with the failure.
+    // The stored failure waits for the developer's next idle, like other AI inputs.
+    await vi.waitFor(() =>
+      expect(
+        heldFor('dev-1').some((text) => text.includes('came back') && text.includes('a.integration.test.ts')),
+      ).toBe(true),
+    );
+    const developer = h.domain.sessions
+      .list('AR', { member: 'dev-1', taskKey: 'AR-1' })
+      .find((session) => h.domain.sessions.isRunning(session.id))!;
+    h.runner.setState(developer.id, 'idle');
+    // The developer is told, with the complete failure, once idle.
     await vi.waitFor(() => {
       const texts = [
         ...h.runner.started.filter((s) => s.member === 'dev-1').map((s) => s.initialMessage ?? ''),

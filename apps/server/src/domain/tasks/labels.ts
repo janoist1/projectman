@@ -131,11 +131,7 @@ export class TaskLabels {
     effects: Effect[],
   ): void {
     const resultCommit =
-      actor.kind === 'ai' &&
-      opts.sessionId &&
-      plan.added.some((id) =>
-        ['code-review', 'security', 'qa', 'design-review'].includes(labelDefinition(config, id)?.group ?? ''),
-      )
+      actor.kind === 'ai' && opts.sessionId && plan.added.some((id) => !!labelDefinition(config, id)?.group)
         ? this.store.ctx.repos.sessions.reviewedCommit(opts.sessionId)
         : null;
     this.store.timeline.append({

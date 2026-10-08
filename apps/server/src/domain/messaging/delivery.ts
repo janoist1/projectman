@@ -21,6 +21,7 @@ export class MessageDelivery {
   private readonly projects: ProjectService;
   private readonly flushing = new Set<string>();
   private readonly messages: MessageService;
+  private messageHolds?: (session: Session) => Promise<boolean>;
   /** Messages being typed, by message and recipient. */
   private readonly claims = new Set<string>();
   /** Recipients whose session is starting for their waiting messages: nothing is typed before it runs. */
@@ -79,6 +80,11 @@ export class MessageDelivery {
         this.ctx.logger.warn({ err, messageId: message.id }, 'team message delivery failed'),
       )
       .finally(() => this.claims.delete(claim));
+  }
+
+  /** Binds the card's existing refinement and fix-limit holds after messaging is built. */
+  useMessageHolds(check: (session: Session) => Promise<boolean>): void {
+    this.messageHolds = check;
   }
 
   /**
@@ -173,6 +179,20 @@ export class MessageDelivery {
 
   /** Types the messages waiting for the session's member and work item (after it started). */
   deliverWaiting(session: Session): void {
+    const current = this.sessions.find(session.id);
+    const config = this.projects.cachedConfig(session.projectKey);
+    // Human inputs retain the existing queue and as-written restart behavior (K3/K6).
+    if (
+      current &&
+      config &&
+      this.sessions.isRunning(current.id) &&
+      !this.sessions.isPaused(current) &&
+      !this.sessions.permissionRestartDue(current) &&
+      !this.starting.has(recipientKey(current.projectKey, current.member, current.workItem))
+    ) {
+      for (const message of this.messages.waiting(current.projectKey, current.member, current.workItem))
+        if (memberOf(config, message.from)?.kind === 'human') this.deliver(current, message);
+    }
     void this.flushWaiting(session).catch((err: unknown) =>
       this.ctx.logger.warn({ err, sessionId: session.id }, 'team message batch delivery failed'),
     );
@@ -180,6 +200,7 @@ export class MessageDelivery {
 
   /** Claims one snapshot of waiting messages and types it as a single input at idle. */
   async flushWaiting(session: Session): Promise<boolean> {
+    if (await this.messageHolds?.(session)) return false;
     const current = this.sessions.find(session.id);
     if (
       !current ||
@@ -301,10 +322,11 @@ export class MessageDelivery {
   }
 
   /**
-   * A notice that must not start a turn (PM-249): keep it for the next message input,
-   * including when the session is busy, so it does not create a separate queued turn.
+   * Keep an idle session's notice for its next input (PM-249); busy sessions retain
+   * the existing runner queue delivery of coordination and answer notices.
    */
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {
+    if (session.state !== 'idle') return this.notice(session, from, text, taskKey);
     const kept = this.held.get(session.id) ?? [];
     kept.push(formatInjectedTeamMessage(from, text, taskKey));
     this.held.set(session.id, kept);

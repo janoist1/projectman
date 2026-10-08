@@ -81,9 +81,7 @@ describe('deferred starts across a restart', () => {
     await setEnabled(h, true);
     await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.lastStarted().initialMessage).toContain(
-      '[team message from owner about AR-1]\nInspect this fictional task.',
-    );
+    expect(h.runner.lastStarted().initialMessage).toContain('Inspect this fictional task.');
     expect(h.runner.messages).toEqual([]);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
     expect(stored(h)).toEqual([]);

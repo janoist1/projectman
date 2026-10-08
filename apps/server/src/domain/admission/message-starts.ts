@@ -130,10 +130,11 @@ export class MessageStarts {
       projectKey,
       taskKey,
       spec: () => ({ kind: 'message_wake', projectKey, handle, workItem, stageId: triedIn ?? null }),
-      stillValid: () => {
+      stillValid: (task) => {
         const config = this.projects.cachedConfig(projectKey);
         return (
           !!config &&
+          (task ? isOpenTask(task) && task.stageId === triedIn : taskKey === null) &&
           this.messages
             .waiting(projectKey, handle, workItem)
             .some((m) => this.messages.wakes(config, m, handle))
@@ -151,6 +152,7 @@ export class MessageStarts {
         const member = memberOf(config, handle);
         if (member?.kind !== 'ai') return;
         const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
+        if (task && !isOpenTask(task)) return;
         triedIn = task?.stageId;
         const waiting = this.messages.waiting(projectKey, handle, workItem);
         if (!waiting.some((m) => this.messages.wakes(config, m, handle))) return;

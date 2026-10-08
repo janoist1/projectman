@@ -175,6 +175,16 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shot('toast-fallback', 'text=Leadás nélkül indul');
   });
 
+  await step('the assignee row with the note button', async () => {
+    await stage({ assignee: newOne.handle, lastHandoff: refOf('note') });
+    await page.getByRole('button', { name: 'Átadó jegyzet' }).waitFor();
+    await shot('assignee-row-note', 'select[aria-label="Felelős"]');
+    reset({ assignee: newOne.handle, lastHandoff: refOf('fallback', { fallbackReason: 'on_leave' }) });
+    await visit(DRAWER);
+    await page.getByRole('button', { name: 'Átadás jegyzet nélkül' }).waitFor();
+    await shot('assignee-row-fallback', 'select[aria-label="Felelős"]');
+  });
+
   // 2. The box.
   const boxStates = [
     ['box-waiting', { handoff: handoffOf('waiting_point'), work: true }],
@@ -333,6 +343,9 @@ export default async ({ instance, open, shoot, step, log }) => {
     await stage({ assignee: newOne.handle, timeline });
     await page.waitForSelector('text=Átadás indult');
     await shot('timeline', 'text=Átadás indult');
+    // The last row (the provider change) sits below the fold: scroll the drawer's own scroller to it.
+    await page.locator('text=Szolgáltatóváltás').first().scrollIntoViewIfNeeded();
+    await shot('timeline-end', 'text=Szolgáltatóváltás');
   });
 
   // 6. The member editor.

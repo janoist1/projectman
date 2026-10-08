@@ -51,6 +51,16 @@ export default async ({ instance, open, shoot, step, log }) => {
   });
 
   await step('error', async () => {
+    page = await open({ path: '/p/AC/map' });
+    await page.getByRole('link', { name: /Webshop checkout/ }).waitFor();
+    // The routes belong to the page: block the board request, then load the page again.
+    await page.route('**/api/projects/AC/board**', (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'screenshot_failure', message: 'Simulated failure' } }),
+      }),
+    );
     await page.route('**/api/projects/AC/tasks**', (route) =>
       route.fulfill({
         status: 500,
@@ -58,7 +68,7 @@ export default async ({ instance, open, shoot, step, log }) => {
         body: JSON.stringify({ error: { code: 'screenshot_failure', message: 'Simulated failure' } }),
       }),
     );
-    page = await open({ path: '/p/AC/map' });
+    await page.reload();
     await page.getByRole('alert').first().waitFor();
     await shoot(page, 'map-error', { widths: [1512] });
   });

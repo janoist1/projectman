@@ -55,7 +55,8 @@ interface ListedWorktree {
  *   or ahead of origin, otherwise from origin (including diverged histories), falling back
  *   to the local default when origin is absent; it gets no upstream until it is pushed.
  * - With cloneDependencies, ensureForTask then clones node_modules into the worktree (new or
- *   existing, when it has none) from an installed checkout with the same lockfile (PM-332,
+ *   existing, when missing or its hidden npm lockfile predates package-lock.json) from an
+ *   installed checkout with the same lockfile (PM-332, PM-412,
  *   dependencies.ts); that never fails the call.
  * - remove only touches worktrees under rootDir, refuses dirty ones unless forced and never
  *   deletes the branch.

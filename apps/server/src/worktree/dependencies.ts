@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { lstat, readdir, readFile, rename, rm, stat, statfs } from 'node:fs/promises';
+import { lstat, readdir, readFile, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { tryGit } from './git';
+import { canonical, createKeyedLock } from './paths';
 
 export type DependencyCloneSkip =
   | 'present' // the worktree has node_modules already
@@ -12,6 +13,7 @@ export type DependencyCloneSkip =
   | 'no_reference' // no candidate with the same lockfile and an install after its last change
   | 'unsupported' // not darwin, the clone probe failed (other volume, no APFS), or a workspaces entry other than `dir/*` or a plain path
   | 'reference_changed' // the reference's hidden lockfile changed during the clone
+  | 'target_changed' // the target's lockfile or installation changed during the clone
   | 'failed'; // anything else (logged with the error)
 
 export type DependencyCloneResult =
@@ -23,6 +25,7 @@ const CACHE_DIRS = ['.vite', '.vite-temp', '.cache'];
 const LOCKFILE = 'package-lock.json';
 /** The hidden lockfile npm writes into node_modules at the end of every install. */
 const HIDDEN_LOCKFILE = path.join('node_modules', '.package-lock.json');
+const withDependencyLock = createKeyedLock();
 
 class Skip extends Error {
   readonly reason: DependencyCloneSkip;
@@ -37,7 +40,7 @@ class Skip extends Error {
 /**
  * Clones node_modules (the root's and every workspace's) into a task worktree from an installed
  * checkout with the same lockfile, with copy-on-write file clones (APFS `clonefile`, macOS), so a
- * new worktree gets its dependencies in seconds and shares the blocks (PM-332). Nothing here
+ * new or stale worktree gets its dependencies in seconds and shares the blocks (PM-332, PM-412). Nothing here
  * installs anything: the server never runs `npm install` outside the sandbox (install scripts), and
  * a clone that cannot be made is a skip or a failure that never stops the worktree: the member
  * installs as before.
@@ -58,6 +61,12 @@ export async function cloneDependencies(args: {
   /** Default: both checkouts on one APFS volume (tests). Throws when cloning from the reference is not possible. */
   probe?: (reference: string, target: string) => Promise<void>;
 }): Promise<DependencyCloneResult> {
+  return withDependencyLock(await canonical(args.target), () => cloneIntoTarget(args));
+}
+
+async function cloneIntoTarget(
+  args: Parameters<typeof cloneDependencies>[0],
+): Promise<DependencyCloneResult> {
   const { target, logger } = args;
   const platform = args.platform ?? process.platform;
   const copyTree = args.copyTree ?? defaultCopyTree;
@@ -65,10 +74,14 @@ export async function cloneDependencies(args: {
   const suffix = randomBytes(4).toString('hex');
   const temporaries: string[] = [];
   const renamed: string[] = [];
+  const backups: { final: string; backup: string }[] = [];
   const started = Date.now();
   try {
     if (platform !== 'darwin') return skipped('unsupported');
-    if (await present(path.join(target, 'node_modules'))) return skipped('present');
+    const installedAt = await mtimeOrNull(path.join(target, HIDDEN_LOCKFILE));
+    const lockTime = await mtimeOrNull(path.join(target, LOCKFILE));
+    const refreshing = installedAt !== null && lockTime !== null && installedAt < lockTime;
+    if ((await present(path.join(target, 'node_modules'))) && !refreshing) return skipped('present');
     const targetLock = await readOrNull(path.join(target, LOCKFILE));
     if (!targetLock) return skipped('no_lockfile');
     // `node_modules/` (with the slash) matches a directory-only ignore pattern that does not exist yet.
@@ -93,9 +106,21 @@ export async function cloneDependencies(args: {
     }
 
     // The reference's install must not have been touched while it was being copied.
-    if ((await mtimeOrNull(path.join(reference.path, HIDDEN_LOCKFILE))) !== reference.installedAt) {
+    if (
+      (await mtimeOrNull(path.join(reference.path, HIDDEN_LOCKFILE))) !== reference.installedAt ||
+      !(await readOrNull(path.join(reference.path, LOCKFILE)))?.equals(targetLock)
+    ) {
       await removeAll(temporaries);
       return skipped('reference_changed');
+    }
+
+    if (
+      !(await readOrNull(path.join(target, LOCKFILE)))?.equals(targetLock) ||
+      (await mtimeOrNull(path.join(target, LOCKFILE))) !== lockTime ||
+      (refreshing && (await mtimeOrNull(path.join(target, HIDDEN_LOCKFILE))) !== installedAt)
+    ) {
+      await removeAll(temporaries);
+      return skipped('target_changed');
     }
 
     // Workspaces first, the root last: the root's node_modules is what marks a worktree installed.
@@ -103,10 +128,16 @@ export async function cloneDependencies(args: {
     for (const dir of order) {
       const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
       const final = path.join(target, dir, 'node_modules');
+      if (refreshing && (await present(final))) {
+        const backup = path.join(target, dir, `.node_modules.pm-${suffix}-old`);
+        await rename(final, backup);
+        backups.push({ final, backup });
+      }
       try {
         await rename(temporary, final);
         renamed.push(final);
       } catch (err) {
+        if (refreshing) throw err;
         const code = (err as NodeJS.ErrnoException).code;
         if (code !== 'EEXIST' && code !== 'ENOTEMPTY') throw err;
         // Somebody (a concurrent install or clone) created it meanwhile: theirs stays.
@@ -114,6 +145,11 @@ export async function cloneDependencies(args: {
       }
     }
     if (renamed.length === 0) return skipped('present');
+    if (renamed.includes(path.join(target, 'node_modules'))) {
+      const now = new Date(Math.max(Date.now(), lockTime ?? 0));
+      await utimes(path.join(target, HIDDEN_LOCKFILE), now, now);
+    }
+    await removeAll(backups.map(({ backup }) => backup));
     const done = order.filter((dir) => renamed.includes(path.join(target, dir, 'node_modules')));
     return {
       status: 'cloned',
@@ -129,6 +165,7 @@ export async function cloneDependencies(args: {
     // Leave nothing half-made behind: the temporaries and the directories renamed so far.
     await removeAll(temporaries);
     await removeAll(renamed);
+    for (const { final, backup } of backups.reverse()) await rename(backup, final);
     logger.warn(
       { target, err: err instanceof Error ? err.message : String(err) },
       'cloning the dependencies failed; the member installs them',

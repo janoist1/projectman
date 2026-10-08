@@ -512,6 +512,29 @@ describe.skipIf(process.platform !== 'darwin')(
       );
     });
 
+    it('refreshes existing dependencies after merging a changed lockfile from main', async () => {
+      await commitPackage();
+      await install(clone);
+      const { logger } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+      const args = task('AR-48', 'Refresh dependencies');
+      const info = await manager.ensureForTask(args);
+      await writeFile(path.join(info.path, 'node_modules', 'obsolete'), 'old');
+
+      await writeFile(path.join(clone, 'package-lock.json'), `${LOCK.trim()}\n\n`);
+      await git('-C', clone, 'add', 'package-lock.json');
+      await git('-C', clone, 'commit', '--quiet', '-m', 'Update dependencies');
+      await install(clone);
+      await writeFile(path.join(clone, 'node_modules', 'new-package'), 'new');
+      await git('-C', info.path, 'merge', '--ff-only', 'main');
+
+      await manager.ensureForTask(args);
+
+      expect(await exists(path.join(info.path, 'node_modules', 'obsolete'))).toBe(false);
+      expect(await readFile(path.join(info.path, 'node_modules', 'new-package'), 'utf8')).toBe('new');
+      expect(await git('-C', info.path, 'status', '--porcelain')).toBe('');
+    });
+
     it('records why nothing was cloned and still creates the worktree', async () => {
       await commitPackage();
       const { logger, records } = capturingLogger();

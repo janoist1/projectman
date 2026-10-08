@@ -167,8 +167,8 @@ Documentation map:
   repositories and none chosen it does not start (`repo_required`). Roles that only read run in
   the workspace root. A conversation belongs to the directory it ran in: when the task's
   worktree is elsewhere (its repo changed since), the session starts a new conversation there.
-  **Dependencies in a new worktree** (PM-332, `PROJECTMAN_CLONE_DEPENDENCIES`, on by default; macOS only):
-  after `ensureForTask` made the worktree (or found one without `node_modules`) it clones `node_modules`, the
+  **Dependencies in a worktree** (PM-332, PM-412, `PROJECTMAN_CLONE_DEPENDENCIES`, on by default; macOS only):
+  after `ensureForTask` made the worktree (or found one with missing or stale `node_modules`) it clones `node_modules`, the
   root's and every workspace's, with `cp -c -R` (APFS `clonefile`: seconds, and the blocks are shared) from
   the first checkout of the repository (the repo path, then its other worktrees) whose `package-lock.json` is
   byte-identical and whose hidden `node_modules/.package-lock.json` is not older than it, i.e. installed after
@@ -176,7 +176,11 @@ Documentation map:
   `.vite-temp` and `.cache` are left out of the copy. The server never runs `npm install`/`npm ci` outside the
   sandbox (install scripts). Whatever fails or does not apply (`worktree/dependencies.ts` names the reasons)
   is a log line, never a failed worktree: the member installs as before. Members' own workspaces and review
-  copies are not cloned.
+  copies are not cloned. An installation is stale when its hidden npm lockfile predates
+  `package-lock.json`. Refreshes serialize per worktree, prepare all copies before replacing
+  directories, and replace the root last. A failed replacement restores the old directories;
+  without a matching reference, the old installation stays. The successful root copy is stamped
+  at the target lockfile's modification time or later so another start does not refresh it again.
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -980,9 +984,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   that temporary filesystem. Interrupting a turn abandons its gate without a release.
   **Remote engine:** run this integration harness and its fake together on the engine;
   these test-only paths never cross the production server/engine boundary.
-- **Dependency clones** — `worktree/dependencies.ts`, `cloneDependencies` (PM-334).
+- **Dependency clones and refreshes** — `worktree/dependencies.ts`, `cloneDependencies`,
+  `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
-  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe.
+  `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
+  stale installations are cloned before a task session starts or resumes; staleness uses the
+  local lockfile and hidden npm lockfile modification times. Per-worktree serialization and
+  directory backups protect replacements; no npm install runs outside a sandbox.
   **Remote engine:** find reference checkouts and probe the filesystem on the engine;
   retain the existing skip/install fallback on other platforms. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine.

@@ -184,6 +184,11 @@ export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-s
  *   "Unable to create '.../packed-refs.lock'" after the commit, which already exists. No git
  *   setting avoids that message; allowing the lock would let a sandbox change the host's lock
  *   window, so the message is known and harmless, and only its delay is removed.
+ *   PM-411: the Codex worktree profile grants only this lock for rebase pseudo-ref deletion;
+ *   Claude keeps denying it. packed-refs itself stays read-only. A leftover lock can block host
+ *   ref deletions, and replacing the lock while the host rewrites packed-refs can inject content
+ *   into that rewrite. The owner accepted these two risks on 2026-10-08 (PM-411), conditional
+ *   on the mitigation follow-up PM-413. A live hard-link creation probe is still required before release.
  */
 export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
 export const GIT_SETTINGS_VARIABLE = 'GIT_CONFIG_SYSTEM';

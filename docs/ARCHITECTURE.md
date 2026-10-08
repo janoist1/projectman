@@ -1120,6 +1120,20 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
+  Task worktrees also grant the shared git `objects`, `refs`, `logs` and their own admin
+  directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
+  can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
+  worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  The Codex adapter lifts only the lock entry from `sharedGitDenials`; `packed-refs` itself
+  stays read-only, as do packed default-branch and replacement refs. Claude's denials remain.
+  A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:
+  a leftover lock can block host ref deletions, and lock replacement during a host packed-refs
+  rewrite can inject content into that rewrite. The owner accepted these two risks on PM-411
+  on 2026-10-08, conditional on the mitigation follow-up PM-413; see SECURITY.md for the separate, still
+  unverified hard-link probe required before release.
+  This file-path exception relies on macOS Seatbelt enforcement. A Linux engine may keep a
+  nonexistent lock path closed; verify provider grants on that engine before claiming rebase
+  support. The hard-link probe must fail at link creation, without writing through the link.
   The managed VM retains the legacy sandbox flags because its VM is the boundary.
   PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
@@ -1137,6 +1151,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   path grants or infer Codex permissions from Claude syntax. The outbound network intent
   (`SessionPolicy.network.outbound`) is abstract: the remote engine enforces it with its own
   tools (sandbox, firewall, proxy) and keeps the blocked hosts closed.
+  For PM-399/PM-411, resolve the common git directory and the task's own admin directory
+  on the engine hosting the worktree, and render these narrow grants there. The existing
+  placement paths must describe that engine's filesystem; no new server/engine contract
+  is introduced by PM-411.
   Version/config inspection must run on the engine hosting the CLI, against that engine's
   filesystem, PATH, user home and administrator/workspace configuration, including executable
   symlink resolution and installation grants. Only sanitized setting names and

@@ -5,6 +5,7 @@
  */
 export const ERROR_CODES = [
   'integrator_key_invalid',
+  'integrator_https_required',
   'integrator_not_allowed',
   'owner_approval_required',
   // Requests, login and access

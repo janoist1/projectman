@@ -117,6 +117,15 @@ export function Timeline({
               ? events.find((item) => item.data.messageId === ref.messageId)
               : undefined;
           const fullMessage = fullMessageHref?.(event);
+          const referenceHref = target
+            ? `#timeline-${target.id}`
+            : ref?.inboxItemId
+              ? `/p/${event.projectKey}/inbox`
+              : ref?.runId
+                ? `/p/${event.projectKey}/team/${event.data.member}`
+                : ref?.messageId
+                  ? `/p/${event.projectKey}/messages`
+                  : null;
           return (
             <li key={event.id} id={`timeline-${event.id}`} tabIndex={-1} className={styles.item}>
               <span className={styles.rail}>
@@ -151,34 +160,30 @@ export function Timeline({
                       {involvement.verb}
                       {involvement.reason ? ` — ${involvement.reason}` : ''}
                       {ref.text ? ': ' : ''}
-                      <Link
-                        to={
-                          target
-                            ? `#timeline-${target.id}`
-                            : ref.inboxItemId
-                              ? `/p/${event.projectKey}/inbox`
-                              : ref.runId
-                                ? `/p/${event.projectKey}/team/${event.data.member}`
-                                : `/p/${event.projectKey}/messages`
-                        }
-                        aria-label={t('involvement.jump', { text: ref.text })}
-                        onClick={(click) => {
-                          if (!target) return;
-                          click.preventDefault();
-                          const row = document.getElementById(`timeline-${target.id}`);
-                          row?.scrollIntoView({
-                            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-                              ? 'instant'
-                              : 'smooth',
-                            block: 'center',
-                          });
-                          row?.focus({ preventScroll: true });
-                          row?.classList.add(styles.highlight!);
-                          setTimeout(() => row?.classList.remove(styles.highlight!), 1800);
-                        }}
-                      >
-                        {ref.text}
-                      </Link>
+                      {referenceHref ? (
+                        <Link
+                          to={referenceHref}
+                          aria-label={t('involvement.jump', { text: ref.text })}
+                          onClick={(click) => {
+                            if (!target) return;
+                            click.preventDefault();
+                            const row = document.getElementById(`timeline-${target.id}`);
+                            row?.scrollIntoView({
+                              behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+                                ? 'instant'
+                                : 'smooth',
+                              block: 'center',
+                            });
+                            row?.focus({ preventScroll: true });
+                            row?.classList.add(styles.highlight!);
+                            setTimeout(() => row?.classList.remove(styles.highlight!), 1800);
+                          }}
+                        >
+                          {ref.text}
+                        </Link>
+                      ) : (
+                        ref.text
+                      )}
                       {involvement.by ? ` · ${involvement.by}` : ''}
                     </>
                   ) : (

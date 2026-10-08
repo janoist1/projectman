@@ -128,6 +128,24 @@ describe('the card’s thread: workers and questions', () => {
     expect(h.runner.lastStarted().initialMessage ?? '').not.toContain('Standing');
   });
 
+  it('does not leak a private waking message into another worker’s joined notice', async () => {
+    const { session: worker } = await workerWithQuestions();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await h.domain.messaging.sendToSession(
+      'AR',
+      session.id,
+      'Private review instructions.',
+      'owner',
+      OWNER_ACTOR,
+    );
+    await flush();
+    const notices = h.runner.messages.filter((message) => message.sessionId === worker.id);
+    expect(JSON.stringify(notices)).toContain('woken by a team message');
+    expect(JSON.stringify(notices)).not.toContain('Private review instructions.');
+    expect(worker.member).toBe('dev-1');
+  });
+
   it('lists the sessions that work on the card now', async () => {
     const config = await h.domain.projects.config('AR');
     const card = h.domain.tasks.get('AR', 'AR-1');

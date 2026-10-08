@@ -4,6 +4,10 @@ import { Link } from 'react-router';
 import { api } from '../../../api/endpoints';
 import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
+import { Chip } from '../../../components/Chip';
+import { Icon } from '../../../components/Icon';
+import { ErrorBanner } from '../../../components/ErrorBanner';
+import { useToast } from '../../../components/toastContext';
 import { Dialog } from '../../../components/Dialog';
 import { SelectField } from '../../../components/Field';
 import { ErrorState, LoadingState } from '../../../components/States';
@@ -11,16 +15,19 @@ import { formatStamp } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorMessage } from '../../../lib/errors';
 import { SettingsSection } from './SettingsSection';
+import styles from './IntegratorSection.module.css';
 
 export function IntegratorSection() {
   const { key, me } = useProject();
   const client = useQueryClient();
+  const toast = useToast();
   const queryKey = ['integrator-key', me.userId];
   const query = useQuery({ queryKey, queryFn: api.integratorKey, enabled: me.hostOwner === true });
   const [dialog, setDialog] = useState<'create' | 'revoke' | null>(null);
   const [days, setDays] = useState<30 | 90 | 365 | null>(90);
   const [secret, setSecret] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copyFailed, setCopyFailed] = useState(false);
   const create = useMutation({
     mutationFn: async () => {
       const result = await api.createIntegratorKey(days);
@@ -30,6 +37,7 @@ export function IntegratorSection() {
     onSuccess: (result) => {
       client.setQueryData(queryKey, { key: result });
       setCopied(false);
+      setCopyFailed(false);
       setDialog(null);
     },
   });
@@ -38,6 +46,7 @@ export function IntegratorSection() {
     onSuccess: (result) => {
       client.setQueryData(queryKey, result);
       setDialog(null);
+      toast.show(t('integratorKey.revoked'));
     },
   });
   if (!me.hostOwner) return null;
@@ -47,8 +56,10 @@ export function IntegratorSection() {
   return (
     <SettingsSection id="settings-integrator" title={t('integratorKey.title')}>
       <p>{t('integratorKey.intro')}</p>
-      <h3>{t('integratorKey.rights')}</h3>
-      <p>{t('integratorKey.rightsBody')}</p>
+      <div className={styles.rights}>
+        <strong>{t('integratorKey.rights')}</strong>
+        <p>{t('integratorKey.rightsBody')}</p>
+      </div>
       {query.isPending ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState
@@ -61,51 +72,83 @@ export function IntegratorSection() {
         <>
           {info ? (
             <>
-              <p>
-                {t(info.state === 'active' ? 'integratorKey.active' : `integratorKey.states.${info.state}`)}
+              <p className={styles.status}>
+                <Chip tone={info.state === 'active' ? 'ok' : info.state === 'expired' ? 'needs' : 'neutral'}>
+                  {t(`integratorKey.states.${info.state}`)}
+                </Chip>
+                <time dateTime={info.revokedAt ?? info.expiresAt ?? info.createdAt}>
+                  {formatStamp(
+                    info.state === 'revoked'
+                      ? (info.revokedAt ?? info.createdAt)
+                      : info.state === 'expired'
+                        ? (info.expiresAt ?? info.createdAt)
+                        : info.createdAt,
+                  )}
+                </time>
               </p>
-              <dl>
-                <dt>{t('integratorKey.prefix')}</dt>
-                <dd>
-                  <code>{info.prefix}…</code>
-                </dd>
-                <dt>{t('integratorKey.created')}</dt>
-                <dd>{formatStamp(info.createdAt)}</dd>
-                <dt>{t('integratorKey.used')}</dt>
-                <dd>{info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}</dd>
-                <dt>{t('integratorKey.expires')}</dt>
-                <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
+              <dl className={styles.facts}>
+                <div>
+                  <dt>{t('integratorKey.prefix')}</dt>
+                  <dd>
+                    <code>{info.prefix}…</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>{t('integratorKey.created')}</dt>
+                  <dd>{formatStamp(info.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>{t('integratorKey.used')}</dt>
+                  <dd>{info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}</dd>
+                </div>
+                <div>
+                  <dt>{t('integratorKey.expires')}</dt>
+                  <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
+                </div>
               </dl>
               {info.state === 'active' && expires !== null && expires <= 7 ? (
-                <p role="status">{t('integratorKey.soon', { n: expires })}</p>
+                <p className={styles.warning} role="status">
+                  {t('integratorKey.soon', { n: expires })}
+                </p>
               ) : null}
             </>
           ) : (
             <p>{t('integratorKey.none')}</p>
           )}
-          <Button
-            onClick={() => {
-              create.reset();
-              setDialog('create');
-            }}
-          >
-            {t(info ? 'integratorKey.new' : 'integratorKey.create')}
-          </Button>
-          {info?.state === 'active' ? (
+          <div className={styles.actions}>
             <Button
-              variant="danger"
               onClick={() => {
-                revoke.reset();
-                setDialog('revoke');
+                create.reset();
+                setDialog('create');
               }}
             >
-              {t('integratorKey.revoke')}
+              {t(
+                info?.state === 'active'
+                  ? 'integratorKey.new'
+                  : info
+                    ? 'integratorKey.recreate'
+                    : 'integratorKey.create',
+              )}
             </Button>
-          ) : null}
+            {info?.state === 'active' ? (
+              <Button
+                variant="danger"
+                onClick={() => {
+                  revoke.reset();
+                  setDialog('revoke');
+                }}
+              >
+                {t('integratorKey.revoke')}
+              </Button>
+            ) : null}
+          </div>
         </>
       ) : null}
       <p>
-        <Link to={`/p/${key}/sessions?by=integrator`}>{t('integratorKey.activity')}</Link>
+        <Link className={styles.activity} to={`/p/${key}/sessions?by=integrator`}>
+          <span>{t('integratorKey.activity')}</span>
+          <Icon name="arrowRight" size={14} />
+        </Link>
       </p>
       <Dialog
         open={dialog !== null}
@@ -143,7 +186,7 @@ export function IntegratorSection() {
         }
       >
         {create.isError || revoke.isError ? (
-          <p role="alert">{errorMessage(create.error ?? revoke.error)}</p>
+          <ErrorBanner>{errorMessage(create.error ?? revoke.error)}</ErrorBanner>
         ) : null}
         {dialog === 'create' ? (
           <SelectField
@@ -169,15 +212,20 @@ export function IntegratorSection() {
         footer={<Button onClick={() => setSecret(null)}>{t('integratorKey.done')}</Button>}
       >
         <p>{t('integratorKey.once')}</p>
-        <code style={{ overflowWrap: 'anywhere' }}>{secret}</code>
+        <code className={styles.secret}>{secret}</code>
+        {copyFailed ? <ErrorBanner>{t('integratorKey.copyFailed')}</ErrorBanner> : null}
         <Button
           variant="secondary"
-          onClick={() => {
-            if (secret)
-              void navigator.clipboard
-                .writeText(secret)
-                .then(() => setCopied(true))
-                .catch(() => setCopied(false));
+          onClick={async () => {
+            setCopyFailed(false);
+            if (!secret) return;
+            try {
+              await navigator.clipboard.writeText(secret);
+              setCopied(true);
+            } catch {
+              setCopied(false);
+              setCopyFailed(true);
+            }
           }}
         >
           {t(copied ? 'integratorKey.copied' : 'integratorKey.copy')}

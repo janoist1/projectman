@@ -5,6 +5,18 @@
   max-width: 1200px;
   margin: auto;
 }
+.involvement {
+  margin: 4px 0;
+  color: var(--c-ink-3);
+  font-size: var(--text-sm);
+}
+.allInvolvements {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
 .header {
   align-items: center;
   gap: 16px;

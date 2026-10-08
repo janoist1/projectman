@@ -18,6 +18,8 @@ export const SessionStartCauseKind = z.enum([
   'loop',
   'permission_change',
   'description_changed',
+  'provider_resume',
+  'pause_resume',
 ]);
 export const SessionStartCause = z.object({
   kind: SessionStartCauseKind,

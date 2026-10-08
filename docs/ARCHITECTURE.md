@@ -891,6 +891,8 @@ workers follow the machine's size.
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
+  Authentication accepts it only on a local connection or HTTPS, using the existing loopback
+  proxy protocol rules in `auth/local-request.ts`.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.

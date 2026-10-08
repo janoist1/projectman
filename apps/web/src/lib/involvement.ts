@@ -3,6 +3,7 @@ import type { Actor, TimelineEvent } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { actorLabel } from './members';
 import { labelName } from './labels';
+import { isAutomaticClosureKind, closureReason } from './sessions';
 import type { TimelineContext } from './timeline';
 
 export interface InvolvementDescription {
@@ -10,6 +11,7 @@ export interface InvolvementDescription {
   reason: string;
   ref?: { text: string; eventId?: string; messageId?: string; inboxItemId?: string; runId?: string };
   by?: string;
+  tone?: 'accent' | 'needs' | 'blocked' | 'neutral';
 }
 const byLabel = (actor: Actor | undefined, ctx: TimelineContext) =>
   actor && actor.kind !== 'system' ? actorLabel(actor, ctx.members, ctx.myHandle) : undefined;
@@ -37,12 +39,12 @@ export function describeStart(event: TimelineEvent, ctx: TimelineContext): Invol
     : (cause.labels?.map((id) => labelName(id, ctx.labels ?? [])).join(', ') ??
       (cause.from && cause.to
         ? `${stage(cause.from)} → ${stage(cause.to)}`
-        : (cause.runId ??
-          (cause.kind === 'fix_limit'
-            ? t('involvement.limit', { rounds: cause.rounds ?? 0, limit: cause.limit ?? 0 })
-            : ''))));
+        : cause.kind === 'fix_limit'
+          ? t('involvement.limit', { rounds: cause.rounds ?? 0, limit: cause.limit ?? 0 })
+          : ''));
   return {
     verb,
+    tone: cause.kind === 'provider_resume' || cause.kind === 'pause_resume' ? 'neutral' : 'accent',
     reason: t(`involvement.reasons.${cause.kind}`),
     by: byLabel(cause.by, ctx),
     ...(text || cause.eventId || cause.messageId || cause.inboxItemId || cause.runId
@@ -63,23 +65,30 @@ export function describeStop(event: TimelineEvent, ctx: TimelineContext): Involv
   const parsed = SessionStop.safeParse(event.data.stop);
   if (!parsed.success) return { verb: t('timeline.events.session_ended'), reason: '' };
   const stop = parsed.data;
+  const kind = stop.kind;
+  const closed = isAutomaticClosureKind(kind);
+  if (closed && event.data.exitCode != null && event.data.exitCode !== 0) {
+    return { verb: t('timeline.events.session_ended'), reason: '' };
+  }
+  const human = !closed && stop.by && stop.by.kind !== 'system';
   return {
-    verb: t(stop.by && stop.by.kind !== 'system' ? 'involvement.verbs.stopped' : 'involvement.verbs.ended'),
-    reason: stop.note
-      ? t('involvement.quote', { text: stop.note })
-      : t(`involvement.stops.${stop.kind}`, {
-          code: String(event.data.exitCode ?? ''),
-          minutes: stop.idleMinutes ?? 0,
-        }),
+    verb: t(
+      closed ? 'involvement.verbs.closed' : human ? 'involvement.verbs.stopped' : 'involvement.verbs.ended',
+    ),
+    tone: stop.kind === 'failed' ? 'blocked' : human ? 'needs' : 'neutral',
+    reason: closed
+      ? closureReason(stop, ctx).long
+      : stop.note
+        ? t('involvement.quote', { text: stop.note })
+        : t(`involvement.stops.${kind}`, {
+            code: String(event.data.exitCode ?? ''),
+          }),
     by: byLabel(stop.by, ctx),
   };
 }
 
 export function involvementText(description: InvolvementDescription): string {
-  return (
-    description.verb +
-    (description.reason ? ` — ${description.reason}` : '') +
-    (description.ref?.text ? `: ${description.ref.text}` : '') +
-    (description.by ? ` · ${description.by}` : '')
-  );
+  const detail = [description.reason, description.ref?.text].filter(Boolean).join(': ');
+  const main = [description.verb, detail].filter(Boolean).join(' — ');
+  return [main, description.by].filter(Boolean).join(' · ');
 }

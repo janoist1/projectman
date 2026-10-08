@@ -84,6 +84,7 @@ describe('NanoGPT provider quota recovery', () => {
     await h.domain.admission.retryDeferred();
     const resumed = h.runner.started.find((s, index) => index >= started && s.sessionId === session.id);
     expect(resumed?.initialMessage).toContain('Your previous turn stopped because NanoGPT');
+    expect(h.domain.sessions.get('AR', session.id).startCause).toEqual({ kind: 'provider_resume' });
     expect(h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key })).not.toBeNull();
   });
 

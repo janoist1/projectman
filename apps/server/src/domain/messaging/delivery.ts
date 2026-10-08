@@ -61,7 +61,9 @@ export class MessageDelivery {
           this.withHeld(
             session,
             text ??
-              (plain ? message.body : formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
+              (plain && !message.via
+                ? message.body
+                : formatInjectedTeamMessage(message.from, message.body, message.taskKey, message.via)),
           ),
         ),
       )
@@ -96,7 +98,9 @@ export class MessageDelivery {
     this.starting.add(recipient);
     try {
       result = await start(
-        waiting.map((message) => formatInjectedTeamMessage(message.from, message.body, message.taskKey)),
+        waiting.map((message) =>
+          formatInjectedTeamMessage(message.from, message.body, message.taskKey, message.via),
+        ),
       );
       this.deliverWithFirstInput(handle, waiting.slice(0, result.messagesSent), result.firstInput);
     } finally {

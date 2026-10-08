@@ -41,6 +41,7 @@ export const ChatItem = z.discriminatedUnion('kind', [
     kind: z.literal('team_message'),
     direction: z.enum(['in', 'out']),
     from: MemberHandle,
+    via: z.literal('integrator').optional(),
     to: z.array(MemberHandle),
     text: z.string(),
   }),
@@ -53,10 +54,15 @@ export type ChatItem = z.infer<typeof ChatItem>;
  * can recognise them: "[team message from qa about AR-21]\n<body>".
  */
 export const TEAM_MESSAGE_PREFIX_RE =
-  /^\[team message from ([a-z0-9-]+)(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
+  /^\[team message from ([a-z0-9-]+)(?<via> via integrator)?(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
 
-export function formatInjectedTeamMessage(from: string, body: string, taskKey?: string | null): string {
-  return `[team message from ${from}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
+export function formatInjectedTeamMessage(
+  from: string,
+  body: string,
+  taskKey?: string | null,
+  via?: 'integrator',
+): string {
+  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
 }
 
 /** Classifies user turns; an injected team message never masquerades as a human prompt. */

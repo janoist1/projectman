@@ -55,6 +55,8 @@ describe('involvement overview', () => {
     const project = mockProject();
     project.backend.timeline = [];
     project.render(<InvolvementsPage />);
+    expect(await screen.findByText(t('involvement.noResults'))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('involvement.anytime') }));
     expect(await screen.findByText(t('involvement.empty'))).toBeTruthy();
   });
 });

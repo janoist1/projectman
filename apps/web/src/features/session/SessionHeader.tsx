@@ -8,6 +8,7 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
+import { ErrorBanner } from '../../components/ErrorBanner';
 import { TextField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { MoreMenu } from '../../components/MoreMenu';
@@ -258,7 +259,7 @@ export function SessionHeader({
         }
       >
         {stop.isError ? (
-          <p role="alert">{t('involvement.stopError', { reason: errorMessage(stop.error) })}</p>
+          <ErrorBanner>{t('involvement.stopError', { reason: errorMessage(stop.error) })}</ErrorBanner>
         ) : null}
         <TextField
           label={t('involvement.stopNote')}

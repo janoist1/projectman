@@ -228,12 +228,20 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    const input = actor.via
+      ? formatInjectedTeamMessage(
+          from,
+          body,
+          session.workItem.type === 'task' ? session.workItem.taskKey : null,
+          actor.via,
+        )
+      : body;
     const running = this.sessions.isRunning(session.id);
     const messageId = newId('msg');
     const started = running
       ? null
       : await this.sessions.ensureSession(projectKey, session.member, session.workItem, {
-          messages: [body],
+          messages: [input],
           cause: { kind: 'message', by: actor, quote: quoteOf(body), messageId },
         });
     const sentAsFirstInput = (started?.messagesSent ?? 0) > 0;
@@ -258,7 +266,7 @@ export class Messaging {
       this.delivery.holdForPause(session, message);
     } else if (started && sentAsFirstInput)
       this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
-    else this.delivery.deliver(started?.session ?? session, message, body);
+    else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
   }
 
@@ -609,15 +617,16 @@ function startReason(config: ProjectConfig, cause: SessionStartCause | null): st
   if (!cause) return '';
   switch (cause.kind) {
     case 'message':
+      return ` (woken by a team message${cause.by ? ` from \`${cause.by.via ?? cause.by.handle}\`` : ''})`;
     case 'mention':
     case 'answer':
       return ` (woken by ${cause.kind}${cause.by ? ` from ${cause.by.via ?? cause.by.handle}` : ''}${cause.quote ? `: ${cause.quote}` : ''})`;
     case 'hand_over':
-      return ` (the card entered ${stageOf(config, cause.to ?? '')?.name ?? cause.to}, moved by ${cause.by?.via ?? cause.by?.handle})`;
+      return ` (the card entered ${stageOf(config, cause.to ?? '')?.name ?? cause.to}, moved by \`${cause.by?.via ?? cause.by?.handle}\`)`;
     case 'refinement':
       return ` (its refinement step for label ${cause.labels?.join(', ')})`;
     case 'start_button':
-      return ` (started by ${cause.by?.via ?? cause.by?.handle})`;
+      return ` (started by \`${cause.by?.via ?? cause.by?.handle}\`)`;
     default:
       return ` (${cause.kind})`;
   }

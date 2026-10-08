@@ -403,7 +403,7 @@ export function MemberProfilePage() {
                   </Link>
                   <SessionPeek sessionId={session.id} />
                   {session.startCause ? (
-                    <p>
+                    <p className={styles.involvement}>
                       {involvementText(
                         describeStart(
                           {
@@ -413,7 +413,14 @@ export function MemberProfilePage() {
                             sessionId: session.id,
                             actor: { kind: 'ai', handle: session.member },
                             type: 'session_started',
-                            data: { cause: session.startCause, resumed: false },
+                            data: {
+                              cause: session.startCause,
+                              resumed:
+                                data.timeline.findLast(
+                                  (event) =>
+                                    event.type === 'session_started' && event.sessionId === session.id,
+                                )?.data.resumed ?? false,
+                            },
                             createdAt: session.startedAt,
                           },
                           { ...indexes, myHandle, openInboxIds: new Set() },
@@ -435,7 +442,7 @@ export function MemberProfilePage() {
                             {workName(session)} · {formatStamp(session.startedAt)}
                           </Link>
                           {session.startCause ? (
-                            <p>
+                            <p className={styles.involvement}>
                               {involvementText(
                                 describeStart(
                                   {
@@ -445,7 +452,15 @@ export function MemberProfilePage() {
                                     sessionId: session.id,
                                     actor: { kind: 'ai', handle: session.member },
                                     type: 'session_started',
-                                    data: { cause: session.startCause, resumed: false },
+                                    data: {
+                                      cause: session.startCause,
+                                      resumed:
+                                        data.timeline.findLast(
+                                          (event) =>
+                                            event.type === 'session_started' &&
+                                            event.sessionId === session.id,
+                                        )?.data.resumed ?? false,
+                                    },
                                     createdAt: session.startedAt,
                                   },
                                   { ...indexes, myHandle, openInboxIds: new Set() },
@@ -465,7 +480,10 @@ export function MemberProfilePage() {
                   </ul>
                 </>
               ) : null}
-              <Link to={`/p/${key}/sessions?member=${handle}`}>{t('involvement.memberAll')}</Link>
+              <Link className={styles.allInvolvements} to={`/p/${key}/sessions?member=${handle}`}>
+                <span>{t('involvement.memberAll')}</span>
+                <Icon name="arrowRight" size={14} />
+              </Link>
             </section>
           ) : null}
           {usageEmpty ? null : (

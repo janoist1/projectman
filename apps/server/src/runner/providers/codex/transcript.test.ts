@@ -130,6 +130,17 @@ const rollout = [
 ];
 
 describe('CodexTranscriptParser', () => {
+  it.each([undefined, 'integrator'] as const)('parses the owner prefix with via %s', (via) => {
+    const items = parseCodexTranscript(
+      text('user', formatInjectedTeamMessage('owner', 'Review this.', 'AR-1', via)),
+      { self: 'dev-1' },
+    );
+    expect(items).toMatchObject([
+      { kind: 'team_message', from: 'owner', to: ['dev-1'], text: 'Review this.' },
+    ]);
+    const item = items[0]!;
+    expect(item.kind === 'team_message' ? item.via : undefined).toBe(via);
+  });
   it('ignores context fragments and marks brief and human turns across incremental reads', () => {
     const parser = new CodexTranscriptParser({ self: 'dev-1' });
     const first = parser.parseLines([

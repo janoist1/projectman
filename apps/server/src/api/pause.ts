@@ -16,6 +16,7 @@ export function registerPauseRoutes(app: FastifyInstance, domain: Domain): void 
   const requester = (request: FastifyRequest): PauseRequester => ({
     userId: currentUser(request).id,
     source: 'app',
+    ...(request.via ? { via: request.via } : {}),
   });
 
   app.get<ProjectParams>(routes.projectPause(':key'), async (request): Promise<ProjectPauseView> => {

@@ -3,6 +3,7 @@ import { SessionStartCauseKind, SessionStopKind } from '@projectman/shared';
 import type { TimelineEvent } from '@projectman/shared';
 import { t } from '../i18n/t';
 import { describeStart, describeStop, involvementText } from './involvement';
+import { AUTOMATIC_CLOSURES, closureReason, isAutomaticClosureKind } from './sessions';
 
 const event: TimelineEvent = {
   id: 'evt_1',
@@ -30,11 +31,17 @@ describe('involvement descriptions', () => {
   });
   it.each(SessionStopKind.options)('describes stop kind %s', (kind) => {
     const view = describeStop(
-      { ...event, type: 'session_ended', data: { stop: { kind }, exitCode: 1 } },
+      { ...event, type: 'session_ended', data: { stop: { kind }, exitCode: kind === 'failed' ? 1 : 0 } },
       ctx,
     );
-    expect(view.verb).toBe(t('involvement.verbs.ended'));
-    expect(view.reason).toBe(t(`involvement.stops.${kind}`, { code: '1', minutes: 0 }));
+    expect(view.verb).toBe(
+      t(AUTOMATIC_CLOSURES.has(kind) ? 'involvement.verbs.closed' : 'involvement.verbs.ended'),
+    );
+    expect(view.reason).toBe(
+      isAutomaticClosureKind(kind)
+        ? closureReason({ kind }, ctx).long
+        : t(`involvement.stops.${kind}`, { code: '1' }),
+    );
   });
   it('keeps old and unknown causes readable', () => {
     for (const cause of [undefined, { kind: 'future_kind' }]) {
@@ -69,6 +76,17 @@ describe('involvement descriptions', () => {
       );
       expect(view.verb).toBe(t('involvement.verbs.stopped'));
       expect(view.reason).toBe(note ? t('involvement.quote', { text: note }) : '');
+      expect(involvementText({ ...view, verb: '' }).startsWith(' · ')).toBe(false);
     }
+  });
+  it('omits schedule run identifiers and empty stop details', () => {
+    const view = describeStart(
+      { ...event, data: { cause: { kind: 'schedule', by: { kind: 'system' }, runId: 'run_internal' } } },
+      ctx,
+    );
+    expect(involvementText(view)).not.toContain('run_internal');
+    expect(
+      involvementText({ ...describeStop({ ...event, data: { stop: { kind: 'exited' } } }, ctx), verb: '' }),
+    ).toBe('');
   });
 });

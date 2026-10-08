@@ -463,6 +463,7 @@ The host owner can create an integrator key in Settings → Integrator. The secr
 save it as `~/.config/projectman/integrator-key` on the integrator's machine, with directory mode
 700 and file mode 600. Never put it in a message, task, commit, member prompt or engine payload.
 Send it in the `Authorization: Bearer <key>` header on `/api/*` requests. For example:
+The key works only over HTTPS or a local connection; `tailscale serve` must expose an HTTPS target when used with it.
 
 ```sh
 curl -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" http://localhost:4800/api/me

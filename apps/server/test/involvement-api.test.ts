@@ -66,6 +66,45 @@ describe('integrator key and involvement audit', () => {
     ).toBe(401);
   });
 
+  it('requires HTTPS for remote bearer requests without cookie fallback or key usage updates', async () => {
+    const { secret } = await key();
+    const userId = h.app.projectman.repos.users.list()[0]!.id;
+    const before = h.app.projectman.auth.integratorKey(userId)?.lastUsedAt;
+    for (const extra of [{}, { cookie }]) {
+      const response = await h.app.inject({
+        url: routes.me(),
+        remoteAddress: '100.64.0.7',
+        headers: { host: 'projectman.example', authorization: `Bearer ${secret}`, ...extra },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json().error.code).toBe('integrator_https_required');
+      expect(h.app.projectman.auth.integratorKey(userId)?.lastUsedAt).toBe(before);
+    }
+    expect(
+      (
+        await h.app.inject({
+          url: routes.me(),
+          remoteAddress: '127.0.0.1',
+          headers: { host: 'localhost', authorization: `Bearer ${secret}` },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(
+      (
+        await h.app.inject({
+          url: routes.me(),
+          remoteAddress: '127.0.0.1',
+          headers: {
+            host: 'projectman.example',
+            'x-forwarded-for': '100.64.0.7',
+            'x-forwarded-proto': 'https',
+            authorization: `Bearer ${secret}`,
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+  });
+
   it('expires keys and limits key management to the host owner cookie', async () => {
     const { secret } = await key(30);
     const other = await addHumanAndLogin(h.app, { handle: 'colleague', access: 'owner' });

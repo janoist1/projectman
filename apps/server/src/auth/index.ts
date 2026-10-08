@@ -124,6 +124,10 @@ export function registerAuth(
     }
     const bearer = request.headers.authorization;
     if (request.url.startsWith('/api/') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
+      if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
+        return reply
+          .code(401)
+          .send(apiError('integrator_https_required', 'Integrator key requires HTTPS or a local connection'));
       const secret = bearer.match(/^Bearer (pmi_[A-Za-z0-9_-]+)$/i)?.[1];
       const user = secret ? auth.resolveIntegratorKey(secret) : null;
       if (!user)

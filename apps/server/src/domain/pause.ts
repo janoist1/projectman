@@ -41,6 +41,7 @@ export type PauseTarget = { scope: 'instance' } | { scope: 'project'; projectKey
 export interface PauseRequester {
   userId: string | null;
   source: PauseSource;
+  via?: 'integrator';
 }
 
 export interface PauseOptions {
@@ -464,12 +465,12 @@ export class PauseService {
       'the team is resumed',
     );
     this.publishChanged(projectKeys);
-    await this.release(closed);
+    await this.release(closed, actors);
     await this.afterResume(closed, projectKeys);
   }
 
   /** The sessions of the resumed pause whose project no pause covers any more go on. */
-  private async release(pause: PauseRecord): Promise<void> {
+  private async release(pause: PauseRecord, actors: ReadonlyMap<string, Actor>): Promise<void> {
     const { pauses } = this.ctx.repos;
     const stillPaused = pauses.open();
     for (const row of this.heldBy(pause)) {
@@ -480,7 +481,8 @@ export class PauseService {
       try {
         if (this.sessions.isRunning(session.id)) this.letGo(session, row);
         // No point: the process was cut before it answered (the stop of the server), in a turn.
-        else if (row.needsRestart || row.point === null) await this.restart(session, row, pause.kind);
+        else if (row.needsRestart || row.point === null)
+          await this.restart(session, row, pause.kind, actors.get(session.projectKey));
         else {
           // It stopped between turns and its process is gone: what came for it meanwhile wakes it as usual.
           this.delivery.dropPauseHeld(session.id);
@@ -523,7 +525,12 @@ export class PauseService {
    * refinement turn of another member), or the start fails, the nudge is stored as a system message instead
    * and goes the usual way: with the hold's end, or the member's next wake-up.
    */
-  private async restart(session: Session, row: SessionPauseRecord, kind: PauseKind): Promise<void> {
+  private async restart(
+    session: Session,
+    row: SessionPauseRecord,
+    kind: PauseKind,
+    by?: Actor,
+  ): Promise<void> {
     this.delivery.dropPauseHeld(session.id);
     // A row with no point was cut at an unknown place: like a tool that was interrupted.
     const nudge = this.sessions.pauseNudge(row.point ?? 'interrupted', row.tool, true);
@@ -541,6 +548,7 @@ export class PauseService {
           messages,
           nudge,
           pauseRestart: true,
+          cause: { kind: 'pause_resume', ...(by ? { by } : {}) },
         }),
       );
     } catch (err) {
@@ -618,7 +626,8 @@ export class PauseService {
     for (const projectKey of projectKeys) {
       try {
         const member = findHumanByEmail(await this.projects.config(projectKey), user.email);
-        if (member) actors.set(projectKey, humanActor(member.handle));
+        if (member)
+          actors.set(projectKey, { ...humanActor(member.handle), ...(by.via ? { via: by.via } : {}) });
       } catch {
         // A project whose config cannot be read has the system as the actor.
       }

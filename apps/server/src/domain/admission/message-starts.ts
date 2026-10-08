@@ -115,6 +115,7 @@ export class MessageStarts {
           messages: [
             'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
           ],
+          cause: { kind: 'provider_resume' },
         });
       },
     };

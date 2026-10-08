@@ -158,6 +158,32 @@ describe('the first input of a resumed session', () => {
     expect(h.runner.messages).toEqual([{ sessionId: session.id, text: 'Please rename it.' }]);
   });
 
+  it.each(['stopped', 'running', 'paused'] as const)(
+    'keeps integrator attribution when a direct session message is %s',
+    async (mode) => {
+      const session =
+        mode === 'stopped'
+          ? await stopped('dev-1')
+          : (await h.domain.sessions.ensureSession('AR', 'dev-1', task)).session;
+      const target = { scope: 'project', projectKey: 'AR' } as const;
+      const system = { userId: null, source: 'system' } as const;
+      if (mode === 'paused') await h.domain.pauses.pause(target, system);
+      const message = await h.domain.messaging.sendToSession('AR', session.id, 'Please rename it.', 'owner', {
+        ...OWNER_ACTOR,
+        via: 'integrator',
+      });
+      if (mode === 'paused') await h.domain.pauses.resume(target, system);
+      await flush();
+      const text = '[team message from owner via integrator about AR-1]\nPlease rename it.';
+      if (mode === 'stopped') expect(h.runner.lastStarted().initialMessage).toBe(text);
+      else expect(h.runner.messages).toContainEqual({ sessionId: session.id, text });
+      expect(h.repos.messages.get(message.id)).toMatchObject({
+        body: 'Please rename it.',
+        via: 'integrator',
+      });
+    },
+  );
+
   /** A team message that waits for its AI recipient, as `send` leaves it (oldest first by `n`). */
   function waiting(member: string, body: string, n: number): string {
     const id = `msg_${n}`;

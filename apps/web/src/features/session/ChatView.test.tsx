@@ -9,6 +9,44 @@ import { mockIndexes } from '../../test/render';
 import { ChatView } from './ChatView';
 
 const at = (minute: number) => `2026-09-29T14:${String(minute).padStart(2, '0')}:00.000Z`;
+it('attributes an integrator prefix to the integrator even for the owner viewer', () => {
+  const { members } = mockIndexes();
+  render(
+    <ChatView
+      items={[
+        {
+          id: 'integrator',
+          ts: at(1),
+          kind: 'user_text',
+          origin: 'human',
+          text: '[team message from owner via integrator about AC-21]\nPlease review.',
+        },
+      ]}
+      members={members}
+      myHandle="owner"
+      sessionMember="fe-1"
+    />,
+  );
+  expect(screen.getByText(t('involvement.integrator'))).toBeTruthy();
+  expect(screen.getByText(`· ${t('involvement.behalf')}`)).toBeTruthy();
+  expect(screen.queryByText(t('common.you'))).toBeNull();
+  const blocks = groupChatItems(
+    [
+      {
+        id: 'integrator',
+        ts: at(1),
+        kind: 'user_text',
+        origin: 'human',
+        text: '[team message from owner via integrator about AC-21]\nPlease review.',
+      },
+    ],
+    'fe-1',
+  );
+  expect(blocks[0]).toMatchObject({
+    type: 'team',
+    item: { from: 'owner', via: 'integrator', text: 'Please review.' },
+  });
+});
 
 const items: ChatItem[] = [
   { id: 'u1', ts: at(1), kind: 'user_text', origin: 'human', text: 'Kérlek, javítsd a gombsort.' },

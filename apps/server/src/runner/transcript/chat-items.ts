@@ -64,6 +64,7 @@ export class UserTurns {
         ts,
         direction: 'in',
         from: sender,
+        ...(team.groups?.via ? { via: 'integrator' as const } : {}),
         to: this.self ? [this.self] : [],
         text: text.slice(team[0].length).trim(),
       };

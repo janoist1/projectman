@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { canSeeAllTeamMessages, cardThreadRecipients, isUnreadBy } from '@projectman/shared';
+import { canSeeAllTeamMessages, cardThreadRecipients, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
 import type {
   InboxItem,
   LabelView,
@@ -285,6 +285,7 @@ export function TaskThread({
               members={members}
               myHandle={myHandle}
               canSend={canSend}
+              canSeeAll={canSeeAll}
               flash={flash === item.message.id}
               canReplyAll={
                 new Set([item.message.from, ...item.message.to].filter((handle) => handle !== myHandle))
@@ -534,6 +535,7 @@ function MessageBubble({
   members,
   myHandle,
   canSend,
+  canSeeAll,
   canReplyAll,
   flash,
   onReply,
@@ -543,11 +545,15 @@ function MessageBubble({
   members: MemberIndex;
   myHandle: string | null;
   canSend: boolean;
+  canSeeAll: boolean;
   canReplyAll: boolean;
   flash: boolean;
   onReply: (message: TeamMessage, everyone: boolean) => void;
 }) {
   const mine = message.from === myHandle;
+  // A message of the system (a relation notice, PM-421) is answered by nobody; whoever sees every message
+  // sees who got it and when it was typed in.
+  const system = message.from === SYSTEM_SENDER;
   const unread = isUnreadBy(message, myHandle);
   return (
     <div
@@ -559,7 +565,7 @@ function MessageBubble({
         unread && styles.unreadMessage,
         flash && styles.flash,
       )}
-      tabIndex={canSend ? 0 : undefined}
+      tabIndex={canSend && !system ? 0 : undefined}
       data-message-id={message.id}
       data-flash={flash ? '' : undefined}
     >
@@ -580,8 +586,10 @@ function MessageBubble({
         <div className={styles.meta}>
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
           {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
-          {mine ? <DeliveryStatus message={message} members={members} myHandle={myHandle} /> : null}
-          {canSend ? (
+          {mine || (system && canSeeAll) ? (
+            <DeliveryStatus message={message} members={members} myHandle={myHandle} />
+          ) : null}
+          {canSend && !system ? (
             <span className={styles.actions}>
               <Button size="sm" variant="ghost" onClick={() => onReply(message, false)}>
                 {t('messages.reply')}

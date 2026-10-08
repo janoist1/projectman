@@ -37,6 +37,22 @@ export type AddableRelationKind = z.infer<typeof AddableRelationKind>;
  */
 export const THEME_REFUSED_KINDS: readonly AddableRelationKind[] = ['part_of', 'prerequisite'];
 
+/**
+ * The kinds that may change the work of a card that is being worked on (PM-421): the order of work
+ * changes (a prerequisite, either way), or another card was closed as this card's duplicate, so its
+ * content may belong here. The `duplicate_of` side is no check: that card is closed by it.
+ */
+export const ANALYST_CHECK_RELATIONS: readonly TaskRelationKind[] = [
+  'prerequisite',
+  'prerequisite_of',
+  'duplicated_by',
+];
+
+/** Whether a new relation of this kind asks the card's analyst to check whether it changes the work. */
+export function relationAsksAnalyst(kind: TaskRelationKind): boolean {
+  return ANALYST_CHECK_RELATIONS.includes(kind);
+}
+
 /** The `TaskLink` kinds that relate two cards. */
 export const RELATION_LINK_KINDS = ['prerequisite', 'related', 'duplicate_of'] as const;
 export type RelationLinkKind = (typeof RELATION_LINK_KINDS)[number];

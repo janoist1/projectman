@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { MemberView } from '@projectman/shared';
 import { members as fixtureMembers } from '../mocks/fixtures';
 import { t } from '../i18n/t';
-import { memberStatusView } from './members';
+import { indexMembers, memberStatusView, nameOf } from './members';
 
 const member = (handle: string): MemberView => fixtureMembers.find((entry) => entry.handle === handle)!;
 
@@ -41,5 +41,12 @@ describe('memberStatusView with a pause', () => {
     expect(memberStatusView(member('owner'), [], 'owner', []).status).toBe(member('owner').status);
     const away: MemberView = { ...working, status: 'offline' };
     expect(memberStatusView(away, [], 'owner', []).status).toBe('offline');
+  });
+});
+
+describe('nameOf', () => {
+  it('names the sender of the messages projectman writes itself as the system (PM-421)', () => {
+    expect(nameOf('system', indexMembers([]), 'owner')).toBe(t('common.system'));
+    expect(nameOf(null, indexMembers([]), 'owner')).toBe(t('common.system'));
   });
 });

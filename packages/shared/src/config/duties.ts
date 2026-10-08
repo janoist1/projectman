@@ -5,6 +5,7 @@ import type { Stage } from '../domain/pipeline';
 import type { Session, SessionState } from '../domain/session';
 import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
+import { isOnLeave } from './leave';
 import { memberRoles, stageOf } from './lookup';
 import type { MemberConfig, ProjectConfig } from './schema';
 
@@ -26,6 +27,21 @@ export function memberDuties(config: Pick<ProjectConfig, 'team'>, member: Member
 }
 export function dutyMembers(config: Pick<ProjectConfig, 'team'>, duty: DutyId): MemberConfig[] {
   return config.team.members.filter((m) => memberDuties(config, m).includes(duty));
+}
+/** The label the analyst sets when the requirement of a card is ready (the refinement gate `analysis-ok`). */
+export const ANALYSIS_LABEL = 'analysis-ok';
+/**
+ * The analyst of a card (PM-421): the AI member who set the analysis label on it, unless they are on
+ * leave; else the first member with the requirements analysis duty, in the team's order; else null. A
+ * person who set the label does not count: they have no session to ask.
+ */
+export function cardAnalyst(config: Pick<ProjectConfig, 'team'>, labelSetter: string | null): string | null {
+  const setter = labelSetter ? config.team.members.find((m) => m.handle === labelSetter) : undefined;
+  if (setter?.kind === 'ai' && !isOnLeave(setter)) return setter.handle;
+  const responsible = dutyMembers(config, 'requirements_analysis').find(
+    (m) => m.kind === 'ai' && !isOnLeave(m),
+  );
+  return responsible?.handle ?? null;
 }
 export function stageOwners(config: Pick<ProjectConfig, 'team'>, stage: Stage): string[] {
   return stage.owners ?? (stage.duty ? dutyMembers(config, stage.duty).map((m) => m.handle) : []);

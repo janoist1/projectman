@@ -367,13 +367,13 @@ export function TaskDrawer() {
     const threadHref = hasThread ? withCardSize(drawerBase.card(task.key, 'thread'), size) : null;
     // A timeline row of a message links to it in the conversation, if the viewer may read that message.
     const fullMessageHref = (event: TimelineEvent): string | null => {
-      if (!hasThread || event.type !== 'team_message' || !access || !myHandle || !event.actor.handle)
-        return null;
+      if (!hasThread || event.type !== 'team_message' || !access || !myHandle) return null;
       const { messageId, to } = event.data;
-      if (typeof messageId !== 'string' || !Array.isArray(to)) return null;
+      // A message of the system (a relation notice, PM-421) has no member as its actor: the event names the sender.
+      const from = typeof event.data.from === 'string' ? event.data.from : event.actor.handle;
+      if (!from || typeof messageId !== 'string' || !Array.isArray(to)) return null;
       const recipients = to.filter((handle): handle is string => typeof handle === 'string');
-      if (!canSeeTeamMessage({ access, handle: myHandle }, { from: event.actor.handle, to: recipients }))
-        return null;
+      if (!canSeeTeamMessage({ access, handle: myHandle }, { from, to: recipients })) return null;
       return withCardSize(withQueryParam(drawerBase.card(task.key, 'thread'), 'message', messageId), size);
     };
     // The Start is offered only when the shared rule lets a person start the card (PM-291); what it waits for

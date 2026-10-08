@@ -2202,6 +2202,10 @@ export const hu = {
         heading: 'Üzenetvihar egy kártyán',
         body: 'A(z) {key} kártyán {minutes} perc alatt {count} üzenet és jegyzet született ({members}). Érdemes ránézni, nem pörög-e egy beszélgetés. Semmi nem állt meg.',
       },
+      relation_check: {
+        heading: 'Új kapcsolat, nincs elemző',
+        body: 'A(z) {key} kártyán, amelyen dolgoznak, új kapcsolat jött létre ({relations}), amely érintheti a munkát, de nincs elemző, aki megnézné. Érdemes ránézni. A kártyán dolgozó tagok megkapták az értesítést, semmi nem állt meg.',
+      },
       session_input: {
         heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
         body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',

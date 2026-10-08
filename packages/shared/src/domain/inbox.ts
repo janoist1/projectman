@@ -4,6 +4,7 @@ import { Actor } from './event';
 import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
+import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
 
@@ -303,6 +304,18 @@ export const RefinementAlert = z.object({
 });
 export type RefinementAlert = z.infer<typeof RefinementAlert>;
 
+/**
+ * `relation_check` (PM-421): new relations of card `taskKey` may change its work (a prerequisite or a
+ * duplicate), the card has members working on it, and no analyst can check them. `relations` are the
+ * new ones as the card sees them.
+ */
+export const RelationCheckAlert = z.object({
+  alert: z.literal('relation_check'),
+  taskKey: TaskKey,
+  relations: z.array(z.object({ kind: TaskRelationKind, key: TaskKey })).min(1),
+});
+export type RelationCheckAlert = z.infer<typeof RelationCheckAlert>;
+
 /** A provider quota stopped a session; the owners are told once per hold (PM-377). */
 export const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
@@ -322,6 +335,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   WorktreeKeptAlert,
   RefinementAlert,
   ProviderRateLimitAlert,
+  RelationCheckAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

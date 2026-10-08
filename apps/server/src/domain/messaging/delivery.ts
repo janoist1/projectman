@@ -37,8 +37,11 @@ export class MessageDelivery {
    * process, and the messages wait like any that wait for a start (the resume starts it with them).
    */
   private readonly pauseHeld = new Map<string, { sessionId: string; messageId: string; member: string }>();
-  /** Notices kept for idle sessions (PM-249), by session id: typed before the session's next input. */
-  private readonly held = new Map<string, string[]>();
+  /**
+   * Notices kept for idle sessions (PM-249), by session id: typed before the session's next input. A
+   * stored message kept the same way (PM-421, `holdUntilInput`) counts as delivered once typed.
+   */
+  private readonly held = new Map<string, HeldNotice[]>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -62,18 +65,17 @@ export class MessageDelivery {
     this.claims.add(claim);
     const plain = this.asWritten.has(claim);
     Promise.resolve()
-      .then(() =>
-        this.sessions.typeInto(
+      .then(async () => {
+        const { text: typed, messageIds } = this.withHeld(
           session,
-          this.withHeld(
-            session,
-            text ??
-              (plain && !message.via
-                ? message.body
-                : formatInjectedTeamMessage(message.from, message.body, message.taskKey, message.via)),
-          ),
-        ),
-      )
+          text ??
+            (plain && !message.via
+              ? message.body
+              : formatInjectedTeamMessage(message.from, message.body, message.taskKey, message.via)),
+        );
+        await this.sessions.typeInto(session, typed);
+        for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
+      })
       .then(() => {
         this.asWritten.delete(claim);
         return this.messages.markRecipientDelivered(message.id, session.member);
@@ -215,9 +217,13 @@ export class MessageDelivery {
       this.flushing.has(current.id)
     )
       return false;
+    // A stored message kept for the session's next input goes in with it, not on its own (PM-421).
+    const keptIds = new Set(
+      (this.held.get(current.id) ?? []).flatMap((notice) => (notice.messageId ? [notice.messageId] : [])),
+    );
     const waiting = this.messages
       .waiting(current.projectKey, current.member, current.workItem)
-      .filter((message) => !this.claims.has(`${message.id}:${current.member}`));
+      .filter((message) => !this.claims.has(`${message.id}:${current.member}`) && !keptIds.has(message.id));
     const config = this.projects.cachedConfig(current.projectKey);
     if (
       this.sessions.reviewRoundDue(current) &&
@@ -247,8 +253,8 @@ export class MessageDelivery {
       let text = batch.text;
       let taken = 0;
       for (const notice of held) {
-        if (text.length + MESSAGE_SEPARATOR.length + notice.length > MAX_FIRST_INPUT_CHARS) break;
-        text += MESSAGE_SEPARATOR + notice;
+        if (text.length + MESSAGE_SEPARATOR.length + notice.text.length > MAX_FIRST_INPUT_CHARS) break;
+        text += MESSAGE_SEPARATOR + notice.text;
         taken++;
       }
       await this.sessions.typeInto(fresh, text);
@@ -257,6 +263,8 @@ export class MessageDelivery {
       if (remaining.length) this.held.set(fresh.id, remaining);
       else this.held.delete(fresh.id);
       for (const message of batch.messages) this.messages.markRecipientDelivered(message.id, current.member);
+      for (const notice of held.slice(0, taken))
+        if (notice.messageId) this.messages.markRecipientDelivered(notice.messageId, current.member);
       return true;
     } finally {
       for (const message of waiting) this.claims.delete(`${message.id}:${current.member}`);
@@ -313,12 +321,14 @@ export class MessageDelivery {
   /** Types a notice with the team prefix that is not stored as a message. */
   notice(session: Session, from: string, text: string, taskKey: string | null): void {
     Promise.resolve()
-      .then(() =>
-        this.sessions.typeInto(
+      .then(async () => {
+        const { text: typed, messageIds } = this.withHeld(
           session,
-          this.withHeld(session, formatInjectedTeamMessage(from, text, taskKey)),
-        ),
-      )
+          formatInjectedTeamMessage(from, text, taskKey),
+        );
+        await this.sessions.typeInto(session, typed);
+        for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
+      })
       .catch((err: unknown) =>
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message'),
       );
@@ -330,8 +340,24 @@ export class MessageDelivery {
    */
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {
     if (session.state !== 'idle') return this.notice(session, from, text, taskKey);
+    this.keep(session, { text: formatInjectedTeamMessage(from, text, taskKey), messageId: null });
+  }
+
+  /**
+   * An idle session gets the stored message before its next input, and starts nothing for it (PM-421).
+   * `flushWaiting` leaves it alone, so an idle session is not typed into only for it; it counts as
+   * delivered once typed. When the session ends first, it stays waiting for the member's next session.
+   */
+  holdUntilInput(session: Session, message: TeamMessage): void {
+    this.keep(session, {
+      text: formatInjectedTeamMessage(message.from, message.body, message.taskKey),
+      messageId: message.id,
+    });
+  }
+
+  private keep(session: Session, notice: HeldNotice): void {
     const kept = this.held.get(session.id) ?? [];
-    kept.push(formatInjectedTeamMessage(from, text, taskKey));
+    kept.push(notice);
     this.held.set(session.id, kept);
   }
 
@@ -340,13 +366,22 @@ export class MessageDelivery {
     this.held.delete(sessionId);
   }
 
-  /** `text` with the notices kept for the session in front of it; they are taken out. */
-  private withHeld(session: Session, text: string): string {
+  /** `text` with the notices kept for the session in front of it, and the stored messages among them; they are taken out. */
+  private withHeld(session: Session, text: string): { text: string; messageIds: string[] } {
     const kept = this.held.get(session.id);
-    if (!kept) return text;
+    if (!kept) return { text, messageIds: [] };
     this.held.delete(session.id);
-    return [...kept, text].join(MESSAGE_SEPARATOR);
+    return {
+      text: [...kept.map((notice) => notice.text), text].join(MESSAGE_SEPARATOR),
+      messageIds: kept.flatMap((notice) => (notice.messageId ? [notice.messageId] : [])),
+    };
   }
+}
+
+/** A notice kept for an idle session; `messageId` is set when a stored message is behind it. */
+interface HeldNotice {
+  text: string;
+  messageId: string | null;
 }
 
 function recipientKey(projectKey: string, handle: string, workItem: WorkItemRef): string {

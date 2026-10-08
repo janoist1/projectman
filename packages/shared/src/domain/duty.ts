@@ -71,7 +71,7 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'direction',
     holders: 'both',
     prompt:
-      'Clarify goals, edge cases and acceptance criteria with ask_human; record requirements with update_task.',
+      'Clarify goals, edge cases and acceptance criteria with ask_human; record requirements with update_task. When projectman sends you an analyst check about a new relation on a card, check whether it changes the work, record the result as a note on the card, and if it does, update the requirement and tell the members working on it; do not move or stop the card.',
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

@@ -1,4 +1,4 @@
-import { isOnLeave } from '@projectman/shared';
+import { isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -75,7 +75,7 @@ export function nameOf(
   index: MemberIndex,
   myHandle: string | null,
 ): string {
-  if (!handle) return t('common.system');
+  if (!handle || handle === SYSTEM_SENDER) return t('common.system');
   if (handle === myHandle) return t('common.you');
   return index.get(handle)?.displayName ?? handle;
 }

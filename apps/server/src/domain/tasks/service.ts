@@ -46,6 +46,7 @@ import { requireHuman } from '../access';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { conflict, forbidden, invalid, themeRefused } from '../errors';
+import type { AddedRelation } from '../events';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import { PullRequestRecords } from '../pull-requests';
@@ -327,7 +328,14 @@ export class TaskService {
         createdAt: at,
       });
       if (level) this.recordDeveloperLevel(task, level, actor, opts.sessionId ?? null, effects);
-      if (task.parentKey) this.recordParentChange(task, null, actor, opts.sessionId);
+      const added: AddedRelation[] = [];
+      if (task.parentKey) {
+        this.recordParentChange(task, null, actor, opts.sessionId);
+        added.push(
+          { taskKey: task.key, kind: 'part_of', ref: task.parentKey },
+          { taskKey: task.parentKey, kind: 'has_part', ref: task.key },
+        );
+      }
       if (task.themeKey) {
         this.themes.record(task, null, task.themeKey, actor, opts.sessionId ?? null);
         this.themes.publishAround(task, [task.themeKey]);
@@ -335,10 +343,12 @@ export class TaskService {
       // Relations are planned against the project with the new card in it; one refused refuses the creation.
       if (req.relations?.length) {
         const plan = this.cardRelations.plan(config, task, { add: req.relations }, actor);
-        const related = this.cardRelations.execute(plan, task, actor, opts.sessionId ?? null, effects);
+        const related = this.cardRelations.execute(plan, task, actor, opts.sessionId ?? null, effects, added);
+        this.announceRelations(projectKey, actor, added, effects);
         this.publish(related);
         return related;
       }
+      this.announceRelations(projectKey, actor, added, effects);
       // A subtask shows its parent's theme, which only a read tells.
       const stored = task.parentKey ? this.store.get(projectKey, task.key) : task;
       this.publish(stored);
@@ -615,6 +625,7 @@ export class TaskService {
     }
 
     // Apply it.
+    const added: AddedRelation[] = [];
     let next = task;
     let handoffStart: HandoffStart | undefined;
     const labelsChanged = labelsChange(labels);
@@ -666,8 +677,14 @@ export class TaskService {
           this.ctx.events.emit('task_assigned', { task: assigned, previous: task.assignee, actor }),
         );
       }
-      if (patch.parentKey !== undefined)
+      if (patch.parentKey !== undefined) {
         this.recordParentChange(next, task.parentKey ?? null, actor, sessionId);
+        if (patch.parentKey)
+          added.push(
+            { taskKey: task.key, kind: 'part_of', ref: patch.parentKey },
+            { taskKey: patch.parentKey, kind: 'has_part', ref: task.key },
+          );
+      }
       // A card that became a subtask, or left its collecting card, shows another theme now, which only a
       // read tells.
       if (patch.parentKey !== undefined || patch.themeKey !== undefined)
@@ -682,7 +699,8 @@ export class TaskService {
       if (shownBefore !== shownAfter) this.themes.publishAround(next, [shownBefore, shownAfter]);
     }
     if (relationPlan && relationPlan.steps.length > 0)
-      next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects);
+      next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects, added);
+    this.announceRelations(task.projectKey, actor, added, effects);
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
     if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
@@ -692,6 +710,17 @@ export class TaskService {
     return moved.moved
       ? { task: moved.task, handoffStart }
       : { task: moved.task, pendingApproval: moved.pendingApproval, handoffStart };
+  }
+
+  /** Tells the listeners, once the change committed, which relations it put on cards (PM-421). */
+  private announceRelations(
+    projectKey: string,
+    actor: Actor,
+    added: AddedRelation[],
+    effects: Effect[],
+  ): void {
+    if (added.length > 0)
+      effects.push(() => this.ctx.events.emit('task_relations_added', { projectKey, actor, added }));
   }
 
   /** Puts a change of the recommended developer on the timeline and tells the listeners once it committed. */

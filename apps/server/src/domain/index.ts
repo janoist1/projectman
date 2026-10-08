@@ -64,7 +64,7 @@ import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
-import { MessageDelivery, MessageService, Messaging } from './messaging';
+import { MessageDelivery, MessageService, Messaging, RelationNotices } from './messaging';
 import { PlanUsageMonitor } from './plan-usage';
 import { PresenceService } from './presence';
 import { ProjectService } from './projects';
@@ -1013,6 +1013,9 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_note_added', (note) => messaging.mentionNotice(note));
   // A changed description reaches the sessions working the card; a reviewer restarts on it (PM-184).
   events.on('task_description_changed', (change) => messaging.descriptionNotice(change));
+  // New relations on a card that is being worked on reach its workers and, when they may change the work, its analyst (PM-421).
+  const relationNotices = new RelationNotices({ ctx, projects, tasks, sessions, messaging, inbox });
+  events.on('task_relations_added', (added) => relationNotices.added(added));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));

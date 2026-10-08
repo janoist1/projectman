@@ -540,7 +540,7 @@ export class Messaging {
 
   /**
    * Whether the session's card holds its member's messages back (PM-219): a refinement turn that is not
-   * theirs, or the fix round limit. A session that starts again for a resumed pause must not take them in.
+   * theirs, the fix round limit, or the full test. A resumed session must respect these holds too.
    */
   async holdsMessagesOf(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<boolean> {
     if (session.workItem.type !== 'task') return false;
@@ -549,7 +549,8 @@ export class Messaging {
     const config = await this.projects.config(session.projectKey);
     return (
       this.heldForTurn(config, task, session.member, {}) ||
-      this.heldForFixLimit(config, task, 'system', session.member)
+      this.heldForFixLimit(config, task, 'system', session.member) ||
+      this.heldForFullTest(config, task, 'system', session.member)
     );
   }
 

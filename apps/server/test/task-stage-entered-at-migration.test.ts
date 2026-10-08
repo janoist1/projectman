@@ -9,10 +9,10 @@ describe('task stage entered at migration', () => {
     try {
       const MIGRATION_VERSION = migrations.find((item) => item.name === 'task stage entered at')!.version;
       const before = migrations.filter((item) => item.version < MIGRATION_VERSION);
-      
+
       for (const migration of before) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...before.map((item) => item.version))}`);
-      
+
       db.exec(`INSERT INTO projects VALUES ('AR', 'Example', NULL, 'v1', '2026-01-01', '2026-01-01');
         
         -- Task 1: no events at all -> should fall back to created_at
@@ -51,7 +51,6 @@ describe('task stage entered at migration', () => {
       expect(repos.tasks.get('AR-1')!.stageEnteredAt).toBe('2026-01-01T10:00:00Z');
       expect(repos.tasks.get('AR-2')!.stageEnteredAt).toBe('2026-01-02T12:00:00Z');
       expect(repos.tasks.get('AR-3')!.stageEnteredAt).toBe('2026-01-01T10:00:00Z');
-      
     } finally {
       db.close();
     }

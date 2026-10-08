@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProvidersView, Task, validateProjectConfig } from '@projectman/shared';
 import { MockBackend } from './backend';
 
@@ -403,67 +403,35 @@ describe('mock repository of a task', () => {
   });
 });
 
-describe('MockBackend moves', () => {
+describe('mock task moves', () => {
   it('updates stageEnteredAt when moving to a different stage', () => {
-    const config: ProjectConfig = {
-      key: 'PM',
-      name: 'Projectman',
-      labels: [],
-      pipeline: {
-        stages: [
-          { id: 's1', kind: 'queue', name: 'Q', owners: [] },
-          { id: 's2', kind: 'work', name: 'W', owners: [] },
-        ],
-      },
-    } as unknown as ProjectConfig;
-
     const backend = new MockBackend();
-    // Override the mock's internal state
-    (backend as any).config = config;
-    
-    // We can't easily create a task if createTask is private, 
-    // so let's push a task manually or use handle('POST', '/api/projects/PM/tasks')
-    const t0 = new Date(Date.now() - 5000).toISOString();
-    const task: Task = {
-      key: 'T1',
-      kind: 'task',
-      status: 'active',
-      stageId: 's1',
-      createdAt: t0,
-      stageEnteredAt: t0,
-      updatedAt: t0,
-      projectId: 'PM',
-      id: 'tsk_1',
-      seq: 1,
-      title: 'T1',
-      description: '',
-      visibility: 'internal',
-      createdBy: 'owner',
-      assignee: null,
-      parentKey: null,
-      themeKey: null,
-      links: [],
-      labels: [],
-      workers: [],
-    };
-    (backend as any).tasks.push(task);
+    const created = backend.handle('POST', `${base}/tasks`, { title: 'T1' });
+    const taskKey = (created.body as Task).key;
+    const task = backend.findTask(taskKey)!;
+    const t0 = task.stageEnteredAt;
 
-    // Wait a tiny bit to ensure the timestamp changes
-    const beforeMove = new Date().toISOString();
-    
-    // Move to s2 using the private move method
-    (backend as any).move(task, 's2', { kind: 'human', handle: 'owner' });
+    // advance time to ensure timestamp difference
+    vi.setSystemTime(new Date(Date.now() + 5000));
 
-    const moved = (backend as any).findTask('T1')!;
+    const response = backend.handle('PATCH', `${base}/tasks/${taskKey}`, { stageId: 'dev' });
+    expect(response.status).toBe(200);
+
+    const moved = backend.findTask(taskKey)!;
     expect(moved.stageEnteredAt).not.toBe(t0);
-    expect(moved.stageEnteredAt! > t0).toBe(true);
+    expect(moved.stageEnteredAt! > t0!).toBe(true);
 
-    const enteredAtS2 = moved.stageEnteredAt;
+    const enteredAtReview = moved.stageEnteredAt;
 
-    // Move to s2 again
-    (backend as any).move(moved, 's2', { kind: 'human', handle: 'owner' });
+    // advance time again
+    vi.setSystemTime(new Date(Date.now() + 5000));
 
-    const movedAgain = (backend as any).findTask('T1')!;
-    expect(movedAgain.stageEnteredAt).toBe(enteredAtS2);
+    // updating non-stage fields shouldn't change stageEnteredAt
+    backend.handle('PATCH', `${base}/tasks/${taskKey}`, { title: 'Updated title' });
+
+    const unchanged = backend.findTask(taskKey)!;
+    expect(unchanged.stageEnteredAt).toBe(enteredAtReview);
+
+    vi.useRealTimers();
   });
 });

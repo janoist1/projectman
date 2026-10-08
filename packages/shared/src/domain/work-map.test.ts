@@ -242,8 +242,7 @@ describe('workMap', () => {
     expect(collectorLane!.cardKeys).toContain('PM-3');
 
     const looseLane = themeGroup.lanes.find((l) => l.kind === 'loose');
-    expect(looseLane).toBeDefined();
-    expect(looseLane!.cardKeys).toContain('PM-2');
+    expect(looseLane).toBeUndefined();
   });
 
   it('orders groups correctly by signals and task seq', () => {

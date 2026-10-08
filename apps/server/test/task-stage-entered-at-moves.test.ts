@@ -11,12 +11,15 @@ describe('stageEnteredAt moves', () => {
 
   it('updates stageEnteredAt when stage changes, leaves it unchanged on state updates, defaults to createdAt on create', async () => {
     const t0 = h.domain.ctx.now().toISOString();
-    
+
     // Create a task
-    const task = await h.domain.tasks.create('AR', { title: 'Test stage entered at', repo: 'web' }, OWNER_ACTOR);
-    
-    // On create, stageEnteredAt should equal createdAt if backend sets it initially. 
-    // Wait, the backend creates with stageEnteredAt: at in service.ts.
+    const task = await h.domain.tasks.create(
+      'AR',
+      { title: 'Test stage entered at', repo: 'web' },
+      OWNER_ACTOR,
+    );
+
+    // On create, stageEnteredAt should equal createdAt if backend sets it initially.
     expect(task.stageEnteredAt).toBeDefined();
     expect(task.stageEnteredAt).toBe(task.createdAt);
 
@@ -24,24 +27,25 @@ describe('stageEnteredAt moves', () => {
 
     // advance time to ensure timestamp difference
     vi.setSystemTime(new Date(Date.now() + 5000));
-    
-    // Move task to another stage (e.g., 's2' or whatever the next stage is. Let's just move to 'ready' assuming standard pipeline)
-    // Wait, let's look at standard stages. Incoming -> ready -> dev
+
+    // Move task to another stage
     const moved = await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    
+
     expect(moved.task.stageEnteredAt).toBeDefined();
     expect(moved.task.stageEnteredAt).not.toBe(beforeMove);
     expect(moved.task.stageEnteredAt! > beforeMove!).toBe(true);
-    
+
     const afterMove = moved.task.stageEnteredAt;
 
     // advance time again
     vi.setSystemTime(new Date(Date.now() + 5000));
-    
-    // Update task status, not stage
-    const unchanged = await h.domain.tasks.update('AR', 'AR-1', { status: 'waiting' }, OWNER_ACTOR);
-    
+
+    // Update task labels, not stage
+    const unchanged = await h.domain.tasks.update('AR', 'AR-1', { addLabels: ['waiting'] }, OWNER_ACTOR);
+
     // stageEnteredAt should not change
     expect(unchanged.stageEnteredAt).toBe(afterMove);
+
+    vi.useRealTimers();
   });
 });

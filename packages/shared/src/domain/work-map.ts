@@ -214,7 +214,7 @@ export function workMap(input: WorkMapInput): MapGroup[] {
       }
 
       for (const cKey of cards) {
-        if (!allLaneChildren.has(cKey)) {
+        if (!allLaneChildren.has(cKey) && !collectorLanes.has(cKey)) {
           looseCards.push(cKey);
         }
       }

@@ -312,9 +312,8 @@
   }
 }
 
-/* The providers have no frame to tell them apart. */
 .meters {
-  gap: 16px;
+  gap: 6px;
 }
 
 @media (max-width: 1180px) {

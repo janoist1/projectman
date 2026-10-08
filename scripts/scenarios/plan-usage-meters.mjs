@@ -14,7 +14,7 @@
  *   npm run shots -- scripts/scenarios/plan-usage-meters.mjs [--widths 1512,390]
  */
 
-const BAR_WIDTHS = [1920, 1600, 1512, 1440, 1280, 1200, 800, 390, 375];
+const BAR_WIDTHS = [1600, 1512, 1500, 1499, 1400, 1280, 1181, 1180, 360];
 const TEXT = { settings: 'Beállítások' };
 
 const hoursFromNow = (hours) => new Date(Date.now() + hours * 3600_000).toISOString();
@@ -35,20 +35,48 @@ export default async ({ instance, open, shoot, step, log }) => {
       weeklyResetsAt: hoursFromNow(120),
       fetchedAt: hoursFromNow(0),
     };
+    const template = board.members.find((m) => m.kind === 'ai') ?? board.members[0];
+    if (!board.members.some((m) => m.provider === 'codex')) {
+      board.members.push({
+        ...template,
+        handle: 'codex-dev',
+        displayName: 'Codex AI',
+        kind: 'ai',
+        provider: 'codex',
+        status: 'online',
+      });
+    }
+    if (!board.members.some((m) => m.provider === 'nanogpt')) {
+      board.members.push({
+        ...template,
+        handle: 'nanogpt-dev',
+        displayName: 'NanoGPT AI',
+        kind: 'ai',
+        provider: 'nanogpt',
+        status: 'online',
+      });
+    }
     board.planUsage = claude;
     board.planUsageByProvider = {
       claude,
       codex: codexKnown ? { ...claude, fiveHourPercent: 85, weeklyPercent: 40 } : null,
+      nanogpt: {
+        fiveHourPercent: null,
+        weeklyPercent: 72,
+        fiveHourResetsAt: null,
+        weeklyResetsAt: hoursFromNow(96),
+        fetchedAt: hoursFromNow(0),
+      },
     };
     await route.fulfill({ response, json: board });
   });
   const reload = async () => {
     await page.reload();
-    await page.locator('[role="group"][aria-label="Claude"]').first().waitFor({ state: 'attached' });
+    await page.locator('button[aria-label*="-keret"]').first().waitFor({ state: 'attached' });
   };
   await reload();
 
-  const group = (name) => page.locator(`[role="group"][aria-label="${name}"]`);
+  const meterButton = (name) => page.locator(`button[aria-label*="${name}"]`);
 
   await step('a. the top bar at every width', async () => {
     for (const width of BAR_WIDTHS) {
@@ -77,11 +105,14 @@ export default async ({ instance, open, shoot, step, log }) => {
             /Új feladat/.test(button.textContent) || button.getAttribute('aria-label') === 'Új feladat',
         );
         // The span that holds the providers' meters; the bar hides it below 1181 px.
-        const meters = header.querySelector('[role="group"]')?.parentElement;
+        const meters = header.querySelector('[class*="meters"]');
         return {
           overlaps,
           overflows: header.scrollWidth > header.clientWidth,
-          meters: meters && shown(meters) ? header.querySelectorAll('[role="meter"]').length : 0,
+          scrollWidth: header.scrollWidth,
+          clientWidth: header.clientWidth,
+          meters:
+            meters && shown(meters) ? header.querySelectorAll('button[aria-label*="-keret"]').length : 0,
           pauseButton: Boolean(pause && shown(pause)),
           newTask: newTask?.textContent || 'icon only',
           searchWidth: Math.round(
@@ -90,32 +121,58 @@ export default async ({ instance, open, shoot, step, log }) => {
         };
       });
       log(`${width} px: ${JSON.stringify(report)}`);
+      if (report.overflows) {
+        throw new Error(
+          `Top bar overflows at ${width}px: scrollWidth ${report.scrollWidth} > clientWidth ${report.clientWidth}`,
+        );
+      }
+      if (report.overlaps > 0) {
+        throw new Error(`Top bar has ${report.overlaps} overlapping element(s) at ${width}px`);
+      }
+      if (width >= 1181 && report.searchWidth < 140) {
+        throw new Error(`Search box shrunk below 140px (${report.searchWidth}px) at ${width}px`);
+      }
     }
     await shoot(page, 'a-topbar', { widths: BAR_WIDTHS });
   });
 
-  await step('b. the tooltip, from the keyboard focus, over the pause limit', async () => {
+  await step('b. the dropdown, opened from click, over the pause limit', async () => {
     await page.setViewportSize({ width: 1512, height: 982 });
-    await group('Codex').focus();
+    await meterButton('Codex').click();
     await page.waitForTimeout(250);
-    await shoot(page, 'b-tooltip', { widths: [1512] });
+    await shoot(page, 'b-dropdown', { widths: [1512] });
+    await page.keyboard.press('Escape');
+
+    // Combined panel at 1280 px
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator('button[aria-label*="AI-keret"]').click();
+    await page.waitForTimeout(250);
+    await shoot(page, 'b-dropdown-combined', { widths: [1280] });
     await page.keyboard.press('Escape');
   });
 
   await step('c. the dark theme', async () => {
     await page.emulateMedia({ colorScheme: 'dark' });
-    await group('Codex').focus();
+    await page.setViewportSize({ width: 1512, height: 982 });
+    await meterButton('Codex').click();
     await page.waitForTimeout(250);
     await shoot(page, 'c-dark', { widths: [1512] });
     await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.locator('button[aria-label*="AI-keret"]').click();
+    await page.waitForTimeout(250);
+    await shoot(page, 'c-dark-combined', { widths: [1280] });
+    await page.keyboard.press('Escape');
+    await shoot(page, 'c-dark', { widths: [360] });
     await page.emulateMedia({ colorScheme: 'light' });
   });
 
   await step('d. a provider without data', async () => {
+    await page.setViewportSize({ width: 1512, height: 982 });
     codexKnown = false;
     await reload();
-    await shoot(page, 'd-no-data-full', { widths: [1512] });
-    await shoot(page, 'd-no-data-peak', { widths: [1280] });
+    await shoot(page, 'd-no-data-1512', { widths: [1512] });
+    await shoot(page, 'd-no-data-360', { widths: [360] });
     codexKnown = true;
   });
 

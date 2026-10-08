@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { planUsage } from '../mocks/fixtures';
 import { t } from '../i18n/t';
 import { renderUi } from '../test/render';
-import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
+import { CombinedPlanUsageMeter, PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 
 describe('phone plan usage badge', () => {
   it('shows the highest usage across providers and windows, linking to the team page', () => {
@@ -74,54 +74,18 @@ describe('provider plan usage meter, full', () => {
   });
 });
 
-describe('provider plan usage meter, peak', () => {
+describe('NanoGPT full plan usage meter', () => {
   it('does not claim a threshold pause for measured NanoGPT weekly usage', () => {
     render(
       <PlanUsageMeter
         provider="nanogpt"
-        variant="peak"
         usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 100 }}
         pauseAbove={80}
       />,
     );
-    expect(screen.getByRole('meter').getAttribute('aria-valuetext')).not.toContain(
+    expect(screen.getByRole('tooltip', { hidden: true }).textContent).not.toContain(
       t('planUsage.paused', { limit: 80 }),
     );
-  });
-  function peakText(five: number | null, week: number | null) {
-    const { unmount } = render(
-      <PlanUsageMeter
-        variant="peak"
-        usage={{ ...usage, fiveHourPercent: five, weeklyPercent: week }}
-        pauseAbove={80}
-      />,
-    );
-    const meter = screen.getByRole('meter');
-    const text = { shown: meter.parentElement!.textContent, valuetext: meter.getAttribute('aria-valuetext') };
-    expect(meter.getAttribute('aria-label')).toBe(t('providers.claude'));
-    unmount();
-    return text;
-  }
-
-  it('shows the higher of the two windows', () => {
-    expect(peakText(27, 60).shown).toBe('Claude60%');
-    expect(peakText(71, 60).shown).toBe('Claude71%');
-  });
-
-  it('shows the known window when the other is unknown, and n. a. when neither is known', () => {
-    expect(peakText(null, 33).shown).toBe('Claude33%');
-    expect(peakText(null, null).shown).toBe(`Claude${t('planUsage.unknown')}`);
-  });
-
-  it('reads both windows and the resets out through aria-valuetext', () => {
-    const text = peakText(27, 60).valuetext!;
-    expect(text.startsWith('60% · Claude-előfizetés: 5 órás keret 27% (visszaáll: ')).toBe(true);
-    expect(text).toContain('heti keret 60% (visszaáll: ');
-  });
-
-  it('takes its level from the peak', () => {
-    const { container } = render(<PlanUsageMeter variant="peak" usage={{ ...usage, fiveHourPercent: 90 }} />);
-    expect(container.querySelector('[role="meter"] > span')!.className).toMatch(/fill_high/);
   });
 });
 
@@ -202,5 +166,293 @@ describe('plan usage tooltip', () => {
       /^Codex-előfizetés: 5 órás keret n\. a\., heti keret 60% \(visszaáll/,
     );
     expect(codexTip!.textContent).not.toMatch(/A keret 80%/);
+  });
+});
+
+describe('provider plan usage meter, compact', () => {
+  it('shows the provider name and higher of the two windows in a button trigger', () => {
+    render(<PlanUsageMeter provider="claude" variant="compact" usage={usage} />);
+    const button = screen.getByRole('button', {
+      name: t('planUsage.compactLabel', { provider: t('providers.claude'), percent: '60%' }),
+    });
+    expect(button).toBeTruthy();
+    expect(button.textContent).toContain(t('providers.claude'));
+    expect(button.textContent).toContain('60%');
+    expect(button.hasAttribute('title')).toBe(false);
+  });
+
+  it('omits the provider when usage is null or all windows are unknown', () => {
+    const { container: nullUsage } = render(
+      <PlanUsageMeter provider="codex" variant="compact" usage={null} />,
+    );
+    expect(nullUsage.querySelector('button')).toBeNull();
+
+    const { container: unknownUsage } = render(
+      <PlanUsageMeter
+        provider="codex"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: null }}
+      />,
+    );
+    expect(unknownUsage.querySelector('button')).toBeNull();
+  });
+
+  it('shows the known window when the other is unknown in compact variant', () => {
+    render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 42 }}
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(button.textContent).toContain('42%');
+  });
+
+  it('marks the level by the value style in compact variant', () => {
+    const { container: highContainer } = render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        pauseAbove={80}
+      />,
+    );
+    expect(highContainer.querySelector('button span:nth-of-type(2)')!.className).toMatch(/value_high/);
+
+    const { container: critContainer } = render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 10, weeklyPercent: 96 }}
+        pauseAbove={80}
+      />,
+    );
+    expect(critContainer.querySelector('button span:nth-of-type(2)')!.className).toMatch(/value_critical/);
+  });
+
+  it('opens dropdown on click showing both meters, reset times and pause warning', () => {
+    render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        pauseAbove={80}
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(screen.getByText(t('planUsage.dropdownTitle', { provider: t('providers.claude') }))).toBeTruthy();
+    expect(screen.getByText(t('planUsage.fiveHour'))).toBeTruthy();
+    expect(screen.getByText(t('planUsage.weekly'))).toBeTruthy();
+    expect(screen.getByText(t('planUsage.paused', { limit: 80 }))).toBeTruthy();
+
+    // Closes on Escape
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('closes dropdown when clicking outside', () => {
+    render(
+      <div>
+        <div data-testid="outside">Outside</div>
+        <PlanUsageMeter provider="claude" variant="compact" usage={usage} />
+      </div>,
+    );
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByTestId('outside'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('opens dropdown via Enter or Space, focuses dialog, and returns focus to trigger on Escape', () => {
+    render(
+      <PlanUsageMeter
+        provider="claude"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: 85, weeklyPercent: 40 }}
+        pauseAbove={80}
+      />,
+    );
+    const button = screen.getByRole('button');
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    // Open dropdown via click (fired on Enter/Space on a button)
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(document.activeElement).toBe(dialog);
+
+    // Escape closes and restores focus to the trigger button
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(button);
+
+    // Second opening (e.g. Space)
+    fireEvent.click(button);
+    const dialogAgain = screen.getByRole('dialog');
+    expect(dialogAgain).toBeTruthy();
+    expect(document.activeElement).toBe(dialogAgain);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('shows weekly percentage for NanoGPT in compact mode and does not pause above threshold', () => {
+    render(
+      <PlanUsageMeter
+        provider="nanogpt"
+        variant="compact"
+        usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 88 }}
+        pauseAbove={80}
+      />,
+    );
+    const button = screen.getByRole('button');
+    expect(button.textContent).toContain(t('providers.nanogpt'));
+    expect(button.textContent).toContain('88%');
+
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(screen.queryByText(t('planUsage.paused', { limit: 80 }))).toBeNull();
+  });
+});
+
+describe('combined provider plan usage meter (1181–1499 px)', () => {
+  const usages = [
+    { provider: 'claude' as const, usage: { ...usage, fiveHourPercent: 27, weeklyPercent: 60 } },
+    { provider: 'codex' as const, usage: { ...usage, fiveHourPercent: 85, weeklyPercent: 40 } },
+    { provider: 'nanogpt' as const, usage: { ...usage, fiveHourPercent: null, weeklyPercent: 72 } },
+  ];
+
+  it('preserves the supplied provider order', () => {
+    render(<CombinedPlanUsageMeter usages={[usages[2]!, usages[1]!, usages[0]!]} />);
+    fireEvent.click(screen.getByRole('button'));
+    const names = [...screen.getByRole('dialog').querySelectorAll('span')]
+      .map((element) => element.textContent)
+      .filter((text) => usages.some(({ provider }) => text === t(`providers.${provider}`)));
+    expect(names).toEqual([t('providers.nanogpt'), t('providers.codex'), t('providers.claude')]);
+  });
+
+  it('closes when the desktop meters become hidden and removes the media listener', () => {
+    const media = window.matchMedia('(max-width: 1180px)');
+    const add = vi.spyOn(media, 'addEventListener');
+    const remove = vi.spyOn(media, 'removeEventListener');
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue(media);
+    try {
+      render(<CombinedPlanUsageMeter usages={usages} />);
+      fireEvent.click(screen.getByRole('button'));
+      const close = add.mock.calls[0]![1] as EventListener;
+      act(() => close(new Event('change')));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
+      expect(remove).toHaveBeenCalledWith('change', close);
+      fireEvent.click(screen.getByRole('button'));
+      expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    } finally {
+      matchMedia.mockRestore();
+    }
+  });
+
+  it('shows peak value across all providers and windows with accessible trigger label', () => {
+    render(<CombinedPlanUsageMeter usages={usages} pauseAbove={80} />);
+    const button = screen.getByRole('button');
+    expect(button.textContent).toContain('AI-keret');
+    expect(button.textContent).toContain('85%');
+    expect(button.getAttribute('aria-label')).toBe(t('planUsage.combinedTriggerLabel', { percent: '85%' }));
+    expect(button.className).toMatch(/trigger_high/);
+  });
+
+  it('renders nothing when all usages are null or empty', () => {
+    const { container } = render(
+      <CombinedPlanUsageMeter
+        usages={[
+          { provider: 'claude', usage: null },
+          { provider: 'codex', usage: { ...usage, fiveHourPercent: null, weeklyPercent: null } },
+        ]}
+      />,
+    );
+    expect(container.querySelector('button')).toBeNull();
+  });
+
+  it('renders shared dropdown panel with all known providers in order, displaying 5h and weekly meters', () => {
+    render(<CombinedPlanUsageMeter usages={usages} pauseAbove={80} />);
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(dialog.getAttribute('aria-label')).toBe(t('planUsage.combinedTitle'));
+
+    // Providers in order
+    expect(screen.getByText(t('providers.claude'))).toBeTruthy();
+    expect(screen.getByText(t('providers.codex'))).toBeTruthy();
+    expect(screen.getByText(t('providers.nanogpt'))).toBeTruthy();
+
+    // NanoGPT shows "n. a." for 5-hour
+    expect(screen.getAllByText(t('planUsage.unknown')).length).toBeGreaterThan(0);
+    expect(screen.getByText('72%')).toBeTruthy();
+
+    // Pause warning appears only for Codex (85% >= 80%, pausesOnPlanUsage is true), not NanoGPT
+    const pausedNotices = screen.getAllByText(t('planUsage.paused', { limit: 80 }));
+    expect(pausedNotices).toHaveLength(1);
+  });
+
+  it('omits completely unknown providers from the panel', () => {
+    render(
+      <CombinedPlanUsageMeter
+        usages={[
+          { provider: 'claude', usage: { ...usage, fiveHourPercent: 27, weeklyPercent: 60 } },
+          { provider: 'codex', usage: null },
+          { provider: 'nanogpt', usage: { ...usage, fiveHourPercent: null, weeklyPercent: 72 } },
+        ]}
+        pauseAbove={80}
+      />,
+    );
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+
+    expect(screen.getByText(t('providers.claude'))).toBeTruthy();
+    expect(screen.queryByText(t('providers.codex'))).toBeNull();
+    expect(screen.getByText(t('providers.nanogpt'))).toBeTruthy();
+  });
+
+  it('opens via click/Enter/Space, focuses dialog, and restores focus to trigger on Escape', () => {
+    render(<CombinedPlanUsageMeter usages={usages} pauseAbove={80} />);
+    const button = screen.getByRole('button');
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    fireEvent.click(button);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toBeTruthy();
+    expect(document.activeElement).toBe(dialog);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('closes on outside click', () => {
+    render(
+      <>
+        <div data-testid="outside">Outside</div>
+        <CombinedPlanUsageMeter usages={usages} pauseAbove={80} />
+      </>,
+    );
+    const button = screen.getByRole('button');
+    fireEvent.click(button);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+
+    fireEvent.pointerDown(screen.getByTestId('outside'));
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 });

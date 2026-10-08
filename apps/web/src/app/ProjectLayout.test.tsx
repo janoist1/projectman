@@ -1,6 +1,6 @@
 import styles from './Shell.module.css';
 import menuStyles from './Menus.module.css';
-import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../api/client';
@@ -92,18 +92,24 @@ describe('board scroll ownership', () => {
 describe('desktop top bar steps', () => {
   /** A window of this width: every `(max-width: Npx)` query matches when N is at least the width. */
   function renderAt(width: number) {
+    const listeners = new Map<string, Set<EventListenerOrEventListenerObject>>();
     vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       matches: Number(/max-width: (\d+)px/.exec(query)?.[1] ?? 0) >= width,
       media: query,
       onchange: null,
-      addEventListener() {},
-      removeEventListener() {},
+      addEventListener(_type: string, listener: EventListenerOrEventListenerObject) {
+        if (!listeners.has(query)) listeners.set(query, new Set());
+        listeners.get(query)!.add(listener);
+      },
+      removeEventListener(_type: string, listener: EventListenerOrEventListenerObject) {
+        listeners.get(query)?.delete(listener);
+      },
       addListener() {},
       removeListener() {},
       dispatchEvent: () => false,
     }));
     const project = mockProject();
-    return project.render(
+    project.render(
       <MeContext.Provider value={project.context.me}>
         <Routes>
           <Route path="/p/:projectKey" element={<ProjectLayout />}>
@@ -113,22 +119,64 @@ describe('desktop top bar steps', () => {
       </MeContext.Provider>,
       '/p/AC',
     );
+    return (nextWidth: number) => {
+      act(() => {
+        width = nextWidth;
+        for (const callbacks of listeners.values()) {
+          for (const callback of [...callbacks]) {
+            const event = new Event('change');
+            if (typeof callback === 'function') callback(event);
+            else callback.handleEvent(event);
+          }
+        }
+      });
+    };
   }
 
-  it.each([
-    [1920, 'full'],
-    [1600, 'full'],
-    [1500, 'full'],
-    [1499, 'peak'],
-    [1280, 'peak'],
-  ] as const)('at %s px the plan usage is %s', async (width, variant) => {
-    renderAt(width);
-    await screen.findAllByRole('group', { name: /Claude|Codex/ });
-    const header = document.querySelector('header')!;
-    const meters = within(header).getAllByRole('meter');
-    const providers = within(header).getAllByRole('group').length;
-    expect(meters).toHaveLength(variant === 'full' ? providers * 2 : providers);
+  it('closes an open panel when switching between combined and individual provider triggers', async () => {
+    const resize = renderAt(1280);
+    fireEvent.click(await screen.findByRole('button', { name: /AI-keret/ }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    resize(1500);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: /Claude/ }));
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    resize(1499);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(await screen.findByRole('button', { name: /AI-keret/ })).toBeTruthy();
   });
+
+  it.each([1920, 1600, 1500])(
+    'at %s px each provider has a compact meter opening a dropdown on click',
+    async (width) => {
+      renderAt(width);
+      const claudeTrigger = await screen.findByRole('button', { name: /Claude/ });
+      expect(claudeTrigger).toBeTruthy();
+      expect(within(claudeTrigger).getByText(t('providers.claude'))).toBeTruthy();
+      const header = document.querySelector('header')!;
+      expect(within(header).queryAllByRole('meter')).toHaveLength(0);
+
+      fireEvent.click(claudeTrigger);
+      const meters = within(header).getAllByRole('meter');
+      expect(meters.length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each([1499, 1280])(
+    'at %s px providers collapse into a single combined meter opening a shared dropdown on click',
+    async (width) => {
+      renderAt(width);
+      const combinedTrigger = await screen.findByRole('button', { name: /AI-keret/ });
+      expect(combinedTrigger).toBeTruthy();
+      const header = document.querySelector('header')!;
+      expect(within(header).queryAllByRole('meter')).toHaveLength(0);
+
+      fireEvent.click(combinedTrigger);
+      const meters = within(header).getAllByRole('meter');
+      expect(meters.length).toBeGreaterThan(0);
+      expect(within(header).getByText(t('planUsage.combinedTitle'))).toBeTruthy();
+    },
+  );
 
   it('keeps "Új feladat" with its text above 900 px and shows an icon with the same name at 900 px', async () => {
     renderAt(901);

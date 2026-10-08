@@ -4,6 +4,7 @@ import {
   hasRelated,
   openPrerequisites,
   planRelations,
+  relationAsksAnalyst,
   relationRefusal,
   storedRelation,
   taskRelations,
@@ -297,6 +298,19 @@ describe('hasRelated', () => {
     expect(hasRelated(a, b)).toBe(true);
     expect(hasRelated(b, a)).toBe(true);
     expect(hasRelated(a, card('PM-3'))).toBe(false);
+  });
+});
+
+describe('relationAsksAnalyst', () => {
+  it('asks for a prerequisite, in either direction, and for the original of a duplicate', () => {
+    expect(relationAsksAnalyst('prerequisite')).toBe(true);
+    expect(relationAsksAnalyst('prerequisite_of')).toBe(true);
+    expect(relationAsksAnalyst('duplicated_by')).toBe(true);
+  });
+
+  it('does not ask for a related card, a part, or the duplicate that the relation closed', () => {
+    for (const kind of ['related', 'part_of', 'has_part', 'duplicate_of'] as const)
+      expect(relationAsksAnalyst(kind)).toBe(false);
   });
 });
 

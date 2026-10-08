@@ -67,6 +67,27 @@ describe('splitQuestion', () => {
     expect(unknown).toContain('a keret állapotára vár');
     expect(unknown).not.toContain('Újrapróba:');
   });
+  it('renders the alert that a new relation has no analyst to check it (PM-421)', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      payload: {
+        alert: 'relation_check',
+        taskKey: 'AR-1',
+        relations: [
+          { kind: 'prerequisite', key: 'AR-2' },
+          { kind: 'duplicated_by', key: 'AR-3' },
+        ],
+      },
+    };
+    expect(inboxHeading(alert)).toBe(t('inbox.alerts.relation_check.heading'));
+    const text = alertText(alert, new Map(), null);
+    expect(text).toContain('AR-1');
+    expect(text).toContain('AR-2');
+    expect(text).toContain('AR-3');
+    expect(text).not.toContain('{');
+  });
   it('keeps a short one-line question whole, without marks', () => {
     expect(splitQuestion('Mehet ma este a kiadás az élesbe?')).toEqual({
       title: 'Mehet ma este a kiadás az élesbe?',

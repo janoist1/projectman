@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Link, Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
 import { TaskDrawer } from './TaskDrawer';
@@ -402,5 +403,65 @@ describe('the links into the card conversation (PM-273)', () => {
         .getByRole('link', { name: t('loop.box.messages') })
         .getAttribute('href'),
     ).toBe('/p/AC/tasks/AC-21/thread?size=large');
+  });
+});
+
+describe('the notices of the system in the card conversation (PM-421)', () => {
+  const NOTICE = 'Relation notice (AC-21): this card is related to AC-22 (added by qa).';
+
+  /** A message from the system to the given members, the first one typed in at the message's time. */
+  function systemNotice(project: ReturnType<typeof mockProject>, to: string[]) {
+    const message = project.backend.sendTeamMessage('fe-1', to, 'AC-21', NOTICE);
+    message.from = 'system';
+    message.receipts = message.to.map((handle, index) => ({
+      handle,
+      kind: project.backend.findMember(handle)?.kind ?? 'human',
+      deliveredAt: index === 0 ? message.createdAt : null,
+      readAt: null,
+    }));
+    return message;
+  }
+
+  it('shows the owner who got the notice and when it was typed in, as "Rendszer", without a reply', async () => {
+    const project = mockProject();
+    const message = systemNotice(project, ['qa', 'devops']);
+    project.render(card, '/p/AC/tasks/AC-21/thread');
+    const panel = await thread();
+    const bubble = (await within(panel).findByText(NOTICE)).closest('[data-message-id]') as HTMLElement;
+    expect(bubble.textContent).toContain(t('common.system'));
+    expect(within(bubble).queryByRole('button', { name: t('messages.reply') })).toBeNull();
+    expect(within(bubble).queryByRole('button', { name: t('messages.thread.replyAll') })).toBeNull();
+
+    fireEvent.click(within(bubble).getByRole('button', { name: t('messages.status.queued') }));
+    const details = await screen.findByRole('list', { name: t('messages.status.details') });
+    expect(
+      within(details).getByText(
+        new RegExp(`${t('messages.status.aiTyped')} · ${formatTime(message.createdAt)}`),
+      ),
+    ).toBeTruthy();
+    expect(within(details).getByText(new RegExp(t('messages.status.aiQueued')))).toBeTruthy();
+  });
+
+  it('shows a developer the notice addressed to them, without the delivery status and without a reply', async () => {
+    const { project, overrides } = asDeveloper();
+    systemNotice(project, ['kata']);
+    project.render(card, '/p/AC/tasks/AC-21/thread', overrides);
+    const panel = await thread();
+    const bubble = (await within(panel).findByText(NOTICE)).closest('[data-message-id]') as HTMLElement;
+    expect(bubble.textContent).toContain(t('common.system'));
+    expect(within(bubble).queryByRole('button', { name: t('messages.status.delivered') })).toBeNull();
+    expect(within(bubble).queryByRole('button', { name: t('messages.reply') })).toBeNull();
+  });
+
+  it('links the timeline row of a notice, which has no member as its actor, to the full message', async () => {
+    const project = mockProject();
+    project.backend.addTimeline('AC-21', null, 'team_message', {
+      messageId: 'msg_system',
+      from: 'system',
+      to: ['qa'],
+    });
+    project.render(card, '/p/AC/tasks/AC-21');
+    const links = await screen.findAllByRole('link', { name: t('timeline.fullMessage') });
+    expect(links.some((link) => link.getAttribute('href')?.includes('message=msg_system'))).toBe(true);
   });
 });

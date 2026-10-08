@@ -56,6 +56,16 @@ export interface SendOptions {
   duringRefinement?: boolean;
   /** Marks the message as the answer to an AI member's question (PM-249): the card thread shows it as one. */
   answer?: TeamMessageAnswer;
+  /**
+   * Only with `kind: 'info'` (PM-421): an idle running session gets the message before its next input,
+   * not at once (a busy one at the end of its turn, as any message). Internal, not a contract.
+   */
+  untilInput?: boolean;
+  /**
+   * The message is for the recipient's work on this very card (PM-421): it is not steered to a running
+   * session on a family card (`place`, step 2). Internal, not a contract.
+   */
+  ownCard?: boolean;
 }
 
 /**
@@ -186,7 +196,7 @@ export class Messaging {
       .map((handle) => {
         const hold = this.holdOf(config, task, from, handle, opts);
         if (hold) return { handle, hold, workItem: routeFor(taskKey), running: null };
-        return { handle, hold: null, ...this.place(projectKey, config, handle, workItem) };
+        return { handle, hold: null, ...this.place(projectKey, config, handle, workItem, !!opts.ownCard) };
       });
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
@@ -220,7 +230,15 @@ export class Messaging {
         handle,
         hold
           ? { delivery: 'held', hold }
-          : this.deliverOrWake(config, projectKey, handle, where, running, message),
+          : this.deliverOrWake(
+              config,
+              projectKey,
+              handle,
+              where,
+              running,
+              message,
+              opts.untilInput === true && opts.kind === 'info',
+            ),
       );
     return {
       message,
@@ -468,9 +486,12 @@ export class Messaging {
     config: ProjectConfig,
     handle: string,
     workItem: WorkItemRef,
+    ownCard = false,
   ): { workItem: WorkItemRef; running: Session | null } {
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };
+    // Meant for the work on this card (an analyst check): not for the member's session on a family card.
+    if (ownCard) return { workItem, running: null };
     const task = this.tasks.find(projectKey, workItem.taskKey);
     if (!task) return { workItem, running: null };
     // A theme has no session (PM-192), open or closed, so its messages go to the general chat too.
@@ -617,6 +638,7 @@ export class Messaging {
     workItem: WorkItemRef,
     running: Session | null,
     message: TeamMessage,
+    untilInput = false,
   ): Omit<SentMessageRecipient, 'handle'> {
     const wakes = wakesFor(this.ctx, config, message, handle);
     if (!running && !wakes) return { delivery: 'next_input' };
@@ -633,6 +655,11 @@ export class Messaging {
     if (running && this.sessions.isPaused(running)) {
       this.delivery.holdForPause(running, message);
       return { delivery: 'held', hold: 'pause' };
+    }
+    // An idle session gets a notice before its next input; it is neither woken nor typed into for it (PM-421).
+    if (running && untilInput && running.state === 'idle') {
+      this.delivery.holdUntilInput(running, message);
+      return { delivery: 'next_input' };
     }
     if (running) {
       try {

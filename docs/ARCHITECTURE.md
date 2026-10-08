@@ -256,6 +256,23 @@ Documentation map:
   sessions the family has (PM-255): it is typed in or taken in the first input when that member's
   turn starts, and wakes its recipient as usual when the card leaves refinement; only the answer to
   the recipient's own `ask_human` question goes through at once.
+  PM-421: a new relation on a card that is being worked on is announced by `RelationNotices`
+  (`domain/messaging/relation-notices.ts`), which listens to the `task_relations_added` event
+  (emitted after commit by `TaskService.create` / `applyUpdate`, one event per operation, for both
+  cards; a deletion emits nothing). Each AI member with a running session on the card (not the actor,
+  not a closed card) gets one stored `info` message from `SYSTEM_SENDER` (`system`) naming the
+  relation kind from its card, and the other card's key, title, stage, status and the start of its
+  description (only key and title when it may not read it). It starts nothing: `SendOptions.untilInput`
+  keeps it for an idle session until its next input (`MessageDelivery.holdUntilInput`; counted
+  delivered when typed in, so the receipt time is the trace), a working session gets it at the end
+  of its turn. For a prerequisite or a duplicate (`relationAsksAnalyst`) the card's analyst
+  (`cardAnalyst`: the AI member who last set `analysis-ok`, else the first `requirements_analysis`
+  duty holder not on leave) also gets an `action` message on that very card (`SendOptions.ownCard`:
+  never steered to a family card's session) asking it to check the work; an analyst who is also a
+  worker gets this one only. With no analyst the owners get a `relation_check` alert. The held
+  notices are in memory: one for a session that ends stays undelivered for the member's next session.
+  The messages are the whole trace: the timeline's `team_message` row names the recipient and the time,
+  the card thread shows the owner the delivery receipt with its time.
 - **Admission** — every automatic session start (task start, stage hand-over, message
   wake-up, schedule run) passes the same checks, in this order: the project's AI master
   switch (`team.limits.aiEnabled`), that the member is not on leave (`member_on_leave`), for a

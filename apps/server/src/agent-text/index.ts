@@ -14,6 +14,7 @@ export {
 } from './card-thread';
 export { describeLink, linkTarget, numberedRef } from './links';
 export { describeRelatedCard, relationLines, relationPhrase } from './relations';
+export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
 export { roleLabel } from './role';
 export { describeRepo, type TaskRepoInfo } from './repo';
 export { describeTheme, themeCardLines, themeProgressText, themeState } from './theme';

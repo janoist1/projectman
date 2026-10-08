@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import type { TeamMessage } from '@projectman/shared';
 import { Popover } from '../../components/Popover';
+import { formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -33,7 +34,7 @@ export function DeliveryStatus({
               <strong>{nameOf(receipt.handle, members, myHandle)}</strong> ·{' '}
               {receipt.kind === 'ai'
                 ? receipt.deliveredAt
-                  ? t('messages.status.aiTyped')
+                  ? `${t('messages.status.aiTyped')} · ${formatTime(receipt.deliveredAt)}`
                   : t('messages.status.aiQueued')
                 : receipt.readAt
                   ? t('messages.status.humanRead')

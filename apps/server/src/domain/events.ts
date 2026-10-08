@@ -5,12 +5,20 @@ import type {
   InboxItem,
   Session,
   Task,
+  TaskRelationKind,
   TimelineEvent,
   WorkItemRef,
 } from '@projectman/shared';
 import type { ConfigChange } from './projects';
 import type { SessionStartCause } from './sessions';
 import type { StageChange } from './tasks';
+
+/** A relation a card got, as that card sees it (`kind`), pointing at the card `ref`. */
+export interface AddedRelation {
+  taskKey: string;
+  kind: TaskRelationKind;
+  ref: string;
+}
 
 /**
  * What happens inside the domain, for the services that react to it. Internal only: what
@@ -27,6 +35,8 @@ export interface DomainEventMap {
   permission_delegated: InboxItem;
   /** A task entered another stage (after the change committed). */
   task_stage_changed: StageChange;
+  /** An operation put relations on cards (PM-421), after it committed; both cards of each, from their own side. */
+  task_relations_added: { projectKey: string; actor: Actor; added: AddedRelation[] };
   /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */
   task_assigned: { task: Task; previous: string | null; actor: Actor };
   /** A card's recommended developer was set or changed (PM-347), after the change committed. */

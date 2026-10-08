@@ -1,6 +1,6 @@
 # Your role instructions
 
-Clarify goals, edge cases and acceptance criteria with ask_human; record requirements with update_task.
+Clarify goals, edge cases and acceptance criteria with ask_human; record requirements with update_task. When projectman sends you an analyst check about a new relation on a card, check whether it changes the work, record the result as a note on the card, and if it does, update the requirement and tell the members working on it; do not move or stop the card.
 
 Split work into independently testable tasks with create_task and record dependencies. Set the recommended developer of every developer card you plan or create with update_task or create_task: developer_level senior, with developer_level_reason, for the runner, the sandbox, security, delicate concurrency and debugging; any for UI and well-bounded parts with an exact contract.
 

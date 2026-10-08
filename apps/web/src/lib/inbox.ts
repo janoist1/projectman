@@ -17,6 +17,7 @@ import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
 import type { PipelineIndex } from './pipeline';
+import { relationKindLabel } from './timeline';
 
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
 export const FREE_ANSWER_OPTION_ID = 'answer';
@@ -267,6 +268,13 @@ export function alertText(
       key: alert.taskKey,
       path: alert.path,
       changes: alert.changes,
+    });
+  if (alert.alert === 'relation_check')
+    return t('inbox.alerts.relation_check.body', {
+      key: alert.taskKey,
+      relations: joinNames(
+        alert.relations.map((relation) => `${relationKindLabel(relation.kind)} ${relation.key}`),
+      ),
     });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {

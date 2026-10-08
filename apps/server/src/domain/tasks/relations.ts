@@ -22,6 +22,7 @@ import type {
 import { hasAccess } from '../access';
 import { isoNow } from '../context';
 import { forbidden, invalid } from '../errors';
+import type { AddedRelation } from '../events';
 import type { Effect, TaskStore } from './store';
 
 /** Why a task may not become a subtask: the message of each refusal of the shared rule. */
@@ -158,7 +159,14 @@ export class TaskRelations {
   }
 
   /** Writes a plan: the links and parents, the timelines of both cards, and the close of a duplicate. */
-  execute(plan: RelationPlan, task: Task, actor: Actor, sessionId: string | null, effects: Effect[]): Task {
+  execute(
+    plan: RelationPlan,
+    task: Task,
+    actor: Actor,
+    sessionId: string | null,
+    effects: Effect[],
+    added: AddedRelation[],
+  ): Task {
     const repo = this.store.ctx.repos.tasks;
     const touched = new Set<string>();
     for (const step of plan.steps) {
@@ -174,7 +182,7 @@ export class TaskRelations {
           for (const [taskKey, kind, ref] of [
             [step.owner, step.kind, step.ref],
             [step.ref, reverseRelationKind(step.kind), step.owner],
-          ] as const)
+          ] as const) {
             this.store.timeline.append({
               projectKey: task.projectKey,
               taskKey,
@@ -183,6 +191,8 @@ export class TaskRelations {
               type,
               data: { kind, ref },
             });
+            if (step.type === 'link_add') added.push({ taskKey, kind, ref });
+          }
           touched.add(step.owner).add(step.ref);
           // The card may be free of what held its start back (PM-204).
           if (step.type === 'link_remove' && step.kind === 'prerequisite')
@@ -200,6 +210,11 @@ export class TaskRelations {
             updatedAt: isoNow(this.store.ctx),
           });
           this.deps.recordParentChange(written, previous, actor, sessionId);
+          if (step.parent && step.parent !== previous)
+            added.push(
+              { taskKey: step.child, kind: 'part_of', ref: step.parent },
+              { taskKey: step.parent, kind: 'has_part', ref: step.child },
+            );
           // What the card shows changes with its parent: the theme of the card it joins, or none (its own,
           // which it had before it became a subtask, is gone) when it leaves. The timelines say so.
           const shown = child.themeKey ?? null;

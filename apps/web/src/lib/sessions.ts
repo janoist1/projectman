@@ -33,10 +33,20 @@ export const AUTOMATIC_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
   'task_cancelled',
   'sent_back',
   'pause',
+  'handed_off',
+  'handoff_timeout',
 ]);
 export function isAutomaticClosureKind(
   kind: SessionStop['kind'],
-): kind is 'step_done' | 'idle' | 'card_done' | 'task_cancelled' | 'sent_back' | 'pause' {
+): kind is
+  | 'step_done'
+  | 'idle'
+  | 'card_done'
+  | 'task_cancelled'
+  | 'sent_back'
+  | 'pause'
+  | 'handed_off'
+  | 'handoff_timeout' {
   return AUTOMATIC_CLOSURES.has(kind);
 }
 const STOPPED_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
@@ -121,6 +131,13 @@ export function closureReason(stop: SessionStop, ctx: ClosureContext): Reason {
       return {
         short: t('session.closure.short.sent_back'),
         long: detail(t('session.closure.long.sent_back'), true),
+      };
+    case 'handed_off':
+      return { short: t('session.closure.short.handed_off'), long: t('session.closure.long.handed_off') };
+    case 'handoff_timeout':
+      return {
+        short: t('session.closure.short.handoff_timeout'),
+        long: t('session.closure.long.handoff_timeout'),
       };
     default:
       return { short: t('session.closure.short.pause'), long: t('session.closure.long.pause') };

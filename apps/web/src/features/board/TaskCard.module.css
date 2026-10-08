@@ -151,6 +151,27 @@
   animation: pm-fade-in 160ms ease-out;
 }
 
+/* "⇄ Átadás · 7 p": the card is being handed over (PM-342); text, not only colour. Grey while paused. */
+.handoff {
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  animation: pm-fade-in 160ms ease-out;
+}
+
+.handoff span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.handoffPaused {
+  background: var(--c-muted);
+  color: var(--c-ink-3);
+}
+
 /* "Senior": the card is a task for the team's Senior (PM-349); text, not only colour. */
 .senior {
   background: var(--c-accent-bg);

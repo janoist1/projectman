@@ -545,3 +545,93 @@ describe('Senior timeline texts (PM-349)', () => {
     );
   });
 });
+
+describe('the handoff rows (PM-342)', () => {
+  const event = (type: TimelineEvent['type'], data: Record<string, unknown>): TimelineEvent => ({
+    ...creation,
+    type,
+    actor: { kind: 'system', handle: null },
+    data,
+  });
+  const handoff = (phase: string, extra: Record<string, unknown> = {}) =>
+    describeEvent(
+      event('task_handoff', {
+        phase,
+        handoffId: 'hnd_1',
+        from: 'be-1',
+        to: 'fe-1',
+        fromProvider: 'codex',
+        toProvider: 'claude',
+        ...extra,
+      }),
+      context,
+    );
+  const pair = { from: 'be-1', to: 'fe-1' };
+
+  it('words each phase, and keeps the note in full under the details', () => {
+    expect(handoff('started', { mode: 'live', reason: 'manual' }).text).toBe(
+      t('timeline.events.task_handoff.started', pair),
+    );
+    expect(handoff('started', { mode: 'live', reason: 'fix_limit_reassign' }).text).toBe(
+      t('timeline.events.task_handoff.startedWith', {
+        ...pair,
+        reason: t('handoff.reason.fix_limit_reassign'),
+      }),
+    );
+    expect(handoff('retargeted').text).toBe(t('timeline.events.task_handoff.retargeted', pair));
+    expect(handoff('taken_over').text).toBe(t('timeline.events.task_handoff.taken_over', pair));
+    expect(handoff('cancelled').text).toBe(t('timeline.events.task_handoff.cancelled', pair));
+
+    const longNote = `${'A '.repeat(100)}\nSecond line.`;
+    const described = handoff('note', { note: longNote });
+    expect(described.detail).toBe(longNote);
+    expect(described.text.startsWith('Átadó jegyzet → fe-1: ')).toBe(true);
+    expect(described.text).not.toContain('Second line');
+  });
+
+  it('says why there was no note, with or without a summary and a receiver', () => {
+    const reason = t('handoff.fallbackReason.on_leave', { from: 'be-1' });
+    expect(handoff('fallback', { fallbackReason: 'on_leave', summary: true }).text).toBe(
+      t('timeline.events.task_handoff.fallback', { ...pair, reason }),
+    );
+    expect(handoff('fallback', { fallbackReason: 'on_leave', summary: false }).text).toBe(
+      t('timeline.events.task_handoff.fallbackNoSummary', { ...pair, reason }),
+    );
+    expect(handoff('fallback', { fallbackReason: 'on_leave', to: null }).text).toBe(
+      t('timeline.events.task_handoff.fallbackNobody', { reason }),
+    );
+    expect(handoff('fallback', { fallbackReason: 'something_new' }).text).toContain(
+      t('handoff.fallbackReason.unknown'),
+    );
+  });
+
+  it('words a conversation that started anew', () => {
+    const restarted = (data: Record<string, unknown>) =>
+      describeEvent(
+        event('session_conversation_restarted', { member: 'fe-1', summary: true, ...data }),
+        context,
+      ).text;
+    expect(restarted({ reason: 'provider_changed', fromProvider: 'codex', toProvider: 'claude' })).toBe(
+      t('timeline.events.session_conversation_restarted.providerShift', {
+        fromProvider: t('providers.codex'),
+        toProvider: t('providers.claude'),
+        member: 'fe-1',
+      }),
+    );
+    expect(
+      restarted({ reason: 'provider_changed', fromProvider: 'codex', toProvider: 'claude', summary: false }),
+    ).toBe(
+      t('timeline.events.session_conversation_restarted.providerShiftNoSummary', {
+        fromProvider: t('providers.codex'),
+        toProvider: t('providers.claude'),
+        member: 'fe-1',
+      }),
+    );
+    expect(restarted({ reason: 'lost' })).toBe(
+      t('timeline.events.session_conversation_restarted.lost', { member: 'fe-1' }),
+    );
+    expect(restarted({ reason: 'lost', lastHandoffId: 'hnd_1' })).toBe(
+      t('timeline.events.session_conversation_restarted.lostNote', { member: 'fe-1' }),
+    );
+  });
+});

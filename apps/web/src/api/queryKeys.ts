@@ -26,6 +26,9 @@ export const queryKeys = {
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,
+  /** A closed handoff record of a task (PM-342); its note never changes. */
+  taskHandoff: (key: string, taskKey: string, handoffId: string) =>
+    ['project', key, 'task-handoff', taskKey, handoffId] as const,
   /** A task's attachment list: next to the task detail, not under it, so the detail's prefix never matches it. */
   attachments: (key: string, taskKey: string) => ['project', key, 'attachments', taskKey] as const,
   /** Prefix of every task detail query of a project. */

@@ -1,4 +1,5 @@
-import type { Task } from '@projectman/shared';
+import type { Session, Task } from '@projectman/shared';
+import { HandoffNoteButton } from './HandoffNote';
 import { useProject } from '../../app/contexts';
 import { MemberNames } from '../../components/LeaveChip';
 import { t } from '../../i18n/t';
@@ -25,6 +26,7 @@ export function TaskProperties({
   phases,
   members,
   pipeline,
+  sessions,
 }: {
   task: Task;
   /** The project's cards as the viewer sees them (the board's, closed ones included). */
@@ -32,6 +34,8 @@ export function TaskProperties({
   phases: ReadonlyMap<string, TaskPhase>;
   members: MemberIndex;
   pipeline: PipelineIndex;
+  /** The card's sessions: whether the assignee has a conversation on it decides the provider hint. */
+  sessions?: readonly Session[];
 }) {
   const { can, myHandle } = useProject();
   return (
@@ -39,7 +43,7 @@ export function TaskProperties({
       <div className={styles.prop}>
         <span className={styles.propLabel}>{t('taskLifecycle.assignee')}</span>
         {can.manageTeam ? (
-          <TaskAssigneeSelect key={task.key} task={task} members={members} />
+          <TaskAssigneeSelect key={task.key} task={task} members={members} sessions={sessions} />
         ) : (
           <span className={task.assignee ? undefined : styles.propMuted}>
             {task.assignee ? (
@@ -49,6 +53,7 @@ export function TaskProperties({
             )}
           </span>
         )}
+        <HandoffNoteButton task={task} members={members} />
       </div>
       <TaskLevel key={`level:${task.key}`} task={task} />
       <TaskPrioritySelect key={`priority:${task.key}`} task={task} />

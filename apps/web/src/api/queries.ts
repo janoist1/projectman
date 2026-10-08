@@ -134,6 +134,17 @@ export function useTaskDetail(key: string, taskKey: string | null | undefined) {
   });
 }
 
+/** The record of a closed handoff (PM-342): read when the note window opens. */
+export function useTaskHandoff(key: string, taskKey: string, handoffId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.taskHandoff(key, taskKey, handoffId ?? ''),
+    queryFn: () => api.taskHandoff(key, taskKey, handoffId ?? ''),
+    enabled: enabled && Boolean(handoffId),
+    retry: false,
+    staleTime: Infinity,
+  });
+}
+
 export function useCreateTask(key: string) {
   const client = useQueryClient();
   return useMutation({

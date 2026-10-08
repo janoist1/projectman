@@ -117,7 +117,6 @@ describe('task drawer lifecycle', () => {
     fireEvent.change(select, { target: { value: 'kata' } });
     // A live session no longer refuses the change (PM-342): the old session is asked for a handoff note.
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBe('kata'));
-    expect(screen.queryByRole('button', { name: t('taskLifecycle.stop') })).toBeNull();
     await screen.findByText(/Előző felelős: Backend fejlesztő/);
     fireEvent.change(screen.getByLabelText(t('taskLifecycle.assignee')), { target: { value: '' } });
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBeNull());

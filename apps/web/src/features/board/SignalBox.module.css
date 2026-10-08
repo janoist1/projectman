@@ -40,3 +40,71 @@
   font-weight: 700;
   color: var(--c-needs-text);
 }
+
+/* The handoff box (PM-342): the accent tone; grey while the team is paused. */
+.accent {
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-accent) 35%, transparent);
+}
+
+.paused {
+  background: var(--c-muted);
+  color: var(--c-ink-3);
+  box-shadow: inset 0 0 0 1px var(--c-line);
+}
+
+.accent .link,
+.accent .linkButton {
+  color: var(--c-accent-text);
+}
+
+.paused .link,
+.paused .linkButton {
+  color: var(--c-ink-2);
+}
+
+.pair {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-ink);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+
+.linkButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkButton:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-blocked-text);
+}
+
+/* On a phone the links are touch targets. */
+@media (max-width: 767px) {
+  .links .link,
+  .links .linkButton {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+}

@@ -31,6 +31,8 @@ describe('what closes a session', () => {
     'assignee_change',
     'loop_stopped',
     'fix_limit_reassign',
+    'handed_off',
+    'handoff_timeout',
   ];
   it.each(closing)('counts %s of an exited session', (kind) => {
     expect(sessionClosure({ state: 'exited', lastStop: { kind } })).toEqual({ kind });
@@ -98,6 +100,13 @@ describe('the texts of a closed session', () => {
     expect(text({ kind: 'task_cancelled', taskKey: 'PM-1' }).list).toBe('Lezárva · visszavonva');
     expect(text({ kind: 'pause' }).event).toContain('szünet miatt');
     expect(text({ kind: 'pause' }).list).toBe('Lezárva · szünet');
+  });
+
+  it('words the closures of a handoff (PM-342)', () => {
+    expect(text({ kind: 'handed_off', taskKey: 'PM-1' }).list).toBe('Lezárva · leadva');
+    expect(text({ kind: 'handed_off', taskKey: 'PM-1' }).event).toContain('a munkát leadta');
+    expect(text({ kind: 'handoff_timeout', taskKey: 'PM-1' }).list).toBe('Lezárva · leadás lejárt');
+    expect(text({ kind: 'handoff_timeout', taskKey: 'PM-1' }).event).toContain('lejárt a leadás ideje');
   });
 
   it('names who stopped it: another member, nobody, or the viewer', () => {

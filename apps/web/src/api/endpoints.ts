@@ -32,6 +32,8 @@ import {
   SessionDetail,
   SetupStatus,
   TaskDetail,
+  TaskHandoffRecord,
+  UpdateTaskResponse,
   TeamMessagesView,
   TeamThreadsView,
   TemplateSummary,
@@ -163,7 +165,10 @@ export const api = {
   updateMember: (key: string, handle: string, body: UpdateMemberRequest) =>
     apiRequest<unknown>(routes.member(key, handle), { method: 'PATCH', body }),
   updateTask: (key: string, taskKey: string, body: UpdateTaskRequest) =>
-    apiRequest<unknown>(routes.task(key, taskKey), { method: 'PATCH', body }),
+    apiRequest(routes.task(key, taskKey), { method: 'PATCH', body, schema: UpdateTaskResponse }),
+  /** A closed handoff of the card with its note or summary (PM-342). */
+  taskHandoff: (key: string, taskKey: string, handoffId: string) =>
+    apiRequest(routes.taskHandoff(key, taskKey, handoffId), { schema: TaskHandoffRecord }),
   /** A card dropped on the board: a place in a column (PM-118). */
   boardMoveTask: (key: string, taskKey: string, body: BoardMoveRequest) =>
     apiRequest(routes.boardMoveTask(key, taskKey), { method: 'POST', body, schema: BoardMoveResult }),

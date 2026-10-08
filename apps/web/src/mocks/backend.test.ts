@@ -130,9 +130,12 @@ describe('mock task lifecycle', () => {
     );
     // A live session of the old assignee is no obstacle: the server asks it for a handoff note (PM-342).
     expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: null }).status).toBe(200);
-    expect(backend.timeline.at(-1)).toMatchObject({
-      type: 'task_assigned',
+    expect(backend.timeline.findLast((event) => event.type === 'task_assigned')).toMatchObject({
       data: { previous: 'be-1', assignee: null },
+    });
+    expect(backend.timeline.at(-1)).toMatchObject({
+      type: 'task_handoff',
+      data: { phase: 'started', from: 'be-1', mode: 'live' },
     });
   });
   it('cancels every live task session and its open inbox items', () => {

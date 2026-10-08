@@ -15,7 +15,7 @@ import type {
   ProjectConfig,
   RoleView,
 } from '@projectman/shared';
-import { useUpdateMember } from '../../api/queries';
+import { useBoard, useUpdateMember } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
@@ -26,6 +26,7 @@ import { ErrorBanner } from '../../components/ErrorBanner';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
 import { focusFirstInvalid } from '../../lib/focus';
+import { isTaskClosed } from '../../lib/taskState';
 import { PermissionLevelControl } from './PermissionLevelControl';
 import { ProviderFields } from './ProviderFields';
 import { ScheduleFields } from './ScheduleFields';
@@ -45,6 +46,7 @@ function EditMemberForm({
 }) {
   const { key } = useProject();
   const { members } = useProjectIndexes(key);
+  const board = useBoard(key);
   const update = useUpdateMember(key);
   const toast = useToast();
   const original = config?.team.members.find((entry) => entry.handle === member.handle);
@@ -76,6 +78,13 @@ function EditMemberForm({
     cron: ai?.schedule?.cron ?? '',
     prompt: ai?.schedule?.prompt ?? '',
   });
+  // A provider change restarts the conversation on the open cards the member carries (PM-342).
+  const savedProvider = ai?.provider ?? member.provider ?? DEFAULT_AGENT_PROVIDER;
+  const openCards =
+    member.kind === 'ai' && provider !== savedProvider
+      ? (board.data?.tasks.filter((task) => task.assignee === member.handle && !isTaskClosed(task)).length ??
+        0)
+      : 0;
   const formId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const [scheduleError, setScheduleError] = useState(false);
@@ -117,7 +126,7 @@ function EditMemberForm({
       },
       {
         onSuccess: () => {
-          toast.show(t('memberEdit.saved'));
+          toast.show(openCards > 0 ? t('handoff.member.saved', { count: openCards }) : t('memberEdit.saved'));
           onDone();
         },
       },
@@ -221,6 +230,7 @@ function EditMemberForm({
               onEffortChange={setEffort}
               cheapSubagent={cheapSubagent}
               onCheapSubagentChange={setCheapSubagent}
+              providerHint={openCards > 0 ? t('handoff.member.hint', { count: openCards }) : null}
             />
             <TextField
               label={t('memberEdit.autoCompactWindow')}

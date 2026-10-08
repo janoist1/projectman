@@ -30,6 +30,7 @@ export function ProviderFields({
   onEffortChange,
   cheapSubagent,
   onCheapSubagentChange,
+  providerHint,
 }: {
   provider: AgentProvider;
   model: string;
@@ -40,6 +41,8 @@ export function ProviderFields({
   /** The cheap subagent's model (PM-179); the field shows when `onCheapSubagentChange` is given. */
   cheapSubagent?: CheapSubagentModel;
   onCheapSubagentChange?: (model: CheapSubagentModel | undefined) => void;
+  /** A hint under the provider choice (PM-342): the cards whose conversation a provider change restarts. */
+  providerHint?: string | null;
 }) {
   const providers = useProviders();
   const cheapSubagentOptions = PROVIDER_CHEAP_SUBAGENT_MODELS[provider];
@@ -72,6 +75,11 @@ export function ProviderFields({
           </option>
         ))}
       </SelectField>
+      {providerHint ? (
+        <p className={styles.warning} role="status">
+          {providerHint}
+        </p>
+      ) : null}
       <SelectField
         label={t('hire.model')}
         value={custom ? 'custom' : model}

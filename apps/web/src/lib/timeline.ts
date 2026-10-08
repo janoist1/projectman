@@ -485,6 +485,17 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           reason: tDynamic(`schedules.reasons.${str(d.reason)}`, str(d.reason)),
         }),
       );
+    case 'task_handoff': {
+      const who = (handle: unknown) => (handle ? nameOf(str(handle), ctx.members, ctx.myHandle) : '–');
+      const params = { from: who(d.from), to: who(d.to), note: str(d.note) };
+      return normal(
+        tDynamic(
+          `timeline.events.task_handoff.${str(d.phase)}`,
+          t('timeline.events.task_handoff.started', params),
+          params,
+        ),
+      );
+    }
     case 'session_started':
       return normal(involvementText(describeStart(event, ctx)));
     case 'session_conversation_restarted':

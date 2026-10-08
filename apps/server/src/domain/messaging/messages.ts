@@ -134,6 +134,23 @@ export class MessageService {
     return message;
   }
 
+  /**
+   * The message was for `handle`, whose card went to `to` (PM-342): its receipt is closed as handed on, so
+   * the old member's session never takes it and the receiver gets it in the handoff message instead.
+   */
+  markRecipientForwarded(id: string, handle: string, to: string): TeamMessage | null {
+    const before = this.ctx.repos.messages.get(id);
+    if (!before?.receipts) return null;
+    const at = isoNow(this.ctx);
+    const receipts = before.receipts.map((r) =>
+      r.handle === handle && !r.deliveredAt ? { ...r, deliveredAt: at, handedOffTo: to } : r,
+    );
+    const deliveredAt = receipts.every((r) => r.deliveredAt) ? (before.deliveredAt ?? at) : null;
+    const message = this.ctx.repos.messages.updateReceipts(id, receipts, deliveredAt);
+    if (message) this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+    return message;
+  }
+
   markRead(
     projectKey: string,
     id: string,

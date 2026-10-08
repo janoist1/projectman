@@ -367,10 +367,13 @@ describe('fix round limit', () => {
       const stop = vi.spyOn(h.domain.sessions, 'stopTask');
       await resolve('reassign');
       await settle();
-      expect(stop).toHaveBeenCalledWith('AR', 'AR-1', {
-        kind: 'fix_limit_reassign',
-        by: { kind: 'human', handle: 'owner' },
-      });
+      // The first implementer's own session is left for its handoff note (PM-342).
+      expect(stop).toHaveBeenCalledWith(
+        'AR',
+        'AR-1',
+        { kind: 'fix_limit_reassign', by: { kind: 'human', handle: 'owner' } },
+        { except: 'dev-1' },
+      );
       expect(task().assignee).toBe('dev-2');
       expect(record()).toMatchObject({ holdPhase: null, extraRounds: 0 });
       expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(true);
@@ -379,6 +382,33 @@ describe('fix round limit', () => {
       expect(waiting()).toEqual(['Code review: changes\n\nSecond fix']);
       const config = await h.domain.projects.config('AR');
       expect(h.domain.fixLimit.fixRounds(task(), config)).toEqual({ rounds: 0, limit: 2 });
+    });
+
+    it('reassign asks the first implementer for a handoff note, and the next one starts with it (PM-342)', async () => {
+      await owned();
+      const first = h.repos.sessions.findByWorkItem('AR', 'dev-1', TASK)!;
+      h.runner.emit({ type: 'transcript_path', sessionId: first.id, path: `/tmp/${first.id}.jsonl` });
+      h.runner.setState(first.id, 'working');
+
+      await resolve('reassign');
+      await vi.waitFor(() => expect(h.repos.taskHandoffs.open('AR-1')).toMatchObject({ step: 'writing' }));
+
+      expect(h.repos.taskHandoffs.open('AR-1')).toMatchObject({
+        from: 'dev-1',
+        reason: 'fix_limit_reassign',
+        // The next implementer is picked by the start that follows.
+        to: 'dev-2',
+      });
+      expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(false);
+      await h.domain.handoffs.recordNote(
+        { projectKey: 'AR', member: 'dev-1', sessionId: first.id },
+        'AR-1',
+        'Two rounds went to the same test.',
+      );
+      h.runner.setState(first.id, 'idle');
+      await vi.waitFor(() => expect(h.runner.started.some((spec) => spec.member === 'dev-2')).toBe(true));
+      const input = h.contextBuilder.inputs.filter((i) => i.member.handle === 'dev-2').at(-1)!;
+      expect(input.handoff).toMatchObject({ outcome: 'note', note: 'Two rounds went to the same test.' });
     });
 
     it('puts a reassign decision made while paused off until the team is resumed (PM-219)', async () => {

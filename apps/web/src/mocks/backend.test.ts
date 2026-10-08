@@ -128,11 +128,7 @@ describe('mock task lifecycle', () => {
     expect(errorCode(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: 'missing-member' }))).toBe(
       'unknown_member',
     );
-    expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: null })).toMatchObject({
-      status: 409,
-      body: { error: { code: 'task_session_live', details: { sessionId: 'ses_ac20_be1' } } },
-    });
-    backend.handle('POST', `${base}/sessions/ses_ac20_be1/stop`, {});
+    // A live session of the old assignee is no obstacle: the server asks it for a handoff note (PM-342).
     expect(backend.handle('PATCH', `${base}/tasks/AC-20`, { assignee: null }).status).toBe(200);
     expect(backend.timeline.at(-1)).toMatchObject({
       type: 'task_assigned',

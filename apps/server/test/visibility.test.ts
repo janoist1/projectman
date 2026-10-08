@@ -46,6 +46,44 @@ describe('client visibility', () => {
     });
   });
 
+  it('hides the handoff of a card from clients, and shows it to the team (PM-342)', () => {
+    const handoff = {
+      id: 'hof_1',
+      from: 'dev-1',
+      to: 'dev-2',
+      fromProvider: 'claude',
+      toProvider: 'claude',
+      reason: 'manual',
+      step: 'writing',
+      startedAt: '2026-10-05T08:00:00.000Z',
+      deadlineAt: '2026-10-05T08:10:00.000Z',
+    } as const;
+    const lastHandoff = {
+      id: 'hof_0',
+      from: 'dev-1',
+      to: 'dev-2',
+      fromProvider: 'claude',
+      toProvider: 'claude',
+      outcome: 'note',
+      endedAt: '2026-10-05T07:00:00.000Z',
+    } as const;
+    const card = { ...task('AR-1', 'shared'), handoff, lastHandoff } as Task;
+
+    const [forClient] = visibleTasks(client, [card]);
+    const [forDeveloper] = visibleTasks(developer, [card]);
+    const detail = visibleTaskDetail(client, {
+      task: card,
+      timeline: [],
+      sessions: [],
+    } as unknown as TaskDetail);
+
+    expect(forClient).not.toHaveProperty('handoff');
+    expect(forClient).not.toHaveProperty('lastHandoff');
+    expect(detail.task).not.toHaveProperty('handoff');
+    expect(detail.task).not.toHaveProperty('lastHandoff');
+    expect(forDeveloper).toMatchObject({ handoff, lastHandoff });
+  });
+
   it('shows a client the links to other cards only for the cards shared with them', () => {
     const pr = { kind: 'pull_request', ref: '7', repo: 'acme/app' } as const;
     const linked = task('AR-1', 'shared', [

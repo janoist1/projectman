@@ -151,9 +151,12 @@ export class SessionCloser {
     return isRefining(task, config) ? this.refinement.turnMember(task.projectKey, task.key) : null;
   }
 
-  /** Closes a session marked to close, unless its member has the card's step again by now. */
+  /**
+   * Closes a session marked to close, unless its member has the card's step again by now. A session that
+   * wrote its handoff note (PM-342) closes whatever step its member has: the card is no longer theirs.
+   */
   private async closeMarked(session: Session, stop: SessionStop): Promise<void> {
-    if (await this.stepRemains(session)) {
+    if (stop.kind !== 'handed_off' && (await this.stepRemains(session))) {
       this.sessions.cancelClose(session.id);
       return;
     }

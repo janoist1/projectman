@@ -156,6 +156,8 @@ describe('notices to the members working on a card', () => {
 
     it('names who started the task', async () => {
       const dev1 = await developer('working');
+      // Clearing the assignee leaves nothing to hand over, so the start is not held for a handoff note (PM-342).
+      h.domain.tasks.assign('AR', 'AR-1', null, OWNER_ACTOR);
 
       await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-2', actor: OWNER_ACTOR, author: OWNER });
 

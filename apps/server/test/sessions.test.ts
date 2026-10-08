@@ -295,7 +295,10 @@ describe('session orchestrator', () => {
     const recorded = h.domain.timeline.list('AR', { taskKey: 'AR-1' }).slice(before);
     expect(recorded.filter((e) => e.type === 'task_assigned').map((e) => e.data)).toEqual([assigned]);
     const pushed = events.filter((e) => e.type === 'task_upserted' && e.task.key === 'AR-1');
-    expect(pushed.map((e) => e.type === 'task_upserted' && e.task.assignee)).toEqual([assigned.assignee]);
+    // The card is pushed again when the handoff of its work opens (PM-342): the assignee is the same.
+    expect(new Set(pushed.map((e) => e.type === 'task_upserted' && e.task.assignee))).toEqual(
+      new Set([assigned.assignee]),
+    );
   });
 
   it('runs reviewers in the workspace with read-only tools, developers in the task worktree', async () => {

@@ -35,7 +35,14 @@ import type { PullRequestInfo, RemoteState } from './github';
  */
 
 /** Why a sent team message waits before it reaches an AI recipient (PM-144). */
-export type SentMessageHold = 'refinement_turn' | 'fix_limit' | 'full_test' | 'pause' | 'restart';
+export type SentMessageHold =
+  | 'refinement_turn'
+  | 'fix_limit'
+  | 'full_test'
+  | 'pause'
+  | 'restart'
+  /** The card is being handed over from the recipient (PM-342): the receiver gets the message. */
+  | 'handoff';
 
 /** What happens to a sent team message for one recipient, decided when it is sent (PM-144). */
 export interface SentMessageRecipient {
@@ -230,6 +237,12 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
   ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
+  /**
+   * hand_off (PM-342): the member a card is being handed over from writes the note for its successor; its
+   * session closes when it is idle. Refused with `handoff_not_open` when nothing is being handed over from
+   * the caller on that card (any more).
+   */
+  handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
   /** list_network_denials: destinations the egress proxy refused this session (PM-140), newest first. */
   listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]>;
   /** list_tasks: visible board tasks, newest update first. */

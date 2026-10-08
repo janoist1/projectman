@@ -69,13 +69,15 @@ describe('task lifecycle API', () => {
     const started = (
       await call('POST', routes.startTask('AR', 'AR-1'), { assignee: 'dev-1' })
     ).json<TaskDetail>();
+    // A live session no longer refuses a change of the assignee (PM-342); it asks the old one for a handoff note.
+    // A change of the repository is still refused for a live session (task-repo-api.test.ts).
     const live = await call('PATCH', routes.task('AR', 'AR-1'), { assignee: null, title: 'Changed' });
-    expect([live.statusCode, live.json().error.code, live.json().error.details]).toEqual([
-      409,
-      'task_session_live',
-      { sessionId: started.sessions[0]!.id },
-    ]);
-    expect(h.app.projectman.domain.tasks.get('AR', 'AR-1').title).toBe('Acme webshop checkout');
+    expect(live.statusCode).toBe(200);
+    expect(started.sessions).toHaveLength(1);
+    expect(h.app.projectman.domain.tasks.get('AR', 'AR-1')).toMatchObject({
+      assignee: null,
+      title: 'Changed',
+    });
     expect((await call('POST', routes.cancelTask('AR', 'AR-1'))).statusCode).toBe(200);
     const closed = await call('POST', routes.cancelTask('AR', 'AR-1'));
     expect([closed.statusCode, closed.json().error.code]).toEqual([409, 'task_closed']);

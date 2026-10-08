@@ -24,6 +24,51 @@ function note(minute: number, text: string): TimelineEvent {
 }
 
 describe('formatTaskDetail', () => {
+  it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
+    const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>
+      formatTaskDetail(detail)
+        .split('\n')
+        .find((line) => line.startsWith('Handoff: ') || line.startsWith('Latest handoff: '));
+    const detail = sampleTaskDetail();
+    expect(lineOf(detail)).toBeUndefined();
+
+    detail.task.handoff = {
+      id: 'hof_1',
+      from: 'dev-1',
+      to: 'dev-2',
+      fromProvider: 'claude',
+      toProvider: 'claude',
+      reason: 'manual',
+      step: 'writing',
+      startedAt: '2026-10-05T08:00:00.000Z',
+      deadlineAt: '2026-10-05T08:10:00.000Z',
+    };
+    expect(lineOf(detail)).toMatch(
+      /^Handoff: dev-1 → dev-2 in progress \(writing, the note is due by .+\)\./,
+    );
+
+    detail.task.handoff = {
+      ...detail.task.handoff,
+      step: 'closing',
+      deadlineAt: null,
+      fallbackReason: 'on_leave',
+    };
+    expect(lineOf(detail)).toContain('no note (on_leave): a summary stands in');
+
+    delete detail.task.handoff;
+    detail.task.lastHandoff = {
+      id: 'hof_1',
+      from: 'dev-1',
+      to: 'dev-2',
+      fromProvider: 'claude',
+      toProvider: 'claude',
+      outcome: 'fallback',
+      fallbackReason: 'timeout',
+      endedAt: '2026-10-05T08:10:00.000Z',
+    };
+    expect(lineOf(detail)).toMatch(/^Latest handoff: dev-1 → dev-2 with a summary \(timeout\), ended /);
+  });
+
   it('names the repository the work happens in, not only the task’s own', () => {
     const repoLine = (detail: Parameters<typeof formatTaskDetail>[0]) =>
       formatTaskDetail(detail)

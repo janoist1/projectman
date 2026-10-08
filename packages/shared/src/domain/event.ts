@@ -3,7 +3,7 @@ import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
-import type { PreviousConversationReason } from './handoff';
+import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
 import type { CardVersion, MessageKind } from './message';
 import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
@@ -55,6 +55,7 @@ export const TimelineEventType = z.enum([
   'refinement_turn',
   'task_loop',
   'task_fix_limit',
+  'task_handoff',
   'task_full_test',
   'member_hired',
   'member_retired',
@@ -349,6 +350,30 @@ export interface TimelineEventData {
     by?: string;
     note?: string;
     endReason?: 'decided' | 'assignee_changed' | 'closed';
+  };
+  /**
+   * The handoff of the card's assignee (PM-342). `started` (actor: who changed the assignee) `mode` says
+   * whether the old session is asked for a note (`live`) or the transcript summary stands in (`fallback`);
+   * `retargeted` the card was given to another receiver meanwhile; `note` (actor: the old member) the note
+   * in full; `fallback` (actor system) the summary stands in for `fallbackReason`, `summary` whether one
+   * was kept; `taken_over` (actor: the receiver) the receiver's session `sessionId` began with the handoff;
+   * `cancelled` (actor: who gave the card back) the card went back to the old assignee.
+   */
+  task_handoff: {
+    phase: 'started' | 'retargeted' | 'note' | 'fallback' | 'taken_over' | 'cancelled';
+    handoffId: string;
+    from: string;
+    to: string | null;
+    fromProvider: AgentProvider;
+    toProvider: AgentProvider | null;
+    reason?: HandoffReason;
+    mode?: 'live' | 'fallback';
+    note?: string;
+    lastCommit?: string | null;
+    uncommitted?: boolean | null;
+    fallbackReason?: HandoffFallbackReason;
+    summary?: boolean;
+    sessionId?: string;
   };
   /**
    * The server's full test of a task's pinned commit ended (PM-217, actor system): `passed`, `failed`

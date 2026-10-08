@@ -108,15 +108,14 @@ describe('task drawer lifecycle', () => {
     });
     expect(screen.getByText(t('timeline.events.task_reopened'))).toBeTruthy();
   });
-  it('offers stopping a live session, then allows changing and clearing the assignee', async () => {
+  it('changes and clears the assignee even while the old assignee has a live session', async () => {
     const project = mockProject();
     project.render(drawer, '/p/AC/tasks/AC-20');
     // The select saves on change: there is no save button.
     const select = (await screen.findByLabelText(t('taskLifecycle.assignee'))) as HTMLSelectElement;
     expect(screen.queryByRole('button', { name: /Felelős mentése/ })).toBeNull();
     fireEvent.change(select, { target: { value: 'kata' } });
-    // The live session refuses the change; the pick stays shown next to the way out.
-    fireEvent.click(await screen.findByRole('button', { name: t('taskLifecycle.stop') }));
+    // A live session no longer refuses the change (PM-342): the old session is asked for a handoff note.
     await waitFor(() => expect(project.backend.findTask('AC-20')?.assignee).toBe('kata'));
     expect(screen.queryByRole('button', { name: t('taskLifecycle.stop') })).toBeNull();
     await screen.findByText(/Előző felelős: Backend fejlesztő/);

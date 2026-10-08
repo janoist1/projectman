@@ -73,6 +73,7 @@ import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
 import type { ScheduleTimer } from './schedules';
+import { HandoffService } from './handoffs';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
@@ -147,6 +148,7 @@ export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
+export { HandoffService } from './handoffs';
 export { PauseService } from './pause';
 export { MachineMonitor } from './machine';
 export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
@@ -304,6 +306,8 @@ export interface DomainOptions {
   closedWorktreeKeepMs?: number;
   /** How often the idle sessions are looked at for a close (default 1 min, PM-295). */
   idleCloseSweepMs?: number;
+  /** How often the open assignee handoffs are looked at for a late note (default 15 s, PM-342). */
+  handoffSweepMs?: number;
   /**
    * Makes what the machine display measures with (PM-320); default: the operating system's
    * (`createMachineProbe`). It gets the pids of the running sessions' CLIs, for the fixed-data probe
@@ -372,6 +376,8 @@ export function createDomain(opts: DomainOptions) {
     sourceHead: (config, task) => sessions.sourceHead(config, task),
     // `fixLimit` is built below; the callback only runs when a task is read.
     fixLimit: (task) => fixLimit.view(task),
+    // `handoffs` is built below; the callback only runs when a card changes its assignee.
+    handoff: (input) => handoffs.begin(input),
   });
   const attachments = new AttachmentService({
     ctx,
@@ -609,6 +615,21 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     timer: opts.scheduleTimer,
   });
+  // The handoff of a card's assignee (PM-342): the old member's note, or the summary, before the receiver starts.
+  const handoffs = new HandoffService({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    admission,
+    runner: runnerModule.runner,
+    messages,
+    messaging,
+    timeline,
+    contextBuilder: opts.contextBuilder,
+    background,
+    retry: () => retryDeferredStarts(),
+  });
   // The pause lets what it held go on: it needs the services that hold work back for it.
   const pauses = new PauseService({
     ctx,
@@ -622,6 +643,7 @@ export function createDomain(opts: DomainOptions) {
     fixLimit,
     schedules,
     refinement,
+    handoffs,
   });
   const machine = new MachineMonitor({
     probe:
@@ -690,6 +712,7 @@ export function createDomain(opts: DomainOptions) {
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
+    handoffs,
     boundary,
     egress,
     publishing,
@@ -743,8 +766,18 @@ export function createDomain(opts: DomainOptions) {
         return messageStarts.rebuildQuota(spec);
       case 'loop_notice':
         return loopWatch.rebuild(spec);
+      case 'handoff_takeover':
+        return handoffs.rebuild(spec);
     }
   };
+
+  // The handoff follows what happens to the old member, the receiver and the card meanwhile.
+  events.on('config_changed', (change) => handoffs.configChanged(change.projectKey, change.next));
+  events.on('task_cancelled', (task) => handoffs.taskClosed(task));
+  events.on('task_stage_changed', (change) => {
+    if (change.task.status === 'done') handoffs.taskClosed(change.task, change.actor);
+  });
+  events.on('session_ended', (session) => handoffs.sessionEnded(session));
 
   // Configuration changes: runtime state follows the roster.
   events.on('config_changed', (change) => members.reconcile(change));
@@ -1005,6 +1038,7 @@ export function createDomain(opts: DomainOptions) {
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
   let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
+  let handoffTimer: ReturnType<typeof setInterval> | undefined;
 
   return {
     ctx,
@@ -1031,6 +1065,7 @@ export function createDomain(opts: DomainOptions) {
     planUsage,
     admission,
     pauses,
+    handoffs,
     machine,
     taskStarts,
     handOver,
@@ -1087,6 +1122,17 @@ export function createDomain(opts: DomainOptions) {
         () => pauses.resumeAfterStartup(),
         (err) => opts.logger.warn({ err }, 'could not resume the team after the start'),
       );
+      // ... and the handoffs of cards that were open go on (PM-342); a note that is late falls back to the summary.
+      handoffs.resumeAfterStartup();
+      handoffTimer = setInterval(
+        () =>
+          background.run(
+            () => handoffs.sweep(),
+            (err) => opts.logger.warn({ err }, 'handoff sweep failed'),
+          ),
+        opts.handoffSweepMs ?? 15_000,
+      );
+      handoffTimer.unref();
       // ... and refused hand-overs and message wake-ups retry once admission allows them.
       retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
       retryTimer.unref();
@@ -1178,6 +1224,7 @@ export function createDomain(opts: DomainOptions) {
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
       if (idleCloseTimer) clearInterval(idleCloseTimer);
+      if (handoffTimer) clearInterval(handoffTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();

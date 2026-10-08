@@ -282,6 +282,26 @@ describe('attachment tools', () => {
     expect(h.handler.calls.filter((c) => c.method === 'attachFile')).toHaveLength(1);
   });
 
+  it('hand_off passes the task and the trimmed note; an empty note or an extra field is refused (PM-342)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const result = await call(client, 'hand_off', {
+      task_key: 'AR-21',
+      note: '  Form done; API call missing.  ',
+    });
+    expect(text(result)).toBe('Handoff note recorded; your session closes now.');
+    expect(h.handler.calls.at(-1)).toEqual({
+      method: 'handOff',
+      ctx: devContext,
+      args: { taskKey: 'AR-21', note: 'Form done; API call missing.' },
+    });
+    for (const bad of [{ note: '   ' }, { note: 'x'.repeat(10_001) }, { note: 'ok', member: 'dev-2' }]) {
+      const refused = await call(client, 'hand_off', { task_key: 'AR-21', ...bad });
+      expect(refused.isError, JSON.stringify(bad).slice(0, 40)).toBe(true);
+    }
+    expect(h.handler.calls.filter((c) => c.method === 'handOff')).toHaveLength(1);
+  });
+
   it('take_screenshots passes only the validated fields, and shows the images of the run', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');

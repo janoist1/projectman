@@ -229,16 +229,14 @@ export class Admission {
             this.deferred.drop(start.key);
             throw err;
           }
-          this.deferred.keep({
-            start,
-            waiting: waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) }),
-          });
+          const waiting = waitingOf(err, { member: start.waitsFor(), previous: since, at: isoNow(this.ctx) });
+          this.deferred.keep({ start, waiting });
           // Capacity-freeing events retry often: it is said when the reason is new, not at every refusal that stays.
-          if (previous?.waiting.reason !== err.code)
+          if (previous?.waiting.reason !== waiting.reason)
             this.ctx.logger.info(
               {
                 ...start.log.fields(),
-                reason: err.code,
+                reason: waiting.reason,
                 ...(err.code === 'workspace_codex_config'
                   ? { issues: (err.details as { issues?: unknown })?.issues }
                   : {}),
@@ -326,6 +324,13 @@ export class Admission {
         )
           continue;
       }
+      // A start that waits for an assignee handoff (PM-342) is retried when the handoff is over.
+      if (
+        reason === 'handoff_open' &&
+        start.taskKey !== null &&
+        this.ctx.repos.taskHandoffs.open(start.taskKey)
+      )
+        continue;
       // A start that waits for prerequisites is retried when the open ones change (one closed, a
       // relation removed): with the same ones open, a retry could only be refused again.
       if (reason === 'prerequisite_open' && task) {

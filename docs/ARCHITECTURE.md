@@ -1150,7 +1150,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
   operations. PM-368's `domain/messaging/{messaging,delivery}.ts` also uses
-  `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches.
+  `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
+  PM-342's `domain/handoffs.ts` uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   **Remote engine:** run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
@@ -1330,6 +1331,40 @@ the card's closing; its inbox decision closes itself with the `fix_limit_ended` 
 running assignee are not stored team messages (the timeline would show their English text): a `delivery.notice`
 into the member's running session of the card, or the first input of a new one, like the loop watch's; only
 when admission cannot start the session now is the notice stored as a message from `system`.
+
+### Assignee handoff (PM-342)
+
+`HandoffService` (`apps/server/src/domain/handoffs.ts`, PM-423) hands a card's work from the old assignee to the new
+one. The plan is pure and in `packages/shared/src/domain/handoff.ts` (`planHandoff`, `handoffBlocksStart`), also used by
+the web's fake backend. A handoff starts when the assignee of a card changes and the old one is an AI member who has a
+conversation on the card: by a person's change (`manual`), a fix-limit `reassign` (`fix_limit_reassign`), the removal of
+the member (`member_removed`) or an automatic assignment (`auto_assign`). A change of the assignee is no longer refused
+for a live session of the old assignee (only a change of the repository is).
+
+- **Live.** `planHandoff` yields `live` when the old member can go on with its conversation (same provider, not on
+  leave, a transcript exists). The session is stopped at a runner safe point (`pause`), told to write the note with the
+  MCP tool `hand_off` (`ContextPackBuilder.handoffInstruction`), and closes after the note. The note is at most
+  `HANDOFF_NOTE_MAX` characters and is stored with the branch, the last commit and whether anything is uncommitted
+  (`sourceHead`). An idle resumable session is started for it. The time limit is `HANDOFF_TIMEOUT_MS` (10 minutes,
+  decision 43); a pause (`PauseService`) stops the clock and a resume restarts it.
+- **Fallback.** Otherwise, or on the timeout, the transcript summary stands in (`TranscriptReader.summary`, no compact;
+  decision 43). The reasons are `on_leave`, `member_removed`, `no_conversation`, `provider_changed`, `provider_limited`
+  (the quota refuses the start), `not_startable` and `timeout`.
+- **The receiver waits.** The row of `task_handoffs` (migration 40; at most one open per card) carries the step
+  (`waiting_point`, `writing`, `paused`, `closing`). The admission guard `task_handoff_open` holds back the receiver's
+  start (the card shows it as `handoff_open`); messages that wait for the old assignee are forwarded to the receiver.
+  When the handoff ends, the deferred start runs as an `AutomaticStart` of kind `handoff_takeover`, and the receiver's
+  first session gets `ContextPackInput.handoff` and `previousConversation.lastNote`.
+- **Cancel and restart.** A change of the assignee while a handoff is open calls it off (the card went back to the old
+  member) or retargets it (to a third member); the old session is told so. `sweep()` ends the handoffs whose time ran
+  out; `resumeAfterStartup()` brings the open ones on after a restart.
+- **Visibility.** `Task.handoff` and `Task.lastHandoff` are for the team only (`visibility.ts` hides them from clients);
+  a closed handoff is read with `GET /api/projects/:key/tasks/:task/handoffs/:id`, and the `PATCH` of a card answers
+  `handoffStart` (`live` or `fallback`). The timeline event is `task_handoff`.
+
+**Remote engine:** the only machine-dependent part is the `sourceHead` git query for the note and the fallback record
+(see the inventory entry "Task worktrees and shared git storage"); the conversation state, the stop at a safe point and
+the transcript summary go through the existing runner and transcript entries.
 
 ## Pause and resume (PM-219, part of PM-198)
 

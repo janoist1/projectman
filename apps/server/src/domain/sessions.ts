@@ -10,6 +10,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   effectiveSessionPermissions,
+  handoffBlocksStart,
   isOnLeave,
   isOpenTask,
   isTheme,
@@ -59,6 +60,7 @@ import type {
   CardRelation,
   CardWorker,
   ContextPackBuilder,
+  HandoffTakeover,
   ManagedVmAttestation,
   ManagedVmBoundary,
   MemberMemoryStore,
@@ -77,6 +79,7 @@ import type {
   WorktreeManager,
 } from '../contracts';
 import { encodeWorkItem } from '../db';
+import type { TaskHandoffRow } from '../db';
 import { roleLabel } from '../agent-text';
 import { ownerHandles, requireAiMember } from './access';
 import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } from './admission/rules';
@@ -1088,8 +1091,15 @@ export class SessionOrchestrator {
   }
 
   /** Stops all live sessions for a cancelled task without cleaning up its worktrees. */
-  async stopTask(projectKey: string, taskKey: string, stop: SessionStop): Promise<void> {
+  async stopTask(
+    projectKey: string,
+    taskKey: string,
+    stop: SessionStop,
+    opts: { except?: string | null } = {},
+  ): Promise<void> {
     for (const session of this.list(projectKey, { taskKey })) {
+      // The member the card is handed over from (PM-342) keeps its session to write the handoff note.
+      if (opts.except && session.member === opts.except) continue;
       if (LIVE_SESSION_STATES.includes(session.state) || this.isRunning(session.id)) {
         await this.stop(projectKey, session.id, stop);
       }
@@ -1114,7 +1124,7 @@ export class SessionOrchestrator {
    * Behind the VM boundary the worker owns its transcripts: only a real file in its home counts. A file
    * that cannot be checked counts as not written, as the CLI could hardly resume it.
    */
-  private async transcriptWritten(session: Session): Promise<boolean> {
+  async transcriptWritten(session: Session): Promise<boolean> {
     if (!session.transcriptPath) return false;
     const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
     try {
@@ -1125,6 +1135,67 @@ export class SessionOrchestrator {
       this.ctx.logger.warn({ err, sessionId: session.id }, 'could not check the transcript');
       return false;
     }
+  }
+
+  /**
+   * What the session's transcript says about where its conversation stood (PM-342), as its provider wrote
+   * it; null when there is no transcript or it cannot be read.
+   */
+  async transcriptSummary(session: Session): Promise<HandoffSummary | null> {
+    if (!session.transcriptPath) return null;
+    const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
+    try {
+      return await this.deps.transcripts.summary(session.transcriptPath, {
+        provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
+        ...(layout ? { confineTo: layout.home(session.member) } : {}),
+      });
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId: session.id }, 'could not summarize the transcript');
+      return null;
+    }
+  }
+
+  /** A closed handoff to the session's member, as the context pack tells it (PM-342). */
+  private handoffTakeover(row: TaskHandoffRow, toProvider: AgentProvider): HandoffTakeover {
+    return {
+      handoffId: row.id,
+      from: row.from,
+      fromProvider: row.fromProvider,
+      toProvider,
+      endedAt: row.endedAt ?? row.startedAt,
+      outcome: row.outcome === 'note' ? 'note' : 'fallback',
+      ...(row.fallbackReason ? { fallbackReason: row.fallbackReason } : {}),
+      note: row.note,
+      branch: row.branch,
+      lastCommit: row.lastCommit,
+      uncommitted: row.uncommitted,
+      summary: row.summary,
+    };
+  }
+
+  /** The member's session took the handed-over card over (PM-342): the handoff is marked and the timeline says so. */
+  private recordTakeover(row: TaskHandoffRow, session: Session, task: Task): void {
+    this.ctx.repos.taskHandoffs.save({
+      ...row,
+      takenOverAt: isoNow(this.ctx),
+      takenOverSessionId: session.id,
+    });
+    this.deps.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      sessionId: session.id,
+      actor: aiActor(session.member),
+      type: 'task_handoff',
+      data: {
+        phase: 'taken_over',
+        handoffId: row.id,
+        from: row.from,
+        to: row.to,
+        fromProvider: row.fromProvider,
+        toProvider: row.toProvider,
+        sessionId: session.id,
+      },
+    });
   }
 
   /**
@@ -1139,19 +1210,7 @@ export class SessionOrchestrator {
     relocated: boolean,
   ): Promise<PreviousConversation | null> {
     const from = existing.provider ?? DEFAULT_AGENT_PROVIDER;
-    const summarize = async (): Promise<HandoffSummary | null> => {
-      if (!existing.transcriptPath) return null;
-      const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
-      try {
-        return await this.deps.transcripts.summary(existing.transcriptPath, {
-          provider: from,
-          ...(layout ? { confineTo: layout.home(existing.member) } : {}),
-        });
-      } catch (err) {
-        this.ctx.logger.warn({ err, sessionId: existing.id }, 'could not summarize the transcript');
-        return null;
-      }
-    };
+    const summarize = () => this.transcriptSummary(existing);
     if (existing.transcriptPath && from !== provider)
       return { reason: 'provider_changed', fromProvider: from, summary: await summarize(), lastNote: null };
     if (conversationLost) return { reason: 'lost', fromProvider: null, summary: null, lastNote: null };
@@ -1393,6 +1452,14 @@ export class SessionOrchestrator {
     assertAiEnabled(config);
     assertNotPaused(this.ctx.repos.pauses, config.project.key);
     assertNotOnLeave(member);
+    // The card is being handed over to the member (PM-342): it starts once the old assignee has handed over.
+    const openHandoff = task ? this.ctx.repos.taskHandoffs.open(task.key) : null;
+    if (openHandoff && handoffBlocksStart(openHandoff, member.handle))
+      throw conflict(
+        'task_handoff_open',
+        `task ${task!.key} is being handed over from ${openHandoff.from} to ${member.handle}`,
+        { taskKey: task!.key, from: openHandoff.from },
+      );
     // A role that changes files works in the task's worktree: without a repository to make it in, it
     // would run in the workspace root, so the start is refused until a person chooses one.
     assertRepoChosen(config, member.role, task);
@@ -1562,6 +1629,21 @@ export class SessionOrchestrator {
       !existing || resume
         ? null
         : await this.previousConversation(existing, provider, conversationLost, relocated);
+    // The card handed over to this member, until a session of theirs takes it over (PM-342); a new
+    // conversation also gets the card's latest handoff note, whoever wrote it.
+    const takenHandoff =
+      task && task.assignee === member.handle
+        ? this.ctx.repos.taskHandoffs.untakenFor(task.key, member.handle)
+        : null;
+    const handoff = takenHandoff ? this.handoffTakeover(takenHandoff, provider) : null;
+    let lastNoteId: string | undefined;
+    if (previousConversation && task) {
+      const note = this.ctx.repos.taskHandoffs.latestNote(task.key);
+      if (note?.note && note.endedAt) {
+        previousConversation.lastNote = { from: note.from, endedAt: note.endedAt, text: note.note };
+        lastNoteId = note.id;
+      }
+    }
     // Who else works on the card and what was asked on it (PM-249): a new conversation gets the latest
     // questions, a resumed one those since it last ran.
     const cardWorkers = task ? this.cardWorkersFor(config, task, member.handle) : [];
@@ -1676,6 +1758,7 @@ export class SessionOrchestrator {
         : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
       ...(previousConversation && task ? { previousConversation } : {}),
+      ...(handoff ? { handoff } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -1947,9 +2030,11 @@ export class SessionOrchestrator {
             ? { fromProvider: previousConversation.fromProvider, toProvider: provider }
             : {}),
           summary: previousConversation.summary !== null,
+          ...(previousConversation.lastNote && lastNoteId ? { lastHandoffId: lastNoteId } : {}),
         },
       });
     }
+    if (takenHandoff && task) this.recordTakeover(takenHandoff, session, task);
     const fresh = this.ctx.repos.sessions.get(session.id)!;
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);

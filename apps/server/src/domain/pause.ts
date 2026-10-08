@@ -23,6 +23,7 @@ import { findHumanByEmail } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { FixLimitWatch } from './fix-limit';
+import type { HandoffService } from './handoffs';
 import type { ScheduleService } from './schedules';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
@@ -76,6 +77,7 @@ export class PauseService {
   private readonly fixLimit: Pick<FixLimitWatch, 'afterResume'>;
   private readonly schedules: Pick<ScheduleService, 'catchUp'>;
   private readonly refinement: Pick<RefinementSteps, 'turnEnded'>;
+  private readonly handoffs: Pick<HandoffService, 'paused' | 'resumed'>;
   private readonly unsubscribe: () => void;
 
   constructor(deps: {
@@ -90,6 +92,7 @@ export class PauseService {
     fixLimit: Pick<FixLimitWatch, 'afterResume'>;
     schedules: Pick<ScheduleService, 'catchUp'>;
     refinement: Pick<RefinementSteps, 'turnEnded'>;
+    handoffs: Pick<HandoffService, 'paused' | 'resumed'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -102,6 +105,7 @@ export class PauseService {
     this.fixLimit = deps.fixLimit;
     this.schedules = deps.schedules;
     this.refinement = deps.refinement;
+    this.handoffs = deps.handoffs;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
     // A stop somebody meant closed a session's row: its progress changed.
     deps.sessions.onPauseDropped((projectKey) => this.publishChanged([projectKey]));
@@ -263,6 +267,8 @@ export class PauseService {
       },
       'the team is paused',
     );
+    // No deadline of a handoff runs while the work is paused (PM-342).
+    this.handoffs.paused(projectKeys);
     this.publishChanged(projectKeys);
     for (const row of caught.rows) this.stopSession(row.sessionId, forceAfterMs);
   }
@@ -587,6 +593,7 @@ export class PauseService {
         this.ctx.logger.warn({ err, projectKey }, 'could not pick up what waited for the pause');
       }
     }
+    this.handoffs.resumed(projectKeys);
     void this.admission.retryDeferred().catch((err: unknown) => {
       this.ctx.logger.warn({ err }, 'deferred start retry after the resume failed');
     });

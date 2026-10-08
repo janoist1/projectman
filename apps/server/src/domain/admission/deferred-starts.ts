@@ -77,6 +77,15 @@ export const StartSpec = z.discriminatedUnion('kind', [
     loopId: z.string(),
     watcher: MemberHandle,
   }),
+  /** The start of the receiver of a finished assignee handoff (PM-342); `stageId` is the card's stage when it was tried. */
+  z.object({
+    kind: z.literal('handoff_takeover'),
+    projectKey: z.string(),
+    taskKey: TaskKey,
+    handoffId: z.string(),
+    handle: MemberHandle,
+    stageId: z.string(),
+  }),
 ]);
 export type StartSpec = z.infer<typeof StartSpec>;
 

@@ -224,6 +224,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('decideFixLimit', ctx, args);
       throw new TeamToolError('not_found', 'Unknown fix round limit hold.');
     },
+    async handOff(ctx, args) {
+      await enter('handOff', ctx, args);
+      return { recorded: true };
+    },
     async listNetworkDenials(ctx) {
       await enter('listNetworkDenials', ctx, {});
       return [];

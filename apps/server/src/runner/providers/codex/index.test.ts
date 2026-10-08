@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -74,6 +75,39 @@ describe('Codex screen checks', () => {
     expect(codexPromptVisible(screen.replace('› Ask Codex to do anything', '› 1. Continue'))).toBe(false);
     expect(codexPromptVisible('› Ask Codex to do anything\n  ⚠ 3 warnings · f2 to view')).toBe(false);
   });
+  it('recognises the 0.159.1 composer reported on PM-125', () => {
+    // Transcribed from the real terminal lines recorded by the owner on PM-125.
+    const screen = readFileSync(
+      new URL('../../../../test/fixtures/codex-0.159.1-composer.txt', import.meta.url),
+      'utf8',
+    );
+    expect(codexPromptVisible(screen)).toBe(true);
+    expect(detectCodexBlockingScreen(screen)).toBeNull();
+  });
+
+  it.each([
+    'GPT-6-Astra high fast · ~/Dev/projectman',
+    'gpt-6.1-sol medium · /work/project',
+    'z-ai/glm-5.3-flash-uncensored medium fast · ~/work/project',
+    'deepseek/custom-model high fast auto · /work/project',
+    'GPT-6-Astra high · C:\\work\\project',
+  ])('recognises the status footer without legacy shortcuts: %s', (footer) => {
+    expect(codexPromptVisible(`› Ask Codex to do anything\n\n${footer}`)).toBe(true);
+  });
+
+  it('requires a composer above the new footer and rejects menu options', () => {
+    const footer = 'GPT-6-Astra high fast · ~/Dev/projectman … ⚠ 3 warnings · f2 to view';
+    for (const screen of [
+      footer,
+      `${footer}\n› Ask Codex to do anything`,
+      `› 1. Trust and continue\n${footer}`,
+      '› Ask Codex to do anything\nGPT-6-Astra high fast',
+      '› Ask Codex to do anything\nThere are 3 warnings in the code.',
+    ]) {
+      expect(codexPromptVisible(screen)).toBe(false);
+    }
+  });
+
   it('sees the composer, even below history that quotes a dialog', () => {
     const screen = [
       '› fix the login',

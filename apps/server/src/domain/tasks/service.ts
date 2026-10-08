@@ -268,6 +268,7 @@ export class TaskService {
       visibility: req.visibility ?? 'internal',
       createdBy: actorHandle(actor),
       createdAt: at,
+      stageEnteredAt: at,
       updatedAt: at,
       closedAt: null,
     };

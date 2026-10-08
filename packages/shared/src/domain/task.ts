@@ -246,6 +246,8 @@ export const Task = z.object({
   visibility: Visibility,
   createdBy: MemberHandle,
   createdAt: z.string(),
+  /** When the card entered its current stage (PM-379): set on create and by every stage move. Absent on a card read from an older server or fixture: read it as `createdAt`. */
+  stageEnteredAt: z.string().optional(),
   updatedAt: z.string(),
   closedAt: z.string().nullable(),
 });

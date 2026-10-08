@@ -476,6 +476,7 @@ export class TaskMoves {
         pinnedBy: actorHandle(actor),
       });
     const patch: TaskPatch = { stageId: target.id, updatedAt: at };
+    if (target.id !== task.stageId) patch.stageEnteredAt = at;
     if (target.kind === 'done') {
       patch.status = 'done';
       patch.closedAt = at;

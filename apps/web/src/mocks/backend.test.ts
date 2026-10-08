@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ProvidersView, Task, validateProjectConfig } from '@projectman/shared';
 import { MockBackend } from './backend';
 
@@ -400,5 +400,38 @@ describe('mock repository of a task', () => {
       backend.updateTask('AC-24', { repo: null });
       expect(backend.handle('POST', `${base}/tasks/AC-24/start`, {}).status, String(repos.length)).toBe(200);
     }
+  });
+});
+
+describe('mock task moves', () => {
+  it('updates stageEnteredAt when moving to a different stage', () => {
+    const backend = new MockBackend();
+    const created = backend.handle('POST', `${base}/tasks`, { title: 'T1' });
+    const taskKey = (created.body as Task).key;
+    const task = backend.findTask(taskKey)!;
+    const t0 = task.stageEnteredAt;
+
+    // advance time to ensure timestamp difference
+    vi.setSystemTime(new Date(Date.now() + 5000));
+
+    const response = backend.handle('PATCH', `${base}/tasks/${taskKey}`, { stageId: 'dev' });
+    expect(response.status).toBe(200);
+
+    const moved = backend.findTask(taskKey)!;
+    expect(moved.stageEnteredAt).not.toBe(t0);
+    expect(moved.stageEnteredAt! > t0!).toBe(true);
+
+    const enteredAtReview = moved.stageEnteredAt;
+
+    // advance time again
+    vi.setSystemTime(new Date(Date.now() + 5000));
+
+    // updating non-stage fields shouldn't change stageEnteredAt
+    backend.handle('PATCH', `${base}/tasks/${taskKey}`, { title: 'Updated title' });
+
+    const unchanged = backend.findTask(taskKey)!;
+    expect(unchanged.stageEnteredAt).toBe(enteredAtReview);
+
+    vi.useRealTimers();
   });
 });

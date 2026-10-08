@@ -20,6 +20,7 @@ export * from './domain/inbox';
 export * from './domain/loop-watch';
 export * from './domain/fix-limit';
 export * from './domain/full-test';
+export * from './domain/work-map';
 export * from './domain/boundary';
 export * from './domain/permission-category';
 export * from './domain/permission-delegation';

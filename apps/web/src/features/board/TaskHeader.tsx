@@ -14,6 +14,7 @@ import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState, TaskWorker } from '../../lib/taskState';
 import { prChip } from './cardModel';
 import { CardSizeToggle, useCardLink } from './cardSize';
+import { useDrawerBase } from './drawerBase';
 import type { CardSize } from './cardSize';
 import { TaskTitle } from './TaskEdit';
 import { RefinementRow } from './RefinementRow';
@@ -75,8 +76,9 @@ export function TaskHeader({
   /** The line under the head; off where the view switch stands under it and carries the line itself. */
   rule?: boolean;
 }) {
-  const { key, myHandle, can } = useProject();
+  const { myHandle, can } = useProject();
   const cardLink = useCardLink();
+  const drawerBase = useDrawerBase();
   // While the card is being refined, the status box also says how far the steps are (PM-291).
   const refinement =
     state.startBlock?.kind === 'refining' ? (
@@ -105,7 +107,7 @@ export function TaskHeader({
   return (
     <div className={clsx(styles.head, !rule && styles.bare)}>
       {parent ? (
-        <Link to={cardLink(`/p/${key}/tasks/${parent.key}`)}>
+        <Link to={cardLink(drawerBase.card(parent.key))}>
           {t('task.parent', { key: parent.key, title: parent.title })}
         </Link>
       ) : null}

@@ -41,9 +41,11 @@ export function useWorkMap(show: MapShow, requestedMember: string) {
   const data = useMemo(() => {
     if (!tasks || !model || !pipeline) return null;
     const states = new Map<string, MapState | null>();
+    const staleKeys = new Set<string>();
     for (const { task, state } of model.entries) {
       const stale = isStale(task, state.phase, pipeline.stageById.get(task.stageId)?.kind, now);
       states.set(task.key, mapStateOf(state.phase, stale));
+      if (stale) staleKeys.add(task.key);
     }
     const unfiltered = workMap({ tasks, states });
     const scoped: MapGroup[] =
@@ -75,6 +77,13 @@ export function useWorkMap(show: MapShow, requestedMember: string) {
     const titles = new Map(tasks.map((task) => [task.key, task.title]));
     return {
       groups,
+      /** Every group, whatever the filters (the zoomed view decides "not found" from it). */
+      allGroups: unfiltered,
+      /** The groups with the member filter applied: their signals count that member's cards only. */
+      scopedGroups: scoped,
+      states,
+      staleKeys,
+      now,
       totals,
       titles,
       /** No group at all, whatever the filters: nothing open in the project. */
@@ -84,7 +93,7 @@ export function useWorkMap(show: MapShow, requestedMember: string) {
     };
   }, [tasks, model, pipeline, now, show, member]);
 
-  return { board, pipeline, data, assignees, member };
+  return { board, pipeline, model, data, assignees, member };
 }
 
 /** A group's title: the card's own for a theme or collecting card, "Egyéb" for the rest. */

@@ -5,7 +5,7 @@ import { isOpenTask } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
 import { useCloseTheme, useReopenTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { useToast } from '../../components/toastContext';
@@ -15,6 +15,7 @@ import { errorMessage } from '../../lib/errors';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { isTaskClosed } from '../../lib/taskState';
 import { CardSizeToggle, useCardLink } from './cardSize';
+import { useDrawerBase } from './drawerBase';
 import type { CardSize } from './cardSize';
 import { TaskTitle } from './TaskEdit';
 import { cancelledIn, percentOf, progressOf, themeTree } from './themeModel';
@@ -101,6 +102,9 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
         >
           {t('theme.filterBoard')}
         </Button>
+        <ButtonLink to={`/p/${key}/map/${task.key}`} variant="secondary">
+          {t('theme.openOnMap')}
+        </ButtonLink>
         {can.createTasks ? (
           <Button
             variant={open ? 'secondary' : 'primary'}
@@ -133,13 +137,13 @@ function CardRow({
   pipeline: PipelineIndex;
   byKey: ReadonlyMap<string, BoardEntry>;
 }) {
-  const { key } = useProject();
+  const drawerBase = useDrawerBase();
   const cardLink = useCardLink();
   const closed = isTaskClosed(card);
   return (
     <>
       <StatusDot phase={byKey.get(card.key)?.state.phase} status={card.status} size={9} />
-      <Link to={cardLink(`/p/${key}/tasks/${card.key}`)} className={styles.cardLink}>
+      <Link to={cardLink(drawerBase.card(card.key))} className={styles.cardLink}>
         <span className={styles.cardKey}>{card.key}</span> {card.title}
       </Link>
       <Chip>

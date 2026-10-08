@@ -204,6 +204,8 @@ describe('the map overview', () => {
     );
     project.render(routes, '/p/AC/map');
     const alert = await screen.findByRole('alert');
+    // The error state shows no loading-shimmer subtitle under the title.
+    expect(document.querySelector('header p')).toBeNull();
     failing = false;
     fireEvent.click(within(alert).getByRole('button', { name: t('app.retry') }));
     await tileOf(t('map.other'));

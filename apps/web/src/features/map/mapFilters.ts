@@ -8,6 +8,15 @@ export function parseShow(value: string | null): MapShow {
   return value === 'needsYou' || value === 'blocked' ? value : 'all';
 }
 
+/** The map's own query (`?show=…&member=…`, or nothing): what a link inside the map carries along. */
+export function mapQuery(show: MapShow, member: string): string {
+  const params = new URLSearchParams();
+  if (show !== 'all') params.set('show', show);
+  if (member !== '') params.set('member', member);
+  const text = params.toString();
+  return text ? `?${text}` : '';
+}
+
 /**
  * The map's filters live in the query (`?show=needsYou|blocked&member=<handle>|@none`), so a link and
  * the browser's Back keep them. A change replaces the history entry: Back does not step through the

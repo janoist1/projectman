@@ -1,17 +1,14 @@
 import { useRef } from 'react';
-import { MAP_STATE_ORDER } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { PageHeader } from '../../components/PageHeader';
-import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState } from '../../components/States';
-import { StateMark } from '../../components/StateMark';
 import { t } from '../../i18n/t';
-import { FilterSelect } from '../board/FilterSelect';
 import { GroupTile } from './GroupTile';
+import { MapToolbar } from './MapToolbar';
 import { useGroupMotion } from './useGroupMotion';
-import { useMapFilters } from './mapFilters';
-import type { MapShow } from './mapFilters';
+import { mapQuery, useMapFilters } from './mapFilters';
+import { useReturnFocus } from './returnFocus';
 import { groupTitle, useWorkMap } from './useWorkMap';
 import styles from './MapOverview.module.css';
 
@@ -29,10 +26,15 @@ export function MapOverview() {
   const items = useRef(new Map<string, HTMLElement>());
   const flashing = useGroupMotion(listRef, items, data?.groups ?? [], `${filters.show}|${member}`);
 
-  const header = (summary: string | null) => (
+  // Coming back from a zoomed group, the focus goes to the group's tile (PM-407).
+  useReturnFocus(listRef, Boolean(data && pipeline));
+
+  const header = (summary: string | null, loading = true) => (
     <PageHeader
       title={t('map.title')}
-      subtitle={summary ?? <span className={styles.summarySkeleton} aria-hidden="true" />}
+      subtitle={
+        summary ?? (loading ? <span className={styles.summarySkeleton} aria-hidden="true" /> : undefined)
+      }
       className={styles.header}
     />
   );
@@ -40,7 +42,7 @@ export function MapOverview() {
   if (board.isError && !board.data) {
     return (
       <div className={styles.page}>
-        {header(null)}
+        {header(null, false)}
         <ErrorState error={board.error} onRetry={() => void board.refetch()} />
       </div>
     );
@@ -91,44 +93,21 @@ export function MapOverview() {
   const filtered = filters.show !== 'all' || member !== '';
   const good = filters.show !== 'all' && member === '';
   const base = `/p/${key}/map`;
-  const options: { value: MapShow; label: string; count: number }[] = [
-    { value: 'all', label: t('map.filters.all'), count: totals.open },
-    { value: 'needsYou', label: t('map.filters.needsYou'), count: totals.needsYou },
-    { value: 'blocked', label: t('map.filters.blocked'), count: totals.blocked },
-  ];
 
   return (
     <div className={styles.page}>
       {header(summary)}
-      <div className={styles.toolbar}>
-        <SegmentedControl
-          label={t('map.filtersLabel')}
-          options={options.map(({ value, label, count }) => ({ value, label, count }))}
-          value={filters.show}
-          onChange={filters.setShow}
-        />
-        <FilterSelect
-          className={styles.member}
-          label={t('map.member')}
-          anyLabel={t('map.memberAny')}
-          value={member}
-          options={assignees}
-          onChange={filters.setMember}
-        />
-        {filtered && groups.length > 0 ? (
-          <Button variant="ghost" size="md" onClick={filters.clear}>
-            {t('map.clearFilters')}
-          </Button>
-        ) : null}
-        <ul className={styles.legend} aria-label={t('map.legend.label')}>
-          {MAP_STATE_ORDER.map((state) => (
-            <li key={state} className={styles.legendItem}>
-              <StateMark state={state} />
-              {t(`map.legend.${state}`)}
-            </li>
-          ))}
-        </ul>
-      </div>
+      <MapToolbar
+        show={filters.show}
+        member={member}
+        counts={{ all: totals.open, needsYou: totals.needsYou, blocked: totals.blocked }}
+        assignees={assignees}
+        onShow={filters.setShow}
+        onMember={filters.setMember}
+        onClear={filters.clear}
+        clearable={filtered && groups.length > 0}
+        legend
+      />
       {data.firstUse ? (
         <div className={styles.firstUse} role="note">
           <span>{t('map.firstUse.body')}</span>
@@ -166,6 +145,7 @@ export function MapOverview() {
               group={group}
               title={groupTitle(group, data.titles)}
               base={base}
+              query={mapQuery(filters.show, filters.member)}
               pipeline={pipeline}
               flash={flashing.has(group.key)}
               itemRef={(element) => {

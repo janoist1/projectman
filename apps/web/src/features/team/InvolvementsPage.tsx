@@ -223,10 +223,15 @@ export function InvolvementsPage() {
           ['stopped', t('involvement.stopsLabel')],
         ])}
       </div>
-      {filtered ? (
-        <Button variant="secondary" onClick={() => setParams({})}>
-          {t('involvement.clear')}
-        </Button>
+      {items.length || (filtered && !(firstUse && query.data && !items.length)) ? (
+        <div className={styles.summary}>
+          {items.length && query.data ? <p>{t('involvement.counts', query.data.pages[0]!.counts)}</p> : null}
+          {filtered && !(firstUse && query.data && !items.length) ? (
+            <Button variant="secondary" onClick={() => setParams({})}>
+              {t('involvement.clear')}
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       {query.isPending ? (
         <div role="status" aria-label={t('app.loading')}>
@@ -244,11 +249,11 @@ export function InvolvementsPage() {
       ) : null}
       {query.data ? (
         <>
-          <p>{t('involvement.counts', query.data.pages[0]!.counts)}</p>
           {items.length ? (
             <InvolvementRows items={items} arriving={arriving} />
           ) : (
             <EmptyState
+              icon={firstUse ? 'history' : 'filter'}
               title={t(firstUse ? 'involvement.empty' : 'involvement.noResults')}
               body={t(firstUse ? 'involvement.emptyHint' : 'involvement.noResultsHint')}
             />

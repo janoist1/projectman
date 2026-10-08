@@ -274,6 +274,7 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
               </span>
               {item.via ? <span className={styles.meta}>· {t('involvement.behalf')}</span> : null}
               <span className={styles.meta}>
+                {item.via ? '· ' : ''}
                 {t('session.chat.teamMessageIn')} · {formatStamp(block.ts)}
               </span>
             </div>

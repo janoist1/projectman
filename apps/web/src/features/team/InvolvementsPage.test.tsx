@@ -58,5 +58,7 @@ describe('involvement overview', () => {
     expect(await screen.findByText(t('involvement.noResults'))).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: t('involvement.anytime') }));
     expect(await screen.findByText(t('involvement.empty'))).toBeTruthy();
+    expect(screen.queryByText(t('involvement.counts', { started: 0, stopped: 0 }))).toBeNull();
+    expect(screen.queryByRole('button', { name: t('involvement.clear') })).toBeNull();
   });
 });

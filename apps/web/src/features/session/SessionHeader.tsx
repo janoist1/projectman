@@ -259,7 +259,9 @@ export function SessionHeader({
         }
       >
         {stop.isError ? (
-          <ErrorBanner>{t('involvement.stopError', { reason: errorMessage(stop.error) })}</ErrorBanner>
+          <div className={styles.stopError}>
+            <ErrorBanner>{t('involvement.stopError', { reason: errorMessage(stop.error) })}</ErrorBanner>
+          </div>
         ) : null}
         <TextField
           label={t('involvement.stopNote')}

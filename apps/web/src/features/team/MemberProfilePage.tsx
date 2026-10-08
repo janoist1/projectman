@@ -401,7 +401,6 @@ export function MemberProfilePage() {
                   <Link to={`/p/${key}/sessions/${session.id}`}>
                     {t('profile.openSession')} · {workName(session)}
                   </Link>
-                  <SessionPeek sessionId={session.id} />
                   {session.startCause ? (
                     <p className={styles.involvement}>
                       {involvementText(
@@ -428,6 +427,7 @@ export function MemberProfilePage() {
                       )}
                     </p>
                   ) : null}
+                  <SessionPeek sessionId={session.id} />
                 </div>
               ))}
               {pastSessions.length ? (

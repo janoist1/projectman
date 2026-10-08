@@ -9,6 +9,7 @@ import { Icon } from '../../../components/Icon';
 import { ErrorBanner } from '../../../components/ErrorBanner';
 import { useToast } from '../../../components/toastContext';
 import { Dialog } from '../../../components/Dialog';
+import { Fold } from '../../../components/Fold';
 import { SelectField } from '../../../components/Field';
 import { ErrorState, LoadingState } from '../../../components/States';
 import { formatStamp } from '../../../i18n/format';
@@ -76,15 +77,17 @@ export function IntegratorSection() {
                 <Chip tone={info.state === 'active' ? 'ok' : info.state === 'expired' ? 'needs' : 'neutral'}>
                   {t(`integratorKey.states.${info.state}`)}
                 </Chip>
-                <time dateTime={info.revokedAt ?? info.expiresAt ?? info.createdAt}>
-                  {formatStamp(
-                    info.state === 'revoked'
-                      ? (info.revokedAt ?? info.createdAt)
-                      : info.state === 'expired'
-                        ? (info.expiresAt ?? info.createdAt)
-                        : info.createdAt,
-                  )}
-                </time>
+                {info.state !== 'active' ? (
+                  <time dateTime={info.revokedAt ?? info.expiresAt ?? info.createdAt}>
+                    {formatStamp(
+                      info.state === 'revoked'
+                        ? (info.revokedAt ?? info.createdAt)
+                        : info.state === 'expired'
+                          ? (info.expiresAt ?? info.createdAt)
+                          : info.createdAt,
+                    )}
+                  </time>
+                ) : null}
               </p>
               <dl className={styles.facts}>
                 <div>
@@ -101,10 +104,12 @@ export function IntegratorSection() {
                   <dt>{t('integratorKey.used')}</dt>
                   <dd>{info.lastUsedAt ? formatStamp(info.lastUsedAt) : '—'}</dd>
                 </div>
-                <div>
-                  <dt>{t('integratorKey.expires')}</dt>
-                  <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
-                </div>
+                {info.state !== 'revoked' ? (
+                  <div>
+                    <dt>{t('integratorKey.expires')}</dt>
+                    <dd>{info.expiresAt ? formatStamp(info.expiresAt) : t('integratorKey.never')}</dd>
+                  </div>
+                ) : null}
               </dl>
               {info.state === 'active' && expires !== null && expires <= 7 ? (
                 <p className={styles.warning} role="status">
@@ -207,33 +212,38 @@ export function IntegratorSection() {
       <Dialog
         open={secret !== null}
         onClose={() => setSecret(null)}
-        title={t('integratorKey.title')}
+        title={t('integratorKey.secretTitle')}
         size="sm"
-        footer={<Button onClick={() => setSecret(null)}>{t('integratorKey.done')}</Button>}
+        footer={
+          <Button variant="primary" onClick={() => setSecret(null)}>
+            {t('integratorKey.done')}
+          </Button>
+        }
       >
         <p>{t('integratorKey.once')}</p>
-        <code className={styles.secret}>{secret}</code>
         {copyFailed ? <ErrorBanner>{t('integratorKey.copyFailed')}</ErrorBanner> : null}
-        <Button
-          variant="secondary"
-          onClick={async () => {
-            setCopyFailed(false);
-            if (!secret) return;
-            try {
-              await navigator.clipboard.writeText(secret);
-              setCopied(true);
-            } catch {
-              setCopied(false);
-              setCopyFailed(true);
-            }
-          }}
-        >
-          {t(copied ? 'integratorKey.copied' : 'integratorKey.copy')}
-        </Button>
-        <details>
-          <summary>{t('integratorKey.how')}</summary>
+        <div className={styles.secretRow}>
+          <code className={styles.secret}>{secret}</code>
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              setCopyFailed(false);
+              if (!secret) return;
+              try {
+                await navigator.clipboard.writeText(secret);
+                setCopied(true);
+              } catch {
+                setCopied(false);
+                setCopyFailed(true);
+              }
+            }}
+          >
+            {t(copied ? 'integratorKey.copied' : 'integratorKey.copy')}
+          </Button>
+        </div>
+        <Fold summary={t('integratorKey.how')}>
           <p>{t('integratorKey.instructions')}</p>
-        </details>
+        </Fold>
       </Dialog>
     </SettingsSection>
   );

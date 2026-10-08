@@ -9,6 +9,19 @@
   gap: 12px;
   margin-block: 24px;
 }
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.summary p {
+  margin: 0;
+}
+.summary button {
+  margin-left: auto;
+}
 .filters label,
 .period {
   display: flex;

@@ -103,6 +103,7 @@ export const hu = {
   },
   integratorKey: {
     title: 'Integráló',
+    secretTitle: 'Új integrálói kulcs',
     intro:
       'Az integráló (a Claude Code a gépeden) ezzel a kulccsal saját néven dolgozik, nem a te neveden: amit tesz, az „Integráló (a tulajdonos megbízásából)” néven látszik.',
     rights: 'Mit tehet?',

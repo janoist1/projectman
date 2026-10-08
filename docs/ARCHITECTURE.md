@@ -1121,12 +1121,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
   Task worktrees also grant the shared git `objects`, `refs`, `logs` and their own admin
-  directory (PM-399), plus exactly `packed-refs` and `packed-refs.lock` (PM-411), so Codex
-  can finish rebase and branch updates/deletion. The common git directory as a whole, other
+  directory (PM-399), plus only `packed-refs.lock` (PM-411), so Codex
+  can finish rebase pseudo-ref deletion and loose branch deletion. The common git directory as a whole, other
   worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
-  The Codex adapter lifts only these two packed-refs entries from `sharedGitDenials`;
-  Claude's denials remain. This permits rewriting packed branches (including a packed
-  default branch) and interfering with the shared lock; see SECURITY.md.
+  The Codex adapter lifts only the lock entry from `sharedGitDenials`; `packed-refs` itself
+  stays read-only, as do packed default-branch and replacement refs. Claude's denials remain.
+  A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:
+  a leftover lock can block host ref deletions, and lock replacement during a host packed-refs
+  rewrite can inject content into that rewrite. Owner acceptance is pending; see SECURITY.md.
   The managed VM retains the legacy sandbox flags because its VM is the boundary.
   PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only

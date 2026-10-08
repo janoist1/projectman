@@ -519,12 +519,12 @@ describe('buildCodexArgs', () => {
       expect(rendered).not.toContain('PM-2-repo');
     });
 
-    it('writes packed refs and their lock despite shared denials, allowing rebase and branch deletion (PM-411)', () => {
+    it('writes only the packed refs lock despite shared denials, allowing rebase and loose branch deletion (PM-411)', () => {
       const rendered = profile(policy('workspace-write'))!;
-      for (const name of ['packed-refs', 'packed-refs.lock']) {
-        expect(rendered).toContain(`"${gitDir}/${name}"="write"`);
-        expect(rendered).not.toContain(`"${gitDir}/${name}"="read"`);
-      }
+      expect(rendered).toContain(`"${gitDir}/packed-refs.lock"="write"`);
+      expect(rendered).not.toContain(`"${gitDir}/packed-refs.lock"="read"`);
+      expect(rendered).toContain(`"${gitDir}/packed-refs"="read"`);
+      expect(rendered).not.toContain(`"${gitDir}/packed-refs"="write"`);
     });
 
     it('keeps the configuration, hooks, alternates, worktree links and checkout files read-only', () => {
@@ -538,6 +538,7 @@ describe('buildCodexArgs', () => {
         'HEAD.lock',
         'index',
         'index.lock',
+        'packed-refs',
         'refs/heads/main',
         'refs/heads/main.lock',
         'refs/replace',

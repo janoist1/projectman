@@ -413,9 +413,12 @@ already writable workspace does not exercise this specific file-path grant. The 
 release followed immediately by this probe (PM-411, 2026-10-08). Record the `packed-refs`
 checksum before and after rebase/continue, loose branch deletion and the hard-link probe.
 Creating a hard link from the read-only `packed-refs` to the writable `packed-refs.lock` must
-fail with EPERM. If the link is created, stop the release process, try only a zero-byte append
-open (no content write), immediately remove the lock and return to architectural planning for
-grant revocation. The actual `packed-refs` must remain
+fail with EPERM. If the link is created, do not open or write through it, even for a zero-byte
+write. Immediately remove `packed-refs.lock`, verify the `packed-refs` checksum is unchanged,
+and record the failure on the task and notify security and the architect. The security approval
+is withdrawn, and the released grant must be revoked by reverting the PM-411 merge in a corrective
+release, then restarting the Codex sessions, according to the architect's rollback plan.
+The actual `packed-refs` must remain
 unchanged. A later link-count check cannot detect a link removed after a malicious write.
 The native sandbox's link rejection remains unverified on macOS and Linux. This possibility is not covered
 by the owner's acceptance of the two lock risks above.

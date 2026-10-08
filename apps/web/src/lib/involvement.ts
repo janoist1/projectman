@@ -80,9 +80,11 @@ export function describeStop(event: TimelineEvent, ctx: TimelineContext): Involv
       ? closureReason(stop, ctx).long
       : stop.note
         ? t('involvement.quote', { text: stop.note })
-        : t(`involvement.stops.${kind}`, {
-            code: String(event.data.exitCode ?? ''),
-          }),
+        : kind === 'manual' || kind === 'restart' || kind === 'exited'
+          ? ''
+          : t(`involvement.stops.${kind}`, {
+              code: String(event.data.exitCode ?? ''),
+            }),
     by: byLabel(stop.by, ctx),
   };
 }

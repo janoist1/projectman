@@ -40,7 +40,9 @@ describe('involvement descriptions', () => {
     expect(view.reason).toBe(
       isAutomaticClosureKind(kind)
         ? closureReason({ kind }, ctx).long
-        : t(`involvement.stops.${kind}`, { code: '1' }),
+        : kind === 'manual' || kind === 'restart' || kind === 'exited'
+          ? ''
+          : t(`involvement.stops.${kind}`, { code: '1' }),
     );
   });
   it('keeps old and unknown causes readable', () => {

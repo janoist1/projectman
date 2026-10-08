@@ -130,9 +130,7 @@ export function formatTeamMessageBatch(
   ].join('\n\n');
 }
 
-export function splitTeamMessageBatch(
-  text: string,
-): {
+export function splitTeamMessageBatch(text: string): {
   header: string;
   items: { from: string; via?: 'integrator'; taskKey: string | null; body: string }[];
 } | null {

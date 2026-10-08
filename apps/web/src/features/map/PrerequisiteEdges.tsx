@@ -17,9 +17,17 @@ interface Drawing {
 
 /** How far a loop reaches out of the card side when both ends sit in one column (inside the 28 px gap). */
 const LOOP = 14;
+/** Each further loop at the same card reaches this much further, so two loops never share an arc. */
+const LOOP_STEP = 8;
+const LOOP_MAX = 30;
 const CURVE = 56;
 
-function pathBetween(from: DOMRect, to: DOMRect, origin: DOMRect): string {
+/** Both ends in one column: the arrow cannot cross the gap between them, so it loops round the right sides. */
+function isLoop(from: DOMRect, to: DOMRect): boolean {
+  return to.left - from.right < LOOP && from.left - to.right < LOOP;
+}
+
+function pathBetween(from: DOMRect, to: DOMRect, origin: DOMRect, extra: number): string {
   const left = (box: DOMRect) => box.left - origin.left;
   const right = (box: DOMRect) => box.right - origin.left;
   const middle = (box: DOMRect) => box.top - origin.top + box.height / 2;
@@ -43,7 +51,7 @@ function pathBetween(from: DOMRect, to: DOMRect, origin: DOMRect): string {
   // In one column: out of the right sides, around, into the waiting card's right side.
   const x1 = right(from);
   const x2 = right(to);
-  const reach = Math.max(x1, x2) + LOOP;
+  const reach = Math.max(x1, x2) + Math.min(LOOP - LOOP_STEP + extra, LOOP_MAX);
   return `M ${x1} ${y1} C ${reach} ${y1}, ${reach} ${y2}, ${x2} ${y2}`;
 }
 
@@ -78,10 +86,19 @@ export function PrerequisiteEdges({
       boxes.set(element.dataset.cardKey ?? '', element.getBoundingClientRect());
     }
     const paths: Path[] = [];
+    // The loops at one card are told apart by how far they reach (the first one reaches LOOP).
+    const looped = new Map<string, number>();
     for (const edge of edges) {
       const from = boxes.get(edge.from);
       const to = boxes.get(edge.to);
-      if (from && to) paths.push({ from: edge.from, to: edge.to, d: pathBetween(from, to, origin) });
+      if (!from || !to) continue;
+      const rank = Math.max(looped.get(edge.from) ?? 0, looped.get(edge.to) ?? 0);
+      const d = pathBetween(from, to, origin, LOOP_STEP * (rank + 1));
+      if (isLoop(from, to)) {
+        looped.set(edge.from, rank + 1);
+        looped.set(edge.to, rank + 1);
+      }
+      paths.push({ from: edge.from, to: edge.to, d });
     }
     setDrawing({ width: origin.width, height: origin.height, paths });
   }, [containerRef, edges]);
@@ -121,6 +138,7 @@ export function PrerequisiteEdges({
         <marker
           id={idle}
           className={styles.idleHead}
+          markerUnits="userSpaceOnUse"
           markerWidth="8"
           markerHeight="8"
           refX="7"
@@ -132,6 +150,7 @@ export function PrerequisiteEdges({
         <marker
           id={lit}
           className={styles.litHead}
+          markerUnits="userSpaceOnUse"
           markerWidth="8"
           markerHeight="8"
           refX="7"

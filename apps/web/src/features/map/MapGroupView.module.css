@@ -99,19 +99,39 @@
   min-height: 0;
 }
 
-/* The board of cards. The arrows' layer sits behind the cards, so nothing here paints a background. */
+/*
+ * The board of cards. The arrows' layer sits over the cells' boxes and behind the cards. When the columns
+ * do not fit even at their narrowest, the board scrolls sideways on its own (the head and the tool row
+ * stay put); the script marks that state, since a scroller would end the sticky column heads otherwise.
+ */
+.scroller {
+  min-width: 0;
+}
+
+.scroller[data-scroll] {
+  overflow-x: auto;
+}
+
 .body {
   --map-gap: 28px;
+  --map-column-min: 120px;
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
+@media (min-width: 768px) {
+  .body {
+    /* The columns at their narrowest, the "Kész" column and the gaps between them. */
+    min-width: calc(var(--map-columns) * (var(--map-column-min) + var(--map-gap)) + 76px);
+  }
+}
+
 .columns,
 .cells {
   display: grid;
-  grid-template-columns: repeat(var(--map-columns), minmax(148px, 1fr)) 76px;
+  grid-template-columns: repeat(var(--map-columns), minmax(var(--map-column-min), 1fr)) 76px;
   column-gap: var(--map-gap);
 }
 
@@ -157,18 +177,24 @@
 }
 
 .doneHead {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 800;
-  color: var(--c-ink-3);
-  text-align: center;
+  color: var(--c-ink-2);
+}
+
+.doneHead .columnCount {
+  margin-left: 0;
 }
 
 .laneHead {
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 14px 0 8px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 2px 6px;
 }
 
 .laneTitle {
@@ -181,8 +207,9 @@
 
 .laneLink {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
   color: inherit;
   text-decoration: none;
   border-radius: 4px;
@@ -198,20 +225,47 @@
 }
 
 .laneKey {
+  flex: none;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--c-ink-3);
 }
 
-.laneCount {
-  font-size: 12px;
+.laneName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.laneStage {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--c-muted);
+  font-size: 11px;
   font-weight: 700;
   color: var(--c-ink-3);
 }
 
+/* The hairline between the lane's name and its count. */
+.laneRule {
+  flex: 1;
+  height: 1px;
+  min-width: 12px;
+  background: var(--c-line);
+}
+
+.laneCount {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-ink-3);
+  white-space: nowrap;
+}
+
 .cells {
-  align-items: start;
-  padding-bottom: 8px;
+  align-items: stretch;
+  padding-bottom: 4px;
 }
 
 .cell,
@@ -225,14 +279,40 @@
   min-width: 0;
 }
 
+/* Every lane × column place is a pale box, so an empty column still reads as a column. */
+.cell {
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 6px;
+  margin-bottom: 4px;
+  border-radius: 10px;
+  background: var(--c-column);
+}
+
 .doneCell {
-  margin: 0;
-  padding-top: 4px;
-  text-align: center;
-  font-size: var(--text-md);
-  font-weight: 800;
-  color: var(--c-ink-3);
+  box-sizing: border-box;
+  min-height: 52px;
+  margin: 0 0 4px;
+  padding-top: 14px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 5px;
+  border: 1px dashed var(--c-line-strong);
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-ok-text);
   font-variant-numeric: tabular-nums;
+}
+
+.doneCell[data-zero] {
+  font-weight: 400;
+  color: var(--c-ink-4);
+}
+
+.doneMark {
+  margin-top: 1px;
 }
 
 .headSkeleton {

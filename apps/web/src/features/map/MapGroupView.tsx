@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { Link, Outlet, useMatch, useParams } from 'react-router';
 import type { MapGroup } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
@@ -8,6 +8,7 @@ import { Button, ButtonLink } from '../../components/Button';
 import { ColumnBar } from '../../components/ColumnBar';
 import { Icon } from '../../components/Icon';
 import { EmptyState, ErrorState } from '../../components/States';
+import { StateMark } from '../../components/StateMark';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { columnSegments } from '../../lib/pipeline';
@@ -22,7 +23,7 @@ import { MapToolbar } from './MapToolbar';
 import { PrerequisiteEdges } from './PrerequisiteEdges';
 import { edgesOf, openColumns, waitingOf, zoomLanes } from './groupModel';
 import type { Waiting, ZoomCard, ZoomLane } from './groupModel';
-import { useMapFilters } from './mapFilters';
+import { mapQuery, useMapFilters } from './mapFilters';
 import { rememberZoomed } from './returnFocus';
 import type { ReturnState } from './returnFocus';
 import { useLiveMotion } from './useGroupMotion';
@@ -70,13 +71,7 @@ export function MapGroupView() {
   const backRef = useRef<HTMLAnchorElement>(null);
 
   // The map's own query only: the drawer adds its own parameters (the card size, a message).
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (filters.show !== 'all') params.set('show', filters.show);
-    if (filters.member !== '') params.set('member', filters.member);
-    const text = params.toString();
-    return text ? `?${text}` : '';
-  }, [filters.show, filters.member]);
+  const query = useMemo(() => mapQuery(filters.show, filters.member), [filters.show, filters.member]);
 
   const base = useMemo<DrawerBase>(
     () => ({
@@ -178,6 +173,25 @@ export function MapGroupView() {
   );
 }
 
+/**
+ * Whether the board is wider than the room it has. Only then does the board scroll sideways: a scroller
+ * ends the sticky column heads, so it is switched on just when the columns cannot fit.
+ */
+function useSidewaysScroll(ref: RefObject<HTMLElement | null>, present: boolean): boolean {
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || !present) return;
+    const check = () => setScrolls(element.scrollWidth > element.clientWidth + 1);
+    check();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(check);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, present]);
+  return scrolls;
+}
+
 function Loading() {
   return (
     <div aria-busy="true">
@@ -213,6 +227,7 @@ function GroupBody({
 }: BodyProps) {
   const ids = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const items = useRef(new Map<string, HTMLElement>());
   const [active, setActive] = useState<string | null>(null);
   const [pulse, setPulse] = useState<string | null>(null);
@@ -233,6 +248,7 @@ function GroupBody({
     [group, byKey, data.states, data.staleKeys, pipeline, show, member],
   );
   const cards = useMemo(() => lanes.flatMap((lane) => lane.cards), [lanes]);
+  const scrolls = useSidewaysScroll(scrollerRef, cards.length > 0);
   const drawn = useMemo(() => new Set(cards.map((card) => card.task.key)), [cards]);
   const waiting = useMemo(
     () => new Map(cards.map((card) => [card.task.key, waitingOf(card, tasks, drawn, isMobile)])),
@@ -337,10 +353,13 @@ function GroupBody({
     const { lane, collector } = zoomLane;
     if (lane.kind === 'collector' && lane.collectorKey) {
       const collectorTitle = collector?.task.title ?? data.titles.get(lane.collectorKey) ?? lane.collectorKey;
+      const mapState = data.states.get(lane.collectorKey) ?? null;
       return (
         <Link to={base.card(lane.collectorKey)} className={styles.laneLink}>
+          {mapState ? <StateMark state={mapState} /> : null}
           <span className={styles.laneKey}>{lane.collectorKey}</span>
           <span className={styles.laneName}>{collectorTitle}</span>
+          {collector ? <span className={styles.laneStage}>{collector.state.label}</span> : null}
         </Link>
       );
     }
@@ -349,6 +368,7 @@ function GroupBody({
   };
 
   const countOf = (columnId: string) => cards.filter((card) => card.columnId === columnId).length;
+  const doneTotal = lanes.reduce((sum, zoomLane) => sum + zoomLane.lane.done, 0);
 
   return (
     <>
@@ -388,6 +408,7 @@ function GroupBody({
         onMember={onMember}
         onClear={onClear}
         clearable={filtered && cards.length > 0}
+        legend
       />
       {cards.length === 0 ? (
         <EmptyState
@@ -404,73 +425,86 @@ function GroupBody({
           }
         />
       ) : (
-        <div
-          ref={bodyRef}
-          className={styles.body}
-          data-linking={!isMobile && linked ? '' : undefined}
-          style={{ '--map-columns': columns.length } as CSSProperties}
-        >
-          {isMobile ? null : (
-            <>
-              <PrerequisiteEdges containerRef={bodyRef} edges={edges} active={active} layout={layout} />
-              {/* Each cell names its column for a screen reader; this row is the sighted reader's. */}
-              <div className={styles.columns} aria-hidden="true">
-                {columns.map((column) => (
-                  <div key={column.id} className={styles.columnHead} data-column-color={column.color}>
-                    <span className={styles.columnDot} />
-                    <span className={styles.columnName}>{column.name}</span>
-                    <span className={styles.columnCount}>{countOf(column.id)}</span>
+        <div ref={scrollerRef} className={styles.scroller} data-scroll={scrolls ? '' : undefined}>
+          <div
+            ref={bodyRef}
+            className={styles.body}
+            data-linking={!isMobile && linked ? '' : undefined}
+            style={{ '--map-columns': columns.length } as CSSProperties}
+          >
+            {isMobile ? null : (
+              <>
+                <PrerequisiteEdges containerRef={bodyRef} edges={edges} active={active} layout={layout} />
+                {/* Each cell names its column for a screen reader; this row is the sighted reader's. */}
+                <div className={styles.columns} aria-hidden="true">
+                  {columns.map((column) => (
+                    <div key={column.id} className={styles.columnHead} data-column-color={column.color}>
+                      <span className={styles.columnDot} />
+                      <span className={styles.columnName}>{column.name}</span>
+                      <span className={styles.columnCount}>{countOf(column.id)}</span>
+                    </div>
+                  ))}
+                  <div className={styles.doneHead}>
+                    {t('map.done')}
+                    <span className={styles.columnCount}>{doneTotal}</span>
                   </div>
-                ))}
-                <div className={styles.doneHead}>{t('map.done')}</div>
-              </div>
-            </>
-          )}
-          {lanes.map((zoomLane, index) => {
-            const headingId = `${ids}-lane-${index}`;
-            return (
-              <section key={zoomLane.lane.collectorKey ?? zoomLane.lane.kind} aria-labelledby={headingId}>
-                <header className={styles.laneHead}>
-                  <h2 id={headingId} className={styles.laneTitle}>
-                    {laneTitle(zoomLane)}
-                  </h2>
-                  <span className={styles.laneCount}>
-                    {t('map.laneCount', { open: zoomLane.lane.open, done: zoomLane.lane.done })}
-                  </span>
-                </header>
-                {isMobile ? (
-                  zoomLane.cards.length > 0 ? (
-                    <ul className={styles.list} aria-label={t('map.cards')}>
-                      {zoomLane.cards.map(renderCard)}
-                    </ul>
-                  ) : null
-                ) : (
-                  <div className={styles.cells}>
-                    {columns.map((column) => {
-                      const cell = zoomLane.byColumn.get(column.id) ?? [];
-                      return cell.length > 0 ? (
-                        <ul
-                          key={column.id}
-                          className={styles.cell}
-                          aria-label={t('map.columnCount', { column: column.name, count: cell.length })}
-                        >
-                          {cell.map(renderCard)}
-                        </ul>
-                      ) : (
-                        <div key={column.id} className={styles.cell} aria-hidden="true" />
-                      );
-                    })}
-                    <p className={styles.doneCell}>
-                      <span aria-hidden="true">{zoomLane.lane.done}</span>
-                      <span className="visually-hidden">
-                        {t('map.columnCount', { column: t('map.done'), count: zoomLane.lane.done })}
-                      </span>
-                    </p>
-                  </div>
-                )}
-              </section>
-            );
-          })}
+                </div>
+              </>
+            )}
+            {lanes.map((zoomLane, index) => {
+              const headingId = `${ids}-lane-${index}`;
+              return (
+                <section key={zoomLane.lane.collectorKey ?? zoomLane.lane.kind} aria-labelledby={headingId}>
+                  <header className={styles.laneHead}>
+                    <h2 id={headingId} className={styles.laneTitle}>
+                      {laneTitle(zoomLane)}
+                    </h2>
+                    <span className={styles.laneRule} aria-hidden="true" />
+                    <span className={styles.laneCount}>
+                      {t('map.laneCount', { open: zoomLane.lane.open, done: zoomLane.lane.done })}
+                    </span>
+                  </header>
+                  {isMobile ? (
+                    zoomLane.cards.length > 0 ? (
+                      <ul className={styles.list} aria-label={t('map.cards')}>
+                        {zoomLane.cards.map(renderCard)}
+                      </ul>
+                    ) : null
+                  ) : (
+                    <div className={styles.cells}>
+                      {columns.map((column) => {
+                        const cell = zoomLane.byColumn.get(column.id) ?? [];
+                        return cell.length > 0 ? (
+                          <ul
+                            key={column.id}
+                            className={styles.cell}
+                            aria-label={t('map.columnCount', { column: column.name, count: cell.length })}
+                          >
+                            {cell.map(renderCard)}
+                          </ul>
+                        ) : (
+                          <div key={column.id} className={styles.cell} aria-hidden="true" />
+                        );
+                      })}
+                      <p className={styles.doneCell} data-zero={zoomLane.lane.done === 0 ? '' : undefined}>
+                        {zoomLane.lane.done > 0 ? (
+                          <>
+                            <StateMark state="done" className={styles.doneMark} />
+                            <span aria-hidden="true">{zoomLane.lane.done}</span>
+                          </>
+                        ) : (
+                          <span aria-hidden="true">–</span>
+                        )}
+                        <span className="visually-hidden">
+                          {t('map.columnCount', { column: t('map.done'), count: zoomLane.lane.done })}
+                        </span>
+                      </p>
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         </div>
       )}
     </>

@@ -134,6 +134,11 @@
   overflow-wrap: anywhere;
 }
 
+/* A key, its "other group" note and the comma after it stay on one line. */
+.wait {
+  white-space: nowrap;
+}
+
 .keyLink {
   padding: 0;
   border: 0;
@@ -172,9 +177,12 @@
     font-size: 12px;
   }
 
+  /* The 44 px target reaches beyond the row, so the row stays close under the state line. */
   .keyLink {
     min-height: 44px;
-    min-width: 44px;
+    margin-block: -14px;
+    padding-inline: 6px;
+    margin-inline: -6px;
     display: inline-flex;
     align-items: center;
   }

@@ -33,6 +33,7 @@ export function GroupTile({
   group,
   title,
   base,
+  query = '',
   pipeline,
   flash,
   itemRef,
@@ -41,6 +42,8 @@ export function GroupTile({
   title: string;
   /** The map's path in the project, `/p/AC/map`. */
   base: string;
+  /** The map's filters (`?show=…`), carried into the zoomed view. */
+  query?: string;
   pipeline: PipelineIndex;
   flash: boolean;
   itemRef: (element: HTMLLIElement | null) => void;
@@ -54,7 +57,7 @@ export function GroupTile({
   return (
     <li ref={itemRef} className={clsx(styles.item, flash && styles.flash)} data-group={group.key}>
       <Link
-        to={`${base}/${group.key}`}
+        to={`${base}/${group.key}${query}`}
         className={styles.tile}
         data-top={topSignal(group) ?? undefined}
         aria-label={t('map.tileLabel', {

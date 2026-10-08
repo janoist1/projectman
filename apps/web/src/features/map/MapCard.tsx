@@ -1,4 +1,5 @@
 import clsx from 'clsx';
+import { Fragment } from 'react';
 import { Link } from 'react-router';
 import { staleDays } from '@projectman/shared';
 import type { BoardColumnView } from '@projectman/shared';
@@ -48,19 +49,23 @@ function Waits({
       <span aria-hidden="true">↳ </span>
       {before}
       {waiting.keys.map((key, index) => (
-        <span key={key}>
-          {index > 0 ? ', ' : null}
-          {jumpable.has(key) ? (
-            <button type="button" className={styles.keyLink} onClick={() => onJump(key)}>
-              {key}
-            </button>
-          ) : (
-            <Link to={hrefOf(key)} className={styles.keyLink}>
-              {key}
-            </Link>
-          )}
-          {elsewhere.has(key) ? ` ${t('map.otherGroup')}` : null}
-        </span>
+        <Fragment key={key}>
+          <span className={styles.wait}>
+            {jumpable.has(key) ? (
+              <button type="button" className={styles.keyLink} onClick={() => onJump(key)}>
+                {key}
+              </button>
+            ) : (
+              <Link to={hrefOf(key)} className={styles.keyLink}>
+                {key}
+              </Link>
+            )}
+            {elsewhere.has(key) ? ` ${t('map.otherGroup')}` : null}
+            {index < waiting.keys.length - 1 ? ',' : null}
+          </span>
+          {/* Outside the unbreakable part: a long list wraps between the keys. */}
+          {index < waiting.keys.length - 1 ? ' ' : null}
+        </Fragment>
       ))}
       {after}
     </p>

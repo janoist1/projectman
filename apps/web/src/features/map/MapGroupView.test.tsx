@@ -71,6 +71,8 @@ const edges = () =>
   Array.from(document.querySelectorAll<SVGPathElement>('[data-edge]')).map(
     (edge) => `${edge.dataset.from}>${edge.dataset.to}`,
   );
+/** The sighted reader's head of the "Kész" column: its name and the done total. */
+const doneHead = () => document.querySelector('[class*="doneHead"]')?.textContent;
 const back = () => screen.getByRole('link', { name: new RegExp(t('map.back')) });
 const taskDrawer = () => screen.findByRole('complementary', { name: t('task.drawerLabel') });
 const themeDrawer = () => screen.findByRole('complementary', { name: t('theme.drawerLabel') });
@@ -118,13 +120,14 @@ describe('the zoomed group view (PM-407)', () => {
     fireEvent.click(await screen.findByRole('link', { name: new RegExp(`^[^:]+: Webshop epic\\.`) }));
     await heading('Webshop epic');
     await waitFor(() => expect(document.activeElement).toBe(back()));
-    expect(where()).toBe(`/p/AC/map/${webshop.key}`);
+    // The tile carries the filter into the zoom, and "‹ Térkép" carries it back.
+    expect(where()).toBe(`/p/AC/map/${webshop.key}?show=needsYou`);
 
     fireEvent.click(back());
     await screen.findByRole('list', { name: t('map.groups') });
-    expect(where()).toBe('/p/AC/map');
+    expect(where()).toBe('/p/AC/map?show=needsYou');
     await waitFor(() =>
-      expect(document.activeElement?.getAttribute('href')).toBe(`/p/AC/map/${webshop.key}`),
+      expect(document.activeElement?.getAttribute('href')).toBe(`/p/AC/map/${webshop.key}?show=needsYou`),
     );
   });
 
@@ -138,7 +141,21 @@ describe('the zoomed group view (PM-407)', () => {
     expect(within(lane).getByText(t('map.laneCount', { open: 2, done: 1 }))).toBeTruthy();
     expect(within(lane).getByText(t('map.columnCount', { column: t('map.done'), count: 1 }))).toBeTruthy();
     expect(screen.getByText(t('map.progress', { done: 1, total: 3 }))).toBeTruthy();
+    expect(within(lane).queryByText('–')).toBeNull();
+    // The "Kész" head carries the total of the lanes' done cards.
+    expect(doneHead()).toBe(`${t('map.done')}1`);
     expect(document.querySelector('[data-card-key="AC-16"]')).toBeNull();
+  });
+
+  it('has the legend in the tool row, and a dash in the "Kész" column of a lane without done cards', async () => {
+    const { project, webshop } = themed();
+    project.render(routes, `/p/AC/map/${webshop.key}`);
+
+    await heading('Webshop epic');
+    expect(screen.getByRole('list', { name: t('map.legend.label') })).toBeTruthy();
+    const lane = screen.getByRole('region', { name: new RegExp(t('map.lane.loose')) });
+    expect(within(lane).getByText('–')).toBeTruthy();
+    expect(doneHead()).toBe(`${t('map.done')}0`);
   });
 
   it('has a lane per collecting card in a theme, "Részei" in a collecting card and "Csoport nélküli kártyák" in "Egyéb"', async () => {

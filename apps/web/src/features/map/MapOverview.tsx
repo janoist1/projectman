@@ -7,7 +7,7 @@ import { t } from '../../i18n/t';
 import { GroupTile } from './GroupTile';
 import { MapToolbar } from './MapToolbar';
 import { useGroupMotion } from './useGroupMotion';
-import { useMapFilters } from './mapFilters';
+import { mapQuery, useMapFilters } from './mapFilters';
 import { useReturnFocus } from './returnFocus';
 import { groupTitle, useWorkMap } from './useWorkMap';
 import styles from './MapOverview.module.css';
@@ -145,6 +145,7 @@ export function MapOverview() {
               group={group}
               title={groupTitle(group, data.titles)}
               base={base}
+              query={mapQuery(filters.show, filters.member)}
               pipeline={pipeline}
               flash={flashing.has(group.key)}
               itemRef={(element) => {

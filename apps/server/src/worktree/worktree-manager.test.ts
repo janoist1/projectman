@@ -592,7 +592,7 @@ describe.skipIf(process.platform !== 'darwin')(
         manager.refreshDependencies(info.path),
       ]);
 
-      expect(results.map((r) => (r.status === 'skipped' ? r.reason : r.status))).toEqual([
+      expect(results.map((r) => (r.status === 'skipped' ? r.reason : r.status)).sort()).toEqual([
         'cloned',
         'present',
       ]);

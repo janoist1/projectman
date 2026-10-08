@@ -49,7 +49,13 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.locator('ul[aria-busy="true"]').waitFor();
     const folder = join(process.env.PROJECTMAN_SESSION_DIR ?? tmpdir(), 'shots', 'map-overview');
     mkdirSync(folder, { recursive: true });
-    await page.screenshot({ path: join(folder, 'map-loading-1512.png'), animations: 'disabled' });
+    for (const [width, height] of [
+      [1512, 982],
+      [390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.screenshot({ path: join(folder, `map-loading-${width}.png`), animations: 'disabled' });
+    }
   });
 
   // Themes with cards in every state: a question (needs you), a running session (working), an idle
@@ -122,6 +128,9 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.reload();
     await page.getByRole('link', { name: /Mobile app/ }).waitFor();
     await shoot(page, 'map-blocked', { widths: [1512, 390] });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await shoot(page, 'map-blocked-dark', { widths: [1512, 390] });
+    await page.emulateMedia({ colorScheme: 'light' });
     await page.goto(new URL('/p/AC/map?show=blocked', page.url()).href);
     await page.getByRole('link', { name: /Mobile app/ }).waitFor();
     await shoot(page, 'map-filter-blocked', { widths: [1512] });
@@ -155,7 +164,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.route(board, failing);
     await page.reload();
     await page.getByRole('alert').first().waitFor();
-    await shoot(page, 'map-error', { widths: [1512] });
+    await shoot(page, 'map-error', { widths: [1512, 390] });
   });
   log('PM-406 map screenshots complete');
 };

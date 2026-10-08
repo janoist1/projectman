@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  SessionStartCause,
   isHumanOnlyLabel,
   labelDefinition,
   labelSetters,
@@ -161,13 +162,17 @@ async function startTask(h: Harness) {
     const starts = detail.timeline.filter((event) => event.type === 'session_started');
     const fresh = starts.filter((event) => event.data.resumed === false);
     expect(fresh).toHaveLength(sessions.size);
+    for (const event of fresh)
+      expect(SessionStartCause.safeParse(event.data.cause).success, `start cause of ${event.sessionId}`).toBe(
+        true,
+      );
     for (const [member, sessionId] of sessions)
       expect(fresh).toContainEqual(
         expect.objectContaining({
           type: 'session_started',
           actor: ai(member),
           sessionId,
-          data: { member, resumed: false },
+          data: expect.objectContaining({ member, resumed: false }),
         }),
       );
     for (const event of starts.filter((start) => start.data.resumed === true))

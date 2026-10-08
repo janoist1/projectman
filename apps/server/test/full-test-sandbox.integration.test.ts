@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   mkdirSync,
   mkdtempSync,
@@ -97,6 +98,10 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
   let tmpDir: string;
   let secretFile: string;
 
+  // The run directory is named after the end of the run id and is never reused (a leftover of a run that
+  // was killed before it cleaned up makes the next run with the same id `sandbox_unavailable`, PM-419):
+  // every run of the test gets an id of its own, so a leftover of an earlier test run cannot collide.
+  const runIdOf = (name: string) => `ftr_${name}_${randomBytes(3).toString('hex')}`;
   const spec = (runId: string, command: string, timeoutMs = 120_000) => ({
     runId,
     cwd: checkout,
@@ -146,9 +151,10 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
       // The file exists, so a refusal below is the sandbox's and not a missing file.
       expect(readFileSync(secretFile, 'utf8')).toBe('secret');
       // The run's own temporary directory, which the probe finds as its TMPDIR.
-      const expectedTmp = runPaths(runDirOf(tmpDir, '/private/tmp', 'ftr_probe')).tmp;
+      const probeId = runIdOf('probe');
+      const expectedTmp = runPaths(runDirOf(tmpDir, '/private/tmp', probeId)).tmp;
       const result = await executor().run(
-        spec('ftr_probe', `node probe.mjs '${secretFile}' '${expectedTmp}'`),
+        spec(probeId, `node probe.mjs '${secretFile}' '${expectedTmp}'`),
         new AbortController().signal,
       );
       expect(result.outputTail).toBe('');
@@ -165,16 +171,17 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
     async () => {
       const deep = join(root, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40));
       mkdirSync(deep, { recursive: true });
+      const deepId = runIdOf('deepdir');
       const result = await createFullTestExecutor({
         logger,
         tmpDir: deep,
         env: { PATH: process.env.PATH },
-      }).run(spec('ftr_deepdir', 'echo deep'), new AbortController().signal);
+      }).run(spec(deepId, 'echo deep'), new AbortController().signal);
       expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
       expect(readdirSync(deep)).toEqual([]);
       // The fallback directory (the name comes from the run id) is gone too.
-      const fallback = basename(runDirOf('/private/tmp', '/private/tmp', 'ftr_deepdir'));
-      expect(fallback).toBe('pmft-rdeepdir');
+      const fallback = basename(runDirOf('/private/tmp', '/private/tmp', deepId));
+      expect(fallback).toMatch(/^pmft-[A-Za-z0-9]{8}$/);
       expect(readdirSync('/private/tmp').filter((name) => name === fallback)).toEqual([]);
     },
   );
@@ -184,20 +191,20 @@ describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
     { timeout: 180_000 },
     async () => {
       const failed = await executor().run(
-        spec('ftr_failed', "echo ' FAIL  test/a.test.ts > case'; exit 3"),
+        spec(runIdOf('failed'), "echo ' FAIL  test/a.test.ts > case'; exit 3"),
         new AbortController().signal,
       );
       expect(failed).toMatchObject({ outcome: 'failed', exitCode: 3, failedFiles: ['test/a.test.ts'] });
       expect(failed.outputTail).toContain('FAIL');
 
       const timedOut = await executor().run(
-        spec('ftr_timeout', 'sleep 60', 5000),
+        spec(runIdOf('timeout'), 'sleep 60', 5000),
         new AbortController().signal,
       );
       expect(timedOut).toMatchObject({ outcome: 'error', reason: 'timeout' });
 
       const controller = new AbortController();
-      const stopped = executor().run(spec('ftr_abort', 'sleep 60'), controller.signal);
+      const stopped = executor().run(spec(runIdOf('abort'), 'sleep 60'), controller.signal);
       setTimeout(() => controller.abort(), 6000);
       expect(await stopped).toMatchObject({ outcome: 'error', reason: 'killed' });
       expect(readdirSync(tmpDir)).toEqual([]);

@@ -1,0 +1,122 @@
+.page {
+  box-sizing: border-box;
+  padding: 22px 24px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.header {
+  --page-subtitle-size: var(--text-sm);
+}
+
+.summarySkeleton {
+  display: block;
+  width: 260px;
+  max-width: 100%;
+  height: 14px;
+  border-radius: 7px;
+  background: linear-gradient(90deg, var(--c-muted) 0%, var(--c-muted-hover) 50%, var(--c-muted) 100%);
+  background-size: 200% 100%;
+  animation: map-shimmer 1.2s linear infinite;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 0 auto;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--c-ink-3);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.firstUse {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  font-size: var(--text-sm);
+}
+
+.tiles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: 12px;
+}
+
+.skeleton {
+  height: 112px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, var(--c-muted) 0%, var(--c-muted-hover) 50%, var(--c-muted) 100%);
+  background-size: 200% 100%;
+  animation: map-shimmer 1.2s linear infinite;
+}
+
+@keyframes map-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: 16px 14px 24px;
+    gap: 14px;
+  }
+
+  .legend {
+    display: none;
+  }
+
+  .tiles {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .skeleton:nth-child(n + 5) {
+    display: none;
+  }
+
+  .toolbar > * {
+    min-width: 0;
+  }
+
+  .toolbar .member {
+    flex: 1 0 100%;
+    max-width: none;
+  }
+
+  .firstUse {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .summarySkeleton {
+    animation: none;
+  }
+}

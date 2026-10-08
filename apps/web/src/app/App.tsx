@@ -35,6 +35,8 @@ const createProjectPage = lazyPage(
 const sessionPage = lazyPage(() => import('../features/session/SessionPage'), 'SessionPage');
 const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPage');
 const memberProfilePage = lazyPage(() => import('../features/team/MemberProfilePage'), 'MemberProfilePage');
+const mapPage = lazyPage(() => import('../features/map/MapPage'), 'MapPage');
+const mapOverview = lazyPage(() => import('../features/map/MapOverview'), 'MapOverview');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
@@ -73,6 +75,9 @@ export function AppRoutes() {
           </Route>
           <Route path="sessions/:sessionId" element={sessionPage} />
           <Route path="inbox" element={inboxPage} />
+          <Route path="map" element={mapPage}>
+            <Route index element={mapOverview} />
+          </Route>
           <Route path="team" element={teamPage} />
           <Route path="team/:handle" element={memberProfilePage} />
           <Route path="messages" element={messagesPage} />

@@ -152,8 +152,8 @@ describe('the map overview', () => {
     expect(screen.getByText(t('map.emptyFilter.body'))).toBeTruthy();
     // The segments stay above it.
     expect(segment(t('map.filters.blocked')).getAttribute('aria-pressed')).toBe('true');
-    const clear = screen.getAllByRole('button', { name: t('map.clearFilters') });
-    fireEvent.click(clear.at(-1)!);
+    // One clear button, in the empty state: the toolbar's would repeat it.
+    fireEvent.click(screen.getByRole('button', { name: t('map.clearFilters') }));
     await tileOf('Webshop epic');
     expect(screen.getByTestId('search').textContent).toBe('');
   });

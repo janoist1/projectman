@@ -89,6 +89,7 @@ export function MapOverview() {
   }
 
   const filtered = filters.show !== 'all' || member !== '';
+  const good = filters.show !== 'all' && member === '';
   const base = `/p/${key}/map`;
   const options: { value: MapShow; label: string; count: number }[] = [
     { value: 'all', label: t('map.filters.all'), count: totals.open },
@@ -114,7 +115,7 @@ export function MapOverview() {
           options={assignees}
           onChange={filters.setMember}
         />
-        {filtered ? (
+        {filtered && groups.length > 0 ? (
           <Button variant="ghost" size="md" onClick={filters.clear}>
             {t('map.clearFilters')}
           </Button>
@@ -140,8 +141,9 @@ export function MapOverview() {
       ) : null}
       {groups.length === 0 ? (
         <EmptyState
-          icon="check"
-          tone="ok"
+          // Good news only when nothing waits or is stuck; a filter that merely hides the cards is neutral.
+          icon={good ? 'check' : 'filter'}
+          tone={good ? 'ok' : 'neutral'}
           title={t(
             filters.show === 'needsYou'
               ? 'map.emptyFilter.needsYou'

@@ -35,6 +35,12 @@ export function errorMessage(error: unknown): string {
         if (typeof details.stageId === 'string' && typeof details.tasks === 'number')
           return t('settings.pipeline.stageInUse', { stage: details.stageId, count: details.tasks });
       }
+      if (error.code === 'owner_login_required' && error.details && typeof error.details === 'object') {
+        const { category } = error.details as { category?: unknown };
+        const what =
+          typeof category === 'string' ? tDynamic(`errors.ownerLoginRequiredCategory.${category}`, '') : '';
+        if (what) return t('errors.ownerLoginRequiredIn', { what });
+      }
       if (error.code === 'handover_uncommitted' && error.details && typeof error.details === 'object') {
         const details = error.details as { path?: unknown; changes?: unknown };
         if (typeof details.path === 'string' && typeof details.changes === 'number')

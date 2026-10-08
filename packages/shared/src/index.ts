@@ -49,6 +49,7 @@ export * from './config/lookup';
 export * from './config/leave';
 export * from './config/repos';
 export * from './config/owner-only';
+export * from './config/integrator';
 export * from './config/permission-level';
 export * from './config/edit';
 export * from './config/test-workers';

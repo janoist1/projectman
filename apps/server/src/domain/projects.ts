@@ -5,6 +5,7 @@ import {
   ProjectConfig,
   applyConfigPatch,
   configSchemaIssues,
+  integratorConfigRefusal,
   isTheme,
   memberOf,
   ownerOnlyChanges,
@@ -25,7 +26,7 @@ import type { ProjectRecord } from '../db';
 import { projectAccessFor } from './access';
 import { isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
-import { conflict, DomainError, forbidden, invalid, notFound } from './errors';
+import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from './errors';
 import type { TimelineService } from './timeline';
 import { humanActor, KeyedMutex } from './util';
 
@@ -416,6 +417,10 @@ export class ProjectService {
       ProjectService.assertChangeAllowed(previous, next, member.access, meta.invitationBinding);
     } else {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
+    }
+    if (meta.actor.via === 'integrator') {
+      const refusal = integratorConfigRefusal(previous, next);
+      if (refusal) throw ownerLoginRequired(refusal);
     }
     const stageIds = new Set(next.pipeline.stages.map((stage) => stage.id));
     const removed = previous.pipeline.stages.filter((stage) => !stageIds.has(stage.id));

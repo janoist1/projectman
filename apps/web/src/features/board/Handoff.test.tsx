@@ -136,6 +136,15 @@ describe('the handoff box (PM-342)', () => {
     expect(screen.getByText(t('handoff.box.step.writing', { from: nameBe }))).toBeTruthy();
   });
 
+  it('hides the way back from a viewer who cannot manage the team', async () => {
+    const project = mockProject();
+    Object.assign(project.backend.findTask('AC-20')!, { assignee: 'fe-1', handoff: openHandoff('writing') });
+    project.render(drawer, '/p/AC/tasks/AC-20', { can: { manageTeam: false } });
+    const box = await screen.findByRole('region', { name: t('handoff.box.title') });
+    expect(within(box).getByRole('link', { name: t('handoff.box.session') })).toBeTruthy();
+    expect(within(box).queryByRole('button', { name: t('handoff.box.undo') })).toBeNull();
+  });
+
   it('is grey and stops the clock while the team is paused', async () => {
     await renderBox(openHandoff('paused', { deadlineAt: null }));
     const box = screen.getByRole('region', { name: t('handoff.box.pausedTitle') });
@@ -330,7 +339,9 @@ describe('the handoff note window (PM-342)', () => {
     const { dialog } = await openWindow(t('handoff.note.button'));
     await within(dialog).findByText('restore drill');
     expect(within(dialog).getByText('restore drill').tagName).toBe('STRONG');
-    expect(within(dialog).getByText(t('handoff.note.lastCommit', { commit: 'abcdef01' }))).toBeTruthy();
+    const commit = within(dialog).getByText('abcdef01');
+    expect(commit.tagName).toBe('CODE');
+    expect(commit.parentElement?.textContent).toBe(`${t('handoff.note.lastCommit')} abcdef01`);
     expect(within(dialog).getByText(t('handoff.note.uncommitted'))).toBeTruthy();
   });
 

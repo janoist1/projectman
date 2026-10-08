@@ -42,6 +42,11 @@
   color: var(--c-needs-text);
 }
 
+.link:hover,
+.linkButton:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
 /* The handoff box (PM-342): the accent tone; grey while the team is paused. */
 .accent {
   background: var(--c-accent-bg);
@@ -85,7 +90,6 @@
   font: inherit;
   font-size: var(--text-sm);
   font-weight: 700;
-  text-decoration: underline;
   cursor: pointer;
 }
 

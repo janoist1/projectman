@@ -53,7 +53,7 @@ export function TaskProperties({
             )}
           </span>
         )}
-        <HandoffNoteButton task={task} members={members} />
+        <HandoffNoteButton task={task} members={members} className={styles.propNote} />
       </div>
       <TaskLevel key={`level:${task.key}`} task={task} />
       <TaskPrioritySelect key={`priority:${task.key}`} task={task} />

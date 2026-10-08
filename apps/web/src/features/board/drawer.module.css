@@ -75,6 +75,14 @@
   color: var(--c-ink-3);
 }
 
+/* On a phone a small action next to the value goes under it, so the value keeps its width. */
+@media (max-width: 767px) {
+  .propNote {
+    grid-column: 2 / -1;
+    justify-self: start;
+  }
+}
+
 /* Takes the whole row under the label and value (a picker, a form, a list). */
 .propWide {
   grid-column: 1 / -1;

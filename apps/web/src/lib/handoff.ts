@@ -39,10 +39,29 @@ export function fallbackReasonText(
 /** The most characters of a handoff note a timeline row shows before it is cut. */
 const EXCERPT_MAX = 120;
 
-/** The first line of a note, cut to a short length with an ellipsis. */
+/** A Markdown line as plain text: no heading, quote or list marker, no emphasis or code marks. */
+function plainLine(line: string): { text: string; heading: boolean } {
+  const heading = /^\s{0,3}#{1,6}\s/.test(line);
+  const text = line
+    .replace(/^\s{0,3}(#{1,6}|>+|[-*+]|\d+[.)])\s+/, '')
+    .replace(/(\*\*|__|`)/g, '')
+    .trim();
+  return { text, heading };
+}
+
+/**
+ * The start of a note as plain text for a timeline row, cut to a short length with an ellipsis.
+ * It is the first line; a heading is joined with the line under it ("Állapot · A kosár kész").
+ */
 export function noteExcerpt(note: string): string {
-  const first = note.trim().split(/\r?\n/)[0]?.trim() ?? '';
-  return first.length > EXCERPT_MAX ? `${first.slice(0, EXCERPT_MAX - 1)}…` : first;
+  const lines = note
+    .split(/\r?\n/)
+    .map(plainLine)
+    .filter((line) => line.text !== '');
+  const first = lines[0];
+  if (!first) return '';
+  const excerpt = first.heading && lines[1] ? `${first.text} · ${lines[1].text}` : first.text;
+  return excerpt.length > EXCERPT_MAX ? `${excerpt.slice(0, EXCERPT_MAX - 1)}…` : excerpt;
 }
 
 /** The member name of a handoff end, or "nincs felelős" when the card goes to nobody. */

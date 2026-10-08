@@ -1,4 +1,5 @@
 import type { Task, TaskHandoffRecord } from '@projectman/shared';
+import clsx from 'clsx';
 import { useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import { isApiError } from '../../api/client';
@@ -21,7 +22,15 @@ import styles from './HandoffNote.module.css';
  * The button of the last closed handoff in the Assignee row (PM-342): "Átadó jegyzet" opens the
  * note in a window; when the receiver started without one, the button is fainter and says so.
  */
-export function HandoffNoteButton({ task, members }: { task: Task; members: MemberIndex }) {
+export function HandoffNoteButton({
+  task,
+  members,
+  className,
+}: {
+  task: Task;
+  members: MemberIndex;
+  className?: string;
+}) {
   const { key } = useProject();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -35,7 +44,7 @@ export function HandoffNoteButton({ task, members }: { task: Task; members: Memb
         variant="ghost"
         size="sm"
         icon="doc"
-        className={fallback ? styles.faint : undefined}
+        className={clsx(fallback && styles.faint, className)}
         onClick={() => setOpen(true)}
       >
         {t(fallback ? 'handoff.note.fallbackButton' : 'handoff.note.button')}
@@ -150,8 +159,9 @@ export function HandoffRecordBody({
       <div className={styles.chips}>
         {shift ? <Chip tone="outline">{shift}</Chip> : null}
         {record.lastCommit ? (
-          <Chip tone="neutral" mono>
-            {t('handoff.note.lastCommit', { commit: shortCommit(record.lastCommit) })}
+          <Chip tone="neutral">
+            {t('handoff.note.lastCommit')}{' '}
+            <code className={styles.hash}>{shortCommit(record.lastCommit)}</code>
           </Chip>
         ) : null}
         {record.uncommitted ? <Chip tone="needs">{t('handoff.note.uncommitted')}</Chip> : null}

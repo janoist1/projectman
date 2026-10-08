@@ -2069,7 +2069,7 @@ export const hu = {
       title: 'Átadó jegyzet',
       fallbackTitle: 'Átadás jegyzet nélkül',
       description: '{pair} · {time}',
-      lastCommit: 'Utolsó commit: {commit}',
+      lastCommit: 'Utolsó commit:',
       uncommitted: 'Commit nélküli változás maradt',
       noNote: 'A jegyzet üres.',
       fallbackLine: 'Nem volt leadás: {reason}.',

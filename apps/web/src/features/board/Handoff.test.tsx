@@ -183,6 +183,35 @@ describe('the handoff box (PM-342)', () => {
     });
   });
 
+  it('keeps the box and says why when the server refuses the way back', async () => {
+    const project = mockProject();
+    const handoff = openHandoff('waiting_point');
+    Object.assign(project.backend.findTask('AC-20')!, { assignee: handoff.to, handoff });
+    const inner = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (path, init) =>
+      init?.method === 'PATCH'
+        ? new Response(JSON.stringify({ error: { code: 'undo_refused', message: 'The card moved on.' } }), {
+            status: 409,
+            headers: { 'content-type': 'application/json' },
+          })
+        : inner(String(path), init),
+    );
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    await screen.findByRole('region', { name: /Átadás/ });
+    fireEvent.click(screen.getByRole('button', { name: t('handoff.box.undo') }));
+    const alert = await screen.findByRole('alert');
+    // A 409 reads as the shared "someone else changed it" text of the client.
+    expect(alert.textContent).toMatch(/módosította/);
+    expect(screen.getByRole('region', { name: /Átadás/ })).toBeTruthy();
+    expect(project.backend.findTask('AC-20')?.handoff).toBeTruthy();
+    // The button comes back: the person can try again.
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: t('handoff.box.undo') }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+  });
+
   it('says in the status line that the old assignee hands the work over', async () => {
     const task: Task = { ...tasks.find((entry) => entry.key === 'AC-20')!, handoff: openHandoff('writing') };
     const ctx: TaskStateContext = {
@@ -354,7 +383,37 @@ describe('the handoff note window (PM-342)', () => {
     await within(second.dialog).findByText(/Összefoglaló sem volt/);
   });
 
-  it('shows a loading state, and an error with a retry', async () => {
+  it('shows a loading state while the record is on its way', async () => {
+    const project = mockProject();
+    project.backend.handoffRecords.set('hnd_closed', { ...record(), taskKey: 'AC-20' });
+    project.backend.findTask('AC-20')!.lastHandoff = {
+      id: 'hnd_closed',
+      from: 'be-1',
+      to: 'fe-1',
+      fromProvider: 'codex',
+      toProvider: 'claude',
+      outcome: 'note',
+      endedAt: new Date().toISOString(),
+    };
+    const inner = createMockFetch(project.backend, project.requests);
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setFetchImplementation(async (path, init) => {
+      if (String(path).includes('/handoffs/')) await held;
+      return inner(String(path), init);
+    });
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const { dialog } = await openWindow(t('handoff.note.button'));
+    expect(within(dialog).getByRole('status').textContent).toContain(t('app.loading'));
+    expect(within(dialog).queryByText(t('handoff.note.loadFailed'))).toBeNull();
+    release();
+    await within(dialog).findByText('restore drill');
+    expect(within(dialog).queryByRole('status')).toBeNull();
+  });
+
+  it('shows an error with a retry', async () => {
     const project = mockProject();
     project.backend.handoffRecords.set('hnd_closed', { ...record(), taskKey: 'AC-20' });
     project.backend.findTask('AC-20')!.lastHandoff = {

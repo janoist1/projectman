@@ -130,7 +130,11 @@ describe('a new relation on a card that is being worked on', () => {
     it('says nothing to the member who added the relation', async () => {
       await setup();
       await worker('dev-1', 'idle');
-      const dev2 = await worker('dev-2', 'idle');
+      // A second member with a session of its own on the card (a start for it would hand the card over).
+      const { session: dev2 } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
+      h.runner.setState(dev2.id, 'idle');
+      await flush();
+      baseline.set(dev2.id, h.runner.messages.filter((m) => m.sessionId === dev2.id).length);
 
       await relate('AR-1', [{ kind: 'related', key: 'AR-2' }], DEV_1);
 

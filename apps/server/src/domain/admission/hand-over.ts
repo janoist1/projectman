@@ -1,5 +1,5 @@
-import { isOnLeave, isRefinementStage, memberOf, stageOf, stageOwners } from '@projectman/shared';
-import type { AiMemberConfig, ProjectConfig, Stage, Task } from '@projectman/shared';
+import { isOnLeave, isRefinementStage, memberOf, stageIndex, stageOf, stageOwners } from '@projectman/shared';
+import type { AiMemberConfig, ProjectConfig, Session, Stage, Task } from '@projectman/shared';
 import { conflict } from '../errors';
 import type { MessageDelivery } from '../messaging';
 import type { ProjectService } from '../projects';
@@ -15,8 +15,9 @@ import type { AutomaticStart, StartSpec } from './deferred-starts';
  * not stall when a human moved the task or approved the release. The kick-off brief carries
  * the stage rules. An owner already working the task is told instead; the task's assignee never
  * takes over a later stage (no self-review). Back in the work stage, the assignee's live
- * session is told (starting work again goes through task starts). A refused hand-over waits
- * and is retried while the task stays in that stage.
+ * session is told, and an AI assignee with no session is started unless it moved the card itself
+ * or the fix round limit holds the card (PM-420); going forward into the work stage is the Start
+ * button's (PM-119). A refused hand-over waits and is retried while the task stays in that stage.
  */
 export class StageHandOver {
   private readonly projects: ProjectService;
@@ -104,8 +105,38 @@ export class StageHandOver {
         if (isRefinementStage(stage)) return;
         if (stage.kind === 'work') {
           // A card held by its fix round limit (PM-262) tells its assignee nothing: its decider's decision does.
-          if (task.assignee && !this.fixLimit?.heldFor(task, config))
-            this.notify(current, stage, task.assignee);
+          if (!task.assignee || this.fixLimit?.heldFor(task, config)) return;
+          const assignee = memberOf(config, task.assignee);
+          const workItem = { type: 'task', taskKey } as const;
+          if (this.sessions.findRunning(projectKey, task.assignee, workItem))
+            return this.notify(current, stage, task.assignee);
+          // A card sent back to its assignee, who has no session on it, starts it (PM-420). Going forward
+          // into the work stage is the Start button's business (PM-119), and a member who moved the card
+          // itself needs no start.
+          const wentBack = stageIndex(config.pipeline, change.to) < stageIndex(config.pipeline, change.from);
+          if (assignee?.kind !== 'ai' || !wentBack) return;
+          if (change.actor.kind === 'ai' && change.actor.handle === assignee.handle) return;
+          waitsFor = assignee.handle;
+          // The messages that waited for the start (a send-back's label message) go in its first input.
+          let resumed = undefined as Session | undefined;
+          await this.delivery.startAndDeliver(projectKey, assignee.handle, workItem, async (messages) => {
+            const result = await this.admission.start({
+              config,
+              member: assignee,
+              workItem,
+              messages,
+              cause: {
+                kind: 'hand_over',
+                from: change.from,
+                to: change.to,
+                by: change.actor,
+                eventId: change.eventId,
+              },
+            });
+            if (result.resumed) resumed = result.session;
+            return result;
+          });
+          if (resumed) this.notify(current, stage, resumed.member);
           return;
         }
         // The reviewers wait for the server's full test of the pinned commit (PM-217).

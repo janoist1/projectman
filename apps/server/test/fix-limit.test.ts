@@ -3,7 +3,7 @@ import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import { SYSTEM_ACTOR, aiActor } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { settle } from './helpers/fakes';
+import { planUsage, settle } from './helpers/fakes';
 
 /**
  * The fix round limit (PM-262). Card AR-1 is carried by `dev-1`; the limit is two rounds here, and a
@@ -315,6 +315,133 @@ describe('fix round limit', () => {
       await expect(tool('arch', 'continue')).rejects.toMatchObject({ code: 'fix_limit_not_decider' });
       await expect(tool('dev-1', 'continue')).rejects.toMatchObject({ code: 'fix_limit_not_decider' });
       expect(record()?.holdPhase).toBe('lead');
+    });
+  });
+
+  /**
+   * PM-420: a decision that lets the card go on starts its assignee when it has no running session and
+   * no message was waiting for it; nothing else would have woken it.
+   */
+  describe('a decision starts an assignee that does not run (PM-420)', () => {
+    const startsOfDev = () => h.runner.started.filter((spec) => spec.member === 'dev-1').length;
+    const devSessions = () =>
+      h.domain.sessions.list('AR', { taskKey: 'AR-1' }).filter((s) => s.member === 'dev-1');
+    const lifted = (text: string) => text.includes('The fix round limit on AR-1 was lifted by');
+
+    /** The card is held and its assignee has no session and no waiting message. */
+    async function idleHeld(opts: Parameters<typeof prepare>[0] = {}) {
+      await prepare(opts);
+      await round('First fix');
+      await round('Second fix');
+      for (const message of h.domain.messages.waiting('AR', 'dev-1', TASK))
+        h.domain.messages.markRecipientDelivered(message.id, 'dev-1');
+      for (const session of devSessions()) await h.domain.sessions.stop('AR', session.id);
+      await settle();
+      expect(h.domain.sessions.findRunning('AR', 'dev-1', TASK)).toBeNull();
+      expect(waiting()).toEqual([]);
+    }
+
+    it('starts the assignee when the lead lets the card go on', async () => {
+      await idleHeld();
+      const before = startsOfDev();
+      await tool('lead', 'continue', 'The plan is fine.');
+      await vi.waitFor(() => expect(startsOfDev()).toBe(before + 1));
+      expect(h.runner.started.filter((spec) => spec.member === 'dev-1').at(-1)?.initialMessage).toSatisfy(
+        (text: string) => lifted(text) && text.includes('Reason: The plan is fine.'),
+      );
+      expect(devSessions().at(-1)?.startCause).toMatchObject({
+        kind: 'fix_limit',
+        rounds: 2,
+        limit: 3,
+      });
+    });
+
+    it('starts the assignee when a person lets the card go on with one more round', async () => {
+      await idleHeld();
+      await tool('lead', 'to_owner', 'Your call.');
+      const before = startsOfDev();
+      await h.domain.inbox.resolve('AR', items()[0]!.id, { optionId: 'another_round' }, OWNER_ACCESS);
+      await vi.waitFor(() => expect(startsOfDev()).toBe(before + 1));
+      expect(h.runner.started.filter((spec) => spec.member === 'dev-1').at(-1)?.initialMessage).toSatisfy(
+        lifted,
+      );
+      expect(devSessions().at(-1)?.startCause).toMatchObject({ kind: 'fix_limit' });
+    });
+
+    it('starts the assignee when the planner of a replan decision is gone and it is one more round instead', async () => {
+      await idleHeld();
+      await tool('lead', 'to_owner', 'Your call.');
+      expect(items()[0]?.options).toContainEqual(expect.objectContaining({ id: 'replan' }));
+      await h.domain.members.retire('AR', 'arch', {}, { actor: OWNER_ACTOR, author: OWNER });
+      const before = startsOfDev();
+      await h.domain.inbox.resolve('AR', items()[0]!.id, { optionId: 'replan' }, OWNER_ACCESS);
+      await vi.waitFor(() => expect(startsOfDev()).toBe(before + 1));
+      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1 });
+    });
+
+    it('starts the planner-released assignee with a fresh count', async () => {
+      await idleHeld();
+      await tool('lead', 'replan', 'Too loose.');
+      const before = startsOfDev();
+      await tool('arch', 'continue', 'Plan written.');
+      await vi.waitFor(() => expect(startsOfDev()).toBe(before + 1));
+    });
+
+    it('starts one session when messages waited for the assignee as well', async () => {
+      await prepare();
+      await round('First fix');
+      await round('Second fix');
+      for (const session of devSessions()) await h.domain.sessions.stop('AR', session.id);
+      await settle();
+      expect(waiting()).toEqual(['Code review: changes\n\nSecond fix']);
+      const before = startsOfDev();
+      await tool('lead', 'continue', 'Go on.');
+      await vi.waitFor(() => expect(startsOfDev()).toBeGreaterThan(before));
+      await settle();
+      expect(startsOfDev()).toBe(before + 1);
+      expect(waiting()).toEqual([]);
+      // The waiting message and the notice are both typed into the one session or its first input.
+      const texts = [
+        ...h.runner.started
+          .filter((spec) => spec.member === 'dev-1')
+          .map((spec) => spec.initialMessage ?? ''),
+        ...h.runner.messages.map((message) => message.text),
+      ].join('\n');
+      expect(texts).toContain('Second fix');
+      expect(texts).toContain('Go on.');
+    });
+
+    it('stores the notice and wakes the assignee once the plan usage allows it', async () => {
+      await idleHeld();
+      h.runnerModule.planUsage.value = planUsage(95);
+      const before = startsOfDev();
+      await tool('lead', 'continue', 'Go on.');
+      await settle();
+      expect(startsOfDev()).toBe(before);
+      expect(stored('dev-1')).toHaveLength(1);
+      expect(h.repos.deferredStarts.list().map((record) => record.spec)).toContainEqual(
+        expect.objectContaining({ kind: 'message_wake', handle: 'dev-1', workItem: TASK }),
+      );
+
+      h.runnerModule.planUsage.value = planUsage(30);
+      await vi.waitFor(async () => {
+        await h.domain.admission.retryDeferred();
+        expect(startsOfDev()).toBe(before + 1);
+      });
+      expect(h.runner.started.filter((spec) => spec.member === 'dev-1').at(-1)?.initialMessage).toContain(
+        'was lifted by lead',
+      );
+      expect(h.repos.deferredStarts.list()).toEqual([]);
+    });
+
+    it('does not start a held assignee when the card is sent back into the work stage', async () => {
+      await idleHeld();
+      const before = startsOfDev();
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+      await settle();
+      expect(record()?.holdPhase).toBe('lead');
+      expect(startsOfDev()).toBe(before);
+      expect(h.repos.deferredStarts.list()).toEqual([]);
     });
   });
 

@@ -304,12 +304,14 @@ export interface TimelineEventData {
    * and `member` the AI member started for it (null: nobody, the people who may set it were told, or
    * `done`). `reason`: `started` the first step of this refinement, `label_set` the previous step's
    * label is on, `label_removed` a label came off and the card went back a step, `done` the last label
-   * is on and the card was worked out (`label` is null then).
+   * is on and the card was worked out (`label` is null then). `stopped`: the card stopped being refined
+   * (the `refine` label came off, it left the refinement stage, or it closed) before its last step;
+   * `label` and `member` are null.
    */
   refinement_turn: {
     label: string | null;
     member: string | null;
-    reason: 'started' | 'label_set' | 'label_removed' | 'done';
+    reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped';
   };
   /**
    * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when

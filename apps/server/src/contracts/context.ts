@@ -214,7 +214,25 @@ export interface SourceHead {
   committedAt: string | null;
 }
 
+/** Why the worktree dependencies were left as they were (PM-412). */
+export type DependencySkip =
+  | 'present'
+  | 'disabled'
+  | 'not_worktree'
+  | 'no_lockfile'
+  | 'not_ignored'
+  | 'no_reference'
+  | 'unsupported'
+  | 'reference_changed'
+  | 'failed';
+
+export type DependencyRefreshResult =
+  | { status: 'cloned' | 'refreshed'; reference: string; dirs: string[]; ms: number }
+  | { status: 'skipped'; reason: DependencySkip };
+
 export interface WorktreeManager {
+  /** Clones missing or stale task dependencies. Never rejects or installs packages. */
+  refreshDependencies(path: string): Promise<DependencyRefreshResult>;
   /** The head and cleanliness of a task worktree; null when it is detached or has no commit. */
   head(path: string): Promise<SourceHead | null>;
   /** Creates (or reuses) a git worktree + branch for a task in one of the project's repos. */

@@ -205,12 +205,12 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     expect(await exists(path.join(target, 'node_modules'))).toBe(false);
   });
 
-  it('skips a worktree that has node_modules already, also an empty one', async () => {
+  it('refreshes an existing node_modules with no hidden npm lockfile', async () => {
     await install(reference);
     await mkdir(path.join(target, 'node_modules'));
 
-    expect(await clone().result).toEqual({ status: 'skipped', reason: 'present' });
-    expect(await readdir(path.join(target, 'node_modules'))).toEqual([]);
+    expect(await clone().result).toMatchObject({ status: 'refreshed' });
+    expect(await exists(path.join(target, 'node_modules/left-pad'))).toBe(true);
   });
 
   it('skips a worktree without a lockfile', async () => {
@@ -233,7 +233,7 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     await staleTarget();
     await put(reference, 'node_modules/new-package/index.js', 'new');
 
-    expect(await clone().result).toMatchObject({ status: 'cloned', dirs: ['apps/web', '.'] });
+    expect(await clone().result).toMatchObject({ status: 'refreshed', dirs: ['apps/web', '.'] });
     expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(false);
     expect(await readFile(path.join(target, 'node_modules/new-package/index.js'), 'utf8')).toBe('new');
     expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('vite\n');
@@ -247,6 +247,50 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     expect(await clone().result).toEqual({ status: 'skipped', reason: 'no_reference' });
     expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
     expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('old');
+  });
+
+  it('removes stale workspace modules absent from the new reference', async () => {
+    await install(reference, { webModules: false });
+    await staleTarget();
+
+    expect(await clone().result).toMatchObject({ status: 'refreshed', dirs: ['apps/web', '.'] });
+    expect(await exists(path.join(target, 'apps/web/node_modules'))).toBe(false);
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(false);
+    expect(await leftovers(target)).toEqual([]);
+  });
+
+  it('does not copy a fresh installation', async () => {
+    await install(target);
+    const copyTree = vi.fn(plainCopy);
+
+    expect(await clone({ copyTree }).result).toEqual({ status: 'skipped', reason: 'present' });
+    expect(copyTree).not.toHaveBeenCalled();
+  });
+
+  it('keeps stale dependencies when a copy never completes', async () => {
+    await install(reference);
+    await staleTarget();
+
+    expect(await clone({ copyTree: () => new Promise(() => undefined), copyTimeoutMs: 10 }).result).toEqual({
+      status: 'skipped',
+      reason: 'failed',
+    });
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
+    expect(await readFile(path.join(target, 'apps/web/node_modules/vite/index.js'), 'utf8')).toBe('old');
+    expect(await leftovers(target)).toEqual([]);
+  });
+
+  it('keeps stale dependencies when the reference changes during copying', async () => {
+    await install(reference);
+    await staleTarget();
+    const copyTree = async (src: string, dest: string) => {
+      await plainCopy(src, dest);
+      await put(reference, 'package-lock.json', 'changed');
+    };
+
+    expect(await clone({ copyTree }).result).toEqual({ status: 'skipped', reason: 'reference_changed' });
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
+    expect(await leftovers(target)).toEqual([]);
   });
 
   it('keeps stale dependencies when copying the replacement fails', async () => {
@@ -288,7 +332,7 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
       await put(target, 'package-lock.json', 'changed again');
     };
 
-    expect(await clone({ copyTree }).result).toEqual({ status: 'skipped', reason: 'target_changed' });
+    expect(await clone({ copyTree }).result).toEqual({ status: 'skipped', reason: 'reference_changed' });
     expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
     expect(await leftovers(target)).toEqual([]);
   });
@@ -300,7 +344,7 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
 
     const results = await Promise.all([clone({ copyTree }).result, clone({ copyTree }).result]);
 
-    expect(results[0]).toMatchObject({ status: 'cloned' });
+    expect(results[0]).toMatchObject({ status: 'refreshed' });
     expect(results[1]).toEqual({ status: 'skipped', reason: 'present' });
     expect(copyTree).toHaveBeenCalledTimes(2);
     expect(await leftovers(target)).toEqual([]);

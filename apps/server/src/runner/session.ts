@@ -71,6 +71,7 @@ export interface PtySpawnOptions {
 export type SpawnPty = (file: string, args: string[], options: PtySpawnOptions) => PtyProcess;
 
 export interface SessionDeps {
+  refreshDependencies?: (cwd: string) => Promise<void>;
   logger: FastifyBaseLogger;
   broker: PermissionBroker;
   permissionTimeoutMs: number;
@@ -697,6 +698,13 @@ export class AgentSession {
       return this.adapter.capabilities.toolGate === 'pre_tool_use' && payload.hook_event_name === 'PreToolUse'
         ? this.adapter.denyOutput(authError)
         : null;
+    }
+    if (payload.hook_event_name === 'PreToolUse' && this.deps.refreshDependencies) {
+      try {
+        await this.deps.refreshDependencies(this.spec.cwd);
+      } catch (err) {
+        this.log.warn({ sessionId: this.id, err }, 'refreshing worktree dependencies failed');
+      }
     }
     // A subagent's approval still needs an answer; its other hooks say nothing about the session.
     if (subagent && !['PermissionRequest', 'PermissionDenied'].includes(payload.hook_event_name)) return null;

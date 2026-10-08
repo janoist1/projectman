@@ -1,5 +1,10 @@
 import type { AgentSandbox, StartSessionSpec } from '../../../contracts';
-import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
+import {
+  FAST_HOOK_TIMEOUT_S,
+  TOOL_PREPARE_HOOK_TIMEOUT_S,
+  forwarderCommand,
+  permissionHookTimeoutS,
+} from '../../hook-forwarder';
 import { claudeBuiltinTools, claudeToolRules, directoryRulePaths } from './policy';
 
 /**
@@ -304,7 +309,7 @@ export function buildSettings(input: HookSettingsInput): ClaudeSettings {
       event === 'PermissionRequest'
         ? permissionTimeoutS
         : event === 'PreToolUse'
-          ? QUESTION_HOOK_TIMEOUT_S
+          ? Math.max(QUESTION_HOOK_TIMEOUT_S, TOOL_PREPARE_HOOK_TIMEOUT_S)
           : event === 'SessionEnd'
             ? SESSION_END_TIMEOUT_S
             : FAST_HOOK_TIMEOUT_S;

@@ -176,11 +176,21 @@ Documentation map:
   `.vite-temp` and `.cache` are left out of the copy. The server never runs `npm install`/`npm ci` outside the
   sandbox (install scripts). Whatever fails or does not apply (`worktree/dependencies.ts` names the reasons)
   is a log line, never a failed worktree: the member installs as before. Members' own workspaces and review
-  copies are not cloned. An installation is stale when its hidden npm lockfile predates
+  copies are not cloned. An installation is stale when its hidden npm lockfile is missing or predates
   `package-lock.json`. Refreshes serialize per worktree, prepare all copies before replacing
   directories, and replace the root last. A failed replacement restores the old directories;
   without a matching reference, the old installation stays. The successful root copy is stamped
   at the target lockfile's modification time or later so another start does not refresh it again.
+  Workspace modules absent from the reference are removed during replacement. Before every
+  provider's `PreToolUse` answer (subagents included), the runner awaits the same manager method
+  through `RunnerModuleOptions.refreshDependencies`. The manager only accepts paths registered
+  by `ensureForTask` since server start and never derives the reference repository from a member's
+  writable `.git` file. A fresh install needs two stat calls. Missing references, unsupported clones
+  and failures retry after 60 seconds, or immediately if the target lock mtime changes. Copying has
+  a 90-second total budget; Codex and Claude prepare hooks wait 120 seconds (Gemini already waits
+  for its permission timeout). No heavy-run queue is taken for these short APFS copies. Failures
+  only log and preserve the hook decision; the prompt tells the member to ask the owner to install
+  missing dependencies in the default checkout.
 - **Member workspace** (PM-138, server option `memberWorkspaces`, `PROJECTMAN_WORKSPACES=member`;
   off by default until the switch-over, PM-143) — in place of a worktree per task, every AI member
   gets one durable workspace per repository, `workspaces/<KEY>/<handle>/<repo>/`: an independent
@@ -988,12 +998,18 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
   `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
-  stale installations are cloned before a task session starts or resumes; staleness uses the
+  stale installations are cloned before a task session starts or resumes and before each tool
+  via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
   local lockfile and hidden npm lockfile modification times. Per-worktree serialization and
-  directory backups protect replacements; no npm install runs outside a sandbox.
+  directory backups protect replacements; a server-start lifetime registry restricts targets,
+  failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
+  time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
+  No npm install runs outside a sandbox.
   **Remote engine:** find reference checkouts and probe the filesystem on the engine;
   retain the existing skip/install fallback on other platforms. The server's installation
-  cannot be cloned across machines, and native dependencies must match the engine.
+  cannot be cloned across machines, and native dependencies must match the engine. Keep the
+  runner, registry, freshness checks and copies together on the engine; the callback is local
+  there and adds no server/engine request.
 - **Heavy-run queue and worker limits** — `full-test/heavy-lock.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under

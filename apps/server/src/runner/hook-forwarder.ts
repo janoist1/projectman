@@ -10,6 +10,8 @@
 
 /** Timeout (seconds) of hooks the runner answers immediately. */
 export const FAST_HOOK_TIMEOUT_S = 10;
+/** Allows the bounded worktree dependency copy to finish before the next tool runs. */
+export const TOOL_PREPARE_HOOK_TIMEOUT_S = 120;
 /** Extra time the CLI waits beyond our own permission timeout, so we always answer first. */
 export const PERMISSION_TIMEOUT_MARGIN_S = 30;
 
@@ -33,9 +35,9 @@ export function shellQuote(value: string): string {
  * as the first argument. Contains no single quotes (it is single-quoted).
  */
 const NODE_FORWARDER =
-  'const u=process.argv[1];const c=[];process.stdin.on("data",(d)=>c.push(d));' +
+  'const u=process.argv[1];const t=Number(process.argv[2])*1000;const c=[];process.stdin.on("data",(d)=>c.push(d));' +
   'process.stdin.on("end",()=>{const m=require(u.startsWith("https:")?"https":"http");' +
-  'const r=m.request(u,{method:"POST",headers:{"content-type":"application/json"},timeout:10000},(s)=>s.resume());' +
+  'const r=m.request(u,{method:"POST",headers:{"content-type":"application/json"},timeout:t},(s)=>s.resume());' +
   'r.on("error",()=>{});r.on("timeout",()=>r.destroy());r.end(Buffer.concat(c));});';
 
 /**
@@ -79,9 +81,8 @@ export function forwarderCommand(
     return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi 2>/dev/null; exit 0`;
   }
   if (!opts.printResponse) {
-    // The Node fallback of a silent forwarder keeps its own fixed 10 s timeout.
     const curl = `curl -q --noproxy '*' -sS -m ${maxTime} -o /dev/null ${post}`;
-    const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)}`;
+    const node = `${shellQuote(nodePath)} -e ${shellQuote(NODE_FORWARDER)} ${shellQuote(url)} ${maxTime}`;
     return `if command -v curl >/dev/null 2>&1; then ${curl}; else ${node}; fi >/dev/null 2>&1; exit 0`;
   }
   const curl = `curl -q --noproxy '*' -sSf -m ${maxTime} ${post}`;

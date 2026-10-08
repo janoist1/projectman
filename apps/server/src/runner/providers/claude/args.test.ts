@@ -27,6 +27,17 @@ describe('buildSettings', () => {
     expect(settings.permissions.allow).toEqual(['mcp__team', 'mcp__team__*']);
   });
 
+  it('allows dependency preparation before tools', () => {
+    expect(settings.hooks.PreToolUse![0]!.hooks[0]!.timeout).toBe(120);
+    const sandboxed = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      sandbox: { allowWrite: ['/work'], allowedDomains: [], allowLocalBinding: false },
+    });
+    expect(sandboxed.hooks.PreToolUse![0]!.hooks[0]!.command).toContain('-m 120');
+  });
+
   it('passes non-empty deny rules and omits empty ones', () => {
     const input = { hookUrl: 'http://h/hooks/t', allowedTools: [], permissionTimeoutMs: 1000 };
     expect(buildSettings(input).permissions).not.toHaveProperty('deny');

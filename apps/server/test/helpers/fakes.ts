@@ -285,6 +285,9 @@ export class FakeMemoryStore implements MemberMemoryStore {
 }
 
 export class FakeWorktreeManager implements WorktreeManager {
+  async refreshDependencies() {
+    return { status: 'skipped', reason: 'not_worktree' } as const;
+  }
   readonly calls: Array<{ repoName: string; taskKey: string }> = [];
   readonly removed: string[] = [];
   readonly existing = new Map<string, WorktreeInfo>();

@@ -508,6 +508,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           publicBaseUrl,
           instanceTag,
           broker,
+          refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
           permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
           logger: log.child({ module: 'runner' }),
           ...(runtimeBoundary.mode === 'managed_vm' && runtimeBoundary.launcher && runtimeBoundary.layout

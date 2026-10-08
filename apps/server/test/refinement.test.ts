@@ -4,7 +4,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import { aiActor } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, planUsage } from './helpers/fakes';
 
 /**
  * Decision 31: a card that is being refined (label `refine`, or standing in the refinement stage
@@ -194,12 +194,12 @@ describe('Refinement line', () => {
     await prepare({}, []);
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
-    // The owner ends the refinement by hand: no `done` turn is written, ana's stays the latest.
+    // The owner ends the refinement by hand: the open turn is closed as `stopped` (PM-420).
     await label({ remove: ['refine'], add: ['scope-ok'] });
-    await flush();
+    await vi.waitFor(() => expect(turn()?.data.reason).toBe('stopped'));
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
     await vi.waitFor(() => expect(members()).toEqual(['ana', 'dev-1']));
-    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+    expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
     const dev = sessionsOf().find((s) => s.member === 'dev-1')!;
     h.runner.setState(dev.id, 'working');
     await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
@@ -315,6 +315,111 @@ describe('Refinement line', () => {
     expect(alerts('stalled')).toHaveLength(1);
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
+  });
+
+  /** PM-420: a turn that was handed out and left open must not hide a later `refine` from the line. */
+  describe('a turn left open when refine comes off (PM-420)', () => {
+    const turnReasons = () =>
+      h.domain.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .filter((event) => event.type === 'refinement_turn')
+        .map((event) => event.data.reason);
+    const refineSpec = {
+      kind: 'refinement_turn',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      stageId: 'backlog',
+      label: 'scope-ok',
+    };
+
+    it('closes the open turn when the member ended it without the label and refine comes off, and starts a new one when refine is put back', async () => {
+      await prepare();
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      endTurn('ana');
+      await vi.waitFor(() => expect(alerts('stalled')).toHaveLength(1));
+
+      await label({ remove: ['refine'] });
+      await vi.waitFor(() => expect(turn()?.data).toEqual({ label: null, member: null, reason: 'stopped' }));
+      expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
+
+      await label({ add: ['refine'] });
+      await vi.waitFor(() =>
+        expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'started' }),
+      );
+      expect(turnReasons()).toEqual(['started', 'stopped', 'started']);
+      // The analyst's session (closed when the turn stopped) starts again for the new turn.
+      await vi.waitFor(() => expect(h.runner.started).toHaveLength(2));
+      expect(h.runner.started.at(-1)).toMatchObject({ sessionId: sessionsOf()[0]!.id });
+      expect(members()).toEqual(['ana']);
+    });
+
+    it('writes no stopped turn for a card that had no turn', async () => {
+      await prepare({}, ['ui', 'waiting']);
+      await label({ add: ['refine'] });
+      await flush();
+      await label({ remove: ['refine'] });
+      await flush();
+      expect(turn()).toBeNull();
+    });
+
+    it('does not follow a done with a stopped one when the chain ends and takes refine off', async () => {
+      await prepare({}, []);
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
+      await flush();
+      await h.domain.refinement.changed(task());
+      await flush();
+      expect(turnReasons()).toEqual(['started', 'done']);
+    });
+
+    it('waits when both setters are busy, and starts the member when one is free', async () => {
+      await prepare();
+      await h.domain.tasks.create('AR', { title: 'Second' }, OWNER_ACTOR);
+      await h.domain.tasks.create('AR', { title: 'Third' }, OWNER_ACTOR);
+      await h.domain.sessions.ensureSession('AR', 'ana', { type: 'task', taskKey: 'AR-2' });
+      await h.domain.sessions.ensureSession('AR', 'ana2', { type: 'task', taskKey: 'AR-3' });
+      await label({ add: ['refine'] });
+      await vi.waitFor(() =>
+        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+      );
+      expect(sessionsOf()).toEqual([]);
+      expect(turn()).toBeNull();
+
+      await h.domain.tasks.cancel('AR', 'AR-2', { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
+      await vi.waitFor(async () => {
+        await h.domain.admission.retryDeferred();
+        expect(members()).toEqual(['ana']);
+      });
+      expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'started' });
+      expect(h.repos.deferredStarts.list()).toEqual([]);
+    });
+
+    it('waits on the plan usage pause, keeps the wait over a restart and starts the member once the usage is down', async () => {
+      await prepare();
+      h.runnerModule.planUsage.value = planUsage(95);
+      await label({ add: ['refine'] });
+      await vi.waitFor(() =>
+        expect(h.repos.deferredStarts.list().map((record) => record.spec)).toEqual([refineSpec]),
+      );
+      expect(members()).toEqual([]);
+
+      h = await restartDomainHarness(h, { planUsagePercent: 95 });
+      expect(h.repos.deferredStarts.list().map((record) => record.key)).toEqual(['refinement:AR:AR-1']);
+      await h.domain.admission.retryDeferred();
+      expect(members()).toEqual([]);
+
+      h.runnerModule.planUsage.value = planUsage(30);
+      await vi.waitFor(async () => {
+        await h.domain.admission.retryDeferred();
+        expect(members()).toEqual(['ana']);
+      });
+      expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'started' });
+      expect(h.repos.deferredStarts.list()).toEqual([]);
+    });
   });
 
   describe('a pause of the team (PM-219)', () => {

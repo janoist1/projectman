@@ -351,7 +351,9 @@ Documentation map:
   No machine-dependent part is affected.
 - **Stage hand-over** — when a task enters a later stage owned by AI members, by anyone's
   move, the least loaded free owner (never the task's assignee) gets a session for the task.
-  An owner that already has a session for the task gets a notice instead.
+  An owner that already has a session for the task gets a notice instead. A card sent back into the
+  work stage tells its assignee's session, and starts an AI assignee that has none (PM-420; a deferred
+  `hand_over` start when admission refuses; not when the assignee moved it or the fix limit holds it).
 - **Refinement line** (decision 31, `RefinementSteps`) — a card carrying `refine` (or standing in a
   `task_breakdown` step stage) is worked out one step at a time, before development. The steps are
   the labels the gates up to the work stage lack, in gate order (`refinementTurn` in
@@ -362,6 +364,8 @@ Documentation map:
   ending without the label raises one `stalled` alert). When every label is on, the system takes
   `refine` off, moves the card to the stage before development and tells who prioritises (`done`).
   Every change of turn is a `refinement_turn` timeline event (`turnMember` reads the latest). A
+  turn left open when `refine` comes off (or the card leaves the stage) is closed with `stopped`,
+  so putting `refine` back begins a new turn (PM-420). A
   refused start is deferred (`StartSpec` kind `refinement_turn`) like a hand-over. In such a
   project a person's Start does not start label setters (PM-236): it is refused until the card is
   worked out, and the stage hand-over starts nobody on entering a refinement stage.
@@ -1349,7 +1353,9 @@ The limit is `team.limits.maxFixRounds` (1..10, default 3) plus the rounds peopl
 
 While a card is held, what AI members and the system (the review watch's send-back) write to its assignee is
 stored as waiting and does not wake it (`Messaging.send` with `held`), and the hand-over into the work stage
-does not tell it; only people's messages pass, and a person's Start is "one more round". When the card goes to
+does not tell it; only people's messages pass, and a person's Start is "one more round". A decision that lets the card go on
+(`another_round`, `continue`) also starts an AI assignee that has no session (a stored message and a
+deferred wake-up when admission refuses, PM-420). When the card goes to
 another implementer (`reassign`) the waiting messages stay with the first one and do not wake it. Who decides: the lead developer first (an AI member who holds
 `technical_direction` and `code_review`, is not on leave and is not the assignee) with the MCP tool
 `decide_fix_limit` (`continue`, `replan` to another `technical_direction` holder, or `to_owner` with a reason);

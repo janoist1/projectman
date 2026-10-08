@@ -404,6 +404,12 @@ describe('the refinement line', () => {
     );
     expect(text(turn({ label: null, member: null, reason: 'done' }))).toBe(t('timeline.refinement.done'));
   });
+
+  it('says the refinement stopped before every step was done (PM-420)', () => {
+    expect(text(turn({ label: null, member: null, reason: 'stopped' }))).toBe(
+      t('timeline.refinement.stopped'),
+    );
+  });
 });
 
 describe('the loop watch on the timeline (PM-261)', () => {

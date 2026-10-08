@@ -259,7 +259,10 @@ export class FixLimitWatch {
           const planner = this.plannerFor(config, task);
           if (planner) this.toPlanner(task, { ...record, inboxItemId: null }, planner, actor, note);
           // The planner is gone (the configuration changed since the item was made): one more round instead.
-          else this.anotherRound(task, { ...record, inboxItemId: null }, actor, note);
+          else {
+            this.anotherRound(task, { ...record, inboxItemId: null }, actor, note);
+            await this.tellAssignee(task, by, note);
+          }
           break;
         }
         case FIX_REASSIGN_OPTION.id:
@@ -605,8 +608,10 @@ export class FixLimitWatch {
   }
 
   /**
-   * The assignee's running session is told the card goes on, by whom and why. One that does not run
-   * needs no notice: the messages that waited reach it with its next start, and the timeline tells people.
+   * The assignee is told the card goes on, by whom and why: typed into its running session, or the first
+   * input of a new one. One that does not run is started (PM-420): the messages that waited for the end
+   * of the hold may be none, and then nothing else would wake it. A start admission refuses now (the member
+   * or the team is at its limit) is stored as a message and waits like any other wake-up.
    */
   private async tellAssignee(task: Task, by: string, reason: string | null): Promise<void> {
     if (!task.assignee) return;
@@ -614,22 +619,22 @@ export class FixLimitWatch {
       type: 'task',
       taskKey: task.key,
     });
-    if (!running) return;
     const text = [
       `The fix round limit on ${task.key} was lifted by ${by}: you can go on with the open change requests.`,
       reason ? `Reason: ${reason}` : null,
     ]
       .filter(Boolean)
       .join(' ');
-    this.delivery.notice(running, 'projectman', text, task.key);
+    if (running) this.delivery.notice(running, 'projectman', text, task.key);
+    else this.tell(task, task.assignee, text);
   }
 
-  /** A decider is told in the background: the hold does not wait for a session. */
+  /** A decider (or the released assignee) is told in the background: the hold does not wait for a session. */
   private tell(task: Task, handle: string, text: string): void {
     this.notify(task, handle, text).catch((err: unknown) => {
       this.ctx.logger.warn(
         { err, taskKey: task.key, member: handle },
-        'could not tell the fix limit decider',
+        'could not tell the fix limit decider or the released assignee',
       );
     });
   }

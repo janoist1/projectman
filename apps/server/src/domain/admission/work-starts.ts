@@ -17,7 +17,8 @@ type WorkStartSpec = Extract<StartSpec, { kind: 'work_start' }>;
  * admission checks and session start). Nobody free waits (`no_free_member`, and the refusals every
  * automatic start waits for) in the deferred-start store, so the wait survives a restart; the
  * retry loop and the events that free capacity start it later. A card that has an assignee keeps
- * the stage hand-over's notification instead, and while AI work is switched off a move creates no
+ * the stage hand-over instead (it tells the assignee's session, and starts an AI assignee that has
+ * none when the card was sent back, PM-420), and while AI work is switched off a move creates no
  * start at all: the switch coming back on does not start what was moved meanwhile. Only a card
  * still in the stage it was moved into, still without an assignee other than the one this start
  * assigned itself, is started: a move, a closure, someone's assignment or the Start button ends the

@@ -40,6 +40,11 @@ interface RecordedTurn {
   at: string;
 }
 
+/** Whether a recorded turn is over: the card was worked out (`done`) or stopped being refined (`stopped`). */
+function isClosedTurn(reason: string): boolean {
+  return reason === 'done' || reason === 'stopped';
+}
+
 /** Session states in which a member is in the middle of a turn. */
 const ENGAGED = new Set<Session['state']>(['starting', 'working', 'waiting_permission', 'waiting_input']);
 
@@ -110,7 +115,7 @@ export class RefinementSteps {
    */
   turnMember(projectKey: string, taskKey: string): string | null {
     const turn = this.recorded(projectKey, taskKey);
-    return turn && turn.reason !== 'done' ? turn.member : null;
+    return turn && !isClosedTurn(turn.reason) ? turn.member : null;
   }
 
   /**
@@ -132,7 +137,8 @@ export class RefinementSteps {
     const config = await this.projects.config(projectKey);
     const turn = refinementTurn(task, config);
     this.closeAlerts(task, turn?.kind === 'step' ? turn.label : null);
-    if (!turn || this.midTurn(task)) return;
+    if (!turn) return this.stopOpenTurn(task);
+    if (this.midTurn(task)) return;
     // Held back: the turn stays with its member, and goes on from there once the card is free.
     if (turn.kind === 'blocked') return;
     if (turn.kind === 'done') return this.finish(config, task, turn.targetStageId);
@@ -142,7 +148,7 @@ export class RefinementSteps {
       return;
     }
     const taken = this.recorded(projectKey, taskKey);
-    if (taken && taken.label === turn.label && taken.member !== null && taken.reason !== 'done') {
+    if (taken && taken.label === turn.label && taken.member !== null && !isClosedTurn(taken.reason)) {
       // Handed out already: not again. Its member's turn having ended without the label is told once.
       // An open question of an AI member is no stall: it waits for the answer.
       const items = this.inbox.list(projectKey, { state: 'open', kind: 'question', taskKey });
@@ -252,6 +258,16 @@ export class RefinementSteps {
     if (session) this.delivery.deliverWaiting(session);
   }
 
+  /**
+   * The card is not being refined (the `refine` label came off, it left the refinement stage, or it
+   * closed) while its last recorded turn is still open: the turn is over, so it is closed (`stopped`).
+   * Without it a later `refine` would find the old turn handed out and start nothing (PM-420).
+   */
+  private stopOpenTurn(task: Task): void {
+    const latest = this.recorded(task.projectKey, task.key);
+    if (latest && !isClosedTurn(latest.reason)) this.append(task, null, null, 'stopped');
+  }
+
   /** Every label is on: `refine` goes, the card moves to the stage before development, people are told. */
   private async finish(config: ProjectConfig, task: Task, targetStageId: string | null): Promise<void> {
     const { projectKey, key: taskKey } = task;
@@ -268,7 +284,7 @@ export class RefinementSteps {
     // Nothing to change (the card stands in a refinement stage right before development, without
     // the label): the end of an earlier turn is still told, once.
     const latest = this.recorded(projectKey, taskKey);
-    if (!changed && (!latest || latest.reason === 'done')) return;
+    if (!changed && (!latest || isClosedTurn(latest.reason))) return;
     this.append(task, null, null, 'done');
     this.alert(config, task, null, 'done', []);
   }
@@ -280,10 +296,10 @@ export class RefinementSteps {
    */
   private record(task: Task, label: string, member: string | null): boolean {
     const latest = this.recorded(task.projectKey, task.key);
-    if (latest && latest.label === label && latest.member === member && latest.reason !== 'done')
+    if (latest && latest.label === label && latest.member === member && !isClosedTurn(latest.reason))
       return false;
     const reason =
-      !latest || latest.reason === 'done' || latest.label === null || latest.label === label
+      !latest || isClosedTurn(latest.reason) || latest.label === null || latest.label === label
         ? 'started'
         : task.labels.includes(latest.label)
           ? 'label_set'
@@ -296,7 +312,7 @@ export class RefinementSteps {
     task: Task,
     label: string | null,
     member: string | null,
-    reason: 'started' | 'label_set' | 'label_removed' | 'done',
+    reason: 'started' | 'label_set' | 'label_removed' | 'done' | 'stopped',
   ): void {
     const previous = this.turnMember(task.projectKey, task.key);
     this.timeline.append({
@@ -308,7 +324,7 @@ export class RefinementSteps {
     });
     // The turn left its member (the next step is another member's, or the refinement is over); the
     // consecutive steps of one member are not a turn left.
-    if (previous && (reason === 'done' || member !== previous)) this.turnLeft?.(task, previous);
+    if (previous && (isClosedTurn(reason) || member !== previous)) this.turnLeft?.(task, previous);
   }
 
   private turnLeft: ((task: Task, member: string) => void) | undefined;

@@ -2690,6 +2690,7 @@ export const hu = {
         person: 'Egy lépés visszavonva, ember soron: „{label}”',
       },
       done: 'Kidolgozva: minden lépés kész',
+      stopped: 'Kidolgozás leállt, mielőtt minden lépés kész lett',
     },
     labelReasons: {
       approval: 'jóváhagyással',

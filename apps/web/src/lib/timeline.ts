@@ -418,6 +418,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'refinement_turn': {
       const label = d.label ? labelName(str(d.label), ctx.labels ?? []) : '';
       if (d.reason === 'done') return normal(t('timeline.refinement.done'));
+      if (d.reason === 'stopped') return normal(t('timeline.refinement.stopped'));
       // An event of a reason this web app does not know reads like a step that followed the last one.
       const reason = d.reason === 'started' || d.reason === 'label_removed' ? d.reason : 'label_set';
       return normal(

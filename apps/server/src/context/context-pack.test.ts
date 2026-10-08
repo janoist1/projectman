@@ -2761,6 +2761,14 @@ describe('who decides a permission question (the approver, PM-165)', () => {
     expect(policySection('none')).toContain('`/Users/anna/.ssh`');
     expect(policySection('none')).toContain('web fetch never reaches `localhost`, `127.0.0.1`');
   });
+
+  it('explains automatic dependency refresh and the missing-reference fallback', () => {
+    const text = policySection('none');
+    expect(text).toContain("projectman refreshes the worktree's node_modules");
+    expect(text).toContain('do not install it or work around it');
+    expect(text).toContain('ask the owner with ask_human');
+    expect(text).toContain('within a minute');
+  });
 });
 
 describe('member workspaces (PM-138)', () => {

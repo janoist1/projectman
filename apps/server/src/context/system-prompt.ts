@@ -430,6 +430,11 @@ function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInpu
   return [
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
+    ...(policy.access === 'task_worktree'
+      ? [
+          "projectman refreshes the worktree's node_modules by itself before your next command when package-lock.json changed (e.g. after a rebase) and an installed checkout with the same lockfile exists. If a dependency is still missing, do not install it or work around it: ask the owner with ask_human to install the dependencies in the default branch's checkout, after which your next command picks them up within a minute.",
+        ]
+      : []),
     ...(policy.access === 'review_copy' ? [`Review copy mode: ${policy.reviewCopyMode ?? 'inherit'}.`] : []),
     `Readable roots for automatic command decisions: ${codeList(policy.filesystem.readableRoots)}.`,
     `Writable workspace roots: ${codeList(policy.filesystem.writableRoots)}.`,

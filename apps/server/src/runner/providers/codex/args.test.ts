@@ -371,6 +371,13 @@ describe('buildCodexArgs', () => {
     expect(stop).toContain("'http://127.0.0.1:4700/hooks/secret'");
   });
 
+  it('allows dependency preparation before a tool in the CLI and its forwarder', () => {
+    const hook = overrides(buildCodexArgs(input).args).get('hooks.PreToolUse')!;
+    expect(hook).toContain('timeout=120}');
+    expect(hook).toContain("curl -q --noproxy '*' -sS -m 120");
+    expect(hook).toContain('Number(process.argv[2])*1000');
+  });
+
   it('resumes by id, with or without a message, and sanitises the prompt', () => {
     const resumed = buildCodexArgs({ ...input, spec: { ...spec, resume: true, initialMessage: null } }).args;
     expect(resumed[0]).toBe('resume');

@@ -1,28 +1,35 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { lstat, readdir, readFile, rename, rm, stat, statfs } from 'node:fs/promises';
+import { lstat, readdir, readFile, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
+import type { DependencySkip, DependencyRefreshResult } from '../contracts';
 import { tryGit } from './git';
+import { canonical, createKeyedLock } from './paths';
 
-export type DependencyCloneSkip =
-  | 'present' // the worktree has node_modules already
-  | 'no_lockfile' // no package-lock.json in the worktree
-  | 'not_ignored' // git does not ignore node_modules there
-  | 'no_reference' // no candidate with the same lockfile and an install after its last change
-  | 'unsupported' // not darwin, the clone probe failed (other volume, no APFS), or a workspaces entry other than `dir/*` or a plain path
-  | 'reference_changed' // the reference's hidden lockfile changed during the clone
-  | 'failed'; // anything else (logged with the error)
-
-export type DependencyCloneResult =
-  | { status: 'cloned'; reference: string; dirs: string[]; ms: number }
-  | { status: 'skipped'; reason: DependencyCloneSkip };
+export type DependencyCloneSkip = DependencySkip;
+export type DependencyCloneResult = DependencyRefreshResult;
 
 /** Caches under node_modules that may hold absolute paths into the reference. */
 const CACHE_DIRS = ['.vite', '.vite-temp', '.cache'];
 const LOCKFILE = 'package-lock.json';
 /** The hidden lockfile npm writes into node_modules at the end of every install. */
 const HIDDEN_LOCKFILE = path.join('node_modules', '.package-lock.json');
+const withDependencyLock = createKeyedLock();
+const DEPENDENCY_COPY_TIMEOUT_MS = 90_000;
+
+/** The cheap freshness probe shared by the manager and the serialized clone. */
+export async function dependencyState(target: string) {
+  const [installedAt, lockTime] = await Promise.all([
+    mtimeOrNull(path.join(target, HIDDEN_LOCKFILE)),
+    mtimeOrNull(path.join(target, LOCKFILE)),
+  ]);
+  return {
+    installedAt,
+    lockTime,
+    fresh: installedAt !== null && lockTime !== null && installedAt >= lockTime,
+  };
+}
 
 class Skip extends Error {
   readonly reason: DependencyCloneSkip;
@@ -37,7 +44,7 @@ class Skip extends Error {
 /**
  * Clones node_modules (the root's and every workspace's) into a task worktree from an installed
  * checkout with the same lockfile, with copy-on-write file clones (APFS `clonefile`, macOS), so a
- * new worktree gets its dependencies in seconds and shares the blocks (PM-332). Nothing here
+ * new or stale worktree gets its dependencies in seconds and shares the blocks (PM-332, PM-412). Nothing here
  * installs anything: the server never runs `npm install` outside the sandbox (install scripts), and
  * a clone that cannot be made is a skip or a failure that never stops the worktree: the member
  * installs as before.
@@ -57,18 +64,29 @@ export async function cloneDependencies(args: {
   copyTree?: (src: string, dest: string) => Promise<void>;
   /** Default: both checkouts on one APFS volume (tests). Throws when cloning from the reference is not possible. */
   probe?: (reference: string, target: string) => Promise<void>;
+  /** Total copying budget; tests can shorten it. */
+  copyTimeoutMs?: number;
 }): Promise<DependencyCloneResult> {
+  const target = await canonical(args.target);
+  return withDependencyLock(target, () => cloneIntoTarget({ ...args, target }));
+}
+
+async function cloneIntoTarget(
+  args: Parameters<typeof cloneDependencies>[0],
+): Promise<DependencyCloneResult> {
   const { target, logger } = args;
   const platform = args.platform ?? process.platform;
-  const copyTree = args.copyTree ?? defaultCopyTree;
   const probe = args.probe ?? defaultProbe;
   const suffix = randomBytes(4).toString('hex');
   const temporaries: string[] = [];
   const renamed: string[] = [];
+  const backups: { final: string; backup: string }[] = [];
   const started = Date.now();
   try {
     if (platform !== 'darwin') return skipped('unsupported');
-    if (await present(path.join(target, 'node_modules'))) return skipped('present');
+    const { installedAt, lockTime, fresh } = await dependencyState(target);
+    if (fresh) return skipped('present');
+    const refreshing = await present(path.join(target, 'node_modules'));
     const targetLock = await readOrNull(path.join(target, LOCKFILE));
     if (!targetLock) return skipped('no_lockfile');
     // `node_modules/` (with the slash) matches a directory-only ignore pattern that does not exist yet.
@@ -79,56 +97,118 @@ export async function cloneDependencies(args: {
     if (!reference) return skipped('no_reference');
 
     const dirs = await dependencyDirs(reference.path, target);
+    const removedDirs: string[] = [];
+    if (refreshing) {
+      for (const workspace of await workspaceDirs(target)) {
+        if (!(await assertSafeParent(target, path.join(target, workspace, 'node_modules'), true))) continue;
+        if (!dirs.includes(workspace) && (await isDirectory(path.join(target, workspace, 'node_modules')))) {
+          removedDirs.push(workspace);
+        }
+      }
+    }
     try {
       await probe(reference.path, target);
     } catch {
       return skipped('unsupported');
     }
 
+    const copyDeadline = Date.now() + (args.copyTimeoutMs ?? DEPENDENCY_COPY_TIMEOUT_MS);
     for (const dir of dirs) {
       const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
       temporaries.push(temporary);
-      await copyTree(path.join(reference.path, dir, 'node_modules'), temporary);
-      for (const cache of CACHE_DIRS) await rm(path.join(temporary, cache), { recursive: true, force: true });
+      const remaining = copyDeadline - Date.now();
+      if (remaining <= 0) throw new Error('dependency copying timed out');
+      const src = path.join(reference.path, dir, 'node_modules');
+      if (await present(temporary)) throw new Skip('unsupported');
+      await assertSafeParent(target, temporary);
+      if (args.copyTree) await boundedCopy(args.copyTree, src, temporary, remaining);
+      else await defaultCopyTree(src, temporary, remaining);
+      for (const cache of CACHE_DIRS) {
+        const cachePath = path.join(temporary, cache);
+        await assertSafeParent(target, cachePath);
+        await rm(cachePath, { recursive: true, force: true });
+      }
     }
 
     // The reference's install must not have been touched while it was being copied.
-    if ((await mtimeOrNull(path.join(reference.path, HIDDEN_LOCKFILE))) !== reference.installedAt) {
-      await removeAll(temporaries);
+    if (
+      (await mtimeOrNull(path.join(reference.path, HIDDEN_LOCKFILE))) !== reference.installedAt ||
+      !(await readOrNull(path.join(reference.path, LOCKFILE)))?.equals(targetLock)
+    ) {
+      await removeAll(target, temporaries);
       return skipped('reference_changed');
     }
 
+    if (
+      !(await readOrNull(path.join(target, LOCKFILE)))?.equals(targetLock) ||
+      (await mtimeOrNull(path.join(target, LOCKFILE))) !== lockTime ||
+      (refreshing && (await mtimeOrNull(path.join(target, HIDDEN_LOCKFILE))) !== installedAt)
+    ) {
+      await removeAll(target, temporaries);
+      return skipped('target_changed');
+    }
+
     // Workspaces first, the root last: the root's node_modules is what marks a worktree installed.
-    const order = [...dirs.filter((d) => d !== '.'), ...dirs.filter((d) => d === '.')];
+    const order = [...dirs.filter((d) => d !== '.'), ...removedDirs, '.'];
     for (const dir of order) {
       const temporary = path.join(target, dir, `.node_modules.pm-${suffix}`);
       const final = path.join(target, dir, 'node_modules');
+      if (refreshing && (await present(final))) {
+        const backup = path.join(target, dir, `.node_modules.pm-${suffix}-old`);
+        await assertSafeParent(target, final);
+        await rename(final, backup);
+        backups.push({ final, backup });
+      }
+      if (removedDirs.includes(dir)) continue;
       try {
+        await assertSafeParent(target, temporary);
         await rename(temporary, final);
         renamed.push(final);
       } catch (err) {
+        if (refreshing) throw err;
         const code = (err as NodeJS.ErrnoException).code;
         if (code !== 'EEXIST' && code !== 'ENOTEMPTY') throw err;
         // Somebody (a concurrent install or clone) created it meanwhile: theirs stays.
+        await assertSafeParent(target, temporary);
         await rm(temporary, { recursive: true, force: true });
       }
     }
     if (renamed.length === 0) return skipped('present');
-    const done = order.filter((dir) => renamed.includes(path.join(target, dir, 'node_modules')));
+    if (renamed.includes(path.join(target, 'node_modules'))) {
+      const now = new Date(Math.max(Date.now(), Math.ceil(lockTime ?? 0)));
+      await assertSafeParent(target, path.join(target, HIDDEN_LOCKFILE));
+      if ((await lstat(path.join(target, HIDDEN_LOCKFILE))).isSymbolicLink()) throw new Skip('unsupported');
+      await utimes(path.join(target, HIDDEN_LOCKFILE), now, now);
+    }
+    await removeAll(
+      target,
+      backups.map(({ backup }) => backup),
+    );
+    const done = order.filter(
+      (dir) => removedDirs.includes(dir) || renamed.includes(path.join(target, dir, 'node_modules')),
+    );
     return {
-      status: 'cloned',
+      status: refreshing ? 'refreshed' : 'cloned',
       reference: reference.path,
       dirs: done.map((d) => (d === '.' ? '.' : d.split(path.sep).join('/'))),
       ms: Date.now() - started,
     };
   } catch (err) {
-    if (err instanceof Skip) {
-      await removeAll(temporaries);
-      return skipped(err.reason);
-    }
     // Leave nothing half-made behind: the temporaries and the directories renamed so far.
-    await removeAll(temporaries);
-    await removeAll(renamed);
+    await removeAll(target, temporaries);
+    await removeAll(target, renamed);
+    for (const { final, backup } of backups.reverse()) {
+      try {
+        await assertSafeParent(target, backup);
+        await rename(backup, final);
+      } catch (restoreError) {
+        logger.warn(
+          { target, backup, err: String(restoreError) },
+          'dependency backup could not be restored safely',
+        );
+      }
+    }
+    if (err instanceof Skip) return skipped(err.reason);
     logger.warn(
       { target, err: err instanceof Error ? err.message : String(err) },
       'cloning the dependencies failed; the member installs them',
@@ -167,6 +247,7 @@ async function findReference(
 async function dependencyDirs(reference: string, target: string): Promise<string[]> {
   const dirs = ['.'];
   for (const workspace of await workspaceDirs(reference)) {
+    if (!(await assertSafeParent(target, path.join(target, workspace, 'node_modules'), true))) continue;
     if (!(await isFile(path.join(target, workspace, 'package.json')))) continue;
     if (!(await isDirectory(path.join(reference, workspace, 'node_modules')))) continue;
     dirs.push(workspace);
@@ -246,8 +327,34 @@ async function readdirOrEmpty(p: string) {
   return readdir(p, { withFileTypes: true }).catch(() => []);
 }
 
-async function removeAll(paths: string[]): Promise<void> {
-  for (const p of paths) await rm(p, { recursive: true, force: true }).catch(() => undefined);
+/**
+ * Never traverse a symlink in a target operation's parent path, including workspace ancestors.
+ * Node has no openat: a small race remains between this check and the filesystem operation.
+ * Recheck immediately before every copy, rename and removal to keep that window narrow.
+ */
+async function assertSafeParent(target: string, file: string, allowMissing = false): Promise<boolean> {
+  const relative = path.relative(target, path.dirname(file));
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Skip('unsupported');
+  let dir = target;
+  for (const component of ['', ...relative.split(path.sep).filter(Boolean)]) {
+    if (component) dir = path.join(dir, component);
+    const info = await lstat(dir).catch(() => null);
+    if (!info && allowMissing) return false;
+    if (!info?.isDirectory() || info.isSymbolicLink()) throw new Skip('unsupported');
+  }
+  return true;
+}
+
+async function removeAll(target: string, paths: string[]): Promise<void> {
+  for (const p of paths) {
+    try {
+      await assertSafeParent(target, p);
+      await rm(p, { recursive: true, force: true });
+    } catch {
+      // Keep an unreachable temporary or backup rather than following a replaced parent.
+    }
+  }
 }
 
 /** macOS `f_type` of APFS (VT_APFS). */
@@ -265,11 +372,31 @@ async function defaultProbe(reference: string, target: string): Promise<void> {
 }
 
 /** `-R` keeps symbolic links as links, so a workspace link stays relative and points at the copy's own package. */
-function defaultCopyTree(src: string, dest: string): Promise<void> {
+function defaultCopyTree(src: string, dest: string, timeout: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    execFile('cp', ['-c', '-R', src, dest], { windowsHide: true }, (error, _stdout, stderr) => {
+    execFile('cp', ['-c', '-R', src, dest], { windowsHide: true, timeout }, (error, _stdout, stderr) => {
       if (error) reject(new Error(`cp -c -R failed: ${stderr.trim() || error.message}`));
       else resolve();
     });
   });
+}
+
+/** Bounds injected test copies; production cp is killed and awaited by execFile on timeout. */
+async function boundedCopy(
+  copy: (src: string, dest: string) => Promise<void>,
+  src: string,
+  dest: string,
+  timeout: number,
+) {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      copy(src, dest),
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('dependency copying timed out')), timeout);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }

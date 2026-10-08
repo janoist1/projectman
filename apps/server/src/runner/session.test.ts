@@ -145,6 +145,7 @@ function start(
     spec?: Partial<StartSessionSpec>;
     /** The launch put the initial message on the command line (Codex). */
     initialMessageSent?: boolean;
+    refreshDependencies?: (cwd: string) => Promise<void>;
   } = {},
 ) {
   const pty = new FakePty();
@@ -157,6 +158,7 @@ function start(
     initialMessageSent: opts.initialMessageSent,
     deps: {
       logger: silentLogger(),
+      refreshDependencies: opts.refreshDependencies,
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
       permissionTimeoutMs: PERMISSION_TIMEOUT_MS,
       emit: (event) => events.push(event),
@@ -178,6 +180,66 @@ function start(
       .map((e) => e.state);
   return { session, pty, spawned, events, hook, states };
 }
+
+describe('worktree dependency preparation', () => {
+  const providers = ['claude', 'codex', 'gemini'] as const;
+  for (const provider of providers) {
+    it.each([false, true])(`awaits preparation for ${provider} (subagent: %s)`, async (subagent) => {
+      const logger = silentLogger();
+      const adapter =
+        provider === 'claude'
+          ? createClaudeAdapter({ bin: 'unused', logger })
+          : provider === 'codex'
+            ? createCodexAdapter({ bin: 'unused', logger, codexHome: '/unused-codex-home' })
+            : createGeminiAdapter({ bin: 'unused', logger });
+      let release!: () => void;
+      const refreshDependencies = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const s = start({ adapter, spec: provider === 'gemini' ? geminiSpec() : {}, refreshDependencies });
+      const hook: HookPayload = {
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'npm test', cwd: '/work' },
+        gemini_tool: 'run_command',
+        gemini_args: { CommandLine: 'npm test', Cwd: '/work' },
+        ...(subagent ? { agent_id: 'child' } : {}),
+      };
+      let answered = false;
+      const answer = s.hook(hook).then((result) => {
+        answered = true;
+        return result;
+      });
+      expect(refreshDependencies).toHaveBeenCalledWith('/work');
+      await Promise.resolve();
+      expect(answered).toBe(false);
+      release();
+      expect(await answer).toEqual(provider === 'gemini' ? { decision: 'allow' } : null);
+    });
+  }
+
+  it('keeps the tool decision when preparation fails', async () => {
+    const adapter = createGeminiAdapter({ bin: 'unused', logger: silentLogger() });
+    const s = start({
+      adapter,
+      spec: geminiSpec(),
+      refreshDependencies: async () => {
+        throw new Error('copy failed');
+      },
+    });
+    const hook: HookPayload = {
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Bash',
+      tool_input: { command: 'npm test', cwd: '/work' },
+      gemini_tool: 'run_command',
+      gemini_args: { CommandLine: 'npm test', Cwd: '/work' },
+    };
+    expect(await s.hook(hook)).toEqual({ decision: 'allow' });
+  });
+});
 
 /** A started session that became ready (first SessionStart) and settled. */
 async function ready(opts: Parameters<typeof start>[0] = {}) {

@@ -130,6 +130,21 @@ function task(taskKey: string, title: string, repoName = 'app') {
 }
 
 describe('worktree manager', { timeout: 30_000 }, () => {
+  it('never refreshes an unregistered checkout or an unknown path', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger, cloneDependencies: true });
+    expect(await manager.refreshDependencies(clone)).toEqual({ status: 'skipped', reason: 'not_worktree' });
+    expect(await manager.refreshDependencies(path.join(base, 'unknown'))).toEqual({
+      status: 'skipped',
+      reason: 'not_worktree',
+    });
+    expect(await exists(path.join(clone, 'node_modules'))).toBe(false);
+    expect(await exists(path.join(base, 'unknown'))).toBe(false);
+  });
+
+  it('reports when dependency cloning is disabled', async () => {
+    const manager = createWorktreeManager({ rootDir, logger: testLogger().logger });
+    expect(await manager.refreshDependencies(clone)).toEqual({ status: 'skipped', reason: 'disabled' });
+  });
   it('creates a task worktree from the freshly fetched default branch', async () => {
     const other = path.join(base, 'other');
     await git('clone', '--quiet', remote, other);
@@ -457,7 +472,7 @@ describe.skipIf(process.platform !== 'darwin')(
       const cloned = records.find((r) => r.msg === 'dependencies cloned into the worktree');
       expect(cloned).toMatchObject({
         level: 'info',
-        obj: { taskKey: 'AR-41', reference: clone, dirs: ['.'] },
+        obj: { path: info.path, reference: clone, dirs: ['.'] },
       });
       expect(typeof cloned?.obj.ms).toBe('number');
     });
@@ -473,6 +488,8 @@ describe.skipIf(process.platform !== 'darwin')(
       expect(await exists(path.join(info.path, 'node_modules'))).toBe(false);
 
       await install(clone);
+      const changed = new Date('2026-01-01T11:00:00Z');
+      await utimes(path.join(info.path, 'package-lock.json'), changed, changed);
       await manager.ensureForTask(task('AR-42', 'Later install'));
       expect(await exists(path.join(info.path, 'node_modules', 'left-pad'))).toBe(true);
 
@@ -512,6 +529,90 @@ describe.skipIf(process.platform !== 'darwin')(
       );
     });
 
+    it('refreshes existing dependencies after merging a changed lockfile from main', async () => {
+      await commitPackage();
+      await install(clone);
+      const { logger } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+      const args = task('AR-48', 'Refresh dependencies');
+      const info = await manager.ensureForTask(args);
+      await writeFile(path.join(info.path, 'node_modules', 'obsolete'), 'old');
+
+      await writeFile(path.join(clone, 'package-lock.json'), `${LOCK.trim()}\n\n`);
+      await git('-C', clone, 'add', 'package-lock.json');
+      await git('-C', clone, 'commit', '--quiet', '-m', 'Update dependencies');
+      await install(clone);
+      await writeFile(path.join(clone, 'node_modules', 'new-package'), 'new');
+      await git('-C', info.path, 'merge', '--ff-only', 'main');
+
+      await manager.ensureForTask(args);
+
+      expect(await exists(path.join(info.path, 'node_modules', 'obsolete'))).toBe(false);
+      expect(await readFile(path.join(info.path, 'node_modules', 'new-package'), 'utf8')).toBe('new');
+      expect(await git('-C', info.path, 'status', '--porcelain')).toBe('');
+    });
+
+    it('retries a missing reference after one minute and clears the cache on success', async () => {
+      await commitPackage();
+      const { logger, records } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+      vi.useFakeTimers({ toFake: ['Date'] });
+      try {
+        const initial = Date.now();
+        vi.setSystemTime(initial);
+        const info = await manager.ensureForTask(task('AR-49', 'Retry dependencies'));
+        await install(clone);
+        expect(await manager.refreshDependencies(info.path)).toEqual({
+          status: 'skipped',
+          reason: 'no_reference',
+        });
+        expect(records.filter((r) => r.msg === 'worktree dependencies left unchanged')).toHaveLength(1);
+        vi.setSystemTime(initial + 60_000);
+        expect(await manager.refreshDependencies(info.path)).toMatchObject({ status: 'cloned' });
+        expect(await manager.refreshDependencies(info.path)).toEqual({
+          status: 'skipped',
+          reason: 'present',
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('retries immediately when the target lock mtime changes and serializes concurrent calls', async () => {
+      await commitPackage();
+      const { logger, records } = capturingLogger();
+      const manager = createWorktreeManager({ rootDir, logger, cloneDependencies: true });
+      const info = await manager.ensureForTask(task('AR-50', 'Concurrent dependencies'));
+      await install(clone);
+      const changed = new Date(Date.now() + 1000);
+      await utimes(path.join(info.path, 'package-lock.json'), changed, changed);
+
+      const results = await Promise.all([
+        manager.refreshDependencies(info.path),
+        manager.refreshDependencies(info.path),
+      ]);
+
+      expect(results.map((r) => (r.status === 'skipped' ? r.reason : r.status)).sort()).toEqual([
+        'cloned',
+        'present',
+      ]);
+      expect(records.filter((r) => r.msg === 'dependencies cloned into the worktree')).toHaveLength(1);
+    });
+
+    it('forgets a removed worktree', async () => {
+      const manager = createWorktreeManager({
+        rootDir,
+        logger: capturingLogger().logger,
+        cloneDependencies: true,
+      });
+      const info = await manager.ensureForTask(task('AR-51', 'Remove dependencies'));
+      await manager.remove({ path: info.path });
+      expect(await manager.refreshDependencies(info.path)).toEqual({
+        status: 'skipped',
+        reason: 'not_worktree',
+      });
+    });
+
     it('records why nothing was cloned and still creates the worktree', async () => {
       await commitPackage();
       const { logger, records } = capturingLogger();
@@ -522,7 +623,7 @@ describe.skipIf(process.platform !== 'darwin')(
       expect(await exists(path.join(info.path, 'README.md'))).toBe(true);
       expect(records.find((r) => r.msg === 'dependencies not cloned into the worktree')).toMatchObject({
         level: 'debug',
-        obj: { taskKey: 'AR-46', reason: 'no_reference' },
+        obj: { path: info.path, reason: 'no_reference' },
       });
     });
 

@@ -483,6 +483,8 @@ export interface PlanUsageProvider {
 export type TerminalMode = 'pty' | 'pipe';
 
 export interface RunnerModuleOptions {
+  /** Awaited before every provider's PreToolUse answer, including subagents; failures only log. */
+  refreshDependencies?: (cwd: string) => Promise<void>;
   /**
    * `pipe` starts the CLI with pipes instead of a pseudo-terminal (PM-267): for the fake CLIs in a
    * development instance that has no PTY (a member's sandbox). Default `pty`. It has no effect on

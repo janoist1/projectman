@@ -1,7 +1,12 @@
 import { modelForProvider, sessionPermissions } from '@projectman/shared';
 import path from 'node:path';
 import type { StartSessionSpec } from '../../../contracts';
-import { FAST_HOOK_TIMEOUT_S, forwarderCommand, permissionHookTimeoutS } from '../../hook-forwarder';
+import {
+  FAST_HOOK_TIMEOUT_S,
+  TOOL_PREPARE_HOOK_TIMEOUT_S,
+  forwarderCommand,
+  permissionHookTimeoutS,
+} from '../../hook-forwarder';
 import { sanitizeMessage } from '../../typing';
 
 /**
@@ -331,7 +336,11 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
 
   for (const event of CODEX_HOOK_EVENTS) {
     const decides = event === 'PermissionRequest';
-    const timeoutS = decides ? permissionTimeoutS : FAST_HOOK_TIMEOUT_S;
+    const timeoutS = decides
+      ? permissionTimeoutS
+      : event === 'PreToolUse'
+        ? TOOL_PREPARE_HOOK_TIMEOUT_S
+        : FAST_HOOK_TIMEOUT_S;
     const command = forwarderCommand(hookUrl, input.nodePath, {
       printResponse: decides,
       maxTimeS: timeoutS,

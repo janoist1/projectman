@@ -159,6 +159,7 @@ export class SessionManager implements SessionRunner {
         ...(launch.conversationRoot ? { transcriptRoot: launch.conversationRoot } : {}),
         logger: this.log,
         broker: this.opts.broker,
+        refreshDependencies: this.opts.refreshDependencies,
         permissionTimeoutMs: this.opts.permissionTimeoutMs,
         emit: (event) => this.emit(event),
         onExited: (exited) => this.retire(exited),
@@ -242,6 +243,7 @@ export class SessionManager implements SessionRunner {
       deps: {
         logger: this.log,
         broker: this.opts.broker,
+        refreshDependencies: this.opts.refreshDependencies,
         permissionTimeoutMs: this.opts.permissionTimeoutMs,
         emit: (event) => this.emit(event),
         onExited: (exited) => this.retire(exited),

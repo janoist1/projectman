@@ -1120,6 +1120,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and the roots of `AgentSandbox.portable` (the member's npm cache and development data,
   the queue's parent, the session folder and
   the own tmp, PM-339). With an own tmp, no shared `/tmp` or CLI `$TMPDIR` write is inherited.
+  Task worktrees also grant the shared git `objects`, `refs`, `logs` and their own admin
+  directory (PM-399), plus exactly `packed-refs` and `packed-refs.lock` (PM-411), so Codex
+  can finish rebase and branch updates/deletion. The common git directory as a whole, other
+  worktrees' metadata, configuration, hooks, alternates and admin links remain read-only.
+  The Codex adapter lifts only these two packed-refs entries from `sharedGitDenials`;
+  Claude's denials remain. This permits rewriting packed branches (including a packed
+  default branch) and interfering with the shared lock; see SECURITY.md.
   The managed VM retains the legacy sandbox flags because its VM is the boundary.
   PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
@@ -1137,6 +1144,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   path grants or infer Codex permissions from Claude syntax. The outbound network intent
   (`SessionPolicy.network.outbound`) is abstract: the remote engine enforces it with its own
   tools (sandbox, firewall, proxy) and keeps the blocked hosts closed.
+  For PM-399/PM-411, resolve the common git directory and the task's own admin directory
+  on the engine hosting the worktree, and render these narrow grants there. The existing
+  placement paths must describe that engine's filesystem; no new server/engine contract
+  is introduced by PM-411.
   Version/config inspection must run on the engine hosting the CLI, against that engine's
   filesystem, PATH, user home and administrator/workspace configuration, including executable
   symlink resolution and installation grants. Only sanitized setting names and

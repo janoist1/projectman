@@ -489,7 +489,15 @@ describe('buildCodexArgs', () => {
     });
     const sandbox = {
       allowWrite: [],
-      denyWrite: [`${gitDir}/HEAD`, `${gitDir}/index`, `${gitDir}/refs/heads/main`, '/elsewhere/file'],
+      denyWrite: [
+        ...['HEAD', 'index', 'refs/heads/main', 'packed-refs'].flatMap((name) => [
+          `${gitDir}/${name}`,
+          `${gitDir}/${name}.lock`,
+        ]),
+        `${gitDir}/refs/replace`,
+        `${gitDir}/info/grafts`,
+        '/elsewhere/file',
+      ],
       allowedDomains: [],
       allowLocalBinding: true,
     };
@@ -511,6 +519,14 @@ describe('buildCodexArgs', () => {
       expect(rendered).not.toContain('PM-2-repo');
     });
 
+    it('writes packed refs and their lock despite shared denials, allowing rebase and branch deletion (PM-411)', () => {
+      const rendered = profile(policy('workspace-write'))!;
+      for (const name of ['packed-refs', 'packed-refs.lock']) {
+        expect(rendered).toContain(`"${gitDir}/${name}"="write"`);
+        expect(rendered).not.toContain(`"${gitDir}/${name}"="read"`);
+      }
+    });
+
     it('keeps the configuration, hooks, alternates, worktree links and checkout files read-only', () => {
       const rendered = profile(policy('workspace-write'))!;
       for (const name of [
@@ -519,8 +535,13 @@ describe('buildCodexArgs', () => {
         'hooks',
         'objects/info',
         'HEAD',
+        'HEAD.lock',
         'index',
+        'index.lock',
         'refs/heads/main',
+        'refs/heads/main.lock',
+        'refs/replace',
+        'info/grafts',
         'worktrees/PM-1-repo/commondir',
         'worktrees/PM-1-repo/gitdir',
         'worktrees/PM-1-repo/config.worktree',
@@ -547,6 +568,8 @@ describe('buildCodexArgs', () => {
         spec: { ...spec, policy: { ...p, filesystem: { ...p.filesystem, deniedPaths: ['/main'] } } },
       }).args;
       expect(overrides(c).get('permissions.projectman')).not.toContain(`"${gitDir}/refs"="write"`);
+      for (const name of ['packed-refs', 'packed-refs.lock'])
+        expect(overrides(c).get('permissions.projectman')).not.toContain(`"${gitDir}/${name}"="write"`);
     });
   });
 

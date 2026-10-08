@@ -226,8 +226,8 @@ execution through shared `post-checkout`, `core.hooksPath` and `core.fsmonitor` 
 worktree manager. This proves the host trigger if planting is possible, not native sandbox
 planting. PM-131 removed the normal Codex shared-git writable root, but the host git wrapper
 still trusts repository executable configuration and hooks. The whole shared git directory must
-not be restored as a writable root to work around denied git operations: PM-399 grants only
-the narrow set of the paragraph on the Codex profile (objects, refs, logs and the worktree's own
+not be restored as a writable root to work around denied git operations: PM-399/PM-411 grant only
+the narrow set of the paragraph on the Codex profile (objects, refs, logs, packed-refs and its lock, and the worktree's own
 admin directory, with the configuration, hooks and links read-only). Other narrow trusted git
 operations need their own validation; blanket hook disabling alone would leave other executable
 git settings to review.
@@ -330,7 +330,7 @@ is not opened. Codex and the
 managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
 (`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 
-**A developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
+**A Claude developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
 user's home and the app home but its worktree, its task's attachments, its own npm cache and
 development data (below), the shared git directory, `~/.gitconfig`, `~/.config/git` and Claude
 Code's shell snapshots (`~/.claude/shell-snapshots`, sourced before every command; they hold the
@@ -383,21 +383,28 @@ session PATH, then grants only its `packages/standalone` ancestor, never the who
 `packages` or home. A root containing a denied path gets no exception. Unknown installations
 inside denied directories remain blocked; install outside them or use the official standalone
 layout. A Codex member in a task worktree writes a narrow part of the shared Git directory
-(PM-399): `git add` and `git commit` write the worktree's index and the objects and refs, and
+(PM-399, PM-411): `git add` and `git commit` write the worktree's index and the objects and refs, and
 without a grant they failed with EPERM in v2026.10.7 (the PM-356 profile had no write root for
-them). Writable: the shared `objects`, `refs` and `logs`, and the worktree's own admin
+them). Writable: the shared `objects`, `refs` and `logs`, `packed-refs` and `packed-refs.lock`, and the worktree's own admin
 directory (`worktrees/<name>`, `WorktreeInfo.worktreeGitDir`). Not writable: the rest of the
 shared directory, including **every other worktree's admin directory**, and, inside the
 writable ones, `config`, `config.lock`, `hooks`, `objects/info` (alternates), the own admin
 directory's `commondir`, `gitdir`, `config.worktree` and `hooks`, and the integrating
-checkout's files of `sharedGitDenials` (the default branch, `HEAD`, `index`, `packed-refs`,
+checkout's files of `sharedGitDenials` (the default branch, `HEAD`, `index`,
 `refs/replace`, `info/grafts`, with their lock files). The reason is the host's git, which reads
 these outside the sandbox: a rewritten `commondir` (pointing into the worktree) or `config`
 (`core.fsmonitor`) would run a program there (PM-131). It is given only in a writing sandbox,
 only for a task worktree that has both directories, and not when they lie in a denied path. A
 member workspace is an independent clone, whose `.git` is inside the workspace. The residual
 risk: refs of other tasks' branches and the object store are writable (as for a Claude
-developer, below). The profile semantics (a nested `read` under a `write` root) must be checked
+developer, below). PM-411 lifts only the two packed-refs denials in the Codex profile so rebase,
+branch updates and deletion can finish; Claude's shared denials remain in place. A Codex member
+can now also rewrite packed refs, including the packed default branch, or interfere with the
+integrator's packed-refs lock. The loose default-branch ref and its lock remain read-only, but
+that does not protect a default branch stored only in packed-refs. This is the shared-store
+tradeoff of the owner's request to let Codex members rebase themselves. Existing sessions need
+a restart with the updated runner to receive the new profile.
+The profile semantics (a nested `read` under a `write` root) must be checked
 in a live Codex session before the release. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
 checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
@@ -472,7 +479,8 @@ automatic decisions and remembered permissions. Both adapters reject strict enfo
 until it can be implemented and verified; listing protected paths or network domains alone
 does not enforce them. Codex consumes semantic team-tool grants without interpreting Claude
 allow rules. The shared git directory is not granted as a writable root as a whole (PM-131);
-only the narrow set for `git commit` is (PM-399, Codex profile).
+only the narrow set for `git commit`, rebase and branch updates/deletion is (PM-399, PM-411,
+Codex profile).
 
 A review-copy placement alone grants no writes, even with historical `acceptEdits`.
 The separate `reviewCopyMode: test` requires strict intent, and grants only the copy's own

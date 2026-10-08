@@ -206,13 +206,15 @@ export function codexCliReadRoot(cliPath: string, denied: readonly string[]): Co
 
 /**
  * What `git add` and `git commit` write in a task worktree's git directories (PM-399): the shared
- * `objects`, `refs` and `logs`, and the worktree's own admin directory (`worktreeGitDir`: its index
+ * `objects`, `refs` and `logs`, `packed-refs` and its lock (PM-411: rebase and branch deletion),
+ * and the worktree's own admin directory (`worktreeGitDir`: its index
  * and `HEAD`). Not the shared directory as a whole, and not another worktree's admin directory:
  * the host's git reads those outside the sandbox (a rewritten `commondir` or `config` runs a
  * program there, PM-131). These stay read-only inside the writable ones: the configuration and
  * the hooks, `objects/info` (alternates), the own admin directory's links (`commondir`, `gitdir`,
  * `config.worktree`), and the files of the integrating checkout (`AgentSandbox.denyWrite`,
- * `sharedGitDenials`). Nothing without both directories (an independent clone has its own `.git`).
+ * `sharedGitDenials`), except the two packed-refs entries above. Nothing without both directories
+ * (an independent clone has its own `.git`).
  */
 export function codexSharedGitAccess(
   policy: CodexArgsInput['spec']['policy'],
@@ -222,14 +224,20 @@ export function codexSharedGitAccess(
   const gitDir = placement?.kind === 'task_worktree' ? placement.gitDir : undefined;
   const adminDir = placement?.kind === 'task_worktree' ? placement.worktreeGitDir : undefined;
   if (!gitDir || !adminDir) return { writable: [], readOnly: [] };
+  const packedRefs = ['packed-refs', 'packed-refs.lock'].map((name) => path.join(gitDir, name));
   return {
-    writable: [...['objects', 'refs', 'logs'].map((name) => path.join(gitDir, name)), adminDir],
+    writable: [
+      ...['objects', 'refs', 'logs'].map((name) => path.join(gitDir, name)),
+      ...packedRefs,
+      adminDir,
+    ],
     readOnly: [
       ...['config', 'config.lock', 'hooks', path.join('objects', 'info')].map((name) =>
         path.join(gitDir, name),
       ),
       ...['commondir', 'gitdir', 'config.worktree', 'hooks'].map((name) => path.join(adminDir, name)),
-      ...denyWrite.filter((entry) => insidePath(entry, gitDir)),
+      // Only Codex lifts these two shared denials; all other checkout protections stay.
+      ...denyWrite.filter((entry) => insidePath(entry, gitDir) && !packedRefs.includes(entry)),
     ],
   };
 }

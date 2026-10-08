@@ -224,6 +224,7 @@ export type DependencySkip =
   | 'no_reference'
   | 'unsupported'
   | 'reference_changed'
+  | 'target_changed'
   | 'failed';
 
 export type DependencyRefreshResult =

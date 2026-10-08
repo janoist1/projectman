@@ -99,7 +99,7 @@ async function cloneIntoTarget(
     const removedDirs: string[] = [];
     if (refreshing) {
       for (const workspace of await workspaceDirs(target)) {
-        if (!dirs.includes(workspace) && (await present(path.join(target, workspace, 'node_modules')))) {
+        if (!dirs.includes(workspace) && (await isDirectory(path.join(target, workspace, 'node_modules')))) {
           removedDirs.push(workspace);
         }
       }
@@ -137,7 +137,7 @@ async function cloneIntoTarget(
       (refreshing && (await mtimeOrNull(path.join(target, HIDDEN_LOCKFILE))) !== installedAt)
     ) {
       await removeAll(temporaries);
-      return skipped('reference_changed');
+      return skipped('target_changed');
     }
 
     // Workspaces first, the root last: the root's node_modules is what marks a worktree installed.

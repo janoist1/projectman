@@ -115,6 +115,19 @@ export function permissionDelegationState(
   return 'pending_lead';
 }
 
+export function permissionDecidersNow(
+  config: ProjectConfig,
+  item: Pick<InboxItem, 'source' | 'assignees' | 'payload'>,
+  now: number,
+): string[] {
+  const delegation = permissionDelegationOf(item);
+  if (delegation && permissionDelegationState(config, item.source, delegation, now) === 'pending_lead') {
+    const live = permissionDeciders(config, item.source);
+    return delegation.leads.filter((lead) => live.includes(lead));
+  }
+  return item.assignees;
+}
+
 /** The one rule for who may decide a delegated question: a chosen, live, independent AI decider, in time. */
 export function canDecidePermission(
   config: ProjectConfig,

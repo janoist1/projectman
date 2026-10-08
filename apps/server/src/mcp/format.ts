@@ -2,6 +2,7 @@ import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   cardQuestionLines,
+  cardWorkerLines,
   stateText,
   describeAttachment,
   describeLink,
@@ -214,7 +215,9 @@ export function formatTaskDetail(
   const sessionText = (s: (typeof sessions)[number]) => `${s.member} (${stateText(s.state)})`;
   const workers = (detail.workingSessionIds ?? []).flatMap((id) => sessions.filter((s) => s.id === id));
   const others = sessions.filter((s) => !working.has(s.id));
-  if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
+  if (detail.cardWorkers?.length)
+    lines.push('', 'Working on it now:', ...cardWorkerLines(detail.cardWorkers));
+  else if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
   if (others.length > 0)
     lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
   if (detail.cardQuestions?.length)
@@ -469,9 +472,16 @@ export function formatSentMessage(result: {
 }
 
 /** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
-function recipientLine({ handle, delivery, hold }: SentMessageRecipient, taskKey: string | null): string {
+function recipientLine(
+  { handle, delivery, hold, waitingPermission }: SentMessageRecipient,
+  taskKey: string | null,
+): string {
+  if (waitingPermission)
+    return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
   const card = taskKey ?? 'the card';
   switch (delivery) {
+    case 'next_input':
+      return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;
     case 'typed_now':

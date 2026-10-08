@@ -130,7 +130,15 @@ export class MessageStarts {
       projectKey,
       taskKey,
       spec: () => ({ kind: 'message_wake', projectKey, handle, workItem, stageId: triedIn ?? null }),
-      stillValid: (task) => (task ? task.stageId === triedIn && isOpenTask(task) : taskKey === null),
+      stillValid: () => {
+        const config = this.projects.cachedConfig(projectKey);
+        return (
+          !!config &&
+          this.messages
+            .waiting(projectKey, handle, workItem)
+            .some((m) => this.messages.wakes(config, m, handle))
+        );
+      },
       waitsFor: () => handle,
       retry: () => this.wake(projectKey, handle, workItem),
       log: {
@@ -143,10 +151,9 @@ export class MessageStarts {
         const member = memberOf(config, handle);
         if (member?.kind !== 'ai') return;
         const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
-        if (task && !isOpenTask(task)) return;
         triedIn = task?.stageId;
         const waiting = this.messages.waiting(projectKey, handle, workItem);
-        if (waiting.length === 0) return;
+        if (!waiting.some((m) => this.messages.wakes(config, m, handle))) return;
         const cause: SessionStartCause = { kind: 'message', from: unique(waiting.map((m) => m.from)) };
         await this.delivery.startAndDeliver(projectKey, handle, workItem, (messages) =>
           this.admission.start({ config, member, workItem, messages, cause }),

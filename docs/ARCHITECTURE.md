@@ -229,8 +229,21 @@ Documentation map:
   (`get_remote_state`; PM-142, [GITHUB.md](GITHUB.md)). Text
   an agent writes in its own session reaches nobody.
 - **Team messages** — a message about a task goes to the recipient's session for that task
-  (typed in when idle, queued otherwise; a stopped session is started or resumed through
-  admission); messages to humans go to the web app. A message never goes to its sender.
+  (batched when idle; a stopped session is started or resumed through admission only for a valid
+  action); messages to humans go to the web app. A message never goes to its sender.
+  PM-368 records `kind` (`action` or `info`), the sending card version (stage, branch head and
+  review pin), and a permission subject where applicable. AI `send_message` calls must name the
+  kind. Info never starts a session or requests a review round. The server applies the shared
+  `messageStaleReason` / `messageWakes` rules again before a deferred start: obsolete actions remain
+  readable and reach the next input with an out-of-date marker; old unknown versions and human
+  messages remain actionable. Result-label events retain the caller's reviewed commit.
+  AI messages wait in storage while the recipient works or waits for permission. At idle they
+  reach it in one input, prefixed with the current card state, within the first-input size limit.
+  The transcript and web chat split the batch into existing system-note and team-message items.
+  A permission wait names its current deciders in the brief, get_task and the send result. A
+  delegated notice is tied to its inbox item and no longer wakes its recipient after resolution
+  or escalation. All validity and formatting happen on the server; engines receive text and
+  the existing permission decision. The existing source-head git lookup stays engine-local.
   Injected messages carry the prefix `[team message from <handle> about <KEY>]` so
   transcripts can be parsed. Where an AI recipient gets it is decided when it is sent
   (`Messaging.place`, PM-182): its running session on the card; else on an open card its running
@@ -1117,7 +1130,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. **Remote engine:** maintain repositories/worktrees and git metadata there;
+  operations. PM-368's `domain/messaging/{messaging,delivery}.ts` also uses
+  `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches.
+  **Remote engine:** run this git query beside the worktrees and return the attributed branch head
+  to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
   as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
 - **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),

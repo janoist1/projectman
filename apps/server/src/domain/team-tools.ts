@@ -216,6 +216,15 @@ export class TeamToolsService implements TeamToolsHandler {
         outcome: args.decision === 'escalate' ? 'handed to a person' : 'decided; the request is answered',
       };
     } catch (err) {
+      if (err instanceof DomainError && err.code === 'inbox_item_closed') {
+        const state = (err.details as { state?: string }).state;
+        throw new TeamToolError(
+          'invalid',
+          state === 'expired'
+            ? 'inbox_item_closed: expired — nothing reached the session'
+            : 'inbox_item_closed: already decided',
+        );
+      }
       throw toToolError(err);
     }
   }
@@ -256,7 +265,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
-  private readonly sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers'>;
+  private readonly sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers' | 'cardWorkersFor'>;
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
@@ -281,7 +290,7 @@ export class TeamToolsService implements TeamToolsHandler {
     publishing: PublishingGate;
     ctx: DomainContext;
     /** The session service: set_current_work records the sentence on the caller's session. */
-    sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers'>;
+    sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers' | 'cardWorkersFor'>;
     /** The questions asked on a card, which get_task lists (PM-249). */
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
@@ -329,7 +338,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async sendMessage(
     ctx: ToolContext,
-    args: { to: string[]; text: string; taskKey?: string },
+    args: { to: string[]; text: string; taskKey?: string; kind: 'action' | 'info' },
   ): Promise<{
     messageId: string;
     deliveredTo: string[];
@@ -346,7 +355,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ctx.projectKey,
           ctx.member,
           { to: args.to, text: args.text, taskKey },
-          { actor: aiActor(ctx.member), sessionId: ctx.sessionId },
+          { actor: aiActor(ctx.member), sessionId: ctx.sessionId, kind: args.kind },
         )
         .catch((err: unknown) => {
           throw toMessageToolError(err);
@@ -439,6 +448,7 @@ export class TeamToolsService implements TeamToolsHandler {
         workingSessionIds: this.sessions
           .cardWorkers(ctx.projectKey, detail.task, config)
           .map((session) => session.id),
+        cardWorkers: this.sessions.cardWorkersFor(config, detail.task, ''),
         cardQuestions: this.cardQuestions.list(ctx.projectKey, taskKey, { limit: QUESTION_LIMIT }),
         attachments: {
           attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),

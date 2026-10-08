@@ -1,4 +1,4 @@
-import { TEAM_MESSAGE_PREFIX_RE } from '@projectman/shared';
+import { TEAM_MESSAGE_PREFIX_RE, splitTeamMessageBatch } from '@projectman/shared';
 import type { ChatItem } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
@@ -50,7 +50,24 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
   const blocks: ChatBlock[] = [];
   const rowsByToolUse = new Map<string, ToolRow>();
 
-  for (const item of items) {
+  const expanded = items.flatMap((item): ChatItem[] => {
+    if (item.kind !== 'user_text') return [item];
+    const batch = splitTeamMessageBatch(item.text);
+    if (!batch) return [item];
+    return [
+      { kind: 'system_note', id: item.id, ts: item.ts, text: batch.header },
+      ...batch.items.map((message, index): TeamMessageItem => ({
+        kind: 'team_message',
+        id: `${item.id}#${index}`,
+        ts: item.ts,
+        direction: 'in',
+        from: message.from,
+        to: sessionMember ? [sessionMember] : [],
+        text: message.body,
+      })),
+    ];
+  });
+  for (const item of expanded) {
     if (item.kind === 'tool_call' || item.kind === 'tool_result') {
       if (item.kind === 'tool_result') {
         const row = rowsByToolUse.get(item.toolUseId);

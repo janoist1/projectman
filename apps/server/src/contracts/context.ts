@@ -91,6 +91,7 @@ export interface ContextPackInput {
 
 /** A member whose session works on the card now, as another member's brief names it (PM-249). */
 export interface CardWorker {
+  waitingPermission?: { inboxItemId: string; deciders: string[]; since: string };
   handle: string;
   displayName: string;
   /** `roleLabel(member.role, customRoles)`, as in the team list of the system prompt. */

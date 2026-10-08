@@ -24,6 +24,7 @@ describe('team tools', () => {
 
   it('send_message delivers to the recipient session for the task without waiting for it', async () => {
     const result = await h.domain.teamTools.sendMessage(dev, {
+      kind: 'action',
       to: ['cr', 'owner', 'dev-1'],
       text: 'Ready for review',
     });
@@ -34,24 +35,27 @@ describe('team tools', () => {
     expect(crSession).toBeDefined();
     // The recipient's new session takes the whole message in its first input, behind its brief.
     expect(h.runner.started.find((spec) => spec.sessionId === crSession.id)?.initialMessage).toContain(
-      '[team message from dev-1 about AR-1]\nReady for review',
+      'Ready for review',
     );
     expect(h.runner.messages.filter((m) => m.sessionId === crSession.id)).toEqual([]);
     const stored = h.repos.messages.get(result.messageId)!;
     expect(stored).toMatchObject({ from: 'dev-1', to: ['cr', 'owner'], taskKey: 'AR-1' });
     expect(stored.deliveredAt).not.toBeNull();
 
-    expect((await toolError(h.domain.teamTools.sendMessage(dev, { to: ['nobody'], text: 'hi' }))).code).toBe(
-      'not_found',
-    );
-    expect((await toolError(h.domain.teamTools.sendMessage(dev, { to: ['dev-1'], text: 'me' }))).code).toBe(
-      'invalid',
-    );
+    expect(
+      (await toolError(h.domain.teamTools.sendMessage(dev, { kind: 'action', to: ['nobody'], text: 'hi' })))
+        .code,
+    ).toBe('not_found');
+    expect(
+      (await toolError(h.domain.teamTools.sendMessage(dev, { kind: 'action', to: ['dev-1'], text: 'me' })))
+        .code,
+    ).toBe('invalid');
   });
 
   describe('what send_message says per recipient (PM-144)', () => {
     const task = { type: 'task', taskKey: 'AR-1' } as const;
-    const send = (to: string[]) => h.domain.teamTools.sendMessage(dev, { to, text: 'Please take a look' });
+    const send = (to: string[]) =>
+      h.domain.teamTools.sendMessage(dev, { kind: 'action', to, text: 'Please take a look' });
 
     it('says typed_now for an idle session, after_turn for one in a turn, wake without a session, inbox for a person', async () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);

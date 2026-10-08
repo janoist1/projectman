@@ -1,4 +1,4 @@
-import { formatInjectedTeamMessage } from '@projectman/shared';
+import { formatInjectedTeamMessage, formatTeamMessageBatch } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import {
   ToolNames,
@@ -54,6 +54,31 @@ describe('recipients and selfHandle', () => {
 });
 
 describe('UserTurns', () => {
+  it('splits an injected batch into a note and stable incoming message items', () => {
+    const text = formatTeamMessageBatch(null, null, [
+      { from: 'qa', taskKey: null, body: 'Tests pass', kind: 'info', sentAt: ts },
+      { from: 'dev', taskKey: null, body: 'Please review', kind: 'action', sentAt: ts },
+    ]);
+    const turns = new UserTurns('cr');
+    expect(turns.items(text, 'u1', ts)).toMatchObject([
+      { kind: 'system_note', id: 'u1' },
+      {
+        kind: 'team_message',
+        id: 'u1#0',
+        from: 'qa',
+        to: ['cr'],
+        text: expect.stringContaining('Tests pass'),
+      },
+      {
+        kind: 'team_message',
+        id: 'u1#1',
+        from: 'dev',
+        to: ['cr'],
+        text: expect.stringContaining('Please review'),
+      },
+    ]);
+    expect(turns.items('Hello', 'u2', ts)).toMatchObject([{ kind: 'user_text', origin: 'human' }]);
+  });
   it('reads only the first turn as the brief, and team messages as incoming', () => {
     const turns = new UserTurns('fe-1');
     expect(turns.item('Build the login page', 'u1', ts)).toEqual({

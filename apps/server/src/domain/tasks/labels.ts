@@ -1,4 +1,4 @@
-import { expiredLabels, planLabelChange } from '@projectman/shared';
+import { expiredLabels, labelDefinition, planLabelChange } from '@projectman/shared';
 import type { Actor, LabelChangeReason, LabelClearTrigger, ProjectConfig, Task } from '@projectman/shared';
 import { isoNow } from '../context';
 import { forbidden, invalid } from '../errors';
@@ -130,13 +130,26 @@ export class TaskLabels {
     opts: LabelChangeOptions,
     effects: Effect[],
   ): void {
+    const resultCommit =
+      actor.kind === 'ai' &&
+      opts.sessionId &&
+      plan.added.some((id) =>
+        ['code-review', 'security', 'qa', 'design-review'].includes(labelDefinition(config, id)?.group ?? ''),
+      )
+        ? this.store.ctx.repos.sessions.reviewedCommit(opts.sessionId)
+        : null;
     this.store.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
       sessionId: opts.sessionId ?? null,
       actor,
       type: 'task_labels_changed',
-      data: { added: plan.added, removed: plan.removed, ...(opts.reason ? { reason: opts.reason } : {}) },
+      data: {
+        added: plan.added,
+        removed: plan.removed,
+        ...(opts.reason ? { reason: opts.reason } : {}),
+        ...(resultCommit ? { resultCommit } : {}),
+      },
     });
     const comment = opts.comment?.trim();
     if (comment) this.store.recordNote(config, task, comment, actor, opts.sessionId ?? null, effects);

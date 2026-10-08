@@ -207,6 +207,15 @@ export class InboxService {
     return this.ctx.repos.inbox.countOpenFor(projectKey, handle);
   }
 
+  openPermissionOf(projectKey: string, sessionId: string): InboxItem | null {
+    return (
+      this.ctx.repos.inbox
+        .listOpen('permission')
+        .filter((item) => item.projectKey === projectKey && item.sessionId === sessionId)
+        .at(-1) ?? null
+    );
+  }
+
   /**
    * A human picks an option. Only assignees may resolve; owners may also answer permission
    * requests and questions, but gate decisions belong to the named approvers only.
@@ -218,7 +227,8 @@ export class InboxService {
     by: Resolver,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
-    if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+    if (item.state !== 'open')
+      throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
     if (!item.options.some((o) => o.id === req.optionId)) {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
@@ -304,7 +314,8 @@ export class InboxService {
         'ai_approval_forbidden',
         'an AI member decides only a request delegated to it as the decider',
       );
-    if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
+    if (item.state !== 'open')
+      throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
     item = this.refreshDelegation(item, config);
     const current = permissionDelegationOf(item)!;
     if (!canDecidePermission(config, item.source, current, handle, this.ctx.now().getTime()))

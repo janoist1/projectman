@@ -489,7 +489,7 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     disk,
   });
-  const delivery = new MessageDelivery({ ctx, sessions, messages });
+  const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
   providerKeys?.onChange(() => {
     void runnerModule.runner
       .providerStatus?.('nanogpt', { refresh: true })
@@ -557,7 +557,7 @@ export function createDomain(opts: DomainOptions) {
             item.projectKey,
             'system',
             { to: leads, taskKey: item.taskKey, text: delegatedPermissionPrompt(item) },
-            { actor: SYSTEM_ACTOR },
+            { actor: SYSTEM_ACTOR, kind: 'action', subject: { type: 'permission', inboxItemId: item.id } },
           )
           .then(() => undefined),
       () => opts.logger.warn({ itemId: item.id }, 'permission decider notification failed'),
@@ -977,6 +977,7 @@ export function createDomain(opts: DomainOptions) {
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
   events.on('session_started', (session) => delivery.deliverWaiting(session));
+  events.on('session_idle', (session) => delivery.deliverWaiting(session));
   // A member joining a card is told to the card's other workers; a notice kept for an ended session is dropped (PM-249).
   events.on('task_session_joined', (joined) => messaging.joinedNotice(joined));
   events.on('session_ended', (session) => delivery.dropHeld(session.id));

@@ -1,5 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { SessionStop, SessionStopKind } from './involvement';
+import { quoteOf, SessionStartCause, SessionStop, SessionStopKind } from './involvement';
+
+describe('quoteOf', () => {
+  it.each([
+    ['', ''],
+    ['\n\n# A short sentence. Another one.', 'A short sentence.'],
+    ['> - `Hello! More text.', 'Hello!'],
+    ['First\nSecond', 'First'],
+    ['A   short   question? Yes.', 'A short question?'],
+  ])('quotes %j as %j', (input, expected) => expect(quoteOf(input)).toBe(expected));
+  it('truncates at the last word and keeps the ellipsis within the limit', () => {
+    expect(quoteOf('One two three four five six', 14)).toBe('One two three…');
+    expect(quoteOf('abcdefghijklmnop', 6)).toBe('abcde…');
+  });
+  it('keeps integrator attribution in a start cause', () => {
+    expect(
+      SessionStartCause.parse({
+        kind: 'message',
+        by: { kind: 'human', handle: 'owner', via: 'integrator' },
+        messageId: 'msg_1',
+        quote: 'Hello.',
+      }).by?.via,
+    ).toBe('integrator');
+  });
+});
 
 describe('SessionStop', () => {
   it.each([

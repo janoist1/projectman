@@ -642,11 +642,18 @@ export class FixLimitWatch {
     const member = memberOf(config, handle);
     if (member?.kind !== 'ai') return;
     try {
+      const fixLimit = this.timeline.latest(task.projectKey, task.key, 'task_fix_limit');
       await this.delivery.startAndDeliver(task.projectKey, handle, workItem, (messages) =>
         this.admission.start({
           config,
           member,
           workItem,
+          cause: {
+            kind: 'fix_limit',
+            eventId: fixLimit?.id,
+            rounds: fixLimit?.data.rounds as number | undefined,
+            limit: fixLimit?.data.limit as number | undefined,
+          },
           messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
         }),
       );

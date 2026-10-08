@@ -1,0 +1,135 @@
+.page {
+  max-width: 1100px;
+  margin: auto;
+  padding: 24px;
+}
+.filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-block: 24px;
+}
+.summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.summary p {
+  margin: 0;
+}
+.summary button {
+  margin-left: auto;
+}
+.filters label,
+.period {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.period {
+  grid-column: 1 / -1;
+  align-items: flex-start;
+}
+.all {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+.all {
+  padding-top: 8px;
+}
+.section {
+  padding: 14px 16px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  font-size: var(--text-sm);
+}
+.section h2 {
+  margin-bottom: 10px;
+  font-size: var(--text-xl);
+}
+.line a {
+  color: var(--c-ink);
+}
+.line a:hover {
+  color: var(--c-accent-hover);
+}
+.filters select,
+.filters input {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--c-line);
+  border-radius: 8px;
+  background: var(--c-surface);
+  color: var(--c-ink);
+  padding: 8px;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid var(--c-line);
+  padding: 16px 0;
+}
+.arriving {
+  animation: arrive 170ms ease-out;
+}
+.body {
+  min-width: 0;
+  flex: 1;
+}
+.line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.line time {
+  font-size: 12px;
+}
+.body p {
+  margin-bottom: 0;
+  color: var(--c-ink-3);
+}
+.skeleton {
+  height: 70px;
+  margin: 12px 0;
+  background: var(--c-muted);
+  border-radius: 8px;
+}
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@media (max-width: 600px) {
+  .page {
+    padding: 16px;
+  }
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .period {
+    align-items: stretch;
+  }
+  .period button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    animation: none;
+  }
+}

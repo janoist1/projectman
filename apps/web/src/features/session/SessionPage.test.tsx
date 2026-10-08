@@ -23,7 +23,45 @@ const sessionRoute = (
   </Routes>
 );
 
+it.each(['Wrong card', ''])('stops with an optional note %j', async (note) => {
+  const project = mockProject();
+  project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+  fireEvent.click(await screen.findByRole('button', { name: t('common.moreActions') }));
+  fireEvent.click(screen.getByRole('button', { name: t('session.stop') }));
+  const dialog = screen.getByRole('dialog');
+  fireEvent.change(within(dialog).getByLabelText(t('involvement.stopNote')), { target: { value: note } });
+  fireEvent.click(within(dialog).getByRole('button', { name: t('session.stop') }));
+  await waitFor(() => expect(project.requests.some((request) => request.path.endsWith('/stop'))).toBe(true));
+  expect(project.requests.find((request) => request.path.endsWith('/stop'))?.body).toEqual(
+    note ? { note } : {},
+  );
+});
+
 describe('session header task state', () => {
+  it('keeps the stop reason after a failure and retries it with Enter', async () => {
+    const project = mockProject();
+    const answer = createMockFetch(project.backend, project.requests);
+    let failures = 1;
+    setFetchImplementation(async (path, init) => {
+      if (path.endsWith('/stop') && init?.method === 'POST' && failures-- > 0)
+        return new Response(JSON.stringify({ error: { code: 'internal' } }), { status: 500 });
+      return answer(path, init);
+    });
+    project.render(sessionRoute, '/sessions/ses_ac21_fe1');
+    fireEvent.click(await screen.findByRole('button', { name: t('common.moreActions') }));
+    fireEvent.click(screen.getByRole('button', { name: t('session.stop') }));
+    const dialog = screen.getByRole('dialog');
+    const input = within(dialog).getByLabelText(t('involvement.stopNote')) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Wrong card' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: t('session.stop') }));
+    await within(dialog).findByRole('alert');
+    expect(input.value).toBe('Wrong card');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(project.requests.find((request) => request.path.endsWith('/stop'))?.body).toEqual({
+      note: 'Wrong card',
+    });
+  });
   it('reads a queued task as ready once its prerequisite is done', async () => {
     const project = mockProject();
     const queued = project.backend.findTask('AC-23')!;

@@ -140,11 +140,11 @@ describe('the session_ended row', () => {
   it('reads the reason from data.stop', () => {
     const stop = { kind: 'idle', idleMinutes: 15 };
     expect(describeEvent({ ...ended, data: { ...ended.data, stop } }, context).text).toBe(
-      'Munkamenet magától lezárult: 15 perc csend után',
+      `${t('involvement.verbs.closed')} — ${t('session.closure.long.idle', { n: 15 })}`,
     );
   });
 
-  it('keeps the old text for an event without a reason, with an error or with another reason', () => {
+  it('keeps legacy events and unsuccessful closures readable and describes other stops', () => {
     const plain = t('timeline.events.session_ended');
     expect(describeEvent(ended, context).text).toBe(plain);
     expect(
@@ -156,6 +156,6 @@ describe('the session_ended row', () => {
         { ...ended, data: { member: 'claude', exitCode: 0, stop: { kind: 'login_lost' } } },
         context,
       ).text,
-    ).toBe(plain);
+    ).toBe(`${t('involvement.verbs.ended')} — ${t('involvement.stops.login_lost')}`);
   });
 });

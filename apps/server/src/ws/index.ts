@@ -98,7 +98,10 @@ export function registerWebsocket(
             else {
               const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
               if (canSeeProjectEvent(access, event, taskOf))
-                send(client, visibleProjectEvent(access, event, taskOf));
+                send(
+                  client,
+                  visibleProjectEvent(access, event, taskOf, (id) => domain.messages.get(id)),
+                );
             }
           }
         }

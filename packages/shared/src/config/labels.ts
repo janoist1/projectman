@@ -8,6 +8,19 @@ import type { ProjectConfig } from './schema';
 
 type LabelConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
 
+/** Approvals delegated keys cannot give, including conditional gate requirements. */
+export function isOwnerApprovalLabel(config: LabelConfig, label: LabelDefinition): boolean {
+  return (
+    isHumanOnlyLabel(label) ||
+    label.notByAuthor === true ||
+    config.pipeline.stages.some((stage) =>
+      stage.gate?.conditions.some(
+        (condition) => condition.type === 'has_label' && condition.label === label.id,
+      ),
+    )
+  );
+}
+
 /**
  * Whether a review or test already gave the work back (PM-183): the task carries a result label of
  * a reviewing or testing duty that needs a note, such as "changes needed", "failed" or "blocked",
@@ -97,6 +110,7 @@ export function labelRefusal(
   task: Pick<Task, 'assignee' | 'links'>,
 ): LabelRefusal | null {
   if (actor.kind === 'system' || !label) return null;
+  if (actor.via === 'integrator' && isOwnerApprovalLabel(config, label)) return 'owner_approval';
   if (label.setBy === 'system') return 'system_only';
   if (isHumanOnlyLabel(label) && actor.kind !== 'human') return 'humans_only';
   if (!labelHolders(config, label).includes(actor.handle ?? '')) return 'not_holder';
@@ -135,6 +149,7 @@ export function gateLabels(config: Pick<ProjectConfig, 'pipeline'>, stage: Stage
  * the actor may not change, or the added labels that need a comment when none was given.
  */
 export type LabelChangeRefusal =
+  | { code: 'owner_approval_required'; label: string }
   | { code: 'self_review_forbidden'; label: string }
   | { code: 'label_not_allowed'; label: string; reason: LabelRefusal }
   | { code: 'comment_required'; labels: string[] };
@@ -173,7 +188,14 @@ export function planLabelChange(
     (label) => task.labels.includes(label) && !add.includes(label),
   );
   for (const label of [...add, ...remove]) {
-    const refusal = labelRefusal(config, labelDefinition(config, label), actor, task);
+    const refusal = labelRefusal(
+      config,
+      labelDefinition(config, label),
+      remove.includes(label) && actor.via ? { kind: actor.kind, handle: actor.handle } : actor,
+      task,
+    );
+    if (refusal === 'owner_approval')
+      return { ok: false, refusal: { code: 'owner_approval_required', label } };
     if (refusal === 'self_review') return { ok: false, refusal: { code: 'self_review_forbidden', label } };
     if (refusal) return { ok: false, refusal: { code: 'label_not_allowed', label, reason: refusal } };
   }

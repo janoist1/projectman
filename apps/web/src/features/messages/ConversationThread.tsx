@@ -238,10 +238,12 @@ export function ConversationThread({
           </section>
         ) : (
           <p className={styles.answered}>
-            {t('messages.question.answered', {
-              title: inboxHeading(item.item),
-              answer: answeredText(item.item),
-            })}
+            {item.item.resolution?.via
+              ? `${t('integratorKey.forwarded')}: ${answeredText(item.item)}`
+              : t('messages.question.answered', {
+                  title: inboxHeading(item.item),
+                  answer: answeredText(item.item),
+                })}
           </p>
         )}
       </div>
@@ -440,12 +442,16 @@ function MessageBubble({
     >
       {mine ? null : (
         <span className={styles.avatarSlot}>
-          {entry.firstOfRun ? <Avatar member={members.get(peer)} handle={peer} size="md" /> : null}
+          {entry.firstOfRun ? (
+            <Avatar member={members.get(peer)} handle={peer} via={message.via} size="md" />
+          ) : null}
         </span>
       )}
       <div className={styles.col}>
-        {!mine && entry.firstOfRun ? (
-          <span className={styles.sender}>{nameOf(message.from, members, myHandle)}</span>
+        {message.via || (!mine && entry.firstOfRun) ? (
+          <span className={styles.sender}>
+            {message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle)}
+          </span>
         ) : null}
         {entry.showTask && message.taskKey ? (
           <TaskChip projectKey={projectKey} taskKey={message.taskKey} title={titles.get(message.taskKey)} />

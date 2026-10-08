@@ -195,6 +195,11 @@ describe('automatic session admission and retries', () => {
     expect(h.runner.messages.map((m) => m.text).join('\n')).toContain(
       'Task AR-1 is now in stage Code review',
     );
+    const cause = h.domain.sessions.get('AR', session.id).startCause;
+    expect(cause).toMatchObject({ kind: 'hand_over', from: 'backlog', to: 'code_review', by: OWNER_ACTOR });
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).find((event) => event.id === cause?.eventId)?.type,
+    ).toBe('task_stage_changed');
     await h.domain.admission.retryDeferred();
     expect(h.runner.started).toHaveLength(2);
     expect(h.runner.messages).toHaveLength(2);

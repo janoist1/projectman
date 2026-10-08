@@ -94,7 +94,11 @@ describe('a closed session (PM-296)', () => {
     const id = closedSession(project, { kind: 'idle', idleMinutes: 15 });
     project.render(sessionRoute, `/sessions/${id}`);
     expect(
-      (await screen.findAllByText('Munkamenet magától lezárult: 15 perc csend után')).length,
+      (
+        await screen.findAllByText(
+          `${t('involvement.verbs.closed')} — ${t('session.closure.long.idle', { n: 15 })}`,
+        )
+      ).length,
     ).toBeGreaterThan(0);
   });
 

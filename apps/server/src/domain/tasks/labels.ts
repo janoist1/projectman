@@ -39,6 +39,12 @@ export function planLabelsOrThrow(
   if (plan.ok) return plan;
   const refusal = plan.refusal;
   switch (refusal.code) {
+    case 'owner_approval_required':
+      throw forbidden(
+        'owner_approval_required',
+        'Only the owner may give this approval using their own login',
+        { label: refusal.label },
+      );
     case 'self_review_forbidden':
       throw forbidden('self_review_forbidden', 'the assignee and PR authors cannot set this label', {
         label: refusal.label,

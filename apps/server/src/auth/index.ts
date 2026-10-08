@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { LoginRequest, routes, SetupRequest } from '@projectman/shared';
+import { CreateIntegratorKeyRequest, LoginRequest, routes, SetupRequest } from '@projectman/shared';
 import type { Me, SetupStatus } from '@projectman/shared';
 import { apiError } from '../api/errors';
 import { parseBody } from '../api/validation';
@@ -23,6 +23,7 @@ declare module 'fastify' {
     user: AuthUser | null;
     /** Token of the login session (from the signed cookie), or null. */
     authToken: string | null;
+    via: 'integrator' | null;
   }
 }
 
@@ -52,7 +53,7 @@ function needsLogin(request: FastifyRequest): boolean {
 }
 
 /** The user and their memberships, as every login answers and GET /api/auth/me returns. */
-export async function meOf(domain: Domain, user: AuthUser): Promise<Me> {
+export async function meOf(domain: Domain, user: AuthUser, auth?: AuthService): Promise<Me> {
   return {
     userId: user.id,
     name: user.name,
@@ -60,6 +61,7 @@ export async function meOf(domain: Domain, user: AuthUser): Promise<Me> {
     handles: await domain.handlesFor(user.email),
     projects: await domain.projectsFor(user.email),
     instanceOwner: await domain.instanceOwner(user.email),
+    ...(auth ? { hostOwner: auth.isHostOwner(user.id) } : {}),
   };
 }
 
@@ -103,6 +105,7 @@ export function registerAuth(
 
   app.decorateRequest('user', null);
   app.decorateRequest('authToken', null);
+  app.decorateRequest('via', null);
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('referrer-policy', 'no-referrer');
@@ -119,7 +122,22 @@ export function registerAuth(
     ) {
       return reply.code(403).send(apiError('invalid_origin', 'same-origin request required'));
     }
-    const raw = request.cookies[SESSION_COOKIE];
+    const bearer = request.headers.authorization;
+    if (request.url.startsWith('/api/') && bearer && /^Bearer(?:\s|$)/i.test(bearer)) {
+      if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
+        return reply
+          .code(401)
+          .send(apiError('integrator_https_required', 'Integrator key requires HTTPS or a local connection'));
+      const secret = bearer.match(/^Bearer (pmi_[A-Za-z0-9_-]+)$/i)?.[1];
+      const user = secret ? auth.resolveIntegratorKey(secret) : null;
+      if (!user)
+        return reply
+          .code(401)
+          .send(apiError('integrator_key_invalid', 'Integrator key is invalid, revoked or expired'));
+      request.user = user;
+      request.via = 'integrator';
+    }
+    const raw = request.via ? null : request.cookies[SESSION_COOKIE];
     if (raw) {
       const unsigned = request.unsignCookie(raw);
       const user = unsigned.valid ? auth.resolve(unsigned.value) : null;
@@ -145,7 +163,7 @@ export function registerAuth(
     const body = parseBody(SetupRequest, request.body);
     const user = await auth.createFirstUser(body);
     startSession(auth, request, reply, user.id);
-    return reply.code(201).send(await meOf(domain, user));
+    return reply.code(201).send(await meOf(domain, user, auth));
   });
 
   app.post(routes.login(), async (request, reply) => {
@@ -158,7 +176,7 @@ export function registerAuth(
     }
     release();
     startSession(auth, request, reply, user.id);
-    return meOf(domain, user);
+    return meOf(domain, user, auth);
   });
 
   app.post(routes.logout(), async (request, reply) => {
@@ -167,5 +185,32 @@ export function registerAuth(
     return reply.code(204).send();
   });
 
-  app.get(routes.me(), async (request) => meOf(domain, request.user!));
+  app.get(routes.me(), async (request) => ({
+    ...(await meOf(domain, request.user!)),
+    hostOwner: auth.isHostOwner(request.user!.id),
+    ...(request.via ? { via: request.via } : {}),
+  }));
+
+  const keyOwner = (request: FastifyRequest): string => {
+    if (request.via)
+      throw forbidden('integrator_not_allowed', 'Only the owner may manage this key using their own login');
+    if (!request.user || !auth.isHostOwner(request.user.id))
+      throw forbidden('owner_only', 'Only the host owner may manage this key');
+    return request.user.id;
+  };
+  app.get(routes.integratorKey(), async (request) => ({ key: auth.integratorKey(keyOwner(request)) }));
+  app.post(routes.integratorKey(), async (request, reply) => {
+    const userId = keyOwner(request);
+    const body = parseBody(CreateIntegratorKeyRequest, request.body ?? {});
+    const created = auth.createIntegratorKey(userId, body.expiresInDays);
+    app.log.info({ prefix: created.key.prefix, userId }, 'Integrator key created');
+    return reply.code(201).send(created);
+  });
+  app.delete(routes.integratorKey(), async (request) => {
+    const userId = keyOwner(request);
+    const key = auth.revokeIntegratorKey(userId);
+    if (!key) throw new DomainError('not_found', 'No active integrator key', { status: 404 });
+    app.log.info({ prefix: key.prefix, userId }, 'Integrator key revoked');
+    return { key };
+  });
 }

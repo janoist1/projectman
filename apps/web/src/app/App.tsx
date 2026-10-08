@@ -39,6 +39,7 @@ const mapPage = lazyPage(() => import('../features/map/MapPage'), 'MapPage');
 const mapOverview = lazyPage(() => import('../features/map/MapOverview'), 'MapOverview');
 const mapGroupView = lazyPage(() => import('../features/map/MapGroupView'), 'MapGroupView');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
+const involvementsPage = lazyPage(() => import('../features/team/InvolvementsPage'), 'InvolvementsPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
@@ -75,6 +76,7 @@ export function AppRoutes() {
             <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
           </Route>
           <Route path="sessions/:sessionId" element={sessionPage} />
+          <Route path="sessions" element={involvementsPage} />
           <Route path="inbox" element={inboxPage} />
           <Route path="map" element={mapPage}>
             <Route index element={mapOverview} />

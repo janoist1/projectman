@@ -281,7 +281,10 @@ export function useSendSessionMessage(key: string, sessionId: string) {
 export function useStopSession(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (sessionId: string) => api.stopSession(key, sessionId),
+    mutationFn: (input: string | { sessionId: string; note?: string; purpose?: 'assignee_change' }) =>
+      typeof input === 'string'
+        ? api.stopSession(key, input)
+        : api.stopSession(key, input.sessionId, { note: input.note, purpose: input.purpose }),
     onSuccess: async () => {
       await Promise.all([
         client.invalidateQueries({ queryKey: queryKeys.project(key) }),

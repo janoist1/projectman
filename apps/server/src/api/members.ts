@@ -35,8 +35,8 @@ export function registerMemberRoutes(app: FastifyInstance, domain: Domain): void
 
   app.post<MemberParams>(routes.startConversation(':key', ':handle'), async (request, reply) => {
     const { key, handle } = request.params;
-    await requireAccess(domain, request, key, { minimum: 'developer' });
-    return reply.code(202).send(await domain.messageStarts.startConversation(key, handle));
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    return reply.code(202).send(await domain.messageStarts.startConversation(key, handle, actorOf(access)));
   });
 
   app.delete<MemberParams>(routes.removeHuman(':key', ':handle'), async (request, reply) => {

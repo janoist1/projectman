@@ -35,6 +35,42 @@ describe('versioned message wake-up', () => {
     expect(h.repos.messages.pending('AR', 'cr')).toHaveLength(0);
   });
 
+  it('keeps integrator attribution and message metadata when delivering a queued mixed batch', async () => {
+    h = await createDomainHarness();
+    await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    await h.domain.messaging.send(
+      'AR',
+      'dev-1',
+      { to: ['cr'], text: 'Context.', taskKey: 'AR-1' },
+      { kind: 'info' },
+    );
+    const sent = await h.domain.messaging.send(
+      'AR',
+      'owner',
+      { to: ['cr'], text: 'Review this.', taskKey: 'AR-1' },
+      {
+        kind: 'action',
+        actor: { ...OWNER_ACTOR, via: 'integrator' },
+        origin: { kind: 'note', eventId: 'evt_note' },
+      },
+    );
+    expect(h.repos.messages.get(sent.id)).toMatchObject({
+      from: 'owner',
+      via: 'integrator',
+      kind: 'action',
+      origin: { kind: 'note', eventId: 'evt_note' },
+      version: { stageId: 'backlog' },
+    });
+    await vi.waitFor(() => expect(h.repos.messages.pending('AR', 'cr')).toHaveLength(0));
+    const input = h.runner.lastStarted().initialMessage;
+    expect(input).toContain('[team messages about AR-1]');
+    expect(input).toContain('[team message from owner via integrator about AR-1]');
+    expect(input).toContain('[team message from dev-1 about AR-1]');
+    expect(
+      h.domain.sessions.findRunning('AR', 'cr', { type: 'task', taskKey: 'AR-1' })?.startCause,
+    ).toMatchObject({ kind: 'mention', by: { handle: 'owner', via: 'integrator' }, messageId: sent.id });
+  });
+
   it('keeps messages arriving during typing for the next input without duplicate delivery', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);

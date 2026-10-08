@@ -40,7 +40,10 @@ export function HistorySection({
               <div className={styles.versionText}>
                 <span className={styles.versionMessage}>{entry.message}</span>
                 <span className={shared.muted}>
-                  {t('settings.history.by', { author: entry.author, time: formatStamp(entry.at) })}
+                  {t('settings.history.by', {
+                    author: entry.via ? t('involvement.integratorFull') : entry.author,
+                    time: formatStamp(entry.at),
+                  })}
                 </span>
               </div>
               {isCurrent ? (

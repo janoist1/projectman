@@ -16,6 +16,8 @@ interface MessageRow {
   created_at: string;
   delivered_at: string | null;
   answer: string | null;
+  via: 'integrator' | null;
+  origin: string | null;
   kind: string | null;
   version: string | null;
   subject: string | null;
@@ -43,6 +45,10 @@ const toMessage = (r: MessageRow): TeamMessage => ({
     ? { subject: MessageSubject.parse(parseJson(r.subject, null)) }
     : {}),
   ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
+  ...(r.via ? { via: r.via } : {}),
+  ...(r.origin
+    ? { origin: parseJson<NonNullable<TeamMessage['origin']>>(r.origin, { kind: 'note', eventId: '' }) }
+    : {}),
   ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
 });
 
@@ -56,8 +62,8 @@ export function createMessageRepository(db: Db) {
         AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
         AND seq > (SELECT seq FROM team_messages WHERE id = ?) LIMIT 1`),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, kind, version, subject)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     countUnread: db.prepare(
       `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
@@ -116,6 +122,8 @@ export function createMessageRepository(db: Db) {
         m.deliveredAt,
         m.receipts ? toJson(m.receipts) : null,
         m.answer ? toJson(m.answer) : null,
+        m.via ?? null,
+        m.origin ? toJson(m.origin) : null,
         m.kind ?? null,
         m.version ? toJson(m.version) : null,
         m.subject ? toJson(m.subject) : null,

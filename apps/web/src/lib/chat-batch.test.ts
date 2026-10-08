@@ -14,6 +14,14 @@ describe('injected team batch chat', () => {
         stale: 'superseded',
       },
       { from: 'qa', taskKey: 'AR-1', body: 'Tests pass', kind: 'info', sentAt: '2026-10-05T21:31:00.000Z' },
+      {
+        from: 'owner',
+        via: 'integrator',
+        taskKey: 'AR-1',
+        body: 'Integrator request',
+        kind: 'action',
+        sentAt: '2026-10-05T21:32:00.000Z',
+      },
     ]);
     const blocks = groupChatItems(
       [{ kind: 'user_text', id: 'u1', ts: '', text, origin: 'team_message' }],
@@ -27,6 +35,11 @@ describe('injected team batch chat', () => {
         item: { from: 'dev', to: ['cr'], text: expect.stringContaining('OUT OF DATE') },
       },
       { type: 'team', id: 'u1#1', item: { from: 'qa', text: expect.stringContaining('Tests pass') } },
+      {
+        type: 'team',
+        id: 'u1#2',
+        item: { from: 'owner', via: 'integrator', text: expect.stringContaining('Integrator request') },
+      },
     ]);
   });
 });

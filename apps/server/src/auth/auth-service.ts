@@ -38,6 +38,35 @@ export class AuthService {
     return this.repos.users.count() === 0;
   }
 
+  integratorKey(userId: string) {
+    return this.repos.integratorKeys.latest(userId, this.now().toISOString());
+  }
+
+  createIntegratorKey(userId: string, expiresInDays: number | null) {
+    const secret = `pmi_${randomBytes(32).toString('base64url')}`;
+    const at = this.now();
+    const key = this.repos.integratorKeys.create({
+      id: newId('ikey'),
+      userId,
+      prefix: secret.slice(0, 12),
+      hash: tokenId(secret),
+      at: at.toISOString(),
+      expiresAt:
+        expiresInDays === null ? null : new Date(at.getTime() + expiresInDays * 86_400_000).toISOString(),
+    });
+    return { key, secret };
+  }
+
+  revokeIntegratorKey(userId: string) {
+    return this.repos.integratorKeys.revoke(userId, this.now().toISOString());
+  }
+
+  resolveIntegratorKey(secret: string): AuthUser | null {
+    const id = this.repos.integratorKeys.resolve(tokenId(secret), this.now().toISOString());
+    if (!id || !this.isHostOwner(id)) return null;
+    return this.repos.users.get(id);
+  }
+
   /**
    * The initial host owner: the account created by the first-run setup, the only one trusted
    * with host operations such as choosing a workspace directory for a new project.

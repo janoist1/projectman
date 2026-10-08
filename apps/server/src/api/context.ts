@@ -34,7 +34,7 @@ export async function requireAccess(
   if (opts.minimum && !hasAccess(access.access, opts.minimum)) {
     throw forbidden('insufficient_access', `requires ${opts.minimum} access`);
   }
-  return access;
+  return { ...access, ...(request.via ? { via: request.via } : {}) };
 }
 
 /**
@@ -49,10 +49,10 @@ export async function requireInstanceOwner(domain: Domain, request: FastifyReque
 }
 
 export function actorOf(access: ProjectAccess): Actor {
-  return humanActor(access.handle);
+  return { ...humanActor(access.handle), ...(access.via ? { via: access.via } : {}) };
 }
 
 export function authorOf(request: FastifyRequest): Author {
   const user = currentUser(request);
-  return { name: user.name, email: user.email };
+  return { name: user.name, email: user.email, ...(request.via ? { via: request.via } : {}) };
 }

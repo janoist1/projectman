@@ -213,6 +213,12 @@
 }
 
 /* team messages */
+.teamIn.integrator {
+  align-self: flex-end;
+}
+.integrator .teamSender {
+  color: var(--c-ink);
+}
 .teamIn {
   align-self: flex-start;
   max-width: 92%;

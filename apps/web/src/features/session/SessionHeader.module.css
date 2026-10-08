@@ -7,6 +7,9 @@
   gap: 10px;
   border-bottom: 1px solid var(--c-line);
 }
+.stopError {
+  margin-bottom: 16px;
+}
 
 .crumbRow {
   display: flex;

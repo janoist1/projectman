@@ -103,3 +103,7 @@
   color: var(--c-ink-4);
   overflow-wrap: anywhere;
 }
+.highlight {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 4px;
+}

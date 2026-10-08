@@ -42,6 +42,7 @@ export const ChatItem = z.discriminatedUnion('kind', [
     kind: z.literal('team_message'),
     direction: z.enum(['in', 'out']),
     from: MemberHandle,
+    via: z.literal('integrator').optional(),
     to: z.array(MemberHandle),
     text: z.string(),
   }),
@@ -54,10 +55,15 @@ export type ChatItem = z.infer<typeof ChatItem>;
  * can recognise them: "[team message from qa about AR-21]\n<body>".
  */
 export const TEAM_MESSAGE_PREFIX_RE =
-  /^\[team message from ([a-z0-9-]+)(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
+  /^\[team message from ([a-z0-9-]+)(?<via> via integrator)?(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
 
-export function formatInjectedTeamMessage(from: string, body: string, taskKey?: string | null): string {
-  return `[team message from ${from}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
+export function formatInjectedTeamMessage(
+  from: string,
+  body: string,
+  taskKey?: string | null,
+  via?: 'integrator',
+): string {
+  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
 }
 
 export const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
@@ -69,6 +75,7 @@ export interface TeamMessageBatchCard {
 }
 export interface TeamMessageBatchItem {
   from: string;
+  via?: 'integrator';
   taskKey: string | null;
   body: string;
   kind: MessageKind;
@@ -118,25 +125,25 @@ export function formatTeamMessageBatch(
         ? `at stage ${item.version.stageId}, commit ${item.version.commit?.slice(0, 7) ?? 'unknown'}, review commit ${item.version.reviewCommit?.slice(0, 7) ?? 'none'}`
         : 'version unknown';
       const meta = `${item.kind} · sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC ${version}${item.stale ? ` · OUT OF DATE: ${reasons(item)}` : ''}`;
-      return formatInjectedTeamMessage(item.from, `${meta}\n${item.body}`, item.taskKey);
+      return formatInjectedTeamMessage(item.from, `${meta}\n${item.body}`, item.taskKey, item.via);
     }),
   ].join('\n\n');
 }
 
-export function splitTeamMessageBatch(
-  text: string,
-): { header: string; items: { from: string; taskKey: string | null; body: string }[] } | null {
+export function splitTeamMessageBatch(text: string): {
+  header: string;
+  items: { from: string; via?: 'integrator'; taskKey: string | null; body: string }[];
+} | null {
   if (!TEAM_MESSAGE_BATCH_PREFIX_RE.test(text)) return null;
-  const markers = [
-    ...text.matchAll(/^\[team message from ([a-z0-9-]+)(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/gm),
-  ];
+  const markers = [...text.matchAll(new RegExp(TEAM_MESSAGE_PREFIX_RE.source, 'gm'))];
   const first = markers[0];
   if (!first) return null;
   return {
     header: text.slice(0, first.index).trimEnd(),
     items: markers.map((marker, index) => ({
       from: marker[1]!,
-      taskKey: marker[2] ?? null,
+      ...(marker.groups?.via ? { via: 'integrator' as const } : {}),
+      taskKey: marker[3] ?? null,
       body: text.slice(marker.index! + marker[0].length, markers[index + 1]?.index ?? text.length).trimEnd(),
     })),
   };

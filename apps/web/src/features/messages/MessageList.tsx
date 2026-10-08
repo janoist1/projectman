@@ -51,7 +51,7 @@ export function MessageList({
         const day = dayKey(message.createdAt);
         const heading = groupByDay && day !== lastDay ? formatDayHeading(message.createdAt) : null;
         lastDay = day;
-        const from = nameOf(message.from, members, myHandle);
+        const from = message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle);
         const to = joinNames(namesOf(message.to, members, myHandle));
         const toMe = myHandle !== null && message.to.includes(myHandle);
         return (
@@ -66,7 +66,8 @@ export function MessageList({
                 <Avatar
                   member={members.get(message.from)}
                   handle={message.from}
-                  isMe={message.from === myHandle}
+                  isMe={message.from === myHandle && !message.via}
+                  via={message.via}
                   size="sm"
                 />
                 <Icon name="arrowRight" size={13} strokeWidth={2} className={styles.arrow} />

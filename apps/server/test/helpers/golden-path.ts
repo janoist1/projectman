@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
+  SessionStartCause,
   isHumanOnlyLabel,
   labelDefinition,
   labelSetters,
@@ -14,6 +15,7 @@ import {
   type InboxItem,
   type InboxView,
   type ProjectConfig,
+  type SessionStartCause as StartCause,
   type Stage,
   type Task,
   type TaskDetail,
@@ -161,13 +163,17 @@ async function startTask(h: Harness) {
     const starts = detail.timeline.filter((event) => event.type === 'session_started');
     const fresh = starts.filter((event) => event.data.resumed === false);
     expect(fresh).toHaveLength(sessions.size);
+    for (const event of fresh)
+      expect(SessionStartCause.safeParse(event.data.cause).success, `start cause of ${event.sessionId}`).toBe(
+        true,
+      );
     for (const [member, sessionId] of sessions)
       expect(fresh).toContainEqual(
         expect.objectContaining({
           type: 'session_started',
           actor: ai(member),
           sessionId,
-          data: { member, resumed: false },
+          data: expect.objectContaining({ member, resumed: false }),
         }),
       );
     for (const event of starts.filter((start) => start.data.resumed === true))
@@ -235,11 +241,16 @@ async function startTask(h: Harness) {
   expect(h.server.projectman.runnerModule.runner.isRunning(session.id)).toBe(true);
   await assertState(work.id);
 
-  async function context(member: string): Promise<ToolContext> {
-    const { session } = await h.domain.sessions.ensureSession(projectKey, member, {
-      type: 'task',
-      taskKey: task.key,
-    });
+  async function context(
+    member: string,
+    cause: StartCause = { kind: 'start_button', by: owner },
+  ): Promise<ToolContext> {
+    const { session } = await h.domain.sessions.ensureSession(
+      projectKey,
+      member,
+      { type: 'task', taskKey: task.key },
+      { cause },
+    );
     sessions.set(member, session.id);
     await waitForBrief(h, session.id);
     return { projectKey, taskKey: task.key, member, sessionId: session.id };
@@ -295,7 +306,7 @@ async function move(h: Harness, j: Journey, member: string, target: string) {
   const from = h.domain.tasks.get(projectKey, j.task.key).stageId;
   await h.domain.teamTools.updateTask(await j.context(member), { taskKey: j.task.key, stageId: target });
   j.events.push({ type: 'task_stage_changed', actor: ai(member), data: { from, to: target } });
-  await handedOverTo(h, j, member, target);
+  await handedOverTo(h, j, member, from, target);
   await j.assertState(target, target === 'done' ? 'done' : 'active');
 }
 
@@ -306,7 +317,7 @@ async function move(h: Harness, j: Journey, member: string, target: string) {
  * pin, PM-183, made it earlier), so the journey takes the owner's session now: the hand-over then
  * finds it running and only tells it, and the count of started sessions does not depend on a race.
  */
-async function handedOverTo(h: Harness, j: Journey, mover: string, target: string) {
+async function handedOverTo(h: Harness, j: Journey, mover: string, from: string, target: string) {
   const config = (await h.configView()).config;
   const stage = config.pipeline.stages.find((s) => s.id === target);
   if (!stage || (stage.kind !== 'step' && stage.kind !== 'release')) return;
@@ -317,7 +328,7 @@ async function handedOverTo(h: Harness, j: Journey, mover: string, target: strin
       m.handle !== j.developer &&
       stageOwners(config, stage).includes(m.handle),
   );
-  if (owner) await j.context(owner.handle);
+  if (owner) await j.context(owner.handle, { kind: 'hand_over', from, to: target, by: ai(mover) });
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {

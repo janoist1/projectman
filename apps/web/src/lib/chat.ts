@@ -36,6 +36,7 @@ function asTeamMessage(
     kind: 'team_message',
     direction: 'in',
     from: match[1] ?? '',
+    ...(match.groups?.via ? { via: 'integrator' as const } : {}),
     to: sessionMember ? [sessionMember] : [],
     text: item.text.slice(match[0].length),
   };
@@ -62,6 +63,7 @@ export function groupChatItems(items: readonly ChatItem[], sessionMember: string
         ts: item.ts,
         direction: 'in',
         from: message.from,
+        ...(message.via ? { via: message.via } : {}),
         to: sessionMember ? [sessionMember] : [],
         text: message.body,
       })),

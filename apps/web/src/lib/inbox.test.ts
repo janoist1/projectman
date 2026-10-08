@@ -7,6 +7,8 @@ import {
   inboxHeading,
   questionExtras,
   resolutionLabel,
+  resolverName,
+  resolutionNote,
   shortCommand,
   splitQuestion,
 } from './inbox';
@@ -27,6 +29,16 @@ const item: InboxItem = {
   createdAt: '2026-09-30T10:00:00.000Z',
   resolution: { optionId: 'allow', by: 'system', at: '2026-09-30T10:00:00.000Z', note: null },
 };
+
+it('attributes a forwarded owner answer to the integrator', () => {
+  const forwarded: InboxItem = {
+    ...item,
+    kind: 'question',
+    resolution: { optionId: 'answer', by: 'owner', via: 'integrator', at: item.createdAt, note: 'Blue' },
+  };
+  expect(resolverName(forwarded, new Map(), 'owner')).toBe(t('involvement.integratorFull'));
+  expect(resolutionNote(forwarded)).toBe(`${t('integratorKey.forwarded')}: Blue`);
+});
 
 describe('splitQuestion', () => {
   it('renders a provider quota alert with its message and retry time', () => {

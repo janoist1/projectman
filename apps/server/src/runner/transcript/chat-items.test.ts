@@ -1,4 +1,8 @@
-import { formatInjectedTeamMessage, formatTeamMessageBatch } from '@projectman/shared';
+import {
+  TEAM_MESSAGE_PREFIX_RE,
+  formatInjectedTeamMessage,
+  formatTeamMessageBatch,
+} from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
 import {
   ToolNames,
@@ -13,6 +17,18 @@ import {
 import { num, rec, str } from './json';
 
 const ts = '2026-10-01T10:00:00.000Z';
+it('keeps sender, integrator and card key separate in both prefix forms', () => {
+  for (const via of [undefined, 'integrator'] as const) {
+    const text = formatInjectedTeamMessage('owner', 'Review this.', 'AR-1', via);
+    const match = TEAM_MESSAGE_PREFIX_RE.exec(text)!;
+    expect(match[1]).toBe('owner');
+    expect(match[3]).toBe('AR-1');
+    expect(Boolean(match.groups?.via)).toBe(Boolean(via));
+    const item = new UserTurns('dev-1', 'human').item(text, 'u1', ts);
+    expect(item).toMatchObject({ kind: 'team_message', from: 'owner', text: 'Review this.' });
+    expect('via' in item ? item.via : undefined).toBe(via);
+  }
+});
 
 describe('JSON helpers', () => {
   it('accept only the expected shapes', () => {
@@ -58,6 +74,14 @@ describe('UserTurns', () => {
     const text = formatTeamMessageBatch(null, null, [
       { from: 'qa', taskKey: null, body: 'Tests pass', kind: 'info', sentAt: ts },
       { from: 'dev', taskKey: null, body: 'Please review', kind: 'action', sentAt: ts },
+      {
+        from: 'owner',
+        via: 'integrator',
+        taskKey: 'AR-1',
+        body: 'Integrator request',
+        kind: 'action',
+        sentAt: ts,
+      },
     ]);
     const turns = new UserTurns('cr');
     expect(turns.items(text, 'u1', ts)).toMatchObject([
@@ -75,6 +99,14 @@ describe('UserTurns', () => {
         from: 'dev',
         to: ['cr'],
         text: expect.stringContaining('Please review'),
+      },
+      {
+        kind: 'team_message',
+        id: 'u1#2',
+        from: 'owner',
+        via: 'integrator',
+        to: ['cr'],
+        text: expect.stringContaining('Integrator request'),
       },
     ]);
     expect(turns.items('Hello', 'u2', ts)).toMatchObject([{ kind: 'user_text', origin: 'human' }]);

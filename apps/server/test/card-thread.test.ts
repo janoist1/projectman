@@ -128,6 +128,42 @@ describe('the card’s thread: workers and questions', () => {
     expect(h.runner.lastStarted().initialMessage ?? '').not.toContain('Standing');
   });
 
+  it('does not leak a private waking message into another worker’s joined notice', async () => {
+    const { session: worker } = await workerWithQuestions();
+    const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    h.runner.emit({ type: 'exit', sessionId: session.id, exitCode: 0, signal: null });
+    await h.domain.messaging.sendToSession(
+      'AR',
+      session.id,
+      'Private review instructions.',
+      'owner',
+      OWNER_ACTOR,
+    );
+    await flush();
+    const notices = h.runner.messages.filter((message) => message.sessionId === worker.id);
+    expect(JSON.stringify(notices)).toContain('woken by a team message');
+    expect(JSON.stringify(notices)).not.toContain('Private review instructions.');
+    expect(worker.member).toBe('dev-1');
+  });
+
+  it.each(['message', 'mention', 'answer', 'hand_over', 'start_button'] as const)(
+    'keeps the reply handle in an integrator %s joined notice',
+    async (kind) => {
+      const { session: worker } = await workerWithQuestions();
+      await h.domain.sessions.ensureSession('AR', 'cr', task, {
+        cause: {
+          kind,
+          by: { ...OWNER_ACTOR, via: 'integrator' },
+          ...(kind === 'hand_over' ? { to: 'code_review' } : {}),
+        },
+      });
+      await flush();
+      const notices = h.runner.messages.filter((message) => message.sessionId === worker.id);
+      expect(JSON.stringify(notices)).toContain('`owner` via the integrator');
+      expect(JSON.stringify(notices)).not.toContain('`integrator`');
+    },
+  );
+
   it('lists the sessions that work on the card now', async () => {
     const config = await h.domain.projects.config('AR');
     const card = h.domain.tasks.get('AR', 'AR-1');

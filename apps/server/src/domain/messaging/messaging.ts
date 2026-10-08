@@ -9,6 +9,7 @@ import {
   projectRefines,
   routeFor,
   sameWorkItem,
+  quoteOf,
   stageHandsOverForReview,
   stageOf,
   stageOwners,
@@ -33,12 +34,13 @@ import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
-import { actorHandle, humanActor, unique } from '../util';
+import { actorHandle, humanActor, newId, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
 import { wakesFor } from './staleness';
 
 export interface SendOptions {
+  origin?: TeamMessage['origin'];
   kind?: TeamMessage['kind'];
   subject?: TeamMessage['subject'];
   /** Who sends it (default: the human `from`). */
@@ -201,6 +203,7 @@ export class Messaging {
       delivered: recipients.every((handle) => humans.includes(handle)),
       routes,
       answer: opts.answer,
+      origin: opts.origin,
       kind: opts.kind ?? 'action',
       subject: opts.subject,
       version: task
@@ -240,16 +243,26 @@ export class Messaging {
     sessionId: string,
     text: string,
     from: string,
+    actor: Actor = humanActor(from),
   ): Promise<TeamMessage> {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    const input = actor.via
+      ? formatInjectedTeamMessage(
+          from,
+          body,
+          session.workItem.type === 'task' ? session.workItem.taskKey : null,
+          actor.via,
+        )
+      : body;
     const running = this.sessions.isRunning(session.id);
+    const messageId = newId('msg');
     const started = running
       ? null
       : await this.sessions.ensureSession(projectKey, session.member, session.workItem, {
-          messages: [body],
-          cause: { kind: 'message', from: [from] },
+          messages: [input],
+          cause: { kind: 'message', by: actor, quote: quoteOf(body), messageId },
         });
     const sentAsFirstInput = (started?.messagesSent ?? 0) > 0;
     // A session about to restart into a new permission mode takes it after the restart (PM-170).
@@ -258,9 +271,10 @@ export class Messaging {
       projectKey,
       from,
       to: [session.member],
+      id: messageId,
       taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
       body,
-      actor: humanActor(from),
+      actor,
       sessionId: session.id,
       // A message in the first input of a starting session waits until that input is typed (PM-189).
       delivered: false,
@@ -272,7 +286,7 @@ export class Messaging {
       this.delivery.holdForPause(session, message);
     } else if (started && sentAsFirstInput)
       this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
-    else this.delivery.deliver(started?.session ?? session, message, body);
+    else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
   }
 
@@ -290,7 +304,14 @@ export class Messaging {
         text: [names.join(', '), notice.comment].filter(Boolean).join('\n\n'),
         taskKey: task.key,
       },
-      { actor },
+      {
+        actor,
+        origin: {
+          kind: 'label',
+          labels: notice.labels,
+          eventId: this.ctx.repos.timeline.latestOfType(task.projectKey, task.key, 'task_labels_changed')?.id,
+        },
+      },
     );
   }
 
@@ -320,7 +341,10 @@ export class Messaging {
       // A reviewer that cannot be restarted now (AI work off, on leave) is told like the others.
       if (reviewers.includes(session.member) && task.assignee !== session.member) {
         const restarted = await this.sessions
-          .restartWithMessages(task.projectKey, session.id, [prefixed])
+          .restartWithMessages(task.projectKey, session.id, [prefixed], {
+            kind: 'description_changed',
+            by: actor,
+          })
           .catch((err: unknown) => {
             // The session was stopped before the start failed: there is nothing left to tell.
             this.ctx.logger.warn({ err, sessionId: session.id }, 'could not restart the reviewer');
@@ -339,7 +363,7 @@ export class Messaging {
       event.projectKey,
       actorHandle(event.actor),
       { to: mentions, text: event.data.text as string, taskKey: event.taskKey },
-      { actor: event.actor, sessionId: event.sessionId },
+      { actor: event.actor, sessionId: event.sessionId, origin: { kind: 'note', eventId: event.id } },
     );
   }
 
@@ -421,6 +445,8 @@ export class Messaging {
         workItem: session?.member === asker.handle ? session.workItem : routeFor(item.taskKey),
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
+        actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
+        origin: { kind: 'answer', inboxItemId: item.id },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
@@ -623,16 +649,20 @@ const ANSWER_NOTICE_LIMIT = 500;
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */
 function startReason(config: ProjectConfig, cause: SessionStartCause | null): string {
   if (!cause) return '';
+  const sender = cause.by ? `\`${cause.by.handle}\`${cause.by.via ? ' via the integrator' : ''}` : null;
   switch (cause.kind) {
     case 'message':
-      return cause.from.length > 0
-        ? ` (woken by a team message from ${cause.from.map((handle) => `\`${handle}\``).join(', ')})`
-        : '';
-    case 'stage':
-      return ` (the card entered ${stageOf(config, cause.stageId)?.name ?? cause.stageId}, moved by \`${cause.by}\`)`;
+      return ` (woken by a team message${sender ? ` from ${sender}` : ''})`;
+    case 'mention':
+    case 'answer':
+      return ` (woken by ${cause.kind}${sender ? ` from ${sender}` : ''}${cause.quote ? `: ${cause.quote}` : ''})`;
+    case 'hand_over':
+      return ` (the card entered ${stageOf(config, cause.to ?? '')?.name ?? cause.to}${sender ? `, moved by ${sender}` : ''})`;
     case 'refinement':
-      return ` (its refinement step for label \`${cause.label}\`)`;
-    case 'start':
-      return ` (started by \`${cause.by}\`)`;
+      return ` (its refinement step for label ${cause.labels?.join(', ')})`;
+    case 'start_button':
+      return sender ? ` (started by ${sender})` : ' (started with the Start button)';
+    default:
+      return ` (${cause.kind})`;
   }
 }

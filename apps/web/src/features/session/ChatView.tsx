@@ -20,7 +20,7 @@ import {
   resolverName,
   shortCommand,
 } from '../../lib/inbox';
-import { nameOf, namesOf, toneFor } from '../../lib/members';
+import { actorLabel, nameOf, namesOf, toneFor } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { InboxCard } from '../inbox/InboxCard';
@@ -252,11 +252,29 @@ function renderBlock(block: ChatBlock, props: ChatViewProps, awaitingId: string 
       if (item.direction === 'in') {
         const sender = members.get(item.from);
         return (
-          <div key={block.id} className={styles.teamIn} data-tone={toneFor(sender)}>
+          <div
+            key={block.id}
+            className={clsx(styles.teamIn, item.via && styles.integrator)}
+            data-tone={toneFor(sender)}
+          >
             <div className={styles.teamHead}>
-              <Avatar member={sender} handle={item.from} isMe={item.from === myHandle} size="sm" />
-              <span className={styles.teamSender}>{nameOf(item.from, members, myHandle)}</span>
+              <Avatar
+                member={sender}
+                handle={item.from}
+                isMe={item.from === myHandle && !item.via}
+                via={item.via}
+                size="sm"
+              />
+              <span className={styles.teamSender}>
+                {actorLabel(
+                  { kind: 'human', handle: item.from, ...(item.via ? { via: item.via } : {}) },
+                  members,
+                  myHandle,
+                )}
+              </span>
+              {item.via ? <span className={styles.meta}>· {t('involvement.behalf')}</span> : null}
               <span className={styles.meta}>
+                {item.via ? '· ' : ''}
                 {t('session.chat.teamMessageIn')} · {formatStamp(block.ts)}
               </span>
             </div>

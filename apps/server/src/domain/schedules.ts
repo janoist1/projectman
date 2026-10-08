@@ -1,5 +1,5 @@
 import { cronMatches, memberOf, nextCronRun, ScheduleSkipReason } from '@projectman/shared';
-import type { ScheduleRun, SchedulesView, Session } from '@projectman/shared';
+import type { Actor, ScheduleRun, SchedulesView, Session } from '@projectman/shared';
 import type { Admission } from './admission';
 import type { DomainContext } from './context';
 import { DomainError, invalid, notFound, unavailable } from './errors';
@@ -180,8 +180,8 @@ export class ScheduleService {
     };
   }
 
-  async runNow(projectKey: string, handle: string): Promise<ScheduleRun> {
-    const run = await this.run(projectKey, handle, this.deps.ctx.now().toISOString(), false);
+  async runNow(projectKey: string, handle: string, by?: Actor): Promise<ScheduleRun> {
+    const run = await this.run(projectKey, handle, this.deps.ctx.now().toISOString(), false, by);
     if (!run) throw unavailable('server_stopping', 'Schedule service is stopping');
     return run;
   }
@@ -191,6 +191,7 @@ export class ScheduleService {
     handle: string,
     scheduledFor: string,
     automatic: boolean,
+    by?: Actor,
   ): Promise<ScheduleRun | null> {
     // Shares admission with task starts, including asynchronous usage/login checks.
     const execution = this.deps.admission.exclusive(async () => {
@@ -222,7 +223,12 @@ export class ScheduleService {
       ctx.repos.schedules.insert(run, automatic);
       const workItem = { type: 'schedule', runId: run.id } as const;
       try {
-        const { session } = await admission.start({ config, member, workItem });
+        const { session } = await admission.start({
+          config,
+          member,
+          workItem,
+          cause: { kind: 'schedule', runId: run.id, by },
+        });
         return ctx.unitOfWork(() => {
           const current = ctx.repos.schedules.get(run.id)!;
           const updated = ctx.repos.schedules.update(run.id, {

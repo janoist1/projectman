@@ -1,5 +1,5 @@
-import { isOpenTask, memberOf } from '@projectman/shared';
-import type { Session, Task, WorkItemRef } from '@projectman/shared';
+import { isOpenTask, memberOf, quoteOf } from '@projectman/shared';
+import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
 import type { MessageDelivery, MessageService } from '../messaging';
@@ -37,11 +37,18 @@ export class MessageStarts {
   }
 
   /** The member's general chat: the running one, else one admission allows now. */
-  async startConversation(projectKey: string, handle: string): Promise<Session> {
+  async startConversation(projectKey: string, handle: string, by?: Actor): Promise<Session> {
     return this.admission.exclusive(async () => {
       const config = await this.projects.config(projectKey);
       const member = requireAiMember(config, handle);
-      return (await this.admission.start({ config, member, workItem: { type: 'general' } })).session;
+      return (
+        await this.admission.start({
+          config,
+          member,
+          workItem: { type: 'general' },
+          cause: { kind: 'conversation', by },
+        })
+      ).session;
     });
   }
 
@@ -108,6 +115,7 @@ export class MessageStarts {
           messages: [
             'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
           ],
+          cause: { kind: 'provider_resume' },
         });
       },
     };
@@ -155,8 +163,30 @@ export class MessageStarts {
         if (task && !isOpenTask(task)) return;
         triedIn = task?.stageId;
         const waiting = this.messages.waiting(projectKey, handle, workItem);
-        if (!waiting.some((m) => this.messages.wakes(config, m, handle))) return;
-        const cause: SessionStartCause = { kind: 'message', from: unique(waiting.map((m) => m.from)) };
+        const first = waiting.find((message) => this.messages.wakes(config, message, handle));
+        if (!first) return;
+        const origin = first.origin;
+        const cause: SessionStartCause = {
+          kind:
+            origin?.kind === 'note'
+              ? 'mention'
+              : origin?.kind === 'label'
+                ? 'sent_back'
+                : origin?.kind === 'answer'
+                  ? 'answer'
+                  : 'message',
+          by: {
+            kind: memberOf(config, first.from)?.kind ?? 'system',
+            handle: first.from,
+            ...(first.via ? { via: first.via } : {}),
+          },
+          messageId: first.id,
+          ...(origin?.kind === 'note' ? { eventId: origin.eventId } : {}),
+          ...(origin?.kind === 'label'
+            ? { labels: origin.labels, eventId: origin.eventId }
+            : { quote: quoteOf(first.answer?.answer ?? first.body) }),
+          ...(origin?.kind === 'answer' ? { inboxItemId: origin.inboxItemId } : {}),
+        };
         await this.delivery.startAndDeliver(projectKey, handle, workItem, (messages) =>
           this.admission.start({ config, member, workItem, messages, cause }),
         );

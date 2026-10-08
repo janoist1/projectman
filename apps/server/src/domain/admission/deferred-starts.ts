@@ -24,6 +24,7 @@ export const StartSpec = z.discriminatedUnion('kind', [
     from: z.string(),
     to: z.string(),
     actor: Actor,
+    eventId: z.string().optional(),
   }),
   /**
    * A card moved without an assignee into the work stage `to` (PM-119), by `actor` from `from`:

@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest';
 import { formatTeamMessageBatch, splitTeamMessageBatch, userTextOrigin } from './chat';
 
 describe('team message batch text', () => {
+  it('preserves the human handle, integrator attribution and card key in a mixed batch', () => {
+    const text = formatTeamMessageBatch('AR-1', null, [
+      {
+        from: 'owner',
+        via: 'integrator',
+        taskKey: 'AR-1',
+        body: 'Review this.',
+        kind: 'action',
+        sentAt: '2026-10-08T12:00:00.000Z',
+      },
+      { from: 'qa', taskKey: 'AR-1', body: 'Tests pass.', kind: 'info', sentAt: '2026-10-08T12:01:00.000Z' },
+    ]);
+    const batch = splitTeamMessageBatch(text)!;
+    expect(batch.items).toMatchObject([
+      { from: 'owner', via: 'integrator', taskKey: 'AR-1', body: expect.stringContaining('Review this.') },
+      { from: 'qa', taskKey: 'AR-1', body: expect.stringContaining('Tests pass.') },
+    ]);
+    expect(batch.items[1]).not.toHaveProperty('via');
+  });
   it('carries current state, sent versions, obsolete reasons and complete message bodies', () => {
     const text = formatTeamMessageBatch(
       'AR-1',

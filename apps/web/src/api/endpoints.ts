@@ -36,6 +36,9 @@ import {
   TeamThreadsView,
   TemplateSummary,
   routes,
+  InvolvementsResponse,
+  IntegratorKeyResponse,
+  CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
   StopOrphansRequest,
@@ -72,6 +75,17 @@ import { apiRequest } from './client';
  * refetch instead of relying on the body.
  */
 export const api = {
+  involvements: (key: string, query = '') =>
+    apiRequest(routes.involvements(key) + query, { schema: InvolvementsResponse }),
+  integratorKey: () => apiRequest(routes.integratorKey(), { schema: IntegratorKeyResponse }),
+  createIntegratorKey: (expiresInDays: 30 | 90 | 365 | null) =>
+    apiRequest(routes.integratorKey(), {
+      method: 'POST',
+      body: { expiresInDays },
+      schema: CreatedIntegratorKey,
+    }),
+  revokeIntegratorKey: () =>
+    apiRequest(routes.integratorKey(), { method: 'DELETE', schema: IntegratorKeyResponse }),
   machine: (panel: boolean, signal?: AbortSignal) =>
     apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
   stopOrphans: (body: StopOrphansRequest) =>
@@ -170,8 +184,8 @@ export const api = {
     apiRequest(routes.session(key, sessionId), { schema: SessionDetail }),
   sendSessionMessage: (key: string, sessionId: string, body: SendMessageRequest) =>
     apiRequest<unknown>(routes.sessionMessages(key, sessionId), { method: 'POST', body }),
-  stopSession: (key: string, sessionId: string) =>
-    apiRequest<unknown>(routes.stopSession(key, sessionId), { method: 'POST' }),
+  stopSession: (key: string, sessionId: string, body?: import('@projectman/shared').StopSessionRequest) =>
+    apiRequest<unknown>(routes.stopSession(key, sessionId), { method: 'POST', ...(body ? { body } : {}) }),
   updateSession: (key: string, sessionId: string, body: UpdateSessionRequest) =>
     apiRequest(routes.session(key, sessionId), { method: 'PATCH', body, schema: Session }),
 

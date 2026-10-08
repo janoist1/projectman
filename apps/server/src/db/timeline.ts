@@ -1,5 +1,5 @@
 import type { Statement } from 'better-sqlite3';
-import type { TimelineEvent } from '@projectman/shared';
+import type { InvolvementQuery, TimelineEvent } from '@projectman/shared';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
 
@@ -11,6 +11,7 @@ interface TimelineRow {
   session_id: string | null;
   actor_kind: string;
   actor_handle: string | null;
+  actor_via: 'integrator' | null;
   type: string;
   data: string;
   created_at: string;
@@ -21,7 +22,11 @@ const toEvent = (r: TimelineRow): TimelineEvent => ({
   projectKey: r.project_key,
   taskKey: r.task_key,
   sessionId: r.session_id,
-  actor: { kind: r.actor_kind as TimelineEvent['actor']['kind'], handle: r.actor_handle },
+  actor: {
+    kind: r.actor_kind as TimelineEvent['actor']['kind'],
+    handle: r.actor_handle,
+    ...(r.actor_via ? { via: r.actor_via } : {}),
+  },
   type: r.type as TimelineEvent['type'],
   data: parseJson<Record<string, unknown>>(r.data, {}),
   createdAt: r.created_at,
@@ -32,8 +37,8 @@ export function createTimelineRepository(db: Db) {
   const ofTypes = new Map<number, Statement>();
   const statements = {
     insert: db.prepare(
-      `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO timeline_events (id, project_key, task_key, session_id, actor_kind, actor_handle, type, data, created_at, actor_via)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     forMember: db.prepare(
       `SELECT * FROM timeline_events WHERE project_key = ? AND
@@ -63,6 +68,54 @@ export function createTimelineRepository(db: Db) {
     ),
   };
   return {
+    involvements(projectKey: string, query: InvolvementQuery, cursor?: [string, string]) {
+      const params: (string | number)[] = [projectKey];
+      let where = `project_key = ? AND type IN ('session_started', 'session_ended')
+        AND COALESCE(json_extract(data, '$.stop.kind'), '') <> 'restart'`;
+      if (query.member) {
+        where += " AND json_extract(data, '$.member') = ?";
+        params.push(query.member);
+      }
+      if (query.task) {
+        where += ' AND task_key = ?';
+        params.push(query.task);
+      }
+      if (query.since) {
+        where += ' AND created_at >= ?';
+        params.push(query.since);
+      }
+      if (query.kind) {
+        where += ' AND type = ?';
+        params.push(query.kind === 'started' ? 'session_started' : 'session_ended');
+      }
+      if (query.by) {
+        const by =
+          "CASE WHEN type = 'session_started' THEN json_extract(data, '$.cause.by') ELSE json_extract(data, '$.stop.by') END";
+        const known =
+          "CASE WHEN type = 'session_started' THEN json_extract(data, '$.cause') ELSE json_extract(data, '$.stop') END";
+        where += ` AND (${known}) IS NOT NULL`;
+        if (query.by === 'system')
+          where += ` AND ((${by}) IS NULL OR json_extract((${by}), '$.kind') = 'system')`;
+        else if (query.by === 'integrator') where += ` AND json_extract((${by}), '$.via') = 'integrator'`;
+        else {
+          where += ` AND json_extract((${by}), '$.handle') = ? AND json_extract((${by}), '$.via') IS NULL`;
+          params.push(query.by);
+        }
+      }
+      const countRows = db
+        .prepare(`SELECT type, COUNT(*) AS n FROM timeline_events WHERE ${where} GROUP BY type`)
+        .all(...params) as { type: string; n: number }[];
+      const counts = { started: 0, stopped: 0 };
+      for (const row of countRows) counts[row.type === 'session_started' ? 'started' : 'stopped'] = row.n;
+      if (cursor) {
+        where += ' AND (created_at < ? OR (created_at = ? AND id < ?))';
+        params.push(cursor[0], cursor[0], cursor[1]);
+      }
+      const rows = db
+        .prepare(`SELECT * FROM timeline_events WHERE ${where} ORDER BY created_at DESC, id DESC LIMIT ?`)
+        .all(...params, query.limit + 1) as TimelineRow[];
+      return { events: rows.slice(0, query.limit).map(toEvent), counts, more: rows.length > query.limit };
+    },
     /** One event of a project, or null. */
     get(projectKey: string, id: string): TimelineEvent | null {
       const row = statements.byId.get(projectKey, id) as TimelineRow | undefined;
@@ -79,6 +132,7 @@ export function createTimelineRepository(db: Db) {
         e.type,
         toJson(e.data),
         e.createdAt,
+        e.actor.via ?? null,
       );
     },
     forMember(projectKey: string, handle: string, limit = 30): TimelineEvent[] {
@@ -104,6 +158,19 @@ export function createTimelineRepository(db: Db) {
     /** Every stage change and label change of a card, oldest first (see `countCardRounds`). */
     roundEvents(projectKey: string, taskKey: string): TimelineEvent[] {
       return (statements.roundEvents.all(projectKey, taskKey) as TimelineRow[]).map(toEvent);
+    },
+    /** The most recent event of a type in a session, regardless of project activity. */
+    latestForSession(
+      projectKey: string,
+      sessionId: string,
+      type: TimelineEvent['type'],
+    ): TimelineEvent | null {
+      const row = db
+        .prepare(
+          'SELECT * FROM timeline_events WHERE project_key = ? AND session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1',
+        )
+        .get(projectKey, sessionId, type) as TimelineRow | undefined;
+      return row ? toEvent(row) : null;
     },
     /** The most recent event of a type on a card, or null. */
     latestOfType(projectKey: string, taskKey: string, type: TimelineEvent['type']): TimelineEvent | null {

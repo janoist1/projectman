@@ -13,6 +13,7 @@ import { forbidden, invalid, notFound } from './errors';
 
 /** A logged-in user's membership in one project. */
 export interface ProjectAccess {
+  via?: 'integrator';
   projectKey: string;
   handle: string;
   access: HumanAccess;

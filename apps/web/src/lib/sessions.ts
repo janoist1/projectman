@@ -1,7 +1,7 @@
 import { SESSION_IDLE_CLOSE_MINUTES, SessionStop } from '@projectman/shared';
 import type { Session } from '@projectman/shared';
 import { t } from '../i18n/t';
-import { nameOf } from './members';
+import { actorLabel, nameOf } from './members';
 import type { MemberIndex } from './members';
 import type { PipelineIndex } from './pipeline';
 
@@ -26,7 +26,7 @@ export function sessionStatus(session: Pick<Session, 'state'>, needsYou: boolean
  * by the system is the same state with a different reason. Every other kind (login lost, restart,
  * workspace…) and a stop without a reason stay the plain "Leállt".
  */
-const AUTOMATIC_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
+export const AUTOMATIC_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
   'step_done',
   'idle',
   'card_done',
@@ -34,6 +34,11 @@ const AUTOMATIC_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
   'sent_back',
   'pause',
 ]);
+export function isAutomaticClosureKind(
+  kind: SessionStop['kind'],
+): kind is 'step_done' | 'idle' | 'card_done' | 'task_cancelled' | 'sent_back' | 'pause' {
+  return AUTOMATIC_CLOSURES.has(kind);
+}
 const STOPPED_CLOSURES: ReadonlySet<SessionStop['kind']> = new Set([
   'manual',
   'assignee_change',
@@ -80,7 +85,7 @@ export interface ClosureTexts {
 
 type Reason = { short: string; long: string };
 
-function reasonOf(stop: SessionStop, ctx: ClosureContext): Reason {
+export function closureReason(stop: SessionStop, ctx: ClosureContext): Reason {
   const key = stop.taskKey;
   const stage = stop.stageId ? (ctx.pipeline?.stageById.get(stop.stageId)?.name ?? stop.stageId) : null;
   const detail = (base: string, withStage = false) =>
@@ -130,8 +135,11 @@ export function closureTexts(stop: SessionStop, ctx: ClosureContext): ClosureTex
   const resume = t('session.closure.resume');
   if (STOPPED_CLOSURES.has(stop.kind)) {
     const handle = stop.by?.kind === 'system' ? null : (stop.by?.handle ?? null);
-    const byViewer = handle !== null && handle === ctx.myHandle;
-    const name = nameOf(handle, ctx.members, ctx.myHandle);
+    const byViewer = handle !== null && handle === ctx.myHandle && !stop.by?.via;
+    const name =
+      stop.by && stop.by.kind !== 'system'
+        ? actorLabel(stop.by, ctx.members, ctx.myHandle)
+        : nameOf(handle, ctx.members, ctx.myHandle);
     return {
       label: t('session.closure.label'),
       hint: byViewer ? t('session.closure.hintStoppedByYou') : t('session.closure.hintStopped', { name }),
@@ -142,7 +150,7 @@ export function closureTexts(stop: SessionStop, ctx: ClosureContext): ClosureTex
       event: byViewer ? t('session.closure.eventStoppedByYou') : t('session.closure.eventStopped', { name }),
     };
   }
-  const { short, long } = reasonOf(stop, ctx);
+  const { short, long } = closureReason(stop, ctx);
   return {
     label: t('session.closure.label'),
     hint: t('session.closure.hint', { reason: short }),

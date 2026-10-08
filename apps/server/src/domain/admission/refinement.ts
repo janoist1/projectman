@@ -220,7 +220,20 @@ export class RefinementSteps {
             member,
             workItem,
             messages: [...messages, formatInjectedTeamMessage('projectman', text, taskKey)],
-            cause: { kind: 'refinement', label },
+            cause: (() => {
+              const previous =
+                this.timeline.latest(projectKey, taskKey, 'task_labels_changed') ??
+                this.timeline.latest(projectKey, taskKey, 'task_created');
+              return {
+                kind: 'refinement' as const,
+                labels:
+                  previous?.type === 'task_labels_changed'
+                    ? [...(previous.data.added as string[]), ...(previous.data.removed as string[])]
+                    : [label],
+                by: previous?.actor,
+                eventId: previous?.id,
+              };
+            })(),
           }),
         );
         this.record(this.tasks.get(projectKey, taskKey), label, member.handle);

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
 import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
@@ -52,6 +53,8 @@ export type StaleReason = z.infer<typeof StaleReason>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
+  via: z.literal('integrator').optional(),
+  origin: MessageOrigin.optional(),
   id: z.string(),
   projectKey: z.string(),
   from: MemberHandle,

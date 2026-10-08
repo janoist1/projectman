@@ -1,4 +1,5 @@
 import { InviteDialog } from './InviteDialog';
+import { describeStart, involvementText } from '../../lib/involvement';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -400,6 +401,32 @@ export function MemberProfilePage() {
                   <Link to={`/p/${key}/sessions/${session.id}`}>
                     {t('profile.openSession')} · {workName(session)}
                   </Link>
+                  {session.startCause ? (
+                    <p className={styles.involvement}>
+                      {involvementText(
+                        describeStart(
+                          {
+                            id: session.id,
+                            projectKey: key,
+                            taskKey: null,
+                            sessionId: session.id,
+                            actor: { kind: 'ai', handle: session.member },
+                            type: 'session_started',
+                            data: {
+                              cause: session.startCause,
+                              resumed:
+                                data.timeline.findLast(
+                                  (event) =>
+                                    event.type === 'session_started' && event.sessionId === session.id,
+                                )?.data.resumed ?? false,
+                            },
+                            createdAt: session.startedAt,
+                          },
+                          { ...indexes, myHandle, openInboxIds: new Set() },
+                        ),
+                      )}
+                    </p>
+                  ) : null}
                   <SessionPeek sessionId={session.id} />
                 </div>
               ))}
@@ -414,6 +441,33 @@ export function MemberProfilePage() {
                           <Link to={`/p/${key}/sessions/${session.id}`}>
                             {workName(session)} · {formatStamp(session.startedAt)}
                           </Link>
+                          {session.startCause ? (
+                            <p className={styles.involvement}>
+                              {involvementText(
+                                describeStart(
+                                  {
+                                    id: session.id,
+                                    projectKey: key,
+                                    taskKey: null,
+                                    sessionId: session.id,
+                                    actor: { kind: 'ai', handle: session.member },
+                                    type: 'session_started',
+                                    data: {
+                                      cause: session.startCause,
+                                      resumed:
+                                        data.timeline.findLast(
+                                          (event) =>
+                                            event.type === 'session_started' &&
+                                            event.sessionId === session.id,
+                                        )?.data.resumed ?? false,
+                                    },
+                                    createdAt: session.startedAt,
+                                  },
+                                  { ...indexes, myHandle, openInboxIds: new Set() },
+                                ),
+                              )}
+                            </p>
+                          ) : null}
                           {closure ? (
                             <span className={styles.closed}>
                               {' · '}
@@ -426,6 +480,10 @@ export function MemberProfilePage() {
                   </ul>
                 </>
               ) : null}
+              <Link className={styles.allInvolvements} to={`/p/${key}/sessions?member=${handle}`}>
+                <span>{t('involvement.memberAll')}</span>
+                <Icon name="arrowRight" size={14} />
+              </Link>
             </section>
           ) : null}
           {usageEmpty ? null : (

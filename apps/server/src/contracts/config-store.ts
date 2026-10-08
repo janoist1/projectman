@@ -21,7 +21,11 @@ export interface ConfigStore {
   save(
     projectKey: string,
     config: ProjectConfig,
-    meta: { author: { name: string; email: string }; message: string; previous?: ProjectConfig },
+    meta: {
+      author: { name: string; email: string; via?: 'integrator' };
+      message: string;
+      previous?: ProjectConfig;
+    },
   ): Promise<{ version: string }>;
   history(projectKey: string, limit?: number): Promise<ConfigVersionEntry[]>;
   /** The configuration as of `version` (migrated and validated), without changing anything. */
@@ -30,6 +34,6 @@ export interface ConfigStore {
   revertTo(
     projectKey: string,
     version: string,
-    meta: { author: { name: string; email: string } },
+    meta: { author: { name: string; email: string; via?: 'integrator' } },
   ): Promise<{ version: string }>;
 }

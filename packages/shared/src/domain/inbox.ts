@@ -71,6 +71,7 @@ export const InboxItem = z.object({
   state: InboxState,
   resolution: z
     .object({
+      via: z.literal('integrator').optional(),
       optionId: z.string(),
       by: MemberHandle,
       at: z.string(),

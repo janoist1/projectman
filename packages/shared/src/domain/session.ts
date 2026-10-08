@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SessionStop } from './involvement';
+import { SessionStop, SessionStartCause } from './involvement';
 import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
 import { TaskKey } from './task';
 import { UsageSummary } from './token-usage';
@@ -155,6 +155,7 @@ export const Session = z.object({
    * before it was kept.
    */
   lastStop: SessionStop.optional(),
+  startCause: SessionStartCause.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

@@ -128,6 +128,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     case 'timeline_appended': {
       const { projectKey: key, event: entry } = event;
+      if (entry.type === 'session_started' || entry.type === 'session_ended')
+        void client.invalidateQueries({ queryKey: ['involvements', key] });
       if (!entry.taskKey) return;
       client.setQueryData<TaskDetail>(queryKeys.task(key, entry.taskKey), (detail) =>
         detail ? { ...detail, timeline: appendUnique(detail.timeline, [entry]) } : detail,

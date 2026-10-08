@@ -554,12 +554,15 @@ export function decisionToast(item: InboxItem, optionId: string, myHandle: strin
 /** Who decided: the rule the system decided by, "Rendszer" for older automatic decisions, or the member. */
 export function resolverName(item: InboxItem, members: MemberIndex, myHandle: string | null): string {
   const resolution = item.resolution;
+  if (resolution?.via) return t('involvement.integratorFull');
   if (resolution?.rule) return t(`inbox.resolutionRules.${resolution.rule}`);
   return nameOf(resolution && resolution.by !== 'system' ? resolution.by : null, members, myHandle);
 }
 
 /** The note written with the decision (an answer, or an older automatic decision's note), or null. */
 export function resolutionNote(item: InboxItem): string | null {
+  if (item.kind === 'question' && item.resolution?.via && item.resolution.note?.trim())
+    return `${t('integratorKey.forwarded')}: ${item.resolution.note.trim()}`;
   if (item.kind === 'boundary' && item.resolution?.note)
     return tDynamic(`boundary.reasons.${item.resolution.note}`, item.resolution.note);
   return item.resolution?.note?.trim() || null;

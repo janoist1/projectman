@@ -355,21 +355,56 @@ describe('pause of the team', () => {
       );
     });
 
-    it('starts a session cut before it answered the pause again, as one cut mid-turn', async () => {
-      h = await createDomainHarness();
-      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
-      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/transcript.jsonl' });
-      h.runner.pauseOutcomes.set(session.id, null);
-      await h.domain.pauses.pause(PROJECT, BY);
-      exit(session.id);
-      expect(h.repos.pauses.openSession(session.id)).toMatchObject({ point: null });
-      await h.domain.pauses.resume(PROJECT, BY);
-      expect(h.runner.started).toHaveLength(2);
-      expect(h.runner.started[1]).toMatchObject({
-        resume: true,
-        initialMessage: 'Nudge interrupted restarted',
-      });
-    });
+    it.each(['system', 'owner', 'integrator'] as const)(
+      'attributes a restarted interrupted session to %s',
+      async (resumer) => {
+        h = await createDomainHarness();
+        const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+        h.runner.emit({
+          type: 'transcript_path',
+          sessionId: session.id,
+          path: '/fictional/transcript.jsonl',
+        });
+        h.runner.pauseOutcomes.set(session.id, null);
+        await h.domain.pauses.pause(PROJECT, BY);
+        exit(session.id);
+        expect(h.repos.pauses.openSession(session.id)).toMatchObject({ point: null });
+        h.repos.users.insert({
+          id: 'usr_resumer',
+          name: 'Owner',
+          email: 'owner@example.com',
+          passwordHash: 'unused-test-hash',
+          createdAt: new Date().toISOString(),
+        });
+        await h.domain.pauses.resume(
+          PROJECT,
+          resumer === 'system'
+            ? BY
+            : {
+                userId: 'usr_resumer',
+                source: 'app',
+                ...(resumer === 'integrator' ? { via: 'integrator' } : {}),
+              },
+        );
+        expect(h.runner.started).toHaveLength(2);
+        expect(h.runner.started[1]).toMatchObject({
+          resume: true,
+          initialMessage: 'Nudge interrupted restarted',
+        });
+        expect(h.domain.sessions.get('AR', session.id).startCause).toEqual({
+          kind: 'pause_resume',
+          ...(resumer === 'system'
+            ? {}
+            : {
+                by: {
+                  kind: 'human',
+                  handle: 'owner',
+                  ...(resumer === 'integrator' ? { via: 'integrator' } : {}),
+                },
+              }),
+        });
+      },
+    );
   });
 
   it('makes up the scheduled run a pause swallowed, once', async () => {

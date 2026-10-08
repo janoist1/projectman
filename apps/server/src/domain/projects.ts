@@ -35,6 +35,7 @@ export interface LoadedProject {
 }
 
 export interface Author {
+  via?: 'integrator';
   name: string;
   email: string;
 }
@@ -247,7 +248,13 @@ export class ProjectService {
       this.ctx.repos.projects.insert(record);
       this.cache.set(req.key, { config, version });
       await this.announce(
-        { projectKey: req.key, previous: null, next: config, version, actor: humanActor(OWNER_HANDLE) },
+        {
+          projectKey: req.key,
+          previous: null,
+          next: config,
+          version,
+          actor: { ...humanActor(OWNER_HANDLE), ...(creator.via ? { via: creator.via } : {}) },
+        },
         message,
       );
       return toSummary(record);

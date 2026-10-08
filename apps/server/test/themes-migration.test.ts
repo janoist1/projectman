@@ -39,7 +39,9 @@ describe('card kind and theme migration', () => {
         { key: 'AR-2', kind: 'task', theme_key: null },
         { key: 'AR-3', kind: 'task', theme_key: null },
       ]);
-      expect(events()).toEqual(eventsBefore);
+      expect(events()).toEqual(
+        eventsBefore.map((event) => ({ ...(event as Record<string, unknown>), actor_via: null })),
+      );
       expect(links()).toEqual(linksBefore);
       expect(
         db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'tasks_theme'").all(),

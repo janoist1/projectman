@@ -508,15 +508,16 @@ describe('closing finished and idle sessions', () => {
       const dev = await setup();
       await h.domain.tasks.cancel('AR', 'AR-1', { reason: 'Fictional' }, OWNER_ACTOR);
       await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
-      expect(fresh(dev.id).lastStop).toEqual({ kind: 'task_cancelled', taskKey: 'AR-1' });
-      expect(endedStop(dev.id)).toEqual({ kind: 'task_cancelled', taskKey: 'AR-1' });
+      expect(fresh(dev.id).lastStop).toEqual({ kind: 'task_cancelled', taskKey: 'AR-1', by: OWNER_ACTOR });
+      expect(endedStop(dev.id)).toEqual({ kind: 'task_cancelled', taskKey: 'AR-1', by: OWNER_ACTOR });
     });
 
-    it('records no reason for a process that exited on its own (the contract has the kind for PM-274)', async () => {
+    it('records an exit reason for a process that exited on its own', async () => {
       const dev = await setup();
       h.runner.emit({ type: 'exit', sessionId: dev.id, exitCode: 0, signal: null });
       await vi.waitFor(() => expect(fresh(dev.id).state).toBe('exited'));
-      expect(fresh(dev.id).lastStop).toBeUndefined();
+      expect(fresh(dev.id).lastStop).toEqual({ kind: 'exited' });
+      expect(endedStop(dev.id)).toEqual({ kind: 'exited' });
     });
 
     it('leaves no reason on a session that runs', async () => {

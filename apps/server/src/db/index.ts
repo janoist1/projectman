@@ -1,4 +1,5 @@
 import { createAttachmentRepository } from './attachments';
+import { createIntegratorKeyRepository } from './integrator-keys';
 import { createBoundaryRepository } from './boundary';
 import { createEgressRepository } from './egress';
 import { createFullTestRunRepository } from './full-test-runs';
@@ -47,6 +48,7 @@ export function createRepositories(db: Db) {
   return {
     db,
     users: createUserRepository(db),
+    integratorKeys: createIntegratorKeyRepository(db),
     invitations: createInvitationRepository(db),
     authSessions: createAuthSessionRepository(db),
     projects: createProjectRepository(db),

@@ -30,6 +30,17 @@ const assistant = (content: unknown[], extra: Record<string, unknown> = {}) => (
 const jsonl = (...entries: unknown[]) => entries.map((e) => JSON.stringify(e)).join('\n');
 
 describe('TranscriptParser', () => {
+  it.each([undefined, 'integrator'] as const)('parses the owner prefix with via %s', (via) => {
+    const items = parseTranscript(
+      jsonl(user(formatInjectedTeamMessage('owner', 'Review this.', 'AR-1', via))),
+      { self: 'dev-1' },
+    );
+    expect(items).toMatchObject([
+      { kind: 'team_message', from: 'owner', to: ['dev-1'], text: 'Review this.' },
+    ]);
+    const item = items[0]!;
+    expect(item.kind === 'team_message' ? item.via : undefined).toBe(via);
+  });
   it('marks only the first real prompt as a brief across incremental reads', () => {
     const parser = new TranscriptParser({ self: 'dev-1' });
     expect(

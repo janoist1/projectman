@@ -781,7 +781,7 @@ export class TaskService {
       },
     });
     this.publish(cancelled);
-    effects.push(() => this.ctx.events.emit('task_cancelled', cancelled));
+    effects.push(() => this.ctx.events.emit('task_cancelled', { ...cancelled, cancelledBy: actor }));
     return cancelled;
   }
 

@@ -303,6 +303,7 @@ export const hu = {
   nav: {
     main: 'Fő navigáció',
     board: 'Folyamat',
+    map: 'Térkép',
     team: 'Csapat',
     inbox: 'Rád vár',
     messages: 'Üzenetek',
@@ -310,6 +311,63 @@ export const hu = {
     settings: 'Beállítások',
     account: 'Fiók: {name}',
     inboxCount: '{count} tétel vár rád',
+  },
+
+  /** The work map (PM-379): the overview of the groups. */
+  map: {
+    title: 'Térkép',
+    summary: '{needs} vár rád · {blocked} elakadt · {working} dolgozik · {open} nyitott kártya',
+    filtersLabel: 'Szűrés',
+    filters: {
+      all: 'Mind',
+      needsYou: 'Rád vár',
+      blocked: 'Elakadt',
+    },
+    member: 'Felelős',
+    memberAny: 'Mind',
+    clearFilters: 'Szűrők törlése',
+    kind: {
+      theme: 'Téma',
+      collector: 'Gyűjtőkártya',
+      other: 'Csoport nélkül',
+    },
+    other: 'Egyéb',
+    progress: '{done} / {total} kész',
+    signals: {
+      needsYou: '{count} rád vár',
+      blocked: '{count} elakadt',
+      working: '{count} dolgozik',
+      waiting: '{count} másra vár',
+      noCards: 'Még nincs kártyája',
+      noneOpen: 'Nincs nyitott kártya',
+    },
+    allDone: 'Minden kész',
+    tileLabel:
+      '{kind}: {title}. {needs} rád vár, {blocked} elakadt, {working} dolgozik. {done} / {total} kész.',
+    legend: {
+      label: 'Jelmagyarázat',
+      needs_you: 'Rád vár',
+      working: 'Dolgozik',
+      waiting: 'Másra vár',
+      blocked: 'Elakadt',
+      done: 'Kész',
+    },
+    groups: 'Csoportok',
+    empty: {
+      title: 'Még nincs nyitott kártya',
+      body: 'Ha lesz munka, itt látod csoportonként, mi vár rád, mi akadt el és mi halad.',
+      newTask: 'Új feladat',
+    },
+    emptyFilter: {
+      needsYou: 'Most semmi nem vár rád',
+      blocked: 'Nincs elakadt kártya',
+      all: 'Nincs ilyen kártya',
+      body: 'A szűrők elrejtik a többi csoportot.',
+    },
+    firstUse: {
+      body: 'Még nincs téma vagy gyűjtőkártya, ezért minden kártya az „Egyéb” blokkban van. A kártya fiókjában teheted témába vagy gyűjtőkártya alá.',
+      newTheme: 'Új téma',
+    },
   },
 
   topbar: {

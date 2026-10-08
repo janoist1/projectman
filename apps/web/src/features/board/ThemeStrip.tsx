@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { isOpenTask } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { Button } from '../../components/Button';
+import { ColumnBar } from '../../components/ColumnBar';
 import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -70,17 +71,7 @@ export function ThemeStrip({
                   <span className={styles.nameText}>{theme.title}</span>
                 </span>
                 <span className={styles.progress}>
-                  <span className={styles.bar} aria-hidden="true">
-                    {segments.map(({ column, count }) => (
-                      <span
-                        key={column.id}
-                        className={styles.segment}
-                        data-column-color={column.color}
-                        style={{ width: `${(count / progress.total) * 100}%` }}
-                        title={t('board.themes.columnCount', { column: column.name, count })}
-                      />
-                    ))}
-                  </span>
+                  <ColumnBar segments={segments} total={progress.total} />
                   {segments.length > 0 ? (
                     <span id={`theme-distribution-${theme.key}`} className="visually-hidden">
                       {distribution}

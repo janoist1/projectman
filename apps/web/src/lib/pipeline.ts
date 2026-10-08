@@ -30,6 +30,17 @@ export function indexPipeline(board: Pick<BoardView, 'stages' | 'columns'>): Pip
   return { stages: board.stages, columns, stageById, stageIndex, columnOfStage };
 }
 
+export function columnSegments(byStage: Record<string, number>, pipeline: PipelineIndex) {
+  const counts = new Map<string, number>();
+  for (const [stageId, count] of Object.entries(byStage)) {
+    const column = pipeline.columnOfStage.get(stageId);
+    if (column) counts.set(column.id, (counts.get(column.id) ?? 0) + count);
+  }
+  return pipeline.columns
+    .map((column) => ({ column, count: counts.get(column.id) ?? 0 }))
+    .filter(({ count }) => count > 0);
+}
+
 /** 1-based position of a stage: "QA · 5/9". */
 export function stagePosition(pipeline: PipelineIndex, stageId: string): { index: number; total: number } {
   return { index: (pipeline.stageIndex.get(stageId) ?? 0) + 1, total: pipeline.stages.length };

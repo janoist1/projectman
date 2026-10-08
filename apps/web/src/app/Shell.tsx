@@ -59,6 +59,7 @@ function useNavItems(inboxCount: number): {
   return {
     main: [
       { to: base, icon: 'board', label: t('nav.board'), active: boardActive },
+      { to: `${base}/map`, icon: 'nodes', label: t('nav.map'), active: under(`${base}/map`) },
       { to: `${base}/team`, icon: 'team', label: t('nav.team'), active: under(`${base}/team`) },
       {
         to: `${base}/inbox`,

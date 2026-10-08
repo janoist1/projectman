@@ -86,23 +86,6 @@
   gap: 8px;
 }
 
-.bar {
-  flex: 1 1 0;
-  display: flex;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--c-seg-todo);
-  overflow: hidden;
-}
-
-.segment {
-  display: block;
-  flex: none;
-  height: 100%;
-  background: var(--column-fg);
-  transition: width 300ms ease;
-}
-
 .count {
   font-size: 12px;
   font-weight: 800;
@@ -162,8 +145,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tile,
-  .segment {
+  .tile {
     transition: none;
   }
 }

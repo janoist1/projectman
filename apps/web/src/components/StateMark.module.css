@@ -1,0 +1,39 @@
+.mark {
+  display: inline-block;
+  flex: none;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--phase-dot);
+}
+
+.needs_you {
+  border-radius: 50%;
+}
+
+.working {
+  animation: pm-pulse 1.8s infinite;
+}
+
+.waiting {
+  background: transparent;
+  border: 2px solid var(--phase-dot);
+}
+
+.blocked {
+  border-radius: 2px;
+}
+
+.done {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working {
+    animation: none;
+  }
+}

@@ -136,9 +136,8 @@ export function workMap(input: WorkMapInput): MapGroup[] {
   // keys are theme keys, collector keys, or 'other'
   const groupCards = new Map<string, string[]>();
 
-  // Ensure all open themes and collectors have a group, even if empty
+  // Ensure all open themes have a group, even if empty
   for (const tKey of openThemes) groupCards.set(tKey, []);
-  for (const cKey of openCollectors) groupCards.set(cKey, []);
 
   // Assign cards to groups
   for (const t of input.tasks) {
@@ -199,15 +198,12 @@ export function workMap(input: WorkMapInput): MapGroup[] {
       const looseCards: string[] = [];
 
       for (const cKey of cards) {
-        if (openCollectors.has(cKey)) {
-          // This card is a collector. Its children (if any) in the group should form a lane.
-          const children = parentToChildren.get(cKey) || [];
-          const groupChildren = children
-            .filter((ch) => cardsSet.has(ch))
-            .sort((a, b) => taskSeq(a) - taskSeq(b));
-          if (groupChildren.length > 0) {
-            collectorLanes.set(cKey, groupChildren);
-          }
+        const children = parentToChildren.get(cKey) || [];
+        const groupChildren = children
+          .filter((ch) => cardsSet.has(ch))
+          .sort((a, b) => taskSeq(a) - taskSeq(b));
+        if (groupChildren.length > 0) {
+          collectorLanes.set(cKey, groupChildren);
         }
       }
 
@@ -218,7 +214,7 @@ export function workMap(input: WorkMapInput): MapGroup[] {
       }
 
       for (const cKey of cards) {
-        if (!allLaneChildren.has(cKey) && !collectorLanes.has(cKey)) {
+        if (!allLaneChildren.has(cKey)) {
           looseCards.push(cKey);
         }
       }

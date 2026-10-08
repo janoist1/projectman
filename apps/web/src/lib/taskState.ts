@@ -14,6 +14,7 @@ import type {
   ProjectConfig,
   StartBlock,
   Task,
+  TaskPhase,
   WorkDoing,
 } from '@projectman/shared';
 import { formatAge, formatStamp } from '../i18n/format';
@@ -30,7 +31,6 @@ import type { PipelineIndex } from './pipeline';
  * Where a task stands from the viewer's point of view. The board, the phone list and
  * the drawer all use this, so "Rád vár" means the same everywhere.
  */
-import type { TaskPhase } from '@projectman/shared';
 export type { TaskPhase };
 
 /**

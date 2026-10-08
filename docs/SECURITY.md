@@ -401,8 +401,12 @@ developer, below). PM-411 lifts only the two packed-refs denials in the Codex pr
 branch updates and deletion can finish; Claude's shared denials remain in place. A Codex member
 can now also rewrite packed refs, including the packed default branch, or interfere with the
 integrator's packed-refs lock. The loose default-branch ref and its lock remain read-only, but
-that does not protect a default branch stored only in packed-refs. This is the shared-store
-tradeoff of the owner's request to let Codex members rebase themselves. Existing sessions need
+that does not protect a default branch stored only in packed-refs. Packed `refs/replace` entries
+also bypass the loose replacement-directory protection and change the history/content seen by
+the host's git without moving the branch. These risks have not been accepted by the owner:
+the direct-write implementation is blocked in review pending an architectural solution that
+preserves the PM-399 protections. The request to enable rebase is not risk acceptance.
+Existing sessions need
 a restart with the updated runner to receive the new profile.
 The profile semantics (a nested `read` under a `write` root) must be checked
 in a live Codex session before the release. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup

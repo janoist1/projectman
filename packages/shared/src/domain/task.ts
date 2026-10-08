@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TaskDeveloperLevel } from './developer-level';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
+import { TaskHandoff, TaskHandoffRef } from './handoff';
 import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
@@ -100,6 +101,9 @@ export const TaskStartWaiting = z.object({
     'workspace_codex_config',
     // A card recommended for the Senior waits for one (PM-348): every Senior is busy or on leave.
     'senior_busy',
+    // The card is being handed over to the member (PM-342): the start continues once the old assignee
+    // (`member`) has handed over.
+    'handoff_open',
   ]),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
@@ -209,6 +213,10 @@ export const Task = z.object({
   loop: TaskLoop.optional(),
   /** The fix round limit that holds the card back (PM-262); absent when it is not held. Hidden from clients. */
   fixLimit: TaskFixLimit.optional(),
+  /** The handoff open on the card (PM-342); absent when there is none. Hidden from clients. */
+  handoff: TaskHandoff.optional(),
+  /** The latest closed handoff, while the card is still with its receiver (PM-342). Hidden from clients. */
+  lastHandoff: TaskHandoffRef.optional(),
   /**
    * The attachment whose thumbnail is the card's cover (`coverAttachmentId` in `domain/attachment`):
    * the task's first image. Null or absent when the task has no image. A plain string here, as

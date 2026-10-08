@@ -210,6 +210,8 @@ export async function createDomainHarness(
     worktreeSweepMs: 3_600_000,
     // And the idle close sweep: tests call `domain.sessionCloser.sweep()`.
     idleCloseSweepMs: 3_600_000,
+    // And the handoff sweep: tests call `domain.handoffs.sweep()` after moving the clock.
+    handoffSweepMs: 3_600_000,
     freeDiskBytes: opts.freeDiskBytes,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });

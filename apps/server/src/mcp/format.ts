@@ -175,6 +175,7 @@ export function formatTaskDetail(
     ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,
+    ...handoffLines(task),
     `Created by ${task.createdBy} at ${formatTimestamp(task.createdAt)} · Updated ${formatTimestamp(task.updatedAt)}`,
     '',
     ...descriptionLines(task.key, task.description, options.descriptionOffset ?? 0),
@@ -371,6 +372,25 @@ export function formatTaskUpdate(
   return [`Updated ${task.key}: ${done.join('; ')}.`, ...level, `Now: ${taskStatusLine(task)}`].join('\n');
 }
 
+/** The assignee handoff of a card (PM-342): the open one, else the latest that ended while the card is with its receiver. */
+function handoffLines(task: Pick<Task, 'handoff' | 'lastHandoff'>): string[] {
+  const open = task.handoff;
+  if (open) {
+    const until = open.deadlineAt ? `, the note is due by ${formatTimestamp(open.deadlineAt)}` : '';
+    const fallback = open.fallbackReason ? `, no note (${open.fallbackReason}): a summary stands in` : '';
+    return [
+      `Handoff: ${open.from} → ${open.to ?? 'nobody yet'} in progress (${open.step}${until}${fallback}). The receiver starts when it is over.`,
+    ];
+  }
+  const last = task.lastHandoff;
+  if (!last) return [];
+  const how =
+    last.outcome === 'note' ? 'with a note' : `with a summary (${last.fallbackReason ?? 'no note'})`;
+  return [
+    `Latest handoff: ${last.from} → ${last.to ?? 'nobody'} ${how}, ended ${formatTimestamp(last.endedAt)}.`,
+  ];
+}
+
 /** `Recommended developer: senior — <reason>`; a card without a recommendation reads `any`. */
 function recommendedDeveloperLine(task: Pick<Task, 'developerLevel'>): string {
   const level = task.developerLevel;
@@ -500,6 +520,8 @@ function recipientLine(
           return `${handle}: held until the server's full test of ${card}'s pinned commit has a result.`;
         case 'pause':
           return `${handle}: held: their session is paused; they get it when the pause ends.`;
+        case 'handoff':
+          return `${handle}: held: ${card} is being handed over from them; the member who takes it over gets the message.`;
         case 'restart':
         default:
           return `${handle}: held: their session restarts first (a new review round or permission mode); they get it in its first input.`;

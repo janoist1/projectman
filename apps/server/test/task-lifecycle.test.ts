@@ -109,14 +109,13 @@ describe('task lifecycle', () => {
   });
 
   it.each(LIVE_SESSION_STATES)(
-    'rejects reassignment with a %s session, including an unassigned reviewer session',
+    'allows reassignment with a %s session, including an unassigned reviewer session (PM-342)',
     async (state) => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'cr', {
         type: 'task',
         taskKey: 'AR-1',
       });
       h.runner.setState(session.id, state);
-      const before = h.domain.tasks.detail('AR', 'AR-1');
       for (const assignee of ['dev-2', null]) {
         await expect(
           h.domain.tasks.update(
@@ -125,13 +124,8 @@ describe('task lifecycle', () => {
             { assignee, stageId: 'development', title: 'Changed' },
             OWNER_ACTOR,
           ),
-        ).rejects.toMatchObject({
-          status: 409,
-          code: 'task_session_live',
-          details: { sessionId: session.id },
-        });
+        ).resolves.toMatchObject({ assignee, title: 'Changed' });
       }
-      expect(h.domain.tasks.detail('AR', 'AR-1')).toEqual(before);
     },
   );
 

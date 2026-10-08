@@ -54,6 +54,7 @@ export const hu = {
       description_changed: 'a leírás megváltozott',
       provider_resume: 'a szolgáltatói keret újra elérhető',
       pause_resume: 'a szünet véget ért',
+      handoff: 'a kártya felelőse változott',
     },
     stops: {
       assignee_change: 'a felelős módosításához',
@@ -65,6 +66,8 @@ export const hu = {
       failed: 'hiba (kilépési kód {code})',
       login_lost: 'lejárt a bejelentkezés',
       server_restart: 'a szerver újraindult',
+      handed_off: 'a kártya átadva',
+      handoff_timeout: 'nem írt átadó jegyzetet időben',
     },
     quote: '„{text}”',
     limit: 'döntés kell ({rounds}/{limit})',
@@ -712,6 +715,8 @@ export const hu = {
       release_four_eyes: 'A kiadáshoz független ember jóváhagyása szükséges.',
       full_test_pending:
         'A feladat átnézése megvárja az átadott commit teljes tesztjét: az eredmény után az átnéző magától elindul.',
+      task_handoff_open: 'A kártyát épp átadják ennek a tagnak: az indítás megvárja a régi felelős leadását.',
+      handoff_not_open: 'Ezt a kártyát most nem adják át tőled, ezért nem írhatsz átadó jegyzetet.',
       handover_uncommitted:
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
@@ -1032,6 +1037,7 @@ export const hu = {
       senior_busy: 'A Seniorra vár',
       label_missing: '{name} munkájára vár: {labels}',
       full_test_pending: 'Az átnézés a teljes tesztre vár',
+      handoff_open: 'Átadásra vár: {name} leadására',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
       nanogpt_key_missing: 'Indulásra vár: nincs NanoGPT-kulcs',
       nanogpt_setup_incomplete: 'Indulásra vár: hiányos a NanoGPT-beállítás',
@@ -1076,6 +1082,8 @@ export const hu = {
         'A kapu olyan címkét kér, amelyet AI-tag tesz fel; az ő munkamenete elindult a kártyán. A fejlesztő magától indul, amint a címke rákerül.',
       full_test_pending:
         'A szerver lefuttatja az átadott commit teljes tesztjét (a PTY-tesztekkel együtt). Zöld eredménynél az átnéző magától indul; bukásnál a kártya visszamegy a fejlesztőhöz.',
+      handoff_open:
+        'A régi felelős még lead: jegyzetet ír, vagy letelik a 10 perc. Utána az új felelős magától elindul.',
       // The drawer adds the login command (`providerSettings.loginCommands`) in a code element after it.
       provider_not_logged_in:
         'A munka magától elindul, amint belépsz; a szerver félpercenként ellenőrzi. Futtasd a szerveren:',
@@ -2679,6 +2687,14 @@ export const hu = {
         provider_changed: 'Új beszélgetés indult: a szolgáltató megváltozott ({member})',
         lost: 'Új beszélgetés indult: a korábbi elveszett ({member})',
         relocated: 'Új beszélgetés indult: a korábbi máshol futott ({member})',
+      },
+      task_handoff: {
+        started: 'Átadás indult: {from} → {to}',
+        retargeted: 'Átadás átirányítva: {from} → {to}',
+        note: 'Átadó jegyzet ({from}): {note}',
+        fallback: 'Átadó jegyzet nélkül: a gépi összefoglaló pótolja ({from})',
+        taken_over: 'Átvéve: {to}',
+        cancelled: 'Átadás visszavonva: a kártya marad a régi felelősnél ({from})',
       },
       session_permission_mode: 'A munkamenet módja ({member}): {from} → {to}',
       session_permission_approver: 'A munkamenetben, ha kérdez, ki dönt ({member}): {from} → {to}',

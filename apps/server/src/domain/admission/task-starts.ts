@@ -277,7 +277,7 @@ export class TaskStarts {
     if (task.assignee !== member.handle) {
       // Said before the assignment, which ends a wait for a Senior as "assigned".
       if (chosen.noSenior) this.seniorWaits.noSenior(task);
-      task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor);
+      task = this.tasks.assign(projectKey, taskKey, member.handle, opts.actor, { handoff: 'auto_assign' });
       opts.onAssigned?.(member.handle);
     }
     if (needsMove) {
@@ -285,7 +285,9 @@ export class TaskStarts {
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);
     }
     let session: Session | null = null;
-    if (member.kind === 'ai') {
+    // The old assignee's note comes first (PM-342): the receiver is started when the handoff is over.
+    const handedOver = this.tasks.get(projectKey, taskKey).handoff?.to === member.handle;
+    if (member.kind === 'ai' && !handedOver) {
       session = (
         await this.sessions.ensureSession(projectKey, member.handle, workItem, {
           cause: { kind: 'start_button', by: opts.actor },

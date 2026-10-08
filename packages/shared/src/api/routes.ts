@@ -31,6 +31,9 @@ export const routes = {
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
+  /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
+  taskHandoff: (key: string, taskKey: string, id: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/handoffs/${id}`,
   taskComments: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/comments`,
   taskLabels: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/labels`,
   startTask: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/start`,

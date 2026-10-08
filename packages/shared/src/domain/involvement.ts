@@ -20,6 +20,8 @@ export const SessionStartCauseKind = z.enum([
   'description_changed',
   'provider_resume',
   'pause_resume',
+  /** The card changed assignee (PM-342): the old session is asked for its note, or the new one takes over. */
+  'handoff',
 ]);
 export const SessionStartCause = z.object({
   kind: SessionStartCauseKind,
@@ -87,6 +89,11 @@ export const SessionStopKind = z.enum([
   'idle',
   /** The process stopped under a pause (PM-219), also in the pause before it ended. */
   'pause',
+  // PM-342
+  /** The member wrote their handoff note (or the transcript summary stands in) and the session closed. */
+  'handed_off',
+  /** The member did not write a handoff note in time. */
+  'handoff_timeout',
 ]);
 export type SessionStopKind = z.infer<typeof SessionStopKind>;
 

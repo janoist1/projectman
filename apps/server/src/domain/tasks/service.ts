@@ -8,6 +8,8 @@ import type {
   CancelTaskRequest,
   CreateTaskRequest,
   DeveloperLevelRequest,
+  HandoffReason,
+  HandoffStart,
   InboxItem,
   ProjectConfig,
   Session,
@@ -62,6 +64,14 @@ import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
 import { TaskThemes } from './themes';
 import type { ThemeView } from './themes';
+
+/** A card changed its assignee (PM-342): `task` is as written, `previous` the old assignee. */
+export interface HandoffTrigger {
+  task: Task;
+  previous: string | null;
+  actor: Actor;
+  reason: HandoffReason;
+}
 
 /** A repository the project's configuration does not have, with the names it does have. */
 function unknownRepo(config: ProjectConfig, repo: string) {
@@ -123,6 +133,7 @@ export class TaskService {
   private readonly cardRelations: TaskRelations;
   private readonly themes: TaskThemes;
   private readonly pullRequests: PullRequestRecords;
+  private readonly handoff: ((input: HandoffTrigger) => HandoffStart | null) | undefined;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -135,10 +146,16 @@ export class TaskService {
     sourceHead: SourceHeadReader;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
+    /**
+     * Opens the handoff of the old assignee's work when the card changes assignee (PM-342). Called in the
+     * unit of work that changed the assignee, after its `task_assigned` event; null: nothing to hand over.
+     */
+    handoff?: (input: HandoffTrigger) => HandoffStart | null;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
+    this.handoff = deps.handoff;
     this.store = new TaskStore(deps);
     this.labels = new TaskLabels(this.store);
     this.order = new BoardOrder(this.store);
@@ -344,7 +361,7 @@ export class TaskService {
     change: TaskUpdate,
     actor: Actor,
     opts: { sessionId?: string | null } = {},
-  ): Promise<Task> {
+  ): Promise<Task & { handoffStart?: HandoffStart }> {
     const config =
       change.assignee !== undefined
         ? await this.requireLifecycleAccess(projectKey, actor)
@@ -368,7 +385,7 @@ export class TaskService {
     );
     await runEffects(effects);
     if (result.pendingApproval) throw approvalRequestedError(result.pendingApproval);
-    return result.task;
+    return result.handoffStart ? { ...result.task, handoffStart: result.handoffStart } : result.task;
   }
 
   /**
@@ -474,7 +491,7 @@ export class TaskService {
     sessionId: string | null,
     effects: Effect[],
     handover: Handover | null,
-  ): { task: Task; pendingApproval?: InboxItem[] } {
+  ): { task: Task; pendingApproval?: InboxItem[]; handoffStart?: HandoffStart | undefined } {
     // A theme does not move, have an assignee or a repository (PM-192).
     if (isTheme(task)) {
       if (change.stageId !== undefined && change.stageId !== task.stageId)
@@ -564,9 +581,7 @@ export class TaskService {
     if (change.assignee !== undefined) {
       if (change.assignee !== null && !memberOf(config, change.assignee))
         throw invalid('unknown_member', `unknown member: ${change.assignee}`);
-      const live = this.liveSession(task);
-      if (live)
-        throw conflict('task_session_live', `task ${task.key} has a live session`, { sessionId: live.id });
+      // A live session of the old assignee is no obstacle (PM-342): the handoff asks it for a note.
       if (change.assignee !== task.assignee) {
         // A member on leave cannot take over work (decision 23); keeping it as it is stays allowed.
         if (isHandleOnLeave(config, change.assignee))
@@ -601,6 +616,7 @@ export class TaskService {
 
     // Apply it.
     let next = task;
+    let handoffStart: HandoffStart | undefined;
     const labelsChanged = labelsChange(labels);
     if (
       fields.length > 0 ||
@@ -642,6 +658,8 @@ export class TaskService {
           type: 'task_assigned',
           data: { assignee: next.assignee, previous: task.assignee },
         });
+        handoffStart =
+          this.handoff?.({ task: next, previous: task.assignee, actor, reason: 'manual' }) ?? undefined;
         // Whoever listens to a change of assignee (a held fix round limit ends with it) hears this one too.
         const assigned = next;
         effects.push(() =>
@@ -666,12 +684,14 @@ export class TaskService {
     if (relationPlan && relationPlan.steps.length > 0)
       next = this.cardRelations.execute(relationPlan, next, actor, sessionId, effects);
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
-    if (!moving) return { task: next };
+    if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
       handover,
       despitePrerequisites: change.despitePrerequisites,
     });
-    return moved.moved ? { task: moved.task } : { task: moved.task, pendingApproval: moved.pendingApproval };
+    return moved.moved
+      ? { task: moved.task, handoffStart }
+      : { task: moved.task, pendingApproval: moved.pendingApproval, handoffStart };
   }
 
   /** Puts a change of the recommended developer on the timeline and tells the listeners once it committed. */
@@ -907,7 +927,13 @@ export class TaskService {
     taskKey: string,
     assignee: string | null,
     actor: Actor,
-    extra: Pick<TimelineEventData['task_assigned'], 'reason' | 'from'> = {},
+    {
+      handoff,
+      ...extra
+    }: Pick<TimelineEventData['task_assigned'], 'reason' | 'from'> & {
+      /** Why the card changes hands: set off the handoff of the old assignee's work (PM-342). */
+      handoff?: HandoffReason;
+    } = {},
   ): Task {
     let previous: string | null = null;
     let changed = false;
@@ -925,6 +951,7 @@ export class TaskService {
         type: 'task_assigned',
         data: { assignee, previous: task.assignee, ...extra },
       });
+      if (handoff) this.handoff?.({ task: next, previous: task.assignee, actor, reason: handoff });
       this.publish(next);
       return next;
     });
@@ -1037,7 +1064,9 @@ export class TaskService {
             task.key,
             to,
             actor,
-            to ? { reason: 'handover', from: handle } : { reason: 'member_removed' },
+            to
+              ? { reason: 'handover', from: handle, handoff: 'member_removed' }
+              : { reason: 'member_removed', handoff: 'member_removed' },
           );
         }
       }

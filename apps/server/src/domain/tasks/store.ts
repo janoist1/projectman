@@ -76,6 +76,8 @@ export class TaskStore {
       coverAttachmentId: ___,
       loop: ____,
       fixLimit: _____,
+      handoff: ______,
+      lastHandoff: _______,
       ...rest
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
@@ -83,6 +85,7 @@ export class TaskStore {
     const cover = this.cover(task);
     const loop = this.loop(task);
     const fixLimit = this.fixLimit?.(task);
+    const handoffs = this.handoffs(task);
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
@@ -90,6 +93,45 @@ export class TaskStore {
       ...(cover ? { coverAttachmentId: cover } : {}),
       ...(loop ? { loop } : {}),
       ...(fixLimit ? { fixLimit } : {}),
+      ...handoffs,
+    };
+  }
+
+  /**
+   * The handoff open on the card (PM-342) and, while the card is still with its receiver, the latest closed
+   * one; none once the card closed.
+   */
+  private handoffs(task: Task): Pick<Task, 'handoff' | 'lastHandoff'> {
+    if (!isOpenTask(task) || isTheme(task)) return {};
+    const open = this.ctx.repos.taskHandoffs.open(task.key);
+    if (open)
+      return {
+        handoff: {
+          id: open.id,
+          from: open.from,
+          to: open.to,
+          fromProvider: open.fromProvider,
+          toProvider: open.toProvider,
+          reason: open.reason,
+          step: open.step,
+          ...(open.fallbackReason ? { fallbackReason: open.fallbackReason } : {}),
+          startedAt: open.startedAt,
+          deadlineAt: open.deadlineAt,
+        },
+      };
+    const last = this.ctx.repos.taskHandoffs.latestClosed(task.key);
+    if (!last || !last.endedAt || last.to === null || last.to !== task.assignee) return {};
+    return {
+      lastHandoff: {
+        id: last.id,
+        from: last.from,
+        to: last.to,
+        fromProvider: last.fromProvider,
+        toProvider: last.toProvider,
+        outcome: last.outcome === 'note' ? 'note' : 'fallback',
+        ...(last.fallbackReason ? { fallbackReason: last.fallbackReason } : {}),
+        endedAt: last.endedAt,
+      },
     };
   }
 

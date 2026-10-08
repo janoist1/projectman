@@ -17,6 +17,8 @@ export const MessageReceipt = z.object({
    * family card (PM-182). Absent for the default, and for messages from before it existed.
    */
   route: WorkItemRef.optional(),
+  /** The message was for the card's old assignee and was forwarded to the receiver of the handoff (PM-342). */
+  handedOffTo: MemberHandle.optional(),
 });
 export type MessageReceipt = z.infer<typeof MessageReceipt>;
 

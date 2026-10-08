@@ -744,5 +744,43 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     CREATE INDEX timeline_involvements ON timeline_events(project_key, created_at DESC, id DESC)
       WHERE type IN ('session_started', 'session_ended');`,
   },
+  {
+    version: 40,
+    name: 'task handoffs',
+    // PM-342: the handoff of a card's assignee. A row is open while outcome is NULL (at most one per card);
+    // it ends with 'note' (the old member's note), 'fallback' (the transcript summary stands in) or
+    // 'cancelled' (the card went back). step: waiting_point | writing | paused | closing; closing_at is when
+    // the note or the fallback was recorded (the old session closes after it). from_session_id is the old
+    // member's session on the card; taken_over_* is the receiver's session that began with the handoff.
+    sql: `CREATE TABLE task_handoffs (
+        id                    TEXT NOT NULL PRIMARY KEY,
+        project_key           TEXT NOT NULL REFERENCES projects(key),
+        task_key              TEXT NOT NULL REFERENCES tasks(key),
+        from_member           TEXT NOT NULL,
+        to_member             TEXT,
+        from_provider         TEXT NOT NULL,
+        to_provider           TEXT,
+        from_session_id       TEXT,
+        reason                TEXT NOT NULL,
+        step                  TEXT NOT NULL CHECK (step IN ('waiting_point', 'writing', 'paused', 'closing')),
+        started_at            TEXT NOT NULL,
+        deadline_at           TEXT,
+        outcome               TEXT CHECK (outcome IN ('note', 'fallback', 'cancelled')),
+        fallback_reason       TEXT,
+        note                  TEXT,
+        branch                TEXT,
+        last_commit           TEXT,
+        uncommitted           INTEGER,
+        summary_source        TEXT,
+        summary_text          TEXT,
+        summary_at            TEXT,
+        closing_at            TEXT,
+        ended_at              TEXT,
+        taken_over_at         TEXT,
+        taken_over_session_id TEXT
+      );
+      CREATE UNIQUE INDEX task_handoffs_open ON task_handoffs(task_key) WHERE outcome IS NULL;
+      CREATE INDEX task_handoffs_task ON task_handoffs(task_key, started_at);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

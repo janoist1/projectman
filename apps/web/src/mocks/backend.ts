@@ -2691,8 +2691,7 @@ export class MockBackend {
     if (input.assignee !== undefined) {
       if (input.assignee !== null && !memberOf(this.config, input.assignee))
         return error(400, 'unknown_member', 'Unknown member');
-      const live = this.taskSessions(task.key).find((session) => this.isLive(session));
-      if (live) return error(409, 'task_session_live', 'A session is still live', { sessionId: live.id });
+      // A live session of the old assignee is no obstacle (PM-342): the server asks it for a handoff note.
       if (input.assignee !== task.assignee) {
         if (isHandleOnLeave(this.config, input.assignee))
           return error(409, 'member_on_leave', `${input.assignee} is on leave`);

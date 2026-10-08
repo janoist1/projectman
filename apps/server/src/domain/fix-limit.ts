@@ -577,10 +577,19 @@ export class FixLimitWatch {
   ): Promise<void> {
     const previous = task.assignee;
     const actor = humanActor(by);
-    await this.sessions.stopTask(task.projectKey, task.key, { kind: 'fix_limit_reassign', by: actor });
+    // The first implementer's own session stays until the handoff (PM-342) took its note; the others stop.
+    await this.sessions.stopTask(
+      task.projectKey,
+      task.key,
+      { kind: 'fix_limit_reassign', by: actor },
+      { except: previous },
+    );
     // The messages that waited stay with the first implementer: waking it would start a session on a card it no longer has.
     this.freshStart(task, record, actor, 'reassign', note, false);
-    this.tasks.assign(task.projectKey, task.key, null, actor, { reason: 'handover' });
+    this.tasks.assign(task.projectKey, task.key, null, actor, {
+      reason: 'handover',
+      handoff: 'fix_limit_reassign',
+    });
     try {
       await this.starts.start(task.projectKey, task.key, {
         actor,

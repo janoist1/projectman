@@ -5,6 +5,7 @@ import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { TimelineEvent } from '../domain/event';
+import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
 import {
   AgentProvider,
@@ -462,7 +463,10 @@ export const UpdateTaskRequest = z.object({
   stageId: StageId.optional(),
   labels: z.array(z.string()).optional(),
   visibility: Visibility.optional(),
-  /** Owner/admin only; null clears the assignee. Starting work is a separate call. */
+  /**
+   * Owner/admin only; null clears the assignee. Starting work is a separate call. A live session of
+   * the old assignee does not refuse the change: it is asked for a handoff note (PM-342).
+   */
   assignee: MemberHandle.nullable().optional(),
   /**
    * The repository the task works in: the name of a repository of the project's configuration, or
@@ -487,6 +491,13 @@ export const UpdateTaskRequest = z.object({
   despitePrerequisites: z.boolean().optional(),
 });
 export type UpdateTaskRequest = z.infer<typeof UpdateTaskRequest>;
+
+/**
+ * The answer to the change of a card: the card, and `handoffStart` when this request set off a handoff of
+ * its assignee or redirected the one that was open (PM-342).
+ */
+export const UpdateTaskResponse = Task.extend({ handoffStart: HandoffStart.optional() });
+export type UpdateTaskResponse = z.infer<typeof UpdateTaskResponse>;
 
 /**
  * A card dropped on the board (PM-118): into the column `columnId` at `placement`. The card is the

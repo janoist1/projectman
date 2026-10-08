@@ -314,3 +314,10 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     with fast changes, reading only what matters to them, and having the right context for every
     decision. First cards: the flow map (PM-379) and intent-driven control (PM-384). Hybrid mode
     (PM-286) comes after this.
+43. **The old assignee writes the handoff note within 10 minutes; after that the transcript
+    summary stands in, without a compact.** Decided by the owner on 2026-10-05 (PM-342, K1 and
+    K2). When a card changes hands, the old AI member's session is asked at a safe point for a
+    `hand_off` note and has 10 minutes; on the timeout, or when no live session is possible
+    (leave, removal, other provider, no conversation), the receiver gets the summary of the old
+    transcript (the CLI's compaction summary plus the last replies). The old session is never
+    compacted for this. The receiver waits until the handoff ends.

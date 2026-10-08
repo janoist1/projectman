@@ -14,7 +14,14 @@ import {
   TASK_CREATE_MIN_ACCESS,
   UpdateTaskRequest,
 } from '@projectman/shared';
-import type { BoardMoveResult, ClosedCardsMeasure, Task, TaskDetail } from '@projectman/shared';
+import type {
+  BoardMoveResult,
+  ClosedCardsMeasure,
+  Task,
+  TaskDetail,
+  TaskHandoffRecord,
+  UpdateTaskResponse,
+} from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
 import { canSeeTask, visibleTaskDetail, visibleTasks } from '../domain/visibility';
@@ -60,13 +67,25 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   });
 
   /** A stage move is gated: 409 gate_blocked, or 409 approval_requested when approvers were asked. */
-  app.patch<TaskParams>(routes.task(':key', ':taskKey'), async (request): Promise<Task> => {
+  app.patch<TaskParams>(routes.task(':key', ':taskKey'), async (request): Promise<UpdateTaskResponse> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     const body = parseBody(UpdateTaskRequest, request.body);
     if (body.assignee !== undefined) await requireAccess(domain, request, key, { minimum: 'admin' });
     return domain.tasks.update(key, taskKey, body, actorOf(access));
   });
+
+  /** A closed handoff of the card with its note or summary (PM-342); an unknown or foreign one is 404. */
+  app.get<TaskParams & { Params: { handoffId: string } }>(
+    routes.taskHandoff(':key', ':taskKey', ':handoffId'),
+    async (request): Promise<TaskHandoffRecord> => {
+      const { key, taskKey, handoffId } = request.params;
+      const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+      const task = domain.tasks.find(key, taskKey);
+      if (!task || !canSeeTask(access, task)) throw notFound('task', taskKey);
+      return domain.handoffs.closedRecord(key, taskKey, handoffId);
+    },
+  );
 
   /** A card dropped on the board: a place in a column, with the gates of a stage move (PM-118). */
   app.post<TaskParams>(

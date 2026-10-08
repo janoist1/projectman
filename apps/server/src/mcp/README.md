@@ -70,7 +70,12 @@ tests use the SDK's own client, which behaves the same way here):
 | `delete_attachment`  | `task_key`, `attachment_id`                                                                                                                   | `deleteAttachment(ctx, { taskKey, attachmentId })`                                                      |
 | `take_screenshots`   | `scenario` (1–500 chars), `widths?` (1–8 × 200–4000), `full_page?`, `scale?` (1 or 2), `timeout_seconds?` (1–600), `seed?` (`demo` or `none`) | `takeScreenshots(ctx, { scenario, widths?, fullPage?, scale?, timeoutSeconds?, seed? })`                |
 | `get_screenshot_run` | `run_id` (1–64 chars)                                                                                                                         | `getScreenshotRun(ctx, runId)`                                                                          |
+| `hand_off`           | `task_key`, `note` (1–`HANDOFF_NOTE_MAX` chars)                                                                                               | `handOff(ctx, { taskKey, note })`                                                                       |
 
+- `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
+  write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
+  also when the time ran out and the summary stands in). It records the note and the state of the
+  worktree, and the session closes at its next idle moment.
 - Inputs are zod schemas (`tools.ts`), strict: an unknown key is an error rather than
   silently dropped. Handles, task keys, stage ids, task statuses and visibility reuse the
   `@projectman/shared` schemas; label ids are strings of at most 40 characters.

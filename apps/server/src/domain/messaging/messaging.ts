@@ -496,11 +496,20 @@ export class Messaging {
     from: string,
     handle: string,
     opts: SendOptions,
-  ): 'refinement_turn' | 'fix_limit' | 'full_test' | null {
+  ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | null {
+    if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
     if (this.heldForFullTest(config, task, from, handle)) return 'full_test';
     return null;
+  }
+
+  /**
+   * Whether a message to the member a card is being handed over from waits (PM-342): the old session only
+   * writes its note now, and the receiver gets the message when the handoff ends.
+   */
+  private heldForHandoff(task: Task | null, handle: string): boolean {
+    return !!task && this.ctx.repos.taskHandoffs.open(task.key)?.from === handle;
   }
 
   /**
@@ -574,6 +583,7 @@ export class Messaging {
     if (!task) return false;
     const config = await this.projects.config(session.projectKey);
     return (
+      this.heldForHandoff(task, session.member) ||
       this.heldForTurn(config, task, session.member, {}) ||
       this.heldForFixLimit(config, task, 'system', session.member) ||
       this.heldForFullTest(config, task, 'system', session.member)

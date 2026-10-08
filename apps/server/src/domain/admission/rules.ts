@@ -88,7 +88,12 @@ type DeferrableReason = Exclude<
   | 'label_missing'
   | 'full_test_pending'
   | 'senior_busy'
+  // The refusal is `task_handoff_open`; the task shows it as `handoff_open` (`waitingOf`).
+  | 'handoff_open'
 >;
+
+/** The refusals a retry waits for, as error codes: the waiting reasons that are codes, and `task_handoff_open`. */
+type DeferrableCode = WaitingReason | 'task_handoff_open';
 
 /** Admission refusals that a later retry can overcome; an automatic start waits for them. */
 const DEFERRABLE = new Set<ErrorCode>([
@@ -111,13 +116,15 @@ const DEFERRABLE = new Set<ErrorCode>([
   'nanogpt_setup_incomplete',
   'codex_setup_incomplete',
   'workspace_codex_config',
-] satisfies DeferrableReason[]);
+  // The card is being handed over to the member (PM-342): the start retries once the old assignee has handed over.
+  'task_handoff_open',
+] satisfies (DeferrableReason | 'task_handoff_open')[]);
 
 /** `also`: the further refusals the start in question waits for. */
 export function isDeferrable(
   err: unknown,
   also: readonly WaitingReason[] = [],
-): err is DomainError & { code: WaitingReason } {
+): err is DomainError & { code: DeferrableCode } {
   return err instanceof DomainError && (DEFERRABLE.has(err.code) || (also as ErrorCode[]).includes(err.code));
 }
 
@@ -126,11 +133,13 @@ export function isDeferrable(
  * for, and since when (kept from the previous refusal of the same start).
  */
 export function waitingOf(
-  err: DomainError & { code: WaitingReason },
+  err: DomainError & { code: DeferrableCode },
   opts: { member?: string; previous?: TaskStartWaiting; at: string },
 ): TaskStartWaiting {
   const details = err.details as
     | {
+        /** `task_handoff_open`: the old assignee the card is handed over from. */
+        from?: string;
         provider?: AgentProvider;
         until?: string | null;
         threshold?: number;
@@ -139,6 +148,12 @@ export function waitingOf(
         waitDecidedBy?: string;
       }
     | undefined;
+  if (err.code === 'task_handoff_open')
+    return {
+      reason: 'handoff_open',
+      member: details?.from ?? opts.member,
+      since: opts.previous?.since ?? opts.at,
+    };
   return {
     reason: err.code,
     member: opts.member,

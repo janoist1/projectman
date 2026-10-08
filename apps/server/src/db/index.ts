@@ -18,6 +18,7 @@ import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
 import { createTaskCoverRepository } from './task-covers';
 import { createTaskFixLimitRepository } from './fix-limits';
+import { createTaskHandoffRepository } from './task-handoffs';
 import { createTaskLoopRepository } from './task-loops';
 import { createTaskRepository } from './tasks';
 import { createTimelineRepository } from './timeline';
@@ -36,6 +37,7 @@ export type { TaskCoverRecord } from './task-covers';
 export type { TaskFixLimitRecord } from './fix-limits';
 export type { FullTestRunRecord } from './full-test-runs';
 export type { TaskLoopRecord } from './task-loops';
+export type { TaskHandoffRow } from './task-handoffs';
 export type { SeniorWaitDecision, SeniorWaitEndReason, SeniorWaitRecord } from './senior-waits';
 export type { UserRecord, AuthSessionRecord } from './users';
 export type { ProjectRecord } from './projects';
@@ -62,6 +64,7 @@ export function createRepositories(db: Db) {
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
+    taskHandoffs: createTaskHandoffRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

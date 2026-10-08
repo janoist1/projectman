@@ -408,11 +408,11 @@ On 2026-10-08, the owner explicitly accepted these two risks on PM-411, conditio
 follow-up card ("Elfogadom, utókártyával"). That follow-up must track their mitigation.
 Existing sessions need a restart with the updated runner to receive the new profile.
 Before release, a live Codex probe in a disposable repository must also attempt to hard-link
-the read-only `packed-refs` to the writable `packed-refs.lock`, then write through the lock path
-and check the original content and link count. Remove the lock after the probe. Whether the
-native sandbox rejects the link or the write is unverified on macOS and Linux. If writing
-through the link changes `packed-refs`, the read-only protection is bypassed: stop the release
-and return to architectural planning for a countermeasure. This possibility is not covered
+the read-only `packed-refs` to the writable `packed-refs.lock`; creating the link must fail with
+EPERM. Do not write through the link. If the link is created, stop the release, remove the lock,
+and return to architectural planning for a countermeasure. The actual `packed-refs` must remain
+unchanged. A later link-count check cannot detect a link removed after a malicious write.
+The native sandbox's link rejection remains unverified on macOS and Linux. This possibility is not covered
 by the owner's acceptance of the two lock risks above.
 The profile semantics (a nested `read` under a `write` root) must be checked
 in a live Codex session before the release. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup

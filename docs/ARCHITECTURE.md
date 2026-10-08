@@ -1131,6 +1131,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   rewrite can inject content into that rewrite. The owner accepted these two risks on PM-411
   on 2026-10-08, conditional on a follow-up card; see SECURITY.md for the separate, still
   unverified hard-link probe required before release.
+  This file-path exception relies on macOS Seatbelt enforcement. A Linux engine may keep a
+  nonexistent lock path closed; verify provider grants on that engine before claiming rebase
+  support. The hard-link probe must fail at link creation, without writing through the link.
   The managed VM retains the legacy sandbox flags because its VM is the boundary.
   PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only

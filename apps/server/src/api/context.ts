@@ -1,8 +1,8 @@
 import type { FastifyRequest } from 'fastify';
-import type { Actor, HumanAccess } from '@projectman/shared';
+import type { Actor, HumanAccess, IntegratorRefusal } from '@projectman/shared';
 import type { AuthUser } from '../auth/auth-service';
 import type { Domain, ProjectAccess } from '../domain';
-import { DomainError, forbidden, hasAccess, humanActor, notFound } from '../domain';
+import { DomainError, forbidden, hasAccess, humanActor, notFound, ownerLoginRequired } from '../domain';
 import type { Author } from '../domain';
 
 export function currentUser(request: FastifyRequest): AuthUser {
@@ -35,6 +35,15 @@ export async function requireAccess(
     throw forbidden('insufficient_access', `requires ${opts.minimum} access`);
   }
   return { ...access, ...(request.via ? { via: request.via } : {}) };
+}
+
+/**
+ * What only the owner's own login may do (PM-418): refuses a request made with the integrator key,
+ * which is the owner's actor but not a person. The configuration commit has its own check
+ * (`integratorConfigRefusal`); this one is for the actions outside it.
+ */
+export function requireOwnLogin(by: { via?: 'integrator' | null }, category: IntegratorRefusal): void {
+  if (by.via) throw ownerLoginRequired(category);
 }
 
 /**

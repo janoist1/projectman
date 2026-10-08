@@ -1,4 +1,4 @@
-import type { ErrorCode } from '@projectman/shared';
+import type { ErrorCode, IntegratorRefusal } from '@projectman/shared';
 
 /**
  * Errors raised by domain services. `code` is a stable machine code from the shared
@@ -30,6 +30,18 @@ export const notFound = (what: string, id: string) =>
 
 export const forbidden = (code: ErrorCode, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 403, details });
+
+const OWNER_LOGIN_MESSAGES: Record<IntegratorRefusal, string> = {
+  approval_rules: 'Only the owner may change approval labels or gates, using their own login',
+  owner_settings: 'Only the owner may change owner-only settings, using their own login',
+  members:
+    'Only the owner may manage members, using their own login; the integrator key may only send members on leave and call them back',
+  invitations: 'Only the owner may create invitations, using their own login',
+};
+
+/** The integrator key tried something only the owner may do with their own login (PM-418). */
+export const ownerLoginRequired = (category: IntegratorRefusal) =>
+  forbidden('owner_login_required', OWNER_LOGIN_MESSAGES[category], { category });
 
 export const invalid = (code: ErrorCode, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 400, details });

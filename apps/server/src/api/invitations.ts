@@ -10,7 +10,7 @@ import {
 } from '../auth';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
-import { currentUser, requireAccess } from './context';
+import { currentUser, requireAccess, requireOwnLogin } from './context';
 import { parseBody } from './validation';
 
 type ProjectParams = { Params: { key: string } };
@@ -32,7 +32,8 @@ export function registerInvitationRoutes(
   });
 
   app.post<ProjectParams>(routes.invitations(':key'), async (request, reply) => {
-    await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
+    const access = await requireAccess(domain, request, request.params.key, { minimum: 'admin' });
+    requireOwnLogin(access, 'invitations');
     const body = parseBody(CreateInviteRequest, request.body);
     const invite = await invitations.create(request.params.key, body, currentUser(request));
     return reply.code(201).send(invite);
@@ -56,6 +57,7 @@ export function registerInvitationRoutes(
     return invite;
   });
   app.post<TokenParams>(routes.acceptInvite(':token'), async (request, reply): Promise<Me> => {
+    requireOwnLogin(request, 'members');
     const release = attempts.reserve(clientAddress(request, clientIpHeader));
     const user = await invitations.accept(request.params.token, request.body, request.user);
     release();

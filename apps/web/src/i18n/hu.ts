@@ -632,6 +632,14 @@ export const hu = {
     invalidResponse: 'A szerver válasza nem a várt formátumú.',
     /** Detail of `handover_uncommitted`: the working directory and how many files are uncommitted. */
     handoverUncommitted: 'A munkafa: {path}; mentetlen fájlok száma: {count}.',
+    /** `owner_login_required` with its category named (PM-418). */
+    ownerLoginRequiredIn: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével: {what}.',
+    ownerLoginRequiredCategory: {
+      approval_rules: 'jóváhagyó címke vagy kapu szabálya',
+      owner_settings: 'tulajdonosi beállítás',
+      members: 'tagok kezelése; a kulcs csak szabadságra küldhet és visszahívhat',
+      invitations: 'meghívó létrehozása',
+    },
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
     gateUnmet: 'Még hiányzik: {conditions}',
     approvalRequested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
@@ -779,6 +787,7 @@ export const hu = {
       integrator_https_required: 'Az integrálói kulcs csak HTTPS-en vagy ezen a gépen használható.',
       owner_approval_required:
         'Ez emberi jóváhagyás: csak a tulajdonos adhatja meg, a saját bejelentkezésével.',
+      owner_login_required: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével.',
       too_many_attempts: 'Túl sok próbálkozás. Várj egy kicsit, és próbáld újra.',
       not_an_assignee: 'Ez a tétel nem neked szól.',
       unknown_repo: 'Ismeretlen repó.',

@@ -75,6 +75,7 @@ export class FullTestRuns {
   private readonly executor: FullTestExecutor | undefined;
   private readonly userHome: string;
   private readonly appHome: string | undefined;
+  private readonly closedTmpRoots: readonly string[];
   private readonly released: () => void;
   private available = false;
   private stopped = false;
@@ -91,6 +92,8 @@ export class FullTestRuns {
     executor?: FullTestExecutor;
     userHome: string;
     appHome?: string;
+    /** The temporary roots the machine's sessions share, closed to the run (PM-353). */
+    closedTmpRoots?: readonly string[];
     /** Called when a pin's result is in: the hand-over that waited for it is tried again. */
     released: () => void;
   }) {
@@ -103,6 +106,7 @@ export class FullTestRuns {
     this.executor = deps.executor;
     this.userHome = deps.userHome;
     this.appHome = deps.appHome;
+    this.closedTmpRoots = deps.closedTmpRoots ?? [];
     this.released = deps.released;
   }
 
@@ -323,6 +327,7 @@ export class FullTestRuns {
             gitDir: await repoGitDir(config, task),
             userHome: this.userHome,
             appHome: this.appHome,
+            closedTmpRoots: this.closedTmpRoots,
           }),
         },
         controller.signal,

@@ -26,6 +26,7 @@ import {
 import type { ScheduleTimer } from '../../src/domain/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
+import { sharedClaudeTmpRoots } from '../../src/domain/session-folders';
 import {
   capturingLogger,
   createFakeRunnerModule,
@@ -112,6 +113,8 @@ export async function createDomainHarness(
      * `<dir>/projectman-501-tmp/<8 hex>`, or a path of the test's own; absent, Codex gets no folder.
      */
     sessionTmp?: boolean | string;
+    /** The temporary roots all Claude Code processes share (PM-353); default: `/tmp/claude-test` and the like. */
+    claudeTmpRoots?: readonly string[];
     /** Playwright's browsers directory (PM-268); absent, no browsers variable. */
     browsersDir?: string;
     /** The machine's heavy-run queue folder (PM-332) named in the sandboxes; absent, none. */
@@ -158,6 +161,8 @@ export async function createDomainHarness(
   const domain: Domain = createDomain({
     sessionFoldersDir,
     sessionTmpDir,
+    // Not this machine's: the harness directory may lie below the Claude Code root the tests run in.
+    claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
     browsersDir: opts.browsersDir,
     heavyLockDir: opts.heavyLockDir,
     boundaryAdapter: opts.boundaryAdapter,

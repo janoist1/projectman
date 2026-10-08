@@ -21,6 +21,7 @@ import {
   prepareSessionTmpRoot,
   realpathOfNearest,
   SessionFolders,
+  sharedClaudeTmpRoots,
 } from '../src/domain/session-folders';
 
 describe('session folders (PM-268)', () => {
@@ -45,6 +46,25 @@ describe('session folders (PM-268)', () => {
     // Not a directory: the file's own path is kept, what is "below" it is appended.
     writeFileSync(join(base, 'file'), 'x');
     expect(realpathOfNearest(join(base, 'file', 'x'))).toBe(join(real, 'file', 'x'));
+  });
+
+  it('lists the temporary roots all Claude Code processes share, once, as given and canonical (PM-353)', () => {
+    const real = realpathSync('/tmp');
+    expect(new Set(sharedClaudeTmpRoots({ uid: 501 }))).toEqual(
+      new Set(['/tmp/claude-501', `${real}/claude-501`, '/tmp/claude', `${real}/claude`]),
+    );
+    // A base from the environment adds its own root, canonical too; a base that is `/tmp` adds nothing.
+    mkdirSync(join(base, 'dir'));
+    symlinkSync(join(base, 'dir'), join(base, 'link'));
+    const roots = sharedClaudeTmpRoots({ claudeTmpBase: join(base, 'link'), uid: 'u' });
+    expect(roots).toContain(join(base, 'link', 'claude-u'));
+    expect(roots).toContain(join(realpathSync(base), 'dir', 'claude-u'));
+    expect(roots).toContain('/tmp/claude-u');
+    expect(sharedClaudeTmpRoots({ claudeTmpBase: '/tmp', uid: 'u' })).toEqual(
+      sharedClaudeTmpRoots({ uid: 'u' }),
+    );
+    expect(new Set(roots).size).toBe(roots.length);
+    expect(sharedClaudeTmpRoots()).toContain(`/tmp/claude-${process.getuid?.() ?? 'user'}`);
   });
 
   it('names a new folder below the root at every call, and refuses an id that could leave it', () => {
@@ -219,10 +239,10 @@ describe('session folders (PM-268)', () => {
       return tmp;
     };
 
-    it('names `<tmpRoot>/<sessionId>.<6 hex>`, new at every call, and refuses an id that could leave it', () => {
+    it('names `<tmpRoot>/<12 hex>`, new at every call, and refuses an id that could leave it', () => {
       const { folders, tmpRoot } = tmpFolders();
       const first = folders.allocateTmp('ses_a1-B2')!;
-      expect(first).toMatch(new RegExp(`^${tmpRoot}/ses_a1-B2\\.[0-9a-f]{6}$`));
+      expect(first).toMatch(new RegExp(`^${tmpRoot}/[0-9a-f]{12}$`));
       expect(folders.allocateTmp('ses_a1-B2')).not.toBe(first);
       for (const id of ['../x', 'a/b', '', '..', 'a b'])
         expect(() => folders.allocateTmp(id)).toThrow(/Not a session id/);
@@ -234,10 +254,18 @@ describe('session folders (PM-268)', () => {
       const tmp = startedSession(folders, 'ses_one');
       expect(mode(tmp)).toBe(0o700);
       const dir = folders.allocate('ses_two');
-      expect(() => folders.make('ses_two', dir, join(tmpRoot, 'x', 'ses_two.abcdef'))).toThrow(
+      expect(() => folders.make('ses_two', dir, join(tmpRoot, 'x', '0123456789ab'))).toThrow(
         /not a temporary/,
       );
-      expect(() => folders.make('ses_two', dir, join(tmpRoot, 'ses_one.abcdef'))).toThrow(/not a temporary/);
+      // Not the form of an earlier version, a short name, a trash name or capitals.
+      for (const name of [
+        'ses_two.abcdef',
+        '0123456789a',
+        '0123456789abc',
+        '.trash-0123456789abcdef',
+        'ABCDEF012345',
+      ])
+        expect(() => folders.make('ses_two', dir, join(tmpRoot, name))).toThrow(/not a temporary/);
       expect(() => folders.make('ses_two', dir, join(base, 'elsewhere'))).toThrow(/not a temporary/);
       expect(() => new SessionFolders('/r').make('ses_two', undefined, '/r/abc')).toThrow(/not a temporary/);
       // Refused before anything is made or removed.
@@ -249,7 +277,7 @@ describe('session folders (PM-268)', () => {
       const { folders, tmpRoot } = tmpFolders();
       const target = join(base, 'target');
       mkdirSync(target);
-      const planted = join(tmpRoot, 'ses_one.012345');
+      const planted = join(tmpRoot, '012345abcdef');
       symlinkSync(target, planted);
       expect(() => folders.make('ses_one', folders.allocate('ses_one'), planted)).toThrow(/EEXIST/);
       expect(readdirSync(target)).toEqual([]);
@@ -259,7 +287,7 @@ describe('session folders (PM-268)', () => {
       folders.sweep(() => false);
       expect(existsSync(planted)).toBe(false);
       expect(existsSync(target)).toBe(true);
-      const real = join(tmpRoot, 'ses_two.ba9876');
+      const real = join(tmpRoot, 'ba9876543210');
       mkdirSync(real);
       expect(() => folders.make('ses_two', undefined, real)).toThrow(/EEXIST/);
     });
@@ -359,11 +387,12 @@ describe('session folders (PM-268)', () => {
       expect(queueParent).toMatch(/\/projectman-(\d+|user)$/);
       expect(`${root}/`.startsWith(`${queueParent}/`)).toBe(false);
       expect(`${queueParent}/`.startsWith(`${root}/`)).toBe(false);
-      // The directory is `<session id>.<6 hex>` (an id is `ses_` and 18 characters); tools add a name like
-      // `tsx-501/12345.pipe` (a socket's path may be 104 bytes).
-      const tmp = join(root, `ses_${'x'.repeat(18)}.abcdef`);
-      expect(Buffer.byteLength(tmp)).toBeLessThanOrEqual(72);
-      expect(Buffer.byteLength(join(tmp, 'tsx-501', '12345.pipe'))).toBeLessThan(104);
+      // The directory is `<12 hex>`; Claude Code's TMPDIR adds `claude-<uid>` and tools a name like
+      // `tsx-501/12345.pipe` (a socket's path may be 104 bytes; Claude Code falls back to a shared
+      // folder below a long `CLAUDE_CODE_TMPDIR`).
+      const tmp = join(root, 'abcdef012345');
+      expect(Buffer.byteLength(tmp)).toBeLessThanOrEqual(56);
+      expect(Buffer.byteLength(join(tmp, 'claude-501', 'tsx-501', '12345.pipe'))).toBeLessThan(104);
     });
   });
 });

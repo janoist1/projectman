@@ -547,14 +547,14 @@ by the server before the process starts and removed with the session:
 - the folder (`$PROJECTMAN_SESSION_DIR`, as for a Claude member; `PLAYWRIGHT_BROWSERS_PATH` with it) is
   a writable root, so the member can put an image there, open it with the built-in `view_image`
   (`tools.view_image = true`: not a sandboxed command, so it asks nothing) and `attach_file` it;
-- the temporary directory (`SessionFolders.allocateTmp`, `<tmpRoot>/<session id>.<6 random hex digits>`,
+- the temporary directory (`SessionFolders.allocateTmp`, `<tmpRoot>/<12 random hex digits>`,
   `AgentSandbox.portable.tmpDir`) is a writable root and every command's `TMPDIR`
   (`shell_environment_policy.set.TMPDIR`); the permission profile omits `:slash_tmp` and
   `:tmpdir`, closing the shared `/tmp` and the CLI's own `$TMPDIR`. Under both lay the other
   members' session folders, the server's full-test run directories and the Claude members' `/tmp/claude-<uid>`,
   which a Codex member could write otherwise. The path is short on purpose
-  (`/tmp/projectman-<uid>-tmp/<instance hash>/<session id>.<6 hex>`, about 72 bytes on macOS, about 91 with a
-  `tsx` socket's `/tsx-<uid>/<pid>.pipe`): a Unix
+  (`/tmp/projectman-<uid>-tmp/<instance hash>/<12 hex>`, short enough for a
+  `tsx` socket's `/tsx-<uid>/<pid>.pipe` too, and for Claude Code's `claude-<uid>` below it): a Unix
   socket's path is 104 bytes at most and tools such as `tsx` open one in `TMPDIR`, which the session folder's
   long path would not allow. The root is a sibling of the queue folder's parent `/tmp/projectman-<uid>`, never
   below it or above it: that parent is writable for every member's commands (PM-346), so a path in it could be

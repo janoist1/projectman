@@ -291,6 +291,25 @@ Credential files are only counted (`wc -c`), never printed.
    refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
    `~/.ssh`, `~/.config/gh`, `~/.codex`, another `~/.claude` path or `~/.npmrc`.
 
+## PM-353: a Claude session's own Claude Code temporary root
+
+Check it once in a **new** Claude developer session (and a reader) of the owner's Mac, after the
+server runs this change (a session that was already running keeps the old rules). Record each line
+as `pass`, `fail` or `unverified` with the raw output in the task.
+
+1. `echo $TMPDIR; echo $CLAUDE_CODE_TMPDIR`: the CLI's temporary root has the shape
+   `…/projectman-<uid>-tmp/<hash>/<12 hex>/claude-<uid>/…`, not `/tmp/claude-<uid>`.
+2. `ls /private/tmp/claude-501`, `ls /tmp/claude-501` (the user's uid): refused (the same for
+   `/private/tmp/projectman-501-tmp`, the parent of the session tmp roots). Writing there is refused too.
+3. The file tools: `Read` of a file under `/private/tmp/claude-501/` is denied.
+4. What must still work: a background command (`run_in_background`) and its output file, a subagent
+   (`reader-haiku`), the `Edit` of a file in the checkout, and a related test run
+   (`npx vitest related … --run`) in a workspace.
+5. A Codex member: `ls /private/tmp/claude-501` is refused as well.
+6. The server's full test (a card's review): the generated `settings.json` of the run lists the Claude
+   roots and the tmp root's parent in `filesystem.denyRead`; the run itself passes.
+7. Stop the session: its `<12 hex>` directory is gone from the tmp root.
+
 ## PM-270: the browser of `npm run shots` and its fence
 
 A member's `npm run shots` (SCREENSHOTS.md) runs a single-process Chromium inside the member's

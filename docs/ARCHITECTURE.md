@@ -1061,7 +1061,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
-  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<session id>.<6 random hex>`
+  own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<12 random hex>`
   (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
   removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
   and a sibling of the heavy-run queue's parent `projectman-<uid>`, never below or above it (that
@@ -1070,6 +1070,19 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   without `recursive`, so a link put there beforehand stops the start. The path is short because a Unix
   socket's is limited to 104 bytes. The Codex adapter then closes the shared `/tmp` and the CLI's
   `$TMPDIR` for its commands.
+  A legacy Claude session gets the same kind of directory (PM-353) and the Claude adapter's
+  `launch` hands it to the CLI as `CLAUDE_CODE_TMPDIR`, so Claude Code's temporary root
+  (`<CLAUDE_CODE_TMPDIR>/claude-<uid>`: the scratchpad, background command output, subagent
+  output, `bash-edit-diff`) is the session's own instead of the machine's shared
+  `/tmp/claude-<uid>`. The name is 12 hex digits (no session id) because Claude Code falls back to
+  the shared root when the path is too long. The shared roots (`sharedClaudeTmpRoots`: `/tmp/claude-<uid>`,
+  `<CLAUDE_CODE_TMPDIR of the server>/claude-<uid>`, `/tmp/claude`, each as written and by
+  canonical path) are denied: to the file tools (`deniedPaths`), and to the commands of a
+  developer's and a reader's sandbox (`denyRead`, `denyWrite`, with the own tmp re-opened). The
+  tmp root's parent is closed to Claude sessions as well. A Codex session always gets the roots
+  in `deniedPaths`. A Claude session without a safe tmp root (no folders, or an unusable root) runs
+  as before and the shared roots are not denied for it (fail-open: the CLI still needs them).
+  A session that is already running keeps its old rules until its next start.
   The tmp root is another machine-dependent assumption: a shared host-local `/tmp`.
   Every Claude session reads all the folders below the instance's root
   (`realpath(tmpdir)/projectman-sessions/<home hash>`), through the file-tool rules the policy
@@ -1082,7 +1095,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   remote absolute path on the server. The root is a property of the engine (the PM-312 host's
   file system), not of the server; the policy carries the two paths to the host that runs the
   CLI. A member reads only the folders of sessions on its own engine; images move between
-  machines through `attach_file` → `read_attachment`.
+  machines through `attach_file` → `read_attachment`. The Claude Code roots (`/tmp/claude-<uid>`,
+  the server's `CLAUDE_CODE_TMPDIR`) are those of the engine's host too: compute `sharedClaudeTmpRoots`
+  and allocate the session's tmp there, and pass `CLAUDE_CODE_TMPDIR` to the CLI on the engine.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270).
   Playwright loads local Chromium binaries from the configured browser directory (default
@@ -1243,7 +1258,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt` and is off in the managed VM profile.
+  it is unavailable without macOS/`srt` and is off in the managed VM profile. Its sandbox
+  (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
+  and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent
   isolation and resource queuing there, and transport of the attributed verdict/cancellation.
   An unavailable executor must not become a passing verdict.

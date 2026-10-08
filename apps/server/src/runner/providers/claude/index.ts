@@ -184,7 +184,17 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
       // resume or the continue message) is typed once SessionStart arrives, which Claude Code
       // reports at launch, for a resume too: nothing depends on the screen, so it is not passed
       // as a prompt argument as Codex's is.
-      return { ...command, cliArgs, initialMessageSent: false };
+      // Claude Code's temporary root (scratchpad, background command output, `bash-edit-diff`) is
+      // `<CLAUDE_CODE_TMPDIR>/claude-<uid>` (PM-353): the session's own directory instead of the one
+      // every Claude Code process of the user shares. In the process environment, not the settings'
+      // `env`: the CLI computes its root at the start.
+      const tmpDir = spec.sandbox?.portable?.tmpDir;
+      return {
+        ...command,
+        cliArgs,
+        initialMessageSent: false,
+        ...(tmpDir ? { env: { CLAUDE_CODE_TMPDIR: tmpDir } } : {}),
+      };
     },
 
     parseHook(body) {

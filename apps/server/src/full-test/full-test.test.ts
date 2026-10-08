@@ -185,4 +185,23 @@ describe('fullTestSandbox', () => {
     expect(sandbox.denyRead).toContain('/srv/projectman');
     expect(sandbox.allowRead).toEqual(['/srv/git/x/.git']);
   });
+
+  it('closes the temporary roots the machine’s sessions share (PM-353)', () => {
+    const closedTmpRoots = ['/tmp/claude-501', '/private/tmp/claude-501', '/private/tmp/projectman-501-tmp'];
+    const sandbox = fullTestSandbox({
+      checkout: '/Users/anna/.projectman/worktrees/PM/PM-1-x',
+      userHome: '/Users/anna',
+      appHome: '/Users/anna/.projectman',
+      closedTmpRoots,
+    });
+    expect(sandbox.denyRead).toEqual(expect.arrayContaining(closedTmpRoots));
+    // The run's own directory (a short root below the real `/tmp`, or the tmp root) is none of them.
+    const own = runDirOf('/private/tmp/pmft-x', '/private/tmp', 'ftr_mgabc12345ef01234567');
+    for (const root of closedTmpRoots) expect(own === root || own.startsWith(`${root}/`)).toBe(false);
+    // Without them nothing is added.
+    expect(
+      fullTestSandbox({ checkout: '/c', userHome: '/Users/anna', appHome: '/Users/anna/.projectman' })
+        .denyRead,
+    ).not.toContain('/tmp/claude-501');
+  });
 });

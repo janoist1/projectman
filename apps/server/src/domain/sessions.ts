@@ -286,6 +286,11 @@ export interface SessionOrchestratorDeps {
    * session of the legacy profile gets its own writable folder, new at every start. Absent, none is made.
    */
   sessionFolders?: SessionFolders;
+  /**
+   * Claude Code's temporary roots every Claude Code process of the user shares
+   * (`sharedClaudeTmpRoots`, PM-353): closed to the commands of a session and, with it, the file tools.
+   */
+  claudeTmpRoots?: readonly string[];
   /** Playwright's browsers (PM-268): handed to Claude sessions read-only in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
   /** The machine's heavy-run queue folder (PM-332): its parent is writable for the commands of a worktree session. */
@@ -1658,12 +1663,20 @@ export class SessionOrchestrator {
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
     const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
     const userHome = this.deps.userHome ?? homedir();
+    // A Claude session of the legacy profile gets its own Claude Code temporary root (PM-353) when the
+    // server can make one; only then are the roots all Claude Code processes share closed to it (the
+    // CLI itself still uses them otherwise). Every other provider closes them: its CLI does not.
+    const claudeTmpRoots = this.deps.claudeTmpRoots ?? [];
+    const claudeOwnTmp = provider === 'claude' && !vm && !this.managed && !!this.deps.sessionFolders?.tmpRoot;
     const policy = buildSessionPolicy({
       config,
       role: member.role,
       task,
       permissionMode,
-      deniedPaths: sensitivePaths({ userHome, appHome: this.deps.appHome }),
+      deniedPaths: [
+        ...sensitivePaths({ userHome, appHome: this.deps.appHome }),
+        ...(provider !== 'claude' || claudeOwnTmp ? claudeTmpRoots : []),
+      ],
       outboundNetwork: outboundNetworkOf(member),
       placement: vm
         ? memberWorkspacePlacement(ws, cwd)
@@ -1699,7 +1712,13 @@ export class SessionOrchestrator {
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
     const sessionDir =
       ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
-    const tmpDir = codexWrites && sessionDir ? this.deps.sessionFolders?.allocateTmp(sessionId) : undefined;
+    const tmpDir =
+      (codexWrites || claudeOwnTmp) && sessionDir
+        ? this.deps.sessionFolders?.allocateTmp(sessionId)
+        : undefined;
+    const tmpBase = this.deps.sessionFolders?.tmpRoot
+      ? path.dirname(this.deps.sessionFolders.tmpRoot)
+      : undefined;
     const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
     const sandbox =
       vm || this.managed
@@ -1708,7 +1727,7 @@ export class SessionOrchestrator {
             userHome,
             ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
             ...(sessionDir ? { sessionDir } : {}),
-            ...(tmpDir ? { tmpDir } : {}),
+            ...(tmpDir ? { tmpDir, sharedTmpRoots: [...claudeTmpRoots, ...(tmpBase ? [tmpBase] : [])] } : {}),
             ...(browsersDir ? { browsersDir } : {}),
             ...(this.deps.heavyLockDir ? { heavyLockDir: this.deps.heavyLockDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
@@ -1718,6 +1737,10 @@ export class SessionOrchestrator {
             // A reader changes no checkout of the project or the installation (PM-188).
             readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
           });
+    // The shared roots are closed in the policy already: a sandbox that dropped the session's own temporary
+    // directory would leave the CLI on a root it can no longer reach. Only a programming error; no start.
+    if (claudeOwnTmp && sandbox && sandbox.portable?.tmpDir !== tmpDir)
+      throw new Error(`The sandbox of session ${sessionId} dropped its Claude Code temporary directory`);
     // The folder the sandbox kept and its root go into the policy: the adapter renders the file-tool
     // rules from it, and drops the legacy allow list beside a policy (PM-333).
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];

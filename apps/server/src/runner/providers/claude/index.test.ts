@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { StartSessionSpec } from '../../../contracts';
 import { silentLogger } from '../../test-helpers';
 import {
   CLAUDE_AUTH_ERROR,
@@ -120,5 +121,40 @@ describe('Claude Code login failures', () => {
       readiness: 'session_start',
       toolGate: 'permission_request',
     });
+  });
+});
+
+describe('the temporary root of a Claude Code process (PM-353)', () => {
+  const adapter = createClaudeAdapter({ bin: 'claude', logger: silentLogger(), trustWorkspaces: false });
+  const spec = (tmpDir?: string): StartSessionSpec => ({
+    sessionId: 'ses_1',
+    claudeSessionId: '11111111-1111-4111-8111-111111111111',
+    resume: false,
+    cwd: '/work/checkout',
+    displayName: 'Anna · AR-1',
+    appendSystemPrompt: 'You are Anna.',
+    mcpUrl: 'http://127.0.0.1:4700/mcp/tok',
+    allowedTools: [],
+    ...(tmpDir
+      ? {
+          sandbox: {
+            allowWrite: [tmpDir],
+            allowedDomains: [],
+            allowLocalBinding: true,
+            portable: { allowWrite: [tmpDir], env: {}, tmpDir },
+          },
+        }
+      : {}),
+  });
+  const launch = (s: StartSessionSpec) =>
+    adapter.launch({ spec: s, hookUrl: 'http://127.0.0.1:1/hooks/x', permissionTimeoutMs: 1000 });
+
+  it("sets CLAUDE_CODE_TMPDIR to the session's own directory", async () => {
+    const command = await launch(spec('/var/pm/tmp/0123456789ab'));
+    expect(command.env).toEqual({ CLAUDE_CODE_TMPDIR: '/var/pm/tmp/0123456789ab' });
+  });
+
+  it('leaves the environment alone without a directory of its own', async () => {
+    expect((await launch(spec())).env).toBeUndefined();
   });
 });

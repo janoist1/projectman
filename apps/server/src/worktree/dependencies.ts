@@ -67,7 +67,8 @@ export async function cloneDependencies(args: {
   /** Total copying budget; tests can shorten it. */
   copyTimeoutMs?: number;
 }): Promise<DependencyCloneResult> {
-  return withDependencyLock(await canonical(args.target), () => cloneIntoTarget(args));
+  const target = await canonical(args.target);
+  return withDependencyLock(target, () => cloneIntoTarget({ ...args, target }));
 }
 
 async function cloneIntoTarget(
@@ -99,6 +100,7 @@ async function cloneIntoTarget(
     const removedDirs: string[] = [];
     if (refreshing) {
       for (const workspace of await workspaceDirs(target)) {
+        if (!(await assertSafeParent(target, path.join(target, workspace, 'node_modules'), true))) continue;
         if (!dirs.includes(workspace) && (await isDirectory(path.join(target, workspace, 'node_modules')))) {
           removedDirs.push(workspace);
         }
@@ -117,9 +119,15 @@ async function cloneIntoTarget(
       const remaining = copyDeadline - Date.now();
       if (remaining <= 0) throw new Error('dependency copying timed out');
       const src = path.join(reference.path, dir, 'node_modules');
+      if (await present(temporary)) throw new Skip('unsupported');
+      await assertSafeParent(target, temporary);
       if (args.copyTree) await boundedCopy(args.copyTree, src, temporary, remaining);
       else await defaultCopyTree(src, temporary, remaining);
-      for (const cache of CACHE_DIRS) await rm(path.join(temporary, cache), { recursive: true, force: true });
+      for (const cache of CACHE_DIRS) {
+        const cachePath = path.join(temporary, cache);
+        await assertSafeParent(target, cachePath);
+        await rm(cachePath, { recursive: true, force: true });
+      }
     }
 
     // The reference's install must not have been touched while it was being copied.
@@ -127,7 +135,7 @@ async function cloneIntoTarget(
       (await mtimeOrNull(path.join(reference.path, HIDDEN_LOCKFILE))) !== reference.installedAt ||
       !(await readOrNull(path.join(reference.path, LOCKFILE)))?.equals(targetLock)
     ) {
-      await removeAll(temporaries);
+      await removeAll(target, temporaries);
       return skipped('reference_changed');
     }
 
@@ -136,7 +144,7 @@ async function cloneIntoTarget(
       (await mtimeOrNull(path.join(target, LOCKFILE))) !== lockTime ||
       (refreshing && (await mtimeOrNull(path.join(target, HIDDEN_LOCKFILE))) !== installedAt)
     ) {
-      await removeAll(temporaries);
+      await removeAll(target, temporaries);
       return skipped('target_changed');
     }
 
@@ -147,11 +155,13 @@ async function cloneIntoTarget(
       const final = path.join(target, dir, 'node_modules');
       if (refreshing && (await present(final))) {
         const backup = path.join(target, dir, `.node_modules.pm-${suffix}-old`);
+        await assertSafeParent(target, final);
         await rename(final, backup);
         backups.push({ final, backup });
       }
       if (removedDirs.includes(dir)) continue;
       try {
+        await assertSafeParent(target, temporary);
         await rename(temporary, final);
         renamed.push(final);
       } catch (err) {
@@ -159,15 +169,21 @@ async function cloneIntoTarget(
         const code = (err as NodeJS.ErrnoException).code;
         if (code !== 'EEXIST' && code !== 'ENOTEMPTY') throw err;
         // Somebody (a concurrent install or clone) created it meanwhile: theirs stays.
+        await assertSafeParent(target, temporary);
         await rm(temporary, { recursive: true, force: true });
       }
     }
     if (renamed.length === 0) return skipped('present');
     if (renamed.includes(path.join(target, 'node_modules'))) {
       const now = new Date(Math.max(Date.now(), Math.ceil(lockTime ?? 0)));
+      await assertSafeParent(target, path.join(target, HIDDEN_LOCKFILE));
+      if ((await lstat(path.join(target, HIDDEN_LOCKFILE))).isSymbolicLink()) throw new Skip('unsupported');
       await utimes(path.join(target, HIDDEN_LOCKFILE), now, now);
     }
-    await removeAll(backups.map(({ backup }) => backup));
+    await removeAll(
+      target,
+      backups.map(({ backup }) => backup),
+    );
     const done = order.filter(
       (dir) => removedDirs.includes(dir) || renamed.includes(path.join(target, dir, 'node_modules')),
     );
@@ -178,14 +194,21 @@ async function cloneIntoTarget(
       ms: Date.now() - started,
     };
   } catch (err) {
-    if (err instanceof Skip) {
-      await removeAll(temporaries);
-      return skipped(err.reason);
-    }
     // Leave nothing half-made behind: the temporaries and the directories renamed so far.
-    await removeAll(temporaries);
-    await removeAll(renamed);
-    for (const { final, backup } of backups.reverse()) await rename(backup, final);
+    await removeAll(target, temporaries);
+    await removeAll(target, renamed);
+    for (const { final, backup } of backups.reverse()) {
+      try {
+        await assertSafeParent(target, backup);
+        await rename(backup, final);
+      } catch (restoreError) {
+        logger.warn(
+          { target, backup, err: String(restoreError) },
+          'dependency backup could not be restored safely',
+        );
+      }
+    }
+    if (err instanceof Skip) return skipped(err.reason);
     logger.warn(
       { target, err: err instanceof Error ? err.message : String(err) },
       'cloning the dependencies failed; the member installs them',
@@ -224,6 +247,7 @@ async function findReference(
 async function dependencyDirs(reference: string, target: string): Promise<string[]> {
   const dirs = ['.'];
   for (const workspace of await workspaceDirs(reference)) {
+    if (!(await assertSafeParent(target, path.join(target, workspace, 'node_modules'), true))) continue;
     if (!(await isFile(path.join(target, workspace, 'package.json')))) continue;
     if (!(await isDirectory(path.join(reference, workspace, 'node_modules')))) continue;
     dirs.push(workspace);
@@ -303,8 +327,34 @@ async function readdirOrEmpty(p: string) {
   return readdir(p, { withFileTypes: true }).catch(() => []);
 }
 
-async function removeAll(paths: string[]): Promise<void> {
-  for (const p of paths) await rm(p, { recursive: true, force: true }).catch(() => undefined);
+/**
+ * Never traverse a symlink in a target operation's parent path, including workspace ancestors.
+ * Node has no openat: a small race remains between this check and the filesystem operation.
+ * Recheck immediately before every copy, rename and removal to keep that window narrow.
+ */
+async function assertSafeParent(target: string, file: string, allowMissing = false): Promise<boolean> {
+  const relative = path.relative(target, path.dirname(file));
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Skip('unsupported');
+  let dir = target;
+  for (const component of ['', ...relative.split(path.sep).filter(Boolean)]) {
+    if (component) dir = path.join(dir, component);
+    const info = await lstat(dir).catch(() => null);
+    if (!info && allowMissing) return false;
+    if (!info?.isDirectory() || info.isSymbolicLink()) throw new Skip('unsupported');
+  }
+  return true;
+}
+
+async function removeAll(target: string, paths: string[]): Promise<void> {
+  for (const p of paths) {
+    try {
+      await assertSafeParent(target, p);
+      await rm(p, { recursive: true, force: true });
+    } catch {
+      // Keep an unreachable temporary or backup rather than following a replaced parent.
+    }
+  }
 }
 
 /** macOS `f_type` of APFS (VT_APFS). */

@@ -1005,6 +1005,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
   time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
   No npm install runs outside a sandbox.
+  Target workspace ancestors must be real directories: component-wise `lstat` checks run
+  during selection and immediately before every copy, rename and removal, including rollback
+  and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
+  so a small check-to-operation race remains; checks never deliberately traverse a replaced parent.
   **Remote engine:** find reference checkouts and probe the filesystem on the engine;
   retain the existing skip/install fallback on other platforms. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine. Keep the

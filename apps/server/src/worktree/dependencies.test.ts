@@ -8,6 +8,7 @@ import {
   readFile,
   readlink,
   realpath,
+  rename,
   rm,
   stat,
   symlink,
@@ -161,6 +162,24 @@ async function leftovers(root: string): Promise<string[]> {
   return found;
 }
 
+/** Captures every entry and file byte in an external test directory. */
+async function snapshot(root: string): Promise<Record<string, string>> {
+  const entries: Record<string, string> = {};
+  async function walk(dir: string) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const file = path.join(dir, entry.name);
+      const key = path.relative(root, file);
+      if (entry.isSymbolicLink()) entries[key] = `link:${await readlink(file)}`;
+      else if (entry.isDirectory()) {
+        entries[key] = 'directory';
+        await walk(file);
+      } else entries[key] = (await readFile(file)).toString('base64');
+    }
+  }
+  await walk(root);
+  return entries;
+}
+
 describe('cloneDependencies', { timeout: 30_000 }, () => {
   it('clones the root and the workspaces node_modules from a reference with the same lockfile', async () => {
     await install(reference);
@@ -227,6 +246,46 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
     const changed = new Date('2026-01-01T11:00:00Z');
     await utimes(path.join(target, 'package-lock.json'), changed, changed);
   }
+
+  it.each(['apps/web', 'apps'])('never refreshes through a symlinked %s directory', async (directory) => {
+    await install(reference);
+    await staleTarget();
+    const victim = path.join(base, 'victim');
+    const replaced = path.join(target, directory);
+    await plainCopy(replaced, victim);
+    await put(victim, 'victim.txt', 'external bytes must remain');
+    await rm(replaced, { recursive: true });
+    await symlink(victim, replaced);
+    const before = await snapshot(victim);
+    const copyTree = vi.fn(plainCopy);
+
+    expect(await clone({ copyTree }).result).toEqual({ status: 'skipped', reason: 'unsupported' });
+    expect(copyTree).not.toHaveBeenCalled();
+    expect(await snapshot(victim)).toEqual(before);
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
+  });
+
+  it('rechecks workspace parents before copying and cleaning up after a concurrent replacement', async () => {
+    await install(reference);
+    await staleTarget();
+    const victim = path.join(base, 'victim');
+    await plainCopy(path.join(target, 'apps'), victim);
+    await put(victim, 'victim.txt', 'keep');
+    const before = await snapshot(victim);
+    let copies = 0;
+    const copyTree = async (src: string, dest: string) => {
+      await plainCopy(src, dest);
+      if (++copies === 1) {
+        await rename(path.join(target, 'apps'), path.join(target, 'apps-original'));
+        await symlink(victim, path.join(target, 'apps'));
+      }
+    };
+
+    expect(await clone({ copyTree }).result).toEqual({ status: 'skipped', reason: 'unsupported' });
+    expect(copies).toBe(1);
+    expect(await snapshot(victim)).toEqual(before);
+    expect(await exists(path.join(target, 'node_modules/obsolete'))).toBe(true);
+  });
 
   it('replaces stale root and workspace dependencies and skips a second refresh', async () => {
     await install(reference);
@@ -361,8 +420,12 @@ describe('cloneDependencies', { timeout: 30_000 }, () => {
 
     const results = await Promise.all([clone({ copyTree }).result, clone({ copyTree }).result]);
 
-    expect(results[0]).toMatchObject({ status: 'refreshed' });
-    expect(results[1]).toEqual({ status: 'skipped', reason: 'present' });
+    expect(results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 'refreshed' }),
+        { status: 'skipped', reason: 'present' },
+      ]),
+    );
     expect(copyTree).toHaveBeenCalledTimes(2);
     expect(await leftovers(target)).toEqual([]);
   });

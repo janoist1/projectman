@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
 import { pausesOnPlanUsage } from '@projectman/shared';
@@ -43,190 +44,88 @@ export function PlanUsageBadge({
   );
 }
 
-/** "27% (visszaáll: 21:40)", or just "n. a." when the usage is unknown. */
+/** Include the reset in the tooltip only when the usage is known. */
 function valueWithReset(value: number | null, resetsAt: string | null): string {
   if (value === null) return t('planUsage.unknown');
   const percent = formatPercent(value);
   return resetsAt ? t('planUsage.withReset', { value: percent, time: formatStamp(resetsAt) }) : percent;
 }
 
-/**
- * Subscription usage for one provider.
- * - `compact`: top bar mode; a short item with provider name and higher value, opening a dropdown
- *   with full details on click. Renders nothing when all values are unknown ("n. a.").
- * - `full`: shows both plan windows with MiniMeters; used in member profile.
- * - `peak`: one meter with the higher of the two windows.
- */
-export function PlanUsageMeter({
-  usage,
-  provider = 'claude',
-  pauseAbove = 80,
-  variant = 'full',
-}: {
-  usage: PlanUsage | null | undefined;
-  provider?: AgentProvider;
-  pauseAbove?: number;
-  variant?: 'full' | 'peak' | 'compact';
-}) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLSpanElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const refs = useMemo(() => [wrapRef, panelRef], []);
-  const panelId = useId();
-  useDismiss(open, () => setOpen(false), refs, triggerRef);
+function resetText(value: number | null, resetsAt: string | null | undefined): string {
+  const percent = value === null ? t('planUsage.unknown') : formatPercent(value);
+  return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
+}
 
-  useEffect(() => {
-    if (open) {
-      panelRef.current?.focus();
-    }
-  }, [open]);
-
-  const name = t(`providers.${provider}`);
-  const five = usage?.fiveHourPercent ?? null;
-  const week = usage?.weeklyPercent ?? null;
-  const paused = pausesOnPlanUsage(provider) && ((five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove);
-  const tip = [
-    t('planUsage.title', {
-      provider: name,
-      fiveHour: valueWithReset(five, usage?.fiveHourResetsAt ?? null),
-      weekly: valueWithReset(week, usage?.weeklyResetsAt ?? null),
-    }),
-    paused ? t('planUsage.paused', { limit: pauseAbove }) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
-  const known = [five, week].filter((value): value is number => value !== null);
-  const peak = known.length > 0 ? Math.max(...known) : null;
-  const resetText = (value: number | null, resetsAt: string | null | undefined) => {
-    const percent = value === null ? t('planUsage.unknown') : formatPercent(value);
-    return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
-  };
-
-  if (variant === 'compact') {
-    if (peak === null) return null;
-    const level = meterLevel(peak, pauseAbove);
-    const formattedPercent = formatPercent(peak);
-    return (
-      <span ref={wrapRef} className={styles.compactWrap}>
-        <button
-          ref={triggerRef}
-          type="button"
-          className={clsx(
-            styles.compactTrigger,
-            open && styles.compactTriggerOpen,
-            styles[`trigger_${level}`],
-          )}
-          aria-expanded={open}
-          aria-controls={panelId}
-          aria-haspopup="dialog"
-          aria-label={t('planUsage.compactLabel', { provider: name, percent: formattedPercent })}
-          title={tip}
-          onClick={() => setOpen((prev) => !prev)}
-        >
-          <span className={styles.compactName}>{name}</span>
-          <span className={clsx(styles.compactValue, styles[`value_${level}`])}>{formattedPercent}</span>
-          <span className={clsx(styles.compactChevron, open && styles.compactChevronOpen)} aria-hidden="true">
-            <Icon name="chevronDown" size={12} strokeWidth={2.2} />
-          </span>
-        </button>
-        {open && (
-          <div
-            ref={panelRef}
-            id={panelId}
-            role="dialog"
-            tabIndex={-1}
-            aria-label={t('planUsage.dropdownTitle', { provider: name })}
-            className={styles.dropdownPanel}
-          >
-            <div className={styles.dropdownHeader}>
-              <span className={styles.dropdownTitle}>{t('planUsage.dropdownTitle', { provider: name })}</span>
-            </div>
-            <div className={styles.dropdownContent}>
-              <div className={styles.dropdownSection}>
-                <MiniMeter
-                  label={t('planUsage.fiveHour')}
-                  value={five}
-                  pauseAbove={pauseAbove}
-                  valueText={resetText(five, usage?.fiveHourResetsAt)}
-                />
-                {usage?.fiveHourResetsAt ? (
-                  <span className={styles.resetText}>
-                    {t('planUsage.resets', { time: formatStamp(usage.fiveHourResetsAt) })}
-                  </span>
-                ) : null}
-              </div>
-              <div className={styles.dropdownSection}>
-                <MiniMeter
-                  label={t('planUsage.weekly')}
-                  value={week}
-                  pauseAbove={pauseAbove}
-                  valueText={resetText(week, usage?.weeklyResetsAt)}
-                />
-                {usage?.weeklyResetsAt ? (
-                  <span className={styles.resetText}>
-                    {t('planUsage.resets', { time: formatStamp(usage.weeklyResetsAt) })}
-                  </span>
-                ) : null}
-              </div>
-              {paused ? (
-                <div className={styles.pausedNotice}>
-                  <Icon name="alertCircle" size={14} className={styles.pausedIcon} />
-                  <span>{t('planUsage.paused', { limit: pauseAbove })}</span>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )}
-      </span>
-    );
-  }
-
+function isPaused(provider: AgentProvider, usage: PlanUsage | null | undefined, pauseAbove: number) {
   return (
-    <Tooltip label={name} content={tip} className={styles.provider}>
-      {variant === 'full' ? (
-        <>
-          <span className={styles.name}>{name}</span>
-          <MiniMeter
-            label={t('planUsage.fiveHour')}
-            value={five}
-            pauseAbove={pauseAbove}
-            valueText={resetText(five, usage?.fiveHourResetsAt)}
-          />
-          <MiniMeter
-            label={t('planUsage.weekly')}
-            value={week}
-            pauseAbove={pauseAbove}
-            valueText={resetText(week, usage?.weeklyResetsAt)}
-          />
-        </>
-      ) : (
-        <MiniMeter
-          label={name}
-          value={peak}
-          pauseAbove={pauseAbove}
-          valueText={`${peak === null ? t('planUsage.unknown') : formatPercent(peak)} · ${tip}`}
-        />
-      )}
-    </Tooltip>
+    pausesOnPlanUsage(provider) &&
+    ((usage?.fiveHourPercent ?? 0) >= pauseAbove || (usage?.weeklyPercent ?? 0) >= pauseAbove)
   );
 }
 
-const PROVIDER_ORDER: AgentProvider[] = ['claude', 'codex', 'nanogpt'];
-
-/**
- * Combined plan usage meter for narrow desktop (1181–1499 px).
- * Displays a single button "AI-keret {percent} ˅" with the peak value across all known
- * providers and windows, opening a shared dropdown panel with direct sections for
- * Claude, Codex, and NanoGPT.
- * Renders nothing if all values are unknown.
- */
-export function CombinedPlanUsageMeter({
-  usages,
-  pauseAbove = 80,
+/** The same window details appear in the individual and combined dropdowns. */
+function ProviderUsageDetails({
+  provider,
+  usage,
+  pauseAbove,
 }: {
-  usages: ReadonlyArray<{ provider: AgentProvider; usage: PlanUsage | null | undefined }>;
-  pauseAbove?: number;
+  provider: AgentProvider;
+  usage: PlanUsage | null | undefined;
+  pauseAbove: number;
+}) {
+  return (
+    <>
+      {[
+        {
+          label: t('planUsage.fiveHour'),
+          value: usage?.fiveHourPercent ?? null,
+          resetsAt: usage?.fiveHourResetsAt,
+        },
+        {
+          label: t('planUsage.weekly'),
+          value: usage?.weeklyPercent ?? null,
+          resetsAt: usage?.weeklyResetsAt,
+        },
+      ].map(({ label, value, resetsAt }) => (
+        <div key={label} className={styles.dropdownSection}>
+          <MiniMeter
+            label={label}
+            value={value}
+            pauseAbove={pauseAbove}
+            valueText={resetText(value, resetsAt)}
+          />
+          {resetsAt ? (
+            <span className={styles.resetText}>{t('planUsage.resets', { time: formatStamp(resetsAt) })}</span>
+          ) : null}
+        </div>
+      ))}
+      {isPaused(provider, usage, pauseAbove) ? (
+        <div className={styles.pausedNotice}>
+          <Icon name="alertCircle" size={14} className={styles.pausedIcon} />
+          <span>{t('planUsage.paused', { limit: pauseAbove })}</span>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** Shared trigger, dismissal and focus handling for both desktop presentations. */
+function UsageDropdown({
+  name,
+  peak,
+  pauseAbove,
+  label,
+  title,
+  combined = false,
+  children,
+}: {
+  name: string;
+  peak: number;
+  pauseAbove: number;
+  label: string;
+  title: string;
+  combined?: boolean;
+  children: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
@@ -237,49 +136,16 @@ export function CombinedPlanUsageMeter({
   useDismiss(open, () => setOpen(false), refs, triggerRef);
 
   useEffect(() => {
-    if (open) {
-      panelRef.current?.focus();
-    }
-  }, [open]);
-
-  // Close when screen width crosses breakpoints (e.g. 1500px or 1180px)
-  useEffect(() => {
     if (!open) return;
-    const m1 = window.matchMedia('(max-width: 1499px)');
-    const m2 = window.matchMedia('(max-width: 1180px)');
+    panelRef.current?.focus();
+    // Shell unmounts this presentation at 1500px; CSS hides the meters at 1180px.
+    const media = window.matchMedia('(max-width: 1180px)');
     const close = () => setOpen(false);
-    m1.addEventListener('change', close);
-    m2.addEventListener('change', close);
-    return () => {
-      m1.removeEventListener('change', close);
-      m2.removeEventListener('change', close);
-    };
+    media.addEventListener('change', close);
+    return () => media.removeEventListener('change', close);
   }, [open]);
 
-  const knownProviders = usages.filter(({ usage }) => {
-    return usage != null && (usage.fiveHourPercent != null || usage.weeklyPercent != null);
-  });
-
-  if (knownProviders.length === 0) return null;
-
-  const allKnownValues = knownProviders.flatMap(({ usage }) =>
-    [usage?.fiveHourPercent, usage?.weeklyPercent].filter((v): v is number => v != null),
-  );
-  const peak = Math.max(...allKnownValues);
   const level = meterLevel(peak, pauseAbove);
-  const formattedPercent = formatPercent(peak);
-
-  const resetText = (value: number | null, resetsAt: string | null | undefined) => {
-    const percent = value === null ? t('planUsage.unknown') : formatPercent(value);
-    return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
-  };
-
-  const sortedProviders = [...knownProviders].sort((a, b) => {
-    const ia = PROVIDER_ORDER.indexOf(a.provider);
-    const ib = PROVIDER_ORDER.indexOf(b.provider);
-    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
-  });
-
   return (
     <span ref={wrapRef} className={styles.compactWrap}>
       <button
@@ -289,11 +155,11 @@ export function CombinedPlanUsageMeter({
         aria-expanded={open}
         aria-controls={panelId}
         aria-haspopup="dialog"
-        aria-label={t('planUsage.combinedTriggerLabel', { percent: formattedPercent })}
+        aria-label={label}
         onClick={() => setOpen((prev) => !prev)}
       >
-        <span className={styles.compactName}>{t('planUsage.combinedPrefix')}</span>
-        <span className={clsx(styles.compactValue, styles[`value_${level}`])}>{formattedPercent}</span>
+        <span className={styles.compactName}>{name}</span>
+        <span className={clsx(styles.compactValue, styles[`value_${level}`])}>{formatPercent(peak)}</span>
         <span className={clsx(styles.compactChevron, open && styles.compactChevronOpen)} aria-hidden="true">
           <Icon name="chevronDown" size={12} strokeWidth={2.2} />
         </span>
@@ -304,59 +170,112 @@ export function CombinedPlanUsageMeter({
           id={panelId}
           role="dialog"
           tabIndex={-1}
-          aria-label={t('planUsage.combinedTitle')}
-          className={styles.combinedPanel}
+          aria-label={title}
+          className={combined ? styles.combinedPanel : styles.dropdownPanel}
         >
           <div className={styles.dropdownHeader}>
-            <span className={styles.dropdownTitle}>{t('planUsage.combinedTitle')}</span>
+            <span className={styles.dropdownTitle}>{title}</span>
           </div>
-          <div className={styles.dropdownContent}>
-            {sortedProviders.map(({ provider, usage }) => {
-              const five = usage?.fiveHourPercent ?? null;
-              const week = usage?.weeklyPercent ?? null;
-              const paused =
-                pausesOnPlanUsage(provider) && ((five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove);
-              return (
-                <div key={provider} className={styles.combinedProviderSection}>
-                  <span className={styles.combinedProviderName}>{t(`providers.${provider}`)}</span>
-                  <div className={styles.dropdownSection}>
-                    <MiniMeter
-                      label={t('planUsage.fiveHour')}
-                      value={five}
-                      pauseAbove={pauseAbove}
-                      valueText={resetText(five, usage?.fiveHourResetsAt)}
-                    />
-                    {usage?.fiveHourResetsAt ? (
-                      <span className={styles.resetText}>
-                        {t('planUsage.resets', { time: formatStamp(usage.fiveHourResetsAt) })}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className={styles.dropdownSection}>
-                    <MiniMeter
-                      label={t('planUsage.weekly')}
-                      value={week}
-                      pauseAbove={pauseAbove}
-                      valueText={resetText(week, usage?.weeklyResetsAt)}
-                    />
-                    {usage?.weeklyResetsAt ? (
-                      <span className={styles.resetText}>
-                        {t('planUsage.resets', { time: formatStamp(usage.weeklyResetsAt) })}
-                      </span>
-                    ) : null}
-                  </div>
-                  {paused ? (
-                    <div className={styles.pausedNotice}>
-                      <Icon name="alertCircle" size={14} className={styles.pausedIcon} />
-                      <span>{t('planUsage.paused', { limit: pauseAbove })}</span>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
+          <div className={styles.dropdownContent}>{children}</div>
         </div>
       )}
     </span>
+  );
+}
+
+/** Subscription usage: compact desktop trigger or full member-profile meters. */
+export function PlanUsageMeter({
+  usage,
+  provider = 'claude',
+  pauseAbove = 80,
+  variant = 'full',
+}: {
+  usage: PlanUsage | null | undefined;
+  provider?: AgentProvider;
+  pauseAbove?: number;
+  variant?: 'full' | 'compact';
+}) {
+  const name = t(`providers.${provider}`);
+  const five = usage?.fiveHourPercent ?? null;
+  const week = usage?.weeklyPercent ?? null;
+  if (variant === 'compact') {
+    const known = [five, week].filter((value): value is number => value !== null);
+    if (known.length === 0) return null;
+    const peak = Math.max(...known);
+    return (
+      <UsageDropdown
+        name={name}
+        peak={peak}
+        pauseAbove={pauseAbove}
+        label={t('planUsage.compactLabel', { provider: name, percent: formatPercent(peak) })}
+        title={t('planUsage.dropdownTitle', { provider: name })}
+      >
+        <ProviderUsageDetails provider={provider} usage={usage} pauseAbove={pauseAbove} />
+      </UsageDropdown>
+    );
+  }
+
+  const tip = [
+    t('planUsage.title', {
+      provider: name,
+      fiveHour: valueWithReset(five, usage?.fiveHourResetsAt ?? null),
+      weekly: valueWithReset(week, usage?.weeklyResetsAt ?? null),
+    }),
+    isPaused(provider, usage, pauseAbove) ? t('planUsage.paused', { limit: pauseAbove }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <Tooltip label={name} content={tip} className={styles.provider}>
+      <span className={styles.name}>{name}</span>
+      <MiniMeter
+        label={t('planUsage.fiveHour')}
+        value={five}
+        pauseAbove={pauseAbove}
+        valueText={resetText(five, usage?.fiveHourResetsAt)}
+      />
+      <MiniMeter
+        label={t('planUsage.weekly')}
+        value={week}
+        pauseAbove={pauseAbove}
+        valueText={resetText(week, usage?.weeklyResetsAt)}
+      />
+    </Tooltip>
+  );
+}
+
+/** Narrow desktop (1181–1499 px): one peak trigger, with providers in their original order. */
+export function CombinedPlanUsageMeter({
+  usages,
+  pauseAbove = 80,
+}: {
+  usages: ReadonlyArray<{ provider: AgentProvider; usage: PlanUsage | null | undefined }>;
+  pauseAbove?: number;
+}) {
+  const knownProviders = usages.filter(
+    ({ usage }) => usage != null && (usage.fiveHourPercent != null || usage.weeklyPercent != null),
+  );
+  if (knownProviders.length === 0) return null;
+  const peak = Math.max(
+    ...knownProviders.flatMap(({ usage }) =>
+      [usage?.fiveHourPercent, usage?.weeklyPercent].filter((value): value is number => value != null),
+    ),
+  );
+  return (
+    <UsageDropdown
+      name={t('planUsage.combinedPrefix')}
+      peak={peak}
+      pauseAbove={pauseAbove}
+      label={t('planUsage.combinedTriggerLabel', { percent: formatPercent(peak) })}
+      title={t('planUsage.combinedTitle')}
+      combined
+    >
+      {knownProviders.map(({ provider, usage }) => (
+        <div key={provider} className={styles.combinedProviderSection}>
+          <span className={styles.combinedProviderName}>{t(`providers.${provider}`)}</span>
+          <ProviderUsageDetails provider={provider} usage={usage} pauseAbove={pauseAbove} />
+        </div>
+      ))}
+    </UsageDropdown>
   );
 }

@@ -74,54 +74,18 @@ describe('provider plan usage meter, full', () => {
   });
 });
 
-describe('provider plan usage meter, peak', () => {
+describe('NanoGPT full plan usage meter', () => {
   it('does not claim a threshold pause for measured NanoGPT weekly usage', () => {
     render(
       <PlanUsageMeter
         provider="nanogpt"
-        variant="peak"
         usage={{ ...usage, fiveHourPercent: null, weeklyPercent: 100 }}
         pauseAbove={80}
       />,
     );
-    expect(screen.getByRole('meter').getAttribute('aria-valuetext')).not.toContain(
+    expect(screen.getByRole('tooltip', { hidden: true }).textContent).not.toContain(
       t('planUsage.paused', { limit: 80 }),
     );
-  });
-  function peakText(five: number | null, week: number | null) {
-    const { unmount } = render(
-      <PlanUsageMeter
-        variant="peak"
-        usage={{ ...usage, fiveHourPercent: five, weeklyPercent: week }}
-        pauseAbove={80}
-      />,
-    );
-    const meter = screen.getByRole('meter');
-    const text = { shown: meter.parentElement!.textContent, valuetext: meter.getAttribute('aria-valuetext') };
-    expect(meter.getAttribute('aria-label')).toBe(t('providers.claude'));
-    unmount();
-    return text;
-  }
-
-  it('shows the higher of the two windows', () => {
-    expect(peakText(27, 60).shown).toBe('Claude60%');
-    expect(peakText(71, 60).shown).toBe('Claude71%');
-  });
-
-  it('shows the known window when the other is unknown, and n. a. when neither is known', () => {
-    expect(peakText(null, 33).shown).toBe('Claude33%');
-    expect(peakText(null, null).shown).toBe(`Claude${t('planUsage.unknown')}`);
-  });
-
-  it('reads both windows and the resets out through aria-valuetext', () => {
-    const text = peakText(27, 60).valuetext!;
-    expect(text.startsWith('60% · Claude-előfizetés: 5 órás keret 27% (visszaáll: ')).toBe(true);
-    expect(text).toContain('heti keret 60% (visszaáll: ');
-  });
-
-  it('takes its level from the peak', () => {
-    const { container } = render(<PlanUsageMeter variant="peak" usage={{ ...usage, fiveHourPercent: 90 }} />);
-    expect(container.querySelector('[role="meter"] > span')!.className).toMatch(/fill_high/);
   });
 });
 
@@ -214,6 +178,7 @@ describe('provider plan usage meter, compact', () => {
     expect(button).toBeTruthy();
     expect(button.textContent).toContain(t('providers.claude'));
     expect(button.textContent).toContain('60%');
+    expect(button.hasAttribute('title')).toBe(false);
   });
 
   it('omits the provider when usage is null or all windows are unknown', () => {
@@ -368,6 +333,35 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
     { provider: 'nanogpt' as const, usage: { ...usage, fiveHourPercent: null, weeklyPercent: 72 } },
   ];
 
+  it('preserves the supplied provider order', () => {
+    render(<CombinedPlanUsageMeter usages={[usages[2]!, usages[1]!, usages[0]!]} />);
+    fireEvent.click(screen.getByRole('button'));
+    const names = [...screen.getByRole('dialog').querySelectorAll('span')]
+      .map((element) => element.textContent)
+      .filter((text) => usages.some(({ provider }) => text === t(`providers.${provider}`)));
+    expect(names).toEqual([t('providers.nanogpt'), t('providers.codex'), t('providers.claude')]);
+  });
+
+  it('closes when the desktop meters become hidden and removes the media listener', () => {
+    const media = window.matchMedia('(max-width: 1180px)');
+    const add = vi.spyOn(media, 'addEventListener');
+    const remove = vi.spyOn(media, 'removeEventListener');
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockReturnValue(media);
+    try {
+      render(<CombinedPlanUsageMeter usages={usages} />);
+      fireEvent.click(screen.getByRole('button'));
+      const close = add.mock.calls[0]![1] as EventListener;
+      act(() => close(new Event('change')));
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('false');
+      expect(remove).toHaveBeenCalledWith('change', close);
+      fireEvent.click(screen.getByRole('button'));
+      expect(document.activeElement).toBe(screen.getByRole('dialog'));
+    } finally {
+      matchMedia.mockRestore();
+    }
+  });
+
   it('shows peak value across all providers and windows with accessible trigger label', () => {
     render(<CombinedPlanUsageMeter usages={usages} pauseAbove={80} />);
     const button = screen.getByRole('button');
@@ -450,7 +444,7 @@ describe('combined provider plan usage meter (1181–1499 px)', () => {
   it('closes on outside click', () => {
     render(
       <>
-        <div data-testid="outside">Kívül</div>
+        <div data-testid="outside">Outside</div>
         <CombinedPlanUsageMeter usages={usages} pauseAbove={80} />
       </>,
     );

@@ -342,7 +342,6 @@ export const hu = {
     compactLabel: '{provider}-keret: {percent}',
     dropdownTitle: '{provider}-keret',
     combinedPrefix: 'AI-keret',
-    combinedLabel: 'AI-keret {percent}',
     combinedTriggerLabel: 'AI-keretek: legmagasabb érték {percent}. Részletek megnyitása.',
     combinedTitle: 'AI-keretek',
   },

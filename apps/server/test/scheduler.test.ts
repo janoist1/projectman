@@ -211,7 +211,11 @@ describe('scheduler', () => {
     await h.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', stageId: 'done' });
     await settle();
     expect(h.runner.isRunning(dev.id)).toBe(true);
-    await h.domain.teamTools.sendMessage(ctx, { to: ['owner'], text: 'Five notes that do not block' });
+    await h.domain.teamTools.sendMessage(ctx, {
+      kind: 'action',
+      to: ['owner'],
+      text: 'Five notes that do not block',
+    });
     expect(h.repos.messages.list('AR').find((m) => m.body === 'Five notes that do not block')).toMatchObject({
       from: 'dev-1',
       to: ['owner'],

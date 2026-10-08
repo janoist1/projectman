@@ -184,7 +184,15 @@ export class FixLimitWatch {
 
   /** The messages that waited on a card whose hold ended reach their assignee. */
   releaseMessages(task: Task): void {
-    if (task.assignee) this.messaging.releaseWaiting(task.projectKey, task.key, task.assignee);
+    if (task.assignee)
+      void this.messaging
+        .releaseWaiting(task.projectKey, task.key, task.assignee)
+        .catch((err: unknown) =>
+          this.ctx.logger.warn(
+            { err, taskKey: task.key },
+            'could not release messages after the fix-limit hold',
+          ),
+        );
   }
 
   /**

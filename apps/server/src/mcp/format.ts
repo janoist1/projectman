@@ -211,7 +211,10 @@ export function formatTaskDetail(
   if (detail.attachments) lines.push('', ...attachmentLines(task.key, detail.attachments));
   // Who works on the card now and who else has a session on it (PM-249).
   const working = new Set(detail.workingSessionIds ?? []);
-  const sessionText = (s: (typeof sessions)[number]) => `${s.member} (${stateText(s.state)})`;
+  const sessionText = (s: (typeof sessions)[number]) => {
+    const permission = detail.cardWorkers?.find((worker) => worker.handle === s.member)?.waitingPermission;
+    return `${s.member} (${stateText(s.state)}${permission ? `, decides: ${permission.deciders.join(', ')}` : ''})`;
+  };
   const workers = (detail.workingSessionIds ?? []).flatMap((id) => sessions.filter((s) => s.id === id));
   const others = sessions.filter((s) => !working.has(s.id));
   if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
@@ -469,9 +472,16 @@ export function formatSentMessage(result: {
 }
 
 /** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
-function recipientLine({ handle, delivery, hold }: SentMessageRecipient, taskKey: string | null): string {
+function recipientLine(
+  { handle, delivery, hold, waitingPermission }: SentMessageRecipient,
+  taskKey: string | null,
+): string {
+  if (waitingPermission)
+    return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
   const card = taskKey ?? 'the card';
   switch (delivery) {
+    case 'next_input':
+      return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;
     case 'typed_now':

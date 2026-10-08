@@ -218,7 +218,7 @@ export class TranscriptParser {
     }
     if (tag && NOISE_TAGS.has(tag)) return;
 
-    out.items.push(this.turns.item(text, id, ts));
+    out.items.push(...this.turns.items(text, id, ts));
   }
 
   private assistantEntry(entry: Json, id: string, ts: string): ChatItem[] {

@@ -722,5 +722,12 @@ UPDATE tasks SET stage_entered_at = COALESCE(
     ORDER BY e.seq DESC LIMIT 1),
   created_at);`,
   },
+  {
+    version: 38,
+    name: 'team message kind and card version',
+    sql: `ALTER TABLE team_messages ADD COLUMN kind TEXT;
+ALTER TABLE team_messages ADD COLUMN version TEXT;
+ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

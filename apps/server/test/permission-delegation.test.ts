@@ -1,9 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import type { PermissionDecision, ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, planUsage } from './helpers/fakes';
 
 /**
  * "When it asks, an AI decides" on the host (PM-169): the question of a member whose approver is `ai`
@@ -80,6 +80,117 @@ describe('permission questions delegated to the AI decider (PM-169)', () => {
 
   describe('the decider', () => {
     beforeEach(() => start());
+
+    it('keeps two different permission subjects actionable and wakes their decider once', async () => {
+      h.runnerModule.planUsage.value = planUsage(95);
+      const first = new AbortController();
+      const second = new AbortController();
+      const pending = [
+        ask('curl https://example.com/one', first.signal),
+        ask('curl https://example.com/two', second.signal),
+      ];
+      await flush();
+      expect(openPermissions()).toHaveLength(2);
+      const messages = h.repos.messages.pending('AR', 'cr');
+      expect(messages).toHaveLength(2);
+      const config = await h.domain.projects.config('AR');
+      for (const message of messages) expect(h.domain.messages.wakes(config, message, 'cr')).toBe(true);
+      h.runnerModule.planUsage.value = planUsage(30);
+      await h.domain.admission.retryDeferred();
+      await flush();
+      expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(1);
+      expect(h.runner.lastStarted().initialMessage).toContain('2 messages waited for you.');
+      expect(h.runner.lastStarted().initialMessage).not.toContain('do not act');
+      await h.domain.admission.retryDeferred();
+      expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(1);
+      first.abort();
+      second.abort();
+      await Promise.all(pending);
+    });
+
+    it('holds AI messages with the current decider, then delivers one batch after permission and the turn end', async () => {
+      h.runner.setState(sessionId, 'waiting_permission');
+      const pending = ask('curl https://example.com/data.json');
+      await flush();
+      const item = onlyOpen();
+      const priorInputs = h.runner.messages.filter((m) => m.sessionId === sessionId).length;
+      for (const text of ['One', 'Two', 'Three']) {
+        const sent = await h.domain.messaging.sendReporting('AR', 'dev-2', {
+          to: ['dev-1'],
+          taskKey: 'AR-1',
+          text,
+        });
+        expect(sent.recipients).toMatchObject([
+          {
+            handle: 'dev-1',
+            delivery: 'after_turn',
+            waitingPermission: { inboxItemId: item.id, deciders: ['cr'], since: item.createdAt },
+          },
+        ]);
+      }
+      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs);
+      const detail = await h.domain.teamTools.getTask(tool('cr'), { taskKey: 'AR-1' });
+      expect(detail.cardWorkers?.find((w) => w.handle === 'dev-1')?.waitingPermission?.deciders).toEqual([
+        'cr',
+      ]);
+      // A human message still follows the existing immediate queue path.
+      await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], taskKey: 'AR-1', text: 'Owner note' });
+      await flush();
+      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs + 1);
+      await decide('cr', item, 'allow');
+      expect(await pending).toEqual({ behavior: 'allow' });
+      h.runner.setState(sessionId, 'working');
+      await flush();
+      expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs + 1);
+      h.runner.setState(sessionId, 'idle');
+      await vi.waitFor(() =>
+        expect(h.runner.messages.filter((m) => m.sessionId === sessionId)).toHaveLength(priorInputs + 2),
+      );
+      const delivered = h.runner.messages.filter((m) => m.sessionId === sessionId).slice(priorInputs);
+      expect(delivered).toHaveLength(2);
+      expect(delivered[1]!.text).toContain('3 messages waited for you');
+      for (const text of ['One', 'Two', 'Three']) expect(delivered[1]!.text).toContain(text);
+      expect(h.repos.messages.pending('AR', 'dev-1')).toHaveLength(0);
+    });
+
+    it('expires the inbox item and refuses a late decision without answering the CLI twice', async () => {
+      const controller = new AbortController();
+      let answers = 0;
+      const pending = ask('curl https://example.com/data.json', controller.signal).then((decision) => {
+        answers++;
+        return decision;
+      });
+      await flush();
+      const item = onlyOpen();
+      controller.abort();
+      expect((await pending).behavior).toBe('deny');
+      expect(h.domain.inbox.get('AR', item.id).state).toBe('expired');
+      await expect(
+        h.domain.inbox.resolveDelegated('AR', item.id, 'cr', { decision: 'allow', reason: 'Late answer' }),
+      ).rejects.toMatchObject({ code: 'inbox_item_closed', details: { id: item.id, state: 'expired' } });
+      await expect(decide('cr', item, 'allow')).rejects.toMatchObject({
+        message: expect.stringContaining('expired — nothing reached the session'),
+      });
+      expect(answers).toBe(1);
+    });
+
+    it('does not wake a deferred decider after its permission subject escalates', async () => {
+      h.runnerModule.planUsage.value = planUsage(95);
+      const controller = new AbortController();
+      const pending = ask('curl https://example.com/data.json', controller.signal);
+      await flush();
+      const item = onlyOpen();
+      now = new Date(now.getTime() + 121_000);
+      await h.domain.inbox.sweepDelegations();
+      const config = await h.domain.projects.config('AR');
+      const message = h.repos.messages
+        .list('AR', { member: 'cr' })
+        .find((m) => m.subject?.inboxItemId === item.id)!;
+      expect(h.domain.messages.wakes(config, message, 'cr')).toBe(false);
+      expect(h.domain.sessions.list('AR', { member: 'cr' })).toHaveLength(0);
+      controller.abort();
+      await pending;
+    });
 
     it('gets the question, with the exact input, instead of the owner, and is woken to answer it', async () => {
       const controller = new AbortController();

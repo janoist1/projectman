@@ -15,6 +15,8 @@ import { flush } from './helpers/fakes';
 
 const CODEX_ID = '019a0b1c-2d3e-7f40-8a5b-6c7d8e9f0a1b';
 const WAITING_HEADER = 'Messages that were waiting for you when this session started:';
+const batchHeader = (count: number) =>
+  `[team messages about AR-1]\nThe card now: stage Backlog (backlog), commit unknown, labels: none.\n${count} ${count === 1 ? 'message' : 'messages'} waited for you.\n\n`;
 const task = { type: 'task', taskKey: 'AR-1' } as const;
 const general = { type: 'general' } as const;
 
@@ -171,7 +173,7 @@ describe('the first input of a resumed session', () => {
       createdAt: `2026-09-30T10:00:0${n}.000Z`,
       deliveredAt: null,
     });
-    return `[team message from owner about AR-1]\n${body}`;
+    return `[team message from owner about AR-1]\naction · sent 2026-09-30 10:00 UTC version unknown\n${body}`;
   }
 
   it.each(PROVIDERS)(
@@ -187,7 +189,7 @@ describe('the first input of a resumed session', () => {
         sessionId: session.id,
         provider,
         resume: true,
-        initialMessage: `${first}\n\n${second}`,
+        initialMessage: `${batchHeader(2)}${first}\n\n${second}`,
       });
       // Nothing is typed behind them, and a later start does not bring them again.
       expect(h.runner.messages).toEqual([]);
@@ -213,7 +215,7 @@ describe('the first input of a resumed session', () => {
       expect(h.runner.lastStarted()).toMatchObject({
         provider,
         resume: false,
-        initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${one}\n\n${two}`,
+        initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${batchHeader(2)}${one}\n\n${two}`,
       });
       expect(h.runner.messages).toEqual([]);
       expect(h.repos.messages.pending('AR', member)).toEqual([]);
@@ -233,9 +235,11 @@ describe('the first input of a resumed session', () => {
     await h.domain.messageStarts.wake('AR', 'dev-1', task);
     await flush();
     expect(h.runner.lastStarted()).toMatchObject({
-      initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${a}\n\n${b}`,
+      initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${batchHeader(2)}${a}\n\n${b}`,
     });
-    expect(h.runner.messages.map((m) => m.text)).toEqual([c]);
+    expect(h.runner.messages.map((m) => m.text)).toEqual([
+      c.replace('action · sent 2026-09-30 10:00 UTC version unknown\n', ''),
+    ]);
     expect(h.repos.messages.pending('AR', 'dev-1')).toEqual([]);
   });
 
@@ -303,7 +307,7 @@ describe('the first input of a resumed session', () => {
         expect(h.runner.started).toHaveLength(2);
         expect(h.runner.lastStarted()).toMatchObject({
           resume: false,
-          initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${one}\n\n${two}`,
+          initialMessage: `Brief for AR-1: Login page\n\n${WAITING_HEADER}\n\n${batchHeader(2)}${one}\n\n${two}`,
         });
         expect(h.repos.messages.pending('AR', member)).toHaveLength(2);
 
@@ -353,7 +357,9 @@ describe('the first input of a resumed session', () => {
     await h.domain.messageStarts.wake('AR', 'dev-1', task);
     expect(h.runner.lastStarted()).toMatchObject({
       resume: true,
-      initialMessage: '[team message from owner about AR-1]\nPlease review.',
+      initialMessage: expect.stringMatching(
+        /^\[team messages about AR-1\][\s\S]*\[team message from owner about AR-1\]\naction · sent [^\n]+\nPlease review\.$/,
+      ),
     });
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
   });

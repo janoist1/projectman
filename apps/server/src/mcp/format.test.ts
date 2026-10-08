@@ -169,6 +169,48 @@ describe('formatTaskDetail', () => {
     expect(quiet).not.toMatch(/Working on it now|Other sessions|Questions to people/);
   });
 
+  it('preserves the worker line and its session-id source while adding permission deciders', () => {
+    const detail = sampleTaskDetail();
+    detail.sessions = [
+      { ...detail.sessions[0]!, id: 'ses_dev', member: 'fe-1', state: 'working' },
+      { ...detail.sessions[0]!, id: 'ses_review', member: 'qa', state: 'waiting_permission' },
+    ];
+    const permission = {
+      inboxItemId: 'inb_1',
+      deciders: ['owner', 'lead'],
+      since: '2026-10-05T21:30:00.000Z',
+    };
+    const out = formatTaskDetail({
+      ...detail,
+      workingSessionIds: ['ses_dev', 'ses_review'],
+      cardWorkers: [
+        {
+          handle: 'qa',
+          displayName: 'QA',
+          role: 'tester',
+          state: 'waiting_permission',
+          waitingPermission: permission,
+        },
+      ],
+    });
+    expect(out).toContain('Working on it now: fe-1 (working), qa (waiting permission, decides: owner, lead)');
+    const quiet = formatTaskDetail({
+      ...detail,
+      sessions: [],
+      workingSessionIds: [],
+      cardWorkers: [
+        {
+          handle: 'qa',
+          displayName: 'QA',
+          role: 'tester',
+          state: 'waiting_permission',
+          waitingPermission: permission,
+        },
+      ],
+    });
+    expect(quiet).not.toContain('Working on it now');
+  });
+
   it('lists the labels once, on the status line', () => {
     const detail = sampleTaskDetail();
     detail.task.labels = ['frontend', 'qa-ok'];
@@ -207,7 +249,7 @@ describe('formatTaskDetail', () => {
     expect(lines.filter((l) => l.includes('not delivered to you yet'))).toHaveLength(1);
     expect(lines.filter((l) => l.includes('Please work out the plan…'))).toHaveLength(2);
     expect(lines.at(-1)).toBe(
-      '- 2026-09-29 11:01 UTC · architect: message to fe-1: Please work out the plan… ' +
+      '- 2026-09-29 11:01 UTC · architect: message to fe-1 [action]: Please work out the plan… ' +
         '(not delivered to you yet: the full text is typed in when your current turn ends; do not ask for a resend)',
     );
     // A handler that does not say leaves the lines as they were.
@@ -232,7 +274,7 @@ describe('formatTaskDetail', () => {
       out
         .trimEnd()
         .endsWith(
-          'message to qa, cr: Please review… (not typed in yet for qa, cr; it is on its way, do not resend it)',
+          'message to qa, cr [action]: Please review… (not typed in yet for qa, cr; it is on its way, do not resend it)',
         ),
     ).toBe(true);
     expect(formatTaskDetail(detail)).not.toContain('not typed in yet');
@@ -428,6 +470,26 @@ describe('themes in the tool results (PM-192)', () => {
 });
 
 describe('formatSentMessage', () => {
+  it('explains info delivery and names the pending permission decider', () => {
+    const out = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['qa', 'cr'],
+      deliveredTo: ['qa', 'cr'],
+      taskKey: 'AR-1',
+      recipients: [
+        { handle: 'qa', delivery: 'next_input' },
+        {
+          handle: 'cr',
+          delivery: 'after_turn',
+          waitingPermission: { inboxItemId: 'inb_1', deciders: ['owner'], since: '2026-10-05T21:30:00.000Z' },
+        },
+      ],
+    });
+    expect(out).toContain('qa: they get it with their next input; it starts nothing');
+    expect(out).toContain('waiting for a permission decision since');
+    expect(out).toContain('decides: owner');
+    expect(out).toContain('in one input with the others');
+  });
   it('reports recipients the message did not reach', () => {
     expect(
       formatSentMessage({

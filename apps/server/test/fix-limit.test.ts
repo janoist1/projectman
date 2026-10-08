@@ -231,6 +231,19 @@ describe('fix round limit', () => {
       await round('Second fix');
     }
 
+    it('logs a rejected message release after continuing without an unhandled rejection', async () => {
+      await held();
+      const error = new Error('Message release failed');
+      vi.spyOn(h.domain.messaging, 'releaseWaiting').mockRejectedValueOnce(error);
+      await tool('lead', 'continue');
+      await vi.waitFor(() =>
+        expect(h.log.warnings).toContainEqual([
+          { err: error, taskKey: 'AR-1' },
+          'could not release messages after the fix-limit hold',
+        ]),
+      );
+    });
+
     it('continue gives one more round: the waiting notice reaches the assignee and the limit is raised', async () => {
       await held();
       await expect(tool('lead', 'continue', 'The plan is fine.')).resolves.toEqual({ phase: 'released' });

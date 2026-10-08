@@ -6,6 +6,7 @@ const ANSWER_TEXT_LIMIT = 240;
 
 /** What the lines need of a member working on a card (`CardWorker` of the context contract). */
 export interface CardWorkerText {
+  waitingPermission?: { deciders: string[] };
   handle: string;
   role: string;
   state: string;
@@ -37,7 +38,7 @@ export function cardWorkerLines(
 ): string[] {
   return workers.map(
     (w) =>
-      `- ${style.code(w.handle)} (${w.role}, ${stateText(w.state)})${w.doing ? `: ${oneLine(w.doing.summary, 200)}` : ''}`,
+      `- ${style.code(w.handle)} (${w.role}, ${stateText(w.state)}${w.waitingPermission ? `, decides: ${w.waitingPermission.deciders.join(', ')}` : ''})${w.doing ? `: ${oneLine(w.doing.summary, 200)}` : ''}`,
   );
 }
 

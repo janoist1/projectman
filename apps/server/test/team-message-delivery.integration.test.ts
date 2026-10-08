@@ -95,15 +95,18 @@ it(
     // The sender is another AI member; its session does not matter to the delivery.
     const sender = { sessionId: 'ses_sender', projectKey: 'AR', member: 'dev-1', taskKey: key };
     // The transcript parser turns the `[team message from …]` prefix into an incoming team message.
-    const arrived = `dev-1: ${LONG_BODY}`;
+    const arrived = (text: string) => text.startsWith('dev-1: action · sent ') && text.endsWith(LONG_BODY);
 
     // (a) An idle session gets it now, whole.
-    const toIdle = await domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: LONG_BODY });
+    const toIdle = await domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['dev-2'],
+      text: LONG_BODY,
+    });
     expect(toIdle.recipients).toEqual([{ handle: 'dev-2', delivery: 'typed_now' }]);
-    await vi.waitFor(
-      async () => expect(told(await chatOf()).filter((text) => text === arrived)).toHaveLength(1),
-      { timeout: 30_000 },
-    );
+    await vi.waitFor(async () => expect(told(await chatOf()).filter(arrived)).toHaveLength(1), {
+      timeout: 30_000,
+    });
     await idle();
 
     // (b) A session in a slow turn gets it when the turn ends, whole.
@@ -115,13 +118,18 @@ it(
     });
     expect(slow.statusCode).toBe(202);
     await waitFor(() => state() === 'working', { what: 'a turn in progress' });
-    const toBusy = await domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: LONG_BODY });
+    const toBusy = await domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['dev-2'],
+      text: LONG_BODY,
+    });
     expect(toBusy.recipients).toEqual([{ handle: 'dev-2', delivery: 'after_turn' }]);
-    await vi.waitFor(
-      async () => expect(told(await chatOf()).filter((text) => text === arrived)).toHaveLength(2),
-      { timeout: 30_000 },
-    );
+    await vi.waitFor(async () => expect(told(await chatOf()).filter(arrived)).toHaveLength(2), {
+      timeout: 30_000,
+    });
     await idle();
-    expect(told(await chatOf()).slice(-2)).toEqual(['SLOW first task', arrived]);
+    const last = told(await chatOf()).slice(-2);
+    expect(last[0]).toBe('SLOW first task');
+    expect(arrived(last[1]!)).toBe(true);
   },
 );

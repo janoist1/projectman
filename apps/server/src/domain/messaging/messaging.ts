@@ -36,8 +36,11 @@ import type { TaskService } from '../tasks';
 import { actorHandle, humanActor, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
+import { wakesFor } from './staleness';
 
 export interface SendOptions {
+  kind?: TeamMessage['kind'];
+  subject?: TeamMessage['subject'];
   /** Who sends it (default: the human `from`). */
   actor?: Actor;
   /** The AI session it was sent from (recorded in the timeline). */
@@ -147,7 +150,13 @@ export class Messaging {
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
     // The task's developer writing to a reviewer or tester hands over new work (a re-review, a
     // retest): their next round starts from the latest commit (PM-138, the owner's answer).
-    if (task && task.assignee === from && (!opts.workItem || opts.workItem.type === 'task')) {
+    if (
+      (opts.kind ?? 'action') === 'action' &&
+      task &&
+      isOpenTask(task) &&
+      task.assignee === from &&
+      (!opts.workItem || opts.workItem.type === 'task')
+    ) {
       for (const handle of recipients)
         if (!humans.includes(handle)) this.sessions.requestReviewRound(projectKey, task.key, handle);
       // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
@@ -192,12 +201,23 @@ export class Messaging {
       delivered: recipients.every((handle) => humans.includes(handle)),
       routes,
       answer: opts.answer,
+      kind: opts.kind ?? 'action',
+      subject: opts.subject,
+      version: task
+        ? {
+            stageId: task.stageId,
+            commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
+            reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
+          }
+        : undefined,
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
     for (const { handle, workItem: where, running, hold } of placed)
       decided.set(
         handle,
-        hold ? { delivery: 'held', hold } : this.deliverOrWake(projectKey, handle, where, running, message),
+        hold
+          ? { delivery: 'held', hold }
+          : this.deliverOrWake(config, projectKey, handle, where, running, message),
       );
     return {
       message,
@@ -493,12 +513,12 @@ export class Messaging {
    * The messages that wait for `handle` on a card (held back by its fix round limit or its full test) reach it: typed into
    * its running session, or one wake-up for all of them.
    */
-  releaseWaiting(projectKey: string, taskKey: string, handle: string): void {
+  async releaseWaiting(projectKey: string, taskKey: string, handle: string): Promise<void> {
+    const config = await this.projects.config(projectKey);
     const workItem = routeFor(taskKey);
     const waiting = this.messages.waiting(projectKey, handle, workItem);
     const running = this.sessions.findRunning(projectKey, handle, workItem);
-    for (const message of running ? waiting : waiting.slice(0, 1))
-      this.deliverOrWake(projectKey, handle, workItem, running, message);
+    for (const message of waiting) this.deliverOrWake(config, projectKey, handle, workItem, running, message);
   }
 
   /**
@@ -515,12 +535,12 @@ export class Messaging {
     const workItem = routeFor(taskKey);
     // One wake-up covers all of a member's messages, which the session it starts takes together.
     for (const member of config.team.members)
-      if (member.kind === 'ai') this.releaseWaiting(projectKey, taskKey, member.handle);
+      if (member.kind === 'ai') await this.releaseWaiting(projectKey, taskKey, member.handle);
   }
 
   /**
    * Whether the session's card holds its member's messages back (PM-219): a refinement turn that is not
-   * theirs, or the fix round limit. A session that starts again for a resumed pause must not take them in.
+   * theirs, the fix round limit, or the full test. A resumed session must respect these holds too.
    */
   async holdsMessagesOf(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<boolean> {
     if (session.workItem.type !== 'task') return false;
@@ -529,7 +549,8 @@ export class Messaging {
     const config = await this.projects.config(session.projectKey);
     return (
       this.heldForTurn(config, task, session.member, {}) ||
-      this.heldForFixLimit(config, task, 'system', session.member)
+      this.heldForFixLimit(config, task, 'system', session.member) ||
+      this.heldForFullTest(config, task, 'system', session.member)
     );
   }
 
@@ -539,7 +560,10 @@ export class Messaging {
    */
   async wakeWaiting(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<void> {
     if (await this.holdsMessagesOf(session)) return;
-    const [first] = this.messages.waiting(session.projectKey, session.member, session.workItem);
+    const config = await this.projects.config(session.projectKey);
+    const first = this.messages
+      .waiting(session.projectKey, session.member, session.workItem)
+      .find((message) => wakesFor(this.ctx, config, message, session.member));
     if (!first) return;
     void this.ctx.events.emit('message_waiting', {
       projectKey: session.projectKey,
@@ -551,12 +575,20 @@ export class Messaging {
 
   /** A running recipient gets the message typed in; otherwise it waits for a wake-up. Returns what was decided. */
   private deliverOrWake(
+    config: ProjectConfig,
     projectKey: string,
     handle: string,
     workItem: WorkItemRef,
     running: Session | null,
     message: TeamMessage,
   ): Omit<SentMessageRecipient, 'handle'> {
+    const wakes = wakesFor(this.ctx, config, message, handle);
+    if (!running && !wakes) return { delivery: 'next_input' };
+    if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
+      return {
+        delivery: 'after_turn',
+        waitingPermission: this.sessions.waitingPermissionFor(config, running),
+      };
     // A reviewer still in a turn of a round that is over gets it after its restart on the new commit,
     // and so does a session that waits for its restart into a new permission mode (PM-170).
     if (running && (this.sessions.reviewRoundDue(running) || this.sessions.permissionRestartDue(running)))
@@ -571,10 +603,12 @@ export class Messaging {
         this.sessions.assertProviderCooldown(running.provider ?? DEFAULT_AGENT_PROVIDER);
       } catch (err) {
         if (!(err instanceof DomainError) || err.code !== 'provider_rate_limited') throw err;
+        if (!wakes) return { delivery: 'next_input' };
         void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
         return { delivery: 'wake' };
       }
-      this.delivery.deliver(running, message);
+      if (memberOf(config, message.from)?.kind === 'human') this.delivery.deliver(running, message);
+      else this.delivery.deliverWaiting(running);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }
     void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });

@@ -2,6 +2,7 @@ import type { TaskLink, TimelineEvent, TimelineEventType } from '@projectman/sha
 import { describe, expect, it } from 'vitest';
 import {
   describeAttachment,
+  cardWorkerLines,
   describeEvent,
   describeLink,
   eventFullText,
@@ -43,6 +44,18 @@ function event(
 }
 
 describe('free text', () => {
+  it('names permission deciders in the brief worker line', () => {
+    expect(
+      cardWorkerLines([
+        {
+          handle: 'codex',
+          role: 'developer',
+          state: 'waiting_permission',
+          waitingPermission: { deciders: ['owner', 'lead'] },
+        },
+      ]),
+    ).toEqual(['- codex (developer, waiting permission, decides: owner, lead)']);
+  });
   it('leaves short text alone and marks cut text', () => {
     expect(truncate('abc', 3)).toBe('abc');
     expect(truncate('abcd', 3)).toBe('ab…');
@@ -239,7 +252,7 @@ describe('describeEvent', () => {
     expect(text).toHaveLength('note: '.length + 50);
     expect(
       describeEvent(event('team_message', { to: ['fe-1', 'owner'], excerpt: 'Ready' }), 100, named),
-    ).toBe('message to `fe-1`, `owner`: Ready');
+    ).toBe('message to `fe-1`, `owner` [action]: Ready');
   });
 
   it('shows the data of event types without their own wording', () => {

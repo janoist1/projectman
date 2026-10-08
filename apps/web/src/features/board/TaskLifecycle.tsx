@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import type { Task } from '@projectman/shared';
-import { isApiError } from '../../api/client';
-import { useCancelTask, useReopenTask, useStopSession, useUpdateTask } from '../../api/queries';
+import { DEFAULT_AGENT_PROVIDER } from '@projectman/shared';
+import type { HandoffStart, Session, Task } from '@projectman/shared';
+import { useCancelTask, useReopenTask, useUpdateTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
@@ -12,23 +12,12 @@ import { MoreMenu } from '../../components/MoreMenu';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import { errorMessage } from '../../lib/errors';
+import { fallbackReasonText, otherProviderSuffix } from '../../lib/handoff';
 import type { MemberIndex } from '../../lib/members';
 import { nameOf } from '../../lib/members';
 import { isTaskClosed } from '../../lib/taskState';
 import drawer from './drawer.module.css';
 import styles from './TaskLifecycle.module.css';
-
-function liveSessionId(error: unknown): string | null {
-  if (
-    !isApiError(error) ||
-    error.code !== 'task_session_live' ||
-    !error.details ||
-    typeof error.details !== 'object'
-  )
-    return null;
-  const id = (error.details as { sessionId?: unknown }).sessionId;
-  return typeof id === 'string' ? id : null;
-}
 
 /**
  * The "⋯" menu of the rare task actions: cancelling the task (after a confirmation with an
@@ -131,22 +120,49 @@ export function TaskLifecycleMenu({ task }: { task: Task }) {
 }
 
 /**
- * The assignee as a select that saves the moment it changes. A task with a live session refuses
- * the change; the refusal offers stopping that session, which then saves the pick.
+ * The toast of a saved assignee: when the change set off a handoff (PM-342) it says whether the old
+ * assignee now hands the work over or the new one starts without it, and why.
  */
-export function TaskAssigneeSelect({ task, members }: { task: Task; members: MemberIndex }) {
+export function assigneeSavedText(
+  start: HandoffStart | undefined,
+  members: MemberIndex,
+  myHandle: string | null,
+): string {
+  if (start?.mode === 'live') return t('handoff.toast.live', { from: nameOf(start.from, members, myHandle) });
+  if (start?.mode === 'fallback')
+    return t('handoff.toast.fallback', {
+      reason: fallbackReasonText(start.reason, start.from, members, myHandle),
+    });
+  return t('taskLifecycle.assigned');
+}
+
+/**
+ * The assignee as a select that saves the moment it changes. A live session of the old assignee is
+ * no obstacle: the server asks it for a handoff note (PM-342). While the old assignee has a
+ * conversation on the card, the members of another provider cannot continue it, and say so.
+ */
+export function TaskAssigneeSelect({
+  task,
+  members,
+  sessions = [],
+}: {
+  task: Task;
+  members: MemberIndex;
+  sessions?: readonly Session[];
+}) {
   const { key, myHandle } = useProject();
   const update = useUpdateTask(key);
-  const stop = useStopSession(key);
   const toast = useToast();
-  const sessionId = liveSessionId(update.error);
-  // The select shows the pick while it is saved, or held back by a live session; otherwise the task's.
-  const showsPick = update.isPending || Boolean(sessionId);
-  const assignee = showsPick ? (update.variables?.body.assignee ?? '') : (task.assignee ?? '');
+  // The select shows the pick while it is saved; otherwise the task's.
+  const assignee = update.isPending ? (update.variables?.body.assignee ?? '') : (task.assignee ?? '');
+  const current = task.assignee ? members.get(task.assignee) : undefined;
+  const hasConversation =
+    current?.kind === 'ai' && sessions.some((session) => session.member === task.assignee);
+  const currentProvider = current?.provider ?? DEFAULT_AGENT_PROVIDER;
   const save = (next: string) =>
     update.mutate(
       { taskKey: task.key, body: { assignee: next || null } },
-      { onSuccess: () => toast.show(t('taskLifecycle.assigned')) },
+      { onSuccess: (saved) => toast.show(assigneeSavedText(saved.handoffStart, members, myHandle)) },
     );
   return (
     <>
@@ -154,7 +170,7 @@ export function TaskAssigneeSelect({ task, members }: { task: Task; members: Mem
         className={styles.select}
         aria-label={t('taskLifecycle.assignee')}
         value={assignee}
-        disabled={update.isPending || stop.isPending}
+        disabled={update.isPending}
         onChange={(event) => save(event.target.value)}
       >
         <option value="">{t('taskLifecycle.nobody')}</option>
@@ -168,34 +184,20 @@ export function TaskAssigneeSelect({ task, members }: { task: Task; members: Mem
             >
               {nameOf(member.handle, members, myHandle)}
               {leaveSuffix(member)}
+              {hasConversation &&
+              member.kind === 'ai' &&
+              member.handle !== task.assignee &&
+              (member.provider ?? DEFAULT_AGENT_PROVIDER) !== currentProvider
+                ? otherProviderSuffix()
+                : ''}
             </option>
           ))}
       </select>
-      {update.isError || stop.isError ? (
+      {update.isError ? (
         <div className={drawer.propWide}>
           <p role="alert" className={drawer.error}>
-            {errorMessage(stop.isError ? stop.error : update.error)}
+            {errorMessage(update.error)}
           </p>
-          {sessionId ? (
-            <Button
-              variant="danger"
-              size="sm"
-              loading={stop.isPending}
-              onClick={() =>
-                stop.mutate(
-                  { sessionId, purpose: 'assignee_change' },
-                  {
-                    onSuccess: () => {
-                      toast.show(t('taskLifecycle.stopped'));
-                      save(assignee);
-                    },
-                  },
-                )
-              }
-            >
-              {t('taskLifecycle.stop')}
-            </Button>
-          ) : null}
         </div>
       ) : null}
     </>

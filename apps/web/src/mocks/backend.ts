@@ -35,6 +35,8 @@ import {
   CreateTaskRequest,
   CustomRoleRequest,
   DEFAULT_AGENT_PROVIDER,
+  HANDOFF_TIMEOUT_MS,
+  planHandoff,
   hasPlanUsage,
   pausesOnPlanUsage,
   HireMemberRequest,
@@ -160,6 +162,11 @@ import {
   measureClosedCard,
 } from '@projectman/shared';
 import type {
+  HandoffFallbackReason,
+  HandoffStart,
+  HandoffStep,
+  TaskHandoff,
+  TaskHandoffRecord,
   MachineView,
   Actor,
   FixRounds,
@@ -391,6 +398,10 @@ export class MockBackend {
   nanogptKeyStatus = { set: false, setAt: null as string | null };
   providerPlanUsage: Partial<Record<AgentProvider, PlanUsage>> = {};
   sessions: Session[] = clone(fixtures.sessions);
+  /** The closed handoffs (PM-342) by id, served by the record endpoint; a test may add its own. */
+  handoffRecords = new Map<string, TaskHandoffRecord & { taskKey: string }>();
+  /** Whether the old assignee's conversation has a transcript to summarize (PM-342); a test may clear it. */
+  handoffTranscript = true;
   chats: Record<string, ChatItem[]> = clone(fixtures.chats);
   /** The developer's starts that wait for labels an AI member sets (PM-236), by task key. */
   private readonly labelWaits = new Map<string, { input: StartTaskRequest; workStageId: string }>();
@@ -1608,6 +1619,12 @@ export class MockBackend {
       }
       return ok(this.taskDetail(task));
     }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/handoffs\/([^/]+)$/.exec(rest)) && method === 'GET') {
+      const record = this.handoffRecords.get(m[2]!);
+      if (!record || record.taskKey !== m[1]) return error(404, 'not_found', 'Unknown handoff');
+      const { taskKey: _taskKey, ...view } = record;
+      return ok(clone(view));
+    }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/comments$/.exec(rest)) && method === 'POST') {
       if (viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
         return error(403, 'insufficient_access', 'Developer access required');
@@ -2738,6 +2755,7 @@ export class MockBackend {
       priority: task.priority,
     };
     const labelsChanged = labels.added.length > 0 || labels.removed.length > 0;
+    let handoffStart: HandoffStart | undefined;
     if (
       fields.length ||
       patch.assignee !== undefined ||
@@ -2761,6 +2779,8 @@ export class MockBackend {
           assignee: task.assignee,
           previous: previous.assignee,
         });
+      if (patch.assignee !== undefined)
+        handoffStart = this.handOver(task, previous.assignee, patch.assignee, actor.handle);
       if (patch.parentKey !== undefined)
         this.recordParentChange(task.key, previous.parentKey, task.parentKey ?? null);
       if (patch.themeKey !== undefined) this.recordThemeChange(task.key, ownTheme, themeAfter);
@@ -2768,7 +2788,202 @@ export class MockBackend {
     }
     if (relationPlan) this.applyRelationPlan(relationPlan.steps, task, actor);
     this.syncSubtaskThemes();
-    return moving ? this.move(task, input.stageId!, actor) : ok(clone(task));
+    return moving
+      ? this.move(task, input.stageId!, actor)
+      : ok({ ...clone(task), ...(handoffStart ? { handoffStart } : {}) });
+  }
+
+  /**
+   * What a change of the assignee starts (PM-342), by the shared `planHandoff` rule the server uses: the
+   * old session is asked for a note (`live`, the card carries `handoff`), or the transcript summary stands
+   * in at once (`fallback`, the card carries `lastHandoff`). Giving the card back to the old assignee
+   * cancels the open handoff, a third member takes it over as the receiver.
+   */
+  private handOver(
+    task: Task,
+    previous: string | null,
+    next: string | null,
+    by: string | null,
+  ): HandoffStart | undefined {
+    const open = task.handoff;
+    if (open) {
+      if (next === open.from) {
+        this.updateTask(task.key, { handoff: undefined });
+        this.addTimeline(task.key, by, 'task_handoff', this.handoffEventData('cancelled', open));
+        return undefined;
+      }
+      const toProvider = next ? this.providerOf(next) : null;
+      this.updateTask(task.key, { handoff: { ...open, to: next, toProvider } });
+      this.addTimeline(
+        task.key,
+        by,
+        'task_handoff',
+        this.handoffEventData('retargeted', { ...open, to: next, toProvider }),
+      );
+      return undefined;
+    }
+    if (!previous) return undefined;
+    const from = memberOf(this.config, previous);
+    const conversation = this.taskSessions(task.key)
+      .filter((session) => session.member === previous)
+      .at(-1);
+    const plan = planHandoff({
+      from: from
+        ? {
+            kind: from.kind,
+            provider: this.providerOf(previous),
+            onLeave: isHandleOnLeave(this.config, previous),
+          }
+        : null,
+      conversation: conversation
+        ? { provider: conversation.provider ?? this.providerOf(previous), transcript: this.handoffTranscript }
+        : null,
+    });
+    if (!plan) return undefined;
+    const fromProvider = this.providerOf(previous);
+    const base: TaskHandoff = {
+      id: mockId('hnd'),
+      from: previous,
+      to: next,
+      fromProvider,
+      toProvider: next ? this.providerOf(next) : null,
+      reason: 'manual',
+      step: plan.mode === 'live' ? 'waiting_point' : 'closing',
+      startedAt: nowIso(),
+      deadlineAt: plan.mode === 'live' ? new Date(Date.now() + HANDOFF_TIMEOUT_MS).toISOString() : null,
+    };
+    this.addTimeline(task.key, by, 'task_handoff', {
+      ...this.handoffEventData('started', base),
+      mode: plan.mode,
+      reason: base.reason,
+    });
+    if (plan.mode === 'live') {
+      this.updateTask(task.key, { handoff: base });
+      return { mode: 'live', from: previous };
+    }
+    this.closeHandoff(task, base, { fallbackReason: plan.reason, summary: 'Where the work stood.' }, false);
+    return { mode: 'fallback', from: previous, reason: plan.reason };
+  }
+
+  private handoffEventData(phase: TimelineEventData['task_handoff']['phase'], handoff: TaskHandoff) {
+    return {
+      phase,
+      handoffId: handoff.id,
+      from: handoff.from,
+      to: handoff.to,
+      fromProvider: handoff.fromProvider,
+      toProvider: handoff.toProvider,
+    };
+  }
+
+  private lastHandoffOf(record: TaskHandoffRecord): NonNullable<Task['lastHandoff']> {
+    return {
+      id: record.id,
+      from: record.from,
+      to: record.to,
+      fromProvider: record.fromProvider,
+      toProvider: record.toProvider,
+      outcome: record.outcome,
+      ...(record.fallbackReason ? { fallbackReason: record.fallbackReason } : {}),
+      endedAt: record.endedAt,
+    };
+  }
+
+  /** Records the note, or the summary standing in, in the handoff record and the timeline. */
+  private closeHandoff(
+    task: Task,
+    handoff: TaskHandoff,
+    outcome: { note: string } | { fallbackReason: HandoffFallbackReason; summary?: string | null },
+    closing: boolean,
+  ): void {
+    const endedAt = nowIso();
+    const note = 'note' in outcome ? outcome.note : null;
+    const fallbackReason = 'fallbackReason' in outcome ? outcome.fallbackReason : undefined;
+    const summaryText = 'fallbackReason' in outcome ? (outcome.summary ?? null) : null;
+    const record: TaskHandoffRecord = {
+      id: handoff.id,
+      from: handoff.from,
+      to: handoff.to,
+      fromProvider: handoff.fromProvider,
+      toProvider: handoff.toProvider,
+      outcome: note !== null ? 'note' : 'fallback',
+      ...(fallbackReason ? { fallbackReason } : {}),
+      endedAt,
+      reason: handoff.reason,
+      startedAt: handoff.startedAt,
+      note,
+      branch: note !== null ? `${task.key}-work` : null,
+      lastCommit: note !== null ? 'a1b2c3d' : null,
+      uncommitted: note !== null ? false : null,
+      summary:
+        note === null && this.handoffTranscript && summaryText !== null
+          ? { source: 'compact', text: summaryText, at: endedAt }
+          : null,
+    };
+    this.handoffRecords.set(record.id, { ...record, taskKey: task.key });
+    // Closing: the old session still closes, so the box stays; otherwise the card has its last handoff at once.
+    if (closing)
+      this.updateTask(task.key, {
+        handoff: {
+          ...handoff,
+          step: 'closing',
+          deadlineAt: null,
+          ...(fallbackReason ? { fallbackReason } : {}),
+        },
+      });
+    else this.updateTask(task.key, { handoff: undefined, lastHandoff: this.lastHandoffOf(record) });
+    if (note !== null)
+      this.addTimeline(task.key, handoff.from, 'task_handoff', {
+        ...this.handoffEventData('note', handoff),
+        note,
+        lastCommit: record.lastCommit,
+        uncommitted: record.uncommitted,
+      });
+    else
+      this.addTimeline(task.key, null, 'task_handoff', {
+        ...this.handoffEventData('fallback', handoff),
+        fallbackReason,
+        summary: record.summary !== null,
+      });
+  }
+
+  /**
+   * Test switch (PM-342): moves the open handoff of a card on. `writing` the old session was told to
+   * write its note, `closing` the note is recorded (with `note`) or the summary stands in (`fallback`),
+   * `paused` the team is paused, `done` the receiver took the card over. Returns the card.
+   */
+  advanceHandoff(
+    taskKey: string,
+    step: HandoffStep | 'done',
+    options: { note?: string; fallbackReason?: HandoffFallbackReason; summary?: string | null } = {},
+  ): Task | undefined {
+    const task = this.findTask(taskKey);
+    const open = task?.handoff;
+    if (!task || !open) return task;
+    if (step === 'done') {
+      this.addTimeline(task.key, open.to, 'task_handoff', this.handoffEventData('taken_over', open));
+      const record = this.handoffRecords.get(open.id);
+      this.updateTask(task.key, {
+        handoff: undefined,
+        ...(record ? { lastHandoff: this.lastHandoffOf(record) } : {}),
+      });
+      return task;
+    }
+    if (step === 'closing') {
+      if (options.note !== undefined) this.closeHandoff(task, open, { note: options.note }, true);
+      else
+        this.closeHandoff(
+          task,
+          open,
+          { fallbackReason: options.fallbackReason ?? 'timeout', summary: options.summary },
+          true,
+        );
+      return task;
+    }
+    this.updateTask(task.key, {
+      handoff: { ...open, step, deadlineAt: step === 'paused' ? null : open.deadlineAt },
+    });
+    return task;
   }
 
   /** Adds a comment; the members it mentions get it as a team message (imported ones do not). */

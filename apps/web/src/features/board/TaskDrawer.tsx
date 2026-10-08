@@ -398,6 +398,7 @@ export function TaskDrawer() {
           members={members}
           myHandle={myHandle}
           messagesHref={threadHref}
+          sessions={sessions}
           decidingLoop={myItems.some((item) => loopDecisionOf(item))}
           decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
         />
@@ -489,7 +490,14 @@ export function TaskDrawer() {
             </section>
           </>
         ) : (
-          <TaskProperties task={task} tasks={cards} phases={phases} members={members} pipeline={pipeline} />
+          <TaskProperties
+            task={task}
+            tasks={cards}
+            phases={phases}
+            members={members}
+            pipeline={pipeline}
+            sessions={sessions}
+          />
         )}
       </div>
     );

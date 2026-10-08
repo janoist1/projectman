@@ -105,7 +105,8 @@ function needsYouLabel(item: InboxItem): string {
 }
 
 /** In what capacity a member works on a card; the verb of "X átnézi" / "X dolgozik rajta". */
-export type WorkerVerb = 'working' | 'reviewing' | 'testing' | 'designing' | 'planning' | 'analysing';
+export type WorkerVerb =
+  'working' | 'reviewing' | 'testing' | 'designing' | 'planning' | 'analysing' | 'handingOff';
 
 /** A member's role says the capacity first; the others fall through to the stage rule. */
 const ROLE_VERBS: Readonly<Record<string, WorkerVerb>> = {
@@ -137,6 +138,8 @@ export interface TaskWorker {
  * a card of the senior developer reads "átnézi", while the developer reads "dolgozik rajta".
  */
 function workerVerb(member: MemberView, task: Task, pipeline: PipelineIndex): WorkerVerb {
+  // The old assignee of an open handoff is not working on the card any more, they hand it over (PM-342).
+  if (task.handoff?.from === member.handle) return 'handingOff';
   for (const role of [member.role, ...member.roles]) {
     const verb = ROLE_VERBS[role];
     if (verb) return verb;
@@ -175,7 +178,7 @@ function findWorkers(
           name: member.displayName,
         })
       : t(`taskStatus.worker.${verb}`, { name: member.displayName });
-    const doing = paused ? null : (work.doing ?? null);
+    const doing = paused || verb === 'handingOff' ? null : (work.doing ?? null);
     return {
       member,
       verb,
@@ -405,6 +408,19 @@ function deriveOpenState(
 
   if (task.startWaiting?.reason === 'prerequisite_open') {
     return standingOnPrerequisite(wait, task.startWaiting.since);
+  }
+  // The old assignee still hands the card over (PM-342): that, and not the receiver's wait, is the news.
+  if (task.handoff) {
+    const handing = findWorkers(task, ctx).filter((worker) => worker.verb === 'handingOff');
+    if (handing[0]) {
+      return {
+        phase: 'working',
+        label: workersLabel(handing),
+        since: handing[0].since,
+        worker: handing[0].member,
+        workers: handing,
+      };
+    }
   }
   if (task.startWaiting) {
     return {

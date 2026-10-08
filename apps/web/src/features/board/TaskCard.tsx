@@ -1,4 +1,4 @@
-import type { LabelView } from '@projectman/shared';
+import type { LabelView, TaskHandoff } from '@projectman/shared';
 import clsx from 'clsx';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -8,9 +8,11 @@ import { StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { PriorityMark } from '../../components/PriorityMark';
 import { StageProgress } from '../../components/StageProgress';
-import { formatAge } from '../../i18n/format';
+import { formatAge, formatDuration } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { seniorMarkLabel, showsSeniorMark } from '../../lib/developerLevel';
+import { handoffMsLeft, handoffPair } from '../../lib/handoff';
+import { useNow } from '../../lib/useNow';
 import { loopSummary } from '../../lib/loop';
 import { nameOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -47,6 +49,46 @@ interface TaskCardProps {
 }
 
 const noMembers: MemberIndex = new Map();
+
+/**
+ * "⇄ Átadás · 7 p": the card is being handed over (PM-342), in text and not only in colour. The
+ * minutes are renewed once a minute; the label names both ends.
+ */
+function HandoffMark({
+  handoff,
+  members,
+  myHandle,
+}: {
+  handoff: TaskHandoff;
+  members: MemberIndex;
+  myHandle: string | null;
+}) {
+  const now = useNow(true, 60_000);
+  const paused = handoff.step === 'paused';
+  const left = handoffMsLeft(handoff, now);
+  const time = left !== null && left > 0 ? formatDuration(left) : null;
+  const pair = handoffPair(handoff, members, myHandle);
+  const text = paused
+    ? t('handoff.markPaused')
+    : time
+      ? t('handoff.mark', { time })
+      : t('handoff.markNoTime');
+  const label = paused
+    ? t('handoff.markLabelPaused', { pair })
+    : time
+      ? t('handoff.markLabel', { pair, time })
+      : t('handoff.markLabelNoTime', { pair });
+  return (
+    <span
+      className={clsx(styles.label, styles.handoff, paused && styles.handoffPaused)}
+      title={label}
+      aria-label={label}
+    >
+      <Icon name={paused ? 'pause' : 'handoff'} size={12} strokeWidth={2.4} />
+      <span>{text}</span>
+    </span>
+  );
+}
 
 /**
  * The card's first image: a low strip over the whole card (a small thumbnail on the phone). The place
@@ -144,8 +186,9 @@ export function TaskCard({
       <span className={styles.titleRow}>
         <span className={styles.title}>{task.title}</span>
       </span>
-      {task.parentKey || subtasks.length || prerequisite || task.loop || seniorMark ? (
+      {task.parentKey || subtasks.length || prerequisite || task.loop || task.handoff || seniorMark ? (
         <span className={styles.meta}>
+          {task.handoff ? <HandoffMark handoff={task.handoff} members={members} myHandle={myHandle} /> : null}
           {seniorMark ? (
             <span
               className={clsx(styles.label, styles.senior)}

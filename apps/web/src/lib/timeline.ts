@@ -9,6 +9,7 @@ import {
 import type { LabelView, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
+import { fallbackReasonText, handoffEndName, noteExcerpt, providerName } from './handoff';
 import { labelName } from './labels';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
@@ -486,26 +487,89 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     case 'task_handoff': {
-      const who = (handle: unknown) => (handle ? nameOf(str(handle), ctx.members, ctx.myHandle) : '–');
-      const params = { from: who(d.from), to: who(d.to), note: str(d.note) };
-      return normal(
-        tDynamic(
-          `timeline.events.task_handoff.${str(d.phase)}`,
-          t('timeline.events.task_handoff.started', params),
-          params,
-        ),
-      );
+      const params = {
+        from: nameOf(str(d.from), ctx.members, ctx.myHandle),
+        to: handoffEndName(d.to ? str(d.to) : null, ctx.members, ctx.myHandle),
+      };
+      const nobody = !d.to;
+      switch (str(d.phase)) {
+        case 'retargeted':
+          return normal(t('timeline.events.task_handoff.retargeted', params));
+        case 'note': {
+          const note = str(d.note);
+          const text = t(
+            nobody ? 'timeline.events.task_handoff.noteNobody' : 'timeline.events.task_handoff.note',
+            { ...params, note: noteExcerpt(note) },
+          );
+          return note.trim() ? { text, emphasis: 'normal', detail: note } : normal(text);
+        }
+        case 'fallback': {
+          const reason = fallbackReasonText(str(d.fallbackReason), str(d.from), ctx.members, ctx.myHandle);
+          if (nobody) return normal(t('timeline.events.task_handoff.fallbackNobody', { reason }));
+          return normal(
+            t(
+              d.summary === false
+                ? 'timeline.events.task_handoff.fallbackNoSummary'
+                : 'timeline.events.task_handoff.fallback',
+              { ...params, reason },
+            ),
+          );
+        }
+        case 'taken_over':
+          return normal(t('timeline.events.task_handoff.taken_over', params));
+        case 'cancelled':
+          return normal(t('timeline.events.task_handoff.cancelled', params));
+        default: {
+          const reason = str(d.reason);
+          const known = reason && reason !== 'manual' ? `handoff.reason.${reason}` : null;
+          const why = known ? tDynamic(known, '') : '';
+          return normal(
+            why
+              ? t('timeline.events.task_handoff.startedWith', { ...params, reason: why })
+              : t('timeline.events.task_handoff.started', params),
+          );
+        }
+      }
     }
     case 'session_started':
       return normal(involvementText(describeStart(event, ctx)));
-    case 'session_conversation_restarted':
+    case 'session_conversation_restarted': {
+      const member = nameOf(str(d.member), ctx.members, ctx.myHandle);
+      const reason = str(d.reason);
+      if (reason === 'provider_changed' && d.fromProvider && d.toProvider) {
+        return normal(
+          t(
+            d.summary === false
+              ? 'timeline.events.session_conversation_restarted.providerShiftNoSummary'
+              : 'timeline.events.session_conversation_restarted.providerShift',
+            {
+              fromProvider: providerName(str(d.fromProvider)),
+              toProvider: providerName(str(d.toProvider)),
+              member,
+            },
+          ),
+        );
+      }
+      if (reason === 'lost') {
+        return normal(
+          t(
+            d.lastHandoffId
+              ? 'timeline.events.session_conversation_restarted.lostNote'
+              : 'timeline.events.session_conversation_restarted.lost',
+            { member },
+          ),
+        );
+      }
       return normal(
         tDynamic(
-          `timeline.events.session_conversation_restarted.${str(d.reason)}`,
+          `timeline.events.session_conversation_restarted.${reason}`,
           t('timeline.events.session_started'),
-          { member: nameOf(str(d.member), ctx.members, ctx.myHandle) },
+          {
+            member,
+          },
         ),
       );
+    }
     case 'session_ended': {
       if (d.stop) return normal(involvementText(describeStop(event, ctx)));
       const closure = eventClosure(d);

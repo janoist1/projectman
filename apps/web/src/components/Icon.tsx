@@ -366,6 +366,15 @@ const icons = {
       <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
     </>
   ),
+  /** Two arrows against each other: a card handed from one member to another (PM-342). */
+  handoff: (
+    <>
+      <path d="M4 8h15" />
+      <path d="m15 4 4 4-4 4" />
+      <path d="M20 16H5" />
+      <path d="m9 12-4 4 4 4" />
+    </>
+  ),
   loop: (
     <>
       <path d="m17 2 4 4-4 4" />

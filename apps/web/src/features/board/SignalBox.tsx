@@ -1,5 +1,6 @@
-import type { Task } from '@projectman/shared';
+import type { Session, Task } from '@projectman/shared';
 import { Link } from 'react-router';
+import { HandoffBox } from './HandoffBox';
 import { Icon } from '../../components/Icon';
 import { formatAgo } from '../../i18n/format';
 import { t } from '../../i18n/t';
@@ -18,12 +19,15 @@ interface SignalBoxProps {
   /** The viewer has the decision of that signal in their inbox, so the box would say it twice. */
   decidingLoop?: boolean;
   decidingFixLimit?: boolean;
+  /** The card's sessions: the handoff box links to the old assignee's. */
+  sessions?: readonly Session[];
 }
 
 /**
- * What stops or watches the card, at the top of the drawer: a loop (PM-261: who wrote to each other,
- * how often, and who has it) and a hold at the fix round limit (PM-262: how many rounds, and who
- * decides). Each is gone when it is over; the viewer who is asked to decide sees the decision instead.
+ * What stops or watches the card, at the top of the drawer: a handoff of the assignee (PM-342, first),
+ * a loop (PM-261: who wrote to each other, how often, and who has it) and a hold at the fix round limit
+ * (PM-262: how many rounds, and who decides). Each is gone when it is over; the viewer who is asked to
+ * decide sees the decision instead.
  */
 export function SignalBox({
   task,
@@ -32,12 +36,14 @@ export function SignalBox({
   messagesHref,
   decidingLoop = false,
   decidingFixLimit = false,
+  sessions,
 }: SignalBoxProps) {
   const loop = decidingLoop ? undefined : task.loop;
   const fixLimit = decidingFixLimit ? undefined : task.fixLimit;
-  if (!loop && !fixLimit) return null;
+  if (!loop && !fixLimit && !task.handoff) return null;
   return (
     <>
+      {task.handoff ? <HandoffBox task={task} members={members} sessions={sessions} /> : null}
       {fixLimit ? (
         <section className={styles.box} aria-labelledby={`fix-limit-${task.key}`}>
           <div className={styles.head}>

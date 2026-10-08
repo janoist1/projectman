@@ -1,0 +1,39 @@
+/* The handoff note window and its button (PM-342). */
+/* No note: the receiver started from the summary, so the button recedes. The element in the
+   selector outranks the button's own ghost colour whatever the load order; hover still darkens it. */
+button.faint {
+  color: var(--c-ink-4);
+}
+
+/* Only the hash of a chip is monospace, not its label. */
+.hash {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.line {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+/* The machine summary is a transcript excerpt, not markdown. */
+.summary {
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -139,7 +139,7 @@ describe('team MCP endpoint', () => {
     const byName = new Map(tools.map((t) => [t.name, t]));
     const schema = (name: string) => byName.get(name)!.inputSchema as Record<string, any>;
 
-    expect(schema('send_message').required).toEqual(['to', 'text']);
+    expect(schema('send_message').required).toEqual(['to', 'kind', 'text']);
     expect(schema('send_message').properties.to.items.pattern).toBe('^[a-z0-9][a-z0-9-]{0,31}$');
     expect(schema('send_message').properties.task_key.pattern).toBe('^[A-Z][A-Z0-9]{0,9}-\\d+$');
     expect(schema('list_members').properties).toEqual({});
@@ -398,6 +398,7 @@ describe('team tools', () => {
     const client = await connect(h, 'token-dev');
 
     const result = await call(client, 'send_message', {
+      kind: 'action',
       to: ['cr', 'fe-1', 'cr', 'owner'],
       text: '  Ready for review ✅ — naïve café  ',
     });
@@ -407,7 +408,12 @@ describe('team tools', () => {
       {
         method: 'sendMessage',
         ctx: devContext,
-        args: { to: ['cr', 'owner'], text: 'Ready for review ✅ — naïve café', taskKey: 'AR-21' },
+        args: {
+          kind: 'action',
+          to: ['cr', 'owner'],
+          text: 'Ready for review ✅ — naïve café',
+          taskKey: 'AR-21',
+        },
       },
     ]);
     expect(text(result)).toBe(
@@ -419,7 +425,7 @@ describe('team tools', () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');
 
-    const result = await call(client, 'send_message', { to: ['fe-1'], text: 'Note to self' });
+    const result = await call(client, 'send_message', { kind: 'action', to: ['fe-1'], text: 'Note to self' });
 
     expect(result.isError).toBe(true);
     expect(text(result)).toContain('Error [invalid]: You cannot send a message to yourself');
@@ -430,14 +436,19 @@ describe('team tools', () => {
     const h = await startServer();
     const client = await connect(h, 'token-qa');
 
-    expect(text(await call(client, 'send_message', { to: ['fe-1'], text: 'Hi' }))).toBe(
+    expect(text(await call(client, 'send_message', { kind: 'action', to: ['fe-1'], text: 'Hi' }))).toBe(
       'Message msg_1 sent to fe-1.\n- fe-1: typed into their session now.',
     );
-    await call(client, 'send_message', { to: ['fe-1'], text: 'About the login', task_key: 'AR-21' });
+    await call(client, 'send_message', {
+      kind: 'action',
+      to: ['fe-1'],
+      text: 'About the login',
+      task_key: 'AR-21',
+    });
 
     expect(h.handler.calls.map((c) => c.args)).toEqual([
-      { to: ['fe-1'], text: 'Hi' },
-      { to: ['fe-1'], text: 'About the login', taskKey: 'AR-21' },
+      { kind: 'action', to: ['fe-1'], text: 'Hi' },
+      { kind: 'action', to: ['fe-1'], text: 'About the login', taskKey: 'AR-21' },
     ]);
     expect(h.handler.calls.every((c) => c.ctx === qaContext || c.ctx.member === 'qa')).toBe(true);
   });

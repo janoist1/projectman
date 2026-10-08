@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import type { MapGroup } from '@projectman/shared';
 
@@ -8,6 +8,12 @@ const FLASH_MS = 600;
 /** What a tile shows: when it changes in a live update, the tile flashes once. */
 const signature = (group: MapGroup) => JSON.stringify([group.signals, group.progress]);
 
+export interface LiveItem {
+  key: string;
+  /** What the item shows: when it changes in a live update, the item flashes once. */
+  signature: string;
+}
+
 interface Snapshot {
   /** The filters the snapshot was taken under: a filter change is no live change. */
   scope: string;
@@ -16,15 +22,14 @@ interface Snapshot {
 }
 
 /**
- * The live update of the overview: a tile that moves slides to its new place (FLIP, 260 ms), a tile
- * whose signals or progress changed flashes once. Neither happens on the first load, on a filter
- * change, or with `prefers-reduced-motion`. `items` holds the tiles' elements by group key; the
- * result is the keys to flash now.
+ * The live update of the map (PM-379): an item that moves slides to its new place (FLIP, 260 ms), an item
+ * whose signature changed flashes once. Neither happens on the first load, on a filter change, or with
+ * `prefers-reduced-motion`. `items` holds the elements by key; the result is the keys to flash now.
  */
-export function useGroupMotion(
+export function useLiveMotion(
   listRef: RefObject<HTMLElement | null>,
   items: RefObject<Map<string, HTMLElement>>,
-  groups: readonly MapGroup[],
+  entries: readonly LiveItem[],
   scope: string,
 ): ReadonlySet<string> {
   const previous = useRef<Snapshot | null>(null);
@@ -35,23 +40,23 @@ export function useGroupMotion(
     if (!list) return;
     const origin = list.getBoundingClientRect();
     const rects = new Map<string, { x: number; y: number }>();
-    for (const group of groups) {
-      const element = items.current.get(group.key);
+    for (const { key } of entries) {
+      const element = items.current.get(key);
       if (!element) continue;
       const box = element.getBoundingClientRect();
-      rects.set(group.key, { x: box.left - origin.left, y: box.top - origin.top });
+      rects.set(key, { x: box.left - origin.left, y: box.top - origin.top });
     }
-    const signatures = new Map(groups.map((group) => [group.key, signature(group)]));
+    const signatures = new Map(entries.map((entry) => [entry.key, entry.signature]));
     const before = previous.current;
     previous.current = { scope, rects, signatures };
     if (!before || before.scope !== scope) return;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
 
     const changed = new Set<string>();
-    for (const group of groups) {
-      const element = items.current.get(group.key);
-      const from = before.rects.get(group.key);
-      const to = rects.get(group.key);
+    for (const { key } of entries) {
+      const element = items.current.get(key);
+      const from = before.rects.get(key);
+      const to = rects.get(key);
       if (!element || !from || !to) continue;
       const dx = from.x - to.x;
       const dy = from.y - to.y;
@@ -61,11 +66,11 @@ export function useGroupMotion(
           easing: 'ease-out',
         });
       }
-      const was = before.signatures.get(group.key);
-      if (was !== undefined && was !== signatures.get(group.key)) changed.add(group.key);
+      const was = before.signatures.get(key);
+      if (was !== undefined && was !== signatures.get(key)) changed.add(key);
     }
     if (changed.size > 0) setFlashing(changed);
-  }, [listRef, items, groups, scope]);
+  }, [listRef, items, entries, scope]);
 
   useLayoutEffect(() => {
     if (flashing.size === 0) return;
@@ -74,4 +79,18 @@ export function useGroupMotion(
   }, [flashing]);
 
   return flashing;
+}
+
+/** The overview's tiles: a tile that moves slides, a tile whose signals or progress changed flashes. */
+export function useGroupMotion(
+  listRef: RefObject<HTMLElement | null>,
+  items: RefObject<Map<string, HTMLElement>>,
+  groups: readonly MapGroup[],
+  scope: string,
+): ReadonlySet<string> {
+  const entries = useMemo(
+    () => groups.map((group) => ({ key: group.key, signature: signature(group) })),
+    [groups],
+  );
+  return useLiveMotion(listRef, items, entries, scope);
 }

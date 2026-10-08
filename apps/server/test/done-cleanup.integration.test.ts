@@ -50,7 +50,7 @@ it(
       'FAKE_CLAUDE_MCP_CALLS',
       JSON.stringify([
         { tool: 'update_task', arguments: { task_key: 'AR-1', stage_id: doneStage } },
-        { tool: 'send_message', arguments: { to: ['owner'], text: NOTES }, delayMs: 500 },
+        { tool: 'send_message', arguments: { kind: 'info', to: ['owner'], text: NOTES }, delayMs: 500 },
       ]),
     );
     const created = await app.inject({

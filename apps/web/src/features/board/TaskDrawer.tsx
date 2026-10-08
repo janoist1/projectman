@@ -50,6 +50,7 @@ import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from 
 import { SeniorWarning } from './SeniorWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
 import type { CardSize } from './cardSize';
+import { useDrawerBase, withQueryParam } from './drawerBase';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
 import { SignalBox } from './SignalBox';
@@ -243,7 +244,8 @@ export function TaskDrawer() {
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const close = () => navigate(`/p/${key}`);
+  const drawerBase = useDrawerBase();
+  const close = () => navigate(drawerBase.close);
 
   const boardTask = board.data?.tasks.find((task) => task.key === taskKey);
   const task = detail.data?.task ?? boardTask;
@@ -255,7 +257,7 @@ export function TaskDrawer() {
   const messageCount = taskMessages.data?.messages.length ?? 0;
   const cardScroll = useRef(0);
   const switchView = (view: 'card' | 'thread') =>
-    navigate(withCardSize(`/p/${key}/tasks/${taskKey}${view === 'thread' ? '/thread' : ''}`, size), {
+    navigate(withCardSize(drawerBase.card(taskKey, view === 'thread' ? 'thread' : undefined), size), {
       replace: true,
     });
   // The whole open card takes files: they join the same queue as the files chosen in its list.
@@ -276,11 +278,11 @@ export function TaskDrawer() {
     const onKey = (event: KeyboardEvent) => {
       // An open dialog or popover takes Escape for itself.
       if (event.key === 'Escape' && !document.querySelector('dialog[open], [data-popover-open]'))
-        navigate(`/p/${key}`);
+        navigate(drawerBase.close);
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [key, navigate]);
+  }, [drawerBase.close, navigate]);
 
   // The large window holds the focus and the pointer: all that lies under it (the menu, the bars, the board)
   // is inert, so Tab stays inside it. Not a modal <dialog>: that would cover the toasts and the popovers.
@@ -362,7 +364,7 @@ export function TaskDrawer() {
       sessions,
     ).map((worker) => worker.member);
     // Where a link into the card's conversation leads: the same size as the open card.
-    const threadHref = hasThread ? withCardSize(`/p/${key}/tasks/${task.key}/thread`, size) : null;
+    const threadHref = hasThread ? withCardSize(drawerBase.card(task.key, 'thread'), size) : null;
     // A timeline row of a message links to it in the conversation, if the viewer may read that message.
     const fullMessageHref = (event: TimelineEvent): string | null => {
       if (!hasThread || event.type !== 'team_message' || !access || !myHandle || !event.actor.handle)
@@ -372,10 +374,7 @@ export function TaskDrawer() {
       const recipients = to.filter((handle): handle is string => typeof handle === 'string');
       if (!canSeeTeamMessage({ access, handle: myHandle }, { from: event.actor.handle, to: recipients }))
         return null;
-      return withCardSize(
-        `/p/${key}/tasks/${task.key}/thread?message=${encodeURIComponent(messageId)}`,
-        size,
-      );
+      return withCardSize(withQueryParam(drawerBase.card(task.key, 'thread'), 'message', messageId), size);
     };
     // The Start is offered only when the shared rule lets a person start the card (PM-291); what it waits for
     // is on the status line. While the rule's data loads a bar holds its place; if it never comes, the

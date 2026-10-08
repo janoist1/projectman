@@ -21,30 +21,6 @@
   animation: map-shimmer 1.2s linear infinite;
 }
 
-.toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 0 0 0 auto;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  color: var(--c-ink-3);
-}
-
-.legendItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
 .firstUse {
   display: flex;
   align-items: center;
@@ -86,10 +62,6 @@
     gap: 14px;
   }
 
-  .legend {
-    display: none;
-  }
-
   .tiles {
     grid-template-columns: 1fr;
     gap: 10px;
@@ -97,15 +69,6 @@
 
   .skeleton:nth-child(n + 5) {
     display: none;
-  }
-
-  .toolbar > * {
-    min-width: 0;
-  }
-
-  .toolbar .member {
-    flex: 1 0 100%;
-    max-width: none;
   }
 
   .firstUse {

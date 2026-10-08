@@ -409,7 +409,15 @@ export class FullTestRuns {
     this.released();
     if (!current || !stage) return;
     for (const handle of stageOwners(config, stage))
-      if (handle !== current.assignee) this.messaging.releaseWaiting(task.projectKey, task.key, handle);
+      if (handle !== current.assignee)
+        void this.messaging
+          .releaseWaiting(task.projectKey, task.key, handle)
+          .catch((err: unknown) =>
+            this.ctx.logger.warn(
+              { err, taskKey: task.key, member: handle },
+              'could not release messages after the full test',
+            ),
+          );
   }
 
   /**

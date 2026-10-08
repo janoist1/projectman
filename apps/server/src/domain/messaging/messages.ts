@@ -1,6 +1,14 @@
 import { isUnreadBy, messageRoute, sameWorkItem, threadPeersOf } from '@projectman/shared';
-import type { Actor, TeamMessage, TeamMessageAnswer, TeamThread, WorkItemRef } from '@projectman/shared';
+import type {
+  Actor,
+  ProjectConfig,
+  TeamMessage,
+  TeamMessageAnswer,
+  TeamThread,
+  WorkItemRef,
+} from '@projectman/shared';
 import { isoNow } from '../context';
+import { wakesFor } from './staleness';
 import type { DomainContext } from '../context';
 import type { TimelineService } from '../timeline';
 import { forbidden, notFound } from '../errors';
@@ -8,6 +16,9 @@ import { excerpt, newId } from '../util';
 
 export interface RecordMessageInput {
   id?: string;
+  kind?: TeamMessage['kind'];
+  version?: TeamMessage['version'];
+  subject?: TeamMessage['subject'];
   projectKey: string;
   from: string;
   to: string[];
@@ -43,6 +54,10 @@ export class MessageService {
     return this.ctx.repos.messages.get(id);
   }
 
+  wakes(config: ProjectConfig, message: TeamMessage, recipient: string): boolean {
+    return wakesFor(this.ctx, config, message, recipient);
+  }
+
   record(input: RecordMessageInput): TeamMessage {
     const at = isoNow(this.ctx);
     const message: TeamMessage = {
@@ -54,6 +69,9 @@ export class MessageService {
       body: input.body,
       createdAt: at,
       deliveredAt: input.delivered ? at : null,
+      kind: input.kind,
+      version: input.version,
+      subject: input.subject,
       receipts: [...new Set(input.to)].map((handle) => ({
         handle,
         kind: input.humanRecipients?.includes(handle) ? 'human' : 'ai',
@@ -74,7 +92,14 @@ export class MessageService {
         sessionId: input.sessionId ?? null,
         actor: input.actor,
         type: 'team_message',
-        data: { messageId: message.id, from: message.from, to: message.to, excerpt: excerpt(message.body) },
+        data: {
+          messageId: message.id,
+          from: message.from,
+          to: message.to,
+          excerpt: excerpt(message.body),
+          kind: message.kind,
+          version: message.version,
+        },
       });
       return message;
     });

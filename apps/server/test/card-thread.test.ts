@@ -146,6 +146,24 @@ describe('the card’s thread: workers and questions', () => {
     expect(worker.member).toBe('dev-1');
   });
 
+  it.each(['message', 'mention', 'answer', 'hand_over', 'start_button'] as const)(
+    'keeps the reply handle in an integrator %s joined notice',
+    async (kind) => {
+      const { session: worker } = await workerWithQuestions();
+      await h.domain.sessions.ensureSession('AR', 'cr', task, {
+        cause: {
+          kind,
+          by: { ...OWNER_ACTOR, via: 'integrator' },
+          ...(kind === 'hand_over' ? { to: 'code_review' } : {}),
+        },
+      });
+      await flush();
+      const notices = h.runner.messages.filter((message) => message.sessionId === worker.id);
+      expect(JSON.stringify(notices)).toContain('`owner` via the integrator');
+      expect(JSON.stringify(notices)).not.toContain('`integrator`');
+    },
+  );
+
   it('lists the sessions that work on the card now', async () => {
     const config = await h.domain.projects.config('AR');
     const card = h.domain.tasks.get('AR', 'AR-1');

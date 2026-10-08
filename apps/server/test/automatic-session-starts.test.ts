@@ -37,8 +37,16 @@ describe('automatic session admission and retries', () => {
     h = await createDomainHarness({ handOffRetryMs: 20 });
     await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
     h.runnerModule.planUsage.value = planUsage(95);
-    const first = await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Review the checkout.' });
-    const second = await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Also check refunds.' });
+    const first = await h.domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['cr'],
+      text: 'Review the checkout.',
+    });
+    const second = await h.domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['cr'],
+      text: 'Also check refunds.',
+    });
     await flush();
     expect(h.runner.started).toHaveLength(0);
     expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({
@@ -59,7 +67,7 @@ describe('automatic session admission and retries', () => {
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     // Both messages are in the first input, whole and in order; nothing is typed behind them.
     expect(h.runner.lastStarted().initialMessage).toMatch(
-      /\[team message from dev-1 about AR-1\]\nReview the checkout\.\n\n\[team message from dev-1 about AR-1\]\nAlso check refunds\.$/,
+      /\[team message from dev-1 about AR-1\]\naction[^\n]+OUT OF DATE[^\n]+\nReview the checkout\.\n\n\[team message from dev-1 about AR-1\]\naction[^\n]+\nAlso check refunds\.$/,
     );
     expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.pending('AR', 'cr')).toEqual([]);
@@ -69,10 +77,12 @@ describe('automatic session admission and retries', () => {
 
     // A live recipient receives new messages even while new AI work is paused.
     h.runnerModule.planUsage.value = planUsage(99);
-    await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'One more detail.' });
+    await h.domain.teamTools.sendMessage(sender, { kind: 'action', to: ['cr'], text: 'One more detail.' });
     await flush();
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.messages).toHaveLength(1);
+    expect(h.runner.messages).toHaveLength(0);
+    h.runner.setState(h.runner.lastStarted().sessionId, 'idle');
+    await vi.waitFor(() => expect(h.runner.messages).toHaveLength(1));
   });
 
   it('defers human messages on the global AI limit and delivers after capacity frees', async () => {
@@ -88,9 +98,7 @@ describe('automatic session admission and retries', () => {
     await h.domain.admission.retryDeferred();
     await flush();
     expect(h.runner.started).toHaveLength(2);
-    expect(h.runner.lastStarted().initialMessage).toContain(
-      '[team message from owner about AR-1]\nPlease review the fictional checkout.',
-    );
+    expect(h.runner.lastStarted().initialMessage).toContain('Please review the fictional checkout.');
     expect(h.runner.messages).toEqual([]);
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
   });
@@ -116,11 +124,14 @@ describe('automatic session admission and retries', () => {
       h = await createDomainHarness({ adjust: reviewersBesidesCr });
       await h.domain.tasks.create('AR', { title: 'Fictional checkout' }, OWNER_ACTOR);
       h.runnerModule.planUsage.value = planUsage(95);
-      const message = await humanMessage(h);
+      const message = await h.domain.messaging.send('AR', 'dev-2', {
+        to: ['cr'],
+        text: 'Review the checkout.',
+        taskKey: 'AR-1',
+      });
       await flush();
       if (reason === 'stage') {
         await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-        await h.domain.tasks.moveToStage('AR', 'AR-1', 'backlog', OWNER_ACTOR);
       } else if (reason === 'done') {
         h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { status: 'done' });
       } else if (reason === 'cancelled') {
@@ -133,7 +144,7 @@ describe('automatic session admission and retries', () => {
       await flush();
       h.runnerModule.planUsage.value = planUsage(30);
       await h.domain.admission.retryDeferred();
-      expect(h.runner.started).toHaveLength(0);
+      expect(h.runner.started.filter((spec) => spec.member === 'cr')).toHaveLength(0);
       const retry = vi.spyOn(h.domain.messageStarts, 'wake');
       await h.domain.admission.retryDeferred();
       expect(retry).not.toHaveBeenCalled();
@@ -175,10 +186,15 @@ describe('automatic session admission and retries', () => {
       resume: true,
       initialMessage: 'Continue AR-1: Fictional checkout',
     });
-    expect(h.runner.messages.map((m) => m.text)).toEqual([
-      '[team message from owner about AR-1]\nPlease review the fictional checkout.',
-      expect.stringContaining('Task AR-1 is now in stage Code review'),
-    ]);
+    h.runner.setState(session.id, 'idle');
+    await vi.waitFor(() =>
+      expect(h.runner.messages.map((m) => m.text).join('\n')).toContain(
+        'Please review the fictional checkout.',
+      ),
+    );
+    expect(h.runner.messages.map((m) => m.text).join('\n')).toContain(
+      'Task AR-1 is now in stage Code review',
+    );
     const cause = h.domain.sessions.get('AR', session.id).startCause;
     expect(cause).toMatchObject({ kind: 'hand_over', from: 'backlog', to: 'code_review', by: OWNER_ACTOR });
     expect(
@@ -236,17 +252,29 @@ describe('automatic session admission and retries', () => {
       });
       return original(spec);
     });
-    await h.domain.teamTools.sendMessage(sender, { to: ['cr'], text: 'Review the checkout.' });
+    await h.domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['cr'],
+      text: 'Review the checkout.',
+    });
     await vi.waitFor(() => expect(called).toHaveBeenCalledOnce());
     h.runnerModule.planUsage.value = planUsage(95);
-    await h.domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: 'Check the checkout.' });
+    await h.domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['dev-2'],
+      text: 'Check the checkout.',
+    });
     let stopped = false;
     const stopping = h.domain.stop().then(() => {
       stopped = true;
     });
     await flush();
     expect(stopped).toBe(false);
-    await h.domain.teamTools.sendMessage(sender, { to: ['dev-2'], text: 'Also check refunds.' });
+    await h.domain.teamTools.sendMessage(sender, {
+      kind: 'action',
+      to: ['dev-2'],
+      text: 'Also check refunds.',
+    });
     release();
     await stopping;
     expect(stopped).toBe(true);

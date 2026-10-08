@@ -187,9 +187,7 @@ describe('a message about a closed card', () => {
 
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.sessions.list('AR', { member: 'dev-2' }).map((s) => s.workItem)).toEqual([general]);
-    expect(h.runner.lastStarted().initialMessage).toContain(
-      '[team message from owner about AR-2]\nFictional late news.',
-    );
+    expect(h.runner.lastStarted().initialMessage).toContain('Fictional late news.');
     expect(message.receipts?.[0]).toMatchObject({ route: general });
     expect(h.repos.messages.pending('AR', 'dev-2')).toEqual([]);
   });
@@ -213,13 +211,13 @@ describe('a message about a closed card', () => {
     });
     await h.domain.messageStarts.wake('AR', 'dev-2', task('AR-2'));
     await flush();
-    expect(h.runner.started).toEqual([]);
+    expect(h.runner.started).toHaveLength(0);
 
     // A general chat that starts later does not take it either.
     const chat = (await h.domain.sessions.ensureSession('AR', 'dev-2', general)).session;
     await flush();
     expect(h.runner.messages.filter((m) => m.sessionId === chat.id)).toEqual([]);
-    expect(h.repos.messages.pending('AR', 'dev-2').map((m) => m.id)).toEqual([old.id]);
+    expect(h.repos.messages.get(old.id)?.deliveredAt).toBeNull();
   });
 
   it('tells the sender where each recipient gets it (send_message)', async () => {
@@ -228,6 +226,7 @@ describe('a message about a closed card', () => {
     await h.domain.sessions.ensureSession('AR', 'cr', task('AR-3'));
 
     const closed = await h.domain.teamTools.sendMessage(context, {
+      kind: 'action',
       to: ['cr', 'dev-2'],
       text: 'News.',
       taskKey: 'AR-2',
@@ -237,6 +236,7 @@ describe('a message about a closed card', () => {
       { handle: 'dev-2', workItem: general },
     ]);
     const family = await h.domain.teamTools.sendMessage(context, {
+      kind: 'action',
       to: ['cr', 'dev-2'],
       text: 'More.',
       taskKey: 'AR-1',

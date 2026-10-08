@@ -502,10 +502,11 @@ describe('token economy (PM-181)', () => {
   // to make room for the structural decision rule of PM-223, and again for the rule of working on the
   // same card as others (PM-249), then for targeted checks (PM-335) and shared team rules (PM-289).
   // PM-287 names priority (high, not 2), adding three characters to the brief.
-  // PM-251 adds 158 characters to explain the integrator's attributed team-message prefix.
+  // PM-368 adds 634 characters for message kinds, obsolete requests and approved-branch handling.
+  // PM-251 adds 158 characters for the attributed integrator prefix.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 14958, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 13049, brief: 1903 },
+    { name: 'developer', handle: 'fe-1', system: 15592, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 13692, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -530,7 +531,7 @@ describe('token economy (PM-181)', () => {
   it('does not grow the system prompt of a custom role', () => {
     // PM-376 adds provider-specific waiting instructions, avoiding stranded background checks.
     // PM-251 explains the integrator prefix (+158 characters).
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(9708);
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(10341);
   });
 });
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
+import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
 import type { TaskViewer } from './task';
@@ -30,6 +31,26 @@ export const TeamMessageAnswer = z.object({
 });
 export type TeamMessageAnswer = z.infer<typeof TeamMessageAnswer>;
 
+export const MessageKind = z.enum(['action', 'info']);
+export type MessageKind = z.infer<typeof MessageKind>;
+export const CardVersion = z.object({
+  stageId: StageId,
+  commit: z.string().nullable(),
+  reviewCommit: z.string().nullable(),
+});
+export type CardVersion = z.infer<typeof CardVersion>;
+export const MessageSubject = z.object({ type: z.literal('permission'), inboxItemId: z.string() });
+export type MessageSubject = z.infer<typeof MessageSubject>;
+export const StaleReason = z.enum([
+  'card_closed',
+  'stage_moved',
+  'superseded',
+  'sender_result',
+  'result_recorded',
+  'permission_closed',
+]);
+export type StaleReason = z.infer<typeof StaleReason>;
+
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
   via: z.literal('integrator').optional(),
@@ -42,6 +63,9 @@ export const TeamMessage = z.object({
   body: z.string().min(1),
   createdAt: z.string(),
   deliveredAt: z.string().nullable(),
+  kind: MessageKind.optional(),
+  version: CardVersion.optional(),
+  subject: MessageSubject.optional(),
   receipts: z.array(MessageReceipt).optional(),
   /** Set on the message that carries a person's answer to an AI member's question (PM-249); older answers have none. The asker is `to[0]`, the one who answered is `from`. */
   answer: TeamMessageAnswer.optional(),

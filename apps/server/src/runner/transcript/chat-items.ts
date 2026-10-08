@@ -1,4 +1,10 @@
-import { MemberHandle, TEAM_MESSAGE_PREFIX_RE, userTextOrigin, type ChatItem } from '@projectman/shared';
+import {
+  MemberHandle,
+  TEAM_MESSAGE_PREFIX_RE,
+  splitTeamMessageBatch,
+  userTextOrigin,
+  type ChatItem,
+} from '@projectman/shared';
 import { oneLine } from '../tools';
 import { rec, str, type Json } from './json';
 
@@ -70,6 +76,25 @@ export class UserTurns {
       };
     }
     return { kind: 'user_text', id, ts, text, origin };
+  }
+
+  items(text: string, id: string, ts: string): ChatItem[] {
+    const batch = splitTeamMessageBatch(text);
+    if (!batch) return [this.item(text, id, ts)];
+    this.nextOrigin = 'human';
+    return [
+      { kind: 'system_note', id, ts, text: batch.header },
+      ...batch.items.map((item, index): ChatItem => ({
+        kind: 'team_message',
+        id: `${id}#${index}`,
+        ts,
+        direction: 'in',
+        from: item.from,
+        ...(item.via ? { via: item.via } : {}),
+        to: this.self ? [this.self] : [],
+        text: item.body,
+      })),
+    ];
   }
 }
 

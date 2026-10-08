@@ -1,4 +1,5 @@
 import type { TeamMessage } from '@projectman/shared';
+import { CardVersion, MessageKind, MessageSubject } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
@@ -17,6 +18,9 @@ interface MessageRow {
   answer: string | null;
   via: 'integrator' | null;
   origin: string | null;
+  kind: string | null;
+  version: string | null;
+  subject: string | null;
 }
 
 /** A message without its body: who it is between and who read it. */
@@ -33,6 +37,13 @@ const toMessage = (r: MessageRow): TeamMessage => ({
   body: r.body,
   createdAt: r.created_at,
   deliveredAt: r.delivered_at,
+  ...(MessageKind.safeParse(r.kind).success ? { kind: MessageKind.parse(r.kind) } : {}),
+  ...(CardVersion.safeParse(parseJson(r.version, null)).success
+    ? { version: CardVersion.parse(parseJson(r.version, null)) }
+    : {}),
+  ...(MessageSubject.safeParse(parseJson(r.subject, null)).success
+    ? { subject: MessageSubject.parse(parseJson(r.subject, null)) }
+    : {}),
   ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
   ...(r.via ? { via: r.via } : {}),
   ...(r.origin
@@ -44,9 +55,15 @@ const toMessage = (r: MessageRow): TeamMessage => ({
 export function createMessageRepository(db: Db) {
   const statements = {
     get: db.prepare('SELECT * FROM team_messages WHERE id = ?'),
+    hasNewerAction: db.prepare(`SELECT 1 FROM team_messages
+        WHERE project_key = ? AND from_handle = ? AND task_key IS ?
+        AND COALESCE(kind, 'action') = 'action'
+        AND CASE WHEN json_valid(subject) THEN json_extract(subject, '$.inboxItemId') ELSE NULL END IS ?
+        AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
+        AND seq > (SELECT seq FROM team_messages WHERE id = ?) LIMIT 1`),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     countUnread: db.prepare(
       `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
@@ -81,6 +98,18 @@ export function createMessageRepository(db: Db) {
 
   return {
     get,
+    hasNewerAction(message: TeamMessage, recipient: string): boolean {
+      const subject = message.subject?.inboxItemId ?? null;
+      if (message.from === 'system' && subject === null) return false;
+      return !!statements.hasNewerAction.get(
+        message.projectKey,
+        message.from,
+        message.taskKey,
+        subject,
+        recipient,
+        message.id,
+      );
+    },
     insert(m: TeamMessage): void {
       statements.insert.run(
         m.id,
@@ -95,6 +124,9 @@ export function createMessageRepository(db: Db) {
         m.answer ? toJson(m.answer) : null,
         m.via ?? null,
         m.origin ? toJson(m.origin) : null,
+        m.kind ?? null,
+        m.version ? toJson(m.version) : null,
+        m.subject ? toJson(m.subject) : null,
       );
     },
     /**

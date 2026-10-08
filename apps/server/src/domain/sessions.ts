@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { wakesFor } from './messaging';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
@@ -15,6 +16,7 @@ import {
   isWorkingOnTask,
   isWorkPaused,
   memberOf,
+  permissionDecidersNow,
   messageRoute,
   outboundNetworkOf,
   repoOf,
@@ -293,7 +295,7 @@ export interface SessionOrchestratorDeps {
   /** The warning limit of a session's tokens (PM-187), checked whenever its usage grows. */
   usageAlerts?: Pick<UsageAlerts, 'check'>;
   /** Quota alerts are raised once per shared-provider hold (PM-377). */
-  inbox?: Pick<InboxService, 'create'>;
+  inbox?: Pick<InboxService, 'create' | 'openPermissionOf'>;
   /** Tells the owners of a session that waits for input unseen (PM-199). */
   inputStall?: Pick<InputStallAlerts, 'raise'>;
   /** How long a session may wait for input before they are told (default `INPUT_STALL_MS`). */
@@ -1937,7 +1939,7 @@ export class SessionOrchestrator {
   }
 
   /** The other members working on the card, as the member's brief names them (PM-249). */
-  private cardWorkersFor(config: ProjectConfig, task: Task, self: string): CardWorker[] {
+  cardWorkersFor(config: ProjectConfig, task: Task, self: string): CardWorker[] {
     return this.cardWorkers(config.project.key, task, config)
       .filter((s) => s.member !== self)
       .map((s) => {
@@ -1947,9 +1949,22 @@ export class SessionOrchestrator {
           displayName: worker?.displayName ?? s.member,
           role: worker?.kind === 'ai' ? roleLabel(worker.role, config.team.roles) : s.member,
           state: s.state,
+          waitingPermission: this.waitingPermissionFor(config, s),
           ...(s.doing ? { doing: s.doing } : {}),
         };
       });
+  }
+
+  waitingPermissionFor(config: ProjectConfig, session: Session): CardWorker['waitingPermission'] {
+    if (session.state !== 'waiting_permission') return undefined;
+    const item = this.deps.inbox?.openPermissionOf(session.projectKey, session.id);
+    return item
+      ? {
+          inboxItemId: item.id,
+          deciders: permissionDecidersNow(config, item, this.ctx.now().getTime()),
+          since: item.createdAt,
+        }
+      : undefined;
   }
 
   /**
@@ -2542,9 +2557,15 @@ export class SessionOrchestrator {
     if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
     if (this.isPaused(session)) return;
     const workItem = session.workItem;
-    const [first] = this.ctx.repos.messages
+    const config = this.deps.projects.cachedConfig(session.projectKey);
+    const first = this.ctx.repos.messages
       .pending(session.projectKey, session.member)
-      .filter((m) => sameWorkItem(messageRoute(m, session.member), workItem));
+      .find(
+        (m) =>
+          sameWorkItem(messageRoute(m, session.member), workItem) &&
+          !!config &&
+          wakesFor(this.ctx, config, m, session.member),
+      );
     if (!first) return;
     void this.ctx.events.emit('message_waiting', {
       projectKey: session.projectKey,

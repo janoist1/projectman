@@ -3,6 +3,7 @@ import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
+import type { CardVersion, MessageKind } from './message';
 import { MemberHandle } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
@@ -175,7 +176,12 @@ export interface TimelineEventData {
   /** Legacy: checks were replaced by labels; old events keep this shape. */
   task_check_changed: { check: string; from: string | null; to: string };
   /** `reason` names an automatic change: the task moving back, a PR update or merge, an approval. */
-  task_labels_changed: { added: string[]; removed: string[]; reason?: LabelChangeReason };
+  task_labels_changed: {
+    added: string[];
+    removed: string[];
+    reason?: LabelChangeReason;
+    resultCommit?: string;
+  };
   task_link_added: { kind: string; ref: string; repo?: string };
   /**
    * A relation to another card was added or removed (PM-192). Recorded on both cards, each from its
@@ -234,7 +240,14 @@ export interface TimelineEventData {
     reset?: true;
     restart?: true;
   };
-  team_message: { messageId: string; from: string; to: string[]; excerpt: string };
+  team_message: {
+    messageId: string;
+    from: string;
+    to: string[];
+    excerpt: string;
+    kind?: MessageKind;
+    version?: CardVersion;
+  };
   permission_requested: { inboxItemId: string; toolName: string; summary: string };
   /**
    * `delegated`: an AI decider answered (the actor), and `reason` is its explanation (PM-169).

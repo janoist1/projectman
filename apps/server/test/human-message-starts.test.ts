@@ -35,7 +35,8 @@ describe('human messages wake idle AI members', () => {
         ? '[team message from owner about AR-1]\nPlease check Acme.'
         : '[team message from owner]\nPlease check Acme.';
       const { initialMessage } = h.runner.lastStarted();
-      expect(taskKey ? initialMessage?.endsWith(`\n\n${text}`) : initialMessage === text).toBe(true);
+      expect(initialMessage).toContain(taskKey ? '[team messages about AR-1]' : '[team messages]');
+      expect(initialMessage).toContain('Please check Acme.');
       expect(h.runner.messages).toEqual([]);
       expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
       await send(taskKey);
@@ -55,7 +56,7 @@ describe('human messages wake idle AI members', () => {
     expect(h.runner.lastStarted()).toMatchObject({
       sessionId: session.id,
       resume: true,
-      initialMessage: '[team message from owner about AR-1]\nPlease check Acme.',
+      initialMessage: expect.stringContaining('Please check Acme.'),
     });
     expect(h.repos.messages.get(message.id)?.deliveredAt).toBeTruthy();
     expect(h.runner.messages).toEqual([]);

@@ -37,6 +37,7 @@ const inboxPage = lazyPage(() => import('../features/inbox/InboxPage'), 'InboxPa
 const memberProfilePage = lazyPage(() => import('../features/team/MemberProfilePage'), 'MemberProfilePage');
 const mapPage = lazyPage(() => import('../features/map/MapPage'), 'MapPage');
 const mapOverview = lazyPage(() => import('../features/map/MapOverview'), 'MapOverview');
+const mapGroupView = lazyPage(() => import('../features/map/MapGroupView'), 'MapGroupView');
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const involvementsPage = lazyPage(() => import('../features/team/InvolvementsPage'), 'InvolvementsPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
@@ -79,6 +80,10 @@ export function AppRoutes() {
           <Route path="inbox" element={inboxPage} />
           <Route path="map" element={mapPage}>
             <Route index element={mapOverview} />
+            <Route path=":groupKey" element={mapGroupView}>
+              {/* The card's drawer over the zoomed group; the splat selects `…/thread` too. */}
+              <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+            </Route>
           </Route>
           <Route path="team" element={teamPage} />
           <Route path="team/:handle" element={memberProfilePage} />

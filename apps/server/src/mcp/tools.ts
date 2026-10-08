@@ -316,13 +316,18 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
       'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
       'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
-      'message.',
+      'message. Specify action for a request, review or retest request, or question; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first.',
     input: {
       to: z
         .array(MemberHandle)
         .min(1)
         .max(20)
         .describe('Recipient handles, e.g. ["qa"] or ["fe-1", "owner"]. Handles only, without "@".'),
+      kind: z
+        .enum(['action', 'info'])
+        .describe(
+          'action: the recipient has something to do; info: status, acknowledgement or result; starts nothing.',
+        ),
       text: z
         .string()
         .trim()
@@ -348,6 +353,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       const taskKey = args.task_key ?? ctx.taskKey;
       const result = await handler.sendMessage(ctx, {
         to,
+        kind: args.kind,
         text: args.text,
         ...(taskKey ? { taskKey } : {}),
       });

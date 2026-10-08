@@ -288,7 +288,7 @@ export class CodexTranscriptParser implements TranscriptLineParser {
       return;
     }
     if (role !== 'user' || CONTEXT_FRAGMENT.test(text)) return;
-    out.items.push(this.turns.item(text, id, ts));
+    out.items.push(...this.turns.items(text, id, ts));
   }
 
   private toolCall(

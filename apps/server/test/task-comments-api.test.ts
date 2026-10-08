@@ -49,7 +49,8 @@ describe('task comments API', () => {
     });
     await flush();
     expect(h.runner.started).toHaveLength(1);
-    expect(h.runner.lastStarted().initialMessage).toContain(`[team message from owner about AR-1]\n${text}`);
+    expect(h.runner.lastStarted().initialMessage).toContain('[team message from owner about AR-1]');
+    expect(h.runner.lastStarted().initialMessage).toContain(text);
     expect(h.runner.messages).toEqual([]);
   });
 
@@ -87,9 +88,7 @@ describe('task comments API', () => {
       data: { mentions: ['owner', 'cr'] },
     });
     // The reviewer starts for it and takes the whole message in its first input.
-    expect(h.runner.started.find((spec) => spec.member === 'cr')?.initialMessage).toContain(
-      `[team message from dev-1 about AR-1]\n${text}`,
-    );
+    expect(h.runner.started.find((spec) => spec.member === 'cr')?.initialMessage).toContain(text);
   });
 
   it.each(['viewer', 'client'] as const)('refuses %s access', async (access) => {

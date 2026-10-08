@@ -184,7 +184,15 @@ export class FixLimitWatch {
 
   /** The messages that waited on a card whose hold ended reach their assignee. */
   releaseMessages(task: Task): void {
-    if (task.assignee) this.messaging.releaseWaiting(task.projectKey, task.key, task.assignee);
+    if (task.assignee)
+      void this.messaging
+        .releaseWaiting(task.projectKey, task.key, task.assignee)
+        .catch((err: unknown) =>
+          this.ctx.logger.warn(
+            { err, taskKey: task.key },
+            'could not release messages after the fix-limit hold',
+          ),
+        );
   }
 
   /**
@@ -634,6 +642,7 @@ export class FixLimitWatch {
     const member = memberOf(config, handle);
     if (member?.kind !== 'ai') return;
     try {
+      const fixLimit = this.timeline.latest(task.projectKey, task.key, 'task_fix_limit');
       await this.delivery.startAndDeliver(task.projectKey, handle, workItem, (messages) =>
         this.admission.start({
           config,
@@ -641,11 +650,9 @@ export class FixLimitWatch {
           workItem,
           cause: {
             kind: 'fix_limit',
-            eventId: this.timeline.latest(task.projectKey, task.key, 'task_fix_limit')?.id,
-            rounds: this.timeline.latest(task.projectKey, task.key, 'task_fix_limit')?.data.rounds as
-              number | undefined,
-            limit: this.timeline.latest(task.projectKey, task.key, 'task_fix_limit')?.data.limit as
-              number | undefined,
+            eventId: fixLimit?.id,
+            rounds: fixLimit?.data.rounds as number | undefined,
+            limit: fixLimit?.data.limit as number | undefined,
           },
           messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
         }),

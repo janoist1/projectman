@@ -724,6 +724,13 @@ UPDATE tasks SET stage_entered_at = COALESCE(
   },
   {
     version: 38,
+    name: 'team message kind and card version',
+    sql: `ALTER TABLE team_messages ADD COLUMN kind TEXT;
+ALTER TABLE team_messages ADD COLUMN version TEXT;
+ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
+  },
+  {
+    version: 39,
     name: 'session involvement attribution',
     sql: `ALTER TABLE timeline_events ADD COLUMN actor_via TEXT;
     ALTER TABLE team_messages ADD COLUMN via TEXT;

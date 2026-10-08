@@ -4,6 +4,7 @@ import type {
   Attachment,
   DeveloperLevelRequest,
   MemberHandle,
+  MessageKind,
   RelationsChange,
   TaskRelation,
   MemberView,
@@ -24,7 +25,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
-import type { CardQuestion } from './context';
+import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
 
 /**
@@ -44,9 +45,10 @@ export interface SentMessageRecipient {
    * after_turn: its session is in a turn (starting, working, waiting_permission, waiting_input) and gets it when the turn ends.
    * wake: no session runs for it; one starts or resumes with it (admission may defer that). held: kept back, `hold` says why.
    */
-  delivery: 'inbox' | 'typed_now' | 'after_turn' | 'wake' | 'held';
+  delivery: 'inbox' | 'typed_now' | 'after_turn' | 'wake' | 'held' | 'next_input';
   /** Only with delivery 'held'. */
   hold?: SentMessageHold;
+  waitingPermission?: { inboxItemId: string; deciders: string[]; since: string };
 }
 
 export interface ToolContext {
@@ -109,6 +111,8 @@ export interface TaskToolDetail extends TaskDetail {
   themeProgress?: ThemeProgress;
   /** Ids of the sessions that work on the card now (PM-249, `SessionOrchestrator.cardWorkers`). */
   workingSessionIds?: string[];
+  /** Other members' running sessions on the card, as the brief names them (PM-249, PM-371). */
+  cardWorkers?: CardWorker[];
   /** The card's questions (PM-249), as the brief lists them (`QUESTION_LIMIT`). */
   cardQuestions?: CardQuestion[];
 }
@@ -233,7 +237,7 @@ export interface TeamToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
-    args: { to: MemberHandle[]; text: string; taskKey?: string },
+    args: { to: MemberHandle[]; text: string; taskKey?: string; kind: MessageKind },
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];

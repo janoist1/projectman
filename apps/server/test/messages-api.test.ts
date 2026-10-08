@@ -57,9 +57,7 @@ describe('human team messages and member profiles', () => {
     const session = domain.sessions.list(key, { member: 'dev-1' })[0]!;
     expect(session.workItem).toEqual({ type: 'task', taskKey: 'AR-1' });
     // The new session takes the whole message in its first input, behind its brief.
-    expect(h.runner.lastStarted().initialMessage).toContain(
-      '[team message from owner about AR-1]\nDiscuss the Acme webshop',
-    );
+    expect(h.runner.lastStarted().initialMessage).toContain('Discuss the Acme webshop');
     expect(h.runner.messages).toEqual([]);
     expect(h.app.projectman.repos.messages.get(message.id)?.receipts?.[0]?.deliveredAt).toBeTruthy();
     expect(h.runner.started).toHaveLength(1);

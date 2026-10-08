@@ -32,7 +32,7 @@ export class GeminiTranscriptParser implements TranscriptLineParser {
       const step = num(e.step_index) ?? 0;
       if (e.type === 'USER_INPUT') {
         const text = /<USER_REQUEST>\s*([\s\S]*?)\s*<\/USER_REQUEST>/.exec(content)?.[1] ?? content;
-        if (text) out.items.push(this.turns.item(text, id, ts));
+        if (text) out.items.push(...this.turns.items(text, id, ts));
       } else if (e.type === 'PLANNER_RESPONSE') {
         if (content) out.items.push({ kind: 'assistant_text', id, ts, text: content });
         const calls = Array.isArray(e.tool_calls) ? e.tool_calls : [];

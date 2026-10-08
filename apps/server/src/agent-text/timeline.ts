@@ -116,7 +116,12 @@ export function describeEvent(
     case 'team_message': {
       const to = list('to').length > 0 ? list('to') : [text('to')].filter((h): h is string => !!h);
       const recipients = to.length > 0 ? ` to ${to.map((h) => style.code(h)).join(', ')}` : '';
-      const line = `message${recipients}: ${text('excerpt') ?? ''}`.trimEnd();
+      const version = data.version as { stageId: string; commit: string | null } | undefined;
+      const sent = version
+        ? ` (sent at stage ${version.stageId}, commit ${version.commit?.slice(0, 7) ?? 'unknown'})`
+        : '';
+      const line =
+        `message${recipients} [${text('kind') ?? 'action'}]${sent}: ${text('excerpt') ?? ''}`.trimEnd();
       const id = typeof data.messageId === 'string' ? data.messageId : null;
       const marked = id && undelivered?.has(id) ? `${line} ${NOT_DELIVERED_YET}` : line;
       const waiting = id ? pendingSent?.get(id) : undefined;

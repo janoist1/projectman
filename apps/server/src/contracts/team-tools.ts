@@ -111,6 +111,7 @@ export interface TaskToolDetail extends TaskDetail {
   themeProgress?: ThemeProgress;
   /** Ids of the sessions that work on the card now (PM-249, `SessionOrchestrator.cardWorkers`). */
   workingSessionIds?: string[];
+  /** Other members' running sessions on the card, as the brief names them (PM-249, PM-371). */
   cardWorkers?: CardWorker[];
   /** The card's questions (PM-249), as the brief lists them (`QUESTION_LIMIT`). */
   cardQuestions?: CardQuestion[];

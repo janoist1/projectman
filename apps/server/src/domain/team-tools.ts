@@ -428,6 +428,7 @@ export class TeamToolsService implements TeamToolsHandler {
       // A card shows its theme (its own, or its parent's); a theme shows its cards and how far it is (PM-192).
       const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
       const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
+      const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
       return {
         ...detail,
         effectiveRepo: effectiveRepo(config, detail.task),
@@ -448,7 +449,7 @@ export class TeamToolsService implements TeamToolsHandler {
         workingSessionIds: this.sessions
           .cardWorkers(ctx.projectKey, detail.task, config)
           .map((session) => session.id),
-        cardWorkers: this.sessions.cardWorkersFor(config, detail.task, ''),
+        ...(cardWorkers.length ? { cardWorkers } : {}),
         cardQuestions: this.cardQuestions.list(ctx.projectKey, taskKey, { limit: QUESTION_LIMIT }),
         attachments: {
           attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),

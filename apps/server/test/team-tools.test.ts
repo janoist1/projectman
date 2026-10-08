@@ -22,6 +22,19 @@ describe('team tools', () => {
   });
   afterEach(() => h.cleanup());
 
+  it('omits an empty cardWorkers list and excludes the caller while preserving working session ids', async () => {
+    const own = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
+    expect(own).not.toHaveProperty('cardWorkers');
+    expect(own.workingSessionIds).toContain(dev.sessionId);
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', {
+      type: 'task',
+      taskKey: 'AR-1',
+    });
+    const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
+    expect(detail.cardWorkers?.map((worker) => worker.handle)).toEqual(['dev-2']);
+    expect(detail.workingSessionIds).toEqual(expect.arrayContaining([dev.sessionId, session.id]));
+  });
+
   it('send_message delivers to the recipient session for the task without waiting for it', async () => {
     const result = await h.domain.teamTools.sendMessage(dev, {
       kind: 'action',

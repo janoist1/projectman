@@ -2,7 +2,6 @@ import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
 import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
 import {
   cardQuestionLines,
-  cardWorkerLines,
   stateText,
   describeAttachment,
   describeLink,
@@ -212,12 +211,13 @@ export function formatTaskDetail(
   if (detail.attachments) lines.push('', ...attachmentLines(task.key, detail.attachments));
   // Who works on the card now and who else has a session on it (PM-249).
   const working = new Set(detail.workingSessionIds ?? []);
-  const sessionText = (s: (typeof sessions)[number]) => `${s.member} (${stateText(s.state)})`;
+  const sessionText = (s: (typeof sessions)[number]) => {
+    const permission = detail.cardWorkers?.find((worker) => worker.handle === s.member)?.waitingPermission;
+    return `${s.member} (${stateText(s.state)}${permission ? `, decides: ${permission.deciders.join(', ')}` : ''})`;
+  };
   const workers = (detail.workingSessionIds ?? []).flatMap((id) => sessions.filter((s) => s.id === id));
   const others = sessions.filter((s) => !working.has(s.id));
-  if (detail.cardWorkers?.length)
-    lines.push('', 'Working on it now:', ...cardWorkerLines(detail.cardWorkers));
-  else if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
+  if (workers.length > 0) lines.push('', `Working on it now: ${workers.map(sessionText).join(', ')}`);
   if (others.length > 0)
     lines.push(...(workers.length > 0 ? [] : ['']), `Other sessions: ${others.map(sessionText).join(', ')}`);
   if (detail.cardQuestions?.length)

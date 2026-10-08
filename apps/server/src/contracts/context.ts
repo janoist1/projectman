@@ -2,10 +2,14 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { AgentSandbox, SubagentDefinition } from './runner';
 import type { SessionPolicy } from './session-policy';
 import type {
+  AgentProvider,
   AiMemberConfig,
   Attachment,
+  HandoffFallbackReason,
+  HandoffSummary,
   MemberView,
   PausePoint,
+  PreviousConversationReason,
   ProjectConfig,
   SessionState,
   Stage,
@@ -87,6 +91,39 @@ export interface ContextPackInput {
    * resumed one those since it last ran. Omitted when none.
    */
   cardQuestions?: CardQuestion[];
+  /** PM-342: a card handed over to this member; rendered until it is taken over. */
+  handoff?: HandoffTakeover;
+  /** PM-342: this new conversation replaces one that could not go on. Only for a new conversation. */
+  previousConversation?: PreviousConversation;
+}
+
+/** A card handed over to the member (PM-342), as the brief and the resumed conversation's first message tell it. */
+export interface HandoffTakeover {
+  handoffId: string;
+  /** The handle of the member who handed the card over. */
+  from: string;
+  fromProvider: AgentProvider;
+  toProvider: AgentProvider;
+  endedAt: string;
+  /** `note`: the handing-over member wrote a note; `fallback`: the transcript summary stands in. */
+  outcome: 'note' | 'fallback';
+  fallbackReason?: HandoffFallbackReason;
+  note: string | null;
+  branch: string | null;
+  lastCommit: string | null;
+  /** Whether changes were left uncommitted in the worktree; null: unknown. */
+  uncommitted: boolean | null;
+  summary: HandoffSummary | null;
+}
+
+/** The old conversation a new one replaces (PM-342). */
+export interface PreviousConversation {
+  reason: PreviousConversationReason;
+  /** The provider of the old conversation (`provider_changed`); null otherwise. */
+  fromProvider: AgentProvider | null;
+  summary: HandoffSummary | null;
+  /** The card's latest handoff note; filled by PM-342 2/3, null until then. */
+  lastNote: { from: string; endedAt: string; text: string } | null;
 }
 
 /** A member whose session works on the card now, as another member's brief names it (PM-249). */
@@ -171,6 +208,19 @@ export interface ContextPackBuilder {
    * whether its process was started again (`restarted`). Absent: no nudge, the session just goes on.
    */
   pauseNudge?(input: { point: PausePoint; tool: string | null; restarted: boolean }): string;
+  /**
+   * What a session is told when its card is being handed over (PM-342, English prompt text): stop,
+   * commit, and call `hand_off` with a note. `to` and `toProvider` are null for a card handed to
+   * nobody; `deadlineAt` is the time by which the note is due, when there is one.
+   */
+  handoffInstruction(input: {
+    taskKey: string;
+    to: string | null;
+    toProvider: AgentProvider | null;
+    deadlineAt: string | null;
+  }): string;
+  /** What a session is told when the handover of its card is called off (PM-342, English prompt text). */
+  handoffCancelled(input: { taskKey: string }): string;
 }
 
 /**

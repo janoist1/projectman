@@ -12,6 +12,7 @@ import type {
   AiMemberConfig,
   Attachment,
   DutyId,
+  HandoffSummary,
   MemberView,
   ProjectConfig,
   Task,
@@ -21,7 +22,13 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { aiMemberDefaults, getTemplate } from '@projectman/templates';
-import type { CardQuestion, CardWorker, ContextPackInput, SessionPolicy } from '../contracts';
+import type {
+  CardQuestion,
+  CardWorker,
+  ContextPackInput,
+  HandoffTakeover,
+  SessionPolicy,
+} from '../contracts';
 import { commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
@@ -3166,6 +3173,167 @@ describe('structural decisions (PM-223)', () => {
     const pack = builder.build(input({ project, handle: 'architect', task: makeTask({ stageId: 'dev' }) }));
     await expect(`${roleText(pack.appendSystemPrompt)}\n`).toMatchFileSnapshot(
       '__snapshots__/architect.role-instructions.txt',
+    );
+  });
+});
+
+describe('handover and previous conversation (PM-342)', () => {
+  const summary = (overrides: Partial<HandoffSummary> = {}): HandoffSummary => ({
+    source: 'last_replies',
+    text: 'I finished the form.\nThe tests are next.',
+    at: '2026-10-05T09:30:00.000Z',
+    ...overrides,
+  });
+  const takeover = (overrides: Partial<HandoffTakeover> = {}): HandoffTakeover => ({
+    handoffId: 'hnd_1',
+    from: 'dev',
+    fromProvider: 'claude',
+    toProvider: 'codex',
+    endedAt: '2026-10-05T10:00:00.000Z',
+    outcome: 'note',
+    note: 'Done: the form. Left: tests.',
+    branch: 'AR-21-fix-email',
+    lastCommit: 'abc1234',
+    uncommitted: false,
+    summary: null,
+    ...overrides,
+  });
+  const brief = (overrides: Partial<ContextPackInput> = {}) =>
+    builder.build(input({ handle: 'fe-1', ...overrides })).initialMessage!;
+
+  it('has neither part without a handover or a previous conversation', () => {
+    const text = brief();
+    expect(text).not.toContain('## Handoff');
+    expect(text).not.toContain('## Previous conversation');
+  });
+
+  it('puts the handover with the note after the description and before the links', () => {
+    const text = brief({ handoff: takeover({ uncommitted: true }) });
+    expect(text).toContain(
+      '## Handoff\nThis card was handed over to you by `dev` (Claude) at 2026-10-05T10:00:00.000Z. You run on Codex.',
+    );
+    expect(text).toContain('Their work tree: branch `AR-21-fix-email`, last commit `abc1234`.');
+    expect(text).toContain('Uncommitted changes were left in the worktree.');
+    expect(text).toContain('Their handoff note:\n> Done: the form. Left: tests.');
+    expect(text.indexOf('## Description')).toBeLessThan(text.indexOf('## Handoff'));
+    expect(text.indexOf('## Handoff')).toBeLessThan(text.indexOf('## Links'));
+  });
+
+  it('says why there is no note and gives the summary of their conversation', () => {
+    const text = brief({
+      handoff: takeover({
+        outcome: 'fallback',
+        fallbackReason: 'timeout',
+        note: null,
+        uncommitted: null,
+        summary: summary({ source: 'compact' }),
+      }),
+    });
+    expect(text).toContain('There is no handoff note: the member did not write a note in time.');
+    expect(text).toContain("the conversation's own compaction summary and the replies after it");
+    expect(text).toContain('up to 2026-10-05T09:30:00.000Z');
+    expect(text).toContain('It may be incomplete');
+    expect(text).toContain('> I finished the form.\n> The tests are next.');
+    expect(text).not.toContain('Uncommitted changes');
+  });
+
+  it('says so when there is no note and no summary either', () => {
+    const text = brief({
+      handoff: takeover({ outcome: 'fallback', fallbackReason: 'member_removed', note: null }),
+    });
+    expect(text).toContain('There is no handoff note: the member was removed from the team.');
+    expect(text).toContain('No summary of their conversation is available.');
+  });
+
+  it('is told first in the message a resumed conversation gets', () => {
+    const standing = builder.build(input({ handle: 'fe-1', handoff: takeover() })).standing!;
+    expect(standing.startsWith('Now on AR-21:\n\n## Handoff\n')).toBe(true);
+    expect(standing).toContain('> Done: the form. Left: tests.');
+  });
+
+  it('tells a provider change with the summary of the old conversation', () => {
+    const project = buildProject();
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'codex' };
+    const text = builder.build(
+      input({
+        project,
+        member,
+        previousConversation: {
+          reason: 'provider_changed',
+          fromProvider: 'claude',
+          summary: summary(),
+          lastNote: null,
+        },
+      }),
+    ).initialMessage!;
+    expect(text).toContain(
+      '## Previous conversation\nYour provider changed from Claude to Codex. A conversation cannot be carried on by another provider, so this one is new.',
+    );
+    expect(text).toContain('> I finished the form.\n> The tests are next.');
+    expect(text.indexOf('## Description')).toBeLessThan(text.indexOf('## Previous conversation'));
+  });
+
+  it('tells a lost conversation and a relocated one, with and without a summary', () => {
+    const lost = brief({
+      previousConversation: { reason: 'lost', fromProvider: null, summary: null, lastNote: null },
+    });
+    expect(lost).toContain('Your earlier conversation on this card was lost');
+    expect(lost).toContain('No summary of the earlier conversation is available.');
+    const relocated = brief({
+      previousConversation: { reason: 'relocated', fromProvider: null, summary: summary(), lastNote: null },
+    });
+    expect(relocated).toContain('ran in another working directory');
+    expect(relocated).toContain('> I finished the form.');
+  });
+
+  it('adds the latest handoff note of the card to the previous conversation', () => {
+    const text = brief({
+      previousConversation: {
+        reason: 'lost',
+        fromProvider: null,
+        summary: null,
+        lastNote: { from: 'dev', endedAt: '2026-10-05T10:00:00.000Z', text: 'Left: tests.' },
+      },
+    });
+    expect(text).toContain(
+      'The latest handoff note on this card, from `dev` at 2026-10-05T10:00:00.000Z:\n> Left: tests.',
+    );
+  });
+
+  it('keeps the previous conversation out of the first message of a resumed conversation', () => {
+    const standing = builder.build(
+      input({
+        handle: 'fe-1',
+        handoff: takeover(),
+        previousConversation: { reason: 'lost', fromProvider: null, summary: null, lastNote: null },
+      }),
+    ).standing!;
+    expect(standing).not.toContain('Previous conversation');
+  });
+
+  it('words the instruction to hand over and the call-off', () => {
+    const instruction = builder.handoffInstruction({
+      taskKey: 'AR-21',
+      to: 'dev',
+      toProvider: 'codex',
+      deadlineAt: '2026-10-05T10:10:00.000Z',
+    });
+    expect(instruction).toContain('AR-21 is being handed over to `dev` (Codex)');
+    expect(instruction).toContain('Do not start new work');
+    expect(instruction).toContain('hand_off');
+    expect(instruction).toContain('Name anything that stays uncommitted');
+    expect(instruction).toContain('due by 2026-10-05T10:10:00.000Z');
+    expect(instruction).toContain('only your note');
+    const nobody = builder.handoffInstruction({
+      taskKey: 'AR-21',
+      to: null,
+      toProvider: null,
+      deadlineAt: null,
+    });
+    expect(nobody).toContain('handed over to nobody');
+    expect(nobody).not.toContain('due by');
+    expect(builder.handoffCancelled({ taskKey: 'AR-21' })).toBe(
+      'The handover of AR-21 is called off: the card stays with you. Carry on where you left off.',
     );
   });
 });

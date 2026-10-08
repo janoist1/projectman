@@ -1,11 +1,12 @@
 import { readFile, stat } from 'node:fs/promises';
 import { MAX_CONFINED_TRANSCRIPT_BYTES, openConfined } from './confined';
-import type { AgentProvider, ChatItem } from '@projectman/shared';
+import type { AgentProvider, ChatItem, HandoffSummary } from '@projectman/shared';
 import { usesCodexCli } from '@projectman/shared';
 import type { TranscriptReader } from '../../contracts';
 import { CODEX_ROLLOUT_FILE, parseCodexTranscript } from '../providers/codex/transcript';
 import { parseTranscript, type TranscriptParserOptions } from '../providers/claude/transcript';
 import { parseGeminiTranscript } from '../providers/gemini/transcript';
+import { summarizeTranscript } from './summary';
 
 /**
  * Reads a whole transcript of `provider`'s CLI; a missing file is an empty conversation.
@@ -67,8 +68,22 @@ export async function transcriptHasContent(path: string, confineTo?: string): Pr
   }
 }
 
+/** `summarizeTranscript` of the file at `path`; a missing, unreadable or unconfined file gives null. */
+async function readTranscriptSummary(
+  path: string,
+  opts: { provider: AgentProvider; confineTo?: string },
+): Promise<HandoffSummary | null> {
+  try {
+    const text = await readTranscriptText(path, opts.confineTo);
+    return text ? summarizeTranscript(text, opts.provider) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createTranscriptReader(): TranscriptReader {
   return {
+    summary: readTranscriptSummary,
     hasContent: (path, opts) => transcriptHasContent(path, opts?.confineTo),
     read: (path, opts) =>
       readTranscript(path, {

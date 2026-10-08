@@ -3,6 +3,7 @@ import { buildBrief } from './brief';
 import { buildStanding } from './card-thread';
 import { COMPACT_INSTRUCTION } from './compact-instruction';
 import { buildContinueMessage, buildPauseNudge } from './continue-message';
+import { handoffCancelled, handoffInstruction } from './handoff';
 import { cheapSubagent } from './subagents';
 import { buildSystemPrompt } from './system-prompt';
 import { assess } from './work-item';
@@ -37,6 +38,8 @@ export function createContextPackBuilder(): ContextPackBuilder {
   return {
     compactInstruction: COMPACT_INSTRUCTION,
     pauseNudge: buildPauseNudge,
+    handoffInstruction,
+    handoffCancelled,
     build(input: ContextPackInput): ContextPack {
       const situation = assess(input);
       return {

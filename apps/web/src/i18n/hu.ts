@@ -341,6 +341,10 @@ export const hu = {
     badgeLabel: 'Legmagasabb AI-keret: {percent}. Részletek a Csapat oldalon.',
     compactLabel: '{provider}-keret: {percent}',
     dropdownTitle: '{provider}-keret',
+    combinedPrefix: 'AI-keret',
+    combinedLabel: 'AI-keret {percent}',
+    combinedTriggerLabel: 'AI-keretek: legmagasabb érték {percent}. Részletek megnyitása.',
+    combinedTitle: 'AI-keretek',
   },
 
   /** Token usage of sessions, cards and members (PM-178). */

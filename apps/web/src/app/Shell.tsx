@@ -15,22 +15,23 @@ import { nameOf } from '../lib/members';
 import { useMediaQuery } from '../lib/hooks';
 import type { MemberIndex } from '../lib/members';
 import { AccountMenu, ProjectSwitcher } from './Menus';
-import { PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
+import { CombinedPlanUsageMeter, PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
 import { MachineIndicator } from '../features/machine/MachineIndicator';
 
 /*
  * The desktop top bar sheds width in steps, so nothing overlaps (the search field gives way first):
- *   >= 1600   the Szünet button shows, the plan usage is compact (short item per provider, dropdown details)
- *   1500-1599 the Szünet button is hidden (the account menu has it; CSS in Shell.module.css)
- *   1181-1499 as above; the machine meter's button turns into a badge below 1280 (PM-322 adds
- *             its `(max-width: 1279px)` query here)
+ *   >= 1600   the Szünet button shows, plan usages are compact (short item per provider, dropdown details)
+ *   1500-1599 the Szünet button is hidden (the account menu has it; CSS in Shell.module.css), plan usages per provider
+ *   1181-1499 plan usages collapse into a single combined button ("AI-keret {percent} ˅") with a shared dropdown
+ *             (COMBINED_PLAN_USAGE_QUERY); the machine meter's button turns into a badge below 1280 (PM-322)
  *   <= 1180   the plan usage and the presence are hidden (CSS)
  *   <= 900    "Új feladat" is an icon only: COMPACT_NEW_TASK_QUERY
  *   < 768     the phone header replaces the bar (a plan usage badge, an icon-only new task)
  */
 const COMPACT_NEW_TASK_QUERY = '(max-width: 900px)';
+const COMBINED_PLAN_USAGE_QUERY = '(max-width: 1499px)';
 
 interface NavItem {
   to: string;
@@ -310,21 +311,26 @@ export function TopBar({
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
   // The steps are listed at the top of this file.
   const compactNewTask = useMediaQuery(COMPACT_NEW_TASK_QUERY);
+  const combinedMeters = useMediaQuery(COMBINED_PLAN_USAGE_QUERY);
   return (
     <header className={styles.topbar}>
       <ProjectSwitcher currentKey={key} currentName={board?.project.name ?? key} />
       <SearchBox />
       <span className={styles.spacer} />
       <span className={clsx(styles.hideNarrow, styles.meters)}>
-        {planUsages(board).map(({ provider, usage }) => (
-          <PlanUsageMeter
-            key={provider}
-            provider={provider}
-            usage={usage}
-            pauseAbove={pauseAbove}
-            variant="compact"
-          />
-        ))}
+        {combinedMeters ? (
+          <CombinedPlanUsageMeter usages={planUsages(board)} pauseAbove={pauseAbove} />
+        ) : (
+          planUsages(board).map(({ provider, usage }) => (
+            <PlanUsageMeter
+              key={provider}
+              provider={provider}
+              usage={usage}
+              pauseAbove={pauseAbove}
+              variant="compact"
+            />
+          ))
+        )}
       </span>
       <MachineIndicator />
       <span className={styles.hideNarrow}>

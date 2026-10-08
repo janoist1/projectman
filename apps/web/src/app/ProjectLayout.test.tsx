@@ -115,8 +115,8 @@ describe('desktop top bar steps', () => {
     );
   }
 
-  it.each([1920, 1600, 1500, 1499, 1280])(
-    'at %s px the plan usage is compact and opens dropdown on click',
+  it.each([1920, 1600, 1500])(
+    'at %s px each provider has a compact meter opening a dropdown on click',
     async (width) => {
       renderAt(width);
       const claudeTrigger = await screen.findByRole('button', { name: /Claude/ });
@@ -128,6 +128,22 @@ describe('desktop top bar steps', () => {
       fireEvent.click(claudeTrigger);
       const meters = within(header).getAllByRole('meter');
       expect(meters.length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each([1499, 1280])(
+    'at %s px providers collapse into a single combined meter opening a shared dropdown on click',
+    async (width) => {
+      renderAt(width);
+      const combinedTrigger = await screen.findByRole('button', { name: /AI-keret/ });
+      expect(combinedTrigger).toBeTruthy();
+      const header = document.querySelector('header')!;
+      expect(within(header).queryAllByRole('meter')).toHaveLength(0);
+
+      fireEvent.click(combinedTrigger);
+      const meters = within(header).getAllByRole('meter');
+      expect(meters.length).toBeGreaterThan(0);
+      expect(within(header).getByText(t('planUsage.combinedTitle'))).toBeTruthy();
     },
   );
 

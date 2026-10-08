@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
 import { pausesOnPlanUsage } from '@projectman/shared';
@@ -76,6 +76,12 @@ export function PlanUsageMeter({
   const panelId = useId();
   useDismiss(open, () => setOpen(false), refs, triggerRef);
 
+  useEffect(() => {
+    if (open) {
+      panelRef.current?.focus();
+    }
+  }, [open]);
+
   const name = t(`providers.${provider}`);
   const five = usage?.fiveHourPercent ?? null;
   const week = usage?.weeklyPercent ?? null;
@@ -129,6 +135,7 @@ export function PlanUsageMeter({
             ref={panelRef}
             id={panelId}
             role="dialog"
+            tabIndex={-1}
             aria-label={t('planUsage.dropdownTitle', { provider: name })}
             className={styles.dropdownPanel}
           >
@@ -202,5 +209,154 @@ export function PlanUsageMeter({
         />
       )}
     </Tooltip>
+  );
+}
+
+const PROVIDER_ORDER: AgentProvider[] = ['claude', 'codex', 'nanogpt'];
+
+/**
+ * Combined plan usage meter for narrow desktop (1181–1499 px).
+ * Displays a single button "AI-keret {percent} ˅" with the peak value across all known
+ * providers and windows, opening a shared dropdown panel with direct sections for
+ * Claude, Codex, and NanoGPT.
+ * Renders nothing if all values are unknown.
+ */
+export function CombinedPlanUsageMeter({
+  usages,
+  pauseAbove = 80,
+}: {
+  usages: ReadonlyArray<{ provider: AgentProvider; usage: PlanUsage | null | undefined }>;
+  pauseAbove?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const refs = useMemo(() => [wrapRef, panelRef], []);
+  const panelId = useId();
+  useDismiss(open, () => setOpen(false), refs, triggerRef);
+
+  useEffect(() => {
+    if (open) {
+      panelRef.current?.focus();
+    }
+  }, [open]);
+
+  // Close when screen width crosses breakpoints (e.g. 1500px or 1180px)
+  useEffect(() => {
+    if (!open) return;
+    const m1 = window.matchMedia('(max-width: 1499px)');
+    const m2 = window.matchMedia('(max-width: 1180px)');
+    const close = () => setOpen(false);
+    m1.addEventListener('change', close);
+    m2.addEventListener('change', close);
+    return () => {
+      m1.removeEventListener('change', close);
+      m2.removeEventListener('change', close);
+    };
+  }, [open]);
+
+  const knownProviders = usages.filter(({ usage }) => {
+    return usage != null && (usage.fiveHourPercent != null || usage.weeklyPercent != null);
+  });
+
+  if (knownProviders.length === 0) return null;
+
+  const allKnownValues = knownProviders.flatMap(({ usage }) =>
+    [usage?.fiveHourPercent, usage?.weeklyPercent].filter((v): v is number => v != null),
+  );
+  const peak = Math.max(...allKnownValues);
+  const level = meterLevel(peak, pauseAbove);
+  const formattedPercent = formatPercent(peak);
+
+  const resetText = (value: number | null, resetsAt: string | null | undefined) => {
+    const percent = value === null ? t('planUsage.unknown') : formatPercent(value);
+    return resetsAt ? `${percent}, ${t('planUsage.resets', { time: formatStamp(resetsAt) })}` : percent;
+  };
+
+  const sortedProviders = [...knownProviders].sort((a, b) => {
+    const ia = PROVIDER_ORDER.indexOf(a.provider);
+    const ib = PROVIDER_ORDER.indexOf(b.provider);
+    return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+  });
+
+  return (
+    <span ref={wrapRef} className={styles.compactWrap}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={clsx(styles.compactTrigger, open && styles.compactTriggerOpen, styles[`trigger_${level}`])}
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-haspopup="dialog"
+        aria-label={t('planUsage.combinedTriggerLabel', { percent: formattedPercent })}
+        onClick={() => setOpen((prev) => !prev)}
+      >
+        <span className={styles.compactName}>{t('planUsage.combinedPrefix')}</span>
+        <span className={clsx(styles.compactValue, styles[`value_${level}`])}>{formattedPercent}</span>
+        <span className={clsx(styles.compactChevron, open && styles.compactChevronOpen)} aria-hidden="true">
+          <Icon name="chevronDown" size={12} strokeWidth={2.2} />
+        </span>
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          id={panelId}
+          role="dialog"
+          tabIndex={-1}
+          aria-label={t('planUsage.combinedTitle')}
+          className={styles.combinedPanel}
+        >
+          <div className={styles.dropdownHeader}>
+            <span className={styles.dropdownTitle}>{t('planUsage.combinedTitle')}</span>
+          </div>
+          <div className={styles.dropdownContent}>
+            {sortedProviders.map(({ provider, usage }) => {
+              const five = usage?.fiveHourPercent ?? null;
+              const week = usage?.weeklyPercent ?? null;
+              const paused =
+                pausesOnPlanUsage(provider) && ((five ?? 0) >= pauseAbove || (week ?? 0) >= pauseAbove);
+              return (
+                <div key={provider} className={styles.combinedProviderSection}>
+                  <span className={styles.combinedProviderName}>{t(`providers.${provider}`)}</span>
+                  <div className={styles.dropdownSection}>
+                    <MiniMeter
+                      label={t('planUsage.fiveHour')}
+                      value={five}
+                      pauseAbove={pauseAbove}
+                      valueText={resetText(five, usage?.fiveHourResetsAt)}
+                    />
+                    {usage?.fiveHourResetsAt ? (
+                      <span className={styles.resetText}>
+                        {t('planUsage.resets', { time: formatStamp(usage.fiveHourResetsAt) })}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className={styles.dropdownSection}>
+                    <MiniMeter
+                      label={t('planUsage.weekly')}
+                      value={week}
+                      pauseAbove={pauseAbove}
+                      valueText={resetText(week, usage?.weeklyResetsAt)}
+                    />
+                    {usage?.weeklyResetsAt ? (
+                      <span className={styles.resetText}>
+                        {t('planUsage.resets', { time: formatStamp(usage.weeklyResetsAt) })}
+                      </span>
+                    ) : null}
+                  </div>
+                  {paused ? (
+                    <div className={styles.pausedNotice}>
+                      <Icon name="alertCircle" size={14} className={styles.pausedIcon} />
+                      <span>{t('planUsage.paused', { limit: pauseAbove })}</span>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </span>
   );
 }

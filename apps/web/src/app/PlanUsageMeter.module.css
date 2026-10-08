@@ -63,13 +63,13 @@
 .compactTrigger {
   height: 32px;
   box-sizing: border-box;
-  padding: 0 8px 0 10px;
+  padding: 0 7px 0 8px;
   border-radius: var(--radius-md);
   border: 1px solid var(--c-line-strong);
   background: var(--c-surface);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   color: var(--c-ink);
   cursor: pointer;
   font-family: inherit;
@@ -155,6 +155,10 @@
   animation: pm-fade-in 120ms ease-out;
 }
 
+.dropdownPanel:focus {
+  outline: none;
+}
+
 .dropdownHeader {
   display: flex;
   align-items: center;
@@ -203,4 +207,55 @@
 .pausedIcon {
   flex-shrink: 0;
   color: var(--c-needs);
+}
+
+.combinedPanel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: min(480px, calc(100vh - 80px));
+  overflow-y: auto;
+  padding: 12px 14px;
+  border-radius: var(--radius-xl);
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  box-shadow: var(--shadow-pop);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: pm-fade-in 120ms ease-out;
+}
+
+.combinedPanel:focus {
+  outline: none;
+}
+
+.combinedProviderSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.combinedProviderSection + .combinedProviderSection {
+  border-top: 1px solid var(--c-line);
+  padding-top: 10px;
+}
+
+.combinedProviderName {
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  color: var(--c-ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropdownPanel,
+  .combinedPanel {
+    animation: none;
+  }
 }

@@ -407,15 +407,20 @@ deletions until removed, and a session can replace the writable lock while the h
 On 2026-10-08, the owner explicitly accepted these two risks on PM-411, conditional on a
 follow-up card ("Elfogadom, utókártyával"). PM-413 tracks their mitigation.
 Existing sessions need a restart with the updated runner to receive the new profile.
-Before release, a live Codex probe in a disposable repository must also attempt to hard-link
-the read-only `packed-refs` to the writable `packed-refs.lock`; creating the link must fail with
-EPERM. Do not write through the link. If the link is created, stop the release, remove the lock,
-and return to architectural planning for a countermeasure. The actual `packed-refs` must remain
+The live Codex probe must use a task worktree's actual shared git directory outside the
+worktree, in a session started by the updated runner: a disposable repository inside an
+already writable workspace does not exercise this specific file-path grant. The owner chose
+release followed immediately by this probe (PM-411, 2026-10-08). Record the `packed-refs`
+checksum before and after rebase/continue, loose branch deletion and the hard-link probe.
+Creating a hard link from the read-only `packed-refs` to the writable `packed-refs.lock` must
+fail with EPERM. If the link is created, stop the release process, try only a zero-byte append
+open (no content write), immediately remove the lock and return to architectural planning for
+grant revocation. The actual `packed-refs` must remain
 unchanged. A later link-count check cannot detect a link removed after a malicious write.
 The native sandbox's link rejection remains unverified on macOS and Linux. This possibility is not covered
 by the owner's acceptance of the two lock risks above.
 The profile semantics (a nested `read` under a `write` root) must be checked
-in a live Codex session before the release. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
+in that live Codex session. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
 checks; administrator-managed configuration through that channel remains a follow-up (PM-375).
 
 **Residual risk (PM-355, outbound network, accepted by the owner).** The member's "Outbound

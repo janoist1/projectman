@@ -1128,7 +1128,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   stays read-only, as do packed default-branch and replacement refs. Claude's denials remain.
   A packed branch deletion that needs a packed-refs rewrite is not granted. Residual risks:
   a leftover lock can block host ref deletions, and lock replacement during a host packed-refs
-  rewrite can inject content into that rewrite. Owner acceptance is pending; see SECURITY.md.
+  rewrite can inject content into that rewrite. The owner accepted these two risks on PM-411
+  on 2026-10-08, conditional on a follow-up card; see SECURITY.md for the separate, still
+  unverified hard-link probe required before release.
   The managed VM retains the legacy sandbox flags because its VM is the boundary.
   PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only

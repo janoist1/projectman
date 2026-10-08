@@ -404,7 +404,8 @@ default branch. Deleting a packed branch can require rewriting `packed-refs` and
 by this lock-only exception. Two residual risks remain: a leftover lock blocks the host's ref
 deletions until removed, and a session can replace the writable lock while the host rewrites
 `packed-refs` (gc/pack-refs or packed-ref deletion), injecting content into that host rewrite.
-Owner acceptance of these risks is pending; the request to enable rebase is not risk acceptance.
+On 2026-10-08, the owner explicitly accepted these two risks on PM-411, conditional on a
+follow-up card ("Elfogadom, utókártyával"). That follow-up must track their mitigation.
 Existing sessions need a restart with the updated runner to receive the new profile.
 Before release, a live Codex probe in a disposable repository must also attempt to hard-link
 the read-only `packed-refs` to the writable `packed-refs.lock`, then write through the lock path
@@ -412,7 +413,7 @@ and check the original content and link count. Remove the lock after the probe. 
 native sandbox rejects the link or the write is unverified on macOS and Linux. If writing
 through the link changes `packed-refs`, the read-only protection is bypassed: stop the release
 and return to architectural planning for a countermeasure. This possibility is not covered
-by pending acceptance of the two lock risks above.
+by the owner's acceptance of the two lock risks above.
 The profile semantics (a nested `read` under a `write` root) must be checked
 in a live Codex session before the release. macOS MDM-managed Codex preferences (`com.openai.codex`) are not inspected by the startup
 checks; administrator-managed configuration through that channel remains a follow-up (PM-375).

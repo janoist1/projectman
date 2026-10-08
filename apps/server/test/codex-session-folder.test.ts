@@ -110,7 +110,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const folder = env.PROJECTMAN_SESSION_DIR!;
     expect(seen).toEqual([{ folder: true, tmp: true, tmpMode: 0o700 }]);
     expect(folder).toMatch(new RegExp(`^${h.sessionFoldersDir}/${session.id}\\.[0-9a-f]{16}$`));
-    expect(tmpDir).toMatch(new RegExp(`^${h.sessionTmpDir}/${session.id}\\.[0-9a-f]{6}$`));
+    expect(tmpDir).toMatch(new RegExp(`^${h.sessionTmpDir}/[0-9a-f]{12}$`));
     // The root is no writable path of any session: not the queue folder's parent either.
     expect(allowWrite).toContain(join(base, 'projectman-501'));
     expect(allowWrite.some((dir) => `${h!.sessionTmpDir}/`.startsWith(`${dir}/`))).toBe(false);

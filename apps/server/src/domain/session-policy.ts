@@ -265,12 +265,39 @@ export interface SandboxPaths {
   /** The machine's heavy-run queue folder (`PROJECTMAN_HEAVY_LOCK_DIR`, PM-332): its parent is writable. */
   heavyLockDir?: string;
   /**
-   * The commands' own temporary directory (`SessionFolders.allocateTmp`, PM-339; Codex only): writable
-   * for them and their TMPDIR in the CLI's own sandbox, which closes the shared `/tmp`. Made by the
-   * caller before the start, as a new directory (`SessionFolders.make`), never below a path another
-   * member's sandbox writes.
+   * The commands' own temporary directory (`SessionFolders.allocateTmp`, PM-339): writable for them
+   * and their TMPDIR in the CLI's own sandbox, which closes the shared `/tmp` (Codex), or the base of
+   * Claude Code's own temporary root (`CLAUDE_CODE_TMPDIR`, PM-353). Made by the caller before the
+   * start, as a new directory (`SessionFolders.make`), never below a path another member's sandbox
+   * writes.
    */
   tmpDir?: string;
+  /**
+   * Temporary roots every session of the user shares (PM-353): Claude Code's (`sharedClaudeTmpRoots`)
+   * and the base of the sessions' own temporary directories (`path.dirname(SessionFolders.tmpRoot)`).
+   * Used only with `tmpDir`: `denyRead` for the commands, `denyWrite` for those not holding
+   * `tmpDir`; `tmpDir` is re-opened (`allowRead`, `allowWrite`).
+   */
+  sharedTmpRoots?: readonly string[];
+}
+
+/**
+ * What the shared temporary roots add to a sandbox that keeps `tmpDir` (PM-353): the commands neither
+ * read them nor write those that do not hold `tmpDir`, and read and write `tmpDir` (the narrower
+ * path wins for reading; a `denyWrite` root that holds `tmpDir` would close it, so it is left out).
+ * Nothing without `tmpDir`: the CLI then still uses the shared roots, and closing them would break it.
+ */
+function sharedTmpRules(
+  tmpDir: string | undefined,
+  roots: readonly string[] | undefined,
+): { denyRead: string[]; denyWrite: string[]; allowRead: string[]; allowWrite: string[] } {
+  if (!tmpDir || !roots?.length) return { denyRead: [], denyWrite: [], allowRead: [], allowWrite: [] };
+  return {
+    denyRead: [...roots],
+    denyWrite: roots.filter((root) => !isWithin(root, tmpDir)),
+    allowRead: [tmpDir],
+    allowWrite: [tmpDir],
+  };
 }
 
 /**
@@ -312,7 +339,14 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
     : [];
   const writableOwn = own.filter((dir) => !isWithinAny(denied, dir.path));
   const gitConfig = memberDir ? path.join(memberDir, SANDBOX_GIT_CONFIG_FILE) : undefined;
+  const tmpDir = paths.tmpDir && !isWithinAny(denied, paths.tmpDir) ? paths.tmpDir : undefined;
+  const sharedTmp = sharedTmpRules(tmpDir, paths.sharedTmpRoots);
+  const denyWrite = [
+    ...(gitDir && defaultBranch ? sharedGitDenials(gitDir, defaultBranch) : []),
+    ...sharedTmp.denyWrite,
+  ];
   const allowRead = [
+    ...sharedTmp.allowRead,
     ...policy.filesystem.readableRoots,
     ...(policy.filesystem.readOnlyPaths ?? []),
     ...own.map((dir) => dir.path),
@@ -332,10 +366,16 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
       ...writableOwn.map((dir) => dir.path),
       ...(sessionDir ? [sessionDir] : []),
       ...heavy.allowWrite,
+      ...sharedTmp.allowWrite,
     ],
-    ...(gitDir && defaultBranch ? { denyWrite: sharedGitDenials(gitDir, defaultBranch) } : {}),
+    ...(denyWrite.length > 0 ? { denyWrite } : {}),
     denyRead: [
-      ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
+      ...new Set([
+        userHome,
+        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
+        ...denied,
+        ...sharedTmp.denyRead,
+      ]),
     ],
     allowRead: [...new Set(allowRead)],
     env: {
@@ -354,7 +394,7 @@ function worktreeSandbox(policy: SessionPolicy, paths: SandboxPaths): AgentSandb
         memberDirs: writableOwn,
         sessionDir,
         browsersDir,
-        tmpDir: paths.tmpDir && !isWithinAny(denied, paths.tmpDir) ? paths.tmpDir : undefined,
+        tmpDir,
       }),
     ),
   };
@@ -421,10 +461,18 @@ export function sessionSandbox(
   const browsersDir =
     options.browsersDir && !isWithinAny(denied, options.browsersDir) ? options.browsersDir : undefined;
   const heavy = heavyLockAccess(options.heavyLockDir, denied, [options.userHome, options.appHome]);
+  // Checked against `denyWrite` as it is before the shared roots join it.
+  const tmpDir =
+    options.tmpDir && !isWithinAny(denied, options.tmpDir) && !isWithinAny(denyWrite, options.tmpDir)
+      ? options.tmpDir
+      : undefined;
+  const sharedTmp = sharedTmpRules(tmpDir, options.sharedTmpRoots);
+  const denyRead = [...new Set([...denied, ...sharedTmp.denyRead])];
   return {
-    allowWrite: [...(sessionDir ? [sessionDir] : []), ...heavy.allowWrite],
-    denyWrite,
-    ...(policy.filesystem.deniedPaths?.length ? { denyRead: [...policy.filesystem.deniedPaths] } : {}),
+    allowWrite: [...(sessionDir ? [sessionDir] : []), ...heavy.allowWrite, ...sharedTmp.allowWrite],
+    denyWrite: [...denyWrite, ...sharedTmp.denyWrite],
+    ...(denyRead.length > 0 ? { denyRead } : {}),
+    ...(sharedTmp.allowRead.length > 0 ? { allowRead: sharedTmp.allowRead } : {}),
     ...sandboxNetwork(policy),
     allowLocalBinding: true,
     env: {
@@ -438,10 +486,7 @@ export function sessionSandbox(
       portableShared(heavy, {
         sessionDir,
         browsersDir,
-        tmpDir:
-          options.tmpDir && !isWithinAny(denied, options.tmpDir) && !isWithinAny(denyWrite, options.tmpDir)
-            ? options.tmpDir
-            : undefined,
+        tmpDir,
       }),
     ),
   };
@@ -503,12 +548,22 @@ export function fullTestSandbox(input: {
   gitDir?: string;
   userHome: string;
   appHome?: string;
+  /**
+   * The temporary roots the machine's sessions share (PM-353): Claude Code's and the base of the
+   * sessions' own temporary directories. The run's own directory is none of them.
+   */
+  closedTmpRoots?: readonly string[];
 }): FullTestSandbox {
   const { checkout, gitDir, userHome, appHome } = input;
   const denied = sensitivePaths({ userHome, appHome });
   return {
     denyRead: [
-      ...new Set([userHome, ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []), ...denied]),
+      ...new Set([
+        userHome,
+        ...(appHome && !isWithin(userHome, appHome) ? [appHome] : []),
+        ...denied,
+        ...(input.closedTmpRoots ?? []),
+      ]),
     ],
     allowRead: [...new Set([checkout, ...(gitDir ? [gitDir] : [])])].filter(
       (dir) => !isWithinAny(denied, dir),

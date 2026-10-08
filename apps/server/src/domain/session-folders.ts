@@ -27,6 +27,8 @@ export const SESSION_DIR_VARIABLE = 'PROJECTMAN_SESSION_DIR';
 export const BROWSERS_PATH_VARIABLE = 'PLAYWRIGHT_BROWSERS_PATH';
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** A session's temporary directory name (`allocateTmp`); not a `.trash-*` name. */
+const TMP_NAME = /^[0-9a-f]{12}$/;
 
 function assertOwnDirectory(dir: string, mustExist = false): void {
   const stat = lstatSync(dir, { throwIfNoEntry: false });
@@ -89,6 +91,25 @@ export function defaultSessionTmpRoot(): string {
 }
 
 /**
+ * Claude Code's temporary roots every Claude Code process of the user shares (PM-353): its
+ * `<base>/claude-<uid>` (the base is `CLAUDE_CODE_TMPDIR`, else `/tmp`), where the scratchpads, the
+ * background commands' `tasks/*.output` and the `bash-edit-diff` of every session of every project
+ * live, and the sandbox runtime's default `/tmp/claude`. Each as given and as its canonical path
+ * (macOS: `/private/tmp/...`), once.
+ */
+export function sharedClaudeTmpRoots(
+  input: { claudeTmpBase?: string; uid?: number | string } = {},
+): string[] {
+  const uid = input.uid ?? process.getuid?.() ?? 'user';
+  const given = [
+    path.join('/tmp', `claude-${uid}`),
+    ...(input.claudeTmpBase ? [path.join(input.claudeTmpBase, `claude-${uid}`)] : []),
+    '/tmp/claude',
+  ];
+  return [...new Set(given.flatMap((root) => [root, realpathOfNearest(root)]))];
+}
+
+/**
  * The canonical path of `target`, which need not exist: the nearest existing ancestor is resolved
  * (links followed, macOS `/tmp` is `/private/tmp`) and the rest is appended. The sandboxes
  * canonicalize the paths they are given, so overlaps are compared on these.
@@ -147,17 +168,18 @@ export class SessionFolders {
   }
 
   /**
-   * A path for a session's own temporary directory, `<tmpRoot>/<sessionId>.<6 random hex digits>`;
-   * nothing is made. Not inside the folder: a Unix socket's path may be 104 bytes at most, and the
-   * tools open sockets in their TMPDIR, so the name is short. It is new at every start, so a path
-   * an earlier run's process still holds in its sandbox is never used again (it could re-make a
-   * removed directory there, even as a link). Throws for an id that could leave the root;
-   * `undefined` without a `tmpRoot`.
+   * A path for a session's own temporary directory, `<tmpRoot>/<12 random hex digits>`; nothing is
+   * made. Not inside the folder: a Unix socket's path may be 104 bytes at most, and the tools open
+   * sockets in their TMPDIR (Claude Code adds `/claude-<uid>`; below a long `CLAUDE_CODE_TMPDIR` it
+   * falls back to a shared folder), so the name is short and carries no session id. It is new at
+   * every start, so a path an earlier run's process still holds in its sandbox is never used again
+   * (it could re-make a removed directory there, even as a link). Throws for an id that could leave
+   * the root; `undefined` without a `tmpRoot`.
    */
   allocateTmp(sessionId: string): string | undefined {
     if (!this.tmpRoot) return undefined;
     if (!SESSION_ID.test(sessionId)) throw new Error(`Not a session id: ${JSON.stringify(sessionId)}`);
-    return path.join(this.tmpRoot, `${sessionId}.${randomBytes(3).toString('hex')}`);
+    return path.join(this.tmpRoot, randomBytes(6).toString('hex'));
   }
 
   /** A path no folder has had: `<root>/<sessionId>.<random>`; nothing is made. Throws for an id that could leave the root. */
@@ -177,9 +199,7 @@ export class SessionFolders {
       throw new Error(`${dir} is not a folder of session ${sessionId}`);
     if (
       tmpDir &&
-      (!this.tmpRoot ||
-        path.dirname(tmpDir) !== this.tmpRoot ||
-        !path.basename(tmpDir).startsWith(`${sessionId}.`))
+      (!this.tmpRoot || path.dirname(tmpDir) !== this.tmpRoot || !TMP_NAME.test(path.basename(tmpDir)))
     )
       throw new Error(`${tmpDir} is not a temporary directory of session ${sessionId}`);
     this.remove(sessionId);

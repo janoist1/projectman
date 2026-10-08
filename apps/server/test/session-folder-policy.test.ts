@@ -123,7 +123,7 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
   });
 
   describe('what a CLI with a sandbox of its own takes (`portable`, PM-339)', () => {
-    const tmpDir = '/fictional/tmp/projectman-501-tmp/0123abcd/ses_one.abcdef';
+    const tmpDir = '/fictional/tmp/projectman-501-tmp/0123abcd/0123456789ab';
     const heavyLockDir = '/fictional/tmp/projectman-501/heavy';
 
     it('hands a developer’s folder, browsers, queue and tmp over, and the folder as a writable path', () => {
@@ -178,6 +178,67 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
     it('leaves out a tmp or a folder in a denied path', () => {
       const denied = [tmpDir, sessionDir];
       expect(sessionSandbox(developer(denied), { ...paths, sessionDir, tmpDir })!.portable).toBeUndefined();
+    });
+  });
+
+  describe('the temporary roots every session shares (`sharedTmpRoots`, PM-353)', () => {
+    const base = '/fictional/tmp/projectman-501-tmp';
+    const tmpDir = `${base}/0123abcd/0123456789ab`;
+    const claudeRoots = ['/fictional/tmp/claude-501', '/fictional/private/tmp/claude-501'];
+    const sharedTmpRoots = [...claudeRoots, base];
+
+    it('closes them to a developer’s commands and opens its own tmp', () => {
+      const sandbox = sessionSandbox(developer(), { ...paths, sessionDir, tmpDir, sharedTmpRoots })!;
+      expect(sandbox.denyRead).toEqual(expect.arrayContaining(sharedTmpRoots));
+      // Not writable: the Claude roots; the base holds the own tmp, which must stay writable.
+      expect(sandbox.denyWrite).toEqual(expect.arrayContaining(claudeRoots));
+      expect(sandbox.denyWrite).not.toContain(base);
+      expect(sandbox.allowRead).toContain(tmpDir);
+      expect(sandbox.allowWrite).toContain(tmpDir);
+      // The shared git denials stay.
+      expect(sandbox.denyWrite).toContain(`${sharedGit}/HEAD`);
+      expect(sandbox.portable?.tmpDir).toBe(tmpDir);
+    });
+
+    it('closes them to a developer without a shared git directory too', () => {
+      const own = policy('developer', { kind: 'task_worktree', path: source });
+      const sandbox = sessionSandbox(own, { userHome, appHome, tmpDir, sharedTmpRoots })!;
+      expect(sandbox.denyWrite).toEqual(claudeRoots);
+      expect(sandbox.denyRead).toEqual(expect.arrayContaining(sharedTmpRoots));
+    });
+
+    it('closes them to a reader’s commands, after checking its tmp against the paths it must not write', () => {
+      const sandbox = sessionSandbox(reader(), { sessionDir, tmpDir, sharedTmpRoots })!;
+      expect(sandbox.denyRead).toEqual(
+        expect.arrayContaining([...sharedTmpRoots, ...sensitivePaths({ userHome, appHome })]),
+      );
+      expect(sandbox.denyWrite).toEqual(expect.arrayContaining([source, ...claudeRoots]));
+      expect(sandbox.denyWrite).not.toContain(base);
+      expect(sandbox.allowRead).toEqual([tmpDir]);
+      expect(sandbox.allowWrite).toEqual([sessionDir, tmpDir]);
+      expect(sandbox.portable?.tmpDir).toBe(tmpDir);
+      // A tmp inside the checkout is dropped as before, and with it the roots' closure.
+      const inside = sessionSandbox(reader(), { tmpDir: `${source}/tmp`, sharedTmpRoots })!;
+      expect(inside.portable).toBeUndefined();
+      expect(inside.denyRead).toEqual(sensitivePaths({ userHome, appHome }));
+      expect(inside.denyWrite).toEqual([source]);
+    });
+
+    it('changes nothing without a tmp', () => {
+      const dev = sessionSandbox(developer(), { ...paths, sessionDir, sharedTmpRoots })!;
+      expect(dev).toEqual(sessionSandbox(developer(), { ...paths, sessionDir })!);
+      const read = sessionSandbox(reader(), { sessionDir, sharedTmpRoots })!;
+      expect(read).toEqual(sessionSandbox(reader(), { sessionDir })!);
+      // Nor when the tmp is dropped for lying in a denied path.
+      const denied = sessionSandbox(developer([tmpDir]), { ...paths, tmpDir, sharedTmpRoots })!;
+      expect(denied.denyRead).not.toContain(base);
+      expect(denied.portable).toBeUndefined();
+    });
+
+    it('leaves a developer’s allow list as it was when nothing is shared', () => {
+      const sandbox = sessionSandbox(developer(), { ...paths, sessionDir, tmpDir })!;
+      expect(sandbox.allowWrite).toEqual([sessionDir]);
+      expect(sandbox.denyRead).toEqual([userHome, appHome, ...sensitivePaths({ userHome, appHome })]);
     });
   });
 

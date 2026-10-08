@@ -142,6 +142,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
         defaultSessionTmpRoot(),
         createHash('sha256').update(home).digest('hex').slice(0, 8),
       ),
+      claudeTmpBase: env.CLAUDE_CODE_TMPDIR || undefined,
       browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
       heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
       publicBaseUrl: loopbackBaseUrl(host, port),

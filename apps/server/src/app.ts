@@ -215,10 +215,12 @@ export interface BuildAppOptions {
    */
   sessionFoldersDir?: string;
   /**
-   * The root of the Codex sessions' own temporary directories (PM-339), a short path. Absent
-   * (tests): Codex sessions get no folder.
+   * The root of the Codex and Claude sessions' own temporary directories (PM-339, PM-353), a short
+   * path. Absent (tests): these sessions get no folder.
    */
   sessionTmpDir?: string;
+  /** The base of Claude Code's shared temporary root (`CLAUDE_CODE_TMPDIR` of the server's environment, PM-353). */
+  claudeTmpBase?: string;
   /**
    * Playwright's browsers (PM-268), read-only for the members' commands in `PLAYWRIGHT_BROWSERS_PATH`.
    * Absent (tests): the variable is not set.
@@ -527,6 +529,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       installDir: options.installDir,
       sessionFoldersDir: options.sessionFoldersDir,
       sessionTmpDir: options.sessionTmpDir,
+      claudeTmpBase: options.claudeTmpBase,
       browsersDir: options.browsersDir,
       heavyLockDir: options.heavyLockDir,
       memberWorkspaces,

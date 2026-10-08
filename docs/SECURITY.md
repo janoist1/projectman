@@ -462,6 +462,26 @@ conversation transcripts of other sessions under `~/.claude/projects/` can be re
 file tools. Only the login and settings files are denied (`.credentials.json`, `settings.json`,
 `settings.local.json`, `hooks`). A separate configuration directory per member would close it.
 
+**Claude Code's shared temporary root (PM-353).** Claude Code keeps its scratchpad, the output of
+background commands and subagents, and `bash-edit-diff` under `<TMPDIR>/claude-<uid>`
+(`/tmp/claude-<uid>`, also `/tmp/claude`), one folder for every Claude Code process of the user, and
+the sandbox of its commands has always allowed writing it. So a member's commands could read the
+command outputs of other sessions and other projects, and the server's full-test sandbox read them too.
+Now every legacy Claude session has its own root: the server makes a 0700 directory `<tmp root>/<12 hex>`
+(PM-339 folders) and the adapter starts the CLI with `CLAUDE_CODE_TMPDIR` set to it. The shared roots
+(`sharedClaudeTmpRoots`, also the server's own `CLAUDE_CODE_TMPDIR`) are denied for reading and
+writing in a developer's and a reader's sandbox, to the file tools (`deniedPaths`), to Codex
+and in the full-test sandbox; the session tmp root's parent is unreadable to Claude sessions and to
+the full test, and only the session's own directory is re-opened. The directory is removed when the
+process ends, so a background command's output does not survive a restart.
+
+Remaining risks: a Claude session without a safe tmp root (folders or tmp off, an unusable root) keeps
+the shared root and does not get it denied (fail-open: the CLI would otherwise fall back to a
+path it cannot use); a session that is already running gets the rule at its next start; a
+reader's file tools still read the user's home and the other PM-339 folders (PM-425); Codex on the
+PM-339 base still reads what its profile opens (PM-360); NanoGPT members (PM-365) and Gemini (no OS
+sandbox) are not covered by the sandbox rules.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

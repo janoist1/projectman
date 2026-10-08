@@ -83,6 +83,7 @@ import {
   prepareSessionTmpRoot,
   realpathOfNearest,
   SessionFolders,
+  sharedClaudeTmpRoots,
 } from './session-folders';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
@@ -245,6 +246,17 @@ export interface DomainOptions {
    * its folder. Checked here (`prepareSessionTmpRoot`). Absent or unsafe: Codex gets no folder.
    */
   sessionTmpDir?: string;
+  /**
+   * The base of Claude Code's temporary root when the server's environment sets `CLAUDE_CODE_TMPDIR`
+   * (PM-353); the root every Claude Code process of the user shares is `<base>/claude-<uid>`, else
+   * `/tmp/claude-<uid>`. Closed to the members' commands and to the server's full test.
+   */
+  claudeTmpBase?: string;
+  /**
+   * The shared roots themselves, instead of the ones computed from this machine and `claudeTmpBase`.
+   * For tests, whose own directories may lie below the host's Claude Code root.
+   */
+  claudeTmpRoots?: readonly string[];
   /** Playwright's browsers (PM-268): read-only for Claude sessions, in `PLAYWRIGHT_BROWSERS_PATH`. */
   browsersDir?: string;
   /** The machine's heavy-run queue folder (PM-332): its parent is writable for the members' commands. */
@@ -389,6 +401,8 @@ export function createDomain(opts: DomainOptions) {
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
+  // Once at the start: the roots of this machine's Claude Code (PM-353).
+  const claudeTmpRoots = opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ claudeTmpBase: opts.claudeTmpBase });
   let sessionFolders: SessionFolders | undefined;
   if (opts.sessionFoldersDir && opts.runtimeBoundary?.mode !== 'managed_vm') {
     try {
@@ -455,6 +469,7 @@ export function createDomain(opts: DomainOptions) {
     appHome: opts.appHome,
     userHome: opts.userHome,
     sessionFolders,
+    claudeTmpRoots,
     browsersDir: opts.browsersDir,
     heavyLockDir: opts.heavyLockDir,
     readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
@@ -679,6 +694,7 @@ export function createDomain(opts: DomainOptions) {
     executor: opts.fullTestExecutor,
     userHome: opts.userHome ?? os.homedir(),
     appHome: opts.appHome,
+    closedTmpRoots: [...claudeTmpRoots, ...(opts.sessionTmpDir ? [path.dirname(opts.sessionTmpDir)] : [])],
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);

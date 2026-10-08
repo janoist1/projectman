@@ -62,7 +62,9 @@ export class StageHandOver {
    */
   rebuild(spec: Extract<StartSpec, { kind: 'hand_over' }>): AutomaticStart | null {
     const task = this.tasks.find(spec.projectKey, spec.taskKey);
-    return task ? this.startFor({ task, from: spec.from, to: spec.to, actor: spec.actor }) : null;
+    return task
+      ? this.startFor({ task, from: spec.from, to: spec.to, actor: spec.actor, eventId: spec.eventId })
+      : null;
   }
 
   private startFor(change: StageChange): AutomaticStart {
@@ -79,6 +81,7 @@ export class StageHandOver {
         from: change.from,
         to: change.to,
         actor: change.actor,
+        eventId: change.eventId,
       }),
       stillValid: (task) => task !== null && task.stageId === change.to && task.status === 'active',
       waitsFor: () => waitsFor,
@@ -130,7 +133,13 @@ export class StageHandOver {
           config,
           member: free ?? candidates[0]!,
           workItem,
-          cause: { kind: 'stage', stageId: change.to, by: actorHandle(change.actor) },
+          cause: {
+            kind: 'hand_over',
+            from: change.from,
+            to: change.to,
+            by: change.actor,
+            eventId: change.eventId,
+          },
         });
         // Resumed sessions get no brief, so tell them which stage the task is in now.
         if (result.resumed) this.notify(current, stage, result.session.member);

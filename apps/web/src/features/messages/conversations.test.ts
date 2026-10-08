@@ -110,6 +110,19 @@ describe('layoutThread', () => {
     expect(entries.map((entry) => entry.day !== null)).toEqual([true, false, false, true]);
   });
 
+  it('starts a separate sender run when the integrator acts for the owner', () => {
+    const items = threadItems(
+      [
+        message('m1', 'owner', ['fe-1'], null, 0),
+        { ...message('m2', 'owner', ['fe-1'], null, 1000), via: 'integrator' },
+        message('m3', 'owner', ['fe-1'], null, 2000),
+      ],
+      [],
+      [],
+    );
+    expect(layoutThread(items, null).map((entry) => entry.firstOfRun)).toEqual([true, true, true]);
+  });
+
   it('orders questions and answers among the messages by time', () => {
     const items = threadItems(
       [message('m1', 'fe-1', ['owner'], null, 0), message('m3', 'owner', ['fe-1'], null, 5000)],

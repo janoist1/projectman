@@ -460,6 +460,7 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
   const user = [
     '.ssh',
     '.config/gh',
+    '.config/projectman',
     '.claude/.credentials.json',
     '.claude/settings.json',
     '.claude/settings.local.json',

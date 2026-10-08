@@ -9,6 +9,7 @@ import {
   projectRefines,
   routeFor,
   sameWorkItem,
+  quoteOf,
   stageHandsOverForReview,
   stageOf,
   stageOwners,
@@ -33,11 +34,12 @@ import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
-import { actorHandle, humanActor, unique } from '../util';
+import { actorHandle, humanActor, newId, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
 
 export interface SendOptions {
+  origin?: TeamMessage['origin'];
   /** Who sends it (default: the human `from`). */
   actor?: Actor;
   /** The AI session it was sent from (recorded in the timeline). */
@@ -192,6 +194,7 @@ export class Messaging {
       delivered: recipients.every((handle) => humans.includes(handle)),
       routes,
       answer: opts.answer,
+      origin: opts.origin,
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
     for (const { handle, workItem: where, running, hold } of placed)
@@ -220,16 +223,18 @@ export class Messaging {
     sessionId: string,
     text: string,
     from: string,
+    actor: Actor = humanActor(from),
   ): Promise<TeamMessage> {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const running = this.sessions.isRunning(session.id);
+    const messageId = newId('msg');
     const started = running
       ? null
       : await this.sessions.ensureSession(projectKey, session.member, session.workItem, {
           messages: [body],
-          cause: { kind: 'message', from: [from] },
+          cause: { kind: 'message', by: actor, quote: quoteOf(body), messageId },
         });
     const sentAsFirstInput = (started?.messagesSent ?? 0) > 0;
     // A session about to restart into a new permission mode takes it after the restart (PM-170).
@@ -238,9 +243,10 @@ export class Messaging {
       projectKey,
       from,
       to: [session.member],
+      id: messageId,
       taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
       body,
-      actor: humanActor(from),
+      actor,
       sessionId: session.id,
       // A message in the first input of a starting session waits until that input is typed (PM-189).
       delivered: false,
@@ -270,7 +276,14 @@ export class Messaging {
         text: [names.join(', '), notice.comment].filter(Boolean).join('\n\n'),
         taskKey: task.key,
       },
-      { actor },
+      {
+        actor,
+        origin: {
+          kind: 'label',
+          labels: notice.labels,
+          eventId: this.ctx.repos.timeline.latestOfType(task.projectKey, task.key, 'task_labels_changed')?.id,
+        },
+      },
     );
   }
 
@@ -300,7 +313,10 @@ export class Messaging {
       // A reviewer that cannot be restarted now (AI work off, on leave) is told like the others.
       if (reviewers.includes(session.member) && task.assignee !== session.member) {
         const restarted = await this.sessions
-          .restartWithMessages(task.projectKey, session.id, [prefixed])
+          .restartWithMessages(task.projectKey, session.id, [prefixed], {
+            kind: 'description_changed',
+            by: actor,
+          })
           .catch((err: unknown) => {
             // The session was stopped before the start failed: there is nothing left to tell.
             this.ctx.logger.warn({ err, sessionId: session.id }, 'could not restart the reviewer');
@@ -319,7 +335,7 @@ export class Messaging {
       event.projectKey,
       actorHandle(event.actor),
       { to: mentions, text: event.data.text as string, taskKey: event.taskKey },
-      { actor: event.actor, sessionId: event.sessionId },
+      { actor: event.actor, sessionId: event.sessionId, origin: { kind: 'note', eventId: event.id } },
     );
   }
 
@@ -401,6 +417,8 @@ export class Messaging {
         workItem: session?.member === asker.handle ? session.workItem : routeFor(item.taskKey),
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
+        actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
+        origin: { kind: 'answer', inboxItemId: item.id },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
@@ -591,14 +609,16 @@ function startReason(config: ProjectConfig, cause: SessionStartCause | null): st
   if (!cause) return '';
   switch (cause.kind) {
     case 'message':
-      return cause.from.length > 0
-        ? ` (woken by a team message from ${cause.from.map((handle) => `\`${handle}\``).join(', ')})`
-        : '';
-    case 'stage':
-      return ` (the card entered ${stageOf(config, cause.stageId)?.name ?? cause.stageId}, moved by \`${cause.by}\`)`;
+    case 'mention':
+    case 'answer':
+      return ` (woken by ${cause.kind}${cause.by ? ` from ${cause.by.via ?? cause.by.handle}` : ''}${cause.quote ? `: ${cause.quote}` : ''})`;
+    case 'hand_over':
+      return ` (the card entered ${stageOf(config, cause.to ?? '')?.name ?? cause.to}, moved by ${cause.by?.via ?? cause.by?.handle})`;
     case 'refinement':
-      return ` (its refinement step for label \`${cause.label}\`)`;
-    case 'start':
-      return ` (started by \`${cause.by}\`)`;
+      return ` (its refinement step for label ${cause.labels?.join(', ')})`;
+    case 'start_button':
+      return ` (started by ${cause.by?.via ?? cause.by?.handle})`;
+    default:
+      return ` (${cause.kind})`;
   }
 }

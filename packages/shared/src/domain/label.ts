@@ -116,7 +116,13 @@ export function releaseGateAccepts(label: Pick<LabelDefinition, 'setBy'>): boole
 }
 
 /** Why an actor may not add or remove a label. */
-export const LabelRefusal = z.enum(['system_only', 'humans_only', 'not_holder', 'self_review']);
+export const LabelRefusal = z.enum([
+  'system_only',
+  'humans_only',
+  'not_holder',
+  'self_review',
+  'owner_approval',
+]);
 export type LabelRefusal = z.infer<typeof LabelRefusal>;
 
 /**

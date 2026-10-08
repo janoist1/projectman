@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { BoundaryId, DecideBoundaryRequest, routes } from '@projectman/shared';
 import type { Domain } from '../domain';
+import { forbidden } from '../domain';
 import { requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -14,6 +15,11 @@ export function registerBoundaryRoutes(app: FastifyInstance, domain: Domain): vo
   app.post<Params>(routes.decideBoundary(':key', ':id'), async (request) => {
     const { key, id } = request.params;
     const access = await requireAccess(domain, request, key, { internal: true });
+    if (access.via)
+      throw forbidden(
+        'owner_approval_required',
+        'Only the owner may decide a boundary request using their own login',
+      );
     return domain.boundary.decide(
       key,
       parseBody(BoundaryId, id),

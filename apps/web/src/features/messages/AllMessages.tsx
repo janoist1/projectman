@@ -194,13 +194,16 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       <Avatar
                         member={members.get(message.from)}
                         handle={message.from}
-                        isMe={message.from === myHandle}
+                        isMe={message.from === myHandle && !message.via}
+                        via={message.via}
                         size="md"
                         className={styles.avatar}
                       />
                       <span className={styles.names}>
                         {t('messages.fromTo', {
-                          from: nameOf(message.from, members, myHandle),
+                          from: message.via
+                            ? t('involvement.integratorFull')
+                            : nameOf(message.from, members, myHandle),
                           to: joinNames(namesOf(message.to, members, myHandle)),
                         })}
                       </span>

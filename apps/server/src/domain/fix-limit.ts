@@ -639,6 +639,14 @@ export class FixLimitWatch {
           config,
           member,
           workItem,
+          cause: {
+            kind: 'fix_limit',
+            eventId: this.timeline.latest(task.projectKey, task.key, 'task_fix_limit')?.id,
+            rounds: this.timeline.latest(task.projectKey, task.key, 'task_fix_limit')?.data.rounds as
+              number | undefined,
+            limit: this.timeline.latest(task.projectKey, task.key, 'task_fix_limit')?.data.limit as
+              number | undefined,
+          },
           messages: [...messages, formatInjectedTeamMessage('projectman', text, task.key)],
         }),
       );

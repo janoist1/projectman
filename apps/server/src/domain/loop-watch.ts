@@ -370,6 +370,11 @@ export class LoopWatch {
               config,
               member: member as AiMemberConfig,
               workItem,
+              cause: {
+                kind: 'loop',
+                loopId,
+                eventId: this.timeline.latest(projectKey, taskKey, 'task_loop')?.id,
+              },
               messages: [...messages, formatInjectedTeamMessage('projectman', text, taskKey)],
             }),
           );

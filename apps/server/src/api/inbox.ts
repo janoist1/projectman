@@ -36,6 +36,6 @@ export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void 
     const { key, itemId } = request.params;
     const access = await requireAccess(domain, request, key);
     const body = parseBody(ResolveInboxRequest, request.body);
-    return domain.inbox.resolve(key, itemId, body, { handle: access.handle, access: access.access });
+    return domain.inbox.resolve(key, itemId, body, access);
   });
 }

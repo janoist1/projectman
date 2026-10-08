@@ -288,7 +288,7 @@ export class TaskStarts {
     if (member.kind === 'ai') {
       session = (
         await this.sessions.ensureSession(projectKey, member.handle, workItem, {
-          cause: { kind: 'start', by: actorHandle(opts.actor) },
+          cause: { kind: 'start_button', by: opts.actor },
         })
       ).session;
     }
@@ -406,7 +406,7 @@ export class TaskStarts {
         config,
         member,
         workItem,
-        cause: { kind: 'start', by: actorHandle(opts.actor) },
+        cause: { kind: 'label_wait', labels: setters.labels, by: opts.actor },
       });
     const members = setters.members.map((m) => m.handle);
     this.labelWait.awaitLabels({

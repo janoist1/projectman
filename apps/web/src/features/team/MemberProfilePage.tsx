@@ -1,4 +1,5 @@
 import { InviteDialog } from './InviteDialog';
+import { describeStart, involvementText } from '../../lib/involvement';
 import { useState } from 'react';
 import { providerModelLabel } from './providerModels';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -401,6 +402,25 @@ export function MemberProfilePage() {
                     {t('profile.openSession')} · {workName(session)}
                   </Link>
                   <SessionPeek sessionId={session.id} />
+                  {session.startCause ? (
+                    <p>
+                      {involvementText(
+                        describeStart(
+                          {
+                            id: session.id,
+                            projectKey: key,
+                            taskKey: null,
+                            sessionId: session.id,
+                            actor: { kind: 'ai', handle: session.member },
+                            type: 'session_started',
+                            data: { cause: session.startCause, resumed: false },
+                            createdAt: session.startedAt,
+                          },
+                          { ...indexes, myHandle, openInboxIds: new Set() },
+                        ),
+                      )}
+                    </p>
+                  ) : null}
                 </div>
               ))}
               {pastSessions.length ? (
@@ -414,6 +434,25 @@ export function MemberProfilePage() {
                           <Link to={`/p/${key}/sessions/${session.id}`}>
                             {workName(session)} · {formatStamp(session.startedAt)}
                           </Link>
+                          {session.startCause ? (
+                            <p>
+                              {involvementText(
+                                describeStart(
+                                  {
+                                    id: session.id,
+                                    projectKey: key,
+                                    taskKey: null,
+                                    sessionId: session.id,
+                                    actor: { kind: 'ai', handle: session.member },
+                                    type: 'session_started',
+                                    data: { cause: session.startCause, resumed: false },
+                                    createdAt: session.startedAt,
+                                  },
+                                  { ...indexes, myHandle, openInboxIds: new Set() },
+                                ),
+                              )}
+                            </p>
+                          ) : null}
                           {closure ? (
                             <span className={styles.closed}>
                               {' · '}
@@ -426,6 +465,7 @@ export function MemberProfilePage() {
                   </ul>
                 </>
               ) : null}
+              <Link to={`/p/${key}/sessions?member=${handle}`}>{t('involvement.memberAll')}</Link>
             </section>
           ) : null}
           {usageEmpty ? null : (

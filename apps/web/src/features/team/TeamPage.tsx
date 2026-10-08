@@ -25,6 +25,7 @@ import { usePausedRows } from '../pause/usePause';
 import { ClosedCardsComparison } from './ClosedCardsComparison';
 import { MemberMenu } from './MemberMenu';
 import { RecentScheduleRuns } from './ScheduledRuns';
+import { RecentInvolvements } from './InvolvementsPage';
 import { EditMemberDialog } from './EditMemberDialog';
 import { RosterCards, RosterTable } from './Roster';
 import { RoleSection } from './RoleSection';
@@ -261,6 +262,7 @@ export function TeamPage() {
 
       <ClosedCardsComparison />
       <RecentScheduleRuns />
+      <RecentInvolvements />
       <PendingInvites />
       <AddHumanDialog open={dialog?.kind === 'addHuman'} onClose={close} />
       <InviteDialog

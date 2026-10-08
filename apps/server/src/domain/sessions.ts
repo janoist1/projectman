@@ -156,16 +156,8 @@ export interface EnsureSessionResult {
   firstInput: Promise<boolean>;
 }
 
-/** Why a task session started (PM-249): the joined notice tells the others. */
-export type SessionStartCause =
-  /** Woken by team messages: their senders, in order, once each. */
-  | { kind: 'message'; from: string[] }
-  /** The card entered a stage it owns (hand-over); `by` is who moved it. */
-  | { kind: 'stage'; stageId: string; by: string }
-  /** Its refinement step for a label (PM-252). */
-  | { kind: 'refinement'; label: string }
-  /** A task start (`TaskStarts`); `by` is who started it. */
-  | { kind: 'start'; by: string };
+export type { SessionStartCause } from '@projectman/shared';
+import type { SessionStartCause } from '@projectman/shared';
 
 export interface EnsureSessionOptions {
   /** Why the session starts; passed on to `task_session_joined`. None: the notice names no reason. */
@@ -704,6 +696,7 @@ export class SessionOrchestrator {
         // Its review round is over: no live process while the workspace moves to the new commit.
         // Not while paused: the start would be refused after the stop.
         assertNotPaused(this.ctx.repos.pauses, projectKey);
+        this.stopReasons.set(existing.id, { kind: 'restart', restartFor: 'new_round' });
         await this.deps.runner.stop(existing.id);
         this.markEnded(existing.id, null);
         announce = false;
@@ -730,7 +723,12 @@ export class SessionOrchestrator {
    * must not go on with it until its turn ends). The system prompt is built again. False, with nothing
    * stopped, when the session does not run or cannot restart now (AI work off, the member on leave).
    */
-  async restartWithMessages(projectKey: string, sessionId: string, messages: string[]): Promise<boolean> {
+  async restartWithMessages(
+    projectKey: string,
+    sessionId: string,
+    messages: string[],
+    cause?: SessionStartCause,
+  ): Promise<boolean> {
     const found = this.find(sessionId);
     if (!found || found.projectKey !== projectKey) return false;
     return this.locks.run(sessionLockKey(projectKey, found.member, found.workItem), async () => {
@@ -741,6 +739,7 @@ export class SessionOrchestrator {
       if (!this.mayWorkNow(config, member)) return false;
       const task =
         session.workItem.type === 'task' ? this.deps.tasks.get(projectKey, session.workItem.taskKey) : null;
+      this.stopReasons.set(session.id, { kind: 'restart', restartFor: 'description' });
       await this.deps.runner.stop(session.id);
       this.markEnded(session.id, null);
       await this.start(
@@ -751,6 +750,9 @@ export class SessionOrchestrator {
         this.find(sessionId),
         messagesForFirstInput(messages),
         false,
+        null,
+        null,
+        cause ?? null,
       );
       return true;
     });
@@ -893,11 +895,28 @@ export class SessionOrchestrator {
     }
     const task = session.workItem.type === 'task' ? this.ctx.repos.tasks.get(session.workItem.taskKey) : null;
     const grantsLost = this.grantedForSession(session);
+    const change = this.ctx.repos.timeline.latestForSession(
+      projectKey,
+      sessionId,
+      'session_permission_changed',
+    );
+    this.stopReasons.set(session.id, { kind: 'restart', restartFor: 'permission' });
     await this.deps.runner.stop(session.id);
     this.markEnded(session.id, null);
-    await this.start(config, member, session.workItem, task, this.find(sessionId), [], false, {
-      grantsLost,
-    });
+    await this.start(
+      config,
+      member,
+      session.workItem,
+      task,
+      this.find(sessionId),
+      [],
+      false,
+      {
+        grantsLost,
+      },
+      null,
+      { kind: 'permission_change', by: change?.actor, eventId: change?.id },
+    );
   }
 
   /**
@@ -1073,15 +1092,16 @@ export class SessionOrchestrator {
     }
   }
 
-  async stopMember(projectKey: string, handle: string): Promise<void> {
+  async stopMember(projectKey: string, handle: string, stop?: SessionStop): Promise<void> {
     for (const session of this.ctx.repos.sessions.list(projectKey, { member: handle })) {
       this.dropPause(session);
       try {
+        if (stop) this.stopReasons.set(session.id, stop);
         if (this.isRunning(session.id)) await this.deps.runner.stop(session.id);
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop a session');
       }
-      this.markEnded(session.id, null);
+      this.markEnded(session.id, null, null, stop);
     }
   }
 
@@ -1235,23 +1255,19 @@ export class SessionOrchestrator {
     for (const m of change.previous.team.members) {
       if (m.kind !== 'ai') continue;
       const stays = next.get(m.handle);
-      if (!stays || (isOnLeave(stays) && !isOnLeave(m))) await this.stopMember(change.projectKey, m.handle);
+      if (!stays || (isOnLeave(stays) && !isOnLeave(m)))
+        await this.stopMember(change.projectKey, m.handle, {
+          kind: !stays ? 'member_retired' : 'member_on_leave',
+          by: change.actor,
+        });
     }
   }
 
   /** Startup: sessions do not survive a restart (their conversations do, via --resume). */
   reconcileAfterRestart(): void {
-    const at = isoNow(this.ctx);
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (this.isRunning(session.id)) continue;
-      this.ctx.repos.sessions.update(session.id, {
-        state: 'exited',
-        activity: null,
-        stateSince: at,
-        endedAt: at,
-        permissionRestartPending: false,
-        doing: null,
-      });
+      this.markEnded(session.id, null, null, { kind: 'server_restart' });
     }
     // No process of an earlier run survives: what is left of the session folders is removed (PM-268).
     const folders = this.deps.sessionFolders;
@@ -1870,8 +1886,9 @@ export class SessionOrchestrator {
       sessionId: session.id,
       actor: aiActor(member.handle),
       type: 'session_started',
-      data: { member: member.handle, resumed: resume },
+      data: { member: member.handle, resumed: resume, ...(cause ? { cause } : {}) },
     });
+    this.ctx.repos.sessions.update(session.id, { startCause: cause });
     const fresh = this.ctx.repos.sessions.get(session.id)!;
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);
@@ -2263,7 +2280,9 @@ export class SessionOrchestrator {
     const why =
       stop ??
       this.stopReasons.get(sessionId) ??
-      (session && !failed && this.isPaused(session) ? ({ kind: 'pause' } as const) : undefined);
+      (session && !failed && this.isPaused(session)
+        ? ({ kind: 'pause' } as const)
+        : ({ kind: failed ? (reason ? 'login_lost' : 'failed') : 'exited' } as const));
     // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
     // start begins a new conversation, so it does not fail again and again with the same resume.
     const resumeFailed =

@@ -5,6 +5,8 @@
  * per-session token.
  */
 export const routes = {
+  integratorKey: () => '/api/auth/integrator-key',
+  involvements: (key: string) => `/api/projects/${key}/involvements`,
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
   decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
   revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,

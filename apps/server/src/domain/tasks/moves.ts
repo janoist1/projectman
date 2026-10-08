@@ -54,6 +54,7 @@ export interface StageChange {
   from: string;
   to: string;
   actor: Actor;
+  eventId?: string;
   /**
    * A person moved the card after the warning that a prerequisite is open (PM-204): the work start
    * the move makes does not wait for the prerequisites.
@@ -494,7 +495,7 @@ export class TaskMoves {
       placed = entered.reranked;
     }
     let next = this.store.write(task, patch);
-    this.store.timeline.append({
+    const event = this.store.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
       actor,
@@ -520,6 +521,7 @@ export class TaskMoves {
       from: task.stageId,
       to: target.id,
       actor,
+      eventId: event.id,
       ...(despitePrerequisites ? { despitePrerequisites } : {}),
     };
     effects.push(() => this.store.ctx.events.emit('task_stage_changed', change));

@@ -114,6 +114,11 @@ describe('Refinement line', () => {
     await vi.waitFor(() => expect(members()).toHaveLength(1));
     expect(members()).toEqual(['ana']);
     expect(turn()?.data).toEqual({ label: 'scope-ok', member: 'ana', reason: 'started' });
+    const cause = sessionsOf()[0]!.startCause;
+    expect(cause).toMatchObject({ kind: 'refinement', labels: ['refine'], by: OWNER_ACTOR });
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-1' }).find((event) => event.id === cause?.eventId)?.type,
+    ).toBe('task_labels_changed');
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBe('ana');
     expect(h.runner.started).toHaveLength(1);
   });

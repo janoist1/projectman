@@ -8,12 +8,14 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
 import { Dialog } from '../../components/Dialog';
+import { TextField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { MoreMenu } from '../../components/MoreMenu';
 import { StageProgress } from '../../components/StageProgress';
 import { useToast } from '../../components/toastContext';
 import { formatStamp, formatTokens } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { errorMessage } from '../../lib/errors';
 import { useIsMobile } from '../../lib/hooks';
 import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -60,6 +62,7 @@ export function SessionHeader({
   const navigate = useNavigate();
   const location = useLocation();
   const [confirmStop, setConfirmStop] = useState(false);
+  const [stopNote, setStopNote] = useState('');
   const stage = task && pipeline ? pipeline.stageById.get(task.stageId) : undefined;
   const column = task && pipeline ? pipeline.columnOfStage.get(task.stageId) : undefined;
   const pr = task ? prChip(task) : null;
@@ -92,6 +95,7 @@ export function SessionHeader({
           variant="danger"
           icon="stop"
           onClick={() => {
+            stop.reset();
             setConfirmStop(true);
             close();
           }}
@@ -214,13 +218,20 @@ export function SessionHeader({
       ) : null}
       <Dialog
         open={confirmStop}
-        onClose={() => setConfirmStop(false)}
+        onClose={() => {
+          if (!stop.isPending) setConfirmStop(false);
+        }}
         title={t('session.stopTitle')}
         description={t('session.stopBody')}
         size="sm"
         footer={
           <>
-            <Button variant="secondary" size="md" onClick={() => setConfirmStop(false)}>
+            <Button
+              variant="secondary"
+              size="md"
+              disabled={stop.isPending}
+              onClick={() => setConfirmStop(false)}
+            >
               {t('common.cancel')}
             </Button>
             <Button
@@ -229,20 +240,58 @@ export function SessionHeader({
               icon="stop"
               loading={stop.isPending}
               onClick={() =>
-                stop.mutate(session.id, {
-                  onSuccess: () => {
-                    toast.show(t('session.stopped'));
-                    setConfirmStop(false);
+                stop.mutate(
+                  { sessionId: session.id, ...(stopNote.trim() ? { note: stopNote.trim() } : {}) },
+                  {
+                    onSuccess: () => {
+                      toast.show(t('session.stopped'));
+                      setConfirmStop(false);
+                      setStopNote('');
+                    },
                   },
-                  onError: () => toast.show(t('errors.generic'), 'error'),
-                })
+                )
               }
             >
               {t('session.stop')}
             </Button>
           </>
         }
-      />
+      >
+        {stop.isError ? (
+          <p role="alert">{t('involvement.stopError', { reason: errorMessage(stop.error) })}</p>
+        ) : null}
+        <TextField
+          label={t('involvement.stopNote')}
+          hint={
+            <>
+              {t('involvement.stopHint')}
+              {stopNote.length >= 160 ? ` ${stopNote.length}/200` : ''}
+            </>
+          }
+          id="session-stop-note"
+          autoFocus
+          maxLength={200}
+          value={stopNote}
+          disabled={stop.isPending}
+          placeholder={t('involvement.stopPlaceholder')}
+          onChange={(event) => setStopNote(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !stop.isPending) {
+              event.preventDefault();
+              stop.mutate(
+                { sessionId: session.id, ...(stopNote.trim() ? { note: stopNote.trim() } : {}) },
+                {
+                  onSuccess: () => {
+                    toast.show(t('session.stopped'));
+                    setConfirmStop(false);
+                    setStopNote('');
+                  },
+                },
+              );
+            }
+          }}
+        />
+      </Dialog>
     </div>
   );
 }

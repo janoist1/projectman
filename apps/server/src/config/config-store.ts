@@ -284,7 +284,13 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         const path = projectPath(projectKey);
         await git(['add', '-A', '--', path]);
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
-        return { version: await commit(meta.message, meta.author, [path]) };
+        return {
+          version: await commit(
+            meta.message + (meta.author.via ? '\n\nProjectman-Via: integrator' : ''),
+            meta.author,
+            [path],
+          ),
+        };
       });
     },
 
@@ -305,7 +311,14 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         .filter(Boolean)
         .map((record): ConfigVersionEntry => {
           const [version = '', author = '', at = '', message = ''] = record.split('\x1f');
-          return { version, author, at, message: message.trim() };
+          const via = /(?:^|\n)Projectman-Via: integrator\s*$/.test(message);
+          return {
+            version,
+            author,
+            at,
+            message: message.replace(/\n\nProjectman-Via: integrator\s*$/, '').trim(),
+            ...(via ? { via: 'integrator' } : {}),
+          };
         });
     },
 
@@ -326,7 +339,13 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         await git(['add', '-A', '--', path]);
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
         const message = `Revert ${projectKey} configuration to ${commitId.slice(0, 12)}`;
-        return { version: await commit(message, meta.author, [path]) };
+        return {
+          version: await commit(
+            message + (meta.author.via ? '\n\nProjectman-Via: integrator' : ''),
+            meta.author,
+            [path],
+          ),
+        };
       });
     },
   };

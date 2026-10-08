@@ -8,11 +8,12 @@ import {
   SendTeamMessageRequest,
   TaskKey,
   UpdateSessionRequest,
+  StopSessionRequest,
 } from '@projectman/shared';
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
-import { canSeeTask, teamMessageParticipant } from '../domain/visibility';
+import { canSeeTask, teamMessageParticipant, visibleSession } from '../domain/visibility';
 import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -31,8 +32,9 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   /** Session with its chat, parsed from the Claude Code transcript. */
   app.get<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<SessionDetail> => {
     const { key, sessionId } = request.params;
-    await requireAccess(domain, request, key, { internal: true });
-    return domain.sessions.detail(key, sessionId);
+    const access = await requireAccess(domain, request, key, { internal: true });
+    const detail = await domain.sessions.detail(key, sessionId);
+    return { ...detail, session: visibleSession(access, detail.session, (id) => domain.messages.get(id)) };
   });
 
   /**
@@ -51,14 +53,26 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
     const body = parseBody(SendMessageRequest, request.body);
-    const message = await domain.messaging.sendToSession(key, sessionId, body.text, access.handle);
+    const message = await domain.messaging.sendToSession(
+      key,
+      sessionId,
+      body.text,
+      access.handle,
+      actorOf(access),
+    );
     return reply.code(202).send(message);
   });
 
   app.post<SessionParams>(routes.stopSession(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-    return domain.sessions.stop(key, sessionId, { kind: 'manual', by: actorOf(access) });
+    const body = parseBody(StopSessionRequest, request.body ?? {});
+    const stopped = await domain.sessions.stop(key, sessionId, {
+      kind: body.purpose ?? 'manual',
+      by: actorOf(access),
+      ...(body.note ? { note: body.note } : {}),
+    });
+    return visibleSession(access, stopped, (id) => domain.messages.get(id));
   });
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
@@ -67,7 +81,9 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const body = parseBody(SendTeamMessageRequest, request.body);
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
-    return reply.code(202).send(await domain.messaging.send(key, access.handle, body));
+    return reply
+      .code(202)
+      .send(await domain.messaging.send(key, access.handle, body, { actor: actorOf(access) }));
   });
 
   app.post<{ Params: { key: string; id: string } }>(

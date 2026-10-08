@@ -4,6 +4,7 @@ import {
   mergeTokenUsage,
   SelectablePermissionMode,
   SessionStop,
+  SessionStartCause,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -50,6 +51,7 @@ interface SessionRow {
   doing_summary: string | null;
   doing_detail: string | null;
   last_stop: string | null;
+  start_cause: string | null;
 }
 
 /** The stored reason of the last stop (JSON); a broken or empty value is no reason (PM-288). */
@@ -57,6 +59,17 @@ function lastStopOf(raw: string | null): SessionStop | undefined {
   if (!raw) return undefined;
   try {
     const parsed = SessionStop.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Ignore malformed or newer start causes while keeping the session readable. */
+function startCauseOf(raw: string | null): SessionStartCause | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = SessionStartCause.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -138,6 +151,7 @@ const baseSession = (r: SessionRow): Session => ({
     ? { doing: { summary: r.doing_summary, ...(r.doing_detail ? { detail: r.doing_detail } : {}) } }
     : {}),
   ...(lastStopOf(r.last_stop) ? { lastStop: lastStopOf(r.last_stop) } : {}),
+  ...(startCauseOf(r.start_cause) ? { startCause: startCauseOf(r.start_cause) } : {}),
 });
 
 /** A summed row of the token_usage table. */
@@ -179,10 +193,11 @@ export type SessionPatch = Partial<
   doing?: WorkDoing | null;
   /** Why the session stopped (PM-288); null clears it. */
   lastStop?: SessionStop | null;
+  startCause?: SessionStartCause | null;
 };
 
 /** The patch with `doing` spread over its two columns; the other keys are columns of their own. */
-const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop'>, string> = {
+const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop' | 'startCause'>, string> = {
   usageSince: 'usage_since',
   permissionModeOverride: 'permission_mode',
   approverOverride: 'approver',
@@ -370,7 +385,7 @@ export function createSessionRepository(db: Db) {
       return row.n;
     },
     update(id: string, patch: SessionPatch): Session | null {
-      const { doing, lastStop, ...columns } = patch;
+      const { doing, lastStop, startCause, ...columns } = patch;
       const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as Array<
         [keyof typeof COLUMNS, unknown]
       >;
@@ -379,6 +394,8 @@ export function createSessionRepository(db: Db) {
         named.push(['doing_summary', doing?.summary ?? null], ['doing_detail', doing?.detail ?? null]);
       }
       if (lastStop !== undefined) named.push(['last_stop', lastStop ? JSON.stringify(lastStop) : null]);
+      if (startCause !== undefined)
+        named.push(['start_cause', startCause ? JSON.stringify(startCause) : null]);
       if (named.length > 0) {
         const set = named.map(([column]) => `${column} = ?`).join(', ');
         let statement = updates.get(set);

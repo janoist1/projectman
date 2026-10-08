@@ -76,6 +76,7 @@ export interface CreateInboxItemInput {
 }
 
 export interface Resolver {
+  via?: 'integrator';
   handle: string;
   access: HumanAccess;
 }
@@ -218,6 +219,12 @@ export class InboxService {
     by: Resolver,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
+    if (by.via && !['question', 'alert'].includes(item.kind))
+      throw forbidden(
+        'owner_approval_required',
+        'Only the owner may give this approval using their own login',
+        { kind: item.kind },
+      );
     if (item.state !== 'open') throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`);
     if (!item.options.some((o) => o.id === req.optionId)) {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
@@ -246,7 +253,7 @@ export class InboxService {
     const resolved = this.ctx.repos.inbox.close(
       id,
       'resolved',
-      { optionId: req.optionId, by: by.handle, at, note },
+      { optionId: req.optionId, by: by.handle, at, note, ...(by.via ? { via: by.via } : {}) },
       at,
     );
     if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
@@ -257,7 +264,7 @@ export class InboxService {
         projectKey,
         taskKey: resolved.taskKey,
         sessionId: resolved.sessionId,
-        actor: humanActor(by.handle),
+        actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
         type: 'permission_resolved',
         data: {
           inboxItemId: id,

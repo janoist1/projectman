@@ -33,6 +33,49 @@ import { Task, TaskKey, TaskKind, TaskPriority, Visibility } from '../domain/tas
 
 /* ---------- auth ---------- */
 
+export const StopSessionRequest = z.object({
+  note: z.string().trim().min(1).max(200).optional(),
+  purpose: z.literal('assignee_change').optional(),
+});
+export type StopSessionRequest = z.infer<typeof StopSessionRequest>;
+
+export const InvolvementQuery = z.object({
+  member: MemberHandle.optional(),
+  by: z.string().min(1).max(32).optional(),
+  task: TaskKey.optional(),
+  since: z.string().datetime().optional(),
+  kind: z.enum(['started', 'stopped']).optional(),
+  before: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type InvolvementQuery = z.infer<typeof InvolvementQuery>;
+export const InvolvementItem = z.object({ event: TimelineEvent, taskTitle: z.string().nullable() });
+export type InvolvementItem = z.infer<typeof InvolvementItem>;
+export const InvolvementsResponse = z.object({
+  items: z.array(InvolvementItem),
+  counts: z.object({ started: z.number().int(), stopped: z.number().int() }),
+  nextBefore: z.string().nullable(),
+});
+export type InvolvementsResponse = z.infer<typeof InvolvementsResponse>;
+
+export const IntegratorKeyState = z.enum(['active', 'expired', 'revoked']);
+export const IntegratorKeyInfo = z.object({
+  prefix: z.string(),
+  state: IntegratorKeyState,
+  createdAt: z.string(),
+  expiresAt: z.string().nullable(),
+  lastUsedAt: z.string().nullable(),
+  revokedAt: z.string().nullable(),
+});
+export type IntegratorKeyInfo = z.infer<typeof IntegratorKeyInfo>;
+export const IntegratorKeyResponse = z.object({ key: IntegratorKeyInfo.nullable() });
+export type IntegratorKeyResponse = z.infer<typeof IntegratorKeyResponse>;
+export const CreateIntegratorKeyRequest = z.object({
+  expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365), z.null()]).default(90),
+});
+export const CreatedIntegratorKey = z.object({ key: IntegratorKeyInfo, secret: z.string() });
+export type CreatedIntegratorKey = z.infer<typeof CreatedIntegratorKey>;
+
 export const SetupRequest = z.object({
   name: z.string().min(1),
   email: z.string().min(3),
@@ -44,6 +87,8 @@ export const LoginRequest = z.object({ email: z.string().min(3), password: z.str
 export type LoginRequest = z.infer<typeof LoginRequest>;
 
 export const Me = z.object({
+  hostOwner: z.boolean().optional(),
+  via: z.literal('integrator').optional(),
   userId: z.string(),
   name: z.string(),
   email: z.string(),
@@ -632,6 +677,7 @@ export type ResolveInboxRequest = z.infer<typeof ResolveInboxRequest>;
 /* ---------- configuration ---------- */
 
 export const ConfigVersionEntry = z.object({
+  via: z.literal('integrator').optional(),
   version: z.string(),
   message: z.string(),
   author: z.string(),

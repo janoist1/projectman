@@ -523,7 +523,7 @@ function RecipientGroup({
 /** "Név → Név, Név": who wrote it and to whom. */
 function routeOf(message: TeamMessage, members: MemberIndex, myHandle: string | null): string {
   return t('messages.fromTo', {
-    from: nameOf(message.from, members, myHandle),
+    from: message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle),
     to: joinNames(namesOf(message.to, members, myHandle)),
   });
 }
@@ -566,7 +566,7 @@ function MessageBubble({
       {mine ? null : (
         <span className={styles.avatarSlot}>
           {entry.firstOfRun ? (
-            <Avatar member={members.get(message.from)} handle={message.from} size="md" />
+            <Avatar member={members.get(message.from)} handle={message.from} via={message.via} size="md" />
           ) : null}
         </span>
       )}
@@ -639,12 +639,14 @@ function QuestionAndAnswer({
       </p>
       {body ? <QuestionBody text={body} closed={Boolean(title)} /> : null}
       <p className={styles.qaAnswer}>
-        {message.from === myHandle
-          ? t('task.thread.youAnswered', { answer: answer.answer })
-          : t('task.thread.answered', {
-              name: nameOf(message.from, members, myHandle),
-              answer: answer.answer,
-            })}
+        {message.via
+          ? `${t('integratorKey.forwarded')}: ${answer.answer}`
+          : message.from === myHandle
+            ? t('task.thread.youAnswered', { answer: answer.answer })
+            : t('task.thread.answered', {
+                name: message.via ? t('involvement.integratorFull') : nameOf(message.from, members, myHandle),
+                answer: answer.answer,
+              })}
       </p>
     </section>
   );

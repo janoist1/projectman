@@ -47,7 +47,14 @@ import { isOpenTask, isTheme } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { unique } from './util';
-import { canSeeTask, isClient, memberForViewer, visibleTasks as visibleTasksOf } from './visibility';
+import {
+  canSeeTask,
+  isClient,
+  memberForViewer,
+  visibleSession,
+  visibleTimelineEvent,
+  visibleTasks as visibleTasksOf,
+} from './visibility';
 import type { Viewer } from './visibility';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
@@ -662,10 +669,15 @@ export class MemberProfiles {
       ),
       // A client sees only their own open inbox.
       inbox: internal || handle === viewer.handle ? openInbox : [],
-      timeline: internal ? this.ctx.repos.timeline.forMember(projectKey, handle) : [],
+      timeline: internal
+        ? this.ctx.repos.timeline
+            .forMember(projectKey, handle)
+            .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
+        : [],
       sessions: internal
         ? this.sessions
             .list(projectKey, { member: handle })
+            .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
             .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
         : [],
       capacity: original.kind === 'ai' ? original.capacity : null,

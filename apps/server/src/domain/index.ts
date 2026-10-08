@@ -89,6 +89,7 @@ import { ScreenshotRuns } from './screenshot-runs';
 import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
+import { InvolvementService } from './involvements';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
@@ -336,6 +337,7 @@ export function createDomain(opts: DomainOptions) {
     : null;
 
   const timeline = new TimelineService(ctx);
+  const involvements = new InvolvementService(ctx);
   const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
     opts.attachmentStorage.taskDirectory(projectKey, taskKey);
@@ -848,7 +850,11 @@ export function createDomain(opts: DomainOptions) {
   });
   // Cancelled tasks stop their sessions; moves and closures drop the starts they made obsolete.
   events.on('task_cancelled', (task) =>
-    sessions.stopTask(task.projectKey, task.key, { kind: 'task_cancelled', taskKey: task.key }),
+    sessions.stopTask(task.projectKey, task.key, {
+      kind: 'task_cancelled',
+      taskKey: task.key,
+      by: task.cancelledBy,
+    }),
   );
   events.on('task_cancelled', (task) => admission.discardStale(task));
   // A card that closes (done or withdrawn) frees the cards that need it first (PM-204).
@@ -1003,6 +1009,7 @@ export function createDomain(opts: DomainOptions) {
     bus,
     templates,
     timeline,
+    involvements,
     projects,
     inbox,
     boundary,

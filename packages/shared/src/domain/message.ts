@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -31,6 +32,8 @@ export type TeamMessageAnswer = z.infer<typeof TeamMessageAnswer>;
 
 /** A message between team members (human or AI), optionally about a task. */
 export const TeamMessage = z.object({
+  via: z.literal('integrator').optional(),
+  origin: MessageOrigin.optional(),
   id: z.string(),
   projectKey: z.string(),
   from: MemberHandle,

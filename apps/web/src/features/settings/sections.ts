@@ -8,6 +8,7 @@ export const SETTINGS_SECTIONS = [
   'repos',
   'history',
   'providers',
+  'integrator',
   'account',
 ] as const;
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number];

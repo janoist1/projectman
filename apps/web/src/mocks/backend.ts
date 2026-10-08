@@ -1,6 +1,9 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
   StopOrphansRequest,
+  StopSessionRequest,
+  CreateIntegratorKeyRequest,
+  InvolvementQuery,
   canManageInstancePause,
   canManageProviderKeys,
   SetProviderKeyRequest,
@@ -287,6 +290,8 @@ function ok(body?: unknown): MockResponse {
 /** The server's answer to a refused label change. */
 function labelChangeError(refusal: LabelChangeRefusal): MockResponse {
   switch (refusal.code) {
+    case 'owner_approval_required':
+      return error(403, refusal.code, 'Only the owner may give this approval', { label: refusal.label });
     case 'self_review_forbidden':
       return error(403, refusal.code, 'The assignee and PR authors cannot set this label', {
         label: refusal.label,
@@ -356,6 +361,11 @@ export class MockBackend {
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
   members: MemberView[] = clone(fixtures.members);
   timeline: TimelineEvent[] = clone(fixtures.timeline);
+  integratorKey: import('@projectman/shared').IntegratorKeyInfo | null = null;
+  private viewerAccess(): import('@projectman/shared').HumanAccess {
+    const member = memberOf(this.config, this.viewerHandle);
+    return member?.kind === 'human' ? member.access : 'viewer';
+  }
   /** Where each card's fix rounds are counted from and the rounds people let it have (PM-262). */
   private fixLimitState = new Map<string, { countedFrom: string | null; extraRounds: number }>();
   /** The cards that wait for a Senior (PM-348): since when, the question asked and the answer given. */
@@ -1343,6 +1353,34 @@ export class MockBackend {
     if (this.auth !== 'ready') return error(401, 'unauthorized', 'Login required');
 
     if (path === '/api/me') return ok(this.me());
+    if (path === '/api/auth/integrator-key') {
+      if (!this.me().hostOwner) return error(403, 'owner_only', 'Only the host owner may manage the key');
+      if (method === 'POST') {
+        const input = parseBody(CreateIntegratorKeyRequest, body ?? {});
+        if (!input) return error(400, 'invalid_request', 'Invalid key request');
+        this.integratorKey = {
+          prefix: 'pmi_mock_key',
+          state: 'active',
+          createdAt: nowIso(),
+          expiresAt:
+            input.expiresInDays === null
+              ? null
+              : new Date(Date.now() + input.expiresInDays * 86_400_000).toISOString(),
+          lastUsedAt: null,
+          revokedAt: null,
+        };
+        return {
+          status: 201,
+          body: { key: clone(this.integratorKey), secret: 'pmi_mock_key_for_ui_tests_only' },
+        };
+      }
+      if (method === 'DELETE') {
+        if (!this.integratorKey || this.integratorKey.state !== 'active')
+          return error(404, 'not_found', 'No active key');
+        this.integratorKey = { ...this.integratorKey, state: 'revoked', revokedAt: nowIso() };
+      }
+      return ok({ key: clone(this.integratorKey) });
+    }
     if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
       if (!this.me().instanceOwner) return error(403, 'insufficient_access', 'Instance owner required');
       if (path === '/api/machine' && method === 'GET') return ok(this.machine ?? this.machineView());
@@ -1451,6 +1489,7 @@ export class MockBackend {
     const member = memberOf(this.config, this.viewerHandle);
     return {
       ...this.user,
+      hostOwner: this.user.userId === fixtures.mockUser.userId,
       instanceOwner: canManageInstancePause([member?.kind === 'human' ? member.access : null]),
       handles: this.viewerHandle ? { [fixtures.PROJECT_KEY]: this.owner } : {},
       projects:
@@ -1643,7 +1682,67 @@ export class MockBackend {
     }
     if ((m = /^\/sessions\/([\w-]+)\/messages$/.exec(rest)) && method === 'POST')
       return this.sessionMessage(m[1]!, body);
-    if ((m = /^\/sessions\/([\w-]+)\/stop$/.exec(rest)) && method === 'POST') return this.stopSession(m[1]!);
+    if ((m = /^\/sessions\/([\w-]+)\/stop$/.exec(rest)) && method === 'POST')
+      return this.stopSession(m[1]!, body);
+
+    if (rest === '/involvements' && method === 'GET') {
+      if (this.viewerAccess() === 'client') return error(403, 'insufficient_access', 'Internal only');
+      const input = parseBody(InvolvementQuery, Object.fromEntries(query));
+      if (!input) return error(400, 'invalid_request', 'Invalid involvement query');
+      const events = this.timeline
+        .filter((event) => {
+          if (!['session_started', 'session_ended'].includes(event.type)) return false;
+          const start = event.data.cause as import('@projectman/shared').SessionStartCause | undefined;
+          const stop = event.data.stop as SessionStop | undefined;
+          if (
+            stop?.kind === 'restart' ||
+            (input.member && event.data.member !== input.member) ||
+            (input.task && event.taskKey !== input.task) ||
+            (input.since && event.createdAt < input.since)
+          )
+            return false;
+          if (input.kind && event.type !== (input.kind === 'started' ? 'session_started' : 'session_ended'))
+            return false;
+          if (!input.by) return true;
+          if (!start && !stop) return false;
+          const by = start?.by ?? stop?.by;
+          return input.by === 'integrator'
+            ? by?.via === 'integrator'
+            : input.by === 'system'
+              ? !by || by.kind === 'system'
+              : by?.handle === input.by && !by.via;
+        })
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
+      const offset = input.before ? Number(input.before) : 0;
+      const page = events.slice(offset, offset + input.limit);
+      return ok({
+        items: page.map((event) => {
+          const cause = event.data.cause as import('@projectman/shared').SessionStartCause | undefined;
+          const message = cause?.messageId
+            ? this.messages.find((entry) => entry.id === cause.messageId)
+            : null;
+          let visible = event;
+          if (
+            cause?.quote &&
+            cause.messageId &&
+            (!message ||
+              !canSeeTeamMessage({ handle: this.viewerHandle, access: this.viewerAccess() }, message))
+          ) {
+            const { quote: _quote, ...rest } = cause;
+            visible = { ...event, data: { ...event.data, cause: rest } };
+          }
+          return {
+            event: clone(visible),
+            taskTitle: event.taskKey ? (this.findTask(event.taskKey)?.title ?? null) : null,
+          };
+        }),
+        counts: {
+          started: events.filter((event) => event.type === 'session_started').length,
+          stopped: events.filter((event) => event.type === 'session_ended').length,
+        },
+        nextBefore: offset + input.limit < events.length ? String(offset + input.limit) : null,
+      });
+    }
 
     if (rest === '/messages') {
       if (method === 'POST') return this.humanTeamMessage(body);
@@ -4156,10 +4255,16 @@ export class MockBackend {
     return ok(this.pauses.instanceView());
   }
 
-  private stopSession(sessionId: string): MockResponse {
+  private stopSession(sessionId: string, body?: unknown): MockResponse {
+    const input = parseBody(StopSessionRequest, body ?? {});
+    if (!input) return error(400, 'invalid_request', 'Invalid stop request');
     const session = this.findSession(sessionId);
     if (!session) return error(404, 'not_found', 'Unknown session');
-    this.closeSession(sessionId, { kind: 'manual', by: this.viewerActor() });
+    this.closeSession(sessionId, {
+      kind: input.purpose ?? 'manual',
+      by: this.viewerActor(),
+      ...(input.note ? { note: input.note } : {}),
+    });
     if (this.machine?.sessions.some((row) => row.sessionId === sessionId)) {
       const row = this.machine.sessions.find((row) => row.sessionId === sessionId)!;
       this.machine.sessions = this.machine.sessions.filter((row) => row.sessionId !== sessionId);

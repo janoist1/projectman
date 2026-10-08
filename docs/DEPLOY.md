@@ -456,3 +456,20 @@ Repeat the HTTPS curl checks after updating; inspect logs with `journalctl -u pr
 If the build fails, restore the previous checkout/build before restarting. A restart stops
 active PTYs after pausing the team (above); stored conversations remain resumable, and the
 sessions that were working go on after the start.
+
+# Integrator access
+
+The host owner can create an integrator key in Settings → Integrator. The secret is shown once;
+save it as `~/.config/projectman/integrator-key` on the integrator's machine, with directory mode
+700 and file mode 600. Never put it in a message, task, commit, member prompt or engine payload.
+Send it in the `Authorization: Bearer <key>` header on `/api/*` requests. For example:
+
+```sh
+curl -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" http://localhost:4800/api/me
+```
+
+Bearer authentication takes precedence over a login cookie. A revoked or expired key fails with
+`integrator_key_invalid`; a replacement immediately revokes the previous key. Keys cannot approve
+human decisions or approval labels, and cannot manage keys or authenticate a websocket connection.
+The owner must give approvals using their own login. Every key operation remains attributed to
+the integrator (`via: integrator`), even after revocation.

@@ -888,6 +888,16 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
+  `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
+  The host owner creates a separately attributed bearer key; the server stores only its hash.
+  The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
+  Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
+  `PROJECTMAN_INTEGRATOR_KEY` before launching members.
+  **Remote engine:** key authentication and audit stay on the server; the credential is never
+  sent to an engine or member session. Engines must deny the same directory in their worker
+  homes and strip the environment variable before spawning a CLI.
+
 - **Codex project layer check** — `runner/managed-vm.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
   `runner/providers/codex/index.ts` (`launch`), `domain/sessions.ts` (PM-357).

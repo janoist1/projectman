@@ -32,7 +32,7 @@ export interface DomainEventMap {
   /** A card's recommended developer was set or changed (PM-347), after the change committed. */
   task_level_changed: { task: Task; actor: Actor };
   /** A task was cancelled. */
-  task_cancelled: Task;
+  task_cancelled: Task & { cancelledBy?: Actor };
   /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */
   task_prerequisite_removed: Task;
   /** A task's labels changed (after the change committed): a start that waits for a label may go ahead (PM-236). */

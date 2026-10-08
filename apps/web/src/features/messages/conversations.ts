@@ -172,6 +172,7 @@ export function layoutThread(
     const firstOfRun =
       !previous ||
       previous.from !== message.from ||
+      previous.via !== message.via ||
       new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() > RUN_GAP_MS ||
       breaksRun?.(previous, message) === true;
     const showTask = message.taskKey !== null && message.taskKey !== lastTask;

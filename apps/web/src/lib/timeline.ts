@@ -16,6 +16,7 @@ import type { MemberIndex } from './members';
 import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
 import { closureTexts, eventClosure } from './sessions';
+import { describeStart, describeStop, involvementText } from './involvement';
 
 export interface TimelineContext {
   pipeline: PipelineIndex | null;
@@ -485,8 +486,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     case 'session_started':
-      return normal(d.resumed ? t('timeline.events.session_resumed') : t('timeline.events.session_started'));
+      return normal(involvementText(describeStart(event, ctx)));
     case 'session_ended': {
+      if (d.stop) return normal(involvementText(describeStop(event, ctx)));
       const closure = eventClosure(d);
       return normal(
         closure

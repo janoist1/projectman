@@ -76,9 +76,11 @@ export function ConversationList({
         const name = nameOf(row.peer, members, myHandle);
         const message = row.lastMessage;
         const text = message
-          ? message.from === myHandle
-            ? t('messages.list.you', { text: plainPreview(message.body) })
-            : plainPreview(message.body)
+          ? message.via
+            ? `${t('involvement.integrator')}: ${plainPreview(message.body)}`
+            : message.from === myHandle
+              ? t('messages.list.you', { text: plainPreview(message.body) })
+              : plainPreview(message.body)
           : (questionTitles.get(row.peer) ?? '');
         const label = [
           name,

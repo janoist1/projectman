@@ -722,5 +722,20 @@ UPDATE tasks SET stage_entered_at = COALESCE(
     ORDER BY e.seq DESC LIMIT 1),
   created_at);`,
   },
+  {
+    version: 38,
+    name: 'session involvement attribution',
+    sql: `ALTER TABLE timeline_events ADD COLUMN actor_via TEXT;
+    ALTER TABLE team_messages ADD COLUMN via TEXT;
+    ALTER TABLE team_messages ADD COLUMN origin TEXT;
+    ALTER TABLE sessions ADD COLUMN start_cause TEXT;
+    CREATE TABLE integrator_keys (
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), prefix TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, expires_at TEXT,
+      revoked_at TEXT, last_used_at TEXT
+    );
+    CREATE INDEX timeline_involvements ON timeline_events(project_key, created_at DESC, id DESC)
+      WHERE type IN ('session_started', 'session_ended');`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

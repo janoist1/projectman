@@ -1,5 +1,5 @@
 import { isOnLeave } from '@projectman/shared';
-import type { InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
+import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
 import { aiRoleView, humanRoleName } from './roles';
@@ -60,6 +60,10 @@ export function roleLabel(
 }
 
 export type MemberIndex = ReadonlyMap<string, MemberView>;
+
+export function actorLabel(actor: Actor, index: MemberIndex, myHandle: string | null): string {
+  return actor.via === 'integrator' ? t('involvement.integrator') : nameOf(actor.handle, index, myHandle);
+}
 
 export function indexMembers(members: readonly MemberView[] | undefined): MemberIndex {
   return new Map((members ?? []).map((member) => [member.handle, member]));

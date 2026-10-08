@@ -27,10 +27,12 @@ import { ProjectSection } from './sections/ProjectSection';
 import { ReposSection } from './sections/ReposSection';
 import { TeamSection } from './sections/TeamSection';
 import { ProvidersSection } from './sections/ProvidersSection';
+import { IntegratorSection } from './sections/IntegratorSection';
 
 function summary(section: SettingsSectionId, view: ConfigView | undefined, name: string): string {
   if (section === 'account') return t('settings.summary.account', { name });
   if (section === 'providers') return t('settings.summary.providers');
+  if (section === 'integrator') return t('settings.summary.integrator');
   if (!view) return '';
   const { config, history } = view;
   switch (section) {
@@ -129,7 +131,7 @@ export function SettingsPage() {
       aria-label={t('settings.nav.label')}
       aria-busy={config.isPending}
     >
-      {SETTINGS_SECTIONS.map((id) => (
+      {SETTINGS_SECTIONS.filter((id) => id !== 'integrator' || me.hostOwner).map((id) => (
         <NavLink
           id={`settings-nav-${id}`}
           key={id}
@@ -166,6 +168,7 @@ export function SettingsPage() {
   );
   let content;
   if (section === 'account') content = <AccountSection />;
+  else if (section === 'integrator') content = <IntegratorSection />;
   else if (config.data && section) {
     const view = config.data;
     switch (section) {

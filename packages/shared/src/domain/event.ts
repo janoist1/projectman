@@ -13,6 +13,7 @@ import type { TaskPriority } from './task';
 export const Actor = z.object({
   kind: z.enum(['human', 'ai', 'system']),
   handle: MemberHandle.nullable(),
+  via: z.literal('integrator').optional(),
 });
 export type Actor = z.infer<typeof Actor>;
 
@@ -216,7 +217,7 @@ export interface TimelineEventData {
     forceAfterMs: number;
   };
   team_resumed: { pauseId: string; scope: PauseScopeKind; source: PauseSource };
-  session_started: { member: string; resumed: boolean };
+  session_started: { member: string; resumed: boolean; cause?: import('./involvement').SessionStartCause };
   /** `reason`: why the session ended when known (e.g. a lost login). */
   session_ended: { member: string; exitCode: number | null; reason?: string; stop?: SessionStop };
   /**

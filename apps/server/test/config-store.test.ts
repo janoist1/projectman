@@ -280,6 +280,20 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     expect(await store.history('AR')).toHaveLength(1);
   });
 
+  it('preserves integrator attribution in configuration saves and reverts', async () => {
+    const original = await store.save('AR', testConfig(), { author, message: 'Create' });
+    const changed = testConfig();
+    changed.team.limits.maxConcurrentAi = 5;
+    const integrator = { ...author, via: 'integrator' as const };
+    await store.save('AR', changed, { author: integrator, message: 'Raise limit' });
+    expect((await store.history('AR'))[0]).toMatchObject({ via: 'integrator', message: 'Raise limit' });
+    await store.revertTo('AR', original.version, { author: integrator });
+    const history = await store.history('AR');
+    expect(history[0]?.via).toBe('integrator');
+    expect(history.at(-1)?.via).toBeUndefined();
+    expect(history.some((entry) => entry.message.includes('Projectman-Via'))).toBe(false);
+  });
+
   it('lists history newest first and reverts to an earlier version in a new commit', async () => {
     const v1 = await store.save('AR', testConfig(), { author, message: 'Create project AR' });
     const changed: ProjectConfig = testConfig();

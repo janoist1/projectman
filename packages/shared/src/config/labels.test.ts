@@ -11,9 +11,30 @@ import {
   labelSetters,
   noApproverReason,
   planLabelChange,
+  isOwnerApprovalLabel,
 } from './labels';
 import type { LabelChangePlan } from './labels';
 import { ProjectConfig } from './schema';
+
+it('denies integrator approvals including conditional gates, but permits removal and plain tags', () => {
+  const c = config();
+  const approval = { id: 'approval', name: 'Approval', setBy: 'anyone' as const };
+  c.pipeline.labels.push(approval);
+  c.pipeline.stages[0]!.gate = { conditions: [{ type: 'has_label', label: 'approval', when: 'ui' }] };
+  const actor: Actor = { kind: 'human', handle: 'owner', via: 'integrator' };
+  const task = { labels: [] as string[], assignee: null, links: [] };
+  expect(isOwnerApprovalLabel(c, approval)).toBe(true);
+  expect(planLabelChange(c, task, { add: ['approval'] }, actor)).toMatchObject({
+    ok: false,
+    refusal: { code: 'owner_approval_required' },
+  });
+  expect(planLabelChange(c, task, { add: ['tag'] }, actor).ok).toBe(true);
+  expect(planLabelChange(c, { ...task, labels: ['approval'] }, { remove: ['approval'] }, actor).ok).toBe(
+    true,
+  );
+  expect(planLabelChange(c, task, { add: ['approval'] }, { kind: 'human', handle: 'owner' }).ok).toBe(true);
+  expect(isOwnerApprovalLabel(c, { ...approval, id: 'review', notByAuthor: true })).toBe(true);
+});
 
 function config(fourEyes = false) {
   return ProjectConfig.parse({

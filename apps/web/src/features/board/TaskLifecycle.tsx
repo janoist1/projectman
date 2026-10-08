@@ -182,12 +182,15 @@ export function TaskAssigneeSelect({ task, members }: { task: Task; members: Mem
               size="sm"
               loading={stop.isPending}
               onClick={() =>
-                stop.mutate(sessionId, {
-                  onSuccess: () => {
-                    toast.show(t('taskLifecycle.stopped'));
-                    save(assignee);
+                stop.mutate(
+                  { sessionId, purpose: 'assignee_change' },
+                  {
+                    onSuccess: () => {
+                      toast.show(t('taskLifecycle.stopped'));
+                      save(assignee);
+                    },
                   },
-                })
+                )
               }
             >
               {t('taskLifecycle.stop')}

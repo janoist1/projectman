@@ -1,5 +1,13 @@
 import { canSeeAllTeamMessages, canSeeTask, canSeeTeamMessage, isCardLink } from '@projectman/shared';
-import type { InboxItem, MemberView, ServerEvent, Task, TaskDetail, TimelineEvent } from '@projectman/shared';
+import type {
+  InboxItem,
+  MemberView,
+  ServerEvent,
+  Session,
+  Task,
+  TaskDetail,
+  TimelineEvent,
+} from '@projectman/shared';
 import type { ProjectAccess } from './access';
 
 /**
@@ -19,6 +27,35 @@ import type { ProjectAccess } from './access';
  *   is not filtered (open question for the owner).
  */
 export type Viewer = Pick<ProjectAccess, 'access' | 'handle'>;
+
+export function visibleTimelineEvent(
+  viewer: Viewer,
+  event: TimelineEvent,
+  messageParticipants: (id: string) => { from: string; to: string[] } | null,
+): TimelineEvent {
+  if (event.type !== 'session_started') return event;
+  if (canSeeAllTeamMessages(viewer)) return event;
+  const cause = event.data?.cause as { messageId?: string; quote?: string } | undefined;
+  if (!cause?.quote || !cause.messageId) return event;
+  const message = messageParticipants(cause.messageId);
+  if (message && canSeeTeamMessage(viewer, message)) return event;
+  const { quote: _quote, ...visible } = cause;
+  return { ...event, data: { ...event.data, cause: visible } };
+}
+
+export function visibleSession(
+  viewer: Viewer,
+  session: Session,
+  messageParticipants: (id: string) => { from: string; to: string[] } | null,
+): Session {
+  if (canSeeAllTeamMessages(viewer)) return session;
+  const cause = session.startCause;
+  if (!cause?.messageId || !cause.quote) return session;
+  const message = messageParticipants(cause.messageId);
+  if (message && canSeeTeamMessage(viewer, message)) return session;
+  const { quote: _quote, ...visible } = cause;
+  return { ...session, startCause: visible };
+}
 
 /** Events of a subscribed project (everything but the connection and terminal events). */
 export type ProjectEvent = Exclude<
@@ -114,7 +151,15 @@ export function visibleTaskDetail(
   viewer: Viewer,
   detail: TaskDetail,
   canSeeKey: (key: string) => boolean = () => true,
+  messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): TaskDetail {
+  const timeline = detail.timeline.map((event) => visibleTimelineEvent(viewer, event, messageParticipants));
+  const sessions = detail.sessions.map((session) => visibleSession(viewer, session, messageParticipants));
+  if (
+    timeline.some((event, index) => event !== detail.timeline[index]) ||
+    sessions.some((session, index) => session !== detail.sessions[index])
+  )
+    detail = { ...detail, timeline, sessions };
   if (!isClient(viewer)) return detail;
   return {
     task: withVisibleCardLinks(viewer, detail.task, canSeeKey),
@@ -136,7 +181,12 @@ export function visibleProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
   taskOf: (taskKey: string) => Task | null | undefined,
+  messageParticipants: (id: string) => { from: string; to: string[] } | null = () => null,
 ): ProjectEvent {
+  if (event.type === 'timeline_appended')
+    return { ...event, event: visibleTimelineEvent(viewer, event.event, messageParticipants) };
+  if (event.type === 'session_upserted')
+    return { ...event, session: visibleSession(viewer, event.session, messageParticipants) };
   if (!isClient(viewer)) return event;
   const canSeeKey = (key: string) => {
     const other = taskOf(key);

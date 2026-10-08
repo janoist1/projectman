@@ -71,6 +71,13 @@ describe('the permission settings of one session (PM-170)', () => {
     expect(h.runner.started).toHaveLength(1);
     expect(h.runner.stopped).toEqual([]);
 
+    for (let n = 0; n < 250; n++)
+      h.domain.timeline.append({
+        projectKey: 'AR',
+        actor: OWNER_ACTOR,
+        type: 'task_note',
+        data: { text: 'Unrelated project activity' },
+      });
     h.runner.setState(sessionId, 'idle');
     await flush();
     expect(h.runner.stopped).toEqual([sessionId]);
@@ -86,6 +93,11 @@ describe('the permission settings of one session (PM-170)', () => {
     });
     expect(restarted.policy?.permissions.claude).toBe('plan');
     const session = h.domain.sessions.get('AR', sessionId);
+    expect(session.startCause).toMatchObject({
+      kind: 'permission_change',
+      by: OWNER_ACTOR,
+      eventId: changes()[0]!.id,
+    });
     expect(session.permissionRestartPending).toBeUndefined();
     expect(session.permissionGrantsLost).toBeUndefined();
     // The member keeps its own mode.

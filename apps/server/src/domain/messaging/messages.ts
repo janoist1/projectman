@@ -7,6 +7,7 @@ import { forbidden, notFound } from '../errors';
 import { excerpt, newId } from '../util';
 
 export interface RecordMessageInput {
+  id?: string;
   projectKey: string;
   from: string;
   to: string[];
@@ -21,6 +22,7 @@ export interface RecordMessageInput {
   routes?: Record<string, WorkItemRef>;
   /** Set on the message that carries a person's answer to an AI member's question (PM-249). */
   answer?: TeamMessageAnswer;
+  origin?: TeamMessage['origin'];
 }
 
 /**
@@ -44,7 +46,7 @@ export class MessageService {
   record(input: RecordMessageInput): TeamMessage {
     const at = isoNow(this.ctx);
     const message: TeamMessage = {
-      id: newId('msg'),
+      id: input.id ?? newId('msg'),
       projectKey: input.projectKey,
       from: input.from,
       to: [...new Set(input.to)],
@@ -60,6 +62,8 @@ export class MessageService {
         ...(input.routes?.[handle] ? { route: input.routes[handle] } : {}),
       })),
       ...(input.answer ? { answer: input.answer } : {}),
+      ...(input.actor.via ? { via: input.actor.via } : {}),
+      ...(input.origin ? { origin: input.origin } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);

@@ -10,6 +10,7 @@ import {
 import type { TextStyle } from '../agent-text';
 import type { ContextPackInput, RelatedSession } from '../contracts';
 import { cardQuestionsBlock, cardWorkersBlock } from './card-thread';
+import { handoffBlock, previousConversationBlock } from './handoff';
 import {
   code,
   codeList,
@@ -81,6 +82,10 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   sections.push(['## Description', description(task.description)].join('\n'));
+
+  // A card handed over to the member, or a conversation that replaces one that could not go on (PM-342).
+  for (const block of [previousConversationBlock(input), handoffBlock(input)])
+    if (block) sections.push(block);
 
   const refinement = refinementSection(input, task);
   if (refinement) sections.push(refinement);

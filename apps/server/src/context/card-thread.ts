@@ -1,6 +1,7 @@
 import { cardQuestionLines, cardWorkerLines } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
 import { promptStyle } from './format';
+import { handoffBlock } from './handoff';
 
 /**
  * The members working on the card besides the reader (PM-249): who, in what role and state, and the
@@ -33,11 +34,14 @@ export function cardQuestionsBlock(input: ContextPackInput): string | null {
 
 /**
  * What a resumed task session is told first about the card now (PM-249): `Now on PM-1:` and the
- * two blocks of the brief. Null when there is neither (then nothing is added to the message).
+ * blocks of the brief (a handover to the member, PM-342, the other workers and the questions). The
+ * previous conversation is only for a new conversation, so it is not here. Null when there is neither (then nothing is added to the message).
  */
 export function buildStanding(input: ContextPackInput): string | null {
   const task = input.workItem.type === 'task' ? input.task : null;
   if (!task) return null;
-  const blocks = [cardWorkersBlock(input), cardQuestionsBlock(input)].filter((b) => b !== null);
+  const blocks = [handoffBlock(input), cardWorkersBlock(input), cardQuestionsBlock(input)].filter(
+    (b) => b !== null,
+  );
   return blocks.length > 0 ? [`Now on ${task.key}:`, ...blocks].join('\n\n') : null;
 }

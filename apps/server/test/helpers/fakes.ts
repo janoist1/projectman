@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
-import type { ChatItem, PlanUsage, SessionState, ProjectConfig } from '@projectman/shared';
+import type { ChatItem, HandoffSummary, PlanUsage, SessionState, ProjectConfig } from '@projectman/shared';
 import type {
   ContextPack,
   ContextPackBuilder,
@@ -172,6 +172,10 @@ export interface FakeRunnerModule {
   emptyTranscripts: Set<string>;
   /** Every transcript read, with its options. */
   transcriptReads: Array<{ path: string; opts: Parameters<TranscriptReader['read']>[1] }>;
+  /** The summary `summary` gives for a transcript path (PM-342); null for every other path. */
+  summaries: Map<string, HandoffSummary | null>;
+  /** Every summary read, with its options. */
+  summaryReads: Array<{ path: string; opts: Parameters<TranscriptReader['summary']>[1] }>;
   planUsage: { value: PlanUsage | null; calls: number };
   /** The broker the domain handed to the runner. */
   broker(): PermissionBroker;
@@ -187,6 +191,8 @@ export function createFakeRunnerModule(): FakeRunnerModule {
   const transcripts = new Map<string, ChatItem[]>();
   const transcriptReads: FakeRunnerModule['transcriptReads'] = [];
   const emptyTranscripts = new Set<string>();
+  const summaries = new Map<string, HandoffSummary | null>();
+  const summaryReads: FakeRunnerModule['summaryReads'] = [];
   const planUsage = { value: null as PlanUsage | null, calls: 0 };
   let broker: PermissionBroker | null = null;
   let options: RunnerModuleOptions | null = null;
@@ -201,6 +207,10 @@ export function createFakeRunnerModule(): FakeRunnerModule {
         const items = transcripts.get(path);
         if (!items) throw new Error(`no transcript at ${path}`);
         return items;
+      },
+      async summary(path, opts) {
+        summaryReads.push({ path, opts });
+        return summaries.get(path) ?? null;
       },
     },
     planUsage: {
@@ -222,6 +232,8 @@ export function createFakeRunnerModule(): FakeRunnerModule {
     transcripts,
     emptyTranscripts,
     transcriptReads,
+    summaries,
+    summaryReads,
     planUsage,
     broker() {
       if (!broker) throw new Error('runner module was not created yet');
@@ -247,6 +259,12 @@ export class FakeContextBuilder implements ContextPackBuilder {
   /** A short, recognisable text: `Nudge <point>[ restarted]`. */
   pauseNudge(input: { point: string; tool: string | null; restarted: boolean }): string {
     return `Nudge ${input.point}${input.restarted ? ' restarted' : ''}`;
+  }
+  handoffInstruction(input: { taskKey: string; to: string | null }): string {
+    return `Hand off ${input.taskKey} to ${input.to ?? 'nobody'}`;
+  }
+  handoffCancelled(input: { taskKey: string }): string {
+    return `Handoff of ${input.taskKey} cancelled`;
   }
   build(input: ContextPackInput): ContextPack {
     this.inputs.push(input);

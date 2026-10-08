@@ -32,6 +32,7 @@ import type {
   Attachment,
   ChatItem,
   ExecutionProfile,
+  HandoffSummary,
   MemberConfig,
   MemberStatus,
   PausePoint,
@@ -62,6 +63,7 @@ import type {
   ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
+  PreviousConversation,
   RelatedSession,
   RunnerEvent,
   RuntimeBoundary,
@@ -1125,6 +1127,39 @@ export class SessionOrchestrator {
     }
   }
 
+  /**
+   * Why the new conversation of `existing` is not its old one (PM-342): the provider changed, the old
+   * conversation is lost, or it ran elsewhere; with a summary of the old transcript. Null when a
+   * conversation was never written (nothing was lost).
+   */
+  private async previousConversation(
+    existing: Session,
+    provider: AgentProvider,
+    conversationLost: boolean,
+    relocated: boolean,
+  ): Promise<PreviousConversation | null> {
+    const from = existing.provider ?? DEFAULT_AGENT_PROVIDER;
+    const summarize = async (): Promise<HandoffSummary | null> => {
+      if (!existing.transcriptPath) return null;
+      const layout = this.managed ? this.deps.runtimeBoundary?.layout : null;
+      try {
+        return await this.deps.transcripts.summary(existing.transcriptPath, {
+          provider: from,
+          ...(layout ? { confineTo: layout.home(existing.member) } : {}),
+        });
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: existing.id }, 'could not summarize the transcript');
+        return null;
+      }
+    };
+    if (existing.transcriptPath && from !== provider)
+      return { reason: 'provider_changed', fromProvider: from, summary: await summarize(), lastNote: null };
+    if (conversationLost) return { reason: 'lost', fromProvider: null, summary: null, lastNote: null };
+    if (relocated && existing.transcriptPath)
+      return { reason: 'relocated', fromProvider: null, summary: await summarize(), lastNote: null };
+    return null;
+  }
+
   /** The session with its chat, read from the transcript as its provider wrote it. */
   async detail(projectKey: string, sessionId: string): Promise<SessionDetail> {
     const session = this.get(projectKey, sessionId);
@@ -1521,6 +1556,12 @@ export class SessionOrchestrator {
       Boolean(existing?.transcriptPath && (existing.provider ?? DEFAULT_AGENT_PROVIDER) === provider);
     const conversationLost = resumable && !(await this.transcriptWritten(existing!));
     const resume = resumable && !conversationLost;
+    // A new conversation that replaces one that could not go on tells the member so (PM-342), with a
+    // machine-made summary of the old transcript when it can be read.
+    const previousConversation =
+      !existing || resume
+        ? null
+        : await this.previousConversation(existing, provider, conversationLost, relocated);
     // Who else works on the card and what was asked on it (PM-249): a new conversation gets the latest
     // questions, a resumed one those since it last ran.
     const cardWorkers = task ? this.cardWorkersFor(config, task, member.handle) : [];
@@ -1634,6 +1675,7 @@ export class SessionOrchestrator {
           }
         : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
+      ...(previousConversation && task ? { previousConversation } : {}),
     });
 
     // Configuration may change while login, worktree and memory preparation await I/O. So may the
@@ -1891,6 +1933,23 @@ export class SessionOrchestrator {
       data: { member: member.handle, resumed: resume, ...(cause ? { cause } : {}) },
     });
     this.ctx.repos.sessions.update(session.id, { startCause: cause });
+    if (previousConversation && task) {
+      this.deps.timeline.append({
+        projectKey,
+        taskKey: task.key,
+        sessionId: session.id,
+        actor: SYSTEM_ACTOR,
+        type: 'session_conversation_restarted',
+        data: {
+          member: member.handle,
+          reason: previousConversation.reason,
+          ...(previousConversation.fromProvider
+            ? { fromProvider: previousConversation.fromProvider, toProvider: provider }
+            : {}),
+          summary: previousConversation.summary !== null,
+        },
+      });
+    }
     const fresh = this.ctx.repos.sessions.get(session.id)!;
     this.publishSession(fresh);
     this.recomputeMemberState(projectKey, member.handle);

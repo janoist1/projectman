@@ -3,8 +3,9 @@ import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
+import type { PreviousConversationReason } from './handoff';
 import type { CardVersion, MessageKind } from './message';
-import { MemberHandle } from './member';
+import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import { TaskKey } from './task';
@@ -42,6 +43,7 @@ export const TimelineEventType = z.enum([
   'session_started',
   'session_ended',
   'session_permission_changed',
+  'session_conversation_restarted',
   'team_message',
   'permission_requested',
   'boundary_changed',
@@ -239,6 +241,19 @@ export interface TimelineEventData {
     to: string | null;
     reset?: true;
     restart?: true;
+  };
+  /**
+   * The member's new conversation on the card replaces one that could not go on (PM-342): the
+   * provider changed, the conversation was lost, or it ran somewhere else. `summary`: whether a
+   * summary of the old transcript went into the new conversation's first message.
+   */
+  session_conversation_restarted: {
+    member: string;
+    reason: PreviousConversationReason;
+    fromProvider?: AgentProvider;
+    toProvider?: AgentProvider;
+    summary: boolean;
+    lastHandoffId?: string;
   };
   team_message: {
     messageId: string;

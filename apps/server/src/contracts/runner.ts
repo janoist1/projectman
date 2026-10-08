@@ -3,6 +3,7 @@ import type {
   AgentEffort,
   AgentProvider,
   ChatItem,
+  HandoffSummary,
   PausePoint,
   PlanUsage,
   ProviderProblem,
@@ -472,6 +473,17 @@ export interface TranscriptReader {
       confineTo?: string;
     },
   ): Promise<ChatItem[]>;
+  /**
+   * What the transcript says about where its conversation stood (PM-342), for a member who takes
+   * the card over without the conversation: the CLI's compaction summary and up to 4 replies after
+   * it (`compact`), else the last 6 replies (`last_replies`), at most `HANDOFF_SUMMARY_MAX`
+   * characters. Null when there is no reply and no compaction, or the file is missing or cannot be
+   * read; never rejects. `provider` is the CLI that wrote the transcript, `confineTo` as in `read`.
+   */
+  summary(
+    path: string,
+    opts: { provider: AgentProvider; confineTo?: string },
+  ): Promise<HandoffSummary | null>;
 }
 
 export interface PlanUsageProvider {

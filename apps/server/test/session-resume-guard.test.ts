@@ -1,6 +1,6 @@
-import type { Session } from '@projectman/shared';
+import type { HandoffSummary, Session } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
 /**
@@ -106,6 +106,92 @@ describe('resuming a session only when its conversation exists', () => {
     expect(h.domain.sessions.get('AR', session.id)).toMatchObject({
       claudeSessionId: session.claudeSessionId,
       transcriptPath: `/tmp/${session.id}.jsonl`,
+    });
+  });
+
+  describe('the new conversation tells what happened to the old one (PM-342)', () => {
+    const restarts = () =>
+      h.domain.timeline
+        .list('AR', { taskKey: 'AR-1' })
+        .filter((e) => e.type === 'session_conversation_restarted');
+    const lastInput = () => h.contextBuilder.inputs[h.contextBuilder.inputs.length - 1]!;
+    const oldSummary: HandoffSummary = { source: 'last_replies', text: 'Login form is done.', at: null };
+
+    it('after a provider change: the summary of the old transcript and an event', async () => {
+      const session = await stopped();
+      const path = `/tmp/${session.id}.jsonl`;
+      h.runnerModule.summaries.set(path, oldSummary);
+      await h.domain.members.update(
+        'AR',
+        'dev-1',
+        { provider: 'codex' },
+        { actor: OWNER_ACTOR, author: OWNER },
+      );
+
+      const again = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      expect(again).toMatchObject({ resumed: false, started: true });
+      expect(h.runnerModule.summaryReads).toEqual([{ path, opts: { provider: 'claude' } }]);
+      expect(lastInput().previousConversation).toEqual({
+        reason: 'provider_changed',
+        fromProvider: 'claude',
+        summary: oldSummary,
+        lastNote: null,
+      });
+      expect(restarts().map((e) => ({ actor: e.actor, data: e.data }))).toEqual([
+        {
+          actor: { kind: 'system', handle: null },
+          data: {
+            member: 'dev-1',
+            reason: 'provider_changed',
+            fromProvider: 'claude',
+            toProvider: 'codex',
+            summary: true,
+          },
+        },
+      ]);
+    });
+
+    it('after a provider change without a readable transcript: no summary, still told', async () => {
+      await stopped();
+      await h.domain.members.update(
+        'AR',
+        'dev-1',
+        { provider: 'codex' },
+        { actor: OWNER_ACTOR, author: OWNER },
+      );
+
+      await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      expect(lastInput().previousConversation).toMatchObject({ reason: 'provider_changed', summary: null });
+      expect(restarts()[0]?.data).toMatchObject({ reason: 'provider_changed', summary: false });
+    });
+
+    it('for a lost conversation: the lost part and an event, and no transcript read', async () => {
+      const session = await stopped();
+      h.runnerModule.emptyTranscripts.add(`/tmp/${session.id}.jsonl`);
+
+      await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      expect(lastInput().previousConversation).toEqual({
+        reason: 'lost',
+        fromProvider: null,
+        summary: null,
+        lastNote: null,
+      });
+      expect(h.runnerModule.summaryReads).toEqual([]);
+      expect(restarts().map((e) => e.data)).toEqual([{ member: 'dev-1', reason: 'lost', summary: false }]);
+    });
+
+    it('not for a new session, nor for a resumed conversation', async () => {
+      await stopped();
+      expect(lastInput().previousConversation).toBeUndefined();
+
+      await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+      expect(h.runner.lastStarted()).toMatchObject({ resume: true });
+      expect(lastInput().previousConversation).toBeUndefined();
+      expect(restarts()).toEqual([]);
     });
   });
 

@@ -487,6 +487,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       );
     case 'session_started':
       return normal(involvementText(describeStart(event, ctx)));
+    case 'session_conversation_restarted':
+      return normal(
+        tDynamic(
+          `timeline.events.session_conversation_restarted.${str(d.reason)}`,
+          t('timeline.events.session_started'),
+          { member: nameOf(str(d.member), ctx.members, ctx.myHandle) },
+        ),
+      );
     case 'session_ended': {
       if (d.stop) return normal(involvementText(describeStop(event, ctx)));
       const closure = eventClosure(d);

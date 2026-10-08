@@ -1126,9 +1126,16 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
   checks transcript content; managed worker reads are confined to the worker home.
+  PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
+  conversation replaces one that could not go on (provider changed, lost, moved) or a card is
+  handed over without a note, the server reads the old transcript for the CLI's compaction
+  summary plus the last replies (at most `HANDOFF_SUMMARY_MAX` = 8000 characters) and puts it in
+  the new conversation's first message.
   **Remote engine:** keep CLI conversation state and resume checks on its engine/account,
   stream conversation events to the server, and preserve confinement. A conversation ID
-  without its engine's saved state is insufficient for resume.
+  without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
+  next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
+  server/engine boundary, and the managed worker's `confineTo` restriction stays.
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
   `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,

@@ -2675,6 +2675,11 @@ export const hu = {
       session_started: 'Munkamenet indult',
       session_resumed: 'Munkamenet folytatva',
       session_ended: 'Munkamenet leállt',
+      session_conversation_restarted: {
+        provider_changed: 'Új beszélgetés indult: a szolgáltató megváltozott ({member})',
+        lost: 'Új beszélgetés indult: a korábbi elveszett ({member})',
+        relocated: 'Új beszélgetés indult: a korábbi máshol futott ({member})',
+      },
       session_permission_mode: 'A munkamenet módja ({member}): {from} → {to}',
       session_permission_approver: 'A munkamenetben, ha kérdez, ki dönt ({member}): {from} → {to}',
       session_permission_reset: '{change}, vissza a tag beállítására',

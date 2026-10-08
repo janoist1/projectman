@@ -1,0 +1,32 @@
+.layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge,
+.lit {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.edge {
+  stroke: var(--c-mark-muted);
+  stroke-width: 1.5;
+}
+
+.lit {
+  stroke: var(--c-ink);
+  stroke-width: 2.2;
+}
+
+.idleHead path {
+  fill: var(--c-mark-muted);
+}
+
+.litHead path {
+  fill: var(--c-ink);
+}

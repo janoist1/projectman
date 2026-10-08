@@ -13,6 +13,7 @@ import type { PipelineIndex } from '../../lib/pipeline';
 import { isTaskClosed } from '../../lib/taskState';
 import type { TaskPhase } from '../../lib/taskState';
 import { useCardLink } from './cardSize';
+import { useDrawerBase } from './drawerBase';
 import { groupProgress, relationGroups, removeConsequence } from './relationModel';
 import { RelationDialog } from './RelationDialog';
 import drawer from './drawer.module.css';
@@ -42,6 +43,7 @@ function RelationRow({
 }) {
   const { key } = useProject();
   const cardLink = useCardLink();
+  const drawerBase = useDrawerBase();
   const update = useUpdateTask(key);
   const toast = useToast();
   const [confirming, setConfirming] = useState(false);
@@ -69,7 +71,7 @@ function RelationRow({
   return (
     <li className={styles.item} data-pending={update.isPending || undefined}>
       <div className={styles.row}>
-        <Link to={cardLink(`/p/${key}/tasks/${relation.key}`)} className={styles.link}>
+        <Link to={cardLink(drawerBase.card(relation.key))} className={styles.link}>
           <StatusDot phase={phase} pulse={phase === 'working'} />
           <span className={styles.key}>{relation.key}</span>
           <span className={styles.title}>{relation.title}</span>

@@ -51,7 +51,6 @@ export function GroupTile({
     .map(({ column, count }) => t('board.themes.columnCount', { column: column.name, count }))
     .join(' · ');
   const kind = t(`map.kind.${group.kind}`);
-  const hasSignal = signals.needsYou + signals.blocked + signals.working > 0;
   return (
     <li ref={itemRef} className={clsx(styles.item, flash && styles.flash)} data-group={group.key}>
       <Link
@@ -81,20 +80,29 @@ export function GroupTile({
             {t('map.progress', { done: progress.done, total: progress.total })}
           </span>
         </span>
-        <span className={styles.signals}>
-          {signals.needsYou > 0 ? (
-            <Signal state="needs_you" text={t('map.signals.needsYou', { count: signals.needsYou })} />
-          ) : null}
-          {signals.blocked > 0 ? (
-            <Signal state="blocked" text={t('map.signals.blocked', { count: signals.blocked })} />
-          ) : null}
-          {signals.working > 0 ? (
-            <Signal state="working" text={t('map.signals.working', { count: signals.working })} />
-          ) : null}
-          {!hasSignal ? <Quiet group={group} /> : null}
-        </span>
+        <GroupSignals group={group} />
       </Link>
     </li>
+  );
+}
+
+/** The signals that need a look; when none does, what the group says instead. Shared with the zoomed view's head. */
+export function GroupSignals({ group, className }: { group: MapGroup; className?: string }) {
+  const { signals } = group;
+  const hasSignal = signals.needsYou + signals.blocked + signals.working > 0;
+  return (
+    <span className={clsx(styles.signals, className)}>
+      {signals.needsYou > 0 ? (
+        <Signal state="needs_you" text={t('map.signals.needsYou', { count: signals.needsYou })} />
+      ) : null}
+      {signals.blocked > 0 ? (
+        <Signal state="blocked" text={t('map.signals.blocked', { count: signals.blocked })} />
+      ) : null}
+      {signals.working > 0 ? (
+        <Signal state="working" text={t('map.signals.working', { count: signals.working })} />
+      ) : null}
+      {!hasSignal ? <Quiet group={group} /> : null}
+    </span>
   );
 }
 

@@ -72,6 +72,28 @@ describe('session orchestrator', () => {
     expect(timeline).toContainEqual(['session_ended', null]);
   });
 
+  it('gives the brief the project focus: open items in order, and the place of the card (PM-437)', async () => {
+    const none = await h.domain.sessions.ensureSession('AR', 'cr', task);
+    expect(h.contextBuilder.inputs.at(-1)).not.toHaveProperty('focus');
+    h.runner.emit({ type: 'exit', sessionId: none.session.id, exitCode: 0, signal: null });
+
+    const other = await h.domain.tasks.create('AR', { title: 'Signup form' }, OWNER_ACTOR);
+    const sub = await h.domain.tasks.create('AR', { title: 'Validation', parentKey: other.key }, OWNER_ACTOR);
+    await h.domain.projectFocus.add('AR', 'AR-1', OWNER_ACTOR);
+    await h.domain.projectFocus.add('AR', other.key, OWNER_ACTOR);
+    await h.domain.sessions.ensureSession('AR', 'cr', task);
+    expect(h.contextBuilder.inputs.at(-1)?.focus).toEqual({
+      items: [
+        { position: 1, key: 'AR-1', title: 'Login page', kind: 'task' },
+        { position: 2, key: other.key, title: 'Signup form', kind: 'task' },
+      ],
+      place: { position: 1 },
+    });
+    // A subtask is covered by its parent's item.
+    await h.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: sub.key });
+    expect(h.contextBuilder.inputs.at(-1)?.focus?.place).toEqual({ position: 2, via: other.key });
+  });
+
   it('reads a reloaded chat as its provider wrote it, relative to the session directory', async () => {
     const { session } = await h.domain.sessions.ensureSession('AR', 'cr', task);
     expect(session.provider).toBe('claude');

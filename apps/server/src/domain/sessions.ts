@@ -62,6 +62,7 @@ import type {
   AttachmentOperations,
   CardRelation,
   CardWorker,
+  ContextFocus,
   ContextPackBuilder,
   HandoffTakeover,
   ManagedVmAttestation,
@@ -94,6 +95,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound, themeRefused } from './errors';
 import type { MemberService } from './members';
+import type { ProjectFocusService } from './project-focus';
 import type { ConfigChange, ProjectService } from './projects';
 import {
   allowedToolsFor,
@@ -231,6 +233,8 @@ export interface SessionOrchestratorDeps {
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
+  /** The project's focus (PM-437), named in the kick-off brief. */
+  projectFocus: Pick<ProjectFocusService, 'get' | 'places'>;
   members: MemberService;
   timeline: TimelineService;
   runner: SessionRunner;
@@ -1791,6 +1795,7 @@ export class SessionOrchestrator {
       : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
+    const focus = this.focusFor(projectKey, task);
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
     const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
     const { userHome } = paths;
@@ -1907,6 +1912,7 @@ export class SessionOrchestrator {
             },
           }
         : {}),
+      ...(focus ? { focus } : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
       ...(previousConversation && task ? { previousConversation } : {}),
       ...(handoff ? { handoff } : {}),
@@ -2241,6 +2247,31 @@ export class SessionOrchestrator {
       task,
       this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
     ).filter((s) => this.isRunning(s.id));
+  }
+
+  /**
+   * The project's focus as the brief tells it (PM-437): the open items in order (closed ones keep
+   * their numbers) and the place of the session's card; undefined when no item is open.
+   */
+  private focusFor(projectKey: string, task: Task | null): ContextFocus | undefined {
+    const items = this.deps.projectFocus
+      .get(projectKey)
+      .items.flatMap<ContextFocus['items'][number]>((item, index) => {
+        const card = this.deps.tasks.find(projectKey, item.key);
+        return card && isOpenTask(card)
+          ? [
+              {
+                position: index + 1,
+                key: card.key,
+                title: card.title,
+                kind: isTheme(card) ? 'theme' : 'task',
+              },
+            ]
+          : [];
+      });
+    if (items.length === 0) return undefined;
+    const place = task ? (this.deps.projectFocus.places(projectKey).get(task.key) ?? null) : null;
+    return { items, place };
   }
 
   /** The other members working on the card, as the member's brief names them (PM-249). */

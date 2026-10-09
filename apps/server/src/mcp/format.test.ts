@@ -93,6 +93,15 @@ describe('formatTaskDetail', () => {
     );
   });
 
+  it('shows the place in the project focus after the priority, and no line without one (PM-437)', () => {
+    const detail = sampleTaskDetail();
+    expect(formatTaskDetail(detail)).not.toContain('Focus:');
+    const lines = formatTaskDetail({ ...detail, focus: { position: 2, via: 'AR-30' } }).split('\n');
+    const priority = lines.findIndex((line) => line.includes('Priority: '));
+    expect(lines[priority + 1]).toBe('Focus: place 2 (via AR-30)');
+    expect(formatTaskDetail({ ...detail, focus: { position: 1 } })).toContain('\nFocus: place 1\n');
+  });
+
   it('lists the relations to other cards by kind, and keeps them out of the links (PM-192)', () => {
     const detail = sampleTaskDetail();
     detail.task.links = [

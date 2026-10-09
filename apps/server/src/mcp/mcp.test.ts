@@ -644,7 +644,8 @@ describe('team tools', () => {
     const result = await call(client, 'create_task', { title: 'New card', priority: null });
     expect(result.isError).toBe(true);
     expect(text(result)).toContain(
-      'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+      'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it. ' +
+        'Urgent cards start first and are pulled into development by the system; the other levels only inform.',
     );
     expect(h.handler.calls).toEqual([]);
   });

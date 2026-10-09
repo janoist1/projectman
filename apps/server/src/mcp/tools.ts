@@ -400,7 +400,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Read the project board as a compact list, newest update first. Defaults to open tasks ' +
       '(active, waiting or blocked). Filter by status, stage or assignee; use get_task for details. A ' +
       'theme (a card that groups other cards) is marked kind "theme"; it is in no stage, so a stage filter ' +
-      'leaves themes out.',
+      'leaves themes out. A card in the project focus (what the team works on now) carries its place as ' +
+      '"focus" (position, and via: the theme or card that covers it).',
     input: {
       status: z.union([z.literal('open'), TaskStatus]).default('open'),
       stage: StageId.optional(),
@@ -419,7 +420,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       'Get a task: title, description, stage, status, assignee, labels, links (pull requests, branches) and ' +
       'its relations to other cards by kind (part of, prerequisite, related, duplicate of, both ' +
-      'directions: key, title, stage, status), its theme (key, title, status; a theme shows its cards, ' +
+      'directions: key, title, stage, status), its place in the project focus (what the team works on ' +
+      'now), its theme (key, title, status; a theme shows its cards, ' +
       'collecting cards with their subtasks, and its progress), its parent, subtasks (keys, titles, stages, statuses), attachments (open one with read_attachment) and ' +
       'recent timeline (who did what). The description is shown whole up to ' +
       `${MAX_DESCRIPTION_CHARS} characters; a longer one is shown in parts, and the result says how to ` +
@@ -566,7 +568,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .optional()
         .describe(
           'The card priority: urgent, high, normal or low; null clears it. Only people and the project ' +
-            'manager may set it; others are refused.',
+            'manager may set it; others are refused. Urgent cards start first and are pulled into ' +
+            'development by the system; the other levels only inform.',
         ),
     },
     async run({ ctx, args, handler }) {
@@ -642,7 +645,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     name: 'create_task',
     refused: {
       priority:
-        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
+        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it. ' +
+        'Urgent cards start first and are pulled into development by the system; the other levels only inform.',
     },
     title: 'Create a task',
     readOnly: false,

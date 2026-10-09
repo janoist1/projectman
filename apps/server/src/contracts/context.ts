@@ -10,6 +10,7 @@ import type {
   MemberView,
   PausePoint,
   PreviousConversationReason,
+  FocusPlace,
   ProjectConfig,
   SessionState,
   Stage,
@@ -95,6 +96,16 @@ export interface ContextPackInput {
   handoff?: HandoffTakeover;
   /** PM-342: this new conversation replaces one that could not go on. Only for a new conversation. */
   previousConversation?: PreviousConversation;
+  /** The project's focus (PM-437), named in the kick-off brief. Omitted when the focus has no open item. */
+  focus?: ContextFocus;
+}
+
+/** The project's focus as a session's brief tells it (PM-437). */
+export interface ContextFocus {
+  /** Only open items, in focus order; position is the 1-based place in the whole list. */
+  items: Array<{ position: number; key: string; title: string; kind: 'task' | 'theme' }>;
+  /** The place of this session's card, when it is in the focus. */
+  place: FocusPlace | null;
 }
 
 /** A card handed over to the member (PM-342), as the brief and the resumed conversation's first message tell it. */

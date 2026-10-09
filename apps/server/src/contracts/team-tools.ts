@@ -3,6 +3,7 @@ import type {
   AddRelationRef,
   Attachment,
   DeveloperLevelRequest,
+  FocusPlace,
   MemberHandle,
   MessageKind,
   RelationsChange,
@@ -87,6 +88,8 @@ export type TaskSummary = Pick<
   kind?: TaskKind;
   /** Present only when a person set a priority. */
   priority?: TaskPriority;
+  /** The card's place in the project's focus (PM-437); absent when it is not in it. */
+  focus?: FocusPlace;
 };
 
 /**
@@ -98,6 +101,8 @@ export type TaskSummary = Pick<
 export interface TaskToolDetail extends TaskDetail {
   /** The repository the work happens in; null when there is none. */
   effectiveRepo?: string | null;
+  /** The task's place in the project's focus (PM-437); absent when it is not in it. */
+  focus?: FocusPlace;
   /** The project has several repositories and the task names none: a person has to choose. */
   repoChoiceNeeded?: boolean;
   /** The first page of the task's readable attachments (oldest first); the rest with list_attachments. */

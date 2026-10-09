@@ -4,6 +4,7 @@ import {
   describeAttachment,
   describeLink,
   describeTheme,
+  focusPlaceText,
   recentTimeline,
   relationLines,
 } from '../agent-text';
@@ -100,6 +101,9 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   // brief of a card without a theme does not grow (PM-181).
   if (input.theme) sections.push(['## Theme', describeTheme(input.theme, style)].join('\n'));
 
+  // The project's focus (PM-437); left out when it has no open item.
+  if (input.focus) sections.push(focusSection(input.focus));
+
   const related = input.relatedSessions ?? [];
   if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));
 
@@ -151,6 +155,23 @@ function refinementSection(input: ContextPackInput, task: Task): string | null {
     'This card is being worked out before development, one step at a time.',
     `- Steps needed: ${needed.length > 0 ? needed.map((id) => `${labelRef(id, labels)} (${task.labels.includes(id) ? 'done' : 'to do'})`).join(', ') : 'none'}`,
     `- On turn: ${onTurn}`,
+  ].join('\n');
+}
+
+/**
+ * The project's focus (PM-437): what the team works on now, in order, and where the card stands in it.
+ * Only people set it; there is no team tool for it.
+ */
+function focusSection(focus: NonNullable<ContextPackInput['focus']>): string {
+  return [
+    '## Project focus',
+    'What the team works on now, in this order. Urgent cards come first even outside it. Only people set it.',
+    ...focus.items.map(
+      (item) => `${item.position}. ${item.key}${item.kind === 'theme' ? ' (theme)' : ''} ${item.title}`,
+    ),
+    focus.place
+      ? `Your card is in the focus: ${focusPlaceText(focus.place)}.`
+      : 'Your card is not in the focus.',
   ].join('\n');
 }
 

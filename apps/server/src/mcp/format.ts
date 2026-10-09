@@ -7,6 +7,7 @@ import {
   describeLink,
   describeRepo,
   describeTheme,
+  focusPlaceText,
   themeCardLines,
   themeProgressText,
   themeState,
@@ -172,6 +173,7 @@ export function formatTaskDetail(
     theme
       ? `Visibility: ${task.visibility}`
       : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
     `Links: ${links.length > 0 ? links.map((l) => describeLink(l)).join('; ') : 'none'}`,

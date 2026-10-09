@@ -316,8 +316,10 @@ export interface TimelineEventData {
   /**
    * A loop on the card (PM-261, actor system): `raised` it was found and `notified` was told (null when
    * nobody was; `deciders` are the people it went to then); `escalated` it went to the `deciders` for
-   * `reason`; `let_run` `by` let it run; `ended` for `endReason` (`stopped`: `by` stopped the card's work;
-   * `closed`: the card closed). `count` messages in `minutes` minutes among `members`.
+   * `reason`; `let_run` `by` let it run (older loops only: a loop that is let run ends now, PM-431);
+   * `ended` for `endReason` (`stopped`: `by` stopped the card's work; `let_run`: `by` let it run;
+   * `work`: a note, an attachment or a new description; `closed`: the card closed). `count` messages
+   * in `minutes` minutes among `members`.
    */
   task_loop: {
     loopId: string;
@@ -328,7 +330,8 @@ export interface TimelineEventData {
     notified?: string | null;
     deciders?: string[];
     reason?: 'no_watcher' | 'continued';
-    endReason?: 'commit' | 'stage' | 'label' | 'quiet' | 'stopped' | 'disabled' | 'closed';
+    endReason?:
+      'commit' | 'stage' | 'label' | 'work' | 'quiet' | 'stopped' | 'let_run' | 'disabled' | 'closed';
     by?: string;
   };
   /**

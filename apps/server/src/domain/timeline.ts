@@ -1,3 +1,4 @@
+import { isLoopWork } from '@projectman/shared';
 import type { Actor, TimelineEvent, TimelineEventData, TimelineEventType } from '@projectman/shared';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
@@ -41,6 +42,8 @@ export class TimelineService {
     // the unit of work that records the entry.
     if (event.taskKey && (event.type === 'team_message' || event.type === 'task_note'))
       void this.ctx.events.emit('task_talk_recorded', { event });
+    // A note, an attachment and a new description are the work of a team that does not write code (PM-431).
+    if (event.taskKey && isLoopWork(event)) void this.ctx.events.emit('task_work_recorded', { event });
     return event;
   }
 
@@ -52,6 +55,11 @@ export class TimelineService {
   /** The most recent event of a type on a card, or null. */
   latest(projectKey: string, taskKey: string, type: TimelineEventType): TimelineEvent | null {
     return this.ctx.repos.timeline.latestOfType(projectKey, taskKey, type);
+  }
+
+  /** The most recent work on a card (see `isLoopWork`), or null. */
+  latestWork(projectKey: string, taskKey: string): TimelineEvent | null {
+    return this.ctx.repos.timeline.latestWork(projectKey, taskKey);
   }
 
   /** Most recent events, oldest first. */

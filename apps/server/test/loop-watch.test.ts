@@ -318,15 +318,24 @@ describe('loop watch', () => {
       expect(h.domain.tasks.get('AR', 'AR-1').loop).toBeUndefined();
     });
 
-    it('let_run keeps the loop open and raises nothing more', async () => {
+    it('let_run ends the loop at once, and only new talk with no progress raises another (PM-431)', async () => {
       const stop = vi.spyOn(h.domain.sessions, 'stopTask').mockResolvedValue();
       await resolve('let_run');
-      await vi.waitFor(() => expect(loop()).toMatchObject({ phase: 'let_run', letRunBy: 'owner' }));
+      await vi.waitFor(() => expect(loop()).toBeNull());
       expect(stop).not.toHaveBeenCalled();
-      for (let i = 0; i < 4; i++) await talk(i % 2 ? 'cr' : 'dev-1', [i % 2 ? 'dev-1' : 'cr']);
+      expect(loopEvents().at(-1)!.data).toMatchObject({ phase: 'ended', endReason: 'let_run', by: 'owner' });
+      expect(h.domain.tasks.get('AR', 'AR-1').loop).toBeUndefined();
       expect(items()).toHaveLength(1);
-      expect(loop()!.count).toBe(7);
-      expect(h.domain.tasks.get('AR', 'AR-1').loop).toMatchObject({ phase: 'let_run', letRunBy: 'owner' });
+
+      // The messages before the decision do not count again: two more are not a loop, three are.
+      tick(1);
+      await talk('dev-1', ['cr']);
+      await talk('cr', ['dev-1']);
+      expect(loop()).toBeNull();
+      await talk('dev-1', ['cr']);
+      await vi.waitFor(() => expect(loop()).not.toBeNull());
+      expect(loop()).toMatchObject({ count: 3 });
+      expect(h.domain.tasks.get('AR', 'AR-1').loop).toBeDefined();
     });
   });
 
@@ -355,6 +364,65 @@ describe('loop watch', () => {
       await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
       await vi.waitFor(() => expect(loop()).toBeNull());
       expect(endedWith()).toMatchObject({ endReason: 'stage' });
+    });
+
+    describe('when work is recorded on the card (PM-431)', () => {
+      const work: Record<string, () => Promise<unknown>> = {
+        'a note': () => h.domain.tasks.addNote('AR', 'AR-1', 'Hero copy, take two.', aiActor('dev-1')),
+        'a new description': () =>
+          h.domain.tasks.update(
+            'AR',
+            'AR-1',
+            { description: 'The hero cards read better now.' },
+            OWNER_ACTOR,
+          ),
+        'an attachment': async () =>
+          h.domain.timeline.append({
+            projectKey: 'AR',
+            taskKey: 'AR-1',
+            actor: aiActor('dev-1'),
+            type: 'attachment_added',
+            data: { attachmentId: 'att_1', fileName: 'sketch.png', size: 10, mediaType: 'image/png' },
+          }),
+      };
+
+      for (const [name, record] of Object.entries(work)) {
+        it(`closes on ${name}, and the count starts again`, async () => {
+          await open();
+          tick(1);
+          await record();
+          await vi.waitFor(() => expect(loop()).toBeNull());
+          expect(endedWith()).toMatchObject({ phase: 'ended', endReason: 'work' });
+          tick(1);
+          await talk('dev-1', ['cr']);
+          await talk('cr', ['dev-1']);
+          expect(loop()).toBeNull();
+          await talk('dev-1', ['cr']);
+          await vi.waitFor(() => expect(loop()).not.toBeNull());
+        });
+
+        it(`does not count the messages before ${name} when it comes before the third`, async () => {
+          await prepare();
+          await talk('dev-1', ['cr']);
+          await talk('cr', ['dev-1']);
+          await record();
+          await settle();
+          tick(1);
+          await talk('dev-1', ['cr']);
+          expect(loop()).toBeNull();
+        });
+      }
+
+      it('does not take an imported comment for work', async () => {
+        await open();
+        tick(1);
+        await h.domain.tasks.addNote('AR', 'AR-1', 'Old history', OWNER_ACTOR, null, {
+          importedAuthor: 'Someone',
+          importedAt: '2025-01-01T00:00:00.000Z',
+        });
+        await settle();
+        expect(loop()).not.toBeNull();
+      });
     });
 
     it('closes when the card is cancelled', async () => {

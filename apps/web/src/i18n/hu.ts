@@ -2265,7 +2265,7 @@ export const hu = {
       },
       consequence: {
         stop_work: 'A kártyán futó AI-munkamenetek leállnak; a kártya ott marad, ahol van.',
-        let_run: 'Erről többet nem szólunk; a jelölés addig marad, amíg el nem csitul.',
+        let_run: 'A jelölés azonnal lekerül a kártyáról; csak haladás nélküli új üzenetváltásnál jön újra.',
       },
       footer: 'Ha közben elcsitul, ez a tétel magától lezárul.',
       toast: {
@@ -2610,7 +2610,7 @@ export const hu = {
     },
     box: {
       title: 'Körbe fut a beszélgetés',
-      text: '{pair} {count} üzenetet váltott, közben nem volt commit, szakasz- vagy címkeváltás.',
+      text: '{pair} {count} üzenetet váltott, közben nem volt commit, szakasz- vagy címkeváltás, leírás-módosítás, csatolmány vagy jegyzet.',
       let_run: '{name} úgy döntött, hadd fusson. A jelölés eltűnik, ha elcsitul.',
       messages: 'Üzenetek',
     },
@@ -2628,8 +2628,10 @@ export const hu = {
       label: 'címkeváltás',
       stage: 'szakaszváltás',
       commit: 'commit',
+      work: 'a leírás, egy csatolmány vagy egy jegyzet haladást hozott',
       quiet: 'elcsitult',
       stopped: 'leállítva',
+      let_run: 'hadd fusson',
       disabled: 'kikapcsolva',
       closed: 'a kártya lezárult',
     },

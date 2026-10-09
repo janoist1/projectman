@@ -150,7 +150,17 @@ function labelsChanged(d: Record<string, unknown>, ctx: TimelineContext): string
   return `${parts.join('; ')}${why}`;
 }
 
-const LOOP_END_REASONS = ['label', 'stage', 'commit', 'quiet', 'stopped', 'disabled', 'closed'] as const;
+const LOOP_END_REASONS = [
+  'label',
+  'stage',
+  'commit',
+  'work',
+  'quiet',
+  'stopped',
+  'let_run',
+  'disabled',
+  'closed',
+] as const;
 
 /** A loop on the card (PM-261): found, escalated to people, let run, or over. */
 function loopEventText(d: Record<string, unknown>, ctx: TimelineContext): string {

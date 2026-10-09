@@ -128,6 +128,7 @@ import {
   LOOP_STOP_OPTION,
   countsForLoop,
   findLoop,
+  isLoopWork,
   loopDecisionOf,
   loopDeciders,
   loopWatchers,
@@ -680,6 +681,7 @@ export class MockBackend {
     if (taskKey && type === 'team_message') this.checkLoop(taskKey);
     if (taskKey && type === 'task_stage_changed') this.endLoop(taskKey, 'stage');
     if (taskKey && type === 'task_labels_changed') this.endLoop(taskKey, 'label');
+    if (taskKey && isLoopWork(event)) this.endLoop(taskKey, 'work');
     if (taskKey && (type === 'task_labels_changed' || type === 'task_stage_changed')) {
       const task = this.findTask(taskKey);
       if (
@@ -719,6 +721,7 @@ export class MockBackend {
           event.taskKey === task.key &&
           (event.type === 'task_stage_changed' ||
             event.type === 'task_labels_changed' ||
+            isLoopWork(event) ||
             (event.type === 'task_loop' && event.data.phase === 'ended')),
       )
       .reduce((latest, event) => (event.createdAt > latest ? event.createdAt : latest), task.createdAt);
@@ -868,15 +871,8 @@ export class MockBackend {
       this.endLoop(task.key, 'stopped', by);
       return;
     }
-    this.updateTask(task.key, { loop: { ...task.loop, phase: 'let_run', letRunBy: by } });
-    this.addTimeline(task.key, by, 'task_loop', {
-      loopId: task.loop.id,
-      phase: 'let_run',
-      members: task.loop.members,
-      count: task.loop.count,
-      minutes: loopWatchOf(this.config.team.limits).minutes,
-      by,
-    });
+    // Let run: the mark goes at once, and a new one needs new talk with no progress (PM-431).
+    this.endLoop(task.key, 'let_run', by);
   }
 
   // ---- The fix round limit (PM-262), by the shared rules the server uses.

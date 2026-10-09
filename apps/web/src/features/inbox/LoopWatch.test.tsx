@@ -122,7 +122,7 @@ describe('a loop on screen', () => {
       '/p/AC/inbox',
     );
 
-  it('shows the decision with what each button leads to, and "Hadd fusson" leaves the mark on', async () => {
+  it('shows the decision with what each button leads to, and "Hadd fusson" takes the mark off at once', async () => {
     const project = mockProject(backendWithWatch());
     chat(project.backend, 3);
     const item = loopItems(project.backend)[0]!;
@@ -147,7 +147,10 @@ describe('a loop on screen', () => {
       }),
     );
     expect(await screen.findByText(t('inbox.loop.toast.let_run'))).toBeTruthy();
-    expect(project.backend.findTask('AC-21')?.loop).toMatchObject({ phase: 'let_run', letRunBy: 'owner' });
+    expect(project.backend.findTask('AC-21')?.loop).toBeUndefined();
+    expect(project.backend.timeline.at(-1)).toMatchObject({
+      data: { phase: 'ended', endReason: 'let_run', by: 'owner' },
+    });
   });
 
   it('stops the card\'s work with "Leállítom a munkát", and the mark goes', async () => {

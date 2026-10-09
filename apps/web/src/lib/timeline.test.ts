@@ -445,6 +445,12 @@ describe('the loop watch on the timeline (PM-261)', () => {
     expect(text({ phase: 'ended', endReason: 'stopped' })).toBe(
       t('loop.events.ended', { reason: t('loop.endReasons.stopped') }),
     );
+    expect(text({ phase: 'ended', endReason: 'work' })).toBe(
+      t('loop.events.ended', { reason: t('loop.endReasons.work') }),
+    );
+    expect(text({ phase: 'ended', endReason: 'let_run' })).toBe(
+      t('loop.events.ended', { reason: t('loop.endReasons.let_run') }),
+    );
   });
 
   it('keeps an end reason this build does not know as it is', () => {

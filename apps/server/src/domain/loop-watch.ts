@@ -44,16 +44,19 @@ type EndReason = NonNullable<TimelineEventData['task_loop']['endReason']>;
 
 /**
  * The loop watch (PM-261, replacing the message storm alert of PM-186). AI members writing to each
- * other on a card with no progress in between (no stage change, label change or commit) are a loop
+ * other on a card with no progress in between (no stage change, label change, commit, note, attachment
+ * or new description: PM-431) are a loop
  * (`findLoop` in `packages/shared`). The first to hear of it is the AI member who holds the
  * scheduling duty: it gets a system message (not stored as a team message) asking it to read the
  * conversation and tell the participants the next step and who decides. A notice that admission only
  * makes wait (the AI limit, the member's capacity, ...) is kept and retried like any automatic start,
  * and the loop counts a going-on from its delivery. When nobody holds the duty, or admission refuses
  * the notice for good, or the loop goes on after it was told (as many counted messages again),
- * the people who decide get a decision item: stop the card's AI work, or let it run. A loop closes
- * itself when it is over: the card moved on, its labels changed, its branch got a commit, nobody
- * wrote for a whole window, or the watch was switched off; its item then closes by the system.
+ * the people who decide get a decision item: stop the card's AI work, or let it run (the loop ends
+ * and its mark goes; only new talk with no progress makes another). A loop closes
+ * itself when it is over: the card moved on, its labels changed, work was recorded on it, its branch
+ * got a commit, nobody wrote for a whole window, or the watch was switched off; its item then closes
+ * by the system.
  */
 export class LoopWatch {
   private readonly ctx: DomainContext;
@@ -100,10 +103,16 @@ export class LoopWatch {
     return this.cards.run(taskKey, () => this.looked(projectKey, taskKey, event));
   }
 
-  /** The card changed stage, its labels changed or it closed: its loop is over. */
+  /** A note, an attachment or a new description was recorded on a card: that is progress too (PM-431). */
+  worked(event: TimelineEvent): Promise<void> | void {
+    if (!event.taskKey) return;
+    return this.progressed({ projectKey: event.projectKey, key: event.taskKey }, 'work');
+  }
+
+  /** The card changed stage, its labels changed, work was recorded on it or it closed: its loop is over. */
   progressed(
     task: Pick<Task, 'projectKey' | 'key'>,
-    reason: 'stage' | 'label' | 'closed',
+    reason: 'stage' | 'label' | 'work' | 'closed',
   ): Promise<void> | void {
     if (!this.ctx.repos.taskLoops.open(task.key)) return;
     return this.cards.run(task.key, async () => {
@@ -133,7 +142,8 @@ export class LoopWatch {
         });
         this.end(loop, 'stopped', by);
       } else if (item.resolution?.optionId === LOOP_LET_RUN_OPTION.id) {
-        this.letRun(loop, by);
+        // The mark goes at once; a new one needs a new round of messages after this (PM-431).
+        this.end(loop, 'let_run', by);
       }
     });
   }
@@ -239,12 +249,16 @@ export class LoopWatch {
     return findLoop(talk, since, now, watch);
   }
 
-  /** The last progress on the card: a stage or label change, a commit (when read), the end of an earlier loop. */
+  /**
+   * The last progress on the card: a stage or label change, a note, an attachment or a new description,
+   * a commit (when read), the end of an earlier loop (a person letting it run ends it too).
+   */
   private progressPoint(task: Task, committedAt: string | null): string {
     const times = [
       task.createdAt,
       this.timeline.latest(task.projectKey, task.key, 'task_stage_changed')?.createdAt,
       this.timeline.latest(task.projectKey, task.key, 'task_labels_changed')?.createdAt,
+      this.timeline.latestWork(task.projectKey, task.key)?.createdAt,
       this.ctx.repos.taskLoops.lastEndedAt(task.key),
       committedAt,
     ].filter((time): time is string => typeof time === 'string');
@@ -433,16 +447,6 @@ export class LoopWatch {
     this.tasks.publish(task);
   }
 
-  /** A person let the loop run: it stays open, with no more items. */
-  private letRun(loop: TaskLoopRecord, by: string): void {
-    const task = this.tasks.find(loop.projectKey, loop.taskKey);
-    const letRun: TaskLoopRecord = { ...loop, phase: 'let_run', letRunBy: by };
-    this.ctx.repos.taskLoops.save(letRun);
-    if (!task) return;
-    this.record(task, letRun, 'let_run', { by });
-    this.tasks.publish(task);
-  }
-
   /** The loop is over: its row closes, its decision item closes by the system, the card is published again. */
   private end(loop: TaskLoopRecord, reason: EndReason, by?: string): void {
     const task = this.tasks.find(loop.projectKey, loop.taskKey);
@@ -476,12 +480,11 @@ export class LoopWatch {
   private record(
     task: Pick<Task, 'projectKey' | 'key'>,
     loop: TaskLoopRecord,
-    phase: 'raised' | 'escalated' | 'let_run',
+    phase: 'raised' | 'escalated',
     extra: {
       notified?: string | null;
       deciders?: string[];
       reason?: 'no_watcher' | 'continued';
-      by?: string;
     },
   ): void {
     this.timeline.append({
@@ -518,7 +521,7 @@ function talkOf(event: TimelineEvent): LoopTalk {
 function noticeText(taskKey: string, loop: TaskLoopRecord, minutes: number): string {
   return [
     `${loop.members.join(', ')} have written ${loop.count} messages to each other on ${taskKey} in the last ${minutes} minutes,`,
-    'with no stage change, label change or commit in between: they may be going round in circles.',
+    'with no stage change, label change, commit, note, attachment or new description in between: they may be going round in circles.',
     `Read the conversation on ${taskKey}, then write once to the participants: what the next step is and who decides it.`,
     'Do not write to people about it; if a person has to decide, say so on the card.',
     'What you write does not count as part of the loop.',

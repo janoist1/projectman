@@ -55,6 +55,8 @@ export interface DomainEventMap {
   task_note_added: { event: TimelineEvent; mentions: string[] };
   /** A team message or a note was recorded on a card (PM-186), imported comments included. */
   task_talk_recorded: { event: TimelineEvent };
+  /** Work was recorded on a card (PM-431): a note, an attachment or a change of the description. */
+  task_work_recorded: { event: TimelineEvent };
   /** A session's process started (a new or a resumed conversation). */
   session_started: Session;
   /** A task session started or resumed with `announce` (PM-249, not a restart): the card's other workers are told. */

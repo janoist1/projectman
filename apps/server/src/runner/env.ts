@@ -142,6 +142,19 @@ const MANAGED_VM_REMOVED_VARS = new Set([
   'GITHUB_ENTERPRISE_TOKEN',
 ]);
 
+/**
+ * Editors that never open a window: git (a rebase's commit message or todo list) and other tools
+ * that start `$EDITOR` would otherwise leave Vim waiting on a terminal nobody types into, and the
+ * member could not stop it (PM-428). `true` accepts the file as it is. Set last, for every
+ * provider, so neither the service's environment nor a parent session can bring an editor back.
+ */
+export const NON_INTERACTIVE_EDITOR_ENV = {
+  GIT_EDITOR: 'true',
+  GIT_SEQUENCE_EDITOR: 'true',
+  EDITOR: 'true',
+  VISUAL: 'true',
+} as const;
+
 /** Environment of an interactive member session. */
 export function buildSessionEnv(
   base: NodeJS.ProcessEnv,
@@ -152,6 +165,7 @@ export function buildSessionEnv(
     buildChildEnv(base, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
+      ...NON_INTERACTIVE_EDITOR_ENV,
       PROJECTMAN_SESSION_ID: sessionId,
       // With the session id it marks every process of the session as this instance's (PM-320).
       ...(opts.instanceTag ? { PROJECTMAN_INSTANCE: opts.instanceTag } : {}),

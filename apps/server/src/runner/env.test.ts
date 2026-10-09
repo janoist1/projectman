@@ -95,6 +95,14 @@ describe('child environment', () => {
     expect(env).not.toHaveProperty('ANTHROPIC_API_KEY');
   });
 
+  it('gives every member session a non-interactive editor, whatever the service environment holds (PM-428)', () => {
+    const env = buildSessionEnv({ ...base, GIT_EDITOR: 'vim', EDITOR: 'vim', VISUAL: 'code -w' }, 'ses_1');
+    for (const name of ['GIT_EDITOR', 'GIT_SEQUENCE_EDITOR', 'EDITOR', 'VISUAL']) {
+      expect(env[name], name).toBe('true');
+    }
+    expect(buildSessionEnv(base, 'ses_1', { managedVm: true }).GIT_EDITOR).toBe('true');
+  });
+
   it("marks a session with the instance's tag, and drops the tag a parent instance passed on (PM-320)", () => {
     const env = buildSessionEnv({ ...base, PROJECTMAN_INSTANCE: 'parent-tag' }, 'ses_42', {
       instanceTag: '0123456789abcdef',

@@ -7,6 +7,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { createServer } from 'node:net';
@@ -163,7 +164,7 @@ describe('engine process', () => {
     return built;
   };
 
-  /** The policy a Codex, NanoGPT or Gemini start needs on an engine: its denied paths come from it alone. */
+  /** The policy every start needs on an engine: the denied paths and the roots of a session come from it. */
   const policy = () => ({
     version: 1,
     enforcement: 'strict',
@@ -187,7 +188,7 @@ describe('engine process', () => {
       appendSystemPrompt: 'system',
       mcpToken: TOKEN,
       allowedTools: [],
-      ...(overrides.provider && overrides.provider !== 'claude' ? { policy: policy() } : {}),
+      policy: policy(),
       ...overrides,
     }) as MethodParams<'session.start'>;
 
@@ -249,6 +250,14 @@ describe('engine process', () => {
       await expect(build()).rejects.toMatchObject({ code: 'secret_permissions' });
     });
 
+    it('refuses a home that holds a projectman server database, before it listens', async () => {
+      writeFileSync(path.join(home, 'db.sqlite-wal'), '');
+      const error = await build().catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(EngineConfigError);
+      expect((error as EngineConfigError).code).toBe('home_in_use');
+      expect((error as EngineConfigError).message).toContain('PROJECTMAN_HOME=~/.projectman-engine');
+    });
+
     it('refuses a missing configuration with the way to fix it', async () => {
       rmSync(path.join(home, 'engine.json'));
       const error = await build().catch((e: unknown) => e);
@@ -301,10 +310,10 @@ describe('engine process', () => {
       expect(fake.runner.lastStarted().policy?.filesystem.deniedPaths).toContain(key);
     });
 
-    it('refuses a Codex, NanoGPT or Gemini start without a policy and starts nothing', async () => {
+    it('refuses a start without a policy, whatever the provider, and starts nothing', async () => {
       await startEngine();
       const { call } = await cloud.connected();
-      for (const provider of ['codex', 'nanogpt', 'gemini'])
+      for (const provider of ['claude', 'codex', 'nanogpt', 'gemini'])
         await expect(
           call('session.start', { ...startSpec({ provider }), policy: undefined }),
         ).rejects.toMatchObject({ code: 'invalid_params' });

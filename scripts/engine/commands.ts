@@ -2,6 +2,7 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import {
+  assertHomeNotInUse,
   cloudOrigin,
   EngineConfig,
   EngineConfigError,
@@ -109,6 +110,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
         const id = flags.get('id');
         if (!cloud || !id) throw new UsageError('init needs --cloud and --id');
         cloudOrigin(cloud); // https:// (http:// only for a loopback host)
+        assertHomeNotInUse(home);
         const previous = existsSync(files.config) ? loadEngineConfig(home) : null;
         if (previous && !flags.has('force'))
           throw new EngineConfigError(

@@ -89,10 +89,22 @@ describe('engine local limit', () => {
     allowedDomains: [],
     ...overrides,
   });
+  /** A session policy for a task worktree; each section is merged with what the case changes. */
+  const policy = (overrides: Record<string, unknown> = {}) => ({
+    permissions: { claude: 'default', sandbox: 'workspace-write', ...(overrides.permissions as object) },
+    placement: { kind: 'read_only', path: repo, ...(overrides.placement as object) },
+    filesystem: {
+      readableRoots: [repo],
+      writableRoots: [repo],
+      protectedPaths: [],
+      ...(overrides.filesystem as object),
+    },
+  });
   const start = (overrides: Record<string, unknown> = {}) => ({
     sessionId: 's1',
     provider: 'claude',
     cwd: repo,
+    policy: policy(),
     ...overrides,
   });
 
@@ -184,11 +196,6 @@ describe('engine local limit', () => {
     });
 
     it('refuses a policy that asks for full access or sits outside the roots', async () => {
-      const policy = (overrides: Record<string, unknown>) => ({
-        permissions: { claude: 'default', sandbox: 'workspace-write', ...(overrides.permissions as object) },
-        placement: { path: repo },
-        filesystem: { writableRoots: [repo], ...(overrides.filesystem as object) },
-      });
       const limit = make();
       await refused(
         limit,
@@ -202,6 +209,73 @@ describe('engine local limit', () => {
         start({ policy: policy({ filesystem: { writableRoots: [userHome] } }) }),
         'path_outside_roots',
       );
+    });
+
+    describe('the paths of a policy', () => {
+      const gitDir = () => path.join(repo, '.git');
+      const taskWorktree = (overrides: Record<string, unknown> = {}) => ({
+        kind: 'task_worktree',
+        path: path.join(worktrees, 'PM', 'PM-1'),
+        gitDir: gitDir(),
+        worktreeGitDir: path.join(gitDir(), 'worktrees', 'PM-1'),
+        ...overrides,
+      });
+      const reviewCopy = (overrides: Record<string, unknown> = {}) => ({
+        kind: 'review_copy',
+        path: path.join(worktrees, 'PM', 'review'),
+        gitDir: path.join(worktrees, 'PM', 'review.git'),
+        ...overrides,
+      });
+
+      it('accepts the paths of a task worktree and of a review copy under the engine’s roots', async () => {
+        const limit = make();
+        await expect(
+          limit.check('session.start', start({ policy: policy({ placement: taskWorktree() }) }) as never),
+        ).resolves.toBeDefined();
+        await expect(
+          limit.check(
+            'session.start',
+            start({
+              policy: policy({
+                placement: reviewCopy({ cacheDir: path.join(home, 'member-caches', 'c') }),
+                filesystem: { sessionFoldersRoot: path.join(home, 'session-folders') },
+              }),
+            }) as never,
+          ),
+        ).resolves.toBeDefined();
+      });
+
+      it.each([
+        ['a readable root', () => ({ filesystem: { readableRoots: [repo, userHome] } })],
+        ['a read-only path', () => ({ filesystem: { readOnlyPaths: [path.join(userHome, '.ssh')] } })],
+        ['the session folders root', () => ({ filesystem: { sessionFoldersRoot: userHome } })],
+        ['the session folder', () => ({ filesystem: { sessionFolder: outside } })],
+        ['the placement', () => ({ placement: { path: outside } })],
+        ['the git directory of a review copy', () => ({ placement: reviewCopy({ gitDir: userHome }) })],
+        ['its cache directory', () => ({ placement: reviewCopy({ cacheDir: userHome }) })],
+        ['its temporary directory', () => ({ placement: reviewCopy({ tempDir: outside }) })],
+      ])('refuses %s outside the roots', async (_name, overrides) => {
+        await refused(
+          make(),
+          'session.start',
+          start({ policy: policy(overrides() as never) }),
+          'path_outside_roots',
+        );
+      });
+
+      it('takes the git directories of a task worktree only from a registered repo', async () => {
+        const limit = make();
+        const refusedPlacement = (placement: Record<string, unknown>) =>
+          refused(limit, 'session.start', start({ policy: policy({ placement }) }), 'path_outside_roots');
+        // Another place under the roots, but not a registered repo’s git directory.
+        await refusedPlacement(taskWorktree({ gitDir: path.join(worktrees, 'other.git') }));
+        // The worktree’s admin directory must lie in the repository’s own `worktrees` folder.
+        await refusedPlacement(taskWorktree({ worktreeGitDir: path.join(worktrees, 'admin') }));
+        await refusedPlacement(taskWorktree({ gitDir: undefined }));
+        // A link out of the roots does not pass as the repository’s git directory.
+        symlinkSync(userHome, path.join(workspace, 'escape'));
+        await refusedPlacement(taskWorktree({ gitDir: path.join(workspace, 'escape') }));
+      });
     });
 
     it('refuses a sandbox that lets a command out, or sets PATH or a billing key', async () => {
@@ -257,11 +331,6 @@ describe('engine local limit', () => {
       const keyFile = () => path.join(home, 'engine.key');
       const headersFile = () => path.join(base, 'keys', 'headers.json');
       const withHeaders = () => make({ linkHeadersFile: headersFile() });
-      const policy = () => ({
-        permissions: { claude: 'default', sandbox: 'workspace-write' },
-        placement: { path: repo },
-        filesystem: { writableRoots: [repo] },
-      });
 
       it('never lets a session read or change the machine key and the link headers', async () => {
         const given = (await withHeaders().check(
@@ -299,11 +368,11 @@ describe('engine local limit', () => {
         );
       });
 
-      it.each(['codex', 'nanogpt', 'gemini'])(
+      it.each(['claude', 'codex', 'nanogpt', 'gemini'])(
         'refuses a %s session without a policy, and accepts it with one',
         async (provider) => {
           const limit = make();
-          await refused(limit, 'session.start', start({ provider }), 'invalid_params');
+          await refused(limit, 'session.start', start({ provider, policy: undefined }), 'invalid_params');
           await expect(
             limit.check('session.start', start({ provider, policy: policy() }) as never),
           ).resolves.toBeDefined();

@@ -207,18 +207,44 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       insideAll(spec.writableRoots, 'A writable root', extra);
       limitMode(spec.permissionMode);
       const policy = spec.policy;
-      // The denied paths of Codex and NanoGPT come from the policy alone: without one they would run with
-      // none, and the engine's secrets would be readable.
-      if (spec.provider && spec.provider !== 'claude' && !policy)
-        refuse('invalid_params', 'A session of this provider needs a policy on this engine');
-      if (policy) {
-        limitMode(policy.permissions.claude);
-        if (policy.permissions.sandbox === 'danger-full-access')
-          refuse('permission_mode_too_high', 'A full-access sandbox is not allowed on this engine');
-        inside(policy.placement.path, 'The placement', extra);
-        insideAll(policy.filesystem.writableRoots, 'A writable root', extra);
-        if (policy.filesystem.sessionFolder)
-          inside(policy.filesystem.sessionFolder, 'The session folder', extra);
+      // The denied paths, the readable roots and the protected paths of every provider come from the policy:
+      // without one the engine's secrets would be readable and nothing would bound the session.
+      if (!policy) refuse('invalid_params', 'A session needs a policy on this engine');
+      limitMode(policy.permissions.claude);
+      if (policy.permissions.sandbox === 'danger-full-access')
+        refuse('permission_mode_too_high', 'A full-access sandbox is not allowed on this engine');
+      const { placement, filesystem } = policy;
+      inside(placement.path, 'The placement', extra);
+      insideAll(filesystem.readableRoots, 'A readable root', extra);
+      insideAll(filesystem.writableRoots, 'A writable root', extra);
+      insideAll(filesystem.readOnlyPaths, 'A read-only path', extra);
+      if (filesystem.sessionFolder) inside(filesystem.sessionFolder, 'The session folder', extra);
+      if (filesystem.sessionFoldersRoot)
+        inside(filesystem.sessionFoldersRoot, 'The session folders root', extra);
+      if (placement.kind === 'review_copy') {
+        inside(placement.gitDir, 'The git directory', extra);
+        if (placement.cacheDir) inside(placement.cacheDir, 'The cache directory', extra);
+        if (placement.tempDir) inside(placement.tempDir, 'The temporary directory', extra);
+      }
+      if (placement.kind === 'task_worktree') {
+        // Codex and NanoGPT take these as writable roots (the objects, refs and logs of the repository and the
+        // worktree's own admin directory): they must be a registered repo's git directory and one of its worktrees.
+        const repoGitDirs = config.repos.map((repo) => path.join(repo.path, '.git'));
+        if (
+          placement.gitDir &&
+          !repoGitDirs.some((dir) => resolveReal(dir) === resolveReal(placement.gitDir!))
+        )
+          refuse('path_outside_roots', 'The git directory is not that of a registered repo');
+        if (placement.worktreeGitDir) {
+          if (
+            !placement.gitDir ||
+            !isWithin(
+              path.join(resolveReal(placement.gitDir), 'worktrees'),
+              resolveReal(placement.worktreeGitDir),
+            )
+          )
+            refuse('path_outside_roots', 'The worktree git directory is not inside the repository');
+        }
       }
       let sandbox = spec.sandbox;
       if (sandbox) {

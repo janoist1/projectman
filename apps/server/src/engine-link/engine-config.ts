@@ -4,6 +4,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -259,6 +260,7 @@ export function resolveEngineConfig(
   options: { tmpdir?: string } = {},
 ): ResolvedEngineConfig {
   cloudOrigin(config.cloudUrl);
+  assertHomeNotInUse(home);
   const projects = config.projects.map((entry) => ({
     project: entry.project,
     workspacePath: realAbsolute(entry.workspacePath, `The workspace of ${entry.project}`),
@@ -311,6 +313,24 @@ export function resolveEngineConfig(
     projects,
     repos,
   };
+}
+
+/**
+ * The engine never shares a home with a projectman server: that home holds the database, the secrets and the
+ * other members' work, and the engine's roots would reach them. A home with `db.sqlite*` is refused.
+ */
+export function assertHomeNotInUse(home: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(home);
+  } catch {
+    return; // no such directory yet
+  }
+  if (names.some((name) => name.startsWith('db.sqlite')))
+    throw new EngineConfigError(
+      'home_in_use',
+      `${home} holds a projectman server database. Give the engine its own home, for example PROJECTMAN_HOME=~/.projectman-engine.`,
+    );
 }
 
 export function configExists(home: string): boolean {

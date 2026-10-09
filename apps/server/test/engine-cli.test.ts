@@ -110,6 +110,16 @@ describe('engine commands', () => {
       expect(await run('init', '--cloud', 'http://127.0.0.1:4700', '--id', 'eng_aaaaaaaaaaaa')).toBe(0);
     });
 
+    it('refuses a home that holds a projectman server database, and writes nothing there', async () => {
+      mkdirSync(home, { recursive: true });
+      writeFileSync(path.join(home, 'db.sqlite'), '');
+      expect(await init()).toBe(1);
+      expect(err.join('\n')).toContain('home_in_use');
+      expect(err.join('\n')).toContain('PROJECTMAN_HOME=~/.projectman-engine');
+      expect(existsSync(path.join(home, 'engine.key'))).toBe(false);
+      expect(existsSync(path.join(home, 'engine.json'))).toBe(false);
+    });
+
     it('refuses an engine id of the wrong shape', async () => {
       expect(await run('init', '--cloud', 'https://cloud.example.com', '--id', 'engine-1')).toBe(1);
       expect(err.join('\n')).toContain('config_invalid');

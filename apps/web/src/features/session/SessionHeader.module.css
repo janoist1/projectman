@@ -111,6 +111,10 @@
   color: var(--c-ok-text);
 }
 
+.engineChip {
+  color: var(--c-ink-3);
+}
+
 .member {
   min-width: 0;
   display: inline-flex;

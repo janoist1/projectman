@@ -1,5 +1,6 @@
 import type { ProviderLoginStatus } from '@projectman/shared';
 import {
+  CreateEngineRequest,
   StopOrphansRequest,
   StopSessionRequest,
   CreateIntegratorKeyRequest,
@@ -164,6 +165,8 @@ import {
   measureClosedCard,
 } from '@projectman/shared';
 import type {
+  EngineStatusView,
+  EngineView,
   HandoffFallbackReason,
   HandoffStart,
   HandoffStep,
@@ -438,6 +441,16 @@ export class MockBackend {
   /** A fixed sample can be supplied by UI tests; otherwise use the fixture sessions. */
   machine: MachineView | null = null;
   orphanStopOutcomes: Record<number, 'stopped' | 'gone' | 'refused' | 'failed'> = {};
+  /** Hybrid mode (PM-316): `single` has no engine routes at all; a test switches to `cloud` and adds engines. */
+  engineMode: 'single' | 'cloud' = 'single';
+  engines: EngineView[] = [];
+  /** Codes the machine display and the session detail answer with (`engine_offline`), by session id. */
+  machineError: ErrorCode | null = null;
+  sessionErrors = new Map<string, ErrorCode>();
+  /** The machine key the last `POST /api/engines` returned (a test checks it is shown once). */
+  lastEngineKey: string | null = null;
+  /** While set, POST /api/engines (and the other changes) answer `owner_login_required` for `engines`. */
+  engineLoginRequired = false;
   codexPlanUsage = { ...clone(fixtures.planUsage), fiveHourPercent: 24, weeklyPercent: 36 };
   extraProjects: { key: string; name: string; templateId: string }[] = [];
   invitations: Array<Invitation & { token: string }> = [];
@@ -1389,8 +1402,12 @@ export class MockBackend {
       }
       return ok({ key: clone(this.integratorKey) });
     }
+    if (path === '/api/engines' || path.startsWith('/api/engines/'))
+      return this.engineRoutes(method, path, body);
     if (path === '/api/machine' || path === '/api/machine/orphans/stop') {
       if (!this.me().instanceOwner) return error(403, 'insufficient_access', 'Instance owner required');
+      if (path === '/api/machine' && this.machineError)
+        return error(409, this.machineError, 'The engine is not connected');
       if (path === '/api/machine' && method === 'GET') return ok(this.machine ?? this.machineView());
       if (path === '/api/machine/orphans/stop' && method === 'POST') {
         const input = parseBody(StopOrphansRequest, body);
@@ -1512,6 +1529,100 @@ export class MockBackend {
             ]
           : [],
     };
+  }
+
+  /** Adds an engine to the fake registry; the first one ever created is the default (as on the server). */
+  addEngine(input: Partial<EngineView> & { name: string }): EngineView {
+    const seq = this.engines.length + 1;
+    const engine: EngineView = {
+      id: `eng_${String(seq).padStart(12, 'a')}`,
+      isDefault: this.engines.length === 0,
+      online: false,
+      lastSeenAt: null,
+      keyPrefix: `pme_${String(seq).padStart(4, '0')}`,
+      createdAt: nowIso(),
+      createdBy: fixtures.mockUser.userId,
+      revokedAt: null,
+      lastSeenIp: null,
+      hostname: null,
+      platform: null,
+      version: null,
+      versionMismatch: false,
+      providers: [],
+      runningSessions: 0,
+      waitingStarts: 0,
+      waitingMessages: 0,
+      ...input,
+    };
+    this.engines.push(engine);
+    return engine;
+  }
+
+  /** Connects or disconnects an engine and tells the browsers, as the server does. */
+  setEngineOnline(id: string, online: boolean): void {
+    const engine = this.engines.find((entry) => entry.id === id);
+    if (!engine) return;
+    engine.online = online;
+    engine.lastSeenAt = nowIso();
+    this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
+  }
+
+  private engineStatus(engine: EngineView): EngineStatusView {
+    return {
+      id: engine.id,
+      name: engine.name,
+      isDefault: engine.isDefault,
+      online: engine.online,
+      lastSeenAt: engine.lastSeenAt,
+    };
+  }
+
+  private engineRoutes(method: string, path: string, body: unknown): MockResponse {
+    const me = this.me();
+    if (path === '/api/engines/status' && method === 'GET') {
+      if (this.engineMode === 'single') return ok({ mode: 'single', engines: [] });
+      if (!me.hostOwner && this.viewerAccess() === 'client')
+        return error(403, 'insufficient_access', 'Engine status requires internal membership');
+      return ok({
+        mode: 'cloud',
+        engines: this.engines.filter((engine) => !engine.revokedAt).map((e) => this.engineStatus(e)),
+      });
+    }
+    if (!me.hostOwner) return error(403, 'owner_only', 'Only the host owner may manage engines');
+    if (this.engineMode === 'single') return error(404, 'not_found', 'Engines are not available');
+    if (path === '/api/engines' && method === 'GET') return ok(clone(this.engines));
+    if (this.engineLoginRequired)
+      return error(403, 'owner_login_required', 'Log in again to manage engines', { category: 'engines' });
+    if (path === '/api/engines' && method === 'POST') {
+      const input = parseBody(CreateEngineRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid engine name');
+      const engine = this.addEngine({ name: input.name });
+      this.lastEngineKey = `pme_mock_${engine.id}_for_ui_tests_only`;
+      this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
+      return { status: 201, body: { engine: clone(engine), key: this.lastEngineKey } };
+    }
+    const m = /^\/api\/engines\/(local|eng_[a-z0-9]{12})\/(revoke|default)$/.exec(path);
+    if (m && method === 'POST') {
+      const engine = this.engines.find((entry) => entry.id === m[1]);
+      if (!engine) return error(404, 'engine_not_found', 'Unknown engine');
+      if (engine.revokedAt) return error(409, 'engine_revoked', 'The engine is revoked');
+      if (m[2] === 'revoke') {
+        engine.revokedAt = nowIso();
+        engine.isDefault = false;
+        engine.online = false;
+        // Like the server, a revoked engine is announced with the ordinary change event.
+        this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
+        return ok(clone(engine));
+      }
+      for (const entry of this.engines) {
+        const isDefault = entry.id === engine.id;
+        if (entry.isDefault === isDefault) continue;
+        entry.isDefault = isDefault;
+        this.emit({ type: 'engine_changed', engine: this.engineStatus(entry) });
+      }
+      return ok(clone(this.engines));
+    }
+    return error(404, 'not_found', `No route for ${method} ${path}`);
   }
 
   private machineView(): MachineView {
@@ -1687,6 +1798,8 @@ export class MockBackend {
     if ((m = /^\/sessions\/([\w-]+)$/.exec(rest))) {
       const session = this.findSession(m[1]!);
       if (!session) return error(404, 'not_found', 'Unknown session');
+      const sessionError = this.sessionErrors.get(session.id);
+      if (sessionError) return error(409, sessionError, 'The engine is not connected');
       const task = session.workItem.type === 'task' ? this.findTask(session.workItem.taskKey) : undefined;
       return ok({
         session: clone(session),

@@ -111,6 +111,12 @@
   font-size: 20px;
   outline: none;
 }
+.header h2 .engine {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--c-ink-4);
+}
 .fresh,
 .late {
   font-size: 11px;

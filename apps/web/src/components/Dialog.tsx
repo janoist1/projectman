@@ -59,6 +59,8 @@ interface DialogProps {
   /** `sm` is a confirmation: a bottom sheet on a phone. `md` and `lg` are forms: full screen there. */
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  /** A click on the backdrop closes the dialog; off for a secret shown once, so a stray click cannot lose it. */
+  closeOnBackdrop?: boolean;
 }
 
 /**
@@ -76,6 +78,7 @@ export function Dialog({
   error,
   size = 'md',
   className,
+  closeOnBackdrop,
   kicker,
   menu,
   back,
@@ -95,6 +98,7 @@ export function Dialog({
       error={error}
       size={size}
       className={className}
+      closeOnBackdrop={closeOnBackdrop}
       kicker={kicker}
       menu={menu}
       back={back}
@@ -118,6 +122,7 @@ function DialogInner({
   error,
   size = 'md',
   className,
+  closeOnBackdrop = true,
   kicker,
   menu,
   back,
@@ -197,7 +202,7 @@ function DialogInner({
         if (event.key === 'Escape' && typeof ref.current?.showModal !== 'function') onEscapeRef.current();
       }}
       onMouseDown={(event) => {
-        if (event.target === ref.current) onCloseRef.current();
+        if (closeOnBackdrop && event.target === ref.current) onCloseRef.current();
       }}
     >
       <div className={styles.panel}>

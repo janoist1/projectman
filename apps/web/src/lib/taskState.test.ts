@@ -24,6 +24,16 @@ describe('engine waiting cards', () => {
       t('taskStatus.startWaiting.engine_offline', { engine: 'eng_abcdefghijkl' }),
     );
   });
+  it('names the engine by its name when the engine list knows it', () => {
+    const task: Task = {
+      ...tasks[0]!,
+      startWaiting: { reason: 'engine_offline', engine: 'eng_abcdefghijkl', since },
+    };
+    const ctx = { ...contextWith([]), engineNames: new Map([['eng_abcdefghijkl', 'Mac Studio']]) };
+    expect(deriveTaskState(task, ctx).label).toBe(
+      t('taskStatus.startWaiting.engine_offline', { engine: 'Mac Studio' }),
+    );
+  });
   it('says no engine is connected when the card names none', () => {
     const task: Task = { ...tasks[0]!, startWaiting: { reason: 'engine_offline', since } };
     expect(deriveTaskState(task, contextWith([])).label).toBe(

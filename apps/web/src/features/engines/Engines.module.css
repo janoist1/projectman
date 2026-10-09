@@ -1,0 +1,229 @@
+.anchor {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+  color: var(--c-ink-3);
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    background-color 200ms,
+    border-color 200ms,
+    color 200ms;
+}
+.indicator:hover {
+  background: var(--c-subtle);
+}
+.indicator[data-state='offline'],
+.indicator[data-state='none'] {
+  background: var(--c-needs-soft);
+  border-color: var(--c-needs-border);
+  color: var(--c-needs-text);
+}
+.indicator[aria-expanded='true'] {
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 1px var(--c-accent);
+}
+.text {
+  white-space: nowrap;
+}
+.text strong {
+  color: var(--c-ink);
+  font-weight: 600;
+}
+.indicator[data-state='offline'] .text strong,
+.indicator[data-state='none'] .text strong {
+  color: var(--c-needs-text);
+}
+.chevron {
+  display: flex;
+  transition: transform 150ms ease-out;
+}
+.indicator[aria-expanded='true'] .chevron {
+  transform: rotate(180deg);
+}
+.badge {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.pill {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  min-width: 32px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--c-muted);
+  color: var(--c-ink-3);
+  transition:
+    background-color 200ms,
+    color 200ms;
+}
+.pill[data-state='offline'],
+.pill[data-state='none'] {
+  background: var(--c-needs-soft);
+  color: var(--c-needs-text);
+}
+.badge[aria-expanded='true'] .pill {
+  box-shadow: 0 0 0 2px var(--c-accent);
+}
+.pill .dot {
+  position: absolute;
+  top: -2px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--c-surface);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--c-ok);
+  transition: background-color 200ms;
+}
+.dot[data-state='offline'],
+.dot[data-state='none'] {
+  background: var(--c-needs);
+}
+.dot[data-state='never'] {
+  background: transparent;
+  border: 1.5px solid var(--c-ink-4);
+}
+
+.panel {
+  position: fixed;
+  z-index: 70;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 88px);
+  overflow: auto;
+  padding: 16px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-pop);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  animation: appear 140ms ease-out;
+}
+.title {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  outline: none;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.list li {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  gap: 2px 10px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+}
+.list li .dot {
+  margin-top: 6px;
+}
+.name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--c-muted);
+  color: var(--c-ink-3);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.status {
+  grid-column: 2;
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.status[data-needs='true'] {
+  color: var(--c-needs-text);
+}
+.counts {
+  grid-column: 2;
+  color: var(--c-ink-4);
+  font-size: 12px;
+}
+.hint,
+.hintFirst {
+  margin: 10px 0 0;
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.hintFirst {
+  margin-top: 0;
+}
+.foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-line-soft);
+}
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--c-accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+.link:hover {
+  color: var(--c-accent-hover);
+  text-decoration: underline;
+}
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel {
+    animation: none;
+  }
+  .indicator,
+  .indicator *,
+  .pill,
+  .dot {
+    transition: none !important;
+  }
+}

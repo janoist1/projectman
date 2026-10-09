@@ -131,6 +131,14 @@
   color: var(--c-ink-3);
 }
 
+.offline {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
 .muted {
   font-size: var(--text-sm);
   color: var(--c-ink-4);

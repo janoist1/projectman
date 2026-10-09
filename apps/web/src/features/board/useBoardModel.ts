@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import { compareBoardOrder, isTheme } from '@projectman/shared';
 import type { RankedCard, Task } from '@projectman/shared';
-import { useBoard, useConfig, useInbox } from '../../api/queries';
+import { useBoard, useConfig, useEngineStatus, useInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import type { TaskState, TaskStateContext } from '../../lib/taskState';
+import { engineNameMap } from '../engines/engineView';
 import { pausedSessionMap } from '../pause/pauseView';
 
 export interface BoardEntry {
@@ -63,6 +64,8 @@ export function useBoardModel() {
   const labels = board.data?.labels;
   const items = inbox.data?.items;
   const pause = board.data?.pause;
+  const engines = useEngineStatus().data?.engines;
+  const engineNames = useMemo(() => engineNameMap(engines), [engines]);
 
   const model = useMemo(() => {
     if (!tasks || !pipeline) return null;
@@ -75,6 +78,7 @@ export function useBoardModel() {
       labels,
       pausedSessions: pausedSessionMap(pause),
       config,
+      engineNames,
     };
     const subtasksByParent = new Map<string, Task[]>();
     for (const task of tasks) {
@@ -93,7 +97,7 @@ export function useBoardModel() {
       subtasksByParent,
       byKey: new Map(entries.map((entry) => [entry.task.key, entry])),
     };
-  }, [tasks, labels, items, pipeline, members, myHandle, pause, config]);
+  }, [tasks, labels, items, pipeline, members, myHandle, pause, config, engineNames]);
 
   return { board, inbox, members, pipeline, model };
 }

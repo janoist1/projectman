@@ -4,6 +4,7 @@ import type {
   StopOrphansRequest,
   AttachmentListResponse,
   BoardView,
+  CreateEngineResponse,
   InstancePauseView,
   ProjectPauseView,
   BoardMoveRequest,
@@ -280,6 +281,12 @@ export function useSessionDetail(key: string, sessionId: string) {
   return useQuery({
     queryKey: queryKeys.session(key, sessionId),
     queryFn: () => api.session(key, sessionId),
+    // An engine that is away answers the same until it returns; the page waits for its event, not for retries (PM-316).
+    retry: (count, error) =>
+      !(
+        isApiError(error) &&
+        (error.code === 'engine_offline' || (error.status >= 400 && error.status < 500))
+      ) && count < 2,
   });
 }
 
@@ -314,6 +321,75 @@ export function useMachine({ panel }: { panel: boolean }) {
     refetchInterval: panel ? 5000 : 15000,
     refetchIntervalInBackground: false,
     retry: false,
+  });
+}
+
+/**
+ * The engines every internal member sees (PM-316): `single` on a one-machine installation. A client member is
+ * refused by the server, so nothing is asked for one. `engine_changed` keeps the list live (see `applyServerEvent`).
+ */
+export function useEngineStatus() {
+  const me = useMe();
+  const internal = me.data?.hostOwner === true || me.data?.projects.some((p) => p.access !== 'client');
+  return useQuery({
+    queryKey: queryKeys.engineStatus,
+    queryFn: api.engineStatus,
+    enabled: internal === true,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
+/** The owner's list of engines with their hello data and counts (revoked ones too). */
+export function useEngines(enabled: boolean) {
+  return useQuery({ queryKey: queryKeys.engines, queryFn: api.engines, enabled, retry: false });
+}
+
+function refreshEngines(client: QueryClient) {
+  return Promise.all([
+    client.invalidateQueries({ queryKey: queryKeys.engines }),
+    client.invalidateQueries({ queryKey: queryKeys.engineStatus }),
+  ]);
+}
+
+export function useCreateEngine() {
+  const client = useQueryClient();
+  return useMutation({
+    // The machine key is handed on and shown once: it must not stay in the mutation's result.
+    mutationFn: async ({
+      name,
+      onCreated,
+    }: {
+      name: string;
+      onCreated: (created: CreateEngineResponse) => void;
+    }) => {
+      const created = await api.createEngine(name);
+      onCreated(created);
+      return created.engine;
+    },
+    onSuccess: () => refreshEngines(client),
+  });
+}
+
+export function useRevokeEngine() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.revokeEngine(id),
+    onSuccess: () => refreshEngines(client),
+    // `engine_revoked` and `engine_not_found` mean the list on screen is out of date.
+    onError: () => refreshEngines(client),
+  });
+}
+
+export function useSetDefaultEngine() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.defaultEngine(id),
+    onSuccess: (engines) => {
+      client.setQueryData(queryKeys.engines, engines);
+      return refreshEngines(client);
+    },
+    onError: () => refreshEngines(client),
   });
 }
 

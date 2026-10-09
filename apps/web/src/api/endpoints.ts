@@ -1,4 +1,7 @@
 import {
+  CreateEngineResponse,
+  EngineStatusResponse,
+  EngineView,
   MachineView,
   StopOrphansResult,
   AttachmentListResponse,
@@ -90,6 +93,15 @@ export const api = {
     apiRequest(routes.integratorKey(), { method: 'DELETE', schema: IntegratorKeyResponse }),
   machine: (panel: boolean, signal?: AbortSignal) =>
     apiRequest(`${routes.machine()}${panel ? '?panel=1' : ''}`, { schema: MachineView, signal }),
+  /** Hybrid mode (PM-316): `single` on a one-machine installation, else the engines the viewer may see. */
+  engineStatus: () => apiRequest(routes.engineStatus(), { schema: EngineStatusResponse }),
+  engines: () => apiRequest(routes.engines(), { schema: EngineView.array() }),
+  createEngine: (name: string) =>
+    apiRequest(routes.engines(), { method: 'POST', body: { name }, schema: CreateEngineResponse }),
+  revokeEngine: (id: string) =>
+    apiRequest(routes.revokeEngine(id), { method: 'POST', body: {}, schema: EngineView }),
+  defaultEngine: (id: string) =>
+    apiRequest(routes.defaultEngine(id), { method: 'POST', body: {}, schema: EngineView.array() }),
   stopOrphans: (body: StopOrphansRequest) =>
     apiRequest(routes.machineOrphansStop(), { method: 'POST', body, schema: StopOrphansResult }),
   boundaryRequest: (key: string, id: string) =>

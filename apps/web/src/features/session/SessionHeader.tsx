@@ -44,6 +44,7 @@ export function SessionHeader({
   taskPhase,
   live,
   pauseRow,
+  engineName,
 }: {
   session: Session;
   task: Task | null;
@@ -55,6 +56,8 @@ export function SessionHeader({
   live: { status: SessionStatus | 'paused'; label: string; title?: string };
   /** The row the pause holds this session in: what it still waits for while it stops (PM-220). */
   pauseRow?: PausedSession;
+  /** The engine the session runs on; given only in cloud mode (PM-316). */
+  engineName?: string;
 }) {
   const { key } = useProject();
   const stop = useStopSession(key);
@@ -160,7 +163,12 @@ export function SessionHeader({
         : runningText(pauseRow?.waitingFor ?? null)}
     </Chip>
   ) : null;
-  const hasChips = stageChip || prBadge || alertChip || pointChip;
+  const engineTag = engineName ? (
+    <Chip tone="outline" size="md" icon="server" className={styles.engineChip}>
+      {t('engines.chatEngine', { name: engineName })}
+    </Chip>
+  ) : null;
+  const hasChips = stageChip || prBadge || alertChip || pointChip || engineTag;
   const heading = task ? (
     <Link to={withCardSize(`/p/${key}/tasks/${task.key}`, 'large')} className={styles.titleLink}>
       {title}
@@ -215,6 +223,7 @@ export function SessionHeader({
           {prBadge}
           {alertChip}
           {pointChip}
+          {engineTag}
         </div>
       ) : null}
       <Dialog
@@ -295,6 +304,43 @@ export function SessionHeader({
           }}
         />
       </Dialog>
+    </div>
+  );
+}
+
+/** What the header can say while the session itself cannot be read (its engine is away): the way back (PM-316). */
+export function SessionHeaderOffline() {
+  const { key } = useProject();
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const goBack = (event: MouseEvent) => {
+    if (location.key === 'default') return;
+    event.preventDefault();
+    void navigate(-1);
+  };
+  return (
+    <div className={styles.header}>
+      {isMobile ? (
+        <div className={styles.phoneRow}>
+          <Link to={`/p/${key}`} onClick={goBack} className={styles.back} aria-label={t('session.back')}>
+            <Icon name="chevronLeft" size={22} strokeWidth={2.2} />
+          </Link>
+          <div className={styles.phoneTitle}>
+            <span className={styles.phoneHeading}>{t('engines.chatOfflineCrumb')}</span>
+          </div>
+        </div>
+      ) : (
+        <div className={styles.crumbRow}>
+          <nav aria-label={t('session.breadcrumb')} className={styles.crumbs}>
+            <Link to={`/p/${key}`} className={styles.crumbLink}>
+              {t('nav.board')}
+            </Link>
+            <Icon name="chevronRight" size={14} strokeWidth={2} />
+            <span>{t('engines.chatOfflineCrumb')}</span>
+          </nav>
+        </div>
+      )}
     </div>
   );
 }

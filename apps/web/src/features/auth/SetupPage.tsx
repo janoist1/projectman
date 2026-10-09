@@ -20,19 +20,25 @@ export function SetupPage() {
   const status = useSetupStatus();
   const setup = useSetup();
   const navigate = useNavigate();
-  const [values, setValues] = useState({ name: '', email: '', password: '' });
+  const [values, setValues] = useState({ name: '', email: '', password: '', setupCode: '' });
   const [errors, setErrors] = useState<SetupErrors>({});
 
   if (status.isPending) return <LoadingState />;
   if (status.data && !status.data.needsSetup) return <Navigate to="/" replace />;
+  const needsSetupCode = status.data?.needsSetupCode === true;
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault();
-    const found = validateSetup(values);
+    const found = validateSetup(values, needsSetupCode);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
     setup.mutate(
-      { name: values.name.trim(), email: values.email.trim(), password: values.password },
+      {
+        name: values.name.trim(),
+        email: values.email.trim(),
+        password: values.password,
+        ...(needsSetupCode ? { setupCode: values.setupCode.trim() } : {}),
+      },
       { onSuccess: () => navigate('/', { replace: true }) },
     );
   };
@@ -68,6 +74,19 @@ export function SetupPage() {
           required
           minLength={8}
         />
+        {needsSetupCode ? (
+          <TextField
+            label={t('auth.setup.setupCode')}
+            hint={t('auth.setup.setupCodeHint')}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            value={values.setupCode}
+            onChange={(event) => setValues({ ...values, setupCode: event.target.value })}
+            error={errors.setupCode}
+            required
+          />
+        ) : null}
         {setup.isError ? <ErrorBanner>{errorMessage(setup.error)}</ErrorBanner> : null}
         <Button type="submit" variant="primary" size="xl" fullWidth loading={setup.isPending}>
           {setup.isPending ? t('auth.setup.submitting') : t('auth.setup.submit')}

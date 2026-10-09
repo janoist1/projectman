@@ -48,6 +48,7 @@ export interface AppHarnessOptions {
     | 'shutdownPauseMs'
     | 'logger'
     | 'engineMode'
+    | 'setupCode'
     | 'appVersion'
     | 'claudeTmpRoots'
   >;

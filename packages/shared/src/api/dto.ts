@@ -101,6 +101,8 @@ export const SetupRequest = z.object({
   name: z.string().min(1),
   email: z.string().min(3),
   password: z.string().min(8),
+  /** The one-time code the cloud server logs at start (PM-317); only a non-local request needs it. */
+  setupCode: z.string().optional(),
 });
 export type SetupRequest = z.infer<typeof SetupRequest>;
 
@@ -126,7 +128,11 @@ export const Me = z.object({
 });
 export type Me = z.infer<typeof Me>;
 
-export const SetupStatus = z.object({ needsSetup: z.boolean() });
+export const SetupStatus = z.object({
+  needsSetup: z.boolean(),
+  /** `cloud` mode with no user yet: the setup form asks for the code from the server log (PM-317). */
+  needsSetupCode: z.boolean().optional(),
+});
 export type SetupStatus = z.infer<typeof SetupStatus>;
 
 /* ---------- providers ---------- */

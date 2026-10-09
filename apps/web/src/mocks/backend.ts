@@ -366,6 +366,8 @@ function parseBody<T>(
  */
 export class MockBackend {
   auth: MockAuthState;
+  /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
+  setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
@@ -1336,9 +1338,14 @@ export class MockBackend {
     const publicInvite = /^\/api\/invites\/([^/]+)(\/accept)?$/.exec(path);
     if (publicInvite) return this.handlePublicInvite(method, publicInvite[1]!, !!publicInvite[2], body);
     if (path === '/api/setup') {
-      if (method === 'GET') return ok({ needsSetup: this.auth === 'setup' });
+      if (method === 'GET') {
+        const needsSetup = this.auth === 'setup';
+        return ok({ needsSetup, ...(needsSetup && this.setupCode !== null ? { needsSetupCode: true } : {}) });
+      }
       const input = parseBody(SetupRequest, body);
       if (!input) return error(400, 'invalid_request', 'Invalid setup request');
+      if (this.setupCode !== null && input.setupCode?.replace(/[\s-]/g, '').toUpperCase() !== this.setupCode)
+        return error(403, 'setup_code_invalid', 'The setup code is missing or wrong');
       this.user = { ...this.user, name: input.name, email: input.email };
       this.accounts.set(input.email.trim().toLowerCase(), {
         ...this.user,

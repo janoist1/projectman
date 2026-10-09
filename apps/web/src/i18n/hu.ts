@@ -818,6 +818,8 @@ export const hu = {
       server_stopping: 'A szerver éppen leáll. Próbáld újra később.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
       setup_requires_localhost: 'A kezdeti beállítás csak a szerver gépéről érhető el.',
+      setup_code_invalid:
+        'A beállítókód hibás, hiányzik vagy érvénytelen lett. Olvasd ki a szerver naplójából, vagy indítsd újra a szervert új kódért.',
       too_many_requests: 'Túl sok kérés érkezett. Próbáld újra később.',
       unauthorized: 'Jelentkezz be a folytatáshoz.',
       unsupported_media_type: 'A kérés adatformátuma nem támogatott.',
@@ -948,6 +950,9 @@ export const hu = {
       email: 'E-mail cím',
       password: 'Jelszó',
       passwordHint: 'Legalább 8 karakter.',
+      setupCode: 'Beállítókód',
+      setupCodeHint:
+        'A szerver naplójában találod (12 karakter, kötőjellel tagolva). Tíz hibás próba után érvénytelen; újat a szerver újraindítása ad.',
       submit: 'Fiók létrehozása',
       submitting: 'Létrehozás…',
     },
@@ -965,6 +970,7 @@ export const hu = {
       emailInvalid: 'Adj meg egy érvényes e-mail címet.',
       passwordShort: 'A jelszó legalább 8 karakter legyen.',
       passwordRequired: 'Add meg a jelszavad.',
+      setupCodeRequired: 'Add meg a szerver naplójában olvasható beállítókódot.',
     },
     showPassword: 'Jelszó mutatása',
     hidePassword: 'Jelszó elrejtése',

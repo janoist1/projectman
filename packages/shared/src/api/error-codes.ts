@@ -23,6 +23,7 @@ export const ERROR_CODES = [
   'invalid_credentials',
   'too_many_attempts',
   'setup_requires_localhost',
+  'setup_code_invalid',
   'already_set_up',
   'not_a_member',
   'insufficient_access',

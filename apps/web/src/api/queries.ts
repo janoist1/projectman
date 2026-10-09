@@ -281,6 +281,12 @@ export function useSessionDetail(key: string, sessionId: string) {
   return useQuery({
     queryKey: queryKeys.session(key, sessionId),
     queryFn: () => api.session(key, sessionId),
+    // An engine that is away answers the same until it returns; the page waits for its event, not for retries (PM-316).
+    retry: (count, error) =>
+      !(
+        isApiError(error) &&
+        (error.code === 'engine_offline' || (error.status >= 400 && error.status < 500))
+      ) && count < 2,
   });
 }
 

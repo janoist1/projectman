@@ -79,8 +79,27 @@
   color: var(--c-ink-3);
   font-size: 13px;
 }
-.line[data-needs='true'] {
+/* A line of parts: it breaks between the parts, never inside one, and the dot closes a part, so a line never starts with it. */
+.parts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0;
+  color: var(--c-ink-3);
+  font-size: 13px;
+}
+.parts[data-needs='true'] {
   color: var(--c-needs-text);
+}
+.parts > span {
+  white-space: nowrap;
+}
+.parts > span:not(:last-child)::after {
+  content: '·';
+  margin: 0 6px;
+}
+.muted.parts {
+  color: var(--c-ink-4);
+  font-size: 12px;
 }
 .machine {
   display: flex;
@@ -93,6 +112,9 @@
 .mono {
   font-family: var(--font-mono);
   font-size: 12px;
+}
+.parts.mono > span {
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 .clis {
@@ -152,13 +174,17 @@
   font-size: 13px;
 }
 .error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
   gap: 12px;
+  justify-items: start;
 }
-.error p {
-  margin: 0;
+/* The empty state keeps its text readable on a phone: the button wraps under it instead of squeezing it. */
+.emptyHost > div {
+  flex-wrap: wrap;
+}
+.emptyHost > div > div {
+  flex: 1 1 200px;
+  min-width: 0;
 }
 .skeleton {
   display: grid;
@@ -168,6 +194,9 @@
   height: 74px;
   border-radius: var(--radius-lg);
   background: var(--c-subtle);
+}
+.note {
+  margin: 8px 0 0;
 }
 .step {
   margin: 14px 0 6px;

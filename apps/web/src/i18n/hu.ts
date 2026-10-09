@@ -265,6 +265,7 @@ export const hu = {
     /** The session chat while the engine holding its history is offline. */
     chatOfflineTitle: 'A beszélgetés előzménye a motoron van, a motor most nem elérhető.',
     chatOfflineBody: 'Amint újra csatlakozik, itt magától megjelenik.',
+    chatOfflineCrumb: 'Munkamenet',
     chatEngine: 'Motor: {name}',
     composerNote: 'Az üzeneted megvárja a motort, és a csatlakozáskor megy tovább.',
     /** Settings → Motorok. */
@@ -283,6 +284,7 @@ export const hu = {
     cliMissing: '{name} nincs a gépen',
     cliNone: '· nincs',
     keyLine: 'Kulcs: {prefix}… · létrehozva {created}',
+    keyLineBy: 'Kulcs: {prefix}… · létrehozva {created}, {who}',
     neverHint: 'Futtasd a beállító parancsot a gépen, a létrehozáskor kapott kulcsból.',
     showCommand: 'Parancs mutatása',
     makeDefault: 'Legyen az alapértelmezett',

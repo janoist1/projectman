@@ -35,6 +35,10 @@ describe('a session while its engine is offline', () => {
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByText(t('engines.composerNote'))).toBeTruthy();
     expect(screen.getByRole('textbox')).toBeTruthy();
+    // The way back stays, and the answer is asked for once: an engine that is away does not answer sooner.
+    const crumbs = screen.getByRole('navigation', { name: t('session.breadcrumb') });
+    expect(within(crumbs).getByRole('link', { name: t('nav.board') })).toBeTruthy();
+    expect(project.requests.filter((r) => r.path.endsWith('/sessions/ses_ac21_fe1')).length).toBe(1);
   });
 
   it('names the engine in the header of a running session in cloud mode only', async () => {

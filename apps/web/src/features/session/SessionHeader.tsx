@@ -307,3 +307,40 @@ export function SessionHeader({
     </div>
   );
 }
+
+/** What the header can say while the session itself cannot be read (its engine is away): the way back (PM-316). */
+export function SessionHeaderOffline() {
+  const { key } = useProject();
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const goBack = (event: MouseEvent) => {
+    if (location.key === 'default') return;
+    event.preventDefault();
+    void navigate(-1);
+  };
+  return (
+    <div className={styles.header}>
+      {isMobile ? (
+        <div className={styles.phoneRow}>
+          <Link to={`/p/${key}`} onClick={goBack} className={styles.back} aria-label={t('session.back')}>
+            <Icon name="chevronLeft" size={22} strokeWidth={2.2} />
+          </Link>
+          <div className={styles.phoneTitle}>
+            <span className={styles.phoneHeading}>{t('engines.chatOfflineCrumb')}</span>
+          </div>
+        </div>
+      ) : (
+        <div className={styles.crumbRow}>
+          <nav aria-label={t('session.breadcrumb')} className={styles.crumbs}>
+            <Link to={`/p/${key}`} className={styles.crumbLink}>
+              {t('nav.board')}
+            </Link>
+            <Icon name="chevronRight" size={14} strokeWidth={2} />
+            <span>{t('engines.chatOfflineCrumb')}</span>
+          </nav>
+        </div>
+      )}
+    </div>
+  );
+}

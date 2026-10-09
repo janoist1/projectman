@@ -33,7 +33,7 @@ import { openPauses, pausedSessionMap } from '../pause/pauseView';
 import { ChatView } from './ChatView';
 import { Composer } from './Composer';
 import { participantsFor } from './participants';
-import { SessionHeader } from './SessionHeader';
+import { SessionHeader, SessionHeaderOffline } from './SessionHeader';
 import { liveState, sessionTitle } from './sessionModel';
 import { ParticipantsPanel, PrPanel, SessionDetailsPanel, UsagePanel } from './SessionPanels';
 import styles from './SessionPage.module.css';
@@ -344,6 +344,7 @@ function EngineOfflineSession({ sessionId }: { sessionId: string }) {
   const toast = useToast();
   return (
     <div className={styles.page}>
+      <SessionHeaderOffline />
       <div className={styles.offline}>
         <EmptyState
           icon="server"

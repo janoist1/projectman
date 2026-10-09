@@ -5,7 +5,7 @@ import { setFetchImplementation } from '../../../api/client';
 import { MockBackend } from '../../../mocks/backend';
 import { ToastContext } from '../../../components/toastContext';
 import { t } from '../../../i18n/t';
-import { mockProject } from '../../../test/mockProject';
+import { createMockFetch, mockProject } from '../../../test/mockProject';
 import { SettingsTestRoutes } from '../testRoutes';
 import { EnginesSection } from './EnginesSection';
 
@@ -123,12 +123,15 @@ describe('engines settings', () => {
     project.render(<EnginesSection />);
     const row = (await screen.findByText('Mac Studio')).closest('li')!;
     const scope = within(row);
-    expect(scope.getByText(t('engines.online'), { exact: false }).textContent).toContain('10.0.0.5');
-    expect(scope.getByText(/studio\.local · macOS · v1\.4\.0/)).toBeTruthy();
+    expect(scope.getByText(t('engines.online')).parentElement?.textContent).toContain('10.0.0.5');
+    expect(scope.getByText('studio.local').parentElement?.textContent).toContain('macOS');
+    expect(scope.getByText('v1.4.0')).toBeTruthy();
+    expect(scope.getByText(/létrehozva .*, /).textContent).toContain(project.context.me.name);
     expect(scope.getByText(t('engines.mismatch'))).toBeTruthy();
     expect(scope.getByText(/Claude 2\.1\.0/)).toBeTruthy();
     expect(scope.getByText(/Codex · nincs/)).toBeTruthy();
-    expect(scope.getByText(/2 munkamenet fut · 3 indítás és 1 üzenet vár rá/)).toBeTruthy();
+    expect(scope.getByText('2 munkamenet fut')).toBeTruthy();
+    expect(scope.getByText('3 indítás és 1 üzenet vár rá')).toBeTruthy();
   });
 
   it('makes another engine the default and says so', async () => {
@@ -204,6 +207,66 @@ describe('engines settings', () => {
     });
     expect(within(dialog).getByLabelText(t('engines.commandAria')).textContent).toMatch(/init --cloud/);
     expect(within(dialog).getByText(t('engines.commandKeyGone'))).toBeTruthy();
+  });
+
+  it('puts the focus on Cancel when asking to revoke', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac Studio', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    project.render(<EnginesSection />);
+    const row = (await screen.findByText('Mac Studio')).closest('li')!;
+    fireEvent.click(
+      within(row).getByRole('button', { name: t('engines.rowActions', { name: 'Mac Studio' }) }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: t('engines.revoke') }));
+    const dialog = await screen.findByRole('dialog', {
+      name: t('engines.revokeTitle', { name: 'Mac Studio' }),
+    });
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: t('common.cancel') }));
+  });
+
+  it('does not paint an engine that never connected as unreachable', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac Studio' });
+      backend.addEngine({ name: 'Linux box', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    project.render(<EnginesSection />);
+    await screen.findByText('Linux box');
+    const never = screen.getByText(t('engines.neverSeen')).parentElement!;
+    const away = screen.getByText(/nem elérhető/i, { selector: 'li p span' }).parentElement!;
+    expect(never.getAttribute('data-needs')).toBe('false');
+    expect(away.getAttribute('data-needs')).toBe('true');
+  });
+
+  it('shows a load failure as an alert with a retry', async () => {
+    const project = cloud();
+    const answer = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (path, init) =>
+      path === '/api/engines' ? new Response('{}', { status: 500 }) : answer(path, init),
+    );
+    project.render(<EnginesSection />);
+    expect((await screen.findByRole('alert')).textContent).toBe(t('engines.loadFailed'));
+    expect(screen.getByRole('button', { name: t('app.retry') })).toBeTruthy();
+  });
+
+  it('gives "Másolva" back as "Másolás" after a moment', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.resolve() },
+      configurable: true,
+    });
+    const project = cloud();
+    project.render(<EnginesSection />);
+    fireEvent.click(await screen.findByRole('button', { name: t('engines.newEngine') }));
+    const dialog = await screen.findByRole('dialog', { name: t('engines.newTitle') });
+    fireEvent.change(within(dialog).getByLabelText(t('engines.nameLabel')), { target: { value: 'Mac' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: t('engines.create') }));
+    const keyDialog = await screen.findByRole('dialog', { name: t('engines.keyTitle', { name: 'Mac' }) });
+    fireEvent.click(within(keyDialog).getAllByRole('button', { name: t('engines.copy') })[0]!);
+    expect(await within(keyDialog).findByRole('button', { name: t('engines.copied') })).toBeTruthy();
+    await waitFor(
+      () => expect(within(keyDialog).queryByRole('button', { name: t('engines.copied') })).toBeNull(),
+      { timeout: 3000 },
+    );
   });
 
   it('warns when there is no default engine', async () => {

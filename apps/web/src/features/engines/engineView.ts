@@ -40,6 +40,13 @@ export function statusText(engine: Pick<EngineStatusView, 'online' | 'lastSeenAt
 export function workText(
   engine: Pick<EngineView, 'runningSessions' | 'waitingStarts' | 'waitingMessages'>,
 ): string {
+  return workParts(engine).join(t('engines.workJoin'));
+}
+
+/** The same, one part each, for a line that must not break inside a part. */
+export function workParts(
+  engine: Pick<EngineView, 'runningSessions' | 'waitingStarts' | 'waitingMessages'>,
+): string[] {
   const parts: string[] = [];
   if (engine.runningSessions > 0) parts.push(t('engines.running', { count: engine.runningSessions }));
   const waiting: string[] = [];
@@ -47,7 +54,7 @@ export function workText(
   if (engine.waitingMessages > 0)
     waiting.push(t('engines.waitingMessages', { count: engine.waitingMessages }));
   if (waiting.length > 0) parts.push(t('engines.waitsForIt', { what: waiting.join(t('common.and')) }));
-  return parts.length > 0 ? parts.join(t('engines.workJoin')) : t('engines.noWork');
+  return parts.length > 0 ? parts : [t('engines.noWork')];
 }
 
 /** The command that sets the engine up on its machine; the key is asked for there, never put in the command. */

@@ -1,7 +1,9 @@
+import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { CreateEngineResponse, EngineView } from '@projectman/shared';
 import { useCreateEngine, useEngines, useRevokeEngine, useSetDefaultEngine } from '../../../api/queries';
+import { useProject } from '../../../app/contexts';
 import { Button } from '../../../components/Button';
 import { Chip } from '../../../components/Chip';
 import { Dialog } from '../../../components/Dialog';
@@ -16,7 +18,7 @@ import { formatDate } from '../../../i18n/format';
 import { t } from '../../../i18n/t';
 import { errorCode, errorMessage } from '../../../lib/errors';
 import { useNow } from '../../../lib/useNow';
-import { defaultFirst, engineCommand, engineState, statusText, workText } from '../../engines/engineView';
+import { defaultFirst, engineCommand, engineState, statusText, workParts } from '../../engines/engineView';
 import { SettingsSection } from './SettingsSection';
 import styles from './EnginesSection.module.css';
 
@@ -25,6 +27,7 @@ type Dialogs =
 
 /** How long a row that has just connected stays tinted. */
 const FLASH_MS = 600;
+const COPIED_MS = 1600;
 
 /**
  * Settings → Motorok (PM-316): the machines the AI work runs on, their machine keys, the default
@@ -32,6 +35,7 @@ const FLASH_MS = 600;
  * dialog's state.
  */
 export function EnginesSection() {
+  const { me } = useProject();
   const query = useEngines(true);
   const setDefault = useSetDefaultEngine();
   const toast = useToast();
@@ -78,9 +82,9 @@ export function EnginesSection() {
             <strong className={styles.name}>{engine.name}</strong>
             {engine.isDefault && <span className={styles.chip}>{t('engines.defaultChipCap')}</span>}
           </div>
-          <p className={styles.line} data-needs={state !== 'online'}>
-            {statusText(engine, now)}
-            {engine.lastSeenIp ? ` · ${engine.lastSeenIp}` : ''}
+          <p className={styles.parts} data-needs={state === 'offline'}>
+            <span>{statusText(engine, now)}</span>
+            {engine.lastSeenIp && <span>{engine.lastSeenIp}</span>}
           </p>
           {never ? (
             <p className={styles.line}>
@@ -96,7 +100,13 @@ export function EnginesSection() {
           ) : (
             <>
               <p className={styles.machine}>
-                {machineText(engine) && <span className={styles.mono}>{machineText(engine)}</span>}
+                {machineParts(engine).length > 0 && (
+                  <span className={clsx(styles.parts, styles.mono)}>
+                    {machineParts(engine).map((part) => (
+                      <span key={part}>{part}</span>
+                    ))}
+                  </span>
+                )}
                 {engine.versionMismatch && (
                   <Chip tone="needs" size="sm" title={t('engines.mismatchHint')}>
                     {t('engines.mismatch')}
@@ -122,11 +132,21 @@ export function EnginesSection() {
                   })}
                 </ul>
               )}
-              <p className={styles.muted}>{workText(engine)}</p>
+              <p className={clsx(styles.parts, styles.muted)}>
+                {workParts(engine).map((part) => (
+                  <span key={part}>{part}</span>
+                ))}
+              </p>
             </>
           )}
           <p className={styles.muted}>
-            {t('engines.keyLine', { prefix: engine.keyPrefix, created: formatDate(engine.createdAt) })}
+            {engine.createdBy === me.userId
+              ? t('engines.keyLineBy', {
+                  prefix: engine.keyPrefix,
+                  created: formatDate(engine.createdAt),
+                  who: me.name,
+                })
+              : t('engines.keyLine', { prefix: engine.keyPrefix, created: formatDate(engine.createdAt) })}
           </p>
         </div>
         <MoreMenu label={t('engines.rowActions', { name: engine.name })}>
@@ -192,19 +212,21 @@ export function EnginesSection() {
           <div />
         </div>
       ) : query.isError ? (
-        <div className={styles.error} role="alert">
-          <p>{t('engines.loadFailed')}</p>
+        <div className={styles.error}>
+          <ErrorBanner>{t('engines.loadFailed')}</ErrorBanner>
           <Button size="md" icon="undo" onClick={() => void query.refetch()}>
             {t('app.retry')}
           </Button>
         </div>
       ) : query.data.length === 0 ? (
-        <EmptyState
-          icon="server"
-          title={t('engines.emptyTitle')}
-          body={t('engines.emptyBody')}
-          action={newButton('primary')}
-        />
+        <div className={styles.emptyHost}>
+          <EmptyState
+            icon="server"
+            title={t('engines.emptyTitle')}
+            body={t('engines.emptyBody')}
+            action={newButton('primary')}
+          />
+        </div>
       ) : (
         <>
           {active.length > 0 && !active.some((engine) => engine.isDefault) && (
@@ -246,19 +268,23 @@ export function EnginesSection() {
   );
 }
 
-/** What the engine reported about its machine; empty before it has ever connected. */
-function machineText(engine: EngineView): string {
+/** What the engine reported about its machine, one part each; empty before it has ever connected. */
+function machineParts(engine: EngineView): string[] {
   return [
     engine.hostname,
     engine.platform ? t(`engines.platform.${engine.platform}`) : null,
     engine.version ? `v${engine.version}` : null,
-  ]
-    .filter(Boolean)
-    .join(' · ');
+  ].filter((part): part is string => Boolean(part));
 }
 
 function CopyRow({ text, label }: { text: string; label: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  // "Másolva" is a confirmation, not a state: it goes back to "Másolás" after a moment.
+  useEffect(() => {
+    if (state !== 'copied') return;
+    const timer = window.setTimeout(() => setState('idle'), COPIED_MS);
+    return () => window.clearTimeout(timer);
+  }, [state]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -314,8 +340,8 @@ function NewEngineDialog({ onClose }: { onClose: () => void }) {
         <CopyRow text={created.key} label={t('engines.keyAria')} />
         <h3 className={styles.step}>{t('engines.commandStep')}</h3>
         <CopyRow text={engineCommand(created.engine.id)} label={t('engines.commandAria')} />
-        <p className={styles.muted}>{t('engines.keyPromptNote')}</p>
-        <p className={styles.muted}>{t('engines.connectNote')}</p>
+        <p className={clsx(styles.muted, styles.note)}>{t('engines.keyPromptNote')}</p>
+        <p className={clsx(styles.muted, styles.note)}>{t('engines.connectNote')}</p>
       </Dialog>
     );
   return (
@@ -386,8 +412,6 @@ function CommandDialog({ engine, onClose }: { engine: EngineView; onClose: () =>
 function RevokeDialog({ engine, onClose }: { engine: EngineView; onClose: () => void }) {
   const revoke = useRevokeEngine();
   const toast = useToast();
-  const cancel = useRef<HTMLButtonElement>(null);
-  useEffect(() => cancel.current?.focus(), []);
   // The list on screen is out of date: the mutation refreshes it, the message says why nothing happened.
   const stale =
     errorCode(revoke.error) === 'engine_revoked' || errorCode(revoke.error) === 'engine_not_found';
@@ -407,7 +431,7 @@ function RevokeDialog({ engine, onClose }: { engine: EngineView; onClose: () => 
           </Button>
         ) : (
           <>
-            <Button ref={cancel} variant="secondary" size="md" disabled={revoke.isPending} onClick={onClose}>
+            <Button variant="secondary" size="md" autoFocus disabled={revoke.isPending} onClick={onClose}>
               {t('common.cancel')}
             </Button>
             <Button

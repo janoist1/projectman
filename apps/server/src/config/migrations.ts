@@ -4,8 +4,11 @@ import {
   BUILT_IN_ROLE_DUTIES,
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
+  DEFAULT_PROJECT_LANGUAGE,
   FALLBACK_PERMISSION_MODE,
+  isProjectManager,
   LabelDefinition,
+  type MemberConfig,
   PermissionMode,
   permissionModeFitsProvider,
   ProjectConfig,
@@ -13,7 +16,7 @@ import {
   releaseApprovers,
   releaseGateAccepts,
 } from '@projectman/shared';
-import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig } from '@projectman/templates';
+import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig, projectManagerMember } from '@projectman/templates';
 
 export interface MigrationContext {
   projectKey: string;
@@ -194,6 +197,30 @@ function dropMessageBurst(raw: unknown, { projectKey, logger }: MigrationContext
 }
 
 /**
+ * A project without an AI project manager (PM-429) gets one, on leave until the owner calls it
+ * back, sponsored by the first human owner. Without a human owner nothing is added: the
+ * configuration is invalid for that reason anyway.
+ */
+function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const config = asRecord(raw);
+  const team = asRecord(config?.team);
+  if (!config || !team || !Array.isArray(team.members)) return raw;
+  const members = team.members.map(asRecord).filter((m): m is Record<string, unknown> => m !== undefined);
+  if (members.some((m) => isProjectManager(m as unknown as MemberConfig))) return raw;
+  const owner = members.find((m) => m.kind === 'human' && m.access === 'owner');
+  if (typeof owner?.handle !== 'string') return raw;
+  const language = asRecord(config.project)?.language;
+  const member = projectManagerMember({
+    language: typeof language === 'string' ? language : DEFAULT_PROJECT_LANGUAGE,
+    sponsor: owner.handle,
+    taken: members.flatMap((m) => (typeof m.handle === 'string' ? [m.handle] : [])),
+  });
+  team.members.push({ ...member, onLeave: true });
+  logger.warn({ projectKey, member: member.handle }, 'Added the required project manager, on leave');
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -204,17 +231,21 @@ function dropMessageBurst(raw: unknown, { projectKey, logger }: MigrationContext
  *     conditions with the labels they need (`migrateLegacyConfig`, @projectman/templates);
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
- *   - the removed message storm threshold (`messageBurst`) is dropped (above).
+ *   - the removed message storm threshold (`messageBurst`) is dropped (above);
+ *   - a project without an AI project manager gets one, on leave (above).
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return migrateReleaseApproval(
-    migrateLegacyConfig(
-      migrateCodexBypass(
-        migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-        context,
+  return addProjectManager(
+    migrateReleaseApproval(
+      migrateLegacyConfig(
+        migrateCodexBypass(
+          migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+          context,
+        ),
       ),
+      context,
     ),
     context,
   );

@@ -48,6 +48,7 @@ export * from './config/team-map';
 export * from './config/start-block';
 export * from './config/lookup';
 export * from './config/leave';
+export * from './config/project-manager';
 export * from './config/repos';
 export * from './config/owner-only';
 export * from './config/integrator';

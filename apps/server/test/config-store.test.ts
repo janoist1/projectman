@@ -235,6 +235,11 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     displayName: Reviewer
     role: code_review
     sponsor: owner
+  - kind: ai
+    handle: pm
+    displayName: Project manager
+    role: project_manager
+    sponsor: owner
 `;
     writeFileSync(path, legacy);
 

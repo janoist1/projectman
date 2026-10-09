@@ -56,6 +56,8 @@ export const ERROR_CODES = [
   'custom_role_shadows_builtin',
   'duplicate_role',
   'role_in_use',
+  'project_manager_required',
+  'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',
   'already_member',

@@ -3,6 +3,7 @@ import {
   BUILT_IN_ROLE_DUTIES,
   isToleratedOnLoad,
   ProjectConfig,
+  projectManagersOf,
   validateProjectConfig,
 } from '@projectman/shared';
 import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
@@ -237,6 +238,90 @@ describe('release approval migration (decision 19)', () => {
     const errors = errorsOf(config);
     expect(errors.map((issue) => issue.code)).toEqual(['release_approval_needs_duty']);
     expect(errors.every(isToleratedOnLoad)).toBe(true);
+  });
+
+  describe('the required project manager (PM-429)', () => {
+    const withoutProjectManager = () => {
+      const legacy = raw();
+      legacy.team.members = legacy.team.members.filter((m) => m.role !== 'project_manager');
+      return legacy;
+    };
+
+    it('adds a project manager on leave, sponsored by the first human owner, to a project without one', () => {
+      const { migrated, config, warn } = migrate(withoutProjectManager());
+      expect(projectManagersOf(config)).toHaveLength(1);
+      expect(config.team.members.at(-1)).toMatchObject({
+        kind: 'ai',
+        handle: 'pm',
+        role: 'project_manager',
+        displayName: 'Project manager',
+        sponsor: 'owner',
+        onLeave: true,
+        temp: false,
+      });
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+      expect(warn).toHaveBeenCalledWith(
+        { projectKey: 'AR', member: 'pm' },
+        'Added the required project manager, on leave',
+      );
+      expect(migrated).toBeDefined();
+    });
+
+    it('takes the next free handle and the project language', () => {
+      const legacy = withoutProjectManager();
+      legacy.team.members.push({
+        kind: 'ai',
+        handle: 'pm',
+        displayName: 'Pm',
+        role: 'developer',
+        sponsor: 'owner',
+      });
+      (legacy as unknown as { project: Record<string, unknown> }).project.language = 'hu';
+      const { config } = migrate(legacy);
+      expect(config.team.members.at(-1)).toMatchObject({ handle: 'pm-2', displayName: 'Projektmenedzser' });
+    });
+
+    it('adds one when the only project manager is a temp worker', () => {
+      const legacy = withoutProjectManager();
+      legacy.team.members.push({
+        kind: 'ai',
+        handle: 'pm',
+        displayName: 'Pm',
+        role: 'project_manager',
+        sponsor: 'owner',
+        temp: true,
+      });
+      const { config } = migrate(legacy);
+      expect(projectManagersOf(config)).toHaveLength(1);
+      expect(projectManagersOf(config)[0]!.handle).toBe('pm-2');
+    });
+
+    it('changes nothing where an AI project manager exists, on leave or not', () => {
+      for (const onLeave of [true, false]) {
+        const current = raw();
+        current.team.members.find((m) => m.role === 'project_manager')!.onLeave = onLeave;
+        const before = JSON.parse(JSON.stringify(current));
+        const { migrated, warn } = migrate(current);
+        expect(migrated).toBe(current);
+        expect(migrated).toEqual(before);
+        expect(warn).not.toHaveBeenCalled();
+      }
+    });
+
+    it('adds nothing without a human owner', () => {
+      const legacy = withoutProjectManager();
+      for (const member of legacy.team.members) if (member.kind === 'human') member.access = 'admin';
+      const { migrated, warn } = migrate(legacy);
+      expect(projectManagersOf(ProjectConfig.parse(migrated))).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('is done once', () => {
+      const { migrated } = migrate(withoutProjectManager());
+      const again = vi.fn();
+      expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn: again } })).toBe(migrated);
+      expect(again).not.toHaveBeenCalled();
+    });
   });
 
   it('is done once', () => {

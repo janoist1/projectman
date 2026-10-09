@@ -84,6 +84,7 @@ import {
   isBuiltInRole,
   isHandleOnLeave,
   isOnLeave,
+  isRequiredProjectManager,
   isOpenTask,
   openPrerequisites,
   projectRefines,
@@ -4031,6 +4032,12 @@ export class MockBackend {
     const input = parseBody(RetireMemberRequest, body) ?? {};
     const member = this.findMember(handle);
     if (!member || member.kind !== 'ai') return error(404, 'not_found', 'Unknown AI member');
+    if (isRequiredProjectManager(this.config, handle))
+      return error(
+        409,
+        'project_manager_required',
+        'the only AI project manager cannot be retired; hire another one first',
+      );
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
     const next = clone(this.config);
     next.team.members = next.team.members.filter((m) => m.handle !== handle);

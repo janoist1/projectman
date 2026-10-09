@@ -3,6 +3,7 @@ import { dutyMembers } from './duties';
 import { gateAcceptsCondition, gateAcceptsWhen, stageIndex } from './gates';
 import { labelDefinition, labelHolders } from './labels';
 import { memberOf } from './lookup';
+import { projectManagersOf } from './project-manager';
 import { developmentStage, projectRefines } from './refinement';
 import { isHumanOnlyLabel } from '../domain/label';
 import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
@@ -17,6 +18,7 @@ export interface ConfigIssue {
     | 'recommended_duty_unfilled'
     | 'duplicate_handle'
     | 'no_owner'
+    | 'no_ai_project_manager'
     | 'unknown_member'
     | 'unknown_label'
     | 'duplicate_label'
@@ -46,7 +48,8 @@ export interface ConfigIssue {
 
 /**
  * Rules that always hold, whoever changes the configuration (a human or the system agent):
- * - every handle is unique and at least one owner exists;
+ * - every handle is unique and at least one owner exists, and so does at least one AI project
+ *   manager (PM-429);
  * - stage owners, the members a label names as setters and AI sponsors refer to existing
  *   members; sponsors are humans;
  * - an AI member's permission mode is one its provider allows: a Codex member never runs in
@@ -119,6 +122,9 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
 
   if (!config.team.members.some((m) => m.kind === 'human' && m.access === 'owner')) {
     issues.push({ code: 'no_owner', path: 'team.members' });
+  }
+  if (projectManagersOf(config).length === 0) {
+    issues.push({ code: 'no_ai_project_manager', path: 'team.members', severity: 'error' });
   }
 
   const repoNames = new Set<string>();

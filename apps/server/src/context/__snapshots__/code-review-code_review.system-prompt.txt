@@ -11,6 +11,7 @@ Address members by handle.
 - `communication`: Communication (AI, communication member)
 - `fe-1`: Frontend developer (AI, developer, Frontend)
 - `be-1`: Backend developer (AI, developer, Backend)
+- `pm`: Project manager (AI, project manager)
 
 # How the team works
 - You are one member of a mixed team of humans and AI members. Every AI member works in a fresh session per work item (a task, a meeting or a general chat); follow-ups about the same task come back to the same session.

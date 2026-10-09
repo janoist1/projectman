@@ -12,6 +12,7 @@ function configInput(): ProjectConfigInput {
         { kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner', roles: ['operator'] },
         { kind: 'human', handle: 'ann', displayName: 'Ann', access: 'developer' },
         { kind: 'ai', handle: 'dev-1', displayName: 'Developer', role: 'developer', sponsor: 'owner' },
+        { kind: 'ai', handle: 'pm', displayName: 'PM', role: 'project_manager', sponsor: 'owner' },
       ],
       roles: [
         {
@@ -224,7 +225,7 @@ describe('validateProjectConfig roles', () => {
     expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([
       { code: 'role_not_for_human', path: 'team.members[0].roles[2]', detail: 'log_reader' },
       { code: 'role_not_for_ai', path: 'team.members[2].role', detail: 'operator' },
-      { code: 'role_not_for_ai', path: 'team.members[3].role', detail: 'client_lead' },
+      { code: 'role_not_for_ai', path: 'team.members[4].role', detail: 'client_lead' },
       { code: 'role_not_for_ai', path: 'team.limits.tempWorkers.role', detail: 'product_owner' },
     ]);
   });
@@ -274,7 +275,7 @@ describe('validateProjectConfig permission modes', () => {
       }),
     ).toEqual([
       { code: 'codex_bypass_not_allowed', path: 'team.members[2].permissionMode' },
-      { code: 'codex_bypass_not_allowed', path: 'team.members[3].permissionMode' },
+      { code: 'codex_bypass_not_allowed', path: 'team.members[4].permissionMode' },
     ]);
   });
 
@@ -328,7 +329,7 @@ describe('validateProjectConfig team and pipeline', () => {
       'a handle used twice',
       (input) =>
         members(input).push({ kind: 'human', handle: 'ann', displayName: 'Ann 2', access: 'viewer' }),
-      [{ code: 'duplicate_handle', path: 'team.members[3]', detail: 'ann' }],
+      [{ code: 'duplicate_handle', path: 'team.members[4]', detail: 'ann' }],
     ],
     [
       'a team without a human owner',
@@ -336,6 +337,21 @@ describe('validateProjectConfig team and pipeline', () => {
         members(input)[0]!.access = 'admin';
       },
       [{ code: 'no_owner', path: 'team.members' }],
+    ],
+    [
+      'a team whose AI project manager lost the role',
+      (input) => {
+        members(input)[3]!.role = 'developer';
+      },
+      [{ code: 'no_ai_project_manager', path: 'team.members', severity: 'error' }],
+    ],
+    [
+      'a team whose only project manager is a temp worker or a human',
+      (input) => {
+        members(input)[3]!.temp = true;
+        members(input)[1]!.roles = ['project_manager'];
+      },
+      [{ code: 'no_ai_project_manager', path: 'team.members', severity: 'error' }],
     ],
     [
       'an AI sponsored by an unknown member or by another AI',
@@ -351,7 +367,7 @@ describe('validateProjectConfig team and pipeline', () => {
       },
       [
         { code: 'sponsor_not_human', path: 'team.members[2].sponsor', detail: 'nobody' },
-        { code: 'sponsor_not_human', path: 'team.members[3].sponsor', detail: 'dev-1' },
+        { code: 'sponsor_not_human', path: 'team.members[4].sponsor', detail: 'dev-1' },
       ],
     ],
     [
@@ -658,6 +674,7 @@ describe('errors a stored configuration may keep', () => {
     for (const code of tolerated) expect(isToleratedOnLoad({ code })).toBe(true);
     for (const code of [
       'no_owner',
+      'no_ai_project_manager',
       'duplicate_handle',
       'duplicate_stage',
       'duplicate_label',

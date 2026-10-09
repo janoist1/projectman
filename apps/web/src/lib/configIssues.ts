@@ -18,6 +18,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   recommended_duty_unfilled: 'errors.codes.recommended_duty_unfilled',
   duplicate_handle: 'settings.issues.duplicate_handle',
   no_owner: 'settings.issues.no_owner',
+  no_ai_project_manager: 'settings.issues.no_ai_project_manager',
   unknown_member: 'errors.codes.unknown_member',
   unknown_label: 'settings.issues.unknown_label',
   duplicate_label: 'settings.issues.duplicate_label',

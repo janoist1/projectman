@@ -1087,8 +1087,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   temporary files from atomic writes do not count as queued waiters. Run it on the execution
   host, using its own temporary directory and PID namespace.
   Since PM-311 the folder is `EnginePaths.heavyLockDir` of the session's engine (`contracts/engine.ts`).
-- **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
-  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339). Legacy Claude
+- **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
+  `engine-host/disk.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
+  `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339, PM-312). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
@@ -1132,8 +1133,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Since PM-311 the registry is `EngineHost.sessionFolders` (`EngineSessionFolders`) and the roots are
   `EnginePaths.sessionFoldersRoot`, `sessionTmpRoot` and `claudeTmpRoots` (`contracts/engine.ts`);
   `createLocalEngine` (`domain/engines.ts`) prepares them, with the same checks as before.
+  Since PM-312 the disk work is the engine's too: `make`, `remove`, `sweep` and `releaseTmpRoot`
+  are asynchronous (the domain awaits a session's pending removal before it makes the new folder at
+  a restart, `Sessions.folderRemovals`), and the member's sandbox directory (0700) with its git
+  settings (0600) is made by `EngineHost.prepareMemberSandboxDir`; a failure is the start's
+  `session_start_failed` with `details.stage = 'member_sandbox_dir'`. The domain computes the paths.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
-  `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270).
+  `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
+  `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
   Playwright loads local Chromium binaries from the configured browser directory (default
   `<PROJECTMAN_HOME>/browsers` in the server; the scripts also accept
   `PLAYWRIGHT_BROWSERS_PATH`). `shots` launches a disposable local instance and browser,
@@ -1142,7 +1149,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
   the session folder as the output; it queues in the machine's heavy-run queue and is off in the
-  managed VM profile and off macOS.
+  managed VM profile and off macOS. Since PM-312 the scenario file is resolved and the images are
+  listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
+  member as the same `TeamToolError('invalid', …)` texts as before.
   **Remote engine:** provision a compatible browser on the engine, preserve the disposable
   instance's network fence and read-only browser access, and return images as artifacts. The
   screenshot run belongs on the engine that owns the member's worktree and session folder (the
@@ -1218,7 +1227,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   hosts or even every local worktree volume. **Remote engine:** report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
   storage; keep unavailable measurements distinct from low capacity.
-  Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`).
+  Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
+  since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
 - **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
@@ -1229,7 +1239,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
-  `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts` (PM-87, PM-333, PM-355).
+  `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
+  (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
+  engine's `realpath`, `isDirectory`, `isRealDirectory`).
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
@@ -1299,8 +1311,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   helper does so as the worker, for that worker's home and local repository path.
   **Remote engine:** prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
-- **Server full test before review** — `domain/full-tests.ts`,
-  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336; PM-351 shares the spawn with the
+- **Server full test before review** — `domain/full-tests.ts`, `engine-host/disk.ts`
+  (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
+  `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
   it is unavailable without macOS/`srt` and is off in the managed VM profile. Its sandbox

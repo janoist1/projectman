@@ -189,6 +189,54 @@ describe('websocket', () => {
     expect(h.runner.input).toEqual([]);
   });
 
+  it('tells the runner a terminal has no viewer left only when the last viewer leaves (PM-312)', async () => {
+    await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks',
+      headers: { cookie },
+      payload: { title: 'Example' },
+    });
+    const started = await h.app.inject({
+      method: 'POST',
+      url: '/api/projects/AR/tasks/AR-1/start',
+      headers: { cookie },
+      payload: {},
+    });
+    const sessionId = started.json<TaskDetail>().sessions[0]!.id;
+    const attach = JSON.stringify({ type: 'terminal_attach', sessionId });
+    const detach = JSON.stringify({ type: 'terminal_detach', sessionId });
+    const first = await connect();
+    const second = await connect();
+    await waitFor(first.events, ofType('hello'));
+    await waitFor(second.events, ofType('hello'));
+
+    // The screen comes from the runner's attach, for each viewer.
+    first.ws.send(attach);
+    await waitFor(first.events, ofType('terminal_snapshot'));
+    second.ws.send(attach);
+    await waitFor(second.events, ofType('terminal_snapshot'));
+    expect(h.runner.attached).toEqual([sessionId, sessionId]);
+
+    // With two viewers the first one's departure is not the last.
+    first.ws.send(detach);
+    second.ws.send(JSON.stringify({ type: 'terminal_input', sessionId, data: 'still here' }));
+    await vi.waitFor(() => expect(h.runner.input).toEqual([{ sessionId, data: 'still here' }]));
+    expect(h.runner.detached).toEqual([]);
+
+    // The second one's is: a detach, and a repeated detach says nothing more.
+    second.ws.send(detach);
+    second.ws.send(detach);
+    await vi.waitFor(() => expect(h.runner.detached).toEqual([sessionId]));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(h.runner.detached).toEqual([sessionId]);
+
+    // A viewer that only closes its socket counts as leaving too.
+    first.ws.send(attach);
+    await vi.waitFor(() => expect(h.runner.attached).toHaveLength(3));
+    first.ws.terminate();
+    await vi.waitFor(() => expect(h.runner.detached).toEqual([sessionId, sessionId]));
+  });
+
   it('looks up the login only for deliveries to subscribers, once per delivery', async () => {
     const { ws, events } = await connect();
     await waitFor(events, ofType('hello'));

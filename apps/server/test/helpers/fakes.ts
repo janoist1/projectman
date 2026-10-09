@@ -127,6 +127,19 @@ export class FakeRunner implements SessionRunner {
     return this.running.has(sessionId) ? { data: `screen of ${sessionId}`, cols: 120, rows: 40 } : null;
   }
 
+  /** What the web hub asked of the terminal (PM-312): every attach, and every time the last viewer left. */
+  readonly attached: string[] = [];
+  readonly detached: string[] = [];
+
+  async attachTerminal(sessionId: string): Promise<{ data: string; cols: number; rows: number } | null> {
+    this.attached.push(sessionId);
+    return this.snapshot(sessionId);
+  }
+
+  detachTerminal(sessionId: string): void {
+    this.detached.push(sessionId);
+  }
+
   async stop(sessionId: string): Promise<void> {
     this.stopped.push(sessionId);
     if (this.running.has(sessionId)) this.emit({ type: 'exit', sessionId, exitCode: 0, signal: null });

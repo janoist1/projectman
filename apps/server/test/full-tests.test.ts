@@ -6,6 +6,7 @@ import type { ProjectConfig } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../src/contracts';
 import { aiActor } from '../src/domain';
 import { repoGitDir } from '../src/domain/full-tests';
+import { resolveGitDir } from '../src/engine-host/disk';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -507,15 +508,19 @@ describe('the git directory a full test may read', () => {
     const workspace = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'pm-git-dir-')));
     try {
       mkdirSync(path.join(workspace, 'web', '.git'), { recursive: true });
-      expect(await repoGitDir(configOf(workspace), { repo: 'web' })).toBe(
+      expect(await repoGitDir({ resolveGitDir }, configOf(workspace), { repo: 'web' })).toBe(
         path.join(workspace, 'web', '.git'),
       );
       // A repository whose .git is a file (itself a worktree), or that is missing, gives nothing.
       mkdirSync(path.join(workspace, 'other'));
       writeFileSync(path.join(workspace, 'other', '.git'), 'gitdir: /elsewhere');
       const other = { project: { workspacePath: workspace, repos: [{ name: 'o', path: 'other' }] } };
-      expect(await repoGitDir(other as unknown as ProjectConfig, { repo: 'o' })).toBeUndefined();
-      expect(await repoGitDir(configOf(path.join(workspace, 'missing')), { repo: 'web' })).toBeUndefined();
+      expect(
+        await repoGitDir({ resolveGitDir }, other as unknown as ProjectConfig, { repo: 'o' }),
+      ).toBeUndefined();
+      expect(
+        await repoGitDir({ resolveGitDir }, configOf(path.join(workspace, 'missing')), { repo: 'web' }),
+      ).toBeUndefined();
     } finally {
       rmSync(workspace, { recursive: true, force: true });
     }

@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream';
 import type { EngineId, MemberHandle } from '@projectman/shared';
 import type { MemberWorkspaceManager, WorktreeManager } from './context';
 import type { FullTestExecutor, ScreenshotExecutor } from './full-test';
@@ -31,21 +32,101 @@ export interface EnginePaths {
 }
 
 /**
- * The part of the session folders registry (`domain/session-folders.ts`, `SessionFolders`
- * implements it) the domain uses.
+ * The variables of the session folder and of Playwright's browsers directory, set in the sandbox's
+ * environment of the members that get them.
+ */
+export const SESSION_DIR_VARIABLE = 'PROJECTMAN_SESSION_DIR';
+export const BROWSERS_PATH_VARIABLE = 'PLAYWRIGHT_BROWSERS_PATH';
+
+/**
+ * A member's own sandbox directory (PM-193): the directories in it and the variables that point
+ * there: npm's cache (`npm_config_cache`, `npx` included) and the development instance's home
+ * (`PROJECTMAN_HOME`, which `npm run dev` and `npm start` take). The domain computes the path
+ * (`memberSandboxDir`); the engine makes the directories (`EngineHost.prepareMemberSandboxDir`).
+ */
+export const MEMBER_SANDBOX_DIRS = [
+  { name: 'npm-cache', variable: 'npm_config_cache' },
+  { name: 'projectman-dev', variable: 'PROJECTMAN_HOME' },
+] as const;
+
+/**
+ * The git settings of the sandboxed commands, written to `SANDBOX_GIT_CONFIG_FILE` in the member's
+ * sandbox directory at every start (the reasons are with `GIT_SETTINGS_VARIABLE`,
+ * `domain/session-policy.ts`).
+ */
+export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
+export const SANDBOX_GIT_CONFIG =
+  '[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[core]\n\tpackedRefsTimeout = 0\n';
+
+/**
+ * The part of the session folders registry (`engine-host/session-folders.ts`, `SessionFolders`
+ * implements it) the domain uses. Everything that touches the disk is asynchronous, so a remote
+ * engine can implement it (PM-312); a restart's new folder is made only after the old one's removal
+ * is awaited.
  */
 export interface EngineSessionFolders {
   readonly root: string;
   /** The root of the sessions' own temporary directories (Codex, PM-339); absent: none. */
   readonly tmpRoot: string | undefined;
-  allocateTmp(sessionId: string): string | undefined;
+  /** A path, nothing is made. */
   allocate(sessionId: string): string;
-  make(sessionId: string, dir: string | undefined, tmpDir?: string): void;
+  /** A path, nothing is made; `undefined` without a `tmpRoot`. */
+  allocateTmp(sessionId: string): string | undefined;
+  /** The folder the session's current process has, from the registry. */
   of(sessionId: string): string | undefined;
-  remove(sessionId: string): void;
-  sweep(keep: (sessionId: string) => boolean): string[];
-  releaseTmpRoot(): void;
+  make(sessionId: string, dir: string | undefined, tmpDir?: string): Promise<void>;
+  remove(sessionId: string): Promise<void>;
+  sweep(keep: (sessionId: string) => boolean): Promise<string[]>;
+  releaseTmpRoot(): Promise<void>;
 }
+
+export type WorkspaceFileRefusalReason =
+  'invalid' | 'outside' | 'missing' | 'link' | 'not_a_file' | 'too_large' | 'changed' | 'unreadable';
+
+/** Why a file of the working directory is not taken; the message is for the agent that asked. */
+export class WorkspaceFileRefusal extends Error {
+  readonly reason: WorkspaceFileRefusalReason;
+  constructor(reason: WorkspaceFileRefusalReason, message: string) {
+    super(message);
+    this.name = 'WorkspaceFileRefusal';
+    this.reason = reason;
+  }
+}
+
+/** A regular file of the working directory, opened for reading. */
+export interface WorkspaceFile {
+  /** The file's own name (the last path component), as metadata for the attachment. */
+  name: string;
+  /** Its size when it was opened. */
+  size: number;
+  /** The content, read once from the opened handle (one byte more than `size` at most, to notice growth). */
+  stream(): Readable;
+  /**
+   * Refuses (`changed`) unless the whole file was read, exactly `size` bytes, and the open file
+   * still has the size and modification time it had when it was opened.
+   */
+  verifyUnchanged(): Promise<void>;
+  close(): Promise<void>;
+}
+
+/** What `EngineHost.openWorkspaceFile` takes besides the root and the requested path. */
+export interface WorkspaceFileOptions {
+  maxBytes: number;
+  /**
+   * How the messages name `root` (default 'your working directory') and, for a file outside it,
+   * the other place the caller may attach from (PM-268: the session folder).
+   */
+  place?: { name: string; other?: { name: string; path: string } };
+  /**
+   * `root` must be its own real path: it is refused (`unreadable`) when it, or a directory above
+   * it, is a symbolic link. For a root a sandboxed member could have replaced by a link (the
+   * session folder, PM-268); the final check then also catches a replacement made later.
+   */
+  exactRoot?: boolean;
+}
+
+/** Why a screenshot scenario is not taken (`EngineHost.resolveScenario`). */
+export type ScenarioRefusal = 'missing' | 'outside' | 'not_file';
 
 export interface EngineHost {
   readonly id: EngineId;
@@ -61,6 +142,30 @@ export interface EngineHost {
   processExists(pid: number): boolean;
   /** The project's working directory on this engine; null: the engine does not hold the project. */
   workspacePath(projectKey: string): string | null;
+
+  // The disk operations of the domain (PM-312). The domain computes the paths and decides; the
+  // engine, which holds the disk, does the work. Each is a call a remote engine answers.
+  /** Makes `MEMBER_SANDBOX_DIRS` (0700) and `SANDBOX_GIT_CONFIG_FILE` (0600) in `dir`; the git settings are written at every call. Rejects on failure. */
+  prepareMemberSandboxDir(dir: string): Promise<void>;
+  /** `mkdir -p` 0700 for each path; a failure is logged and never thrown. */
+  preparePortablePaths(paths: readonly string[]): Promise<void>;
+  /** Whether `path` is a directory (a link to one counts; false when it is not there). */
+  isDirectory(path: string): Promise<boolean>;
+  /** The `.git` directory of the repository at `repoPath`, real; null when it has none. */
+  resolveGitDir(repoPath: string): Promise<string | null>;
+  /** The real path of `path`; null when it does not exist. */
+  realpath(path: string): Promise<string | null>;
+  /** Whether `dir` is a directory and not a symbolic link (the session folder the server made). */
+  isRealDirectory(dir: string): Promise<boolean>;
+  /** Opens a regular file inside `root` for reading, with the checks of `WorkspaceFile`; rejects with `WorkspaceFileRefusal`. */
+  openWorkspaceFile(root: string, requested: string, opts: WorkspaceFileOptions): Promise<WorkspaceFile>;
+  /** The scenario's real path when it exists, is a file and lies in `cwd` or `sessionDir`; else why not. */
+  resolveScenario(
+    roots: { cwd: string; sessionDir: string },
+    requested: string,
+  ): Promise<{ path: string } | { refused: ScenarioRefusal }>;
+  /** The images (`.png`, `.jpg`, `.jpeg`) below `dir` written at or after `sinceMs`, absolute, sorted, at most 100. */
+  listImages(dir: string, sinceMs: number): Promise<string[]>;
 }
 
 export interface EngineDirectory {

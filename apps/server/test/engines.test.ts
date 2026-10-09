@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -6,8 +15,17 @@ import { EngineId as EngineIdSchema, LOCAL_ENGINE_ID } from '@projectman/shared'
 import type { EngineId, MemberHandle, Session } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/db';
-import type { EngineDirectory, EngineHost, ScreenshotExecutor, ScreenshotRunSpec } from '../src/contracts';
+import { MEMBER_SANDBOX_DIRS, SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
+import type {
+  EngineDirectory,
+  EngineHost,
+  EngineSessionFolders,
+  ScreenshotExecutor,
+  ScreenshotRunSpec,
+} from '../src/contracts';
+import { DomainError } from '../src/domain/errors';
 import { createLocalEngine, engineIdOf, engineOption, LocalEngineDirectory } from '../src/domain/engines';
+import { memberSandboxDir } from '../src/domain/session-policy';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -502,6 +520,157 @@ describe("the places of the session's engine", () => {
 
     // The folder is removed from the engine that holds it when the session ends.
     await h.runner.stop(session.id);
+    await h.domain.sessions.settleFolderRemovals();
     expect(existsSync(folder)).toBe(false);
+  });
+});
+
+/** PM-312: the disk work of a start is done by the session's engine; the domain only decides. */
+describe("the disk work of the session's engine (PM-312)", () => {
+  let h: DomainHarness;
+  let root: string;
+  const task = { type: 'task', taskKey: 'AR-1' } as const;
+  const mode = (path: string) => statSync(path).mode & 0o777;
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'pm-engine-disk-')));
+    mkdirSync(join(root, 'workspace'));
+  });
+  afterEach(async () => {
+    await h.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  /** The one local engine of the harness, built from these places, with `adjust` changing the host. */
+  async function open(
+    places: Partial<Parameters<typeof createLocalEngine>[0]>,
+    adjust: (host: EngineHost) => EngineHost = (host) => host,
+  ) {
+    const engines = new TestEngines();
+    const host = createLocalEngine(
+      {
+        worktrees: new FakeWorktreeManager(join(root, 'worktrees')),
+        workspacePath: () => join(root, 'workspace'),
+        ...places,
+      },
+      capturingLogger().logger,
+    );
+    engines.add(adjust({ ...host, id: LOCAL_ENGINE_ID }));
+    h = await createDomainHarness({ engines });
+    await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
+  }
+
+  it("makes the member's sandbox directory 0700 and its git settings 0600 on the engine", async () => {
+    const appHome = join(root, 'home');
+    mkdirSync(appHome);
+    await open({ appHome, userHome: join(root, 'user') });
+
+    await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+    const dir = memberSandboxDir(appHome, 'AR', 'dev-1');
+    for (const sub of MEMBER_SANDBOX_DIRS) expect(mode(join(dir, sub.name)), sub.name).toBe(0o700);
+    const settings = join(dir, SANDBOX_GIT_CONFIG_FILE);
+    expect(mode(settings)).toBe(0o600);
+    expect(readFileSync(settings, 'utf8')).toBe(SANDBOX_GIT_CONFIG);
+    // The sandbox of the process points at what the engine made.
+    expect(JSON.stringify(h.runner.lastStarted().sandbox)).toContain(dir);
+  });
+
+  it('stops the start with `session_start_failed` and the stage when the engine cannot make it', async () => {
+    const appHome = join(root, 'home');
+    mkdirSync(appHome);
+    await open({ appHome, userHome: join(root, 'user') }, (host) => ({
+      ...host,
+      prepareMemberSandboxDir: async () => {
+        throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+      },
+    }));
+
+    const started = h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+    await expect(started).rejects.toBeInstanceOf(DomainError);
+    await expect(started).rejects.toMatchObject({
+      code: 'session_start_failed',
+      status: 502,
+      details: { stage: 'member_sandbox_dir', reason: 'ENOSPC' },
+    });
+    expect(h.runner.started).toEqual([]);
+  });
+
+  it("checks a new project's working directory on the engine, not on the server's disk", async () => {
+    const asked: string[] = [];
+    const there = new Set<string>(['/engine/only/a-project']);
+    let watching = false;
+    // The harness makes its own project through the real check first; the engine's answer follows.
+    await open({}, (host) => ({
+      ...host,
+      isDirectory: async (path) => {
+        if (!watching) return host.isDirectory(path);
+        asked.push(path);
+        return there.has(path);
+      },
+    }));
+    watching = true;
+    const create = (key: string, workspacePath: string) =>
+      h.domain.projects.create({ key, name: key, workspacePath, templateId: 'test' }, OWNER);
+
+    // A directory only the engine has is a working directory; one only the server has is not.
+    await expect(create('BX', '/engine/only/a-project')).resolves.toBeDefined();
+    await expect(create('BY', join(root, 'workspace'))).rejects.toMatchObject({
+      code: 'workspace_not_found',
+    });
+    expect(asked).toEqual(['/engine/only/a-project', join(root, 'workspace')]);
+
+    // A relative path is refused without asking the engine.
+    await expect(create('BZ', 'relative/dir')).rejects.toMatchObject({ code: 'workspace_not_found' });
+    expect(asked).toHaveLength(2);
+  });
+
+  it("removes a session's old folder on the engine before it makes the new one at a restart", async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await open({ userHome: join(root, 'user'), sessionFoldersDir: join(root, 'folders') }, (host) => {
+      const real = host.sessionFolders!;
+      const folders: EngineSessionFolders = {
+        root: real.root,
+        tmpRoot: real.tmpRoot,
+        allocate: (id) => real.allocate(id),
+        allocateTmp: (id) => real.allocateTmp(id),
+        of: (id) => real.of(id),
+        make: async (id, dir, tmpDir) => {
+          order.push('make');
+          await real.make(id, dir, tmpDir);
+        },
+        remove: async (id) => {
+          order.push('remove started');
+          await gate;
+          await real.remove(id);
+          order.push('remove done');
+        },
+        sweep: (keep) => real.sweep(keep),
+        releaseTmpRoot: () => real.releaseTmpRoot(),
+      };
+      return { ...host, sessionFolders: folders };
+    });
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+    const first = h.runner.lastStarted().sandbox!.portable!.env.PROJECTMAN_SESSION_DIR!;
+    expect(order).toEqual(['make']);
+
+    await h.runner.stop(session.id);
+    const restarting = h.domain.sessions.ensureSession('AR', 'dev-1', task);
+    // The new folder waits for the old one's removal, which the engine has not finished yet.
+    await settle();
+    await vi.waitFor(() => expect(order).toEqual(['make', 'remove started']));
+    await settle();
+    expect(order).toEqual(['make', 'remove started']);
+
+    release();
+    await restarting;
+    expect(order).toEqual(['make', 'remove started', 'remove done', 'make']);
+    const second = h.runner.lastStarted().sandbox!.portable!.env.PROJECTMAN_SESSION_DIR!;
+    expect(second).not.toBe(first);
+    expect(existsSync(first)).toBe(false);
+    expect(existsSync(second)).toBe(true);
   });
 });

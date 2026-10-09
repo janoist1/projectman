@@ -1,4 +1,3 @@
-import { existsSync, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import {
   DEFAULT_PROJECT_LANGUAGE,
@@ -131,6 +130,7 @@ export class ProjectService {
   private readonly configStore: ConfigStore;
   private readonly templates: TemplateRegistry;
   private readonly timeline: TimelineService;
+  private readonly isDirectory: (projectKey: string, path: string) => Promise<boolean>;
   private readonly cache = new Map<string, LoadedProject>();
   private readonly locks = new KeyedMutex();
 
@@ -139,11 +139,14 @@ export class ProjectService {
     configStore: ConfigStore;
     templates: TemplateRegistry;
     timeline: TimelineService;
+    /** Whether a path is a directory on the engine the project's work runs on (PM-312). */
+    isDirectory: (projectKey: string, path: string) => Promise<boolean>;
   }) {
     this.ctx = deps.ctx;
     this.configStore = deps.configStore;
     this.templates = deps.templates;
     this.timeline = deps.timeline;
+    this.isDirectory = deps.isDirectory;
   }
 
   summaries(): ProjectSummary[] {
@@ -190,11 +193,7 @@ export class ProjectService {
       }
       const template = this.templates.get(req.templateId);
       if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
-      if (
-        !isAbsolute(req.workspacePath) ||
-        !existsSync(req.workspacePath) ||
-        !statSync(req.workspacePath).isDirectory()
-      ) {
+      if (!isAbsolute(req.workspacePath) || !(await this.isDirectory(req.key, req.workspacePath))) {
         throw invalid('workspace_not_found', `workspace directory not found: ${req.workspacePath}`);
       }
 

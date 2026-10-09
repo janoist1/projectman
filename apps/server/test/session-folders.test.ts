@@ -22,7 +22,7 @@ import {
   realpathOfNearest,
   SessionFolders,
   sharedClaudeTmpRoots,
-} from '../src/domain/session-folders';
+} from '../src/engine-host';
 
 describe('session folders (PM-268)', () => {
   let base: string;
@@ -77,54 +77,58 @@ describe('session folders (PM-268)', () => {
       expect(() => folders.allocate(id)).toThrow(/Not a session id/);
   });
 
-  it('makes the root and one session’s folder with mode 0700, and removes the folder with its content', () => {
+  it('makes the root and one session’s folder with mode 0700, and removes the folder with its content', async () => {
     const folders = prepared();
     expect(mode(folders.root)).toBe(0o700);
     const dir = folders.allocate('ses_one');
     expect(existsSync(dir)).toBe(false);
-    folders.make('ses_one', dir);
+    await folders.make('ses_one', dir);
     expect(mode(dir)).toBe(0o700);
     expect(folders.of('ses_one')).toBe(dir);
     mkdirSync(join(dir, 'shots', 'x'), { recursive: true });
     writeFileSync(join(dir, 'shots', 'x', '1.png'), 'png');
-    folders.remove('ses_one');
+    await folders.remove('ses_one');
     expect(existsSync(dir)).toBe(false);
     expect(folders.of('ses_one')).toBeUndefined();
     // Not even the name it was renamed to for the removal stays.
     expect(readdirSync(folders.root)).toEqual([]);
     // Removing what is not there is not an error.
-    expect(() => folders.remove('ses_one')).not.toThrow();
+    await expect(folders.remove('ses_one')).resolves.toBeUndefined();
   });
 
-  it('makes a folder exclusively: a path that exists, as a folder or a link, is refused', () => {
+  it('makes a folder exclusively: a path that exists, as a folder or a link, is refused', async () => {
     const folders = prepared();
     const target = join(base, 'target');
     mkdirSync(target);
     const dir = folders.allocate('ses_one');
     symlinkSync(target, dir);
-    expect(() => folders.make('ses_one', dir)).toThrow(/EEXIST/);
+    await expect(folders.make('ses_one', dir)).rejects.toThrow(/EEXIST/);
     expect(folders.of('ses_one')).toBeUndefined();
     const other = folders.allocate('ses_one');
     mkdirSync(other);
-    expect(() => folders.make('ses_one', other)).toThrow(/EEXIST/);
+    await expect(folders.make('ses_one', other)).rejects.toThrow(/EEXIST/);
     expect(readdirSync(target)).toEqual([]);
   });
 
-  it('refuses a path that is not one it gave out for that session', () => {
+  it('refuses a path that is not one it gave out for that session', async () => {
     const folders = prepared();
-    expect(() => folders.make('ses_one', join(folders.root, 'ses_one'))).toThrow(/not a folder of session/);
-    expect(() => folders.make('ses_one', folders.allocate('ses_two'))).toThrow(/not a folder of session/);
-    expect(() => folders.make('ses_one', join(base, 'elsewhere', 'ses_one.00'))).toThrow(
+    await expect(folders.make('ses_one', join(folders.root, 'ses_one'))).rejects.toThrow(
+      /not a folder of session/,
+    );
+    await expect(folders.make('ses_one', folders.allocate('ses_two'))).rejects.toThrow(
+      /not a folder of session/,
+    );
+    await expect(folders.make('ses_one', join(base, 'elsewhere', 'ses_one.00'))).rejects.toThrow(
       /not a folder of session/,
     );
   });
 
-  it('removes the folder a session had before when it is given a new one', () => {
+  it('removes the folder a session had before when it is given a new one', async () => {
     const folders = prepared();
     const old = folders.allocate('ses_one');
-    folders.make('ses_one', old);
+    await folders.make('ses_one', old);
     const next = folders.allocate('ses_one');
-    folders.make('ses_one', next);
+    await folders.make('ses_one', next);
     expect(existsSync(old)).toBe(false);
     expect(folders.of('ses_one')).toBe(next);
     expect(readdirSync(folders.root)).toEqual([next.slice(folders.root.length + 1)]);
@@ -156,40 +160,43 @@ describe('session folders (PM-268)', () => {
   });
 
   describe('the removal', () => {
-    it('removes a link inside a folder as a link', () => {
+    it('removes a link inside a folder as a link', async () => {
       const folders = prepared();
       const dir = folders.allocate('ses_one');
-      folders.make('ses_one', dir);
+      await folders.make('ses_one', dir);
       const outside = join(base, 'outside');
       mkdirSync(outside);
       writeFileSync(join(outside, 'precious.txt'), 'keep me');
       symlinkSync(outside, join(dir, 'escape'));
-      folders.remove('ses_one');
+      await folders.remove('ses_one');
       expect(existsSync(dir)).toBe(false);
       expect(existsSync(join(outside, 'precious.txt'))).toBe(true);
     });
 
-    it('takes a folder that was replaced by a link away as a link', () => {
+    it('takes a folder that was replaced by a link away as a link', async () => {
       const folders = prepared();
       const dir = folders.allocate('ses_one');
-      folders.make('ses_one', dir);
+      await folders.make('ses_one', dir);
       const outside = join(base, 'outside');
       mkdirSync(outside);
       writeFileSync(join(outside, 'precious.txt'), 'keep me');
       rmSync(dir, { recursive: true });
       symlinkSync(outside, dir);
-      folders.remove('ses_one');
+      await folders.remove('ses_one');
       expect(() => lstatSync(dir)).toThrow();
       expect(existsSync(join(outside, 'precious.txt'))).toBe(true);
       expect(readdirSync(folders.root)).toEqual([]);
     });
 
-    it('renames the folder away before it removes it, so the old path is gone at once', () => {
+    it('renames the folder away before it removes it, so the old path is gone at once', async () => {
       const folders = prepared();
       const dir = folders.allocate('ses_one');
-      folders.make('ses_one', dir);
+      await folders.make('ses_one', dir);
       writeFileSync(join(dir, 'a.png'), 'png');
-      folders.remove('ses_one');
+      // The registry lets go of the folder before the first await: `of` is empty while it is removed.
+      const removing = folders.remove('ses_one');
+      expect(folders.of('ses_one')).toBeUndefined();
+      await removing;
       // A command of the old run cannot put anything back: its rule covers the path, which is not
       // there, and the root is not writable for it.
       expect(existsSync(dir)).toBe(false);
@@ -197,28 +204,28 @@ describe('session folders (PM-268)', () => {
   });
 
   describe('the sweep', () => {
-    it('removes everything but the folders of the sessions to keep', () => {
+    it('removes everything but the folders of the sessions to keep', async () => {
       const folders = prepared();
       const keep = folders.allocate('ses_keep');
-      folders.make('ses_keep', keep);
-      folders.make('ses_old', folders.allocate('ses_old'));
+      await folders.make('ses_keep', keep);
+      await folders.make('ses_old', folders.allocate('ses_old'));
       writeFileSync(join(folders.root, 'stray-file'), 'x');
       mkdirSync(join(folders.root, '.trash-leftover'));
       mkdirSync(join(folders.root, 'ses_dead.0123456789abcdef'));
-      const removed = folders.sweep((id) => id === 'ses_keep');
+      const removed = await folders.sweep((id: string) => id === 'ses_keep');
       expect(removed).toHaveLength(4);
       expect(readdirSync(folders.root)).toEqual([keep.slice(folders.root.length + 1)]);
       expect(folders.of('ses_keep')).toBe(keep);
       expect(folders.of('ses_old')).toBeUndefined();
     });
 
-    it('removes a symbolic link as a link, and leaves its target alone', () => {
+    it('removes a symbolic link as a link, and leaves its target alone', async () => {
       const folders = prepared();
       const outside = join(base, 'outside');
       mkdirSync(outside);
       writeFileSync(join(outside, 'precious.txt'), 'keep me');
       symlinkSync(outside, join(folders.root, 'ses_link.0123456789abcdef'));
-      expect(folders.sweep(() => false)).toEqual(['ses_link.0123456789abcdef']);
+      expect(await folders.sweep(() => false)).toEqual(['ses_link.0123456789abcdef']);
       expect(readdirSync(folders.root)).toEqual([]);
       expect(existsSync(join(outside, 'precious.txt'))).toBe(true);
     });
@@ -233,9 +240,9 @@ describe('session folders (PM-268)', () => {
       return { folders: new SessionFolders(root, tmpRoot, warn), tmpRoot };
     };
     /** A session with its folder and its made temporary directory. */
-    const startedSession = (folders: SessionFolders, id: string) => {
+    const startedSession = async (folders: SessionFolders, id: string) => {
       const tmp = folders.allocateTmp(id)!;
-      folders.make(id, folders.allocate(id), tmp);
+      await folders.make(id, folders.allocate(id), tmp);
       return tmp;
     };
 
@@ -249,12 +256,12 @@ describe('session folders (PM-268)', () => {
       expect(new SessionFolders('/r').allocateTmp('ses_a')).toBeUndefined();
     });
 
-    it('makes 0700 only a path `allocateTmp` gave out', () => {
+    it('makes 0700 only a path `allocateTmp` gave out', async () => {
       const { folders, tmpRoot } = tmpFolders();
-      const tmp = startedSession(folders, 'ses_one');
+      const tmp = await startedSession(folders, 'ses_one');
       expect(mode(tmp)).toBe(0o700);
       const dir = folders.allocate('ses_two');
-      expect(() => folders.make('ses_two', dir, join(tmpRoot, 'x', '0123456789ab'))).toThrow(
+      await expect(folders.make('ses_two', dir, join(tmpRoot, 'x', '0123456789ab'))).rejects.toThrow(
         /not a temporary/,
       );
       // Not the form of an earlier version, a short name, a trash name or capitals.
@@ -265,40 +272,42 @@ describe('session folders (PM-268)', () => {
         '.trash-0123456789abcdef',
         'ABCDEF012345',
       ])
-        expect(() => folders.make('ses_two', dir, join(tmpRoot, name))).toThrow(/not a temporary/);
-      expect(() => folders.make('ses_two', dir, join(base, 'elsewhere'))).toThrow(/not a temporary/);
-      expect(() => new SessionFolders('/r').make('ses_two', undefined, '/r/abc')).toThrow(/not a temporary/);
+        await expect(folders.make('ses_two', dir, join(tmpRoot, name))).rejects.toThrow(/not a temporary/);
+      await expect(folders.make('ses_two', dir, join(base, 'elsewhere'))).rejects.toThrow(/not a temporary/);
+      await expect(new SessionFolders('/r').make('ses_two', undefined, '/r/abc')).rejects.toThrow(
+        /not a temporary/,
+      );
       // Refused before anything is made or removed.
       expect(existsSync(dir)).toBe(false);
       expect(existsSync(tmp)).toBe(true);
     });
 
-    it('does not use a link or a directory that is already at the path, and makes nothing behind it', () => {
+    it('does not use a link or a directory that is already at the path, and makes nothing behind it', async () => {
       const { folders, tmpRoot } = tmpFolders();
       const target = join(base, 'target');
       mkdirSync(target);
       const planted = join(tmpRoot, '012345abcdef');
       symlinkSync(target, planted);
-      expect(() => folders.make('ses_one', folders.allocate('ses_one'), planted)).toThrow(/EEXIST/);
+      await expect(folders.make('ses_one', folders.allocate('ses_one'), planted)).rejects.toThrow(/EEXIST/);
       expect(readdirSync(target)).toEqual([]);
       // The link is left to the sweep, which removes it as a link, never its target.
-      folders.remove('ses_one');
+      await folders.remove('ses_one');
       expect(existsSync(planted)).toBe(true);
-      folders.sweep(() => false);
+      await folders.sweep(() => false);
       expect(existsSync(planted)).toBe(false);
       expect(existsSync(target)).toBe(true);
       const real = join(tmpRoot, 'ba9876543210');
       mkdirSync(real);
-      expect(() => folders.make('ses_two', undefined, real)).toThrow(/EEXIST/);
+      await expect(folders.make('ses_two', undefined, real)).rejects.toThrow(/EEXIST/);
     });
 
-    it('makes a temporary directory alone, without a folder', () => {
+    it('makes a temporary directory alone, without a folder', async () => {
       const { folders } = tmpFolders();
       const tmp = folders.allocateTmp('ses_one')!;
-      folders.make('ses_one', undefined, tmp);
+      await folders.make('ses_one', undefined, tmp);
       expect(existsSync(tmp)).toBe(true);
       expect(folders.of('ses_one')).toBeUndefined();
-      folders.remove('ses_one');
+      await folders.remove('ses_one');
       expect(existsSync(tmp)).toBe(false);
     });
 
@@ -319,36 +328,36 @@ describe('session folders (PM-268)', () => {
       expect(() => prepareSessionTmpRoot(join(base, 'plain', 'x'))).toThrow(/not a directory/);
     });
 
-    it('removes the session’s temporary directory with its content when the session’s folder is removed', () => {
+    it('removes the session’s temporary directory with its content when the session’s folder is removed', async () => {
       const { folders } = tmpFolders();
-      const tmp = startedSession(folders, 'ses_one');
+      const tmp = await startedSession(folders, 'ses_one');
       mkdirSync(join(tmp, 'a', 'b'), { recursive: true });
       writeFileSync(join(tmp, 'a', 'b', 'x'), 'x');
-      folders.remove('ses_one');
+      await folders.remove('ses_one');
       expect(existsSync(tmp)).toBe(false);
       expect(readdirSync(dirname(tmp))).toEqual([]);
-      expect(() => folders.remove('ses_one')).not.toThrow();
+      await expect(folders.remove('ses_one')).resolves.toBeUndefined();
     });
 
-    it('removes the previous run’s temporary directory when a restart makes the new one', () => {
+    it('removes the previous run’s temporary directory when a restart makes the new one', async () => {
       const { folders } = tmpFolders();
-      const first = startedSession(folders, 'ses_one');
-      const second = startedSession(folders, 'ses_one');
+      const first = await startedSession(folders, 'ses_one');
+      const second = await startedSession(folders, 'ses_one');
       expect(second).not.toBe(first);
       expect(existsSync(first)).toBe(false);
       expect(existsSync(second)).toBe(true);
     });
 
-    it('logs a temporary directory it cannot remove and goes on with the folder', () => {
+    it('logs a temporary directory it cannot remove and goes on with the folder', async () => {
       const warned: string[] = [];
       const { folders, tmpRoot } = tmpFolders((_err, dir) => warned.push(dir));
       const dir = folders.allocate('ses_one');
       const tmp = folders.allocateTmp('ses_one')!;
-      folders.make('ses_one', dir, tmp);
+      await folders.make('ses_one', dir, tmp);
       // The rename into the root fails when the root cannot be written.
       chmodSync(tmpRoot, 0o500);
       try {
-        expect(() => folders.remove('ses_one')).not.toThrow();
+        await expect(folders.remove('ses_one')).resolves.toBeUndefined();
       } finally {
         chmodSync(tmpRoot, 0o700);
       }
@@ -357,26 +366,26 @@ describe('session folders (PM-268)', () => {
       if (process.getuid?.() !== 0) expect(warned).toEqual([tmp]);
     });
 
-    it('sweeps the temporary directories of sessions that are gone, and keeps a kept session’s', () => {
+    it('sweeps the temporary directories of sessions that are gone, and keeps a kept session’s', async () => {
       const { folders, tmpRoot } = tmpFolders();
-      const kept = startedSession(folders, 'ses_keep');
-      startedSession(folders, 'ses_gone');
+      const kept = await startedSession(folders, 'ses_keep');
+      await startedSession(folders, 'ses_gone');
       mkdirSync(join(tmpRoot, 'ses_stray.abcdef'));
       writeFileSync(join(tmpRoot, 'stray'), 'x');
-      folders.sweep((id) => id === 'ses_keep');
+      await folders.sweep((id: string) => id === 'ses_keep');
       expect(readdirSync(tmpRoot)).toEqual([basename(kept)]);
     });
 
-    it('removes an empty root at the stop and leaves one that holds a session’s directory', () => {
+    it('removes an empty root at the stop and leaves one that holds a session’s directory', async () => {
       const { folders, tmpRoot } = tmpFolders();
-      startedSession(folders, 'ses_one');
-      folders.releaseTmpRoot();
+      await startedSession(folders, 'ses_one');
+      await folders.releaseTmpRoot();
       expect(existsSync(tmpRoot)).toBe(true);
-      folders.remove('ses_one');
-      folders.releaseTmpRoot();
+      await folders.remove('ses_one');
+      await folders.releaseTmpRoot();
       expect(existsSync(tmpRoot)).toBe(false);
-      expect(() => folders.releaseTmpRoot()).not.toThrow();
-      expect(() => new SessionFolders('/r').releaseTmpRoot()).not.toThrow();
+      await expect(folders.releaseTmpRoot()).resolves.toBeUndefined();
+      await expect(new SessionFolders('/r').releaseTmpRoot()).resolves.toBeUndefined();
     });
 
     it('has a default root beside the heavy-run queue folder, never below it, and room for a Unix socket', () => {

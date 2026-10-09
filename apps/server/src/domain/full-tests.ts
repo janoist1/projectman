@@ -1,4 +1,3 @@
-import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { effectiveRepo, isOpenTask, isTheme, repoOf, stageOf, stageOwners } from '@projectman/shared';
 import type {
@@ -9,7 +8,7 @@ import type {
   RepoConfig,
   Task,
 } from '@projectman/shared';
-import type { EngineDirectory, FullTestResult } from '../contracts';
+import type { EngineDirectory, EngineHost, FullTestResult } from '../contracts';
 import type { FullTestRunRecord, ReviewPinRecord } from '../db';
 import type { DomainContext } from './context';
 import { isoNow } from './context';
@@ -37,21 +36,18 @@ export function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): R
  * repository (the checkout is a linked worktree of it). It comes from the project's configuration and
  * not from the checkout's own `.git` file, which the developer can write. Undefined when the
  * repository has no such directory. `workspacePath` is the project's working directory on the engine
- * that runs the test (PM-311); by default the configured one.
+ * that runs the test (PM-311); by default the configured one. The directory is looked up on that
+ * engine's disk (PM-312).
  */
 export async function repoGitDir(
+  engine: Pick<EngineHost, 'resolveGitDir'>,
   config: ProjectConfig,
   task: Pick<Task, 'repo'>,
   workspacePath: string = config.project.workspacePath,
 ): Promise<string | undefined> {
   const repo = repoOf(config, effectiveRepo(config, task));
   if (!repo) return undefined;
-  try {
-    const gitDir = await realpath(path.join(path.resolve(workspacePath, repo.path), '.git'));
-    return (await stat(gitDir)).isDirectory() ? gitDir : undefined;
-  } catch {
-    return undefined;
-  }
+  return (await engine.resolveGitDir(path.resolve(workspacePath, repo.path))) ?? undefined;
 }
 
 /** Whether a run says nothing more will come for its pin: it ended, or its commit moved on. */
@@ -351,7 +347,7 @@ export class FullTestRuns {
           timeoutMs: reviewTest.timeoutMinutes * 60_000,
           sandbox: fullTestSandbox({
             checkout: head.path,
-            gitDir: await repoGitDir(config, task, workspace),
+            gitDir: await repoGitDir(engine, config, task, workspace),
             userHome: paths.userHome,
             appHome: paths.home ?? undefined,
             closedTmpRoots: [

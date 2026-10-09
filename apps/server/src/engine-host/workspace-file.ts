@@ -4,40 +4,17 @@ import { lstat, open, realpath } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
-import type { Readable } from 'node:stream';
+import { WorkspaceFileRefusal } from '../contracts';
+import type { WorkspaceFile, WorkspaceFileOptions } from '../contracts';
+
+/**
+ * The checks of `attach_file` (PM-268), on the disk of the engine the session runs on
+ * (`EngineHost.openWorkspaceFile`, PM-312).
+ */
 
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
 /** A FIFO would block the open until someone writes to it; with this the open returns and the type check refuses it. */
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0;
-
-export type WorkspaceFileRefusalReason =
-  'invalid' | 'outside' | 'missing' | 'link' | 'not_a_file' | 'too_large' | 'changed' | 'unreadable';
-
-/** Why a file of the working directory is not taken; the message is for the agent that asked. */
-export class WorkspaceFileRefusal extends Error {
-  readonly reason: WorkspaceFileRefusalReason;
-  constructor(reason: WorkspaceFileRefusalReason, message: string) {
-    super(message);
-    this.name = 'WorkspaceFileRefusal';
-    this.reason = reason;
-  }
-}
-
-/** A regular file of the working directory, opened for reading. */
-export interface WorkspaceFile {
-  /** The file's own name (the last path component), as metadata for the attachment. */
-  name: string;
-  /** Its size when it was opened. */
-  size: number;
-  /** The content, read once from the opened handle (one byte more than `size` at most, to notice growth). */
-  stream(): Readable;
-  /**
-   * Refuses (`changed`) unless the whole file was read, exactly `size` bytes, and the open file
-   * still has the size and modification time it had when it was opened.
-   */
-  verifyUnchanged(): Promise<void>;
-  close(): Promise<void>;
-}
 
 /** Test hooks: run between the checks and the open, and after the open (to change the path meanwhile). */
 export interface WorkspaceFileHooks {
@@ -82,21 +59,7 @@ const sameFile = (a: Stats, b: Stats): boolean => a.dev === b.dev && a.ino === b
 export async function openWorkspaceFile(
   root: string,
   requested: string,
-  opts: {
-    maxBytes: number;
-    hooks?: WorkspaceFileHooks;
-    /**
-     * How the messages name `root` (default 'your working directory') and, for a file outside it,
-     * the other place the caller may attach from (PM-268: the session folder).
-     */
-    place?: { name: string; other?: { name: string; path: string } };
-    /**
-     * `root` must be its own real path: it is refused (`unreadable`) when it, or a directory above
-     * it, is a symbolic link. For a root a sandboxed member could have replaced by a link (the
-     * session folder, PM-268); the final check then also catches a replacement made later.
-     */
-    exactRoot?: boolean;
-  },
+  opts: WorkspaceFileOptions & { hooks?: WorkspaceFileHooks },
 ): Promise<WorkspaceFile> {
   if (!requested.trim() || requested.includes('\0'))
     throw new WorkspaceFileRefusal('invalid', 'The path is empty or not a valid path.');

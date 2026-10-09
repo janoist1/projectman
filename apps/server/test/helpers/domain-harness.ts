@@ -27,7 +27,7 @@ import {
 import type { ScheduleTimer } from '../../src/domain/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
-import { sharedClaudeTmpRoots } from '../../src/domain/session-folders';
+import { sharedClaudeTmpRoots } from '../../src/engine-host';
 import {
   capturingLogger,
   createFakeRunnerModule,

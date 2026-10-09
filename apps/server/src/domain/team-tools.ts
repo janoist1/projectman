@@ -1,4 +1,3 @@
-import { lstatSync } from 'node:fs';
 import path from 'node:path';
 import {
   AttachmentId,
@@ -30,10 +29,11 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
-import { TeamToolError } from '../contracts';
+import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
   AttachmentPage,
+  EngineHost,
   GithubService,
   ListTasksInput,
   LocatedAttachmentForTool,
@@ -47,7 +47,6 @@ import type {
   TeamToolsHandler,
   ToolContext,
 } from '../contracts';
-import { openWorkspaceFile, WorkspaceFileRefusal } from './attachments';
 import { isWithin } from './command-paths';
 import type { DomainContext } from './context';
 import type { BoundaryService } from './boundary';
@@ -66,7 +65,6 @@ import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import type { ProjectService } from './projects';
 import type { ScreenshotRuns } from './screenshot-runs';
-import type { SessionFolders } from './session-folders';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
 import type { TaskService } from './tasks';
@@ -78,11 +76,6 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 /** Attachments get_task shows; the rest are paged with list_attachments. */
 const ATTACHMENTS_IN_TASK = 20;
 const MAX_ATTACHMENT_PAGE = 200;
-
-/** A directory that is not a symbolic link (the server made the session folder as one). */
-function isRealDirectory(dir: string): boolean {
-  return lstatSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false;
-}
 
 /** Explains a blocked stage move to the agent in plain English. */
 function describeGateBlock(err: DomainError): string {
@@ -291,7 +284,11 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly githubSync: GithubSync;
   private readonly attachments: AttachmentOperations;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
-  private readonly sessionFolders: Pick<SessionFolders, 'of'> | undefined;
+  private readonly sessionEngine:
+    | ((
+        sessionId: string,
+      ) => Pick<EngineHost, 'sessionFolders' | 'isRealDirectory' | 'openWorkspaceFile'> | undefined)
+    | undefined;
   private readonly screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 
   constructor(deps: {
@@ -321,13 +318,18 @@ export class TeamToolsService implements TeamToolsHandler {
     attachments: AttachmentOperations;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
-    /** The session folders (PM-268): `attach_file` takes files from the caller's own folder too. */
-    sessionFolders?: Pick<SessionFolders, 'of'>;
+    /**
+     * The engine a session runs on (PM-312): `attach_file` opens the file on its disk, from the working
+     * directory or from the caller's own session folder (PM-268).
+     */
+    sessionEngine?: (
+      sessionId: string,
+    ) => Pick<EngineHost, 'sessionFolders' | 'isRealDirectory' | 'openWorkspaceFile'> | undefined;
     /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
     screenshots?: Pick<ScreenshotRuns, 'take' | 'get'>;
   }) {
     this.screenshots = deps.screenshots;
-    this.sessionFolders = deps.sessionFolders;
+    this.sessionEngine = deps.sessionEngine;
     this.boundary = deps.boundary;
     this.egress = deps.egress ?? null;
     this.publishing = deps.publishing;
@@ -539,8 +541,10 @@ export class TeamToolsService implements TeamToolsHandler {
       // them. The session folder is the one the server made for this process (it remembers it; the
       // path is never derived from the id) and counts only while it exists.
       const session = this.callerSession(ctx);
-      const recorded = this.sessionFolders?.of(session.id);
-      const folder = recorded && isRealDirectory(recorded) ? recorded : null;
+      const engine = this.sessionEngine?.(session.id);
+      if (!engine) throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
+      const recorded = engine.sessionFolders?.of(session.id);
+      const folder = recorded && (await engine.isRealDirectory(recorded)) ? recorded : null;
       const inFolder =
         folder !== null && path.isAbsolute(args.path) && isWithin(folder, path.resolve(args.path));
       const place = inFolder
@@ -549,14 +553,16 @@ export class TeamToolsService implements TeamToolsHandler {
             name: 'your working directory',
             ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
           };
-      const file = await openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
-        maxBytes: MAX_ATTACHMENT_BYTES,
-        place,
-        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
-        exactRoot: inFolder,
-      }).catch((err: unknown) => {
-        throw toFileToolError(err, args.path);
-      });
+      const file = await engine
+        .openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
+          maxBytes: MAX_ATTACHMENT_BYTES,
+          place,
+          // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
+          exactRoot: inFolder,
+        })
+        .catch((err: unknown) => {
+          throw toFileToolError(err, args.path);
+        });
       try {
         const attachment = await this.attachments.upload({
           projectKey: ctx.projectKey,

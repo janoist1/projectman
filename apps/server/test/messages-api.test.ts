@@ -53,6 +53,7 @@ describe('human team messages and member profiles', () => {
         data: expect.objectContaining({ messageId: message.id }),
       }),
     );
+    await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
     const session = domain.sessions.list(key, { member: 'dev-1' })[0]!;
     expect(session.workItem).toEqual({ type: 'task', taskKey: 'AR-1' });

@@ -113,8 +113,8 @@ tests use the SDK's own client, which behaves the same way here):
   tools; the content is never put into the answer and never run. `attach_file` takes no
   directory, uploader or storage place from the caller: the domain reads the session's working
   directory from the session the token names (and, for an absolute path inside it, the session's
-  own folder, PM-268) and opens the file with `openWorkspaceFile`
-  (`domain/attachments/workspace-file.ts`). `delete_attachment` deletes only the caller's own.
+  own folder, PM-268) and has the session's engine open the file with `EngineHost.openWorkspaceFile`
+  (`engine-host/workspace-file.ts`, PM-312). `delete_attachment` deletes only the caller's own.
 - Screenshots (PM-351) are for the members whose own sandbox cannot start Chromium (Codex).
   `take_screenshots` starts `npm run shots` in the caller's worktree, in the server's own `srt`
   sandbox (`domain/screenshot-runs.ts`, `full-test/screenshots.ts`), and waits at most 40 s; a run

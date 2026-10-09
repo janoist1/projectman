@@ -13,6 +13,9 @@ import {
   writeSecretFile,
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
+import { assertHomeMayStart } from '../../apps/server/src/instance';
+import { installService, reportService, uninstallService } from './service';
+import type { ServiceOptions } from './service';
 
 /**
  * The commands of `npm run engine -- …` (PM-314). Kept apart from `cli.ts` so that tests drive them with
@@ -34,6 +37,8 @@ export interface EngineCliIo {
   now?: () => number;
   /** The temporary directory sessions may use (`os.tmpdir()`); tests name another one. */
   tmpdir?: string;
+  /** What `service install|uninstall|status` needs of the machine (launchd); absent where there is none. */
+  launchd?: Omit<ServiceOptions, 'home' | 'pathEnv' | 'out'>;
 }
 
 const USAGE = `usage:
@@ -43,7 +48,8 @@ const USAGE = `usage:
   npm run engine -- repo remove <KEY> <repo>
   npm run engine -- status
   npm run engine -- start
-  (all: [--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)`;
+  npm run engine -- service install|uninstall|status   (macOS LaunchAgent: the engine starts at login and restarts)
+  (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)`;
 
 interface Parsed {
   positional: string[];
@@ -229,8 +235,35 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           throw new EngineConfigError('key_missing', `The engine key ${resolved.keyFile} does not exist.`);
         return io.startEngine(home, { ...io.env, PROJECTMAN_MODE: 'engine', PROJECTMAN_HOME: home });
       }
+      case 'service': {
+        if (rest.length > 0 || !['install', 'uninstall', 'status'].includes(sub ?? ''))
+          throw new UsageError('service install, service uninstall or service status');
+        const launchd = io.launchd;
+        if (!launchd)
+          throw new EngineConfigError('service_unsupported', 'The engine service is not available here.');
+        const options = {
+          ...launchd,
+          home,
+          pathEnv: io.env.PATH ?? '',
+          out: io.out,
+        };
+        if (sub === 'install') {
+          // The same preflight as "start": a service that would only crash and restart is not installed.
+          const resolved = resolveEngineConfig(loadEngineConfig(home), home, resolveOptions);
+          if (!existsSync(resolved.keyFile))
+            throw new EngineConfigError('key_missing', `The engine key ${resolved.keyFile} does not exist.`);
+          assertHomeMayStart(home, 'engine');
+          installService(options);
+          return 0;
+        }
+        if (sub === 'uninstall') {
+          uninstallService(options);
+          return 0;
+        }
+        return reportService(options) ? 0 : 1;
+      }
       default:
-        throw new UsageError('commands: init, project set, repo add, repo remove, status, start');
+        throw new UsageError('commands: init, project set, repo add, repo remove, status, start, service');
     }
   } catch (error) {
     if (error instanceof UsageError) {

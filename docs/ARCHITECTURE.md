@@ -991,7 +991,11 @@ workers follow the machine's size.
   `engine.json` and `engine-status.json` are in `denyWrite`. For that, `resolveEngineConfig` refuses a
   key file, a headers file or a home that lies inside a workspace, the temporary directory or the
   engine's own worktrees, after `realpath`, and the engine refuses to run (`home_in_use`) in a home that
-  holds `db.sqlite*`: give it its own, for example `PROJECTMAN_HOME=~/.projectman-engine`. Every
+  holds `db.sqlite*`: give it its own, for example `PROJECTMAN_HOME=~/.projectman-engine`. The one
+  exception is a home whose `instance.json` says `engine` (PM-318, the Mac after the move to the hybrid
+  mode, [HYBRID.md](HYBRID.md)): its stale single-machine database and secrets stay there for the way
+  back, and the sandboxes' `sensitivePaths` already put `db.sqlite*`, `secret`, `secrets` and the other
+  server data of the home in `denyRead`; `instanceMayWork('engine')` is false, so no server ever runs on it. Every
   `session.start` needs a policy (the denied paths and roots come from it), and each path in it (the
   placement, readable, writable and read-only roots, the session folders, a review copy's directories)
   must lie under the engine's roots; a task worktree's `gitDir` must be a registered repo's `.git` and its
@@ -1462,6 +1466,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   shutdown pause and stop) before Litestream ships the last writes and the process ends. A
   deployment is replacing the container; the restored or rehearsed copy is a `standby` home
   (`instance.json`) that starts no session, and only one container may replicate into a replica.
+  (PM-318: `instance activate` from the `engine` role, the way back to the single-machine mode, also
+  needs the person's statement that the cloud is retired, no running engine and a database that
+  holds the cloud's `engines` row, so that a stale pre-hybrid database never replaces the cloud's work;
+  `--discard-cloud-data` states the opposite on purpose.)
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
@@ -1570,6 +1578,32 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   confirmation that the source is retired. **Remote engine:** execute local probes and
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
+  **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
+  `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
+  hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
+  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `memory`, `HYBRID_CLOUD_ENTRIES`);
+  it never holds a CLI home, provider logins, worktrees, workspaces, repositories, `github-publish`,
+  `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
+  (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
+  key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
+  hash enters the package's database; `engine.json` is made with it. **Does this work on a remote
+  engine?** The tool is the one place that reads the Mac's home and repositories to build the
+  engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
+  package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
+
+- **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+  `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
+  renders the plist template with this machine's absolute paths (node, the checkout, the home, the
+  `PATH` of the installing shell) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the
+  engine starts at login and is restarted after an exit (`KeepAlive`, 30 s throttle). It is an agent,
+  not a daemon, because the CLIs of the sessions need the login keychain and the user's files. The job
+  gets only the variables the plist names (`PATH`, `PROJECTMAN_MODE=engine`, `PROJECTMAN_HOME`): no
+  API key and no integrator key. `install` runs the same preflight as `start` and refuses another
+  home's installed agent; `uninstall` leaves the logs (`<home>/logs/engine-service.{out,err}.log`).
+  **Assumptions:** macOS, `launchctl`, a logged-in user, and the checkout the command ran from being
+  the one that should run the engine (the plist names it). **Does this work on a remote engine?**
+  This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
+  CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
   `buildSessionEnv`), `runtime-boundary/launcher/daemon.ts` (`workerEnvironment`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,

@@ -87,6 +87,10 @@ export async function applyPackage(options: ApplyOptions): Promise<ApplyReport> 
   const target = resolve(options.targetHome);
   assertMappings(options.mappings);
   const manifest = await readPackage(packageDir);
+  if (manifest.kind === 'hybrid_cloud')
+    throw new MigrationRefused(
+      'this is a hybrid cloud package (no repositories, work or transcripts): upload its home/ to the cloud volume, see docs/HYBRID.md; `apply` moves a whole installation',
+    );
   if (existsSync(target) && readdirSync(target).length > 0)
     throw new MigrationRefused(`${target} exists and is not empty: the move never overwrites a home`);
   mkdirSync(target, { recursive: true, mode: 0o700 });

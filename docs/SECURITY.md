@@ -35,6 +35,17 @@ tenants into separate OS accounts or machines.
   only for requests classified as local. HTTPS termination is trusted only from
   a loopback reverse proxy, using the same protocol check as integrator keys.
 
+- The move to the hybrid mode (PM-318, [HYBRID.md](HYBRID.md)) handles two secrets. The machine key is
+  made on the Mac (`newMachineKey`), written to `engine.key` with mode 0600 and the `wx` flag (never
+  over an existing file), and shown nowhere; only its SHA-256 hash is in the cloud package, and a test
+  searches the whole package for the key. The cloud package is a closed list of six entries (the
+  database, the cookie key, `secrets/`, `customization/`, `attachments/`, `memory/`), made with mode
+  0700/0600, refused inside the home or a git repository, and re-checked by `verify --hybrid-cloud`; the
+  Mac's CLI logins, `github-publish/`, `engine.*` and `instance.json` never enter it. After the move the
+  Mac's home keeps the stale single-machine database and cookie key (the way back needs them); the
+  `engine` role means no server opens them, and the sandboxes' `sensitivePaths` keep sessions out. The
+  launchd job (`deploy/mac/com.projectman.engine.plist`) is given `PATH`, `PROJECTMAN_MODE` and
+  `PROJECTMAN_HOME` only: no API key and no integrator key.
 - Cloud mode (`PROJECTMAN_MODE=cloud`, PM-315) adds three surfaces for the engine, and an
   engine is trusted only with its own sessions:
   - `GET /engine/files/downloads/:token` and `POST /engine/files/uploads/:token` need the

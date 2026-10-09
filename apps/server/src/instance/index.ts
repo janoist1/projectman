@@ -1,7 +1,8 @@
-import { chmodSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { INSTANCE_MARKER_FILE, InstanceMarker, instanceRoleOf } from '@projectman/shared';
 import type { InstanceRole } from '@projectman/shared';
+import type { RunMode } from '../app';
 
 /**
  * The role marker of a home directory (PM-143): whether this copy of an installation may work. The
@@ -38,7 +39,7 @@ export function instanceRole(home: string): InstanceRole {
   return instanceRoleOf(readInstanceMarker(home));
 }
 
-/** Writes a `standby` or `retired` marker (atomically; mode 0600). */
+/** Writes a `standby`, `retired` or `engine` marker (atomically; mode 0600). */
 export function writeInstanceMarker(
   home: string,
   role: Exclude<InstanceRole, 'active'>,
@@ -59,15 +60,38 @@ export function clearInstanceMarker(home: string): void {
 }
 
 /**
- * Stops the server before it touches a retired home. A standby home passes (it works as a read-only
- * copy, see `buildApp`); a retired one never starts.
+ * Stops a process before it touches a home it must not work in. A standby home passes (it works as a
+ * read-only copy, see `buildApp`); a retired one never starts. A hybrid engine home (PM-318) starts only
+ * the engine: the single-machine and the cloud server refuse it, and the engine refuses a home that still
+ * is a live single-machine one (a database and no `engine` marker), because it would work in the same
+ * worktrees as that server.
  */
-export function assertHomeMayStart(home: string): InstanceRole {
+export function assertHomeMayStart(home: string, mode: RunMode = 'single'): InstanceRole {
   const marker = readInstanceMarker(home);
   if (marker?.role === 'retired')
     throw new InstanceMarkerError(
       `This home was retired (${marker.reason}) at ${marker.setAt}: another installation took over. ` +
         `A person must move it back with "scripts/migrate/cli.ts instance activate" after the other one stopped.`,
     );
+  if (mode === 'engine') {
+    if (marker?.role !== 'engine' && databaseExists(home))
+      throw new InstanceMarkerError(
+        `${home} holds a projectman database and is not marked as a hybrid engine home: the engine would work in ` +
+          `the same worktrees as a live installation. Give the engine its own home, or mark this one with ` +
+          `"npm run migrate -- instance engine --home ${home}" after the move to the cloud.`,
+      );
+  } else if (marker?.role === 'engine') {
+    throw new InstanceMarkerError(
+      'this home is a hybrid engine home; start it with `npm run engine -- start`',
+    );
+  }
   return instanceRoleOf(marker);
+}
+
+function databaseExists(home: string): boolean {
+  try {
+    return readdirSync(home).some((name) => name.startsWith('db.sqlite'));
+  } catch {
+    return false; // no such directory yet: a new engine home
+  }
 }

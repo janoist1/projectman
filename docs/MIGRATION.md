@@ -214,6 +214,25 @@ claimed: `bootstrap.sh`, `install-app.sh`, `verify.sh` on Ubuntu with the new fi
 real provider CLIs, Tailscale from a phone, and the full test suite with the pseudo-terminal files (the sandbox this
 work ran in forbids pseudo-terminals, which is exactly the PM-134 exemption the task does not accept for the VM).
 
+## The hybrid mode (PM-318): the same tool, a different move
+
+The VM direction above is archived. The move that replaced it is from the single-machine mode to the
+hybrid mode: the board in the cloud, the Mac as an engine ([HYBRID.md](HYBRID.md) has the whole procedure).
+It uses the same tool and the same rules (the source is only read, a package is a secret, only one copy
+works), with these additions:
+
+- `hybrid plan|package|back` (`scripts/migrate/hybrid.ts`). The package has `kind: "hybrid_cloud"` and
+  holds a closed list of six entries; it has no repositories, no work, no transcripts, no CLI logins. The
+  machine key is made on the Mac and never enters the package (only its hash does).
+  `apply` refuses a `hybrid_cloud` package, and `verify --hybrid-cloud` checks the cloud's data
+  (`forbidden_entry`, `engines_missing`, `default_engine`, `session_engine_missing`) without looking for
+  Mac paths.
+- A fourth instance role, `engine` (`instance engine`): the Mac's home after the move. No server works on
+  it, the engine may start on it, and the former database is kept for the way back.
+- `hybrid back` puts the cloud's data into the home and keeps the former entries in
+  `pre-hybrid-YYYY-MM-DD/`; `instance activate` from the `engine` role needs the cloud's engine row in the
+  database (or `--discard-cloud-data`).
+
 ## Handover to PM-45 (the long-running server)
 
 The same files build a rented Ubuntu 24.04 server; no cloud purchase is part of this card. The reproducible Linux

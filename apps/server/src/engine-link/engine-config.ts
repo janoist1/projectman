@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { SelectablePermissionMode } from '@projectman/shared';
 import { isWithin } from '../engine-host/within';
 import { isLoopbackHostname } from '../http/local-guard';
+import { readInstanceMarker } from '../instance';
 
 /** `<PROJECTMAN_HOME>/engine.json`: what the engine process may serve and where the cloud is (PM-314). */
 
@@ -317,7 +318,10 @@ export function resolveEngineConfig(
 
 /**
  * The engine never shares a home with a projectman server: that home holds the database, the secrets and the
- * other members' work, and the engine's roots would reach them. A home with `db.sqlite*` is refused.
+ * other members' work, and the engine's roots would reach them. A home with `db.sqlite*` is refused,
+ * except the home of a person's move to the hybrid mode (PM-318): `instance engine` marks it, and its
+ * database is then a leftover. The sandboxes keep denying it (`sensitivePaths`), as they do for the
+ * secrets in it.
  */
 export function assertHomeNotInUse(home: string): void {
   let names: string[];
@@ -326,7 +330,7 @@ export function assertHomeNotInUse(home: string): void {
   } catch {
     return; // no such directory yet
   }
-  if (names.some((name) => name.startsWith('db.sqlite')))
+  if (names.some((name) => name.startsWith('db.sqlite')) && readInstanceMarker(home)?.role !== 'engine')
     throw new EngineConfigError(
       'home_in_use',
       `${home} holds a projectman server database. Give the engine its own home, for example PROJECTMAN_HOME=~/.projectman-engine.`,

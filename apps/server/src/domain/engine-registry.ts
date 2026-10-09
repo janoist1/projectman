@@ -15,6 +15,21 @@ const StoredHello = z.object({
 export type EngineHelloMetadata = z.infer<typeof StoredHello>;
 export const machineKeyHash = (key: string): string => createHash('sha256').update(key).digest('hex');
 
+/**
+ * A new engine identity: the id, the machine key (shown once) and what the registry stores of it. One
+ * place makes them: the registry (`create`) and the move to the hybrid mode (PM-318, which makes the key
+ * on the Mac and carries only the hash to the cloud).
+ */
+export function newMachineKey(): { id: EngineId; key: string; hash: string; prefix: string } {
+  const key = `pme_${randomBytes(32).toString('base64url')}`;
+  return {
+    id: `eng_${randomBytes(6).toString('hex')}`,
+    key,
+    hash: machineKeyHash(key),
+    prefix: key.slice(0, 10),
+  };
+}
+
 /** What the cloud counts per engine for the settings view (PM-315): sessions and what waits for it. */
 export interface EngineCounters {
   runningSessions: number;
@@ -112,16 +127,8 @@ export class EngineRegistry {
     return row;
   }
   create(name: string, userId: string): CreateEngineResponse {
-    const key = `pme_${randomBytes(32).toString('base64url')}`;
-    const id = `eng_${randomBytes(6).toString('hex')}`;
-    const row = this.repos.engines.create({
-      id,
-      name,
-      userId,
-      hash: machineKeyHash(key),
-      prefix: key.slice(0, 10),
-      at: this.now().toISOString(),
-    });
+    const { id, key, hash, prefix } = newMachineKey();
+    const row = this.repos.engines.create({ id, name, userId, hash, prefix, at: this.now().toISOString() });
     this.changed(id);
     return { engine: this.view(row), key };
   }

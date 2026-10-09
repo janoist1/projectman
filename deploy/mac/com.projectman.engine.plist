@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The hybrid engine as a LaunchAgent (PM-318). A TEMPLATE: the "service install" command of the engine
+  tool fills the {{…}} placeholders (absolute paths of this machine) and writes the result to
+  ~/Library/LaunchAgents. (An XML comment may hold no double hyphen, so the command is not spelled out.)
+  A LaunchAgent in the user's gui domain, not a daemon: the CLIs of the sessions (claude, codex) need the
+  login keychain and the user's files. launchd gives the job no shell environment, so nothing but the
+  variables below reaches the engine: no API key, no PROJECTMAN_INTEGRATOR_KEY.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>{{LABEL}}</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>{{NODE}}</string>
+      <string>--import</string>
+      <string>tsx</string>
+      <string>{{ROOT}}/apps/server/src/index.ts</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>{{ROOT}}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PATH</key>
+      <string>{{PATH}}</string>
+      <key>PROJECTMAN_MODE</key>
+      <string>engine</string>
+      <key>PROJECTMAN_HOME</key>
+      <string>{{HOME}}</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>StandardOutPath</key>
+    <string>{{LOG_OUT}}</string>
+    <key>StandardErrorPath</key>
+    <string>{{LOG_ERR}}</string>
+  </dict>
+</plist>

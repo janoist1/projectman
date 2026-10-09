@@ -1,5 +1,4 @@
-import { appendFileSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
-import path from 'node:path';
+import { createRotatingFile } from '../logging/rotating-file';
 
 /** One line per request the engine served (PM-314). Never prompts, messages, input, file content or keys. */
 export interface EngineAuditEntry {
@@ -27,39 +26,16 @@ export function createEngineAudit(
   file: string,
   options: { maxBytes?: number; keep?: number; now?: () => Date; onError?: (error: unknown) => void } = {},
 ): EngineAudit {
-  const maxBytes = options.maxBytes ?? AUDIT_MAX_BYTES;
-  const keep = Math.max(1, options.keep ?? AUDIT_KEEP_FILES);
   const now = options.now ?? (() => new Date());
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
-  let size = 0;
-  try {
-    size = statSync(file).size;
-  } catch {
-    size = 0;
-  }
-  const moveIfExists = (from: string, to: string) => {
-    try {
-      renameSync(from, to);
-    } catch (error) {
-      // A rotated file that does not exist yet is normal.
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-  };
-  const rotate = () => {
-    rmSync(`${file}.${keep - 1}`, { force: true });
-    for (let index = keep - 2; index >= 1; index -= 1)
-      moveIfExists(`${file}.${index}`, `${file}.${index + 1}`);
-    if (keep > 1) moveIfExists(file, `${file}.1`);
-    else rmSync(file, { force: true });
-    size = 0;
-  };
+  const target = createRotatingFile(file, {
+    maxBytes: options.maxBytes ?? AUDIT_MAX_BYTES,
+    keep: options.keep ?? AUDIT_KEEP_FILES,
+  });
   return {
     record(entry) {
       const line = `${JSON.stringify({ at: now().toISOString(), ...entry })}\n`;
       try {
-        if (size > 0 && size + Buffer.byteLength(line) > maxBytes) rotate();
-        appendFileSync(file, line, { mode: 0o600 });
-        size += Buffer.byteLength(line);
+        target.append(line);
       } catch (error) {
         options.onError?.(error);
       }

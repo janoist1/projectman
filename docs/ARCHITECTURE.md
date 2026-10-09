@@ -1264,6 +1264,19 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   temporary files from atomic writes do not count as queued waiters. Run it on the execution
   host, using its own temporary directory and PID namespace.
   Since PM-311 the folder is `EnginePaths.heavyLockDir` of the session's engine (`contracts/engine.ts`).
+- **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
+  (PM-444). Every process logs pino's JSON lines to the terminal and, since PM-444, to
+  `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
+  mode); the terminal's scrollback alone lost the older lines. The file is appended across starts,
+  rotated at 10 MB (`server.log` → `.1` → … `.4`, five files, so about 50 MB at most), mode 0600 in
+  a 0700 folder. It holds exactly the lines the terminal gets, with the same serializers (request URLs
+  have invitation, hook and MCP tokens redacted; no headers, bodies or keys). A failing file write is
+  reported once on the terminal and never stops logging there. The engine's per-request audit
+  (`logs/engine-audit.jsonl`) uses the same rotation helper but is a separate file. Assumes a
+  writable local home on the host that runs the process and one process per home.
+  **Remote engine:** each process writes its own log on its own host: the cloud's under the cloud's
+  home, the engine's under the engine's home. Logs are not shipped across the link; to read the
+  engine's log, read it on the engine's machine.
 - **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
   `engine-host/disk.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339, PM-312). Legacy Claude

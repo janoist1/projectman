@@ -10,6 +10,7 @@ import { assertEngineProfile, buildEngineApp, ENGINE_DEFAULT_PORT } from './engi
 import { defaultSessionTmpRoot } from './engine-host';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { createFixtureProbe, parseMachineFixture } from './machine';
+import { createServerLogStream, serverLogFile } from './logging/server-log';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './domain';
@@ -20,7 +21,8 @@ import { EngineConfigError } from './engine-link/engine-config';
  * Server entry point. The environment is read here, once, into the app's options (defaults:
  * APP_DEFAULTS in app.ts and the modules' own):
  *   PORT (4700), HOST (127.0.0.1; loopback only), PROJECTMAN_HOME (~/.projectman),
- *   CLAUDE_BIN (claude), CODEX_BIN (codex), GH_BIN (gh), LOG_LEVEL (info),
+ *   CLAUDE_BIN (claude), CODEX_BIN (codex), GH_BIN (gh), LOG_LEVEL (info; the log also goes to
+ *   <home>/logs/server.log, `engine.log` for the engine, 10 MB x 5 files, PM-444),
  *   CODEX_HOME (~/.codex): where the runner reads Codex's transcripts and plan usage,
  *   CLAUDE_CONFIG_DIR (~): where the runner finds Claude Code's .claude.json (workspace trust),
  *   GH_HOST (github.com): the host whose `gh` login the GitHub module checks,
@@ -72,6 +74,17 @@ import { EngineConfigError } from './engine-link/engine-config';
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
  */
+
+/**
+ * The log goes to the terminal and to `<home>/logs/<name>.log` (PM-444), rotated by size; the
+ * terminal's scrollback loses the older lines. LOG_LEVEL (info) decides what is logged.
+ */
+function loggerOptions(env: NodeJS.ProcessEnv, home: string, name: 'server' | 'engine') {
+  return {
+    ...(env.LOG_LEVEL === undefined ? {} : { level: env.LOG_LEVEL }),
+    stream: createServerLogStream(serverLogFile(home, name)),
+  };
+}
 
 interface ServerConfig {
   port: number;
@@ -182,7 +195,7 @@ async function configFromEnv(
       }),
       ghBin: env.GH_BIN,
       ghHost: env.GH_HOST || undefined,
-      logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
+      logger: loggerOptions(env, home, 'server'),
       webDistDir: existsSync(join(webDist, 'index.html')) ? webDist : null,
       // The checkout the server runs from (three levels up from src/ or dist/).
       installDir,
@@ -253,7 +266,7 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
     }),
     ghBin: env.GH_BIN,
     ghHost: env.GH_HOST || undefined,
-    logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
+    logger: loggerOptions(env, home, 'engine'),
     shutdownPauseMs,
   });
   const shutdown = createShutdown({

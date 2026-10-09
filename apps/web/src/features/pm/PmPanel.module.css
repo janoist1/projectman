@@ -56,6 +56,25 @@
   text-decoration: underline;
 }
 
+/* On a phone the link is the icon alone, so the name keeps its room; the text stays for screen readers. */
+@media (max-width: 767px) {
+  .session {
+    position: relative;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+  }
+
+  .sessionLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .body {
   flex: 1;
   min-height: 0;

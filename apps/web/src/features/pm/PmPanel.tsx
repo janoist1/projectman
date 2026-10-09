@@ -95,7 +95,7 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
             className={styles.session}
             title={t('pm.panel.fullSessionTitle')}
           >
-            {t('pm.panel.fullSession')}
+            <span className={styles.sessionLabel}>{t('pm.panel.fullSession')}</span>
             <Icon name="external" size={13} strokeWidth={2.2} />
           </Link>
         ) : null}

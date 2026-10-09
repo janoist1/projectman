@@ -4,5 +4,8 @@
   max-width: 240px;
   font-size: var(--text-xs);
   line-height: 1.4;
+  /* The roster's cells do not wrap and centre their text. */
+  white-space: normal;
+  text-align: left;
   color: var(--c-ink-3);
 }

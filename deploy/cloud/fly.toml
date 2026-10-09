@@ -1,0 +1,38 @@
+# The cloud side on Fly.io (PM-317, docs/HYBRID.md). Copy it, set `app` and `primary_region`, and
+#
+#   fly launch --no-deploy --copy-config --config deploy/cloud/fly.toml
+#   fly volumes create projectman_data --size 1 --region <region>
+#   fly secrets set TUNNEL_TOKEN=… LITESTREAM_ACCESS_KEY_ID=… (the full list is in docs/HYBRID.md)
+#   fly deploy --config deploy/cloud/fly.toml
+#
+# There is NO `http_service` and no `[[services]]` on purpose: nothing reaches the app from the
+# internet. The only way in is the outbound Cloudflare tunnel started inside the container, so the
+# platform has no public address, port or certificate for it. Keep exactly one machine: two would
+# replicate into the same Litestream replica.
+app = "projectman-cloud-change-me"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  # One machine and one volume: replace it in place (a second machine cannot attach the same volume).
+  strategy = "immediate"
+
+[env]
+  # Not secrets. The secrets (tunnel token, storage keys, restic password) are `fly secrets`.
+  LITESTREAM_BUCKET = "change-me"
+  LITESTREAM_ENDPOINT = "https://change-me.r2.cloudflarestorage.com"
+  LITESTREAM_REGION = "auto"
+  RESTIC_REPOSITORY = "s3:https://change-me.r2.cloudflarestorage.com/change-me-restic/projectman"
+  RESTIC_REGION = "auto"
+
+[[mounts]]
+  source = "projectman_data"
+  destination = "/data"
+  # A volume snapshot is a second, platform-side copy; Litestream and restic are the ones restored from.
+  snapshot_retention = 5
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

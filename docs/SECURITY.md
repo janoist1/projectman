@@ -53,6 +53,16 @@ tenants into separate OS accounts or machines.
   - The `hello` of an engine is its own word and nothing more: a session that the database
     records on another engine is not taken over (no owner change, no mirror entry, no events or
     permission decisions accepted from the reporter), and the reporter is told to stop it.
+  - The first setup of a cloud installation (PM-317): behind the tunnel no request is local, so the
+    setup from a browser needs a one-time **setup code** printed in the server log (12 base32
+    characters, held in memory only, compared in constant time, void after 10 wrong tries in total
+    or at a restart, consumed by the first successful setup; it exists only while there is no
+    owner). A local request needs no code, and a single-machine installation is unchanged
+    (`setup_requires_localhost`). A missing code is not a try. The log is read through the host's
+    own access, so whoever reads it is the host's owner. The deployment ([HYBRID.md](HYBRID.md))
+    gives each process in the container only its own secrets, runs as an unprivileged user without
+    new privileges, and keeps the database replica and the restic repository in separate
+    buckets with separate keys; the replica is not encrypted by Litestream.
 
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in

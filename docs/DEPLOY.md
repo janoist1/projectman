@@ -424,6 +424,17 @@ admins, the instance's owners).
 A pause made by hand survives a restart and is not lifted by the start: the team waits until someone resumes
 it. Only the pause of the stop itself ends with the start.
 
+## Cloud deployment of the hybrid mode (PM-317)
+
+The cloud side of a hybrid installation (`PROJECTMAN_MODE=cloud`, no AI session of its own, the
+engine on your Mac does the work) is a container: `deploy/cloud/Dockerfile`, with the Cloudflare
+tunnel, Litestream (the database) and restic (the rest of the home) inside it. It has no public
+port: the only way in is the outbound tunnel. The whole guide is [HYBRID.md](HYBRID.md): the image,
+the storage, the first setup from a browser (a one-time setup code from the log), the backup, the
+restore rehearsal and the update. This VPS guide, the PM-200 tunnel guide above and the backup
+paragraph below describe the single-machine and the self-run alternatives; nothing here changes
+for them.
+
 ## Backups and updates
 
 For a consistent backup, stop the service and archive **all of `PROJECTMAN_HOME`**,
@@ -467,6 +478,20 @@ The key works only over HTTPS or a local connection; `tailscale serve` must expo
 
 ```sh
 curl -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" http://localhost:4800/api/me
+```
+
+Against a cloud installation (hybrid mode, [HYBRID.md](HYBRID.md)) the request first has to pass
+Cloudflare Access, so it carries a second pair of headers: a service token made for the integrator
+alone (not the engine's), kept next to the key in `~/.config/projectman/` with mode 600. The key and
+the service token are two separate secrets, and the service token alone gets nowhere in
+projectman:
+
+```sh
+curl \
+  -H "CF-Access-Client-Id: $(cat ~/.config/projectman/access-client-id)" \
+  -H "CF-Access-Client-Secret: $(cat ~/.config/projectman/access-client-secret)" \
+  -H "Authorization: Bearer $(cat ~/.config/projectman/integrator-key)" \
+  https://projectman.example.com/api/me
 ```
 
 Bearer authentication takes precedence over a login cookie. A revoked or expired key fails with

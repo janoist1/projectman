@@ -1,0 +1,24 @@
+# Litestream replicates the cloud's database (PROJECTMAN_HOME/db.sqlite) to S3-compatible storage
+# continuously (PM-317, docs/HYBRID.md). Nothing here is a secret: the values come from the
+# environment, set as the provider's secrets, and only the litestream process sees them.
+#
+# The replica is the SQLite database itself, not encrypted by Litestream: it holds the password
+# and key hashes. Protect the bucket (encryption at rest, a key that can write this bucket only)
+# as docs/HYBRID.md says.
+dbs:
+  - path: ${PROJECTMAN_HOME}/db.sqlite
+    replica:
+      type: s3
+      bucket: ${LITESTREAM_BUCKET}
+      path: projectman/db
+      endpoint: ${LITESTREAM_ENDPOINT}
+      region: ${LITESTREAM_REGION}
+      force-path-style: true
+      sync-interval: 1s
+      access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+      secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+
+# A full snapshot a day, and the snapshots and log files of the last week kept.
+snapshot:
+  interval: 24h
+  retention: 168h

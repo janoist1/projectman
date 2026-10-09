@@ -291,6 +291,8 @@ export interface TeamToolsHandler {
       relations?: RelationsChange;
       /** The theme the card belongs to (PM-192); null removes it. */
       themeKey?: string | null;
+      /** The card priority (PM-433); null clears it. Only people and the project manager may set it. */
+      priority?: TaskPriority | null;
       /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
       developerLevel?: DeveloperLevelRequest;
     },

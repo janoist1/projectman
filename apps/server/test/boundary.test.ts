@@ -21,6 +21,10 @@ function configure(config: ProjectConfig) {
   });
   const cr = config.team.members.find((m) => m.handle === 'cr')!;
   if (cr.kind === 'ai') cr.role = 'custom_lead';
+  // The project manager is at work and holds the duty too, and still never decides (PM-433).
+  config.team.roleOverrides = { project_manager: { duties: ['boundary_authorization'], instructions: '' } };
+  const pm = config.team.members.find((m) => m.handle === 'pm')!;
+  if (pm.kind === 'ai') pm.onLeave = false;
 }
 
 describe('boundary requests', () => {
@@ -81,6 +85,23 @@ describe('boundary requests', () => {
       member: 'dev-1',
       sessionId: requester.sessionId,
     });
+  });
+
+  it('never names the project manager as a lead, and refuses its decision, even with the duty (PM-433)', async () => {
+    const request = await submit();
+    expect(request.assignees).toEqual(['cr']);
+    await expect(h.domain.boundary.decide('AR', request.id, 'pm', allow)).rejects.toMatchObject({
+      code: 'not_an_assignee',
+    });
+    await expect(
+      h.domain.teamTools.decideBoundaryRequest(
+        { ...toolContext(requester), member: 'pm' },
+        { requestId: request.id, ...allow },
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(h.repos.inbox.get(request.id)!.resolution).toBeFalsy();
+    await flush();
+    expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(0);
   });
 
   it.each([

@@ -288,6 +288,13 @@ export const hu: TemplateLocale = {
     frontend: 'Frontend',
     backend: 'Backend',
   },
+  projectManagerReport: {
+    done: 'Megtettem',
+    newCard: 'Új kártya',
+    forwarded: 'Továbbadtam',
+    waiting: 'Rád vár',
+    nothing: 'Semmi.',
+  },
   labels: {
     'code-review-ok': {
       name: 'Code review rendben',

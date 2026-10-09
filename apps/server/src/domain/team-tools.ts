@@ -20,6 +20,7 @@ import type {
   Session,
   Task,
   TaskKind,
+  TaskPriority,
   Visibility,
   WorkDoing,
   WorkItemRef,
@@ -640,6 +641,7 @@ export class TeamToolsService implements TeamToolsHandler {
       repo?: string | null;
       relations?: RelationsChange;
       themeKey?: string | null;
+      priority?: TaskPriority | null;
       developerLevel?: DeveloperLevelRequest;
     },
   ): Promise<{ task: Task }> {
@@ -671,6 +673,7 @@ export class TeamToolsService implements TeamToolsHandler {
             repo: args.repo,
             ...(args.relations ? { relations: args.relations } : {}),
             ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
+            ...(args.priority !== undefined ? { priority: args.priority } : {}),
             ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
             addLabels: args.addLabels,
             removeLabels: args.removeLabels,

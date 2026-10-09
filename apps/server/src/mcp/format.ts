@@ -345,11 +345,15 @@ export function formatTaskUpdate(
     relations?: { add: Array<{ kind: string; key: string }>; remove: Array<{ kind: string; key: string }> };
     /** The theme the call set (null: removed); undefined when it did not touch it. */
     themeKey?: string | null | undefined;
+    /** The priority the call set (null: cleared); undefined when it did not touch it (PM-433). */
+    priority?: string | null | undefined;
     /** The call set the recommended developer (PM-347); the line shows what the card has now. */
     developerLevel?: boolean;
   },
 ): string {
   const done: string[] = [];
+  if (change.priority !== undefined)
+    done.push(change.priority === null ? 'priority cleared' : `priority set to ${change.priority}`);
   if (change.themeKey !== undefined)
     done.push(change.themeKey === null ? 'theme removed' : `theme set to ${change.themeKey}`);
   if (change.title) done.push('title changed');

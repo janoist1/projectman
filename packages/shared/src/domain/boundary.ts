@@ -3,6 +3,7 @@ import { Actor } from './event';
 import { memberDuties } from '../config/duties';
 import { memberOf } from '../config/lookup';
 import { isOnLeave } from '../config/leave';
+import { isProjectManager } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 
 export const BoundaryId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/);
@@ -149,13 +150,19 @@ export type DecideBoundaryRequest = z.infer<typeof DecideBoundaryRequest>;
 export function boundaryOwners(config: ProjectConfig): string[] {
   return config.team.members.filter((m) => m.kind === 'human' && m.access === 'owner').map((m) => m.handle);
 }
+/**
+ * The members that may decide a delegable request of `requester`. The project manager never does,
+ * even with the duty (PM-433): it dispatches, it does not decide, and `permissionDeciders` builds on this.
+ */
 export function boundaryLeads(config: ProjectConfig, requester: string): string[] {
   return config.team.members
     .filter(
       (m) =>
         m.handle !== requester &&
         !isOnLeave(m) &&
-        (m.kind === 'ai' ? config.team.limits.aiEnabled : m.access !== 'viewer' && m.access !== 'client') &&
+        (m.kind === 'ai'
+          ? !isProjectManager(m) && config.team.limits.aiEnabled
+          : m.access !== 'viewer' && m.access !== 'client') &&
         memberDuties(config, m).includes('boundary_authorization'),
     )
     .map((m) => m.handle);

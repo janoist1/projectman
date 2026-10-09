@@ -2756,8 +2756,9 @@ export class MockBackend {
       }
     }
     if (input.priority !== undefined) {
-      const refusal = priorityRefusal(actor);
-      if (refusal) return error(403, refusal, 'The priority of a card is set by people only');
+      const refusal = priorityRefusal(actor, this.config);
+      if (refusal)
+        return error(403, refusal, 'The priority of a card is set by people and the project manager only');
       if (input.priority !== task.priority) {
         patch.priority = input.priority;
         fields.push('priority');

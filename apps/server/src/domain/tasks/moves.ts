@@ -1,4 +1,5 @@
 import {
+  actorMoveRefusal,
   boardColumnOf,
   evaluateMove,
   gateRequestOf,
@@ -25,7 +26,7 @@ import type {
 import type { SourceHead } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../context';
-import { conflict, DomainError, themeRefused } from '../errors';
+import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
@@ -234,6 +235,8 @@ export class TaskMoves {
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
     const target = requireStage(config, stageId);
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
+    // The guard of every move path (PM-433): the project manager only starts cards.
+    if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
     const evaluation = evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
     if (evaluation.approvals.length > 0) {

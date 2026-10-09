@@ -10,6 +10,10 @@ export const routes = {
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,
   defaultEngine: (id: string) => `/api/engines/${id}/default`,
   engineLink: () => '/engine/link',
+  /** The engine sends a large result here (PM-314): `POST` the bytes; the token comes with the request. */
+  engineUpload: (token: string) => `/engine/files/uploads/${token}`,
+  /** The engine fetches an attachment from here (PM-314): `GET`; the token comes with the request. */
+  engineDownload: (token: string) => `/engine/files/downloads/${token}`,
   integratorKey: () => '/api/auth/integrator-key',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,

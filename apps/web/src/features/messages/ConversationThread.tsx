@@ -319,7 +319,7 @@ export function ConversationThread({
                 <p className={styles.emptyBody}>
                   {member?.kind === 'human'
                     ? t('messages.thread.emptyHuman')
-                    : t('messages.thread.emptyBody')}
+                    : t(marksOnly ? 'messages.thread.emptyMarkBody' : 'messages.thread.emptyBody')}
                 </p>
               </div>
             ) : (
@@ -349,7 +349,7 @@ export function ConversationThread({
               {t('messages.composer.failed')} {errorMessage(send.error)}
             </ErrorBanner>
           ) : null}
-          <div className={styles.taskRow}>
+          <div className={clsx(styles.taskRow, marksOnly && styles.taskRowMark)}>
             <label htmlFor={`task-${peer}`}>
               {t(marksOnly ? 'messages.composer.markTask' : 'messages.composer.task')}
             </label>

@@ -3412,6 +3412,8 @@ export const hu = {
       pick: 'Válassz egy beszélgetést.',
       emptyTitle: 'Még nem írtatok egymásnak.',
       emptyBody: 'Írd meg lent; ha feladathoz tartozik, válaszd ki, így a feladat munkamenetébe kerül.',
+      emptyMarkBody:
+        'Írd meg lent; ha egy kártyáról szól, jelöld meg, de az üzenet ugyanebbe a beszélgetésbe kerül.',
       emptyHuman: 'Az Üzenetek oldalon kapja meg, olvasatlanként jelölve.',
       also: 'Címzett még: {names}',
       newMessages: 'Új üzenetek',

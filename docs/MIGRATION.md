@@ -230,8 +230,11 @@ works), with these additions:
 - A fourth instance role, `engine` (`instance engine`): the Mac's home after the move. No server works on
   it, the engine may start on it, and the former database is kept for the way back.
 - `hybrid back` puts the cloud's data into the home and keeps the former entries in
-  `pre-hybrid-YYYY-MM-DD/`; `instance activate` from the `engine` role needs the cloud's engine row in the
-  database (or `--discard-cloud-data`).
+  `pre-hybrid/YYYY-MM-DD/` (denied to the sessions' sandboxes, like `.hybrid-back/`, its staging folder).
+  It tolerates, and does not carry, what a running cloud writes itself (`logs/`, `engine-spool/`,
+  Litestream's folder, a restored copy's `instance.json`). It and `instance activate` from the `engine`
+  role refuse while the engine's LaunchAgent is installed; `activate` also needs the cloud's engine row
+  in the database (or `--discard-cloud-data`).
 
 ## Handover to PM-45 (the long-running server)
 

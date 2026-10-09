@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { EngineConfigError } from '../../apps/server/src/engine-link/engine-config';
 
@@ -36,6 +37,28 @@ export interface ServiceOptions {
   launchctl: (args: string[]) => LaunchctlResult;
   platform: NodeJS.Platform;
   out: (text: string) => void;
+  /** Waits between the retries of `bootstrap` (default: a blocking wait; tests pass a no-op). */
+  sleep?: (ms: number) => void;
+}
+
+/** launchctl's "5: Input/output error": the old job is still being torn down; a short wait cures it. */
+const BOOTSTRAP_BUSY = 5;
+const BOOTSTRAP_TRIES = 5;
+const BOOTSTRAP_WAIT_MS = 500;
+
+const blockingSleep = (ms: number): void => {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+};
+
+/**
+ * `npm run engine` puts the checkout's `node_modules/.bin` folders in front of PATH; they are the installing
+ * run's, not the sessions' tools, and would be written into the file. They are left out.
+ */
+export function servicePathEnv(pathEnv: string): string {
+  return pathEnv
+    .split(path.delimiter)
+    .filter((entry) => entry !== '' && !entry.endsWith(path.join('node_modules', '.bin')))
+    .join(path.delimiter);
 }
 
 const xml = (value: string): string =>
@@ -91,6 +114,19 @@ function installedHome(plist: string): string | null {
     : null;
 }
 
+/**
+ * The LaunchAgent file that starts the engine on this home, or null. The way back and the activation look
+ * here, because a loaded job restarts the engine 30 seconds after every exit (`KeepAlive`).
+ */
+export function installedServiceFor(home: string, agentsDir?: string): string | null {
+  const plist = servicePaths({
+    home,
+    agentsDir: agentsDir ?? path.join(os.homedir(), 'Library', 'LaunchAgents'),
+  }).plist;
+  if (!existsSync(plist)) return null;
+  return installedHome(readFileSync(plist, 'utf8')) === path.resolve(home) ? plist : null;
+}
+
 function requireMac(options: ServiceOptions): void {
   if (options.platform !== 'darwin')
     throw new EngineConfigError(
@@ -104,7 +140,8 @@ export function installService(options: ServiceOptions): void {
   requireMac(options);
   if (!path.isAbsolute(options.nodePath) || !path.isAbsolute(options.root) || !path.isAbsolute(options.home))
     throw new EngineConfigError('service_paths', 'The node, repository and home paths must be absolute.');
-  if (!options.pathEnv)
+  const pathEnv = servicePathEnv(options.pathEnv);
+  if (!pathEnv)
     throw new EngineConfigError('service_path_env', 'PATH is empty: the sessions could not find their CLIs.');
   const templateFile = path.join(options.root, PLIST_TEMPLATE);
   if (!existsSync(templateFile))
@@ -126,7 +163,7 @@ export function installService(options: ServiceOptions): void {
       label: SERVICE_LABEL,
       node: options.nodePath,
       root: options.root,
-      path: options.pathEnv,
+      path: pathEnv,
       home: options.home,
       logOut: paths.logOut,
       logErr: paths.logErr,
@@ -136,7 +173,11 @@ export function installService(options: ServiceOptions): void {
   chmodSync(paths.plist, 0o644);
   // A loaded job is unloaded first, so that the new file is the one launchd reads (the result is not an error).
   options.launchctl(['bootout', domainTarget(options.uid)]);
-  const loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
+  let loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
+  for (let tries = 1; loaded.status === BOOTSTRAP_BUSY && tries < BOOTSTRAP_TRIES; tries += 1) {
+    (options.sleep ?? blockingSleep)(BOOTSTRAP_WAIT_MS);
+    loaded = options.launchctl(['bootstrap', `gui/${options.uid}`, paths.plist]);
+  }
   if (loaded.status !== 0)
     throw new EngineConfigError(
       'service_bootstrap',

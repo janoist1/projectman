@@ -43,6 +43,25 @@ const MADE_BY_THE_CLOUD = ['worktrees', 'workspaces', 'spool', 'engine-spool'] a
 
 const DATABASE_SIDE_FILES = ['db.sqlite-wal', 'db.sqlite-shm'];
 
+/**
+ * What a running cloud writes into its own data directory besides the carried entries (PM-317, PM-444): the
+ * server log, the engine hand-over spool, the folders the server makes, the role marker of a restored copy
+ * and Litestream's metadata folder next to the database. The way back (`hybrid back`) tolerates them in the
+ * downloaded copy and carries none of them; a package stays strict.
+ */
+const WRITTEN_BY_THE_CLOUD = [
+  'logs',
+  'engine-spool',
+  'spool',
+  'worktrees',
+  'workspaces',
+  'instance.json',
+] as const;
+
+function writtenByTheCloud(name: string): boolean {
+  return (WRITTEN_BY_THE_CLOUD as readonly string[]).includes(name) || /^\..+-litestream$/.test(name);
+}
+
 function holdsFiles(dir: string): boolean {
   for (const name of readdirSync(dir)) {
     const path = join(dir, name);
@@ -54,13 +73,18 @@ function holdsFiles(dir: string): boolean {
 /**
  * The entries of a home that a hybrid cloud home must not have: every top-level name outside the closed
  * list (the database's own `-wal` and `-shm` files and the empty folders the cloud server makes itself
- * are no problem). Each comes with the reason.
+ * are no problem). Each comes with the reason. With `cloudData` (a copy of the running cloud's data
+ * directory, read by the way back) what the cloud itself writes is tolerated too, as it is never carried.
  */
-export function forbiddenEntries(home: string): { name: string; why: string }[] {
+export function forbiddenEntries(
+  home: string,
+  options: { cloudData?: boolean } = {},
+): { name: string; why: string }[] {
   const found: { name: string; why: string }[] = [];
   for (const name of readdirSync(home).sort()) {
     if ((HYBRID_CLOUD_ENTRIES as readonly string[]).includes(name) || DATABASE_SIDE_FILES.includes(name))
       continue;
+    if (options.cloudData && writtenByTheCloud(name)) continue;
     if (
       (MADE_BY_THE_CLOUD as readonly string[]).includes(name) &&
       lstatSync(join(home, name)).isDirectory() &&

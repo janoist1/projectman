@@ -14,7 +14,12 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import Database from 'better-sqlite3';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../../apps/server/src/db';
-import { LIVE_SESSION_STATES, newMachineKey } from '../../apps/server/src/domain';
+import {
+  HYBRID_ARCHIVE_DIR,
+  HYBRID_STAGING_DIR,
+  LIVE_SESSION_STATES,
+  newMachineKey,
+} from '../../apps/server/src/domain';
 import {
   cloudOrigin,
   ENGINE_CONFIG_FILE,
@@ -29,7 +34,7 @@ import { instanceRole } from '../../apps/server/src/instance';
 import { backupDatabase, databaseFiles, snapshotDatabase } from './database';
 import { isGitRepository } from './git';
 import { HYBRID_CLOUD_ENTRIES, HYBRID_NEVER_CARRIED } from './hybrid-entries';
-import { processAlive } from './instance';
+import { assertNoEngineService, processAlive } from './instance';
 import { buildInventory, readProjectFiles } from './inventory';
 import type { Finding, Inventory } from './inventory';
 import { assertSafeOutput, MigrationRefused, PACKAGE_VERSION, sha256File, walkFiles } from './package';
@@ -404,6 +409,8 @@ export interface HybridBackOptions {
   now?: () => Date;
   /** For tests: whether a process is alive (default: signal 0). */
   isRunning?: (pid: number) => boolean;
+  /** For tests: where the engine's LaunchAgent would be (default: `~/Library/LaunchAgents`). */
+  agentsDir?: string;
 }
 
 export interface HybridBackReport {
@@ -432,16 +439,21 @@ const REPLACED_ENTRIES = [
   'attachments-cache',
 ];
 
+function removeIfEmpty(dir: string): void {
+  if (existsSync(dir) && readdirSync(dir).length === 0) rmSync(dir, { recursive: true, force: true });
+}
+
+/** The archive's path relative to the home: `pre-hybrid/<date>[-n]`. */
 function archiveName(home: string, now: Date): string {
-  const base = `pre-hybrid-${now.toISOString().slice(0, 10)}`;
+  const base = now.toISOString().slice(0, 10);
   let name = base;
-  for (let n = 2; existsSync(join(home, name)); n += 1) name = `${base}-${n}`;
-  return name;
+  for (let n = 2; existsSync(join(home, HYBRID_ARCHIVE_DIR, name)); n += 1) name = `${base}-${n}`;
+  return join(HYBRID_ARCHIVE_DIR, name);
 }
 
 /**
  * The way back (PM-318): the cloud's data becomes the Mac's home again. The old entries are moved to
- * `pre-hybrid-<date>/`, never deleted. The role marker stays `engine`; `instance activate` ends it.
+ * `pre-hybrid/<date>/` (a folder the sandboxes never read), never deleted. The role marker stays `engine`; `instance activate` ends it.
  */
 export async function hybridBack(options: HybridBackOptions): Promise<HybridBackReport> {
   const home = resolve(options.home);
@@ -465,17 +477,23 @@ export async function hybridBack(options: HybridBackOptions): Promise<HybridBack
     throw new MigrationRefused(
       `the engine is running (pid ${status.pid}): stop it (and uninstall its service) first`,
     );
+  assertNoEngineService(home, options.agentsDir);
   if (from === home || inside(home, from) || inside(from, home))
     throw new MigrationRefused('the downloaded data and the home must be separate directories');
 
-  const verified = await verifyHome({ home: from, checkPaths: false, hybridCloud: true });
+  const verified = await verifyHome({ home: from, checkPaths: false, hybridCloud: true, cloudData: true });
   const blockers = verified.findings.filter((f) => f.severity === 'blocker');
   if (blockers.length > 0)
     throw new MigrationRefused(`the downloaded data has ${blockers.length} blocking findings`, blockers);
 
   // --- stage the replacement inside the home (the same volume: the final moves are renames)
-  const stage = join(home, `.hybrid-back-${randomBytes(4).toString('hex')}`);
-  mkdirSync(stage, { mode: 0o700 });
+  const stageParent = join(home, HYBRID_STAGING_DIR);
+  const stage = join(stageParent, randomBytes(4).toString('hex'));
+  mkdirSync(stage, { recursive: true, mode: 0o700 });
+  const dropStage = (): void => {
+    rmSync(stage, { recursive: true, force: true });
+    removeIfEmpty(stageParent);
+  };
   const staged: string[] = [];
   let sessionsMoved = 0;
   let liveSessions = 0;
@@ -532,14 +550,15 @@ export async function hybridBack(options: HybridBackOptions): Promise<HybridBack
       db.close();
     }
   } catch (error) {
-    rmSync(stage, { recursive: true, force: true });
+    dropStage();
     throw error;
   }
 
   // --- move the old entries aside, then the staged ones into place; undo it all if a move fails
   const archive = archiveName(home, now);
   const archiveDir = join(home, archive);
-  mkdirSync(archiveDir, { mode: 0o700 });
+  mkdirSync(archiveDir, { recursive: true, mode: 0o700 });
+  chmodSync(dirname(archiveDir), 0o700);
   const aside: string[] = [];
   const placed: string[] = [];
   try {
@@ -556,10 +575,11 @@ export async function hybridBack(options: HybridBackOptions): Promise<HybridBack
   } catch (error) {
     for (const name of placed) renameSync(join(home, name), join(stage, name));
     for (const name of aside) renameSync(join(archiveDir, name), join(home, name));
-    rmSync(stage, { recursive: true, force: true });
+    dropStage();
     if (readdirSync(archiveDir).length === 0) rmSync(archiveDir, { recursive: true, force: true });
+    removeIfEmpty(dirname(archiveDir));
     throw error;
   }
-  rmSync(stage, { recursive: true, force: true });
+  dropStage();
   return { engineId, archive: archiveDir, sessionsMoved, liveSessions };
 }

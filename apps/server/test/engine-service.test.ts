@@ -15,11 +15,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runEngineCli } from '../../../scripts/engine/commands';
 import type { EngineCliIo } from '../../../scripts/engine/commands';
 import {
+  installedServiceFor,
   installService,
   PLIST_TEMPLATE,
   renderPlist,
   reportService,
   SERVICE_LABEL,
+  servicePathEnv,
   servicePaths,
   uninstallService,
 } from '../../../scripts/engine/service';
@@ -90,6 +92,7 @@ describe('service install, uninstall and status', () => {
   let calls: string[][];
   let responses: Record<string, LaunchctlResult>;
   let output: string[];
+  let waits: number[];
 
   const options = (overrides: Partial<ServiceOptions> = {}): ServiceOptions => ({
     home: path.join(base, 'home'),
@@ -104,6 +107,7 @@ describe('service install, uninstall and status', () => {
       return responses[args[0]!] ?? { status: 0, stdout: '', stderr: '' };
     },
     out: (text) => output.push(text),
+    sleep: (ms) => waits.push(ms),
     ...overrides,
   });
 
@@ -113,6 +117,7 @@ describe('service install, uninstall and status', () => {
     calls = [];
     responses = {};
     output = [];
+    waits = [];
   });
   afterEach(() => rmSync(base, { recursive: true, force: true }));
 
@@ -132,9 +137,56 @@ describe('service install, uninstall and status', () => {
     expect(output.join('\n')).toContain(logOut);
   });
 
-  it('reports a failed bootstrap with launchctl’s own words', () => {
+  it('reports a failed bootstrap with launchctl’s own words, after a few tries on the busy error', () => {
     responses.bootstrap = { status: 5, stdout: '', stderr: 'Bootstrap failed: 5: Input/output error' };
     expect(() => installService(options())).toThrow(/launchctl bootstrap failed \(5\).*Input\/output error/);
+    expect(calls.filter((c) => c[0] === 'bootstrap')).toHaveLength(5);
+    expect(waits).toEqual([500, 500, 500, 500]);
+  });
+
+  it('loads on a retry when launchd was still tearing down the old job', () => {
+    let attempts = 0;
+    installService(
+      options({
+        launchctl: (args) => {
+          calls.push(args);
+          if (args[0] === 'bootstrap' && (attempts += 1) < 3)
+            return { status: 5, stdout: '', stderr: 'Bootstrap failed: 5: Input/output error' };
+          return { status: 0, stdout: '', stderr: '' };
+        },
+      }),
+    );
+    expect(calls.filter((c) => c[0] === 'bootstrap')).toHaveLength(3);
+    expect(output.join('\n')).toContain('engine service installed');
+  });
+
+  it('does not retry another failure', () => {
+    responses.bootstrap = { status: 113, stdout: '', stderr: 'Could not find specified service' };
+    expect(() => installService(options())).toThrow(/bootstrap failed \(113\)/);
+    expect(calls.filter((c) => c[0] === 'bootstrap')).toHaveLength(1);
+  });
+
+  it('leaves the installing run’s node_modules/.bin folders out of the file’s PATH', () => {
+    const pathEnv = [
+      '/Users/me/projectman-live/node_modules/.bin',
+      '/Users/me/node_modules/.bin',
+      '/opt/homebrew/bin',
+      '/usr/bin',
+    ].join(':');
+    expect(servicePathEnv(pathEnv)).toBe('/opt/homebrew/bin:/usr/bin');
+    installService(options({ pathEnv }));
+    const text = readFileSync(servicePaths(options()).plist, 'utf8');
+    expect(text).toContain('<string>/opt/homebrew/bin:/usr/bin</string>');
+    expect(text).not.toContain('.bin');
+    expect(() => installService(options({ pathEnv: '/x/node_modules/.bin' }))).toThrow(/PATH is empty/);
+  });
+
+  it('is found for its home only', () => {
+    installService(options());
+    const agentsDir = path.join(base, 'LaunchAgents');
+    expect(installedServiceFor(path.join(base, 'home'), agentsDir)).toBe(servicePaths(options()).plist);
+    expect(installedServiceFor(path.join(base, 'other-home'), agentsDir)).toBeNull();
+    expect(installedServiceFor(path.join(base, 'home'), path.join(base, 'no-agents'))).toBeNull();
   });
 
   it('replaces its own file, but not the agent of another home', () => {

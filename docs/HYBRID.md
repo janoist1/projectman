@@ -360,6 +360,10 @@ package` refuses a running server (`database_in_use`).
    default engine, every session on a known engine, nothing from the never-carried list).
 4. Put **only** `~/hybrid-package/home/` on the cloud's data volume and start the cloud build on it.
    Never put the package in a repository, a task attachment or a message.
+   **Then delete the package from the Mac** (`rm -rf ~/hybrid-package`), or keep it off the machine.
+   It holds the cookie key, the secrets and the whole database, and a session's sandbox only _denies_
+   named places (the home's own entries, `~/.ssh` …): any other folder under your user, this one too,
+   is readable by every AI session on the Mac.
 5. Retire the Mac's single-machine role and mark the home as the engine's:
 
    ```sh
@@ -392,13 +396,19 @@ npm run engine -- service uninstall   # unloads it and removes the file; the log
   home's installed agent. The engine restarts after an exit, 30 s apart. Logs:
   `<home>/logs/engine-service.{out,err}.log`.
 - After a `git pull` in that checkout, restart it: `npm run engine -- service install` again.
+- `PATH` in the file is the installing shell's, without the `node_modules/.bin` folders that `npm run`
+  puts in front of it. If a CLI of the sessions lives elsewhere, start `install` from a shell that
+  finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the
+  old job down is retried a few times.
 
 ## 5. The way back
 
 For when the owner wants the single-machine mode again.
 
 1. Pause the team in the cloud and stop the cloud build, so its data is final.
-2. Stop the engine: `npm run engine -- service uninstall` (and stop a foreground one).
+2. Stop the engine and **uninstall its service first**: `npm run engine -- service uninstall` (and stop
+   a foreground one). A LaunchAgent that is still installed restarts the engine 30 s after every exit,
+   so both `hybrid back` and `instance activate` refuse while its file is in `~/Library/LaunchAgents`.
 3. Copy the cloud's data directory to the Mac (a new place, not inside the home), then:
 
    ```sh
@@ -406,15 +416,25 @@ For when the owner wants the single-machine mode again.
    ```
 
    `--confirm-source-retired` is the person's statement that the cloud is stopped. The tool verifies
-   the copy, stages it inside the home, revokes this engine in the copied database, makes its sessions
-   local again, and **moves the former entries to `pre-hybrid-YYYY-MM-DD/`** instead of deleting them.
-   It refuses while the engine runs, when a session is open on another engine, or when the copy is not
-   the cloud's data.
+   the copy, stages it inside the home (`.hybrid-back/`), revokes this engine in the copied database,
+   makes its sessions local again, and **moves the former entries to `pre-hybrid/YYYY-MM-DD/`** instead
+   of deleting them. It refuses while the engine runs, when a session is open on another engine, or
+   when the copy is not the cloud's data.
+
+   The copy may hold what the running cloud writes itself: `logs/` (its server log), Litestream's
+   metadata folder next to the database (`.db.sqlite-litestream`), `engine-spool/`, `spool/`, empty
+   `worktrees/` and `workspaces/`, and the `instance.json` of a restored copy. None of them is carried
+   back. Anything that belongs to the Mac (`providers/`, `engine.key` …) still stops the move.
 
 4. `npm run migrate -- instance activate --home ~/.projectman --confirm-source-retired`, then start the
    single-machine mode as before. Activating from the `engine` role needs a database that holds the
    cloud's engine row, so that the old pre-hybrid database does not replace the cloud's later work;
    `--discard-cloud-data` states the opposite on purpose.
+5. **Clean up the secrets.** After `hybrid back`, delete the downloaded copy (`--from`): it holds the
+   live cookie key, the secrets and the database, in a folder the sessions' sandboxes do not deny.
+   `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every session (they hold the old
+   database, the old keys and the former machine key). Once the single-machine mode has run well, delete
+   `pre-hybrid/` too; the former machine key in it is revoked in the database already.
 
 Sessions the cloud left open are not closed by the move (the tool reports their number); the first
 start resumes or ends them as after any restart.

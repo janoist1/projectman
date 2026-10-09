@@ -43,7 +43,11 @@ tenants into separate OS accounts or machines.
   0700/0600, refused inside the home or a git repository, and re-checked by `verify --hybrid-cloud`; the
   Mac's CLI logins, `github-publish/`, `engine.*` and `instance.json` never enter it. After the move the
   Mac's home keeps the stale single-machine database and cookie key (the way back needs them); the
-  `engine` role means no server opens them, and the sandboxes' `sensitivePaths` keep sessions out. The
+  `engine` role means no server opens them, and the sandboxes' `sensitivePaths` keep sessions out; the
+  same list denies `pre-hybrid/` (where the way back keeps the former database, cookie key, secrets and
+  machine key) and its staging folder `.hybrid-back/`. The package and the downloaded cloud copy are in
+  folders of the person's choice, which sessions' deny-only reads do not cover: the guide has them
+  deleted after the upload and after the way back. The
   launchd job (`deploy/mac/com.projectman.engine.plist`) is given `PATH`, `PROJECTMAN_MODE` and
   `PROJECTMAN_HOME` only: no API key and no integrator key.
 - Cloud mode (`PROJECTMAN_MODE=cloud`, PM-315) adds three surfaces for the engine, and an

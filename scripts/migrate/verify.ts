@@ -27,6 +27,8 @@ export interface VerifyOptions {
    * exactly one default engine and an engine for every session.
    */
   hybridCloud?: boolean;
+  /** With `hybridCloud`: the home is a copy of the running cloud's data, so what the cloud writes itself is tolerated. */
+  cloudData?: boolean;
 }
 
 export interface VerifyResult {
@@ -78,7 +80,7 @@ export async function verifyHome(options: VerifyOptions): Promise<VerifyResult> 
       );
   }
   if (options.hybridCloud)
-    for (const entry of forbiddenEntries(home))
+    for (const entry of forbiddenEntries(home, { cloudData: options.cloudData }))
       add(
         'blocker',
         'forbidden_entry',

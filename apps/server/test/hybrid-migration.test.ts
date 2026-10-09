@@ -26,7 +26,7 @@ import { MigrationRefused, readPackage } from '../../../scripts/migrate/package'
 import { verifyHome } from '../../../scripts/migrate/verify';
 import { buildApp } from '../src/app';
 import { createRepositories } from '../src/db';
-import { machineKeyHash } from '../src/domain';
+import { machineKeyHash, sensitivePaths } from '../src/domain';
 import { loadEngineConfig } from '../src/engine-link/engine-config';
 import { instanceRole } from '../src/instance';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
@@ -380,7 +380,9 @@ describe('the way back', () => {
     const report = await back(data);
 
     expect(report).toMatchObject({ engineId: result.engine.id, sessionsMoved: 5, liveSessions: 1 });
-    expect(report.archive).toBe(join(src.home, 'pre-hybrid-2026-10-09'));
+    expect(report.archive).toBe(join(src.home, 'pre-hybrid', '2026-10-09'));
+    // One fixed, private folder for every archive: the sandboxes deny it by its name.
+    expect(mode(join(src.home, 'pre-hybrid'))).toBe(0o700);
     for (const name of [
       'db.sqlite',
       'secret',
@@ -397,7 +399,7 @@ describe('the way back', () => {
     expect(existsSync(join(src.home, 'engine.key'))).toBe(false);
     expect(existsSync(join(src.home, 'engine.json'))).toBe(false);
     expect(existsSync(join(src.home, 'worktrees'))).toBe(true);
-    expect(readdirSync(src.home).filter((n) => n.startsWith('.hybrid-back'))).toEqual([]);
+    expect(existsSync(join(src.home, '.hybrid-back'))).toBe(false);
     expect(mode(join(src.home, 'db.sqlite'))).toBe(0o600);
     // The sessions are local again, the engine is revoked.
     expect(
@@ -469,7 +471,7 @@ describe('the way back', () => {
     mkdirSync(join(data, 'providers'));
     engineHome(src.home, 'hybrid', AT);
     await expect(back(data)).rejects.toThrow(/blocking findings/);
-    expect(existsSync(join(src.home, 'pre-hybrid-2026-10-09'))).toBe(false);
+    expect(existsSync(join(src.home, 'pre-hybrid'))).toBe(false);
   });
 
   it('refuses data that does not know this engine', async () => {
@@ -481,9 +483,7 @@ describe('the way back', () => {
     });
     engineHome(src.home, 'hybrid', AT);
     await expect(back(data)).rejects.toThrow(/does not know this engine/);
-    expect(
-      readdirSync(src.home).filter((n) => n.startsWith('pre-hybrid') || n.startsWith('.hybrid')),
-    ).toEqual([]);
+    expect(readdirSync(src.home).filter((n) => n === 'pre-hybrid' || n === '.hybrid-back')).toEqual([]);
   });
 
   it('refuses a session still open on another engine', async () => {
@@ -496,15 +496,107 @@ describe('the way back', () => {
     addCloudSession(data, 'ses_elsewhere', 'working', 'eng_cccccccccccc');
     engineHome(src.home, 'hybrid', AT);
     await expect(back(data)).rejects.toThrow(/still open on another engine/);
-    expect(existsSync(join(src.home, 'pre-hybrid-2026-10-09'))).toBe(false);
+    expect(existsSync(join(src.home, 'pre-hybrid'))).toBe(false);
     expect(existsSync(join(src.home, 'engine.key'))).toBe(true);
+  });
+
+  it('keeps the archive and the staging folder where the sandboxes of the sessions do not read', async () => {
+    const denied = sensitivePaths({ userHome: '/fictional/user', appHome: src.home });
+    const data = cloudData();
+    engineHome(src.home, 'hybrid', AT);
+    const report = await back(data);
+    // The archive holds the old cookie key, the secrets, the database and the machine key.
+    expect(report.archive.startsWith(`${join(src.home, 'pre-hybrid')}/`)).toBe(true);
+    expect(denied).toContain(join(src.home, 'pre-hybrid'));
+    expect(denied).toContain(join(src.home, '.hybrid-back'));
   });
 
   it('does not reuse an archive folder', async () => {
     const data = cloudData();
     engineHome(src.home, 'hybrid', AT);
-    mkdirSync(join(src.home, 'pre-hybrid-2026-10-09'));
+    mkdirSync(join(src.home, 'pre-hybrid', '2026-10-09'), { recursive: true });
     const report = await back(data);
-    expect(report.archive).toBe(join(src.home, 'pre-hybrid-2026-10-09-2'));
+    expect(report.archive).toBe(join(src.home, 'pre-hybrid', '2026-10-09-2'));
+  });
+
+  it('takes the data of a running cloud: its own log, spool, Litestream folder and role marker stay out', async () => {
+    const data = cloudData();
+    mkdirSync(join(data, 'logs'));
+    writeFileSync(join(data, 'logs', 'server.log'), 'a cloud log line\n');
+    mkdirSync(join(data, '.db.sqlite-litestream', 'generations'), { recursive: true });
+    writeFileSync(join(data, '.db.sqlite-litestream', 'generation'), 'abc\n');
+    mkdirSync(join(data, 'engine-spool'));
+    writeFileSync(join(data, 'engine-spool', 'left-over'), 'a hand-over file\n');
+    writeFileSync(
+      join(data, 'instance.json'),
+      JSON.stringify({ version: 1, role: 'standby', setAt: AT.toISOString(), reason: 'a restored copy' }),
+      { mode: 0o600 },
+    );
+    // The same copy is still not a hybrid package: verify refuses it unless it is told it is the cloud's data.
+    const strict = await verifyHome({ home: data, checkPaths: false, hybridCloud: true });
+    expect(strict.findings.filter((f) => f.code === 'forbidden_entry').map((f) => f.subject)).toEqual([
+      '.db.sqlite-litestream',
+      'engine-spool',
+      'instance.json',
+      'logs',
+    ]);
+    engineHome(src.home, 'hybrid', AT);
+
+    await back(data);
+
+    expect(readdirSync(src.home)).not.toContain('.db.sqlite-litestream');
+    expect(readdirSync(src.home)).not.toContain('engine-spool');
+    expect(existsSync(join(src.home, 'logs', 'server.log'))).toBe(false);
+    // The marker is still the Mac's own, not the cloud copy's `standby`.
+    expect(instanceRole(src.home)).toBe('engine');
+    activateHome({ home: src.home, confirmSourceRetired: true, agentsDir: join(src.root, 'no-agents') });
+    expect(instanceRole(src.home)).toBe('active');
+  });
+
+  it('still refuses what only the Mac holds, even in the cloud’s data', async () => {
+    const data = cloudData();
+    writeFileSync(join(data, 'engine.key'), 'pme_x\n', { mode: 0o600 });
+    mkdirSync(join(data, 'providers'));
+    engineHome(src.home, 'hybrid', AT);
+    await expect(back(data)).rejects.toThrow(/blocking findings/);
+  });
+
+  describe('while the engine’s LaunchAgent is still installed', () => {
+    const agent = (home: string) => {
+      const dir = join(src.root, 'LaunchAgents');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, 'com.projectman.engine.plist'),
+        `<dict><key>PROJECTMAN_HOME</key>\n<string>${home}</string></dict>`,
+      );
+      return dir;
+    };
+
+    it('the way back asks to uninstall it first, and changes nothing', async () => {
+      const data = cloudData();
+      engineHome(src.home, 'hybrid', AT);
+      const before = readdirSync(src.home).sort();
+      await expect(back(data, { agentsDir: agent(src.home) })).rejects.toThrow(/service uninstall/);
+      expect(readdirSync(src.home).sort()).toEqual(before);
+    });
+
+    it('the activation asks the same', async () => {
+      engineHome(src.home, 'hybrid', AT);
+      expect(() =>
+        activateHome({
+          home: src.home,
+          confirmSourceRetired: true,
+          discardCloudData: true,
+          agentsDir: agent(src.home),
+        }),
+      ).toThrow(/service uninstall/);
+    });
+
+    it('is no obstacle when the agent belongs to another home', async () => {
+      const data = cloudData();
+      engineHome(src.home, 'hybrid', AT);
+      await back(data, { agentsDir: agent(join(src.root, 'another-home')) });
+      expect(instanceRole(src.home)).toBe('engine');
+    });
   });
 });

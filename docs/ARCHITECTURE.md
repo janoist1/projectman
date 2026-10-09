@@ -1590,11 +1590,19 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   engine?** The tool is the one place that reads the Mac's home and repositories to build the
   engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
   package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
+  The way back verifies the cloud's data directory as downloaded: it tolerates, and does not carry,
+  what a running cloud writes itself (`logs/`, `engine-spool/`, Litestream's `.db.sqlite-litestream`,
+  a restored copy's `instance.json`), refuses while the engine runs or its LaunchAgent is installed,
+  and moves the Mac's former entries (old database, cookie key, secrets, machine key) to
+  `pre-hybrid/<date>/`. That folder and the staging folder `.hybrid-back/` are in `sensitivePaths`
+  (fixed names, so one path denies the tree); the package (`--out`) and the downloaded copy (`--from`)
+  are the person's folders outside the home, which the sandboxes' deny-only reads do not cover, so the
+  guide tells the person to delete them after use.
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
-  `PATH` of the installing shell) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the
+  `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the
   engine starts at login and is restarted after an exit (`KeepAlive`, 30 s throttle). It is an agent,
   not a daemon, because the CLIs of the sessions need the login keychain and the user's files. The job
   gets only the variables the plist names (`PATH`, `PROJECTMAN_MODE=engine`, `PROJECTMAN_HOME`): no

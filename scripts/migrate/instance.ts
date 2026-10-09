@@ -12,6 +12,7 @@ import {
   ENGINE_STATUS_FILE,
 } from '../../apps/server/src/engine-link/engine-config';
 import { readEngineStatus } from '../../apps/server/src/engine-link/engine-status';
+import { installedServiceFor } from '../engine/service';
 import { ACTIVATED_FILE, APPLY_REPORT_FILE, MIGRATED_DIR } from './apply';
 import { databaseInUse, snapshotDatabase } from './database';
 import { MigrationRefused } from './package';
@@ -31,6 +32,18 @@ export function processAlive(pid: number): boolean {
   } catch (error) {
     return (error as { code?: string }).code === 'EPERM';
   }
+}
+
+/**
+ * A LaunchAgent for this home restarts the engine after every exit, so a stopped engine is not enough:
+ * the service has to be uninstalled before the home is turned back (PM-318).
+ */
+export function assertNoEngineService(home: string, agentsDir?: string): void {
+  const plist = installedServiceFor(home, agentsDir);
+  if (plist)
+    throw new MigrationRefused(
+      `the engine service is still installed (${plist}): it would restart the engine; run "npm run engine -- service uninstall" first`,
+    );
 }
 
 function assertStopped(home: string): void {
@@ -95,6 +108,8 @@ export interface ActivateOptions {
   discardCloudData?: boolean;
   /** For tests: whether a process is alive (default: signal 0). */
   isRunning?: (pid: number) => boolean;
+  /** For tests: where the engine's LaunchAgent would be (default: `~/Library/LaunchAgents`). */
+  agentsDir?: string;
 }
 
 /** Makes the copy the active instance. Refuses without proof or statement that the other one is retired. */
@@ -110,6 +125,7 @@ export function activateHome(options: ActivateOptions): void {
     const status = readEngineStatus(join(home, ENGINE_STATUS_FILE));
     if (status && (options.isRunning ?? processAlive)(status.pid))
       throw new MigrationRefused(`the engine is running (pid ${status.pid}): stop it first`);
+    assertNoEngineService(home, options.agentsDir);
     if (!options.discardCloudData && !databaseHasEngines(home))
       throw new MigrationRefused(
         'this home\'s database is not the cloud\'s data (it has no engine): run "hybrid back" first, or add --discard-cloud-data to leave the work done in the cloud behind',

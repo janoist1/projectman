@@ -28,6 +28,11 @@ import { isReadOnlyCommand } from './read-only-commands';
 import { parseShellCommand } from './shell-words';
 import { isWorktreeRoutine } from './worktree-commands';
 
+/** Where `hybrid back` (PM-318) moves the Mac's former entries, in a dated folder per run. */
+export const HYBRID_ARCHIVE_DIR = 'pre-hybrid';
+/** Where `hybrid back` stages the downloaded cloud data inside the home, in a random folder per run. */
+export const HYBRID_STAGING_DIR = '.hybrid-back';
+
 /**
  * Per-role session settings, kept in one place so they are easy to change.
  */
@@ -492,6 +497,8 @@ export function sessionSandbox(
  * workspaces and the task attachments live there, and a deny rule wins over an allow rule.
  */
 export function sensitivePaths(input: { userHome: string; appHome?: string }): string[] {
+  // The folders `hybrid back` makes inside the home (PM-318) hold copies of the old database, the cookie key,
+  // the secrets and the machine key: fixed names, so that a plain path denies the whole tree.
   // Not the whole `.claude`: the member's own saved tool outputs (`projects/.../tool-results`) and the
   // plan file of the plan mode (`plans`) live there. Only the credentials and the settings.
   const user = [
@@ -520,6 +527,8 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     'memory',
     'github-publish',
     'spool',
+    HYBRID_ARCHIVE_DIR,
+    HYBRID_STAGING_DIR,
     CONTROL_SOCKET_NAME,
   ];
   return [

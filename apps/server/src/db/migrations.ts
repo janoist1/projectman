@@ -782,5 +782,11 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
       CREATE UNIQUE INDEX task_handoffs_open ON task_handoffs(task_key) WHERE outcome IS NULL;
       CREATE INDEX task_handoffs_task ON task_handoffs(task_key, started_at);`,
   },
+  {
+    version: 41,
+    name: 'session engine',
+    // PM-311: the engine a session runs on; the sessions from before engines ran on the local one.
+    sql: `ALTER TABLE sessions ADD COLUMN engine_id TEXT NOT NULL DEFAULT 'local';`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

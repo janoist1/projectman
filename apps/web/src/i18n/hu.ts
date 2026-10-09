@@ -723,6 +723,8 @@ export const hu = {
       release_four_eyes: 'A kiadáshoz független ember jóváhagyása szükséges.',
       full_test_pending:
         'A feladat átnézése megvárja az átadott commit teljes tesztjét: az eredmény után az átnéző magától elindul.',
+      engine_offline:
+        'A munkamenet motorja nem csatlakozik, ezért most nem indul. A csatlakozáskor magától folytatódik.',
       task_handoff_open: 'A kártyát épp átadják ennek a tagnak: az indítás megvárja a régi felelős leadását.',
       handoff_not_open: 'Ezt a kártyát most nem adják át tőled, ezért nem írhatsz átadó jegyzetet.',
       handover_uncommitted:
@@ -1048,6 +1050,8 @@ export const hu = {
       full_test_pending: 'Az átnézés a teljes tesztre vár',
       handoff_open: 'Átadásra vár: {name} leadására',
       provider_not_logged_in: 'Indulásra vár: a {provider} nincs bejelentkezve',
+      engine_offline: 'Motorra vár: {engine} nem csatlakozik',
+      engine_offline_none: 'Motorra vár: nincs csatlakozó motor',
       nanogpt_key_missing: 'Indulásra vár: nincs NanoGPT-kulcs',
       nanogpt_setup_incomplete: 'Indulásra vár: hiányos a NanoGPT-beállítás',
       codex_setup_incomplete: 'Indulásra vár: hiányos a Codex-beállítás',
@@ -1096,6 +1100,8 @@ export const hu = {
       // The drawer adds the login command (`providerSettings.loginCommands`) in a code element after it.
       provider_not_logged_in:
         'A munka magától elindul, amint belépsz; a szerver félpercenként ellenőrzi. Futtasd a szerveren:',
+      engine_offline:
+        'A gép, amelyen a tag dolgozik, most nem érhető el. Amint újra csatlakozik, a munka magától elindul.',
       nanogpt_key_missing:
         'A tulajdonos a Beállítások → AI-szolgáltatók alatt adhatja meg a kulcsot; utána a munka magától elindul.',
       nanogpt_setup_incomplete:

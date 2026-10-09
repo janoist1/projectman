@@ -11,7 +11,15 @@ import {
   seniorsOf,
   workStageOf,
 } from '@projectman/shared';
-import type { AiMemberConfig, ProjectConfig, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
+import type {
+  AiMemberConfig,
+  EngineId,
+  ProjectConfig,
+  Task,
+  TaskStartWaiting,
+  WorkItemRef,
+} from '@projectman/shared';
+import type { EngineDirectory } from '../../contracts';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import type { DiskGuard } from '../disk-guard';
@@ -70,6 +78,7 @@ export class Admission {
   private readonly projects: Pick<ProjectService, 'config'>;
   private readonly deferred: DeferredStarts;
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
+  private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   private readonly locks = new KeyedMutex();
 
   constructor(deps: {
@@ -80,8 +89,11 @@ export class Admission {
     projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
     disk?: Pick<DiskGuard, 'assertRoom'>;
+    /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
+    engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   }) {
     this.disk = deps.disk;
+    this.engines = deps.engines;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.planUsage = deps.planUsage;
@@ -157,8 +169,10 @@ export class Admission {
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
+    // The engine the member's sessions run on must be connected (PM-311): the start waits for it.
+    const engineId = member ? this.assertEngineOnline(projectKey, member.handle) : undefined;
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
-    if (member) await this.sessions.assertProviderReady(provider, member.handle);
+    if (member) await this.sessions.assertProviderReady(provider, member.handle, engineId);
     if (pausesOnPlanUsage(provider)) {
       const percent = highestUsagePercent(await this.planUsage.get(provider));
       const threshold = config.team.limits.pauseAbovePlanUsagePercent;
@@ -171,7 +185,18 @@ export class Admission {
       }
     }
     // Last, because it measures the disk (PM-243).
-    await this.disk?.assertRoom(config);
+    await this.disk?.assertRoom(config, engineId);
+  }
+
+  /** The id of the member's engine; throws `engine_offline` when there is none or it is not connected. */
+  private assertEngineOnline(projectKey: string, handle: string): EngineId | undefined {
+    const engines = this.engines;
+    if (!engines) return undefined;
+    const engineId = engines.engineFor(projectKey, handle);
+    if (engineId === null) throw conflict('engine_offline', `no engine is chosen for ${handle}`);
+    if (!engines.get(engineId))
+      throw conflict('engine_offline', `engine ${engineId} is not connected`, { engine: engineId });
+    return engineId;
   }
 
   /**

@@ -1,11 +1,10 @@
-import os from 'node:os';
-import path from 'node:path';
 import {
   canManageInstancePause,
   isOnLeave,
   isOpenTask,
   isSenior,
   isTheme,
+  LOCAL_ENGINE_ID,
   memberOf,
   permissionDelegationOf,
   routeFor,
@@ -20,6 +19,7 @@ import type {
   BoundaryOperationAdapter,
   ConfigStore,
   ContextPackBuilder,
+  EngineDirectory,
   EventBus,
   FullTestExecutor,
   ScreenshotExecutor,
@@ -80,14 +80,7 @@ import { HandoffService } from './handoffs';
 import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
-import { isWithin } from './command-paths';
-import {
-  prepareSessionFoldersRoot,
-  prepareSessionTmpRoot,
-  realpathOfNearest,
-  SessionFolders,
-  sharedClaudeTmpRoots,
-} from './session-folders';
+import { createLocalEngine, LocalEngineDirectory } from './engines';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
@@ -215,6 +208,11 @@ export interface DomainOptions {
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
+  /**
+   * The machines the sessions run on (PM-311). Absent: the one this server runs on, `local`, built from
+   * the options below (`worktrees`, `memberWorkspaces`, the directories, the executors).
+   */
+  engines?: EngineDirectory;
   /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
   attachmentStorage: AttachmentStorage;
   /** Creates the accounts of accepted invitations. */
@@ -360,14 +358,37 @@ export function createDomain(opts: DomainOptions) {
   const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
     opts.attachmentStorage.taskDirectory(projectKey, taskKey);
-  const inbox = new InboxService({
-    ctx,
-    timeline,
-    projects,
-    worktreesRootDir: opts.worktreesRootDir,
-    workspacesRootDir: opts.memberWorkspaces ? opts.workspacesRootDir : undefined,
-    attachmentDirectory,
-  });
+  // The machines the sessions can run on (PM-311): without a given directory, the one this server runs
+  // on, built from the options below (a single-machine installation behaves as before).
+  const engines: EngineDirectory =
+    opts.engines ??
+    new LocalEngineDirectory(
+      createLocalEngine(
+        {
+          worktrees: opts.worktrees,
+          memberWorkspaces: opts.memberWorkspaces,
+          fullTestExecutor: opts.fullTestExecutor,
+          screenshotExecutor: opts.screenshotExecutor,
+          freeDiskBytes: opts.freeDiskBytes,
+          processExists: opts.processExists,
+          workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
+          runtimeBoundary: opts.runtimeBoundary,
+          appHome: opts.appHome,
+          userHome: opts.userHome,
+          worktreesRootDir: opts.worktreesRootDir,
+          workspacesRootDir: opts.workspacesRootDir,
+          installDir: opts.installDir,
+          sessionFoldersDir: opts.sessionFoldersDir,
+          sessionTmpDir: opts.sessionTmpDir,
+          claudeTmpBase: opts.claudeTmpBase,
+          claudeTmpRoots: opts.claudeTmpRoots,
+          browsersDir: opts.browsersDir,
+          heavyLockDir: opts.heavyLockDir,
+        },
+        opts.logger,
+      ),
+    );
+  const inbox = new InboxService({ ctx, timeline, projects, engines, attachmentDirectory });
   // `agentQuestions` is built once the team tools exist; the callback only runs during a session.
   const runnerModule = opts.createRunner(
     {
@@ -404,47 +425,6 @@ export function createDomain(opts: DomainOptions) {
   const members = new MemberService({ ctx, projects, timeline, presence, inbox });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
-  // Once at the start: the roots of this machine's Claude Code (PM-353).
-  const claudeTmpRoots = opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ claudeTmpBase: opts.claudeTmpBase });
-  let sessionFolders: SessionFolders | undefined;
-  if (opts.sessionFoldersDir && opts.runtimeBoundary?.mode !== 'managed_vm') {
-    try {
-      prepareSessionFoldersRoot(opts.sessionFoldersDir);
-      // One registry for the sessions (which make the folders) and the team tools (which attach from them).
-      let tmpRoot: string | undefined;
-      if (opts.sessionTmpDir) {
-        try {
-          // The queue folder's parent is writable for every member's commands: a tmp root in it (or
-          // above it) would be too.
-          // Compared as written and canonically: a link (or macOS `/tmp` -> `/private/tmp`) must not hide it.
-          const queueParent = opts.heavyLockDir ? path.dirname(opts.heavyLockDir) : undefined;
-          if (queueParent) {
-            const overlaps = (a: string, b: string) => isWithin(a, b) || isWithin(b, a);
-            if (
-              overlaps(queueParent, opts.sessionTmpDir) ||
-              overlaps(realpathOfNearest(queueParent), realpathOfNearest(opts.sessionTmpDir))
-            )
-              throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
-          }
-          prepareSessionTmpRoot(opts.sessionTmpDir);
-          tmpRoot = opts.sessionTmpDir;
-        } catch (err) {
-          opts.logger.error(
-            { err, dir: opts.sessionTmpDir },
-            'the Codex session folders are off: their temporary root is not a safe directory',
-          );
-        }
-      }
-      sessionFolders = new SessionFolders(opts.sessionFoldersDir, tmpRoot, (err, dir) =>
-        opts.logger.warn({ err, dir }, 'could not remove a temporary directory of a session'),
-      );
-    } catch (err) {
-      opts.logger.error(
-        { err, dir: opts.sessionFoldersDir },
-        'the session folders are off: their root is not a safe directory',
-      );
-    }
-  }
   const sessions = new SessionOrchestrator({
     inbox,
     ctx,
@@ -457,27 +437,16 @@ export function createDomain(opts: DomainOptions) {
     contextBuilder: opts.contextBuilder,
     cardQuestions,
     memory: opts.memory,
-    worktrees: opts.worktrees,
+    engines,
     publicBaseUrl: opts.publicBaseUrl,
     doneCleanupDelayMs: opts.doneCleanupDelayMs,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     attachments,
     attachmentDirectory,
-    memberWorkspaces: opts.memberWorkspaces,
-    processExists: opts.processExists,
     runtimeBoundary: opts.runtimeBoundary,
     executionProfile: opts.executionProfile,
     managedVm: opts.managedVm,
     standby: opts.standby,
-    appHome: opts.appHome,
-    userHome: opts.userHome,
-    sessionFolders,
-    claudeTmpRoots,
-    browsersDir: opts.browsersDir,
-    heavyLockDir: opts.heavyLockDir,
-    readerDenyWrite: [opts.appHome, opts.worktreesRootDir, opts.workspacesRootDir, opts.installDir].filter(
-      (dir): dir is string => !!dir,
-    ),
     // `boundary` is built below; the callback only runs when a session starts.
     onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
@@ -496,13 +465,13 @@ export function createDomain(opts: DomainOptions) {
     onFetched: (provider, value) => sessions.observeProviderUsage(provider, value),
   });
   const planUsage = usage.cache;
-  const disk = new DiskGuard({ ctx, projects, inbox, freeBytes: opts.freeDiskBytes });
+  const disk = new DiskGuard({ ctx, projects, inbox, engines });
   const worktreeSweep = new WorktreeSweep({
     ctx,
     projects,
     inbox,
     sessions,
-    worktrees: opts.worktrees,
+    engines,
     disk,
     keepMs: opts.closedWorktreeKeepMs,
   });
@@ -514,6 +483,7 @@ export function createDomain(opts: DomainOptions) {
     projects,
     deferred: deferredStarts,
     disk,
+    engines,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
   providerKeys?.onChange(() => {
@@ -694,10 +664,7 @@ export function createDomain(opts: DomainOptions) {
     sessions,
     messaging,
     timeline,
-    executor: opts.fullTestExecutor,
-    userHome: opts.userHome ?? os.homedir(),
-    appHome: opts.appHome,
-    closedTmpRoots: [...claudeTmpRoots, ...(opts.sessionTmpDir ? [path.dirname(opts.sessionTmpDir)] : [])],
+    engines,
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
@@ -719,12 +686,17 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     githubSync,
     publisher: opts.githubPublisher,
-    memberWorkspaces: opts.memberWorkspaces,
+    // Publishing is the server's own act, on the machine it runs on.
+    memberWorkspaces: engines.get(LOCAL_ENGINE_ID)?.memberWorkspaces,
   });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
   // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
-  const screenshotRuns = opts.screenshotExecutor
-    ? new ScreenshotRuns({ executor: opts.screenshotExecutor, sessions, logger: opts.logger })
+  const screenshotRuns = engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
+    ? new ScreenshotRuns({
+        executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
+        sessions,
+        logger: opts.logger,
+      })
     : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const teamTools = new TeamToolsService({
@@ -749,7 +721,10 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
-    sessionFolders,
+    // The folder of a session is on its engine.
+    sessionFolders: {
+      of: (sessionId) => engines.get(sessions.engineOf(sessionId))?.sessionFolders?.of(sessionId),
+    },
   });
   const agentQuestions = new AgentQuestions({
     ctx,
@@ -770,6 +745,10 @@ export function createDomain(opts: DomainOptions) {
       () => admission.retryDeferred(),
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
+  // A start that waits for an engine (`engine_offline`) goes on when the engine connects (PM-311).
+  const unsubscribeEngines = engines.onChange((_id, online) => {
+    if (online) retryDeferredStarts();
+  });
   /** A deferred start as it was stored, made again by the module that made it. */
   const rebuildDeferredStart = (spec: StartSpec) => {
     switch (spec.kind) {
@@ -1255,6 +1234,7 @@ export function createDomain(opts: DomainOptions) {
     },
 
     async stop(): Promise<void> {
+      unsubscribeEngines();
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
@@ -1272,7 +1252,7 @@ export function createDomain(opts: DomainOptions) {
       await background.stop();
       pauses.dispose();
       sessions.dispose();
-      sessionFolders?.releaseTmpRoot();
+      for (const id of engines.ids()) engines.get(id)?.sessionFolders?.releaseTmpRoot();
       await machine.stop();
       await drained;
     },

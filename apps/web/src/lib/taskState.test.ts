@@ -13,6 +13,25 @@ const COMMAND = 'Bash: npm test';
 const base = mockIndexes();
 const config = buildConfig();
 
+describe('engine waiting cards', () => {
+  const since = '2026-10-06T12:00:00.000Z';
+  it('names the engine that is not connected', () => {
+    const task: Task = {
+      ...tasks[0]!,
+      startWaiting: { reason: 'engine_offline', engine: 'eng_abcdefghijkl', since },
+    };
+    expect(deriveTaskState(task, contextWith([])).label).toBe(
+      t('taskStatus.startWaiting.engine_offline', { engine: 'eng_abcdefghijkl' }),
+    );
+  });
+  it('says no engine is connected when the card names none', () => {
+    const task: Task = { ...tasks[0]!, startWaiting: { reason: 'engine_offline', since } };
+    expect(deriveTaskState(task, contextWith([])).label).toBe(
+      t('taskStatus.startWaiting.engine_offline_none'),
+    );
+  });
+});
+
 describe('NanoGPT waiting cards', () => {
   it('renders an unknown quota hold without a retry timestamp', () => {
     const task: Task = {

@@ -34,8 +34,9 @@ describe('task handoffs migration (PM-342)', () => {
   it('adds the table to a database from before it, with at most one open handoff per card', () => {
     const db = new Database(':memory:');
     try {
-      const before = LATEST_SCHEMA_VERSION - 1;
-      expect(migrations.some((item) => item.version === LATEST_SCHEMA_VERSION)).toBe(true);
+      const handoffs = migrations.find((item) => item.name === 'task handoffs');
+      expect(handoffs).toBeDefined();
+      const before = (handoffs?.version ?? 1) - 1;
       for (const migration of migrations.filter((item) => item.version <= before)) db.exec(migration.sql);
       db.pragma(`user_version = ${before}`);
       expect(() => db.prepare('SELECT * FROM task_handoffs').all()).toThrow(/no such table/);

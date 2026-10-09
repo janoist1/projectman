@@ -1,6 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { wakesFor } from './messaging';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import {
   approverBlocker,
@@ -8,6 +7,7 @@ import {
   autoCompactWindowOf,
   cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
+  LOCAL_ENGINE_ID,
   effectiveRepo,
   effectiveSessionPermissions,
   handoffBlocksStart,
@@ -32,6 +32,7 @@ import type {
   AiMemberConfig,
   Attachment,
   ChatItem,
+  EngineId,
   ExecutionProfile,
   HandoffSummary,
   MemberConfig,
@@ -65,6 +66,8 @@ import type {
   ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
+  EngineDirectory,
+  EngineSessionFolders,
   PreviousConversation,
   RelatedSession,
   RunnerEvent,
@@ -76,7 +79,6 @@ import type {
   ToolContext,
   TranscriptReader,
   WorktreeInfo,
-  WorktreeManager,
 } from '../contracts';
 import { encodeWorkItem } from '../db';
 import type { TaskHandoffRow } from '../db';
@@ -86,7 +88,6 @@ import { assertAiEnabled, assertNotOnLeave, assertNotPaused, assertRepoChosen } 
 import { QUESTION_LIMIT } from './card-questions';
 import type { CardQuestions } from './card-questions';
 import { isoNow } from './context';
-import { userExcludesFile } from './git-excludes';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound, themeRefused } from './errors';
 import type { MemberService } from './members';
@@ -109,7 +110,6 @@ import {
   withSessionFolders,
 } from './session-policy';
 import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
-import type { SessionFolders } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
@@ -119,7 +119,8 @@ import type { PlanUsageCache } from './plan-usage';
 import type { InboxService } from './inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
 import { MemberWorkspaces } from './workspaces';
-import type { ProcessProbe, WorkspacePlacement } from './workspaces';
+import type { WorkspacePlacement } from './workspaces';
+import { engineIdOf, engineOption } from './engines';
 
 export const LIVE_SESSION_STATES: SessionState[] = [
   'starting',
@@ -239,7 +240,11 @@ export interface SessionOrchestratorDeps {
   /** The questions asked on a card, listed in the brief and in a resumed session's first message (PM-249). */
   cardQuestions: Pick<CardQuestions, 'list'>;
   memory: MemberMemoryStore;
-  worktrees: WorktreeManager;
+  /**
+   * The engines (PM-311): a session's worktrees, member workspaces, session folders, sandbox places
+   * and process probe are its engine's, never the server's own.
+   */
+  engines: EngineDirectory;
   /** Base URL the claude CLI reaches this server at, e.g. http://127.0.0.1:4700. */
   publicBaseUrl: string;
   /** Delay before a done task's sessions are stopped and its worktrees removed. */
@@ -250,13 +255,6 @@ export interface SessionOrchestratorDeps {
   attachments?: Pick<AttachmentOperations, 'list'>;
   /** The attachment directory of a task (`AttachmentStorage.taskDirectory`): its session reads it without asking. */
   attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
-  /**
-   * Durable member workspaces (PM-138) in place of a worktree per task; absent, task sessions use
-   * the worktree manager as before.
-   */
-  memberWorkspaces?: MemberWorkspaceManager;
-  /** Whether a process group still runs (tests replace it); see `processExists`. */
-  processExists?: ProcessProbe;
   /**
    * The VM boundary (PM-140). In the managed VM no session starts while it is not ready, every
    * session runs in its member's worker home (its workspace, or a directory for sessions without
@@ -273,30 +271,6 @@ export interface SessionOrchestratorDeps {
   managedVm?: ManagedVmBoundary;
   /** A standby copy of the installation (`instance.json`): every session start is refused. */
   standby?: boolean;
-  /** The installation's home: its sensitive parts are out of the file tools' reach (`sensitivePaths`). */
-  appHome?: string;
-  /**
-   * The installation's directories a reading session never changes, from the shell or with the file
-   * tools (PM-188): the app home with every member's worktree and workspace, and the server's own
-   * checkout. The project's workspace is added per session.
-   */
-  readerDenyWrite?: string[];
-  /**
-   * The session folders (PM-268; their root is checked by `prepareSessionFoldersRoot`): each Claude
-   * session of the legacy profile gets its own writable folder, new at every start. Absent, none is made.
-   */
-  sessionFolders?: SessionFolders;
-  /**
-   * Claude Code's temporary roots every Claude Code process of the user shares
-   * (`sharedClaudeTmpRoots`, PM-353): closed to the commands of a session and, with it, the file tools.
-   */
-  claudeTmpRoots?: readonly string[];
-  /** Playwright's browsers (PM-268): handed to Claude sessions read-only in `PLAYWRIGHT_BROWSERS_PATH`. */
-  browsersDir?: string;
-  /** The machine's heavy-run queue folder (PM-332): its parent is writable for the commands of a worktree session. */
-  heavyLockDir?: string;
-  /** The user's home, where the credentials are (default: the operating system's). */
-  userHome?: string;
   /**
    * A session changed execution profile: what it asked or was granted under the old one is
    * void (revokes its unconsumed boundary requests).
@@ -473,22 +447,63 @@ export class SessionOrchestrator {
   private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
   private quotaResume: ((session: Session, stageId: string) => Promise<void>) | undefined;
   private quotaProbe: Promise<PlanUsage | null> | null = null;
-  /** Member workspaces (PM-138), when the server runs with them. */
-  readonly workspaces: MemberWorkspaces | null;
+  /** The member workspaces (PM-138) of each engine that has them, made when first used. */
+  private readonly workspaceSets = new Map<
+    EngineId,
+    { manager: MemberWorkspaceManager; workspaces: MemberWorkspaces }
+  >();
 
   constructor(deps: SessionOrchestratorDeps) {
     this.deps = deps;
     this.ctx = deps.ctx;
-    this.workspaces = deps.memberWorkspaces
-      ? new MemberWorkspaces({
-          ctx: deps.ctx,
-          manager: deps.memberWorkspaces,
-          isRunning: (sessionId) => this.isRunning(sessionId),
-          stop: (projectKey, sessionId) => this.stop(projectKey, sessionId),
-          processExists: deps.processExists,
-        })
-      : null;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
+  }
+
+  /** The member workspaces of the engine (PM-138); null: the engine has none, or is not connected. */
+  private workspacesOf(engineId: EngineId): MemberWorkspaces | null {
+    const engine = this.deps.engines.get(engineId);
+    const manager = engine?.memberWorkspaces;
+    if (!engine || !manager) return null;
+    const known = this.workspaceSets.get(engineId);
+    if (known && known.manager === manager) return known.workspaces;
+    const workspaces = new MemberWorkspaces({
+      ctx: this.ctx,
+      manager,
+      isRunning: (sessionId) => this.isRunning(sessionId),
+      stop: (projectKey, sessionId) => this.stop(projectKey, sessionId),
+      processExists: (pid) => engine.processExists(pid),
+    });
+    this.workspaceSets.set(engineId, { manager, workspaces });
+    return workspaces;
+  }
+
+  /** The member workspaces of every engine that has them. */
+  private allWorkspaces(): MemberWorkspaces[] {
+    return this.deps.engines
+      .ids()
+      .map((id) => this.workspacesOf(id))
+      .filter((w): w is MemberWorkspaces => w !== null);
+  }
+
+  /** The member workspaces of the engine a session ran or runs on. */
+  private workspacesOfSession(session: Session): MemberWorkspaces | null {
+    return this.workspacesOf(engineIdOf(session));
+  }
+
+  /**
+   * The engine of the card (PM-311): the one its assignee's session runs on, else the one the
+   * assignee starts on, else the local one. Where the task's branch is read and its worktrees go.
+   */
+  cardEngineId(projectKey: string, task: Task): EngineId {
+    if (task.assignee) {
+      const session = this.ctx.repos.sessions.findByWorkItem(projectKey, task.assignee, {
+        type: 'task',
+        taskKey: task.key,
+      });
+      if (session) return engineIdOf(session);
+      return this.deps.engines.engineFor(projectKey, task.assignee) ?? LOCAL_ENGINE_ID;
+    }
+    return LOCAL_ENGINE_ID;
   }
 
   /** Wire the full-test policy into every session brief, including resumes. */
@@ -628,7 +643,9 @@ export class SessionOrchestrator {
    */
   findRunning(projectKey: string, member: string, workItem: WorkItemRef): Session | null {
     const session = this.ctx.repos.sessions.findByWorkItem(projectKey, member, workItem);
-    return session && this.isRunning(session.id) && !this.workspaces?.isStale(session) ? session : null;
+    return session && this.isRunning(session.id) && !this.workspacesOfSession(session)?.isStale(session)
+      ? session
+      : null;
   }
 
   /**
@@ -636,7 +653,7 @@ export class SessionOrchestrator {
    * developer wrote to a reviewer (that one). Their next start pins the latest commit.
    */
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
-    this.workspaces?.requestReviewRound(projectKey, taskKey, member);
+    for (const workspaces of this.allWorkspaces()) workspaces.requestReviewRound(projectKey, taskKey, member);
   }
 
   /**
@@ -648,9 +665,13 @@ export class SessionOrchestrator {
     const repoName = effectiveRepo(config, task);
     if (!repoName) return null;
     try {
-      if (this.workspaces) return await this.workspaces.sourceHead(config, task);
-      const found = await this.deps.worktrees.find({ project: config, repoName, taskKey: task.key });
-      return found ? await this.deps.worktrees.head(found.path) : null;
+      const engineId = this.cardEngineId(config.project.key, task);
+      const engine = this.deps.engines.get(engineId);
+      if (!engine) return null;
+      const workspaces = this.workspacesOf(engineId);
+      if (workspaces) return await workspaces.sourceHead(config, task);
+      const found = await engine.worktrees.find({ project: config, repoName, taskKey: task.key });
+      return found ? await engine.worktrees.head(found.path) : null;
     } catch (err) {
       this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
       return null;
@@ -662,12 +683,13 @@ export class SessionOrchestrator {
    * reaching the old round, and it restarts on the new commit once it idles (see `handleRunnerEvent`).
    */
   reviewRoundDue(session: Session): boolean {
-    return this.workspaces?.roundDue(session) ?? false;
+    return this.workspacesOfSession(session)?.roundDue(session) ?? false;
   }
 
   /** Admission: `workspace_busy` while another task's live session holds the member's workspace. */
   assertWorkspaceFree(config: ProjectConfig, member: AiMemberConfig, task: Task): void {
-    this.workspaces?.check(config, member, task);
+    const engineId = this.deps.engines.engineFor(config.project.key, member.handle);
+    if (engineId) this.workspacesOf(engineId)?.check(config, member, task);
   }
 
   /**
@@ -696,7 +718,7 @@ export class SessionOrchestrator {
       // a review session that restarts on a new commit: its message is the new round's.
       let announce = true;
       if (existing && this.isRunning(existing.id)) {
-        if (!this.workspaces?.isStale(existing))
+        if (!this.workspacesOfSession(existing)?.isStale(existing))
           return {
             session: existing,
             created: false,
@@ -1135,6 +1157,7 @@ export class SessionOrchestrator {
     try {
       return await this.deps.transcripts.hasContent(session.transcriptPath, {
         ...(layout ? { confineTo: layout.home(session.member) } : {}),
+        ...engineOption(engineIdOf(session)),
       });
     } catch (err) {
       this.ctx.logger.warn({ err, sessionId: session.id }, 'could not check the transcript');
@@ -1153,6 +1176,7 @@ export class SessionOrchestrator {
       return await this.deps.transcripts.summary(session.transcriptPath, {
         provider: session.provider ?? DEFAULT_AGENT_PROVIDER,
         ...(layout ? { confineTo: layout.home(session.member) } : {}),
+        ...engineOption(engineIdOf(session)),
       });
     } catch (err) {
       this.ctx.logger.warn({ err, sessionId: session.id }, 'could not summarize the transcript');
@@ -1238,6 +1262,7 @@ export class SessionOrchestrator {
           cwd: session.cwd,
           firstUserOrigin: openingTurnOrigin(session.workItem),
           ...(layout ? { confineTo: layout.home(session.member) } : {}),
+          ...engineOption(engineIdOf(session)),
         });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId }, 'could not read the transcript');
@@ -1301,21 +1326,25 @@ export class SessionOrchestrator {
     // The worktrees go once the finishing session is done with them too.
     if (finishing) return;
     // A member workspace outlives its tasks (PM-138): only per-task worktrees are removed.
-    const worktreePaths = [
-      ...new Set(
-        sessions
-          .filter((s) => s.branch !== null && !this.workspaces?.isWorkspacePath(s.cwd))
-          .map((s) => s.cwd),
-      ),
-    ];
-    for (const path of worktreePaths) {
+    // Each is removed through the engine its session ran on.
+    const worktrees = new Map<string, { engineId: EngineId; path: string }>();
+    for (const s of sessions) {
+      if (s.branch === null || this.workspacesOfSession(s)?.isWorkspacePath(s.cwd)) continue;
+      worktrees.set(`${engineIdOf(s)}\0${s.cwd}`, { engineId: engineIdOf(s), path: s.cwd });
+    }
+    for (const { engineId, path } of worktrees.values()) {
+      const engine = this.deps.engines.get(engineId);
+      if (!engine) {
+        this.ctx.logger.info({ path, taskKey, engineId }, 'worktree not removed: its engine is offline');
+        continue;
+      }
       try {
-        const status = await this.deps.worktrees.status(path);
+        const status = await engine.worktrees.status(path);
         if (status.dirty || status.unpushedCommits > 0) {
           this.ctx.logger.info({ path, taskKey, ...status }, 'keeping a worktree with local work');
           continue;
         }
-        await this.deps.worktrees.remove({ path });
+        await engine.worktrees.remove({ path });
       } catch (err) {
         // Expected refusals (WorktreeError codes): local changes, a checkout we do not own.
         const code = errorCode(err);
@@ -1371,13 +1400,16 @@ export class SessionOrchestrator {
       this.markEnded(session.id, null, null, { kind: 'server_restart' });
     }
     // No process of an earlier run survives: what is left of the session folders is removed (PM-268).
-    const folders = this.deps.sessionFolders;
-    if (!folders) return;
-    try {
-      const removed = folders.sweep((id) => this.isRunning(id));
-      if (removed.length > 0) this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
-    } catch (err) {
-      this.ctx.logger.warn({ err, dir: folders.root }, 'could not sweep the session folders');
+    for (const engineId of this.deps.engines.ids()) {
+      const folders = this.deps.engines.get(engineId)?.sessionFolders;
+      if (!folders) continue;
+      try {
+        const removed = folders.sweep((id) => this.isRunning(id));
+        if (removed.length > 0)
+          this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
+      } catch (err) {
+        this.ctx.logger.warn({ err, dir: folders.root }, 'could not sweep the session folders');
+      }
     }
   }
 
@@ -1427,7 +1459,7 @@ export class SessionOrchestrator {
         pauseRestart,
       );
     } catch (err) {
-      this.workspaces?.ended(sessionId);
+      for (const workspaces of this.allWorkspaces()) workspaces.ended(sessionId);
       // A start that failed leaves no folder behind (PM-268).
       this.removeSessionFolderOf(sessionId);
       throw err;
@@ -1483,14 +1515,26 @@ export class SessionOrchestrator {
     const permissions = effectiveSessionPermissions(member, existing ?? {});
     const permissionMode = permissions.permissionMode ?? member.permissionMode;
     const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
+    // The engine the session runs on (PM-311): every path, worktree and folder below is its. A start
+    // is refused while it is not connected (admission makes it wait).
+    const engineId = this.deps.engines.engineFor(projectKey, member.handle);
+    const engine = engineId ? this.deps.engines.get(engineId) : null;
+    if (!engineId || !engine)
+      throw conflict(
+        'engine_offline',
+        engineId ? `engine ${engineId} is not connected` : 'there is no engine to start the session on',
+        engineId ? { engine: engineId } : {},
+      );
+    const paths = engine.paths();
+    const workspaces = this.workspacesOf(engineId);
     // Behind the VM boundary nothing starts while it does not hold (fail closed, PM-140).
     await this.assertBoundaryReady();
     // A CLI that is not logged in could only sit at its login screen: refuse before any work.
-    await this.assertProviderReady(provider, member.handle);
+    await this.assertProviderReady(provider, member.handle, engineId);
     // The question-free profile starts only on a boundary proven right now (PM-141); the runner asks
     // again at the spawn. Nothing is prepared before the proof.
     const vm = await this.managedVmAttestation();
-    let cwd = config.project.workspacePath;
+    let cwd = engine.workspacePath(projectKey) ?? config.project.workspacePath;
     let branch: string | null = null;
     let additionalDirectories: string[] | undefined;
     // The repository the task's work happens in: its own, else the project's only one (see
@@ -1499,10 +1543,10 @@ export class SessionOrchestrator {
     const repoName = effectiveRepo(config, task);
     let placed: WorktreeInfo | null = null;
     let ws: WorkspacePlacement | null = null;
-    if (task && repoName && this.workspaces?.kindFor(config, member, task)) {
+    if (task && repoName && workspaces?.kindFor(config, member, task)) {
       // The member's own durable workspace (PM-138): reserved for this session, on the task's branch
       // or the handed-over commit under review.
-      ws = await this.workspaces.prepare(config, member, task, sessionId);
+      ws = await workspaces.prepare(config, member, task, sessionId);
       cwd = ws.info.path;
       branch = ws.checkout.branch;
       if (ws.binding.kind === 'work' && branch) {
@@ -1521,15 +1565,15 @@ export class SessionOrchestrator {
     } else if (vm) {
       // The managed VM has no shared checkouts and no worktrees: a session without a repository to
       // work in has the member's own directory (`<workspaces>/<KEY>/<handle>/.home`).
-      if (!this.deps.memberWorkspaces)
+      if (!engine.memberWorkspaces)
         throw conflict(MANAGED_VM_UNAVAILABLE, 'the managed VM profile needs member workspaces', {
           reason: 'no_member_workspaces',
         });
-      cwd = await this.deps.memberWorkspaces.home({ projectKey, member: member.handle });
+      cwd = await engine.memberWorkspaces.home({ projectKey, member: member.handle });
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
-        placed = await this.deps.worktrees.ensureForTask({
+        placed = await engine.worktrees.ensureForTask({
           project: config,
           repoName,
           taskKey: task.key,
@@ -1556,15 +1600,9 @@ export class SessionOrchestrator {
     }
     if (this.managed || vm) {
       // A worker reads no other member's directory (docs/VM.md): nothing is added for readers.
-    } else if (
-      task &&
-      repoName &&
-      !ws &&
-      this.workspaces &&
-      sessionPolicyFor(member.role, config).readOnlyTools
-    ) {
+    } else if (task && repoName && !ws && workspaces && sessionPolicyFor(member.role, config).readOnlyTools) {
       // A reader without a workspace of its own reads the developer's, while it is on this task.
-      const readable = await this.workspaces.readableWork(config, task.key);
+      const readable = await workspaces.readableWork(config, task.key);
       if (readable) additionalDirectories = [readable];
     } else if (
       task &&
@@ -1574,7 +1612,7 @@ export class SessionOrchestrator {
       sessionPolicyFor(member.role, config).readOnlyTools
     ) {
       try {
-        const found = await this.deps.worktrees.find({
+        const found = await engine.worktrees.find({
           project: config,
           repoName,
           taskKey: task.key,
@@ -1594,9 +1632,12 @@ export class SessionOrchestrator {
     const profileChanged = Boolean(
       existing && this.ctx.repos.sessions.executionProfile(existing.id) !== (vm ? 'managed_vm' : 'legacy'),
     );
+    // A conversation lives on the engine it ran on (PM-311): it cannot be resumed on another one.
+    const engineChanged = Boolean(existing && engineIdOf(existing) !== engineId);
     const relocated = Boolean(
       existing &&
       (profileChanged ||
+        engineChanged ||
         // The managed VM (and anything behind the VM boundary) always places the session itself: it
         // never goes back to where it ran.
         ((vm || this.managed) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
@@ -1662,19 +1703,21 @@ export class SessionOrchestrator {
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
     const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
-    const userHome = this.deps.userHome ?? homedir();
+    const { userHome } = paths;
+    const appHome = paths.home ?? undefined;
+    const folders = engine.sessionFolders;
     // A Claude session of the legacy profile gets its own Claude Code temporary root (PM-353) when the
-    // server can make one; only then are the roots all Claude Code processes share closed to it (the
+    // engine can make one; only then are the roots all Claude Code processes share closed to it (the
     // CLI itself still uses them otherwise). Every other provider closes them: its CLI does not.
-    const claudeTmpRoots = this.deps.claudeTmpRoots ?? [];
-    const claudeOwnTmp = provider === 'claude' && !vm && !this.managed && !!this.deps.sessionFolders?.tmpRoot;
+    const claudeTmpRoots = paths.claudeTmpRoots;
+    const claudeOwnTmp = provider === 'claude' && !vm && !this.managed && !!folders?.tmpRoot;
     const policy = buildSessionPolicy({
       config,
       role: member.role,
       task,
       permissionMode,
       deniedPaths: [
-        ...sensitivePaths({ userHome, appHome: this.deps.appHome }),
+        ...sensitivePaths({ userHome, appHome }),
         ...(provider !== 'claude' || claudeOwnTmp ? claudeTmpRoots : []),
       ],
       outboundNetwork: outboundNetworkOf(member),
@@ -1696,46 +1739,43 @@ export class SessionOrchestrator {
     });
     // A developer's npm cache and development data live in its own directory (PM-193).
     const memberDir =
-      !vm && !this.managed && policy.access === 'task_worktree' && this.deps.appHome
-        ? this.prepareMemberSandboxDir(this.deps.appHome, projectKey, member.handle)
+      !vm && !this.managed && policy.access === 'task_worktree' && appHome
+        ? this.prepareMemberSandboxDir(appHome, projectKey, member.handle)
         : undefined;
-    const excludesFile = userExcludesFile(userHome);
+    const excludesFile = paths.gitExcludesFile;
     // A Claude session of the legacy profile gets its own folder and the browsers (PM-268), a Codex
     // session its own folder when its sandbox writes (PM-339): a read-only Codex sandbox takes no
     // writable root, and the mode changes only with a restart. Codex also needs the short TMPDIR
     // root: without it the shared `/tmp` stays open, so no folder either. The managed VM neither.
     const codexWrites =
-      provider === 'codex' &&
-      policy.permissions.sandbox === 'workspace-write' &&
-      !!this.deps.sessionFolders?.tmpRoot;
+      provider === 'codex' && policy.permissions.sandbox === 'workspace-write' && !!folders?.tmpRoot;
     const ownFolders = !vm && !this.managed && (provider === 'claude' || codexWrites);
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
-    const sessionDir =
-      ownFolders && this.deps.sessionFolders ? this.deps.sessionFolders.allocate(sessionId) : undefined;
-    const tmpDir =
-      (codexWrites || claudeOwnTmp) && sessionDir
-        ? this.deps.sessionFolders?.allocateTmp(sessionId)
-        : undefined;
-    const tmpBase = this.deps.sessionFolders?.tmpRoot
-      ? path.dirname(this.deps.sessionFolders.tmpRoot)
-      : undefined;
-    const browsersDir = ownFolders ? this.deps.browsersDir : undefined;
+    const sessionDir = ownFolders && folders ? folders.allocate(sessionId) : undefined;
+    const tmpDir = (codexWrites || claudeOwnTmp) && sessionDir ? folders?.allocateTmp(sessionId) : undefined;
+    const tmpBase = folders?.tmpRoot ? path.dirname(folders.tmpRoot) : undefined;
+    const browsersDir = ownFolders ? (paths.browsersDir ?? undefined) : undefined;
     const sandbox =
       vm || this.managed
         ? undefined
         : sessionSandbox(policy, {
             userHome,
-            ...(this.deps.appHome ? { appHome: this.deps.appHome } : {}),
+            ...(appHome ? { appHome } : {}),
             ...(sessionDir ? { sessionDir } : {}),
             ...(tmpDir ? { tmpDir, sharedTmpRoots: [...claudeTmpRoots, ...(tmpBase ? [tmpBase] : [])] } : {}),
             ...(browsersDir ? { browsersDir } : {}),
-            ...(this.deps.heavyLockDir ? { heavyLockDir: this.deps.heavyLockDir } : {}),
+            ...(paths.heavyLockDir ? { heavyLockDir: paths.heavyLockDir } : {}),
             ...(repoName ? { defaultBranch: repoOf(config, repoName)?.defaultBranch } : {}),
             ...(memberDir ? { memberDir } : {}),
             ...(excludesFile ? { excludesFile } : {}),
             github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
             // A reader changes no checkout of the project or the installation (PM-188).
-            readerDenyWrite: [config.project.workspacePath, ...(this.deps.readerDenyWrite ?? [])],
+            readerDenyWrite: [
+              config.project.workspacePath,
+              ...[paths.home, paths.worktreesRoot, paths.workspacesRoot, paths.installDir].filter(
+                (dir): dir is string => !!dir,
+              ),
+            ],
           });
     // The shared roots are closed in the policy already: a sandbox that dropped the session's own temporary
     // directory would leave the CLI on a root it can no longer reach. Only a programming error; no start.
@@ -1746,9 +1786,7 @@ export class SessionOrchestrator {
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
     const startPolicy = withSessionFolders(
       policy,
-      sessionFolder && this.deps.sessionFolders
-        ? { own: sessionFolder, root: this.deps.sessionFolders.root }
-        : undefined,
+      sessionFolder && folders ? { own: sessionFolder, root: folders.root } : undefined,
     );
     const pack = this.deps.contextBuilder.build({
       ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),
@@ -1802,7 +1840,7 @@ export class SessionOrchestrator {
       }
     }
     try {
-      await this.deps.runner.assertWorkspaceConfig?.({ provider, cwd });
+      await this.deps.runner.assertWorkspaceConfig?.({ provider, cwd, ...engineOption(engineId) });
     } catch (err) {
       if (errorCode(err) !== WORKSPACE_CODEX_CONFIG) throw err;
       const failure = err as Error & { details?: Record<string, unknown> };
@@ -1811,7 +1849,8 @@ export class SessionOrchestrator {
     // Made now, before the process: Claude Code may not handle a write path that does not exist. A
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
     const sessionTmpDir = sandbox?.portable?.tmpDir;
-    if (sessionFolder || sessionTmpDir) this.prepareSessionFolder(sessionId, sessionFolder, sessionTmpDir);
+    if (folders && (sessionFolder || sessionTmpDir))
+      this.prepareSessionFolder(folders, sessionId, sessionFolder, sessionTmpDir);
     // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
     // that exists (a link). `make` makes it new, with the folder.
     this.preparePortablePaths(sandbox?.portable?.allowWrite);
@@ -1847,6 +1886,7 @@ export class SessionOrchestrator {
         stateSince: at,
         cwd,
         branch,
+        engineId,
         lastActivityAt: at,
         endedAt: null,
         lastStop: null,
@@ -1867,6 +1907,7 @@ export class SessionOrchestrator {
         provider,
         cwd,
         branch,
+        engineId,
         transcriptPath: null,
         state: 'starting',
         activity: null,
@@ -1914,6 +1955,7 @@ export class SessionOrchestrator {
         claudeSessionId: session.claudeSessionId,
         resume,
         cwd,
+        engineId,
         member: member.handle,
         displayName: `${member.displayName} · ${workItemLabel(workItem, member)}`,
         model: member.model,
@@ -1963,7 +2005,7 @@ export class SessionOrchestrator {
         this.ctx.repos.sessions.setReviewedCommit(session.id, task.reviewPin.commit);
       this.processModes.set(session.id, permissionMode);
       this.processGrants.set(session.id, this.sessionGrants(session));
-      this.workspaces?.started(session.id, info.pid);
+      workspaces?.started(session.id, info.pid);
       const current = this.ctx.repos.sessions.get(session.id);
       if (current?.state === 'starting' && info.state !== 'starting') {
         this.ctx.repos.sessions.update(session.id, { state: info.state, stateSince: isoNow(this.ctx) });
@@ -2081,6 +2123,12 @@ export class SessionOrchestrator {
    */
   screenshotScope(sessionId: string): ScreenshotScope | undefined {
     return this.screenshotScopes.get(sessionId);
+  }
+
+  /** The engine the session runs on (PM-311); the local one for an unknown session. */
+  engineOf(sessionId: string): EngineId {
+    const session = this.ctx.repos.sessions.get(sessionId);
+    return session ? engineIdOf(session) : LOCAL_ENGINE_ID;
   }
 
   /**
@@ -2280,9 +2328,14 @@ export class SessionOrchestrator {
    * The session's own folder (PM-268) and, for Codex, its temporary directory (PM-339), made before
    * its process starts. A path that exists already stops the start.
    */
-  private prepareSessionFolder(sessionId: string, dir: string | undefined, tmpDir?: string): void {
+  private prepareSessionFolder(
+    folders: EngineSessionFolders,
+    sessionId: string,
+    dir: string | undefined,
+    tmpDir?: string,
+  ): void {
     try {
-      this.deps.sessionFolders!.make(sessionId, dir, tmpDir);
+      folders.make(sessionId, dir, tmpDir);
     } catch (err) {
       throw new DomainError(
         'session_start_failed',
@@ -2320,10 +2373,13 @@ export class SessionOrchestrator {
         this.ctx.logger.warn({ err, sessionId }, 'a listener of the session folder removal failed');
       }
     }
-    try {
-      this.deps.sessionFolders?.remove(sessionId);
-    } catch (err) {
-      this.ctx.logger.warn({ err, sessionId }, 'could not remove the session folder');
+    // Whichever engine holds it: a session's folder is on the engine it ran on, and nothing elsewhere.
+    for (const engineId of this.deps.engines.ids()) {
+      try {
+        this.deps.engines.get(engineId)?.sessionFolders?.remove(sessionId);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId, engineId }, 'could not remove the session folder');
+      }
     }
   }
 
@@ -2393,10 +2449,13 @@ export class SessionOrchestrator {
    * Throws `provider_not_logged_in` when the runner knows the provider's CLI is not logged in. A
    * status that cannot be checked (`loggedIn: null`, or the check failing) holds nothing back.
    */
-  async assertProviderReady(provider: AgentProvider, member: string): Promise<void> {
+  async assertProviderReady(provider: AgentProvider, member: string, engineId?: EngineId): Promise<void> {
     let status;
     try {
-      status = await this.deps.runner.providerStatus?.(provider, { member });
+      status = await this.deps.runner.providerStatus?.(provider, {
+        member,
+        ...(engineId ? engineOption(engineId) : {}),
+      });
     } catch (err) {
       this.ctx.logger.warn({ err, provider }, 'could not check the provider login');
     }
@@ -2504,7 +2563,7 @@ export class SessionOrchestrator {
         { sessionId, member: ended.member, exitCode },
         'a resumed conversation exited before it was ready: the next start begins a new one',
       );
-    this.workspaces?.ended(sessionId);
+    this.workspacesOfSession(ended)?.ended(sessionId);
     this.deps.timeline.append({
       projectKey: ended.projectKey,
       taskKey: ended.workItem.type === 'task' ? ended.workItem.taskKey : null,
@@ -2721,7 +2780,7 @@ export class SessionOrchestrator {
    * it (a re-review request): their wake-up restarts it on the new commit with them.
    */
   private wakeForNewRound(session: Session): void {
-    if (session.workItem.type !== 'task' || !this.workspaces?.isStale(session)) return;
+    if (session.workItem.type !== 'task' || !this.workspacesOfSession(session)?.isStale(session)) return;
     if (this.isPaused(session)) return;
     const workItem = session.workItem;
     const config = this.deps.projects.cachedConfig(session.projectKey);

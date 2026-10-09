@@ -2,13 +2,14 @@ import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { effectiveRepo, isOpenTask, isTheme, repoOf, stageOf, stageOwners } from '@projectman/shared';
 import type {
+  EngineId,
   FullTestCancelReason,
   FullTestErrorReason,
   ProjectConfig,
   RepoConfig,
   Task,
 } from '@projectman/shared';
-import type { FullTestExecutor, FullTestResult } from '../contracts';
+import type { EngineDirectory, FullTestResult } from '../contracts';
 import type { FullTestRunRecord, ReviewPinRecord } from '../db';
 import type { DomainContext } from './context';
 import { isoNow } from './context';
@@ -72,12 +73,10 @@ export class FullTestRuns {
   private readonly sessions: SessionOrchestrator;
   private readonly messaging: Messaging;
   private readonly timeline: TimelineService;
-  private readonly executor: FullTestExecutor | undefined;
-  private readonly userHome: string;
-  private readonly appHome: string | undefined;
-  private readonly closedTmpRoots: readonly string[];
+  private readonly engines: EngineDirectory;
   private readonly released: () => void;
-  private available = false;
+  /** The engines whose sandbox can run a full test (checked at the start). */
+  private readonly availableOn = new Set<EngineId>();
   private stopped = false;
   private current: { runId: string; controller: AbortController } | null = null;
   private draining: Promise<void> | null = null;
@@ -89,11 +88,8 @@ export class FullTestRuns {
     sessions: SessionOrchestrator;
     messaging: Messaging;
     timeline: TimelineService;
-    executor?: FullTestExecutor;
-    userHome: string;
-    appHome?: string;
-    /** The temporary roots the machine's sessions share, closed to the run (PM-353). */
-    closedTmpRoots?: readonly string[];
+    /** The engines (PM-311): a card's full test runs on its own engine's executor, with its places. */
+    engines: EngineDirectory;
     /** Called when a pin's result is in: the hand-over that waited for it is tried again. */
     released: () => void;
   }) {
@@ -103,11 +99,13 @@ export class FullTestRuns {
     this.sessions = deps.sessions;
     this.messaging = deps.messaging;
     this.timeline = deps.timeline;
-    this.executor = deps.executor;
-    this.userHome = deps.userHome;
-    this.appHome = deps.appHome;
-    this.closedTmpRoots = deps.closedTmpRoots ?? [];
+    this.engines = deps.engines;
     this.released = deps.released;
+  }
+
+  /** Whether any engine can run a full test. */
+  private get available(): boolean {
+    return this.availableOn.size > 0;
   }
 
   /**
@@ -115,16 +113,24 @@ export class FullTestRuns {
    * ends the runs the last server left (`interrupted`) and queues the pins that still need one.
    */
   async init(): Promise<void> {
-    if (!this.executor) return;
-    const state = await this.executor.available().catch((err: unknown) => ({
-      ok: false as const,
-      reason: err instanceof Error ? err.message : String(err),
-    }));
-    if (!state.ok) {
-      this.ctx.logger.warn({ reason: state.reason }, 'the full test before review is off: no sandbox');
-      return;
+    this.availableOn.clear();
+    for (const engineId of this.engines.ids()) {
+      const executor = this.engines.get(engineId)?.fullTestExecutor;
+      if (!executor) continue;
+      const state = await executor.available().catch((err: unknown) => ({
+        ok: false as const,
+        reason: err instanceof Error ? err.message : String(err),
+      }));
+      if (!state.ok) {
+        this.ctx.logger.warn(
+          { reason: state.reason, engineId },
+          'the full test before review is off: no sandbox',
+        );
+        continue;
+      }
+      this.availableOn.add(engineId);
     }
-    this.available = true;
+    if (!this.available) return;
     this.stopped = false;
     const runs = this.ctx.repos.fullTestRuns;
     for (const run of [...runs.list('running'), ...runs.list('queued')]) this.cancel(run, 'interrupted');
@@ -133,7 +139,10 @@ export class FullTestRuns {
 
   /** Whether a full test runs on the task's handed-over commits: the feature is on and its repository asks for one. */
   runsFor(task: Task, config: ProjectConfig): boolean {
-    return this.available && reviewTestOf(config, task) !== undefined;
+    return (
+      this.availableOn.has(this.sessions.cardEngineId(config.project.key, task)) &&
+      reviewTestOf(config, task) !== undefined
+    );
   }
 
   /** Server stop: the running run ends (`shutdown`) and nothing new starts. */
@@ -153,6 +162,7 @@ export class FullTestRuns {
   holds(task: Task, config: ProjectConfig): boolean {
     if (!this.available || !isOpenTask(task) || isTheme(task) || task.status !== 'active') return false;
     if (!reviewTestOf(config, task)) return false;
+    if (!this.availableOn.has(this.sessions.cardEngineId(config.project.key, task))) return false;
     const pin = this.ctx.repos.reviewPins.get(task.key);
     if (!pin || pin.stageId !== task.stageId) return false;
     return !this.ctx.repos.fullTestRuns.forPin(pin).some(settled);
@@ -223,7 +233,8 @@ export class FullTestRuns {
       !isTheme(task) &&
       task.status === 'active' &&
       pin.stageId === task.stageId &&
-      reviewTestOf(config, task) !== undefined
+      reviewTestOf(config, task) !== undefined &&
+      this.availableOn.has(this.sessions.cardEngineId(config.project.key, task))
     );
   }
 
@@ -309,13 +320,25 @@ export class FullTestRuns {
     if (head.commit !== run.commit) return this.cancel(run, 'branch_moved');
     if (head.dirty) return this.end(run, task, config, { outcome: 'error', reason: 'checkout_dirty' }, '');
 
+    // The card's engine runs it, with its places (PM-311).
+    const engine = this.engines.get(this.sessions.cardEngineId(projectKey, task));
+    const executor = engine?.fullTestExecutor;
+    if (!engine || !executor)
+      return this.end(
+        run,
+        task,
+        config,
+        { outcome: 'error', reason: 'spawn_failed' },
+        'no engine to test on',
+      );
+    const paths = engine.paths();
     const controller = new AbortController();
     this.current = { runId: run.id, controller };
     runs.start(run.id, isoNow(this.ctx));
     this.tasks.publish(task);
     let result: FullTestResult;
     try {
-      result = await this.executor!.run(
+      result = await executor.run(
         {
           runId: run.id,
           cwd: head.path,
@@ -325,9 +348,12 @@ export class FullTestRuns {
           sandbox: fullTestSandbox({
             checkout: head.path,
             gitDir: await repoGitDir(config, task),
-            userHome: this.userHome,
-            appHome: this.appHome,
-            closedTmpRoots: this.closedTmpRoots,
+            userHome: paths.userHome,
+            appHome: paths.home ?? undefined,
+            closedTmpRoots: [
+              ...paths.claudeTmpRoots,
+              ...(paths.sessionTmpRoot ? [path.dirname(paths.sessionTmpRoot)] : []),
+            ],
           }),
         },
         controller.signal,

@@ -26,6 +26,7 @@ import type {
 } from '@projectman/shared';
 import { APPROVER_NONE_REFUSAL, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
 import type {
+  EngineDirectory,
   PermissionBroker,
   PermissionDecision,
   PermissionRefusedInfo,
@@ -34,6 +35,7 @@ import type {
 import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
+import { engineIdOf } from './engines';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
@@ -130,8 +132,7 @@ export class InboxService {
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
-  private readonly worktreesRootDir?: string;
-  private readonly workspacesRootDir?: string;
+  private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
 
@@ -139,17 +140,18 @@ export class InboxService {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
-    worktreesRootDir?: string;
-    /** Where member workspaces live (PM-138): routine steps there run without asking, as in a worktree. */
-    workspacesRootDir?: string;
+    /**
+     * The engines (PM-311): a session's worktrees root, and where its member workspaces live (PM-138:
+     * routine steps there run without asking, as in a worktree), are its engine's.
+     */
+    engines: EngineDirectory;
     /** The attachment directory of a task: read-only commands there are allowed for its sessions. */
     attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
-    this.worktreesRootDir = deps.worktreesRootDir;
-    this.workspacesRootDir = deps.workspacesRootDir;
+    this.engines = deps.engines;
     this.attachmentDirectory = deps.attachmentDirectory;
     this.broker = {
       decide: (request, signal) => this.decide(request, signal),
@@ -558,12 +560,16 @@ export class InboxService {
       task?.parentKey && task.projectKey === session.projectKey
         ? await this.attachmentDirectory?.(session.projectKey, task.parentKey).catch(() => null)
         : null;
+    // The places of the engine the session runs on (an engine that is gone has none).
+    const engine = this.engines.get(engineIdOf(session));
+    const worktreesRootDir = engine?.paths().worktreesRoot ?? undefined;
+    const workspacesRootDir = (engine?.memberWorkspaces ? engine.paths().workspacesRoot : null) ?? undefined;
     const readableRoots = readableRootsFor({
       config,
       cwd: session.cwd,
       projectKey: session.projectKey,
       task,
-      worktreesRootDir: this.worktreesRootDir,
+      worktreesRootDir,
       attachmentsDir,
       parentAttachmentsDir,
     });
@@ -592,8 +598,8 @@ export class InboxService {
             task,
             toolName: request.toolName,
             toolInput: request.toolInput,
-            worktreesRootDir: this.worktreesRootDir,
-            workspacesRootDir: this.workspacesRootDir,
+            worktreesRootDir,
+            workspacesRootDir,
             readableRoots,
           })
         : null;

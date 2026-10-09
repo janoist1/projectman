@@ -101,9 +101,11 @@ export function EnginesSection() {
             <>
               <p className={styles.machine}>
                 {machineParts(engine).length > 0 && (
-                  <span className={clsx(styles.parts, styles.mono)}>
+                  <span className={styles.parts}>
                     {machineParts(engine).map((part) => (
-                      <span key={part}>{part}</span>
+                      <span key={part.text} className={part.mono ? styles.mono : undefined}>
+                        {part.text}
+                      </span>
                     ))}
                   </span>
                 )}
@@ -269,12 +271,12 @@ export function EnginesSection() {
 }
 
 /** What the engine reported about its machine, one part each; empty before it has ever connected. */
-function machineParts(engine: EngineView): string[] {
-  return [
-    engine.hostname,
-    engine.platform ? t(`engines.platform.${engine.platform}`) : null,
-    engine.version ? `v${engine.version}` : null,
-  ].filter((part): part is string => Boolean(part));
+function machineParts(engine: EngineView): { text: string; mono?: boolean }[] {
+  const parts: { text: string; mono?: boolean }[] = [];
+  if (engine.hostname) parts.push({ text: engine.hostname });
+  if (engine.platform) parts.push({ text: t(`engines.platform.${engine.platform}`) });
+  if (engine.version) parts.push({ text: `v${engine.version}`, mono: true });
+  return parts;
 }
 
 function CopyRow({ text, label }: { text: string; label: string }) {

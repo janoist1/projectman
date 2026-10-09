@@ -91,6 +91,10 @@
   color: var(--c-needs-text);
 }
 .parts > span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 .parts > span:not(:last-child)::after {
@@ -112,10 +116,6 @@
 .mono {
   font-family: var(--font-mono);
   font-size: 12px;
-}
-.parts.mono > span {
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 .clis {
   list-style: none;

@@ -198,7 +198,7 @@ function EnginePanel({
                   {engine.name}
                   {engine.isDefault && <span className={styles.chip}>{t('engines.defaultChip')}</span>}
                 </span>
-                <span className={styles.status} data-needs={state !== 'online'}>
+                <span className={styles.status} data-needs={state === 'offline'}>
                   {statusText(engine, now)}
                 </span>
                 {owner && detail && <span className={styles.counts}>{workText(detail)}</span>}

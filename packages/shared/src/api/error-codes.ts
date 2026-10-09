@@ -187,6 +187,14 @@ export const ERROR_CODES = [
   // the caller is not the member the card is being handed over from.
   'task_handoff_open',
   'handoff_not_open',
+  // The project's focus (PM-427): only a person who owns the project or prioritizes sets it; the item is
+  // already in it, is not in it, the list is full, or the theme or card is closed.
+  'focus_humans_only',
+  'focus_not_allowed',
+  'focus_item_exists',
+  'focus_item_unknown',
+  'focus_full',
+  'focus_task_closed',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

@@ -17,6 +17,14 @@ export const routes = {
   engineDownload: (token: string) => `/engine/files/downloads/${token}`,
   integratorKey: () => '/api/auth/integrator-key',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
+  /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
+  projectFocus: (key: string) => `/api/projects/${key}/focus`,
+  /** POST (`ProjectFocusAddRequest`): puts a theme or card into the focus. */
+  projectFocusItems: (key: string) => `/api/projects/${key}/focus/items`,
+  /** PATCH (`ProjectFocusMoveRequest`) moves an item; DELETE takes it out. */
+  projectFocusItem: (key: string, taskKey: string) => `/api/projects/${key}/focus/items/${taskKey}`,
+  /** GET (`?limit=`, 1 to 200, default 50): the project's `focus_changed` events (`ProjectFocusChanges`). */
+  projectFocusChanges: (key: string) => `/api/projects/${key}/focus/changes`,
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,
   decideBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/decide`,
   revokeBoundary: (key: string, id: string) => `/api/projects/${key}/boundary/${id}/revoke`,

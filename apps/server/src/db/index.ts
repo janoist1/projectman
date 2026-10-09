@@ -14,6 +14,7 @@ import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createCounterRepository, createProjectRepository } from './projects';
 import { createPauseRepository } from './pauses';
+import { createProjectFocusRepository } from './project-focus';
 import { createReviewPinRepository } from './review-pins';
 import { createScheduleRepository } from './schedules';
 import { createSeniorWaitRepository } from './senior-waits';
@@ -68,6 +69,7 @@ export function createRepositories(db: Db) {
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
+    projectFocus: createProjectFocusRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

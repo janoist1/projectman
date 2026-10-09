@@ -709,5 +709,11 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(
         t(d.scope === 'instance' ? 'timeline.events.team_resumed_instance' : 'timeline.events.team_resumed'),
       );
+    case 'focus_changed':
+      return normal(
+        t(`timeline.events.focus_${d.action === 'added' || d.action === 'removed' ? d.action : 'moved'}`, {
+          title: str(d.title),
+        }),
+      );
   }
 }

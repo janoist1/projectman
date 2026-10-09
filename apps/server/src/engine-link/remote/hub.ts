@@ -196,9 +196,11 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
       return Promise.reject(new EngineRpcError('link_down', 'The engine is not connected'));
     return new Promise<EngineLink>((resolve, reject) => {
       let off: () => void = () => {};
+      let offOnline: () => void = () => {};
       const finish = (link: EngineLink | null, error?: Error) => {
         clearTimeout(timer);
         off();
+        offOnline();
         waiting.delete(giveUp);
         signal?.removeEventListener('abort', onAbort);
         if (link) resolve(link);
@@ -214,6 +216,12 @@ export function createRemoteHub(options: RemoteHubOptions): RemoteHub {
         if (changed !== id || !online) return;
         const link = links.get(id);
         if (link) finish(link);
+      });
+      // An engine that stops counting as available (or was revoked) is not waited for any longer: what
+      // waits on it would hold up the starts and reads of the engines that are there.
+      offOnline = registry.onOnlineChange((changed, online) => {
+        if (changed === id && !online)
+          finish(null, new EngineRpcError('link_down', 'The engine is not connected'));
       });
     });
   };

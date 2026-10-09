@@ -15,6 +15,7 @@ import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
 import type { Attachment } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
+import { conflict } from '../src/domain/errors';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -300,6 +301,71 @@ describe('attachment team tools', () => {
           )
         ).code,
       ).toBe('invalid');
+    });
+  });
+
+  describe('read_attachment for a session on a remote engine (PM-315)', () => {
+    const materialized: Array<{ sessionId: string; taskKey: string; storedPath: string }> = [];
+    let engineReads: () => Promise<string>;
+
+    beforeEach(async () => {
+      materialized.length = 0;
+      engineReads = async () => '/engine/session/attachments/before.png';
+      await h.cleanup();
+      h = await createDomainHarness({
+        engineAttachments: {
+          directory: async () => '/engine/attachments/AR/AR-1',
+          materialize: async (input) => {
+            materialized.push({
+              sessionId: input.sessionId,
+              taskKey: input.taskKey,
+              storedPath: input.storedPath,
+            });
+            return engineReads();
+          },
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+      const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+      dev = { sessionId: started.session!.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+    });
+
+    it('gives the path the engine has, after the engine received the stored file', async () => {
+      const before = await ownerUpload();
+      const located = await h.domain.teamTools.readAttachment(dev, {
+        taskKey: 'AR-1',
+        attachmentId: before.id,
+      });
+      expect(located.path).toBe('/engine/session/attachments/before.png');
+      expect(materialized).toEqual([
+        {
+          sessionId: dev.sessionId,
+          taskKey: 'AR-1',
+          storedPath: join(await h.attachmentStorage.taskDirectory('AR', 'AR-1'), `${before.id}.png`),
+        },
+      ]);
+    });
+
+    it('says the session’s engine is not connected when the engine is offline', async () => {
+      const before = await ownerUpload();
+      engineReads = async () => {
+        throw conflict('engine_offline', 'engine eng_x is not connected');
+      };
+      const err = await toolError(
+        h.domain.teamTools.readAttachment(dev, { taskKey: 'AR-1', attachmentId: before.id }),
+      );
+      expect(err).toMatchObject({ code: 'invalid' });
+      expect(err.message).toContain('not connected');
+    });
+
+    it('does not hide any other failure of the engine', async () => {
+      const before = await ownerUpload();
+      engineReads = async () => {
+        throw new Error('disk full');
+      };
+      await expect(
+        h.domain.teamTools.readAttachment(dev, { taskKey: 'AR-1', attachmentId: before.id }),
+      ).rejects.toThrow('disk full');
     });
   });
 

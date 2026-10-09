@@ -132,7 +132,8 @@ export class EngineRegistry {
   revoke(id: string, userId: string): EngineView {
     this.active(id);
     this.repos.engines.revoke(id, userId, this.now().toISOString());
-    this.online.delete(id);
+    // A revoked engine stops counting as available now, and what waits for it is told.
+    this.setOnline(id, false);
     for (const listener of this.revokeListeners) listener(id);
     this.changed(id);
     return this.view(this.repos.engines.get(id)!);

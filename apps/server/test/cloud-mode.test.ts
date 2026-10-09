@@ -112,6 +112,12 @@ describe('the cloud composition with a fake engine', () => {
       'workspace.resolveSource': () => null,
       'workspace.checkoutTaskBranch': ([, input]) => ({ branch: input.branch, head: 'c0ffee' }),
       'workspace.checkoutReview': () => ({ branch: null, head: 'c0ffee' }),
+      'provider.status': ({ provider }) => ({
+        provider,
+        loggedIn: true,
+        method: 'subscription',
+        checkedAt: new Date().toISOString(),
+      }),
       'session.assert_workspace_config': () => null,
       'folders.make': () => null,
       'folders.remove': () => null,
@@ -310,6 +316,32 @@ describe('the cloud composition with a fake engine', () => {
     const without = await inject(h.app, 'GET', routes.machine(), cookie);
     expect(without.statusCode).toBe(409);
     expect(without.json()).toMatchObject({ error: { code: 'engine_offline' } });
+  });
+
+  it('keeps a start waiting while no engine is there and starts it when an engine connects', async () => {
+    const first = await createProjectThroughEngine();
+    const { domain } = h.app.projectman;
+    await domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    first.ws.terminate();
+    await vi.waitFor(() => expect(first.closed()).toBeDefined());
+    await inject(h.app, 'POST', routes.revokeEngine(engineId), cookie);
+
+    // The developer's engine is not there: the start waits, and says why.
+    await domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await vi.waitFor(() =>
+      expect(domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({ reason: 'engine_offline' }),
+    );
+    expect(started()).toHaveLength(0);
+
+    // Another engine connects with its own key: the start goes on without anyone asking again.
+    const created = await inject(h.app, 'POST', routes.engines(), cookie, { name: 'Laptop' });
+    const { engine: second } = created.json() as CreateEngineResponse;
+    key = (created.json() as CreateEngineResponse).key;
+    await inject(h.app, 'POST', routes.defaultEngine(second.id), cookie);
+    await connect(helloOf({ bootId: 'cccccccccccccccc' }));
+    await vi.waitFor(() => expect(started()).toHaveLength(1));
+    await vi.waitFor(() => expect(domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined());
+    expect(domain.tasks.get('AR', 'AR-1').assignee).not.toBeNull();
   });
 
   it('keeps a session that the reconnected engine still runs', async () => {

@@ -221,6 +221,35 @@ describe('cloud mode remote parts', () => {
       expect(domain.reconciled.at(-1)).toEqual({ engine: 'eng_a', reported: ['s1'] });
     });
 
+    it('does not let an engine take over a session of another engine by reporting it in its hello', async () => {
+      const a = await online('eng_a');
+      a.answer('session.start', (params) => running(params.sessionId));
+      await remote.runner.start(spec());
+      // After a cloud restart the database is all the cloud knows of who runs what.
+      sessionEngines.set('s2', 'eng_a');
+      const b = await online('eng_b', { running: [running('s1'), running('s2')] });
+      expect(remote.runner.engineOf('s1')).toBe('eng_a');
+      expect(remote.runner.engineOf('s2')).toBe('eng_a');
+      expect(remote.runner.list().map((item) => item.sessionId)).toEqual(['s1']);
+      const seen: RunnerEvent[] = [];
+      remote.runner.onEvent((event) => seen.push(event));
+      await b.emit({
+        kind: 'runner',
+        event: { type: 'exit', sessionId: 's1', exitCode: 0, signal: null },
+      });
+      await a.emit({
+        kind: 'runner',
+        event: { type: 'state', sessionId: 's1', state: 'working', activity: null },
+      });
+      expect(seen).toEqual([{ type: 'state', sessionId: 's1', state: 'working', activity: null }]);
+      expect(remote.runner.isRunning('s1')).toBe(true);
+      a.answer('terminal.input', () => null);
+      b.answer('terminal.input', () => null);
+      remote.runner.writeTerminal('s1', 'x');
+      await vi.waitFor(() => expect(a.requests.some((item) => item.method === 'terminal.input')).toBe(true));
+      expect(b.requests.some((item) => item.method === 'terminal.input')).toBe(false);
+    });
+
     it('does not end a session whose start is still being answered when its engine reconnects', async () => {
       const engine = await online();
       let answer: (value: RunningSessionInfo) => void = () => {};
@@ -539,6 +568,15 @@ describe('cloud mode remote parts', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('stops waiting for an engine at once when it no longer counts as available (revoked)', async () => {
+      const engine = await online();
+      engine.disconnect();
+      const waiting = remote.hub.call('eng_a' as never, 'host.free_disk', {});
+      const outcome = expect(waiting).rejects.toMatchObject({ linkCode: 'link_down' });
+      cloud.registry.setOnline('eng_a' as never, false);
+      await outcome;
     });
 
     it('goes on with a call once the engine is back, and tells the domain only after the reconciliation', async () => {

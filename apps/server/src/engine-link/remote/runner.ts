@@ -107,7 +107,15 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
 
   hub.onConnect(({ id, hello }) => {
     const reported = new Set(hello.running.map((info) => info.sessionId));
-    for (const info of hello.running) owners.set(info.sessionId, id);
+    for (const info of hello.running) {
+      // An engine's `hello` is its own word: it takes over no session that belongs to another engine.
+      const owner = owners.get(info.sessionId) ?? options.recordedEngine(info.sessionId);
+      if (owner && owner !== id) {
+        logger.warn({ engineId: id, ownerId: owner }, 'an engine reported a session of another engine');
+        continue;
+      }
+      owners.set(info.sessionId, id);
+    }
     // What the cloud believed was running on this engine but the engine does not report is over; the
     // reconciliation of the domain ends it (no `exit` event comes for it).
     for (const [sessionId, engineId] of [...owners])
@@ -241,7 +249,9 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
     },
     list() {
       const all: RunningSessionInfo[] = [];
-      for (const id of hub.ids()) all.push(...hub.mirror(id).running.values());
+      for (const id of hub.ids())
+        for (const info of hub.mirror(id).running.values())
+          if (owners.get(info.sessionId) === id) all.push(info);
       return all;
     },
     onEvent(listener) {

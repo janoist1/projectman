@@ -118,6 +118,16 @@ export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
   return `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
 }
 
+export const RUN_MODES = ['single', 'cloud', 'engine'] as const;
+export type RunMode = (typeof RUN_MODES)[number];
+
+/** `PROJECTMAN_MODE`: single (default), cloud (engine registry, PM-313) or engine (the engine process, PM-314). */
+export function parseMode(value: string | undefined): RunMode {
+  const mode = value?.trim() || 'single';
+  if ((RUN_MODES as readonly string[]).includes(mode)) return mode as RunMode;
+  throw new Error(`Invalid PROJECTMAN_MODE: ${mode} (${RUN_MODES.join(', ')})`);
+}
+
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
   nanogptKeyCheck?: import('./domain').NanogptKeyCheck;

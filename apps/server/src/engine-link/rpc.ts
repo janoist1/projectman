@@ -31,7 +31,12 @@ export class EngineRpcError extends EngineCallError {
     super({ code, message });
   }
 }
-type Handler = (params: unknown) => unknown | Promise<unknown>;
+/** What a handler learns about the request besides its parameters. */
+export interface HandlerContext {
+  /** The request frame's id (the engine's audit log names a request by it). */
+  id: string;
+}
+type Handler = (params: unknown, context: HandlerContext) => unknown | Promise<unknown>;
 type Cached = { expiresAt: number; response: Promise<ResponseFrame> };
 /** One state per authenticated engine; retained across replacement/reconnection. Never persisted. */
 export interface RpcState {
@@ -48,6 +53,8 @@ export const createRpcState = (): RpcState => ({
 export interface CallOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Gets the request's id before it is sent: `permission.cancel` names the `permission.decide` it ends by it. */
+  onRequestId?: (id: string) => void;
 }
 export interface EngineRpc {
   call<M extends EngineMethod>(
@@ -57,7 +64,7 @@ export interface EngineRpc {
   ): Promise<MethodResult<M>>;
   handle<M extends EngineMethod>(
     method: M,
-    handler: (params: MethodParams<M>) => MethodResult<M> | Promise<MethodResult<M>>,
+    handler: (params: MethodParams<M>, context: HandlerContext) => MethodResult<M> | Promise<MethodResult<M>>,
   ): () => void;
   onEvent(handler: (event: EngineEvent) => void | Promise<void>): () => void;
   onTerminal(handler: (sessionId: string, data: string) => void): () => void;
@@ -71,6 +78,8 @@ export function createEngineRpc(options: {
   send: (data: string) => void;
   state?: RpcState;
   now?: () => number;
+  /** Called for a request answered before any handler ran: an unknown method or invalid parameters. */
+  onRefused?: (request: { id: string; method: string; code: 'unknown_method' | 'invalid_params' }) => void;
 }): EngineRpc {
   const state = options.state ?? createRpcState();
   const now = options.now ?? Date.now;
@@ -91,11 +100,13 @@ export function createEngineRpc(options: {
       error: { code, message },
     });
     if (!schema || schema.direction !== options.side) {
+      options.onRefused?.({ id: frame.id, method: frame.method, code: 'unknown_method' });
       send(failure('unknown_method', 'Unknown method'));
       return;
     }
     const params = schema.params.safeParse(frame.params);
     if (!params.success) {
+      options.onRefused?.({ id: frame.id, method: frame.method, code: 'invalid_params' });
       send(failure('invalid_params', 'Invalid method parameters'));
       return;
     }
@@ -118,7 +129,7 @@ export function createEngineRpc(options: {
       const handler = handlers.get(frame.method);
       if (!handler) return failure(secret ? 'secret_not_allowed' : 'unknown_method', 'Method unavailable');
       try {
-        const value = await handler(params.data);
+        const value = await handler(params.data, { id: frame.id });
         const result = schema.result.safeParse(value);
         if (!result.success) return failure('internal', 'Invalid method result');
         return { t: 'res', id: frame.id, ok: true, result: result.data };
@@ -189,6 +200,7 @@ export function createEngineRpc(options: {
       if (callOptions.signal?.aborted)
         return Promise.reject(new EngineRpcError('timeout', 'Engine call aborted'));
       const id = randomBytes(16).toString('hex');
+      callOptions.onRequestId?.(id);
       return new Promise((resolve, reject) => {
         const abort = () => finish(undefined, new EngineRpcError('timeout', 'Engine call aborted'));
         const timer = setTimeout(
@@ -226,7 +238,7 @@ export function createEngineRpc(options: {
     handle(method, handler) {
       if (methodOf(method)?.direction !== options.side)
         throw new EngineRpcError('unknown_method', 'Wrong method direction');
-      const wrapped: Handler = (params) => handler(params as MethodParams<typeof method>);
+      const wrapped: Handler = (params, context) => handler(params as MethodParams<typeof method>, context);
       handlers.set(method, wrapped);
       return () => {
         if (handlers.get(method) === wrapped) handlers.delete(method);

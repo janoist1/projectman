@@ -21,6 +21,7 @@
     "smoke:prod": "node scripts/smoke-prod.mjs",
     "control": "node --import tsx scripts/control/cli.ts",
     "migrate": "node --import tsx scripts/migrate/cli.ts",
+    "engine": "node --import tsx scripts/engine/cli.ts",
     "start": "npm run start -w @projectman/server",
     "typecheck": "node --import tsx scripts/heavy/cli.ts npm run typecheck --workspaces --if-present",
     "test": "node --import tsx scripts/heavy/cli.ts npm run test --workspaces --if-present",

@@ -4,8 +4,9 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseExecutionProfile } from '@projectman/shared';
-import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseTerminalMode } from './app';
-import type { BuildAppOptions, LoopbackHost } from './app';
+import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseMode, parseTerminalMode } from './app';
+import type { BuildAppOptions, LoopbackHost, RunMode } from './app';
+import { assertEngineProfile, buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { createFixtureProbe, parseMachineFixture } from './machine';
@@ -13,6 +14,7 @@ import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './domain';
 import { resolveAppVersion } from './engine-link';
+import { EngineConfigError } from './engine-link/engine-config';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -59,7 +61,11 @@ import { resolveAppVersion } from './engine-link';
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
  *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
  *   PROJECTMAN_MODE (single): `cloud` enables the engine registry and authenticated engine link (PM-313).
- *   The remote execution composition is supplied by PM-315.
+ *   The remote execution composition is supplied by PM-315. `engine` starts the engine process on the
+ *   machine the work happens on (PM-314, `npm run engine -- start`): no database, no web app and no
+ *   `/api`, only a loopback listener for the CLIs' hooks and team tools and one outbound link to the cloud.
+ *   Its settings are `<home>/engine.json` (`npm run engine -- init`); it refuses the managed VM profile.
+ *   PROJECTMAN_ENGINE_PORT (4801): the engine's loopback port (engine mode only).
  *   PROJECTMAN_VERSION (unset): shared cloud/engine version; otherwise the installation git HEAD, then dev.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
@@ -74,7 +80,10 @@ interface ServerConfig {
   machineFixture: boolean;
 }
 
-async function configFromEnv(env: NodeJS.ProcessEnv): Promise<ServerConfig> {
+async function configFromEnv(
+  env: NodeJS.ProcessEnv,
+  engineMode: Exclude<RunMode, 'engine'>,
+): Promise<ServerConfig> {
   const port = Number.parseInt(env.PORT ?? String(APP_DEFAULTS.port), 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`invalid PORT: ${env.PORT}`);
   const host = env.HOST ?? APP_DEFAULTS.host;
@@ -118,9 +127,6 @@ async function configFromEnv(env: NodeJS.ProcessEnv): Promise<ServerConfig> {
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
   const installDir = fileURLToPath(new URL('../../..', import.meta.url));
-  const engineMode = env.PROJECTMAN_MODE ?? 'single';
-  if (engineMode !== 'single' && engineMode !== 'cloud')
-    throw new Error('Invalid PROJECTMAN_MODE (single or cloud)');
   // The screenshot mode's fixed machine (PM-320): invalid JSON stops the start.
   const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
     ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
@@ -190,8 +196,84 @@ async function configFromEnv(env: NodeJS.ProcessEnv): Promise<ServerConfig> {
   };
 }
 
+/**
+ * The engine process (PM-314): `npm run engine -- start`. The environment is read here into the engine's
+ * options; the engine's own configuration (cloud address, projects, repos, limits) is `<home>/engine.json`.
+ */
+async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
+  const port = Number.parseInt(env.PROJECTMAN_ENGINE_PORT ?? String(ENGINE_DEFAULT_PORT), 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535)
+    throw new Error(`invalid PROJECTMAN_ENGINE_PORT: ${env.PROJECTMAN_ENGINE_PORT}`);
+  const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
+  const installDir = fileURLToPath(new URL('../../..', import.meta.url));
+  const shutdownPauseMs = env.PROJECTMAN_SHUTDOWN_PAUSE_MS
+    ? Number(env.PROJECTMAN_SHUTDOWN_PAUSE_MS)
+    : undefined;
+  if (shutdownPauseMs !== undefined && !(Number.isInteger(shutdownPauseMs) && shutdownPauseMs >= 0))
+    throw new Error(
+      `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
+    );
+  const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
+  if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
+    throw new Error(`invalid PROJECTMAN_CLONE_DEPENDENCIES: ${cloneDependencies} (on or off)`);
+  const boundaryConfig = env.PROJECTMAN_BOUNDARY_CONFIG || undefined;
+  const executionProfile = parseExecutionProfile(env.PROJECTMAN_EXECUTION_PROFILE);
+  assertEngineProfile({ executionProfile, boundaryConfig });
+  const engine = await buildEngineApp({
+    home,
+    port,
+    installDir,
+    version: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
+    executionProfile,
+    boundaryConfig,
+    agentEnv: env,
+    sessionFoldersDir: join(
+      realpathSync(tmpdir()),
+      'projectman-sessions',
+      createHash('sha256').update(home).digest('hex').slice(0, 12),
+    ),
+    sessionTmpDir: join(defaultSessionTmpRoot(), createHash('sha256').update(home).digest('hex').slice(0, 8)),
+    claudeTmpBase: env.CLAUDE_CODE_TMPDIR || undefined,
+    browsersDir: resolve(env.PROJECTMAN_BROWSERS_PATH || join(home, 'browsers')),
+    heavyLockDir: env.PROJECTMAN_HEAVY_LOCK_DIR || defaultHeavyLockDir(),
+    cloneDependencies: cloneDependencies !== 'off',
+    claudeBin: env.CLAUDE_BIN,
+    codexBin: env.CODEX_BIN,
+    geminiBin: env.AGY_BIN,
+    codexHome: env.CODEX_HOME || undefined,
+    claudeConfigPath: env.CLAUDE_CONFIG_DIR ? join(env.CLAUDE_CONFIG_DIR, '.claude.json') : undefined,
+    terminal: parseTerminalMode(env.PROJECTMAN_TERMINAL, {
+      home: env.PROJECTMAN_HOME,
+      liveHome: join(homedir(), '.projectman'),
+      claudeBin: env.CLAUDE_BIN,
+      codexBin: env.CODEX_BIN,
+      boundaryConfig,
+      executionProfile,
+    }),
+    ghBin: env.GH_BIN,
+    ghHost: env.GH_HOST || undefined,
+    logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
+    shutdownPauseMs,
+  });
+  const shutdown = createShutdown({
+    pause: () => engine.pauseForShutdown(),
+    close: () => engine.close(),
+    exit: (code) => process.exit(code),
+    log: {
+      info: (obj, msg) => engine.app.log.info(obj, msg),
+      warn: (obj, msg) => engine.app.log.warn(obj, msg),
+      error: (obj, msg) => engine.app.log.error(obj, msg),
+    },
+  });
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  await engine.start();
+}
+
 async function main(): Promise<void> {
-  const config = await configFromEnv(process.env);
+  const mode = parseMode(process.env.PROJECTMAN_MODE);
+  if (mode === 'engine') return engineMain(process.env);
+  const config = await configFromEnv(process.env, mode);
   // The server's full test before review (PM-217) runs in the Anthropic Sandbox Runtime on the Mac. The
   // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
   const app = await buildApp({
@@ -232,6 +314,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  console.error(err);
+  // A problem the person starting the engine can fix: the message, not a stack.
+  if (err instanceof EngineConfigError) console.error(`projectman engine: ${err.message}`);
+  else console.error(err);
   process.exit(1);
 });

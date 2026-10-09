@@ -966,6 +966,50 @@ workers follow the machine's size.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
+- **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
+  `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
+  `PROJECTMAN_MODE=engine` (`npm run engine -- start`) runs the machine-dependent parts on the Mac
+  beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
+  no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
+  Files, all under the engine's home (`PROJECTMAN_HOME`, default `~/.projectman`): `engine.json`
+  (cloud address, engine id, project workspaces, registered repos and their full-test command, the
+  highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
+  mode 0600; a looser mode, another owner or a link is refused at start-up), an optional link-headers
+  file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
+  secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
+  code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
+  files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256).
+  The engine listens on `127.0.0.1:4801` only (`PROJECTMAN_ENGINE_PORT`): the CLIs' permission and
+  other hooks, and `POST /mcp/<token>`, which it forwards to the cloud as `mcp.relay` and answers 503
+  while the link is down. Every request is checked against a local limit (`engine-limit.ts`) before
+  it runs, whatever the cloud asks: working directories, writable and readable roots, worktree and
+  workspace paths, the repos and full-test commands in `engine.json`, the highest permission mode, no
+  full-access sandbox, a closed set of environment variables, terminal input, and which processes
+  `machine.signal` may stop (a process of a running session, never the engine itself or pid 1).
+  Only `hello` tells the cloud about the machine: version, host name, platform, the registered
+  projects and repos (with whether a full-test command exists), providers, running sessions,
+  `instanceTag`, `pid`, `uid` and `bootId`. The NanoGPT key is asked from the cloud for a starting
+  NanoGPT session only and lives in memory for that start. On SIGINT/SIGTERM the engine pauses its
+  running sessions first, then stops them and closes the link. `managed_vm` and a boundary config are
+  refused at start-up (PM-331). The link client reconnects with a back-off of 1 to 30 seconds, replays
+  unacknowledged events by sequence number, buffers at most 10,000 events or 50 MB (the oldest are
+  dropped and counted), and sends terminal data only for sessions the cloud attached.
+  **Assumptions:** the code (a git checkout), the CLIs, their logged-in accounts (Claude, Codex,
+  Gemini), the browsers and the repos are on the engine's machine, and a person starts the engine as
+  the user who owns them. The cloud sees nothing of the machine beyond `hello` and what requests
+  return. **Does this work on a remote engine?** This entry is the remote engine: in the engine
+  process run the Gemini CLI and its conversation directories; the NanoGPT Codex home; dependency clones; the
+  heavy-run queue; session output folders; browser installation and screenshots; the machine display and
+  orphan processes; instance identity (`instanceTag` from the real path of the engine's home) and session
+  liveness and termination; conversation transcripts and resume; hooks and team MCP over loopback;
+  task worktrees and shared git storage; the free-disk probe; the native sandbox and canonical paths;
+  CLI token and plan usage; Claude workspace trust; the Codex project layer check; and the full test
+  before review. The cloud keeps the registry, the secret store, the integrator credential, the
+  permission decisions and the control socket. Transcripts, bundles and attachments cross as
+  purpose-scoped uploads and downloads (`engine-transfer.ts`; the cloud's endpoints are PM-315).
+  The link client uses the runtime's `WebSocket`, which cannot send the close codes 1001, 1002 and
+  1011: it closes with 1000 and a reason text (`engine_shutdown`) instead.
+
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.

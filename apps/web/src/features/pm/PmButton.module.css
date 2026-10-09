@@ -41,6 +41,13 @@
   border-radius: 12px;
 }
 
+/* A card's head: the size of its other icon buttons. */
+.drawer {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+}
+
 .avatar {
   position: relative;
   display: inline-flex;

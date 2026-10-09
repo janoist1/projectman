@@ -7,6 +7,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { TaskDrawer } from '../board/TaskDrawer';
 import { MemberProfilePage } from '../team/MemberProfilePage';
 import { TeamPage } from '../team/TeamPage';
 
@@ -155,8 +156,11 @@ describe('the project manager panel', () => {
     fireEvent.click(await button());
     const panel = await screen.findByRole('dialog');
     const banner = await within(panel).findByRole('status');
-    expect(banner.textContent).toContain(t('pm.banner.onLeave', { name: pmName(project) }));
+    expect(banner.textContent).toContain(t('pm.banner.onLeave'));
+    expect(banner.textContent).toContain(t('pm.banner.onLeaveText'));
     expect(within(panel).getByText(t('pm.status.onLeave'))).toBeTruthy();
+    // No conversation yet: the introduction says the project manager has just arrived.
+    expect(within(panel).getByText(t('pm.intro.arrivedTitle'))).toBeTruthy();
 
     fireEvent.click(within(banner).getByRole('button', { name: t('pm.banner.callBack') }));
     await waitFor(() => expect(project.backend.findMember('pm')!.onLeave).toBeFalsy());
@@ -172,6 +176,40 @@ describe('the project manager panel', () => {
     expect(screen.queryByRole('button', { name: t('pm.banner.callBack') })).toBeNull();
   });
 
+  it('introduces itself on first use and puts a picked example into the box', async () => {
+    const project = mockProject();
+    renderLayout(project);
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog');
+    expect(await within(panel).findByText(t('pm.intro.title'))).toBeTruthy();
+    expect(within(panel).getByText(t('pm.intro.lead'))).toBeTruthy();
+    for (const point of ['card', 'pass', 'report'] as const)
+      expect(within(panel).getByText(t(`pm.intro.points.${point}`))).toBeTruthy();
+    expect(within(panel).getByText(t('pm.intro.approval'))).toBeTruthy();
+
+    const composer = within(panel).getByRole<HTMLTextAreaElement>('textbox', {
+      name: t('pm.composer.label'),
+    });
+    fireEvent.click(within(panel).getByRole('button', { name: t('pm.intro.examples.status') }));
+    await waitFor(() => expect(composer.value).toBe(t('pm.intro.examples.status')));
+    expect(document.activeElement).toBe(composer);
+    expect(project.requests.some((r) => r.method === 'POST' && r.path.endsWith('/messages'))).toBe(false);
+  });
+
+  it('opens the pause details instead of resuming the team from the banner', async () => {
+    const project = mockProject();
+    project.backend.pauses.pauseProject();
+    renderLayout(project);
+    fireEvent.click(await button());
+    const panel = await screen.findByRole('dialog');
+    fireEvent.click(await within(panel).findByRole('button', { name: t('pm.banner.resume') }));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: pmName(project) })).toBeNull());
+    expect(
+      (await screen.findByRole('button', { name: t('pause.banner.details') })).getAttribute('aria-expanded'),
+    ).toBe('true');
+    expect(project.requests.some((r) => r.method === 'POST' && r.path.endsWith('/pause/resume'))).toBe(false);
+  });
+
   it('says there is no project manager when the project has none', async () => {
     const project = mockProject();
     const config = project.backend.config;
@@ -179,6 +217,22 @@ describe('the project manager panel', () => {
     renderLayout(project);
     fireEvent.click(await button());
     expect(await screen.findByText(t('pm.missing.title'))).toBeTruthy();
+  });
+});
+
+describe('the project manager button on a card', () => {
+  it('stands in the card head and opens the panel', async () => {
+    const project = mockProject();
+    const openPm = vi.fn();
+    project.render(
+      <Routes>
+        <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+      </Routes>,
+      '/p/AC/tasks/AC-20',
+      { openPm },
+    );
+    fireEvent.click(await button());
+    expect(openPm).toHaveBeenCalledTimes(1);
   });
 });
 

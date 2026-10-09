@@ -30,11 +30,14 @@ export function PmThread({
   channel,
   failed,
   onRetry,
+  onExample,
 }: {
   handle: string;
   channel: ProjectManagerChannel;
   failed: FailedPmMessage | null;
   onRetry: () => void;
+  /** An example of the introduction was picked: it goes into the message box. */
+  onExample: (text: string) => void;
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
@@ -139,8 +142,35 @@ export function PmThread({
     >
       {entries.length === 0 && !failed ? (
         <div className={styles.intro}>
-          <h3 className={styles.introTitle}>{t('pm.intro.title')}</h3>
-          <p className={styles.introBody}>{t('pm.intro.body')}</p>
+          {channel.state === 'on_leave' ? (
+            <>
+              <h3 className={styles.introTitle}>{t('pm.intro.arrivedTitle')}</h3>
+              <p className={styles.introBody}>{t('pm.intro.arrivedBody')}</p>
+            </>
+          ) : (
+            <>
+              <h3 className={styles.introTitle}>{t('pm.intro.title')}</h3>
+              <p className={styles.introBody}>{t('pm.intro.lead')}</p>
+              <ul className={styles.introPoints}>
+                <li>{t('pm.intro.points.card')}</li>
+                <li>{t('pm.intro.points.pass')}</li>
+                <li>{t('pm.intro.points.report')}</li>
+              </ul>
+              <p className={styles.introBody}>{t('pm.intro.approval')}</p>
+            </>
+          )}
+          <div className={styles.examples} role="group" aria-label={t('pm.intro.examplesLabel')}>
+            {(['idea', 'status', 'next'] as const).map((example) => (
+              <button
+                key={example}
+                type="button"
+                className={styles.example}
+                onClick={() => onExample(t(`pm.intro.examples.${example}`))}
+              >
+                {t(`pm.intro.examples.${example}`)}
+              </button>
+            ))}
+          </div>
         </div>
       ) : (
         entries.map(renderEntry)

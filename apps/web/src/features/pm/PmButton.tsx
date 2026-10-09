@@ -12,9 +12,10 @@ const NAME_MAX = 18;
 
 /**
  * The header button that opens the project manager's panel (PM-429). `bar` is the desktop top bar's
- * (the label sheds width in steps, CSS); `phone` is the phone header's avatar-only icon button.
+ * (the label sheds width in steps, CSS); `phone` is the phone header's avatar-only icon button;
+ * `drawer` is the same icon in a card's head, where the open card covers the top bar's button.
  */
-export function PmButton({ variant }: { variant: 'bar' | 'phone' }) {
+export function PmButton({ variant }: { variant: 'bar' | 'phone' | 'drawer' }) {
   const { can, pmOpen, openPm, closePm } = useProject();
   const { state, member, handle, unread } = usePm();
   const button = useRef<HTMLButtonElement>(null);
@@ -33,12 +34,17 @@ export function PmButton({ variant }: { variant: 'bar' | 'phone' }) {
     <button
       ref={button}
       type="button"
-      className={clsx(styles.button, variant === 'phone' && styles.phone, pmOpen && styles.open)}
+      className={clsx(
+        styles.button,
+        variant === 'phone' && styles.phone,
+        variant === 'drawer' && styles.drawer,
+        pmOpen && styles.open,
+      )}
       aria-label={label}
       aria-haspopup="dialog"
       aria-expanded={pmOpen}
       aria-controls="pm-panel"
-      data-pm-button
+      data-pm-button={variant}
       onClick={() => (pmOpen ? closePm() : openPm(button.current))}
     >
       <span className={styles.avatar}>

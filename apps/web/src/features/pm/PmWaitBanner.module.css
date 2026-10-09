@@ -11,9 +11,20 @@
   line-height: 1.4;
 }
 
+.needs {
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+}
+
 .text {
   flex: 1;
   min-width: 0;
+}
+
+/* The reason on its own line, the consequence under it. */
+.title {
+  display: block;
+  font-weight: 800;
 }
 
 .dots {

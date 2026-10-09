@@ -2032,8 +2032,23 @@ export const hu = {
       empty: 'Még nem írtál a Projektmenedzsernek.',
     },
     intro: {
-      title: 'Ő a projekt fő elosztója és segédje',
-      body: 'Szövegesen bármivel fordulhatsz hozzá: kártyát felvenni, állást kérdezni, valakit megkérni valamire. Ő a csapat többi tagjához irányítja.',
+      title: 'Szia, én vagyok a Projektmenedzser.',
+      lead: 'Írd le a saját szavaiddal, mit szeretnél: ötletet, kérdést, feladatot vagy sorrendet.',
+      points: {
+        card: 'Kártyát nyitok, és összekötöm a meglévőkkel.',
+        pass: 'Továbbadom annak, akinek a dolga.',
+        report: 'Minden kérés után megírom, mit tettem, és mi vár rád.',
+      },
+      approval: 'Amihez a jóváhagyásod kell (leállítás, szünet, Indulhatba tétel), azt csak javaslom.',
+      examplesLabel: 'Például',
+      examples: {
+        idea: 'Van egy ötletem…',
+        status: 'Hol tart a mobil nézet?',
+        next: 'Mi legyen a következő?',
+      },
+      arrivedTitle: 'Megérkezett a Projektmenedzser.',
+      arrivedBody:
+        'Neki írhatsz bármit: kártyát nyit belőle, továbbadja az illetékesnek, és beszámol. Most szabadságon van, hogy ne fogyasszon keretet, amíg vissza nem hívod.',
     },
     context: {
       label: 'Ehhez: {key} {title}',
@@ -2044,7 +2059,8 @@ export const hu = {
       placeholder: 'Írj a Projektmenedzsernek…',
     },
     banner: {
-      onLeave: '{name} szabadságon van. Az üzeneted megmarad, és visszahívás után megkapja.',
+      onLeave: 'A Projektmenedzser szabadságon van.',
+      onLeaveText: 'Amit írsz, megmarad, és a visszahívás után feldolgozza.',
       onLeaveOther: 'Az üzeneted megmarad. Visszahívni a tulajdonos tudja.',
       callBack: 'Visszahívom',
       quota:

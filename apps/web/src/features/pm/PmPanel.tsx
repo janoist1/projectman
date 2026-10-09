@@ -18,9 +18,12 @@ import { pmStatusText } from './pmChannel';
 import { usePm } from './usePm';
 import styles from './PmPanel.module.css';
 
+/** The panel's width on a desktop screen (the same as in PmPanel.module.css): an open card makes room for it. */
+const PANEL_WIDTH = 440;
+
 /**
  * The project manager's conversation (PM-429): a panel that slides in from the right (a sheet from
- * the bottom on a phone) over the page, without hiding it. Not modal: the board stays usable.
+ * the bottom on a phone) beside the page, without hiding it. Not modal: the board stays usable.
  */
 export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
   const { key, closePm } = useProject();
@@ -42,6 +45,9 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
     [board.data, contextCard],
   );
 
+  // An example from the introduction goes into the box to be edited and sent.
+  const [prefill, setPrefill] = useState<{ text: string; id: number } | null>(null);
+
   const [failed, setFailed] = useState<FailedPmMessage | null>(null);
   const post = (text: string, taskKey: string | null) =>
     send
@@ -54,6 +60,18 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
     const target = returnFocusTo.current;
     return () => target?.focus();
   }, [returnFocusTo]);
+
+  // Beside the panel an open card moves left and under the top bar, so the two do not overlap.
+  useEffect(() => {
+    if (isMobile) return;
+    const root = document.documentElement.style;
+    root.setProperty('--pm-dock-right', `${PANEL_WIDTH}px`);
+    root.setProperty('--pm-dock-top', 'var(--topbar-height)');
+    return () => {
+      root.removeProperty('--pm-dock-right');
+      root.removeProperty('--pm-dock-top');
+    };
+  }, [isMobile]);
 
   // On a phone the sheet covers the page: following a link (a card, the full session) leaves it.
   useEffect(() => {
@@ -139,6 +157,7 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
             channel={state}
             failed={failed}
             onRetry={() => failed && void post(failed.text, failed.taskKey)}
+            onExample={(text) => setPrefill({ text, id: (prefill?.id ?? 0) + 1 })}
           />
           <PmWaitBanner channel={state} />
           {contextCard ? (
@@ -162,6 +181,7 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
               label={t('pm.composer.label')}
               placeholder={t('pm.composer.placeholder')}
               disabled={send.isPending}
+              prefill={prefill}
               onSend={(text) => post(text, contextCard)}
             />
           </div>

@@ -113,6 +113,48 @@
   line-height: 1.5;
 }
 
+.introPoints {
+  margin: 10px auto;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--c-ink-2);
+}
+
+.examples {
+  margin-top: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.example {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: 999px;
+  background: var(--c-surface);
+  color: var(--c-ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.example:hover {
+  background: var(--c-muted);
+  color: var(--c-ink);
+}
+
+.example:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
 .skeleton {
   flex: 1;
   display: flex;

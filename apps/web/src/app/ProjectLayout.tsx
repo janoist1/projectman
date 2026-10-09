@@ -44,6 +44,8 @@ export function ProjectLayout() {
   const [search, setSearch] = useState('');
   const [newTask, setNewTask] = useState<{ kind: 'task' | 'theme' } | null>(null);
   const [pauseOpen, setPauseOpen] = useState(false);
+  // Counts the requests to open the pause bar's details (the project manager's "Folytatás…").
+  const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
   // The project manager's conversation (PM-429): one panel for the whole project, opened from the header.
   const [pmOpen, setPmOpen] = useState(false);
   const pmTrigger = useRef<HTMLElement | null>(null);
@@ -87,6 +89,7 @@ export function ProjectLayout() {
       search,
       setSearch,
       openPause: () => setPauseOpen(true),
+      openPauseDetails: () => setPauseDetailsSignal((count) => count + 1),
       pmOpen,
       openPm: (trigger) => {
         pmTrigger.current = trigger ?? null;
@@ -136,7 +139,7 @@ export function ProjectLayout() {
               />
             )}
             <ConnectionBanner />
-            <ProjectPauseBar requestedPauseId={requestedPauseId} />
+            <ProjectPauseBar requestedPauseId={requestedPauseId} openSignal={pauseDetailsSignal} />
             <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
               <Outlet />
             </main>

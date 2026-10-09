@@ -23,13 +23,35 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'pm-desktop-open', { widths: [1512, 800] });
   });
 
-  await step('desktop: a message and the open card as context', async () => {
-    // The card drawer covers the top bar's right end, so the panel is opened first and the card after it.
+  await step('desktop: the card head button, and the card beside the panel', async () => {
+    const page = await open({ path: '/p/AC', width: 1512 });
+    await page.waitForSelector('[data-pm-button]');
+    await page.getByText('Build the product catalogue').first().click();
+    await page.waitForSelector('[data-pm-button=drawer]');
+    await shoot(page, 'pm-card-head', { widths: [1512], highlight: '[data-pm-button=drawer]' });
+    await page.click('[data-pm-button=drawer]');
+    await page.waitForSelector('#pm-panel textarea');
+    await shoot(page, 'pm-card-beside-panel', { widths: [1512, 1200] });
+  });
+
+  await step('desktop: the project manager has just arrived, on leave', async () => {
+    await instance.api(`/api/projects/AC/members/${pm.handle}`, { method: 'PATCH', body: { onLeave: true } });
     const page = await open({ path: '/p/AC', width: 1512 });
     await page.waitForSelector('[data-pm-button]');
     await page.click('[data-pm-button]');
-    await page.waitForSelector('#pm-panel textarea');
+    await page.waitForSelector('#pm-panel [role=status]');
+    await shoot(page, 'pm-desktop-arrived', { widths: [1512] });
+    await instance.api(`/api/projects/AC/members/${pm.handle}`, {
+      method: 'PATCH',
+      body: { onLeave: false },
+    });
+  });
+
+  await step('desktop: a message and the open card as context', async () => {
+    const page = await open({ path: '/p/AC', width: 1512 });
+    await page.waitForSelector('[data-pm-button]');
     await page.getByText('Build the product catalogue').first().click();
+    await page.click('[data-pm-button=drawer]');
     await page.waitForSelector('#pm-panel >> text=AC-1');
     await page.fill('#pm-panel textarea', 'Mi a helyzet ezzel a kártyával?');
     await shoot(page, 'pm-desktop-context', { widths: [1512] });

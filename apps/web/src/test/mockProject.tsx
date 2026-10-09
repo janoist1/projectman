@@ -59,6 +59,7 @@ export function mockProject(backend = new MockBackend()) {
     search: '',
     setSearch: () => {},
     openPause: () => {},
+    openPauseDetails: () => {},
     pmOpen: false,
     openPm: () => {},
     closePm: () => {},

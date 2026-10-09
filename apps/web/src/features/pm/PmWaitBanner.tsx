@@ -1,6 +1,7 @@
+import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import type { ProjectManagerChannel } from '@projectman/shared';
-import { useResumeProject, useUpdateMember } from '../../api/queries';
+import { useUpdateMember } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { useToast } from '../../components/toastContext';
@@ -13,11 +14,10 @@ import styles from './PmWaitBanner.module.css';
 
 /** The line above the composer that says why the project manager cannot answer right now (PM-429). */
 export function PmWaitBanner({ channel }: { channel: ProjectManagerChannel }) {
-  const { key, can, myHandle } = useProject();
+  const { key, can, myHandle, openPauseDetails, closePm } = useProject();
   const { members } = useProjectIndexes(key);
   const toast = useToast();
   const update = useUpdateMember(key);
-  const resume = useResumeProject(key);
   const handle = channel.member?.handle ?? '';
   const name = channel.member?.displayName ?? t('pm.name');
   const wait = pmWaitOf(channel);
@@ -30,16 +30,18 @@ export function PmWaitBanner({ channel }: { channel: ProjectManagerChannel }) {
         onError: (error) => toast.show(errorMessage(error), 'error'),
       },
     );
-  const resumeTeam = () =>
-    resume.mutate(undefined, {
-      onSuccess: () => toast.show(t('pause.toast.resumed'), 'ok'),
-      onError: () => toast.show(t('pause.toast.resumeFailed'), 'error'),
-    });
+  // The panel does not cover the pause bar's details, where the team is resumed.
+  const resumeTeam = () => {
+    closePm();
+    openPauseDetails();
+  };
 
   if (wait === 'leave') {
     return (
       <Banner
-        text={can.manageTeam ? t('pm.banner.onLeave', { name }) : t('pm.banner.onLeaveOther')}
+        tone="needs"
+        title={t('pm.banner.onLeave')}
+        text={can.manageTeam ? t('pm.banner.onLeaveText') : t('pm.banner.onLeaveOther')}
         action={
           can.manageTeam ? (
             <Button variant="secondary" size="sm" loading={update.isPending} onClick={callBack}>
@@ -56,7 +58,7 @@ export function PmWaitBanner({ channel }: { channel: ProjectManagerChannel }) {
         text={t('pm.banner.paused')}
         action={
           can.pauseTeam ? (
-            <Button variant="secondary" size="sm" loading={resume.isPending} onClick={resumeTeam}>
+            <Button variant="secondary" size="sm" onClick={resumeTeam}>
               {t('pm.banner.resume')}
             </Button>
           ) : null
@@ -81,9 +83,22 @@ export function PmWaitBanner({ channel }: { channel: ProjectManagerChannel }) {
   return null;
 }
 
-function Banner({ text, action, working = false }: { text: string; action?: ReactNode; working?: boolean }) {
+function Banner({
+  title,
+  text,
+  action,
+  working = false,
+  tone,
+}: {
+  title?: string;
+  text: string;
+  action?: ReactNode;
+  working?: boolean;
+  /** `needs`: the owner can do something about it. */
+  tone?: 'needs';
+}) {
   return (
-    <div className={styles.banner} role="status">
+    <div className={clsx(styles.banner, tone === 'needs' && styles.needs)} role="status">
       {working ? (
         <span className={styles.dots} aria-hidden="true">
           <i />
@@ -91,7 +106,10 @@ function Banner({ text, action, working = false }: { text: string; action?: Reac
           <i />
         </span>
       ) : null}
-      <span className={styles.text}>{text}</span>
+      <span className={styles.text}>
+        {title ? <b className={styles.title}>{title}</b> : null}
+        {text}
+      </span>
       {action}
     </div>
   );

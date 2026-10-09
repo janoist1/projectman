@@ -1452,6 +1452,50 @@ export class SessionOrchestrator {
     }
   }
 
+  /** How many live sessions the database holds on the engine (PM-315, the engine's settings view). */
+  liveOn(engineId: EngineId): number {
+    return this.ctx.repos.sessions
+      .listInStates(LIVE_SESSION_STATES)
+      .filter((session) => engineIdOf(session) === engineId).length;
+  }
+
+  /**
+   * A remote engine connected (PM-315), `reported` being the sessions it runs. Like after a restart, a
+   * session this server believes live on it that the engine does not run is over (its process went with
+   * the engine's restart); a session the engine runs that this server does not know, or has ended, is
+   * stopped; and the engine's folders of other sessions are removed. A session whose start is still being
+   * answered (`starting`) is neither. Run for every connect, a resumed link too: the engine may have
+   * restarted in between. Safe to repeat.
+   */
+  async reconcileEngine(
+    engineId: EngineId,
+    reported: ReadonlySet<string>,
+    starting: (sessionId: string) => boolean,
+  ): Promise<void> {
+    for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
+      if (engineIdOf(session) !== engineId || reported.has(session.id) || starting(session.id)) continue;
+      this.markEnded(session.id, null, null, { kind: 'server_restart' });
+    }
+    for (const sessionId of reported) {
+      const session = this.ctx.repos.sessions.get(sessionId);
+      if (session && !ENDED.has(session.state)) continue;
+      this.ctx.logger.warn(
+        { engineId, sessionId },
+        'stopping a session the engine runs that this server does not',
+      );
+      await this.deps.runner.stop(sessionId, { force: true }).catch((err: unknown) => {
+        this.ctx.logger.warn({ err, engineId, sessionId }, 'could not stop an unknown session of an engine');
+      });
+    }
+    const folders = this.deps.engines.get(engineId)?.sessionFolders;
+    if (!folders) return;
+    try {
+      await folders.sweep((id) => reported.has(id) || starting(id));
+    } catch (err) {
+      this.ctx.logger.warn({ err, engineId }, 'could not sweep the session folders of the engine');
+    }
+  }
+
   /**
    * Records what the session's member says it does on its card (PM-238): only the latest is kept,
    * and it is published with the session. Nothing is written (false) unless the session has a live

@@ -1,5 +1,5 @@
 import type { Readable } from 'node:stream';
-import type { EngineId, MemberHandle } from '@projectman/shared';
+import type { Attachment, EngineId, MemberHandle } from '@projectman/shared';
 import type { MemberWorkspaceManager, WorktreeManager } from './context';
 import type { FullTestExecutor, ScreenshotExecutor } from './full-test';
 
@@ -123,6 +123,11 @@ export interface WorkspaceFileOptions {
    * session folder, PM-268); the final check then also catches a replacement made later.
    */
   exactRoot?: boolean;
+  /**
+   * The session the file is for (PM-315): a local engine ignores it, a remote one names it in its audit
+   * log. Absent: the request is not for a session.
+   */
+  sessionId?: string;
 }
 
 /** Why a screenshot scenario is not taken (`EngineHost.resolveScenario`). */
@@ -130,6 +135,8 @@ export type ScenarioRefusal = 'missing' | 'outside' | 'not_file';
 
 export interface EngineHost {
   readonly id: EngineId;
+  /** The engine's operating system when it is not this process's (a remote engine, PM-315); absent: this machine's. */
+  readonly platform?: NodeJS.Platform;
   paths(): EnginePaths;
   readonly worktrees: WorktreeManager;
   readonly memberWorkspaces?: MemberWorkspaceManager;
@@ -166,6 +173,24 @@ export interface EngineHost {
   ): Promise<{ path: string } | { refused: ScenarioRefusal }>;
   /** The images (`.png`, `.jpg`, `.jpeg`) below `dir` written at or after `sinceMs`, absolute, sorted, at most 100. */
   listImages(dir: string, sinceMs: number): Promise<string[]>;
+}
+
+/**
+ * Task attachments on a remote engine (PM-315): the files are stored on the server, and a session reads
+ * them on its engine, so `read_attachment` gives the file to the engine first. Absent, the session runs
+ * on the server's machine and reads the stored file itself.
+ */
+export interface EngineAttachments {
+  /** The directory of a card's attachments on the default engine, the one the sessions' read rules grant. */
+  directory(projectKey: string, taskKey: string): Promise<string>;
+  /** Gives the attachment to the engine the session runs on; the path it has there. Rejects `engine_offline`. */
+  materialize(input: {
+    sessionId: string;
+    projectKey: string;
+    taskKey: string;
+    attachment: Attachment;
+    storedPath: string;
+  }): Promise<string>;
 }
 
 export interface EngineDirectory {

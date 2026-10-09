@@ -15,6 +15,8 @@ export const FullTestErrorReason = z.enum([
   'checkout_dirty',
   'spawn_failed',
   'killed',
+  // The engine's link was lost while the run was on its way (hybrid mode, PM-315).
+  'engine_offline',
 ]);
 export type FullTestErrorReason = z.infer<typeof FullTestErrorReason>;
 

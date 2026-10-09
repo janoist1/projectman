@@ -20,6 +20,7 @@ import type {
   EngineDirectory,
   EngineHost,
   EngineSessionFolders,
+  FullTestExecutor,
   ScreenshotExecutor,
   ScreenshotRunSpec,
 } from '../src/contracts';
@@ -386,6 +387,132 @@ describe('sessions on engines', () => {
       expect(waiting).toMatchObject({ reason: 'engine_offline', member: 'cr' });
       expect(waiting?.engine).toBeUndefined();
     });
+  });
+
+  describe('an engine that connects (PM-315)', () => {
+    it('ends the sessions it does not report, keeps those it does and those still starting', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      engines.placement.set('dev-2', REMOTE);
+      const kept = (await h.domain.sessions.ensureSession('AR', 'dev-1', task)).session;
+      const lost = (await h.domain.sessions.ensureSession('AR', 'dev-2', task)).session;
+      expect(h.domain.engineCounters(REMOTE).runningSessions).toBe(2);
+
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set([kept.id]), () => false);
+      expect(h.domain.sessions.get('AR', kept.id).state).not.toBe('exited');
+      expect(h.domain.sessions.get('AR', lost.id).state).toBe('exited');
+      expect(h.domain.engineCounters(REMOTE).runningSessions).toBe(1);
+
+      // A start the cloud is still waiting for is not a lost session.
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set(), (id) => id === kept.id);
+      expect(h.domain.sessions.get('AR', kept.id).state).not.toBe('exited');
+    });
+
+    it('does not touch the sessions of another engine', async () => {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+      expect(session.engineId).toBeUndefined();
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set(), () => false);
+      expect(h.domain.sessions.get('AR', session.id).state).not.toBe('exited');
+      expect(h.domain.engineCounters(REMOTE).runningSessions).toBe(0);
+    });
+
+    it('stops a session it runs that the server does not know, or has ended', async () => {
+      engines.placement.set('dev-1', REMOTE);
+      const { session } = await stoppedOnRemote();
+      await h.domain.sessions.reconcileEngine(REMOTE, new Set(['unknown-session', session.id]), () => false);
+      expect(h.runner.stopped).toEqual(expect.arrayContaining(['unknown-session', session.id]));
+    });
+
+    it('sweeps the session folders of the engine for the sessions it reports', async () => {
+      const swept: string[][] = [];
+      const reported = new Set(['live-one']);
+      const folders = {
+        sweep: async (keep: (id: string) => boolean) => {
+          swept.push(['live-one', 'other'].filter(keep));
+          return [];
+        },
+        settleRemovals: async () => {},
+        releaseTmpRoot: async () => {},
+      };
+      engines.hosts.set(REMOTE, { ...engines.hosts.get(REMOTE)!, sessionFolders: folders as never });
+      await h.domain.sessions.reconcileEngine(REMOTE, reported, (id) => id === 'other');
+      expect(swept).toEqual([['live-one', 'other']]);
+    });
+
+    it('holds a message for a member whose engine is not there, counts it and delivers it when the engine is back', async () => {
+      engines.placement.set('cr', REMOTE);
+      engines.setOnline(REMOTE, false);
+
+      const { recipients } = await h.domain.messaging.sendReporting('AR', 'dev-1', {
+        to: ['cr'],
+        taskKey: 'AR-1',
+        text: 'Please look at this',
+      });
+      expect(recipients).toEqual([{ handle: 'cr', delivery: 'held', hold: 'engine' }]);
+      expect(h.domain.engineCounters(REMOTE).waitingMessages).toBe(1);
+      expect(h.domain.engineCounters(LOCAL_ENGINE_ID).waitingMessages).toBe(0);
+      expect(h.runner.started).toEqual([]);
+
+      engines.setOnline(REMOTE, true);
+      await waitFor(() => (h.runner.started.length === 1 ? true : undefined), {
+        what: 'the member wakes on the engine that connected',
+      });
+      expect(h.runner.lastStarted()).toMatchObject({ engineId: REMOTE });
+    });
+
+    it('counts the starts that wait for the engine', async () => {
+      engines.placement.set('cr', REMOTE);
+      engines.setOnline(REMOTE, false);
+      await h.domain.taskStarts.start('AR', 'AR-1', {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await settle();
+      expect(h.domain.engineCounters(REMOTE)).toMatchObject({ waitingStarts: 1, runningSessions: 0 });
+      engines.setOnline(REMOTE, true);
+      await waitFor(() => (h.domain.engineCounters(REMOTE).waitingStarts === 0 ? true : undefined), {
+        what: 'the waiting start is gone',
+      });
+    });
+
+    it('asks its full test executor when it connects, and again only while the sandbox is missing', async () => {
+      const available = vi.fn<FullTestExecutor['available']>(async () => ({
+        ok: false,
+        reason: 'no sandbox',
+      }));
+      const executor: FullTestExecutor = {
+        available,
+        run: async () => {
+          throw new Error('not run here');
+        },
+      };
+      engines.hosts.set(REMOTE, { ...engines.hosts.get(REMOTE)!, fullTestExecutor: executor });
+      engines.setOnline(REMOTE, false);
+      available.mockClear();
+
+      engines.setOnline(REMOTE, true);
+      await vi.waitFor(() => expect(available).toHaveBeenCalledTimes(1));
+      engines.setOnline(REMOTE, false);
+      engines.setOnline(REMOTE, true);
+      await vi.waitFor(() => expect(available).toHaveBeenCalledTimes(2));
+
+      available.mockImplementation(async () => ({ ok: true }));
+      engines.setOnline(REMOTE, false);
+      engines.setOnline(REMOTE, true);
+      await vi.waitFor(() => expect(available).toHaveBeenCalledTimes(3));
+      await settle(); // the engine is now counted as able to run the test
+      engines.setOnline(REMOTE, false);
+      engines.setOnline(REMOTE, true);
+      await settle();
+      expect(available).toHaveBeenCalledTimes(3);
+    });
+
+    async function stoppedOnRemote(): Promise<{ session: Session }> {
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+      await h.domain.sessions.stop('AR', session.id);
+      return { session };
+    }
   });
 
   describe('free disk space of the engine', () => {

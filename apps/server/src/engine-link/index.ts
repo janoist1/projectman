@@ -20,6 +20,8 @@ export * from './protocol';
 export * from './methods';
 export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
+export { createCloudRemote } from './remote';
+export type { CloudRemote } from './remote';
 export { resolveAppVersion } from './version';
 export { EngineStartSpec } from './session-schemas';
 
@@ -32,6 +34,11 @@ export interface EngineLinks {
   get(engineId: EngineId): EngineLink | null;
   onChange(listener: (engineId: EngineId, online: boolean) => void): () => void;
   register(app: FastifyInstance): void;
+  /**
+   * The engine a request's machine key belongs to (the file endpoints, PM-315); refuses with the same
+   * attempt limit and HTTPS rule as the link. Throws a 401 `DomainError`.
+   */
+  authenticate(request: FastifyRequest): EngineId;
   close(): void;
 }
 
@@ -81,6 +88,7 @@ export function createEngineLinks(options: {
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   const pulses = new Set<() => void>();
   const directory: EngineLinks = {
+    authenticate,
     get(id) {
       return active.get(id) ?? null;
     },

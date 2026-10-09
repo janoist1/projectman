@@ -101,6 +101,22 @@ describe('cloud engine registry and link', () => {
     return connection;
   };
 
+  /** A project in cloud mode is made through an engine: a connected one answers that the folder exists. */
+  const createProjectThroughEngine = async () => {
+    const seed = await handshake((await create('Seed')).key);
+    const creating = createProject(h, cookie);
+    await vi.waitFor(() =>
+      expect(seed.frames.some((frame) => frame.t === 'req' && frame.method === 'host.is_directory')).toBe(
+        true,
+      ),
+    );
+    const asked = seed.frames.find((frame) => frame.t === 'req' && frame.method === 'host.is_directory');
+    if (asked?.t !== 'req') throw new Error('The folder check was not asked');
+    seed.ws.send(encodeFrame({ t: 'res', id: asked.id, ok: true, result: true }));
+    await creating;
+    return seed;
+  };
+
   it('stores only the key hash, reveals the key once and manages the default transactionally', async () => {
     const one = await create('  Office  ');
     expect(one.key).toMatch(/^pme_[A-Za-z0-9_-]{43}$/);
@@ -128,7 +144,7 @@ describe('cloud engine registry and link', () => {
   });
 
   it('restricts mutation to host owner login and status to internal users', async () => {
-    await createProject(h, cookie);
+    await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     expect((await inject(h.app, 'GET', routes.engines(), developer)).statusCode).toBe(403);
@@ -287,7 +303,7 @@ describe('cloud engine registry and link', () => {
   });
 
   it('broadcasts status to internal sockets without disclosing keys to clients', async () => {
-    await createProject(h, cookie);
+    await createProjectThroughEngine();
     const developer = await addHumanAndLogin(h.app, { handle: 'human' });
     const client = await addHumanAndLogin(h.app, { handle: 'client', access: 'client' });
     const internalEvents: ServerEvent[] = [];

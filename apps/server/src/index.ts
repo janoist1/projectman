@@ -61,7 +61,8 @@ import { EngineConfigError } from './engine-link/engine-config';
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
  *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
  *   PROJECTMAN_MODE (single): `cloud` enables the engine registry and authenticated engine link (PM-313).
- *   The remote execution composition is supplied by PM-315. `engine` starts the engine process on the
+ *   In cloud mode the sessions, worktrees, gh, full test and screenshots run on the connected engine
+ *   (PM-315); the server keeps no machine of its own. `engine` starts the engine process on the
  *   machine the work happens on (PM-314, `npm run engine -- start`): no database, no web app and no
  *   `/api`, only a loopback listener for the CLIs' hooks and team tools and one outbound link to the cloud.
  *   Its settings are `<home>/engine.json` (`npm run engine -- init`); it refuses the managed VM profile.
@@ -280,7 +281,8 @@ async function main(): Promise<void> {
     ...config.app,
     // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
     modules:
-      config.app.executionProfile === 'managed_vm'
+      // The cloud runs none of the machine's work itself: its engine does the full test and the screenshots.
+      config.app.executionProfile === 'managed_vm' || mode === 'cloud'
         ? { ...config.app.modules, nanogptKeyCheck: createNanogptKeyCheck() }
         : {
             ...config.app.modules,

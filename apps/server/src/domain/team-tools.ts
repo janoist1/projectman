@@ -34,6 +34,7 @@ import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
   AttachmentPage,
+  EngineAttachments,
   EngineHost,
   GithubService,
   ListTasksInput,
@@ -285,6 +286,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly githubSync: GithubSync;
   private readonly attachments: AttachmentOperations;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
+  private readonly materializeAttachment: EngineAttachments['materialize'] | undefined;
   private readonly sessionEngine:
     | ((
         sessionId: string,
@@ -320,6 +322,11 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
     /**
+     * Gives an attachment to the engine the session runs on (PM-315, cloud mode) and names its path
+     * there; absent, the path is the stored file's own (the session runs on this machine).
+     */
+    materializeAttachment?: EngineAttachments['materialize'];
+    /**
      * The engine a session runs on (PM-312): `attach_file` opens the file on its disk, from the working
      * directory or from the caller's own session folder (PM-268).
      */
@@ -351,6 +358,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.githubSync = deps.githubSync;
     this.attachments = deps.attachments;
     this.attachmentDirectory = deps.attachmentDirectory;
+    this.materializeAttachment = deps.materializeAttachment;
   }
 
   async sendMessage(
@@ -525,7 +533,21 @@ export class TeamToolsService implements TeamToolsHandler {
         (ctx.taskKey === taskKey || (sessionTask?.parentKey ?? null) === taskKey) &&
         attachmentToolRules(await this.attachmentDirectory(ctx.projectKey, taskKey).catch(() => null)).allow
           .length > 0;
-      return { ...located, readableWithoutAsking: own };
+      // A session on another machine reads the file there: the engine gets it first (PM-315).
+      const path = this.materializeAttachment
+        ? await this.materializeAttachment({
+            sessionId: ctx.sessionId,
+            projectKey: ctx.projectKey,
+            taskKey,
+            attachment: located.attachment,
+            storedPath: located.path,
+          }).catch((err: unknown) => {
+            if (err instanceof DomainError && err.code === 'engine_offline')
+              throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
+            throw err;
+          })
+        : located.path;
+      return { ...located, path, readableWithoutAsking: own };
     });
   }
 
@@ -560,6 +582,7 @@ export class TeamToolsService implements TeamToolsHandler {
           place,
           // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
           exactRoot: inFolder,
+          sessionId: session.id,
         })
         .catch((err: unknown) => {
           throw toFileToolError(err, args.path);

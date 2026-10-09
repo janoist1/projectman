@@ -278,6 +278,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'error':
       console.warn('[ws] server error:', event.message);
       return;
+    // The focus panel (PM-427 4/4) reads it; nothing in the cache holds the focus yet.
+    case 'project_focus_changed':
     case 'hello':
     case 'terminal_data':
     case 'terminal_snapshot':

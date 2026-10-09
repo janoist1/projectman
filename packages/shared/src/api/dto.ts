@@ -795,6 +795,21 @@ export const PublicInviteView = z.object({
 });
 export type PublicInviteView = z.infer<typeof PublicInviteView>;
 
+/** Puts a theme or card into the project's focus (PM-427); `position` is 1-based, absent: the end of the list. */
+export const ProjectFocusAddRequest = z.object({
+  key: TaskKey,
+  position: z.number().int().min(1).optional(),
+});
+export type ProjectFocusAddRequest = z.infer<typeof ProjectFocusAddRequest>;
+
+/** Moves a focus item to the 1-based `position`, clamped to the length of the list. */
+export const ProjectFocusMoveRequest = z.object({ position: z.number().int().min(1) });
+export type ProjectFocusMoveRequest = z.infer<typeof ProjectFocusMoveRequest>;
+
+/** The project's `focus_changed` events, newest first. */
+export const ProjectFocusChanges = z.object({ events: z.array(TimelineEvent) });
+export type ProjectFocusChanges = z.infer<typeof ProjectFocusChanges>;
+
 /** An existing account accepts with an empty body and its login cookie. */
 export const AcceptInviteRequest = z.object({
   name: SetupRequest.shape.name.trim().min(1).optional(),

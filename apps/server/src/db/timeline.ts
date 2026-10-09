@@ -67,6 +67,9 @@ export function createTimelineRepository(db: Db) {
        ORDER BY seq DESC LIMIT 1`,
     ),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
+    ofProjectType: db.prepare(
+      'SELECT * FROM timeline_events WHERE project_key = ? AND type = ? ORDER BY seq DESC LIMIT ?',
+    ),
     byId: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? AND id = ?'),
     // Imported comments (a ClickUp import) are history, not conversation.
     talkSince: db.prepare(
@@ -185,6 +188,10 @@ export function createTimelineRepository(db: Db) {
     latestOfType(projectKey: string, taskKey: string, type: TimelineEvent['type']): TimelineEvent | null {
       const row = statements.latestOfType.get(projectKey, taskKey, type) as TimelineRow | undefined;
       return row ? toEvent(row) : null;
+    },
+    /** The most recent `limit` events of a type in a project, cards or not, newest first. */
+    ofProjectType(projectKey: string, type: TimelineEvent['type'], limit: number): TimelineEvent[] {
+      return (statements.ofProjectType.all(projectKey, type, limit) as TimelineRow[]).map(toEvent);
     },
     /** The most recent work on a card: a note, an attachment or a new description (PM-431), or null. */
     latestWork(projectKey: string, taskKey: string): TimelineEvent | null {

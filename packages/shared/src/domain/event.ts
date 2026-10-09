@@ -60,6 +60,7 @@ export const TimelineEventType = z.enum([
   'member_hired',
   'member_retired',
   'config_changed',
+  'focus_changed',
   'team_paused',
   'team_resumed',
 ]);
@@ -147,6 +148,8 @@ export interface TimelineEventData {
     reviewPin?: { commit: string; branch: string };
     branchMoved?: { branch: string; pinned: string; head: string };
     testsFailed?: { runId: string; branch: string; commit: string };
+    /** The card was pulled into this stage ahead of its turn (PM-427); hidden from clients. */
+    pulled?: StagePull;
   };
   /** `reason`: the assignee left the team, or handed the task over (`from` is the one who left). */
   task_assigned: {
@@ -403,4 +406,24 @@ export interface TimelineEventData {
   member_hired: { handle: string; role: string; temp: boolean; sponsor: string };
   member_retired: { handle: string; handoverTo: string | null };
   config_changed: { version: string; message: string };
+  /**
+   * The project's focus changed (PM-427; the actor is the person who set it). Places are 1-based: a
+   * removed item has `position` null, an added one `previous` null. `added` and `removed` are recorded on
+   * the item's own card or theme (`taskKey`); `moved` has no card and shows in the project's changes only.
+   * `title` is the item's title when it was written. Never shown to clients.
+   */
+  focus_changed: {
+    action: 'added' | 'removed' | 'moved';
+    key: string;
+    title: string;
+    position: number | null;
+    previous: number | null;
+  };
 }
+
+/**
+ * Why a card was pulled into a stage ahead of its turn (PM-427): `urgent` it is urgent; `focus` the
+ * project's focus put it there; `key` and `title` are the focus item that covers the card, `position` its place.
+ */
+export type StagePull =
+  { reason: 'urgent' } | { reason: 'focus'; position: number; key: string; title: string };

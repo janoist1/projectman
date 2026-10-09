@@ -1687,6 +1687,36 @@ for a live session of the old assignee (only a change of the repository is).
 (see the inventory entry "Task worktrees and shared git storage"); the conversation state, the stop at a safe point and
 the transcript summary go through the existing runner and transcript entries.
 
+### Project focus (PM-427, PM-435)
+
+A project has one ordered focus list of at most `PROJECT_FOCUS_MAX_ITEMS` (20) themes or cards the team works on now.
+The contract and the pure rules are in `packages/shared/src/domain/project-focus.ts`: `projectFocusRefusal` (who may
+set it) and `projectFocusPlaces` (key -> `FocusPlace`, the 1-based place and the item that covers the card). The
+later parts of PM-427 (the order of deferred starts, the AI members' brief, the web) build on both.
+
+- **Storage.** Table `project_focus_items` (migration 43; `(project_key, task_key)` is the key, `position` the order,
+  `added_by` the actor as JSON), repository `repos.projectFocus` with `list(projectKey)` and `replace(projectKey, items)`.
+  `ProjectFocusService` (`apps/server/src/domain/project-focus.ts`) replaces the list and appends the timeline event in
+  one unit of work; the `project_focus_changed` WebSocket event leaves when that commits, then the `onChange` listeners
+  run. A write that leaves an item where it was writes nothing. The service takes nothing off by itself: a closed item
+  stays until a person removes it, covers nothing, and still counts in the numbering.
+- **Coverage.** A card covers itself and its subtasks; a theme covers itself and every card whose `themeKey` it is,
+  with their subtasks. A closed item covers nothing and a closed card has no place; the smallest place wins.
+- **Who sets it.** A person (`actor.kind === 'human'`, through the integrator too) who owns the project
+  (`ownerHandles`) or holds the `prioritization` duty (`dutyMembers`); no approval. An AI member or the system gets
+  `focus_humans_only`, any other person `focus_not_allowed`.
+- **API.** `GET /api/projects/:key/focus` (`ProjectFocusView`, with `canEdit`), `POST .../focus/items`,
+  `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
+  events, newest first). All are internal-only (`requireAccess(..., { internal: true })`).
+- **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
+  only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`) is reserved for the pull into the
+  work stage (PM-427 2/4).
+- **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
+  `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
+  `pulled` off a stage change.
+
+**Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
+
 ## Pause and resume (PM-219, part of PM-198)
 
 The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker

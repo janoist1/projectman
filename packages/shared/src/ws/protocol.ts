@@ -7,6 +7,7 @@ import { InboxItem } from '../domain/inbox';
 import { AgentProvider, MemberHandle, MemberStatus } from '../domain/member';
 import { TeamMessage } from '../domain/message';
 import { ProjectPauseView } from '../domain/pause';
+import { ProjectFocus } from '../domain/project-focus';
 import { Session } from '../domain/session';
 import { Task, TaskKey } from '../domain/task';
 
@@ -60,6 +61,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('config_changed'), projectKey: z.string(), version: z.string() }),
   /** A task's attachments changed (after the commit); clients read the list again. No more than the key. */
   z.object({ type: z.literal('task_attachments_changed'), projectKey: z.string(), taskKey: TaskKey }),
+  /** The project's focus changed (PM-427); internal members only. */
+  z.object({ type: z.literal('project_focus_changed'), projectKey: z.string(), focus: ProjectFocus }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

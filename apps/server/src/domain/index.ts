@@ -94,6 +94,7 @@ import { PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
+import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
@@ -177,6 +178,7 @@ export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
+export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
 import { ProviderKeys } from './provider-keys';
@@ -441,6 +443,7 @@ export function createDomain(opts: DomainOptions) {
     // `handoffs` is built below; the callback only runs when a card changes its assignee.
     handoff: (input) => handoffs.begin(input),
   });
+  const projectFocus = new ProjectFocusService({ ctx, projects, tasks, timeline });
   const attachments = new AttachmentService({
     ctx,
     projects,
@@ -1134,6 +1137,7 @@ export function createDomain(opts: DomainOptions) {
     templates,
     timeline,
     involvements,
+    projectFocus,
     projects,
     inbox,
     boundary,

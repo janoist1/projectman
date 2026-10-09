@@ -808,5 +808,19 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   CREATE UNIQUE INDEX engines_one_default ON engines(is_default)
     WHERE is_default = 1 AND revoked_at IS NULL;`,
   },
+  {
+    version: 43,
+    name: 'project focus',
+    // PM-427: the project's ordered focus list; position is 1-based, added_by is the Actor as JSON.
+    sql: `CREATE TABLE project_focus_items (
+    project_key TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    task_key TEXT NOT NULL,
+    added_at TEXT NOT NULL,
+    added_by TEXT NOT NULL,
+    PRIMARY KEY (project_key, task_key)
+  );
+  CREATE INDEX project_focus_items_order ON project_focus_items(project_key, position);`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

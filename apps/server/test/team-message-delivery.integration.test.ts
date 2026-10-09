@@ -44,7 +44,11 @@ it(
   'starts another manager turn for idle, busy and resumed conversations with or without a card',
   { timeout: 120_000 },
   async () => {
-    h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
+    h = await createAppHarness({
+      runner: 'fake-cli',
+      real: { context: true },
+      app: { shutdownPauseMs: 0 },
+    });
     const cookie = await setupOwner(h.app);
     await createProject(h, cookie);
     await h.app.projectman.domain.projects.update(
@@ -75,14 +79,19 @@ it(
     await idle();
     for (const phase of ['idle', 'busy', 'resumed'] as const) {
       if (phase === 'resumed') {
-        await h.app.projectman.domain.sessions.stop('AR', session.id);
+        await h.restart();
         const resumed = await h.app.projectman.domain.sessions.ensureSession(
           'AR',
           'pm',
           { type: 'general' },
-          { messages: ['Resume manager work'] },
+          { messages: ['SLOW resume manager work'] },
         );
         expect(resumed.session.id).toBe(session.id);
+        expect(resumed.resumed).toBe(true);
+        // The restarted server must receive hooks authenticated with the new process's token.
+        await waitFor(() => h!.app.projectman.domain.sessions.get('AR', session.id).state === 'working', {
+          what: 'resumed manager working',
+        });
         await idle();
       }
       for (const taskKey of [undefined, task.key]) {

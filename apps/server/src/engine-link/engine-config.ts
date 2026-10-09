@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { SelectablePermissionMode } from '@projectman/shared';
+import { isWithin } from '../engine-host/within';
 import { isLoopbackHostname } from '../http/local-guard';
 
 /** `<PROJECTMAN_HOME>/engine.json`: what the engine process may serve and where the cloud is (PM-314). */
@@ -226,8 +227,37 @@ function realAbsolute(value: string, what: string): string {
   }
 }
 
-/** Checks the cloud URL and resolves every path with `realpath` (symlinks cannot widen a root later). */
-export function resolveEngineConfig(config: EngineConfig, home: string): ResolvedEngineConfig {
+/**
+ * The real path of the nearest existing ancestor plus the rest (a missing key is reported when it is read,
+ * but a link in front of it must still be followed).
+ */
+function realOrAbsolute(value: string, what: string): string {
+  if (!path.isAbsolute(value))
+    throw new EngineConfigError('path_not_absolute', `${what} must be an absolute path: ${value}`);
+  let head = path.resolve(value);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return path.join(realpathSync(head), ...rest.reverse());
+    } catch {
+      const parent = path.dirname(head);
+      if (parent === head) return path.resolve(value);
+      rest.push(path.basename(head));
+      head = parent;
+    }
+  }
+}
+
+/**
+ * Checks the cloud URL and resolves every path with `realpath` (symlinks cannot widen a root later).
+ * The machine key, the link headers and the home itself must stay outside every root a session may name
+ * (a workspace, the temp directory, the engine's own worktrees): a sandbox may read a root.
+ */
+export function resolveEngineConfig(
+  config: EngineConfig,
+  home: string,
+  options: { tmpdir?: string } = {},
+): ResolvedEngineConfig {
   cloudOrigin(config.cloudUrl);
   const projects = config.projects.map((entry) => ({
     project: entry.project,
@@ -249,10 +279,35 @@ export function resolveEngineConfig(config: EngineConfig, home: string): Resolve
       );
     return { ...entry, path: real };
   });
+  const keyFile = realOrAbsolute(config.keyFile ?? engineFiles(home).key, 'The engine key file');
+  const linkHeadersFile = config.linkHeadersFile
+    ? realOrAbsolute(config.linkHeadersFile, 'The link headers file')
+    : undefined;
+  const realHome = realOrAbsolute(home, 'The engine home');
+  const sessionRoots = [
+    ...projects.map((entry) => entry.workspacePath),
+    realOrAbsolute(options.tmpdir ?? os.tmpdir(), 'The temporary directory'),
+    path.join(realHome, 'worktrees'),
+    path.join(realHome, 'workspaces'),
+    path.join(realHome, 'member-caches'),
+  ];
+  for (const [what, target] of [
+    ['The engine key file', keyFile],
+    ['The link headers file', linkHeadersFile],
+    ['The engine home', realHome],
+  ] as const) {
+    const root = target === undefined ? undefined : sessionRoots.find((entry) => isWithin(entry, target));
+    if (root !== undefined)
+      throw new EngineConfigError(
+        'secret_in_root',
+        `${what} (${target}) is inside ${root}, a place a session may read. Move it out of there.`,
+      );
+  }
   return {
     ...config,
     name: config.name ?? os.hostname(),
-    keyFile: config.keyFile ?? engineFiles(home).key,
+    keyFile,
+    ...(linkHeadersFile ? { linkHeadersFile } : {}),
     projects,
     repos,
   };

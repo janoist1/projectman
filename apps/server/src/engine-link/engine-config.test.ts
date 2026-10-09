@@ -154,16 +154,81 @@ describe('engine configuration', () => {
   });
 
   describe('resolving paths', () => {
+    // The home lies in the system temp directory here; name another one so that only the case under test counts.
+    const tmpdir = () => path.join(dir, 'system-tmp');
+    const resolve = (config: EngineConfig, home = dir) =>
+      resolveEngineConfig(config, home, { tmpdir: tmpdir() });
+
+    it('refuses a key file, link headers or home inside a workspace', () => {
+      const workspace = path.join(dir, 'work');
+      mkdirSync(workspace);
+      const projects = [{ project: 'PM', workspacePath: workspace }];
+      expect(() => resolve(base({ projects, keyFile: path.join(workspace, 'engine.key') }))).toThrowError(
+        expect.objectContaining({ code: 'secret_in_root' }),
+      );
+      expect(() =>
+        resolve(base({ projects, linkHeadersFile: path.join(workspace, 'sub', 'headers.json') })),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
+      expect(() => resolve(base({ projects }), workspace)).toThrowError(
+        expect.objectContaining({ code: 'secret_in_root' }),
+      );
+    });
+
+    it('refuses a key file or home inside the temporary directory, and inside the engine’s own worktrees', () => {
+      const home = path.join(dir, 'home');
+      mkdirSync(path.join(tmpdir(), 'x'), { recursive: true });
+      mkdirSync(path.join(home, 'worktrees'), { recursive: true });
+      expect(() => resolve(base({ keyFile: path.join(tmpdir(), 'engine.key') }), home)).toThrowError(
+        expect.objectContaining({ code: 'secret_in_root' }),
+      );
+      expect(() => resolve(base(), path.join(tmpdir(), 'x'))).toThrowError(
+        expect.objectContaining({ code: 'secret_in_root' }),
+      );
+      expect(() => resolve(base({ keyFile: path.join(home, 'worktrees', 'k') }), home)).toThrowError(
+        expect.objectContaining({ code: 'secret_in_root' }),
+      );
+      // The real temporary directory is the default.
+      expect(() => resolveEngineConfig(base(), dir)).toThrowError(
+        expect.objectContaining({ code: 'secret_in_root' }),
+      );
+    });
+
+    it('refuses a key file that reaches a workspace through a symbolic link', () => {
+      const workspace = path.join(dir, 'work');
+      const keys = path.join(dir, 'keys');
+      mkdirSync(workspace);
+      mkdirSync(keys);
+      symlinkSync(workspace, path.join(keys, 'link'));
+      expect(() =>
+        resolve(
+          base({
+            projects: [{ project: 'PM', workspacePath: workspace }],
+            keyFile: path.join(keys, 'link', 'engine.key'),
+          }),
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'secret_in_root' }));
+    });
+
+    it('accepts a key file and link headers outside every root, and returns them absolute', () => {
+      const keys = path.join(dir, 'keys');
+      mkdirSync(keys);
+      const resolved = resolve(base({ linkHeadersFile: path.join(keys, 'headers.json') }));
+      expect(resolved.keyFile).toBe(path.join(dir, 'engine.key'));
+      expect(resolved.linkHeadersFile).toBe(path.join(keys, 'headers.json'));
+      expect(() => resolve(base({ keyFile: 'engine.key' }))).toThrowError(
+        expect.objectContaining({ code: 'path_not_absolute' }),
+      );
+    });
+
     it('resolves a symlinked workspace to its real path', () => {
       const real = path.join(dir, 'real');
       mkdirSync(path.join(real, 'repo'), { recursive: true });
       symlinkSync(real, path.join(dir, 'link'));
-      const resolved = resolveEngineConfig(
+      const resolved = resolve(
         base({
           projects: [{ project: 'PM', workspacePath: path.join(dir, 'link') }],
           repos: [{ project: 'PM', repo: 'repo', path: path.join(dir, 'link', 'repo') }],
         }),
-        dir,
       );
       expect(resolved.projects[0]!.workspacePath).toBe(real);
       expect(resolved.repos[0]!.path).toBe(path.join(real, 'repo'));
@@ -177,20 +242,19 @@ describe('engine configuration', () => {
       mkdirSync(outside);
       symlinkSync(outside, path.join(workspace, 'escape'));
       expect(() =>
-        resolveEngineConfig(
+        resolve(
           base({
             projects: [{ project: 'PM', workspacePath: workspace }],
             repos: [{ project: 'PM', repo: 'escape', path: path.join(workspace, 'escape') }],
           }),
-          dir,
         ),
       ).toThrowError(expect.objectContaining({ code: 'repo_outside_workspace' }));
     });
 
     it('refuses a relative workspace path', () => {
-      expect(() =>
-        resolveEngineConfig(base({ projects: [{ project: 'PM', workspacePath: 'relative' }] }), dir),
-      ).toThrowError(expect.objectContaining({ code: 'path_not_absolute' }));
+      expect(() => resolve(base({ projects: [{ project: 'PM', workspacePath: 'relative' }] }))).toThrowError(
+        expect.objectContaining({ code: 'path_not_absolute' }),
+      );
     });
   });
 });

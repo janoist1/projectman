@@ -252,6 +252,64 @@ describe('engine local limit', () => {
       expect(built.sandbox.allowWrite).toContain(repo);
       expect(built.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
     });
+
+    describe('the engine’s own secrets', () => {
+      const keyFile = () => path.join(home, 'engine.key');
+      const headersFile = () => path.join(base, 'keys', 'headers.json');
+      const withHeaders = () => make({ linkHeadersFile: headersFile() });
+      const policy = () => ({
+        permissions: { claude: 'default', sandbox: 'workspace-write' },
+        placement: { path: repo },
+        filesystem: { writableRoots: [repo] },
+      });
+
+      it('never lets a session read or change the machine key and the link headers', async () => {
+        const given = (await withHeaders().check(
+          'session.start',
+          start({ sandbox: sandbox() }) as never,
+        )) as { sandbox: { denyRead: string[]; denyWrite: string[] } };
+        for (const file of [keyFile(), headersFile()]) {
+          expect(given.sandbox.denyRead).toContain(file);
+          expect(given.sandbox.denyWrite).toContain(file);
+        }
+        const built = (await withHeaders().check('session.start', start() as never)) as {
+          sandbox: { denyRead: string[]; denyWrite: string[] };
+        };
+        expect(built.sandbox.denyRead).toContain(keyFile());
+        expect(built.sandbox.denyWrite).toContain(headersFile());
+      });
+
+      it('lets a session read but never change the configuration and the status file', async () => {
+        const given = (await make().check('session.start', start({ sandbox: sandbox() }) as never)) as {
+          sandbox: { denyRead: string[]; denyWrite: string[] };
+        };
+        for (const file of [path.join(home, 'engine.json'), path.join(home, 'engine-status.json')]) {
+          expect(given.sandbox.denyWrite).toContain(file);
+          expect(given.sandbox.denyRead).not.toContain(file);
+        }
+      });
+
+      it('puts them in the denied paths of a policy', async () => {
+        const result = (await withHeaders().check(
+          'session.start',
+          start({ provider: 'codex', policy: policy() }) as never,
+        )) as { policy: { filesystem: { deniedPaths: string[] } } };
+        expect(result.policy.filesystem.deniedPaths).toEqual(
+          expect.arrayContaining([keyFile(), headersFile(), path.join(userHome, '.ssh')]),
+        );
+      });
+
+      it.each(['codex', 'nanogpt', 'gemini'])(
+        'refuses a %s session without a policy, and accepts it with one',
+        async (provider) => {
+          const limit = make();
+          await refused(limit, 'session.start', start({ provider }), 'invalid_params');
+          await expect(
+            limit.check('session.start', start({ provider, policy: policy() }) as never),
+          ).resolves.toBeDefined();
+        },
+      );
+    });
   });
 
   it('refuses terminal input when the engine disabled it', async () => {
@@ -411,6 +469,21 @@ describe('engine local limit', () => {
         spec: { sandbox: { denyRead: string[] } };
       };
       expect(result.spec.sandbox.denyRead).toContain(path.join(userHome, '.ssh'));
+    });
+
+    it('keeps the engine’s key and configuration out of the test and screenshot sandboxes', async () => {
+      const limit = make({ linkHeadersFile: path.join(base, 'keys', 'headers.json') });
+      type Denials = { spec: { sandbox: { denyRead: string[]; denyWrite?: string[] } } };
+      const test = (await limit.check('full_test.run', fullTest() as never)) as unknown as Denials;
+      const shot = (await limit.check('screenshots.run', shots() as never)) as unknown as Denials;
+      for (const { spec } of [test, shot])
+        expect(spec.sandbox.denyRead).toEqual(
+          expect.arrayContaining([path.join(home, 'engine.key'), path.join(base, 'keys', 'headers.json')]),
+        );
+      // The test writes only its run directory; the screenshots keep the configuration read-only too.
+      expect(shot.spec.sandbox.denyWrite).toEqual(
+        expect.arrayContaining([path.join(home, 'engine.key'), path.join(home, 'engine.json')]),
+      );
     });
 
     it('accepts the screenshot arguments the server builds and nothing else', async () => {

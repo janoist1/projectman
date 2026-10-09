@@ -128,6 +128,7 @@ describe('engine process', () => {
       port,
       version: '0.0.0-test',
       installDir: base,
+      tmpdir: path.join(base, 'system-tmp'),
       agentEnv: {},
       heavyLockDir: path.join(base, 'heavy'),
       permissionTimeoutMs: 2000,
@@ -162,6 +163,20 @@ describe('engine process', () => {
     return built;
   };
 
+  /** The policy a Codex, NanoGPT or Gemini start needs on an engine: its denied paths come from it alone. */
+  const policy = () => ({
+    version: 1,
+    enforcement: 'strict',
+    access: 'task_worktree',
+    placement: { kind: 'task_worktree', path: repo },
+    tools: { team: { all: true, names: [] }, files: ['read'], shell: [] },
+    filesystem: { readableRoots: [repo], writableRoots: [repo], protectedPaths: [] },
+    deniedOperations: [],
+    network: { allowedDomains: [], allowLocalBinding: false },
+    outsideSandbox: 'deny',
+    permissions: { claude: 'default', sandbox: 'workspace-write', approval: 'never' },
+  });
+
   const startSpec = (overrides: Record<string, unknown> = {}) =>
     ({
       sessionId: 's1',
@@ -172,6 +187,7 @@ describe('engine process', () => {
       appendSystemPrompt: 'system',
       mcpToken: TOKEN,
       allowedTools: [],
+      ...(overrides.provider && overrides.provider !== 'claude' ? { policy: policy() } : {}),
       ...overrides,
     }) as MethodParams<'session.start'>;
 
@@ -270,6 +286,29 @@ describe('engine process', () => {
       expect(spec.mcpUrl).toBe(`http://127.0.0.1:${port}/mcp/${TOKEN}`);
       // The sandbox is built here when the cloud sent none, and keeps the credential places out.
       expect(spec.sandbox?.denyRead).toContain(path.join(userHome, '.ssh'));
+    });
+
+    it('keeps the machine key out of every session, whatever the cloud sent', async () => {
+      await startEngine();
+      const { call } = await cloud.connected();
+      const key = path.join(home, 'engine.key');
+      await call('session.start', startSpec());
+      expect(fake.runner.lastStarted().sandbox?.denyRead).toContain(key);
+      expect(fake.runner.lastStarted().sandbox?.denyWrite).toEqual(
+        expect.arrayContaining([key, path.join(home, 'engine.json')]),
+      );
+      await call('session.start', startSpec({ sessionId: 's-codex', provider: 'codex' }));
+      expect(fake.runner.lastStarted().policy?.filesystem.deniedPaths).toContain(key);
+    });
+
+    it('refuses a Codex, NanoGPT or Gemini start without a policy and starts nothing', async () => {
+      await startEngine();
+      const { call } = await cloud.connected();
+      for (const provider of ['codex', 'nanogpt', 'gemini'])
+        await expect(
+          call('session.start', { ...startSpec({ provider }), policy: undefined }),
+        ).rejects.toMatchObject({ code: 'invalid_params' });
+      expect(fake.runner.started).toHaveLength(0);
     });
 
     it('refuses a working directory outside the roots and starts nothing', async () => {
@@ -378,6 +417,31 @@ describe('engine process', () => {
         JSON.stringify(cloud.hellos),
       ];
       for (const text of texts) expect(text).not.toContain(NANOGPT_KEY);
+    });
+
+    it('is in the audit log with the method, the session and the outcome, without the key', async () => {
+      cloud.handle('secret.nanogpt_key', ({ sessionId }) => {
+        if (sessionId === 's-none') throw new Error('no key');
+        return { key: NANOGPT_KEY };
+      });
+      readsKeyOnStart();
+      await startEngine();
+      const { call } = await cloud.connected();
+      await call('session.start', startSpec({ sessionId: 's-nano', provider: 'nanogpt' }));
+      await call('session.start', startSpec({ sessionId: 's-none', provider: 'nanogpt' }));
+      await engine!.close();
+      const text = readFileSync(path.join(home, 'logs', 'engine-audit.jsonl'), 'utf8');
+      const records = text
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
+        .filter((record) => record.method === 'secret.nanogpt_key');
+      // One record per start: the key is asked for once, however often the runner reads it.
+      expect(records).toEqual([
+        expect.objectContaining({ sessionId: 's-nano', outcome: 'ok', reqId: expect.any(String) }),
+        expect.objectContaining({ sessionId: 's-none', outcome: 'error', code: 'internal' }),
+      ]);
+      expect(text).not.toContain(NANOGPT_KEY);
     });
 
     it('is not asked for again when the cloud has none to give', async () => {

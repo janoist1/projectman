@@ -79,6 +79,8 @@ export function createEngineTransfers(options: EngineTransferOptions): EngineTra
           },
           body: Readable.toWeb(meter) as ReadableStream,
           duplex: 'half',
+          // The headers hold the link's service token: never follow the cloud to another address.
+          redirect: 'error',
         } as RequestInit);
       } catch {
         throw new EngineRpcError('link_down', 'The upload to the cloud failed');
@@ -95,6 +97,7 @@ export function createEngineTransfers(options: EngineTransferOptions): EngineTra
         response = await doFetch(httpUrl(options.cloudUrl, routes.engineDownload(token)), {
           method: 'GET',
           headers: options.headers(),
+          redirect: 'error',
         });
       } catch {
         throw new EngineRpcError('link_down', 'The download from the cloud failed');

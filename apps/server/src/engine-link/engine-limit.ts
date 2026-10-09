@@ -11,6 +11,7 @@ import {
 } from '../domain/session-policy';
 import { isWithin } from '../engine-host/within';
 import { BILLING_ENV_VARS } from '../runner';
+import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';
 import type { EngineMethod, MethodParams } from './methods';
 import { EngineRpcError } from './rpc';
@@ -100,7 +101,12 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   const selfUid = options.selfUid === undefined ? (process.getuid?.() ?? null) : options.selfUid;
   const memberCaches = path.join(home, 'member-caches');
   const attachmentsCache = path.join(home, 'attachments-cache');
-  const sensitive = sensitivePaths({ userHome, appHome: home });
+  const files = engineFiles(home, config);
+  // The engine's own secrets: the machine key and the link headers (the service token) are neither read
+  // nor changed by a session; its configuration and status file are read but never changed.
+  const engineSecrets = [config.keyFile, ...(config.linkHeadersFile ? [config.linkHeadersFile] : [])];
+  const sensitive = [...sensitivePaths({ userHome, appHome: home }), ...engineSecrets];
+  const sensitiveWrite = [...sensitive, files.config, files.status];
   const sessions = new Map<string, { cwd: string; folder?: string }>();
   const present = (values: ReadonlyArray<string | null | undefined>): string[] =>
     values.filter((value): value is string => typeof value === 'string' && value.length > 0);
@@ -119,14 +125,15 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       ]).map(resolveReal),
     ),
   ];
-  /** What a session's sandbox may also name: the heavy-run queue's folder, the browsers, the CLIs' shared temp roots. */
+  /**
+   * What a session's sandbox may also name: the heavy-run queue's folder and the browsers. Not the CLIs'
+   * shared temp roots (`/tmp/claude-<uid>`): they are off limits to a session (PM-353) and the cloud never asks.
+   */
   const sandboxRoots = (): string[] => [
     ...roots(),
-    ...present([
-      paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null,
-      paths.browsersDir,
-      ...paths.claudeTmpRoots,
-    ]).map(resolveReal),
+    ...present([paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null, paths.browsersDir]).map(
+      resolveReal,
+    ),
   ];
   const within = (candidates: readonly string[], target: string): boolean => {
     if (!path.isAbsolute(target) || target.includes('\0')) return false;
@@ -186,7 +193,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   ): T => ({
     ...sandbox,
     denyRead: [...new Set([...(sandbox.denyRead ?? []), ...sensitive])],
-    denyWrite: [...new Set([...(sandbox.denyWrite ?? []), ...sensitive])],
+    denyWrite: [...new Set([...(sandbox.denyWrite ?? []), ...sensitiveWrite])],
     deniedEnvVars: [...new Set([...(sandbox.deniedEnvVars ?? []), ...SANDBOX_DENIED_ENV_VARS])],
   });
 
@@ -200,6 +207,10 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       insideAll(spec.writableRoots, 'A writable root', extra);
       limitMode(spec.permissionMode);
       const policy = spec.policy;
+      // The denied paths of Codex and NanoGPT come from the policy alone: without one they would run with
+      // none, and the engine's secrets would be readable.
+      if (spec.provider && spec.provider !== 'claude' && !policy)
+        refuse('invalid_params', 'A session of this provider needs a policy on this engine');
       if (policy) {
         limitMode(policy.permissions.claude);
         if (policy.permissions.sandbox === 'danger-full-access')
@@ -345,6 +356,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         ...params,
         spec: {
           ...spec,
+          // The command writes only its own run directory, so the write denials do not apply.
           sandbox: { ...spec.sandbox, denyRead: [...new Set([...spec.sandbox.denyRead, ...sensitive])] },
         },
       };
@@ -386,7 +398,7 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
           sandbox: {
             ...spec.sandbox,
             denyRead: [...new Set([...spec.sandbox.denyRead, ...sensitive])],
-            denyWrite: [...new Set([...spec.sandbox.denyWrite, ...sensitive])],
+            denyWrite: [...new Set([...spec.sandbox.denyWrite, ...sensitiveWrite])],
           },
         },
       };

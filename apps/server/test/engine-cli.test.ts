@@ -33,6 +33,7 @@ describe('engine commands', () => {
     const io: EngineCliIo = {
       env: {},
       cwd: base,
+      tmpdir: path.join(base, 'system-tmp'),
       readStdin: async () => stdin,
       out: (text) => out.push(text),
       err: (text) => err.push(text),

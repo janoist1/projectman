@@ -35,6 +35,7 @@ import { createEngineStatusWriter } from './engine-link/engine-status';
 import { createEngineTransfers } from './engine-link/engine-transfer';
 import { createEngineEventBuffer } from './engine-link/event-buffer';
 import { ENGINE_RELAY_WAIT_MS } from './engine-link/protocol';
+import { EngineCallError } from './engine-link/rpc';
 import type { EngineEvent, Hello } from './engine-link/protocol';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { freeBytesOf } from './engine-host';
@@ -111,6 +112,8 @@ export interface EngineAppOptions {
   /** How long a team-tool call waits for the link to come back before it answers 503; tests shorten it. */
   relayWaitMs?: number;
   shutdownPauseMs?: number;
+  /** The temporary directory sessions may use (`os.tmpdir()`); tests name another one, since their home lies in it. */
+  tmpdir?: string;
   logger?: FastifyServerOptions['logger'];
   modules?: EngineAppModules;
 }
@@ -148,7 +151,9 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   const userHome = options.userHome ?? os.homedir();
   mkdirSync(home, { recursive: true, mode: 0o700 });
   chmodSync(home, 0o700);
-  const resolved = resolveEngineConfig(loadEngineConfig(home), home);
+  const resolved = resolveEngineConfig(loadEngineConfig(home), home, {
+    ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
+  });
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);
@@ -255,10 +260,31 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   const nanogptKey = async (): Promise<string | null> => {
     const scope = nanogptScope.getStore();
     if (!scope?.active) return null;
+    // Logged with the method, the session and the outcome only; never the key.
+    const sessionId = scope.sessionId;
+    let reqId = '';
     scope.key ??= client
-      .call('secret.nanogpt_key', { sessionId: scope.sessionId })
-      .then((result) => result.key)
-      .catch(() => null);
+      .call('secret.nanogpt_key', { sessionId }, { onRequestId: (id) => (reqId = id) })
+      .then((result) => {
+        audit.record({
+          reqId,
+          method: 'secret.nanogpt_key',
+          sessionId,
+          outcome: result.key ? 'ok' : 'error',
+          ...(result.key ? {} : { code: 'no_key' }),
+        });
+        return result.key;
+      })
+      .catch((error: unknown) => {
+        audit.record({
+          reqId,
+          method: 'secret.nanogpt_key',
+          sessionId,
+          outcome: 'error',
+          code: error instanceof EngineCallError ? error.linkCode : 'internal',
+        });
+        return null;
+      });
     return scope.key;
   };
   const nanogptStart = async <T>(sessionId: string, start: () => Promise<T>): Promise<T> => {
@@ -364,6 +390,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
     probe,
     sessionPids: runningPids,
     selfUid: uid,
+    ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
   const exportDir = path.join(home, 'export-tmp');
   mkdirSync(exportDir, { recursive: true, mode: 0o700 });

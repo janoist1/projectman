@@ -1,4 +1,7 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Readable } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
@@ -120,6 +123,67 @@ describe('engine file transfers', () => {
       ).rejects.toMatchObject({
         code: 'internal',
       });
+    });
+  });
+
+  describe('redirects', () => {
+    // The headers hold the link's service token: a redirect to another address must not carry them there.
+    let elsewhere: Server;
+    let elsewhereRequests: Array<Record<string, string | string[] | undefined>>;
+    let redirecting: Server;
+
+    const listen = (server: Server) =>
+      new Promise<number>((resolve) =>
+        server.listen(0, '127.0.0.1', () => resolve((server.address() as AddressInfo).port)),
+      );
+    const redirectingTransfers = async () => {
+      elsewhere = createServer((request, response) => {
+        elsewhereRequests.push({ ...request.headers });
+        request.resume();
+        response.writeHead(200).end('ok');
+      });
+      const elsewherePort = await listen(elsewhere);
+      redirecting = createServer((request, response) => {
+        request.resume();
+        response.writeHead(307, { location: `http://127.0.0.1:${elsewherePort}/stolen` }).end();
+      });
+      const port = await listen(redirecting);
+      return createEngineTransfers({
+        cloudUrl: `http://127.0.0.1:${port}`,
+        headers: () => ({ authorization: 'Bearer machine-key', 'cf-access-client-secret': 'service-secret' }),
+      });
+    };
+
+    beforeEach(() => {
+      elsewhereRequests = [];
+    });
+    afterEach(async () => {
+      await Promise.all(
+        [elsewhere, redirecting].map(
+          (server) => new Promise((resolve) => (server ? server.close(resolve) : resolve(undefined))),
+        ),
+      );
+    });
+
+    it('does not follow a redirect of an upload, so the extra headers stay with the cloud', async () => {
+      const body = Buffer.from('content');
+      await expect(
+        (await redirectingTransfers()).upload(token, 'file', {
+          size: body.length,
+          stream: () => Readable.from([body]),
+        }),
+      ).rejects.toBeDefined();
+      expect(elsewhereRequests).toEqual([]);
+    });
+
+    it('does not follow a redirect of a download', async () => {
+      await expect(
+        (await redirectingTransfers()).download(token, path.join(dir, 'file'), {
+          size: 1,
+          sha256: sha256('x'),
+        }),
+      ).rejects.toMatchObject({ code: 'link_down' });
+      expect(elsewhereRequests).toEqual([]);
     });
   });
 });

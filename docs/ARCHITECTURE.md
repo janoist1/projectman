@@ -986,10 +986,18 @@ workers follow the machine's size.
   workspace paths, the repos and full-test commands in `engine.json`, the highest permission mode, no
   full-access sandbox, a closed set of environment variables, terminal input, and which processes
   `machine.signal` may stop (a process of a running session, never the engine itself or pid 1).
+  The engine's own secrets are never reachable from a session: the machine key and the link-headers
+  file are in every sandbox's `denyRead` and `denyWrite` and in a policy's `deniedPaths`, and
+  `engine.json` and `engine-status.json` are in `denyWrite`. For that, `resolveEngineConfig` refuses a
+  key file, a headers file or a home that lies inside a workspace, the temporary directory or the
+  engine's own worktrees, after `realpath`. A Codex, NanoGPT or Gemini start needs a policy (its denied
+  paths come from it alone), and `/tmp/claude-<uid>` is no root a sandbox may name. File transfers do
+  not follow redirects, so the extra link headers (a service token) never leave the cloud's address.
   Only `hello` tells the cloud about the machine: version, host name, platform, the registered
   projects and repos (with whether a full-test command exists), providers, running sessions,
   `instanceTag`, `pid`, `uid` and `bootId`. The NanoGPT key is asked from the cloud for a starting
-  NanoGPT session only and lives in memory for that start. On SIGINT/SIGTERM the engine pauses its
+  NanoGPT session only and lives in memory for that start; the audit log records that request (method,
+  session id, ok or error) but never the key. On SIGINT/SIGTERM the engine pauses its
   running sessions first, then stops them and closes the link. `managed_vm` and a boundary config are
   refused at start-up (PM-331). The link client reconnects with a back-off of 1 to 30 seconds, replays
   unacknowledged events by sequence number, buffers at most 10,000 events or 50 MB (the oldest are

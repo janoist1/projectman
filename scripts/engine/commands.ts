@@ -31,6 +31,8 @@ export interface EngineCliIo {
   startEngine: (home: string, env: NodeJS.ProcessEnv) => Promise<number>;
   isRunning: (pid: number) => boolean;
   now?: () => number;
+  /** The temporary directory sessions may use (`os.tmpdir()`); tests name another one. */
+  tmpdir?: string;
 }
 
 const USAGE = `usage:
@@ -100,6 +102,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
     );
     const [command, sub, ...rest] = positional;
     const files = engineFiles(home);
+    const resolveOptions = io.tmpdir ? { tmpdir: io.tmpdir } : {};
     switch (command) {
       case 'init': {
         const cloud = flags.get('cloud');
@@ -150,7 +153,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
           { project: key, workspacePath },
         ];
         const next = EngineConfig.parse({ ...config, projects });
-        resolveEngineConfig(next, home); // repos stay inside their (new) workspace
+        resolveEngineConfig(next, home, resolveOptions); // repos stay inside their (new) workspace; the key outside it
         saveEngineConfig(home, next);
         io.out(`project ${key}: ${workspacePath}`);
         return 0;
@@ -168,7 +171,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
             { project: key, repo, path: repoPath, ...(fullTest ? { fullTestCommand: fullTest } : {}) },
           ];
           const next = EngineConfig.parse({ ...config, repos });
-          resolveEngineConfig(next, home); // the project has a workspace and the repo is inside it
+          resolveEngineConfig(next, home, resolveOptions); // the project has a workspace and the repo is inside it
           saveEngineConfig(home, next);
           io.out(`repo ${key}/${repo}: ${repoPath}${fullTest ? ` (full test: ${fullTest})` : ''}`);
           return 0;
@@ -219,7 +222,7 @@ export async function runEngineCli(argv: string[], io: EngineCliIo): Promise<num
       case 'start': {
         if (sub !== undefined) throw new UsageError('start takes no arguments');
         // Fail with the cause before the process starts.
-        const resolved = resolveEngineConfig(loadEngineConfig(home), home);
+        const resolved = resolveEngineConfig(loadEngineConfig(home), home, resolveOptions);
         if (!existsSync(resolved.keyFile))
           throw new EngineConfigError('key_missing', `The engine key ${resolved.keyFile} does not exist.`);
         return io.startEngine(home, { ...io.env, PROJECTMAN_MODE: 'engine', PROJECTMAN_HOME: home });

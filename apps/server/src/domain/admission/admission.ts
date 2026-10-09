@@ -217,13 +217,14 @@ export class Admission {
   async start(
     request: AdmissionRequest & { member: AiMemberConfig; workItem: WorkItemRef },
   ): Promise<EnsureSessionResult> {
+    const requested = request.workItem;
     request = { ...request, workItem: sessionWorkItemOf(request.member, request.workItem) };
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
     await this.sessions.refreshProviderQuota();
     this.sessions.assertProviderCooldown(request.member.provider ?? DEFAULT_AGENT_PROVIDER);
-    if (running)
-      return {
+    if (running) {
+      const result: EnsureSessionResult = {
         session: running,
         created: false,
         resumed: false,
@@ -231,8 +232,18 @@ export class Admission {
         messagesSent: 0,
         firstInput: Promise.resolve(true),
       };
+      if (requested.type === 'task' && request.workItem.type === 'general')
+        await this.sessions.notifyProjectManagerStart(
+          projectKey,
+          request.member.handle,
+          requested,
+          { messages: request.messages, cause: request.cause },
+          result,
+        );
+      return result;
+    }
     await this.check(request);
-    return this.sessions.ensureSession(projectKey, request.member.handle, request.workItem, {
+    return this.sessions.ensureSession(projectKey, request.member.handle, requested, {
       messages: request.messages,
       cause: request.cause,
     });

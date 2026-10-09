@@ -36,7 +36,7 @@ import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
-import { actorHandle, humanActor, newId, unique } from '../util';
+import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, wakeBlockFor, wakesFor } from './staleness';
@@ -79,6 +79,27 @@ export interface SendOptions {
  * Humans read theirs in the app. A message never goes to its own sender.
  */
 export class Messaging {
+  /** A card start mapped to the permanent channel still gives the manager its assignment. */
+  async projectManagerStart(
+    projectKey: string,
+    handle: string,
+    taskKey: string,
+    cause?: SessionStartCause,
+  ): Promise<void> {
+    const config = await this.projects.config(projectKey);
+    const task = this.tasks.get(projectKey, taskKey);
+    await this.send(
+      projectKey,
+      'system',
+      {
+        to: [handle],
+        taskKey,
+        text: `Work on ${task.key}: ${task.title}${startReason(config, cause ?? null)}. Read get_task task_key ${task.key} for the current requirements and act on this assignment.`,
+      },
+      { actor: SYSTEM_ACTOR, kind: 'action' },
+    );
+  }
+
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;

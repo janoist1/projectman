@@ -516,6 +516,31 @@ export class SessionOrchestrator {
     this.fullTests = fullTests;
   }
 
+  private projectManagerStart?: (
+    projectKey: string,
+    handle: string,
+    taskKey: string,
+    cause?: SessionStartCause,
+  ) => Promise<void>;
+
+  useProjectManagerStarts(send: NonNullable<SessionOrchestrator['projectManagerStart']>): void {
+    this.projectManagerStart = send;
+  }
+
+  /** Called after the session lock, including admission's running-session shortcut. */
+  async notifyProjectManagerStart(
+    projectKey: string,
+    handle: string,
+    requested: WorkItemRef,
+    opts: EnsureSessionOptions,
+    result: EnsureSessionResult,
+  ): Promise<void> {
+    if (requested.type !== 'task' || result.session.workItem.type !== 'general') return;
+    if (opts.cause && ['message', 'mention', 'answer'].includes(opts.cause.kind)) return;
+    if (result.started && result.messagesSent > 0) return;
+    await this.projectManagerStart?.(projectKey, handle, requested.taskKey, opts.cause);
+  }
+
   useQuotaRecovery(
     usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
     resume: (session: Session, stageId: string) => Promise<void>,
@@ -714,9 +739,10 @@ export class SessionOrchestrator {
     workItem: WorkItemRef,
     opts: EnsureSessionOptions = {},
   ): Promise<EnsureSessionResult> {
+    const requested = workItem;
     const config = await this.deps.projects.config(projectKey);
     workItem = sessionWorkItemOf(requireAiMember(config, handle), workItem);
-    return this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
+    const result = await this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
       const task = workItem.type === 'task' ? this.deps.tasks.get(projectKey, workItem.taskKey) : null;
@@ -756,6 +782,8 @@ export class SessionOrchestrator {
         opts.pauseRestart ?? false,
       );
     });
+    await this.notifyProjectManagerStart(projectKey, handle, requested, opts, result);
+    return result;
   }
 
   /**

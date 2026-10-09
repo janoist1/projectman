@@ -501,6 +501,9 @@ export function createDomain(opts: DomainOptions) {
   });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
+  sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
+    messaging.projectManagerStart(projectKey, handle, taskKey, cause),
+  );
   delivery.useMessageHolds((session) => messaging.holdsMessagesOf(session));
   const sessionCloser = new SessionCloser({
     ctx,

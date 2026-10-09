@@ -35,6 +35,53 @@ async function harness(onLeave = false) {
 const view = () => h.domain.projectManagerChannels.view('AR');
 
 describe('the permanent project manager channel', () => {
+  it.each(['direct', 'admission'] as const)(
+    'records one card assignment through %s for a new and a running conversation',
+    async (path) => {
+      await harness();
+      const task = await h.domain.tasks.create('AR', { title: 'Distribute checkout work' }, OWNER_ACTOR);
+      const config = await h.domain.projects.config('AR');
+      const member = config.team.members.find((m) => m.handle === 'pm');
+      if (member?.kind !== 'ai') throw new Error('Missing manager');
+      const workItem = { type: 'task', taskKey: task.key } as const;
+      const cause = { kind: 'start_button', by: OWNER_ACTOR } as const;
+      const start = () =>
+        path === 'direct'
+          ? h.domain.sessions.ensureSession('AR', 'pm', workItem, { cause })
+          : h.domain.admission.start({ config, member, workItem, cause });
+      const first = await start();
+      expect(first.started).toBe(true);
+      let messages = h.domain.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system');
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({ taskKey: task.key, kind: 'action' });
+      expect(messages[0]!.body).toContain('started by');
+      expect(messages[0]!.body).toContain(task.title);
+      const second = await start();
+      expect(second.started).toBe(false);
+      expect(second.session.id).toBe(first.session.id);
+      messages = h.domain.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system');
+      expect(messages).toHaveLength(2);
+      expect(h.runner.started).toHaveLength(1);
+    },
+  );
+
+  it('uses first-input instructions without another assignment but records a running-session assignment', async () => {
+    await harness();
+    const task = await h.domain.tasks.create('AR', { title: 'Plan checkout' }, OWNER_ACTOR);
+    const workItem = { type: 'task', taskKey: task.key } as const;
+    const opts = {
+      messages: ['Write the technical plan for this card'],
+      cause: { kind: 'refinement' as const, labels: ['plan-ok'] },
+    };
+    const first = await h.domain.sessions.ensureSession('AR', 'pm', workItem, opts);
+    expect(first.messagesSent).toBe(1);
+    expect(h.runner.lastStarted().initialMessage).toContain(opts.messages[0]);
+    expect(h.domain.messages.list('AR', { member: 'pm' })).toHaveLength(0);
+    await h.domain.sessions.ensureSession('AR', 'pm', workItem, opts);
+    const messages = h.domain.messages.list('AR', { member: 'pm' });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.body).toContain('plan-ok');
+  });
   it('serializes concurrent card starts into one general conversation at capacity one', async () => {
     await harness();
     const first = await h.domain.tasks.create('AR', { title: 'First' }, OWNER_ACTOR);
@@ -83,6 +130,7 @@ describe('the permanent project manager channel', () => {
     expect(h.domain.sessions.list('AR', { member: 'pm' })[0]?.workItem).toEqual({ type: 'general' });
     expect(h.repos.messages.get(sent.id)?.receipts?.[0]?.deliveredAt).toBeTruthy();
     expect(h.runner.lastStarted().initialMessage).toContain(task.key);
+    expect(h.domain.messages.list('AR', { member: 'pm' }).filter((m) => m.from === 'system')).toEqual([]);
   });
 
   it('collects legacy task receipts in creation order and leaves other members routing intact', async () => {

@@ -2002,6 +2002,97 @@ export const hu = {
     needsYou: 'Rád vár: engedély',
   },
 
+  /** The project manager's panel in the header (PM-429). */
+  pm: {
+    name: 'Projektmenedzser',
+    short: 'PM',
+    button: {
+      aria: 'Beszélgetés a Projektmenedzserrel · {status}',
+      newReply: 'új válasz',
+    },
+    status: {
+      available: 'Elérhető',
+      working: 'Dolgozik…',
+      starting: 'Indul…',
+      onLeave: 'Szabadságon',
+      quota: 'Keretre vár',
+      quotaUntil: 'Keretre vár {until}-ig',
+      paused: 'Szünetel',
+      waiting: 'Várakozik',
+      missing: 'Nincs',
+    },
+    panel: {
+      label: 'Beszélgetés a Projektmenedzserrel',
+      close: 'Bezárás',
+      fullSession: 'Teljes munkamenet',
+      fullSessionTitle: 'A Projektmenedzser munkamenetének megnyitása',
+    },
+    thread: {
+      label: 'Beszélgetés a Projektmenedzserrel',
+      empty: 'Még nem írtál a Projektmenedzsernek.',
+    },
+    intro: {
+      title: 'Szia, én vagyok a Projektmenedzser.',
+      lead: 'Írd le a saját szavaiddal, mit szeretnél: ötletet, kérdést, feladatot vagy sorrendet.',
+      points: {
+        card: 'Kártyát nyitok, és összekötöm a meglévőkkel.',
+        pass: 'Továbbadom annak, akinek a dolga.',
+        report: 'Minden kérés után megírom, mit tettem, és mi vár rád.',
+      },
+      approval: 'Amihez a jóváhagyásod kell (leállítás, szünet, Indulhatba tétel), azt csak javaslom.',
+      examplesLabel: 'Például',
+      examples: {
+        idea: 'Van egy ötletem…',
+        status: 'Hol tart a mobil nézet?',
+        next: 'Mi legyen a következő?',
+      },
+      arrivedTitle: 'Megérkezett a Projektmenedzser.',
+      arrivedBody:
+        'Neki írhatsz bármit: kártyát nyit belőle, továbbadja az illetékesnek, és beszámol. Most szabadságon van, hogy ne fogyasszon keretet, amíg vissza nem hívod.',
+    },
+    context: {
+      label: 'Ehhez: {key} {title}',
+      remove: 'A kártya leválasztása az üzenetről',
+    },
+    composer: {
+      label: 'Üzenet a Projektmenedzsernek',
+      placeholder: 'Írj a Projektmenedzsernek…',
+    },
+    banner: {
+      onLeave: 'A Projektmenedzser szabadságon van.',
+      onLeaveText: 'Amit írsz, megmarad, és a visszahívás után feldolgozza.',
+      onLeaveOther: 'Az üzeneted megmarad. Visszahívni a tulajdonos tudja.',
+      callBack: 'Visszahívom',
+      quota:
+        'A szolgáltatói keret kimerült, a Projektmenedzser {until}-ig nem tud válaszolni. Az üzeneted megmarad.',
+      quotaUnknown: 'A szolgáltatói keret kimerült. Az üzeneted megmarad, a keret megújulásakor sorra kerül.',
+      paused: 'A csapat szünetel. Az üzeneted megmarad, a folytatás után sorra kerül.',
+      resume: 'Folytatás…',
+      starting: 'Indul… általában fél perc',
+      waiting: '{reason}. Amint lehet, sorra kerül.',
+      working: 'Dolgozik rajta…',
+    },
+    sent: {
+      plain: 'Elküldve',
+      leave: 'Elküldve · a visszahívásra vár',
+      quota: 'Elküldve · a keretre vár',
+      paused: 'Elküldve · a folytatásra vár',
+      queued: 'Elküldve · sorban áll',
+      failed: 'Nem ment el.',
+      retry: 'Újra',
+    },
+    loadFailed: 'A Projektmenedzser állapota nem tölthető be.',
+    missing: {
+      title: 'Nincs AI Projektmenedzser a projektben.',
+      team: 'Csapat',
+    },
+    required: {
+      chip: 'kötelező',
+      title: 'A projektben mindig kell egy AI Projektmenedzser.',
+      retireNote:
+        'Ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat, utána elbocsáthatod.',
+    },
+  },
   leave: {
     onLeave: 'Szabadságon',
     send: 'Szabadságra küld',

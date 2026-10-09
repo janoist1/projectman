@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useMatch, useParams } from 'react-router';
 import { isApiError } from '../api/client';
 import { useBoard, useConfig, useInbox } from '../api/queries';
@@ -9,6 +9,7 @@ import { noBoardFilters } from '../features/board/boardFilters';
 import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { ProjectPauseBar } from '../features/pause/PauseBanner';
+import { PmPanel } from '../features/pm/PmPanel';
 import { PauseConfirmDialog } from '../features/pause/PauseConfirmDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
@@ -43,6 +44,11 @@ export function ProjectLayout() {
   const [search, setSearch] = useState('');
   const [newTask, setNewTask] = useState<{ kind: 'task' | 'theme' } | null>(null);
   const [pauseOpen, setPauseOpen] = useState(false);
+  // Counts the requests to open the pause bar's details (the project manager's "Folytatás…").
+  const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
+  // The project manager's conversation (PM-429): one panel for the whole project, opened from the header.
+  const [pmOpen, setPmOpen] = useState(false);
+  const pmTrigger = useRef<HTMLElement | null>(null);
   // The pause this viewer asked for: its details open by themselves.
   const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
@@ -70,6 +76,7 @@ export function ProjectLayout() {
     setThemeFilter(null);
     setBoardFilters(noBoardFilters);
     setRequestedPauseId(null);
+    setPmOpen(false);
   }, [projectKey]);
 
   const value = useMemo<ProjectContextValue>(
@@ -82,13 +89,20 @@ export function ProjectLayout() {
       search,
       setSearch,
       openPause: () => setPauseOpen(true),
+      openPauseDetails: () => setPauseDetailsSignal((count) => count + 1),
+      pmOpen,
+      openPm: (trigger) => {
+        pmTrigger.current = trigger ?? null;
+        setPmOpen(true);
+      },
+      closePm: () => setPmOpen(false),
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
       boardFilters,
       setBoardFilters,
     }),
-    [projectKey, me, myHandle, isOwner, can, search, themeFilter, boardFilters],
+    [projectKey, me, myHandle, isOwner, can, search, pmOpen, themeFilter, boardFilters],
   );
 
   if (board.isError && isApiError(board.error) && board.error.status === 404) {
@@ -125,13 +139,14 @@ export function ProjectLayout() {
               />
             )}
             <ConnectionBanner />
-            <ProjectPauseBar requestedPauseId={requestedPauseId} />
+            <ProjectPauseBar requestedPauseId={requestedPauseId} openSignal={pauseDetailsSignal} />
             <main id="main" tabIndex={-1} className={clsx(styles.main, fixedBoard && styles.boardMain)}>
               <Outlet />
             </main>
           </div>
           {isMobile && !phoneSession ? <TabBar inboxCount={inboxCount} /> : null}
         </div>
+        {can.createTasks && pmOpen ? <PmPanel returnFocusTo={pmTrigger} /> : null}
         <NewTaskDialog
           open={newTask !== null}
           initialKind={newTask?.kind ?? 'task'}

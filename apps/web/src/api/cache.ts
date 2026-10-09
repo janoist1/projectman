@@ -113,6 +113,21 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.profiles(event.projectKey) });
   }
+  // The project manager's channel state follows these (PM-434 adds no event of its own).
+  if (
+    'projectKey' in event &&
+    [
+      'member_changed',
+      'member_state',
+      'session_upserted',
+      'pause_changed',
+      'config_changed',
+      'plan_usage',
+      'team_message',
+    ].includes(event.type)
+  ) {
+    void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
+  }
   switch (event.type) {
     case 'task_upserted': {
       const { projectKey: key, task } = event;

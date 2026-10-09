@@ -822,6 +822,15 @@ export function useTeamThreads(key: string) {
   return useQuery({ queryKey: queryKeys.teamThreads(key), queryFn: () => api.teamThreads(key) });
 }
 
+/** Who the project manager is and whether it can answer now; only for a viewer who may open cards (PM-429). */
+export function useProjectManagerChannel(key: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.projectManager(key),
+    queryFn: () => api.projectManager(key),
+    enabled,
+  });
+}
+
 /** The team messages written about one card, as the viewer may see them (PM-273). */
 export function useTaskMessages(key: string, taskKey: string, enabled = true) {
   return useQuery({

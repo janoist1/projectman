@@ -1,10 +1,12 @@
+/* While the project manager's panel is open (PM-429) it sets --pm-dock-right and --pm-dock-top: the card
+   stands beside it and under the top bar. */
 .drawer {
   position: fixed;
-  top: 0;
-  right: 0;
+  top: var(--pm-dock-top, 0);
+  right: var(--pm-dock-right, 0);
   bottom: 0;
   z-index: 30;
-  width: min(460px, 100vw);
+  width: min(460px, 100vw - var(--pm-dock-right, 0px));
   box-sizing: border-box;
   background: var(--c-surface);
   border-left: 1px solid var(--c-line-strong);
@@ -39,7 +41,8 @@
   --card-title-size: 26px;
   --card-select-max: 320px;
   inset: 32px;
-  width: min(1160px, calc(100vw - 64px));
+  right: calc(32px + var(--pm-dock-right, 0px));
+  width: min(1160px, calc(100vw - 64px - var(--pm-dock-right, 0px)));
   margin: 0 auto;
   border: 1px solid var(--c-line-strong);
   border-radius: var(--radius-2xl);

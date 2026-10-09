@@ -20,6 +20,8 @@ interface ComposerProps {
   blocked?: boolean;
   /** Why the session rests and that a message continues it (PM-296); never together with `pauseNote`. */
   closedNote?: string;
+  /** Text to put into the box and focus it (an example to edit and send); a new `id` puts it again. */
+  prefill?: { text: string; id: number } | null;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -40,6 +42,7 @@ export function Composer({
   pauseNote,
   blocked = false,
   closedNote,
+  prefill,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -51,6 +54,14 @@ export function Composer({
   useEffect(() => {
     if (autoFocus) ref.current?.focus();
   }, [autoFocus]);
+
+  const prefillId = prefill?.id;
+  const prefillText = prefill?.text;
+  useEffect(() => {
+    if (prefillId === undefined || prefillText === undefined) return;
+    setText(prefillText);
+    ref.current?.focus();
+  }, [prefillId, prefillText]);
 
   useEffect(() => {
     const element = ref.current;

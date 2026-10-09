@@ -114,6 +114,7 @@ export function PauseBar({
   canLiftOther = false,
   lookups,
   autoOpen = false,
+  openSignal = 0,
 }: {
   pause: PauseStatus;
   /** The project's pause when the bar shows the instance's. */
@@ -124,6 +125,8 @@ export function PauseBar({
   lookups: PauseLookups;
   /** Open the details by themselves (the requester sees the progress at once). */
   autoOpen?: boolean;
+  /** Opens the details each time it grows (another part of the page asks for them, PM-429). */
+  openSignal?: number;
 }) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(autoOpen);
@@ -135,6 +138,9 @@ export function PauseBar({
   useEffect(() => {
     if (autoOpen) setOpen(true);
   }, [autoOpen, pause.id]);
+  useEffect(() => {
+    if (openSignal > 0) setOpen(true);
+  }, [openSignal]);
   // The details belong to the page they were opened on: a link in them, or any navigation, closes them.
   const { pathname } = useLocation();
   const openedAt = useRef(pathname);
@@ -237,7 +243,13 @@ export function PauseBar({
  * The bar inside a project: the instance's pause when one is open (it wins), else the project's. The
  * requester's details open by themselves, and they hear when everyone has stopped.
  */
-export function ProjectPauseBar({ requestedPauseId }: { requestedPauseId: string | null }) {
+export function ProjectPauseBar({
+  requestedPauseId,
+  openSignal = 0,
+}: {
+  requestedPauseId: string | null;
+  openSignal?: number;
+}) {
   const { key, can } = useProject();
   const toast = useToast();
   const view = useBoard(key).data?.pause;
@@ -265,6 +277,7 @@ export function ProjectPauseBar({ requestedPauseId }: { requestedPauseId: string
       canLiftOther={can.pauseTeam}
       lookups={lookups}
       autoOpen={pause.id === requestedPauseId}
+      openSignal={openSignal}
     />
   );
 }

@@ -16,6 +16,7 @@ import {
   useBoard,
   useProviders,
   useConfig,
+  useProjectManagerChannel,
   useSchedules,
   useLabels,
   useMemberMemories,
@@ -54,6 +55,7 @@ import { describeCron } from '../../lib/schedules';
 import { MessageComposer } from '../messages/MessageComposer';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
+import { useIsRequiredPm } from '../pm/useRequiredPm';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { ProviderWarning } from './ProviderWarning';
@@ -110,8 +112,10 @@ function MemberSchedule({
 
 export function MemberProfilePage() {
   const { handle = '' } = useParams();
-  const { key, myHandle, can, me } = useProject();
+  const { key, myHandle, can, me, openPm } = useProject();
   const navigate = useNavigate();
+  const isChannelPm = useProjectManagerChannel(key, can.createTasks).data?.member?.handle === handle;
+  const requiredPm = useIsRequiredPm(handle);
   const profile = useMemberProfile(key, handle);
   const board = useBoard(key);
   const providers = useProviders();
@@ -191,6 +195,14 @@ export function MemberProfilePage() {
                 ·{' '}
               </>
             ) : null}
+            {requiredPm ? (
+              <>
+                <Chip tone="accent" title={t('pm.required.title')}>
+                  {t('pm.required.chip')}
+                </Chip>{' '}
+                ·{' '}
+              </>
+            ) : null}
             <span>{status.label}</span>
           </>
         }
@@ -199,21 +211,30 @@ export function MemberProfilePage() {
           {ai && member.onLeave && can.manageTeam ? <LeaveButton member={member} variant="primary" /> : null}
           {ai && !member.onLeave && can.workInSessions ? (
             <span className={styles.heldStart}>
-              <Button
-                variant="primary"
-                loading={start.isPending}
-                {...held.buttonProps}
-                onClick={() =>
-                  start.mutate(handle, {
-                    onSuccess: (session) => {
-                      void navigate(`/p/${key}/sessions/${session.id}`);
-                    },
-                  })
-                }
-              >
-                {t('profile.conversation')}
-              </Button>
-              {held.note}
+              {isChannelPm ? (
+                // The project manager has its one conversation, in the header panel (PM-429).
+                <Button variant="primary" onClick={(event) => openPm(event.currentTarget)}>
+                  {t('profile.conversation')}
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="primary"
+                    loading={start.isPending}
+                    {...held.buttonProps}
+                    onClick={() =>
+                      start.mutate(handle, {
+                        onSuccess: (session) => {
+                          void navigate(`/p/${key}/sessions/${session.id}`);
+                        },
+                      })
+                    }
+                  >
+                    {t('profile.conversation')}
+                  </Button>
+                  {held.note}
+                </>
+              )}
             </span>
           ) : null}
           {can.manageTeam ? (

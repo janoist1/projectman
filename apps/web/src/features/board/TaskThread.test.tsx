@@ -88,7 +88,8 @@ describe('the card view switch (PM-273)', () => {
 
   it('switches with replace, keeps the size and drops ?message', async () => {
     mockProject().render(card, '/p/AC/tasks/AC-21?size=large');
-    fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${t('task.view.thread')}`) }));
+    await screen.findByRole('group', { name: t('task.view.label') });
+    fireEvent.click(switchButton(new RegExp(`^${t('task.view.thread')}`)));
     await waitFor(() => expect(where()).toBe('/p/AC/tasks/AC-21/thread?size=large'));
     await thread();
     fireEvent.click(switchButton(t('task.view.card')));

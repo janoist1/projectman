@@ -15,6 +15,7 @@ import type {
   StartBlock,
   Task,
   TaskPhase,
+  TaskStartWaiting,
   WorkDoing,
 } from '@projectman/shared';
 import { formatAge, formatStamp } from '../i18n/format';
@@ -291,7 +292,14 @@ export function startWaitingHint(task: Task, members: MemberIndex, myHandle: str
 }
 
 function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
-  const waiting = task.startWaiting!;
+  return startWaitingText(task.startWaiting!, ctx);
+}
+
+/** Why a start waits, as a sentence; the project manager's panel (PM-429) says it with the card's words. */
+export function startWaitingText(
+  waiting: TaskStartWaiting,
+  ctx: Pick<TaskStateContext, 'members' | 'myHandle' | 'labels' | 'engineNames'>,
+): string {
   if (waiting.reason === 'provider_rate_limited' && !waiting.until)
     return t('taskStatus.startWaiting.provider_rate_limited_unknown');
   if (waiting.reason === 'engine_offline' && !waiting.engine)

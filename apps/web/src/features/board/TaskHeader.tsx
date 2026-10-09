@@ -12,6 +12,7 @@ import type { MemberIndex } from '../../lib/members';
 import { stagePosition } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState, TaskWorker } from '../../lib/taskState';
+import { PmButton } from '../pm/PmButton';
 import { prChip } from './cardModel';
 import { CardSizeToggle, useCardLink } from './cardSize';
 import { useDrawerBase } from './drawerBase';
@@ -125,6 +126,7 @@ export function TaskHeader({
         <span className={styles.key}>{task.key}</span>
         <span className={styles.spacer} />
         {can.manageTeam ? <TaskLifecycleMenu key={task.key} task={task} /> : null}
+        <PmButton variant="drawer" />
         <CardSizeToggle size={size} onToggle={onToggleSize} />
         <Button variant="muted" iconOnly icon="close" onClick={onClose} aria-label={t('common.close')} />
       </div>

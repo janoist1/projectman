@@ -194,6 +194,7 @@ export function createEngineLinks(options: {
               clearTimeout(helloTimer);
               pending.delete(pendingRevoke);
               const previous = active.get(id);
+              // Replacement notifies offline first, then online after the new welcome (PM-315).
               previous?.close(4410);
               clearTimeout(offlineTimers.get(id));
               offlineTimers.delete(id);

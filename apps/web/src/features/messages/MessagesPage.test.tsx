@@ -181,6 +181,48 @@ describe('a conversation', () => {
     expect(await within(thread).findByText('Acme answer')).toBeTruthy();
   });
 
+  it('keeps the usual task picker for a member who has no single conversation', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('fe-1', ['owner'], 'AC-21', 'Acme question');
+    p.render(<Pages />, '/p/AC/messages/with/fe-1');
+    const thread = await screen.findByRole('region', { name: /Beszélgetés:/ });
+    await within(thread).findByText('Acme question');
+    expect(within(thread).getByLabelText(t('messages.composer.task'))).toBeTruthy();
+    expect(within(thread).getByRole('group', { name: t('messages.composer.recent') })).toBeTruthy();
+    expect(within(thread).getByRole('group', { name: t('messages.composer.otherTasks') })).toBeTruthy();
+    expect(within(thread).queryByText(t('messages.composer.markHint'))).toBeNull();
+  });
+
+  it('tells the project manager composer that the card only marks the message', async () => {
+    const p = mockProject();
+    p.backend.messages = [];
+    p.backend.sendTeamMessage('pm', ['owner'], 'AC-21', 'Acme question');
+    p.render(<Pages />, '/p/AC/messages/with/pm');
+    const thread = await screen.findByRole('region', { name: /Beszélgetés:/ });
+    await within(thread).findByText('Acme question');
+    const select = within(thread).getByLabelText(t('messages.composer.markTask')) as HTMLSelectElement;
+    expect(select.value).toBe('AC-21');
+    expect(within(thread).queryByLabelText(t('messages.composer.task'))).toBeNull();
+    expect(within(thread).getByText(t('messages.composer.markHint'))).toBeTruthy();
+    expect(within(thread).getByRole('group', { name: t('messages.composer.markRecent') })).toBeTruthy();
+    expect(within(thread).getByRole('group', { name: t('messages.composer.markOtherTasks') })).toBeTruthy();
+    expect(within(thread).queryByText(t('messages.composer.generalHint'))).toBeNull();
+    expect(within(thread).queryByText(t('messages.composer.recent'))).toBeNull();
+    expect(within(thread).queryByText(t('messages.composer.otherTasks'))).toBeNull();
+    // Choosing no card still sends to the same conversation.
+    fireEvent.change(select, { target: { value: '' } });
+    fireEvent.change(
+      within(thread).getByLabelText(t('messages.composer.label', { name: 'Projektmenedzser' })),
+      { target: { value: 'No card' } },
+    );
+    fireEvent.click(within(thread).getByRole('button', { name: t('common.send') }));
+    await waitFor(() =>
+      expect(p.backend.messages.at(-1)).toMatchObject({ from: 'owner', to: ['pm'], body: 'No card' }),
+    );
+    expect(await within(thread).findByText('No card')).toBeTruthy();
+  });
+
   it('shows an open question of the member in the thread and answers it there', async () => {
     const p = mockProject();
     p.backend.messages = [];

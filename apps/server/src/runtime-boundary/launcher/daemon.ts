@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { Duplex } from 'node:stream';
-import { BILLING_ENV_VARS } from '../../runner';
+import { BILLING_ENV_VARS, NON_INTERACTIVE_EDITOR_ENV } from '../../runner';
 import type { WorkerProgram } from '../../contracts';
 import type { BoundaryConfig } from '../config';
 import { bridgeSockets, isWithin } from '../config';
@@ -238,6 +238,8 @@ export function workerEnvironment(
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     GIT_TERMINAL_PROMPT: '0',
+    // No program opens an editor nobody can type into (a rebase's Vim, PM-428).
+    ...NON_INTERACTIVE_EDITOR_ENV,
     // Every way out goes through the egress proxy; programs that ignore these fail closed.
     HTTP_PROXY: proxy,
     HTTPS_PROXY: proxy,

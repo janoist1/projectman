@@ -1358,6 +1358,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
+  Submission timeouts (PM-442) log retry count, elapsed time, command/idle state and bounded
+  CLI diagnostics from `runner/input-queue.ts` and `runner/session.ts`: prompt/resume flags,
+  the last hook name/time, blocking-screen detection and at most 500 characters from the last
+  15 terminal rows. Message bodies are not logged separately. This assumes the runner owns
+  the terminal and receives the CLI hooks; it changes neither delivery nor retry semantics.
+  On a remote engine these diagnostics run and are logged on that engine; no new message or
+  diagnostic payload crosses the server/engine boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
   **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens

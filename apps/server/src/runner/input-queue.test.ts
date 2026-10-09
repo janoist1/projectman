@@ -139,7 +139,38 @@ describe('InputQueue', () => {
     expect(typed().pastes).toEqual(['/model']);
     await vi.advanceTimersByTimeAsync(timing.enterRetryMs + TYPE_MS);
     expect(typed().pastes).toEqual(['/model', 'next']);
-    expect(warn).toHaveBeenCalledWith({ sessionId: 'ses_1' }, 'typed message was not reported as submitted');
+    expect(warn).toHaveBeenCalledWith(
+      { sessionId: 'ses_1', enterRetries: 0, waitMs: timing.submitTimeoutMs, command: true, idle: true },
+      'typed message was not reported as submitted',
+    );
+  });
+
+  it('logs submission timeout diagnostics after swallowed Enter retries without logging the message', async () => {
+    const describeStall = vi.fn(() => ({ promptSeen: false, resumed: true, blockingScreen: null }));
+    const { queue, typed, warn } = setup({ describeStall });
+    const text = 'A private request that never submits';
+    const sent = queue.enqueue(text);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await expect(sent).resolves.toBeUndefined();
+    expect(describeStall).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(timing.submitTimeoutMs);
+    expect(typed()).toEqual({ pastes: [text], enters: 1 + timing.maxEnterRetries });
+    expect(describeStall).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        sessionId: 'ses_1',
+        enterRetries: timing.maxEnterRetries,
+        waitMs: timing.submitTimeoutMs,
+        command: false,
+        idle: true,
+        promptSeen: false,
+        resumed: true,
+        blockingScreen: null,
+      },
+      'typed message was not reported as submitted',
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(text);
+    expect(queue.hasPending).toBe(false);
   });
 
   it('types nothing before a prompt given on the command line is reported, or times out', async () => {

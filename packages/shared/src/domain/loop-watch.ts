@@ -4,6 +4,7 @@ import { memberOf } from '../config/lookup';
 import { DEFAULT_LOOP_WATCH } from '../config/schema';
 import type { LoopWatch, ProjectConfig, TeamLimits } from '../config/schema';
 import type { DutyId } from './duty';
+import type { TimelineEvent } from './event';
 
 /**
  * The loop watch (PM-261, replacing the message storm alert of PM-186), shared by the server and the web's
@@ -56,10 +57,30 @@ export function countsForLoop(
 }
 
 /**
+ * Whether a timeline event is the work of a card (PM-431), and so progress that ends a loop and
+ * starts the count again: a note (an imported comment is history, not work), an attachment, a new
+ * description. For a team that does not write code this is what getting on looks like. The SQL of
+ * `latestWork` in the server's timeline repository states the same rule.
+ */
+export function isLoopWork(event: Pick<TimelineEvent, 'type' | 'data'>): boolean {
+  switch (event.type) {
+    case 'attachment_added':
+      return true;
+    case 'task_note':
+      return event.data.importedAuthor === undefined && event.data.importedAt === undefined;
+    case 'task_updated':
+      return Array.isArray(event.data.fields) && event.data.fields.includes('description');
+    default:
+      return false;
+  }
+}
+
+/**
  * The loop the talk of a card makes at `now`, or null. `talk` are the counted messages (see
  * `countsForLoop`) of the card; `since` (ISO time) is its last progress: a stage or label change, a
  * commit, the end of an earlier loop. A loop is `count` messages after `since` and within the last
  * `minutes` minutes, from at least two different senders (one member writing alone is not a round).
+ * `since` is the last progress, and the work of the card (`isLoopWork`) is progress too.
  */
 export function findLoop(
   talk: readonly LoopTalk[],

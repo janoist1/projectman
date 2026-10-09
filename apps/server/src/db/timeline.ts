@@ -57,6 +57,15 @@ export function createTimelineRepository(db: Db) {
     latestOfType: db.prepare(
       'SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ? AND type = ? ORDER BY seq DESC LIMIT 1',
     ),
+    // The work of a card (PM-431), the rule of `isLoopWork` in `packages/shared`.
+    latestWork: db.prepare(
+      `SELECT * FROM timeline_events WHERE project_key = ? AND task_key = ?
+         AND (type = 'attachment_added'
+           OR (type = 'task_note'
+             AND json_extract(data, '$.importedAuthor') IS NULL AND json_extract(data, '$.importedAt') IS NULL)
+           OR (type = 'task_updated' AND EXISTS (SELECT 1 FROM json_each(data, '$.fields') WHERE value = 'description')))
+       ORDER BY seq DESC LIMIT 1`,
+    ),
     ofProject: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? ORDER BY seq DESC LIMIT ?'),
     byId: db.prepare('SELECT * FROM timeline_events WHERE project_key = ? AND id = ?'),
     // Imported comments (a ClickUp import) are history, not conversation.
@@ -175,6 +184,11 @@ export function createTimelineRepository(db: Db) {
     /** The most recent event of a type on a card, or null. */
     latestOfType(projectKey: string, taskKey: string, type: TimelineEvent['type']): TimelineEvent | null {
       const row = statements.latestOfType.get(projectKey, taskKey, type) as TimelineRow | undefined;
+      return row ? toEvent(row) : null;
+    },
+    /** The most recent work on a card: a note, an attachment or a new description (PM-431), or null. */
+    latestWork(projectKey: string, taskKey: string): TimelineEvent | null {
+      const row = statements.latestWork.get(projectKey, taskKey) as TimelineRow | undefined;
       return row ? toEvent(row) : null;
     },
     /** The most recent `limit` events of the given types on a card, oldest first. */

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LOOP_WATCH, ProjectConfig, TeamLimits } from '../config/schema';
 import { applyConfigPatch } from '../config/edit';
-import { countsForLoop, findLoop, loopDeciders, loopWatchOf, loopWatchers } from './loop-watch';
+import { countsForLoop, findLoop, isLoopWork, loopDeciders, loopWatchOf, loopWatchers } from './loop-watch';
 import type { LoopTalk } from './loop-watch';
 
 function config(extra: object[] = []) {
@@ -167,5 +167,26 @@ describe('loopDeciders', () => {
       },
     ]);
     expect(loopDeciders(c, ['owner'])).toEqual(['boss']);
+  });
+});
+
+describe('isLoopWork (PM-431)', () => {
+  const event = (type: string, data: Record<string, unknown>) =>
+    ({ type, data }) as Parameters<typeof isLoopWork>[0];
+
+  it('takes a note, an attachment and a new description for work', () => {
+    expect(isLoopWork(event('task_note', { text: 'Take two.' }))).toBe(true);
+    expect(isLoopWork(event('attachment_added', { fileName: 'sketch.png' }))).toBe(true);
+    expect(isLoopWork(event('task_updated', { fields: ['title', 'description'] }))).toBe(true);
+  });
+
+  it('does not take an imported comment, other field changes or other events for work', () => {
+    expect(isLoopWork(event('task_note', { text: 'Old', importedAuthor: 'Someone' }))).toBe(false);
+    expect(isLoopWork(event('task_note', { text: 'Old', importedAt: '2025-01-01T00:00:00.000Z' }))).toBe(
+      false,
+    );
+    expect(isLoopWork(event('task_updated', { fields: ['title', 'priority'] }))).toBe(false);
+    expect(isLoopWork(event('attachment_deleted', { fileName: 'sketch.png' }))).toBe(false);
+    expect(isLoopWork(event('team_message', { from: 'a', to: ['b'] }))).toBe(false);
   });
 });

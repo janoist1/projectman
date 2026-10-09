@@ -875,6 +875,7 @@ export function createDomain(opts: DomainOptions) {
   // only when that did not help (PM-261). A loop ends when the card makes progress or goes quiet.
   const loopWatch = new LoopWatch({ ctx, projects, tasks, sessions, admission, delivery, inbox, timeline });
   events.on('task_talk_recorded', ({ event }) => loopWatch.check(event));
+  events.on('task_work_recorded', ({ event }) => loopWatch.worked(event));
   events.on('task_stage_changed', (change) => loopWatch.progressed(change.task, 'stage'));
   events.on('task_labels_changed', ({ task }) => loopWatch.progressed(task, 'label'));
   events.on('task_cancelled', (task) => loopWatch.progressed(task, 'closed'));

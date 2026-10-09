@@ -7,6 +7,7 @@ import {
   labelHolders,
   MemberHandle,
   ProjectConfig,
+  projectManagersOf,
   releaseGateAccepts,
   resolvedStages,
   stageOwners,
@@ -17,8 +18,10 @@ import {
   aiMemberDefaults,
   DAILY_WORKER_SCHEDULE,
   en,
+  getLocale,
   getTemplate,
   hu,
+  projectManagerMember,
   summarizeTemplate,
   templates,
   type BuildTemplateInput,
@@ -67,6 +70,20 @@ describe('every template', () => {
       expect(ProjectConfig.parse(config)).toEqual(config);
       expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
       expect(config.project).toMatchObject({ key: 'AR', templateId: id, language, repos: [] });
+    });
+
+    it.each(['hu', 'en'])('has exactly one project manager, handle pm (language %s)', (language) => {
+      const config = template.build(input(language));
+      const managers = projectManagersOf(config);
+      expect(managers).toHaveLength(1);
+      expect(managers[0]).toMatchObject({
+        handle: 'pm',
+        role: 'project_manager',
+        displayName: getLocale(language).roles.project_manager.name,
+        sponsor: 'owner',
+        temp: false,
+      });
+      expect(managers[0]!.onLeave).toBeUndefined();
     });
 
     it('makes the owner the operator and the product owner', () => {
@@ -200,6 +217,7 @@ describe('web-client-project', () => {
       ['communication', 'communication', null],
       ['fe-1', 'developer', hu.specialties.frontend],
       ['be-1', 'developer', hu.specialties.backend],
+      ['pm', 'project_manager', null],
     ]);
   });
 
@@ -273,6 +291,7 @@ describe('web-client-project', () => {
       hu.roles.communication.name,
       hu.specialist(hu.specialties.frontend, hu.roles.developer.name),
       hu.specialist(hu.specialties.backend, hu.roles.developer.name),
+      hu.roles.project_manager.name,
     ]);
 
     const english = build('web-client-project', 'en');
@@ -287,6 +306,7 @@ describe('web-client-project', () => {
     expect(english.team.members.map((m) => m.displayName).slice(5)).toEqual([
       'Frontend developer',
       'Backend developer',
+      'Project manager',
     ]);
   });
 });
@@ -299,6 +319,7 @@ describe('small-team', () => {
       ['owner', 'owner'],
       ['dev-1', 'developer'],
       ['code-review', 'code_review'],
+      ['pm', 'project_manager'],
     ]);
   });
 
@@ -333,6 +354,7 @@ describe('internal-tool', () => {
       ['dev-2', 'developer', 'Developer 2'],
       ['code-review', 'code_review', 'Code reviewer'],
       ['qa', 'qa', 'QA'],
+      ['pm', 'project_manager', 'Project manager'],
     ]);
   });
 
@@ -364,6 +386,7 @@ describe('daily-routine', () => {
     expect(config.team.members.map((m) => [m.handle, m.kind === 'ai' ? m.role : m.access])).toEqual([
       ['owner', 'owner'],
       ['daily', 'maintainer'],
+      ['pm', 'project_manager'],
     ]);
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],

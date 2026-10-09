@@ -26,10 +26,12 @@ const chat = (backend: MockBackend, count: number, taskKey = 'AC-21') => {
 function backendWithWatch(count = 3) {
   const backend = new MockBackend();
   backend.config.team.limits.loopWatch = { enabled: true, count, minutes: 30 };
+  // The fake team's project manager holds the scheduling duty; on leave, nobody does.
+  backend.handle('PATCH', '/api/projects/AC/members/pm', { onLeave: true });
   return backend;
 }
 
-/** The fake team has no project manager: this makes Devops the holder of the scheduling duty. */
+/** The fake team's project manager is on leave: this makes Devops the holder of the scheduling duty. */
 function giveSchedulingToDevops(backend: MockBackend) {
   const devops = backend.config.team.members.find((member) => member.handle === 'devops');
   if (devops?.kind === 'ai') devops.role = 'project_manager';

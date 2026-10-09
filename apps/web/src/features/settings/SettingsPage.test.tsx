@@ -391,12 +391,14 @@ describe('settings section editors', () => {
 
   it('sets the loop watch, 6 messages in 30 minutes until then, and says who is told (PM-261)', async () => {
     const project = mockProject();
+    // The fake team's project manager holds the scheduling duty; on leave, nobody does.
+    project.backend.handle('PATCH', '/api/projects/AC/members/pm', { onLeave: true });
     project.render(<SettingsTestRoutes />);
     const section = await limitsSection();
     const count = section.getByLabelText(t('settings.limits.loopWatchCount')) as HTMLInputElement;
     const minutes = section.getByLabelText(t('settings.limits.loopWatchMinutes')) as HTMLInputElement;
     expect([count.value, minutes.value]).toEqual(['6', '30']);
-    // The fake team has no AI member who holds the scheduling duty: the line says so, as a warning.
+    // No AI member at work holds the scheduling duty: the line says so, as a warning.
     expect(section.getByText(/Az Ütemezést senki nem tölti be, ezért .* róla\./)).toBeTruthy();
     expect(
       section.getByRole('link', { name: t('settings.limits.loopWatchDuties') }).getAttribute('href'),

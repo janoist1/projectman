@@ -34,6 +34,7 @@ function config() {
           roles: ['operator', 'product_owner'],
         },
         { kind: 'ai', handle: 'builder', displayName: 'Builder', role: 'developer', sponsor: 'owner' },
+        { kind: 'ai', handle: 'pm', displayName: 'PM', role: 'project_manager', sponsor: 'owner' },
       ],
       limits: {},
     },

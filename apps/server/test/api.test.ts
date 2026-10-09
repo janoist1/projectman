@@ -190,7 +190,7 @@ describe('REST API', () => {
           id: 'test',
           nameKey: 'templates.test.name',
           descriptionKey: 'templates.test.description',
-          memberCount: { human: 1, ai: 3 },
+          memberCount: { human: 1, ai: 4 },
           stageCount: 6,
         },
       ]);
@@ -253,6 +253,7 @@ describe('REST API', () => {
         ['dev-1', 'idle'],
         ['dev-2', 'idle'],
         ['cr', 'idle'],
+        ['pm', 'idle'],
       ]);
       expect(board).toMatchObject({ tasks: [], openInboxCount: 0, planUsage: null });
     });

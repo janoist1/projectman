@@ -1,8 +1,8 @@
 import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
+  isProjectManager,
   type AiBuiltInRoleId,
-  type AiMemberConfig,
   type BoardColumn,
   type BoardColumnColor,
   type DutyId,
@@ -23,7 +23,8 @@ import {
 } from '../locales';
 import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members';
 import { standardLabelsFor } from '../labels';
-import { aiRoleDefaults } from '../roles';
+import { projectManagerMember } from '../project-manager';
+import { newAiMember } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate } from '../types';
 
 /** Limits every factory template starts with: the schema defaults. */
@@ -110,26 +111,19 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
       const countKey = `${opts.name ?? role}:${specialty ?? ''}`;
       const index = (perRole.get(countKey) ?? 0) + 1;
       perRole.set(countKey, index);
-      const defaults = aiRoleDefaults(role);
       const displayName = opts.name
         ? `${locale.members[opts.name]}${index > 1 ? ` ${index}` : ''}`
         : defaultMemberName(role, input.language, index, { specialty: specialtyName });
-      const member: AiMemberConfig = {
-        kind: 'ai',
-        handle,
-        displayName,
-        role,
-        ...(specialtyName ? { specialty: specialtyName } : {}),
-        model: defaults.model,
-        permissionMode: defaults.permissionMode,
-        approver: defaults.approver,
-        capacity: defaults.capacity,
-        instructions: defaults.instructions,
-        sponsor: input.owner.handle,
-        temp: false,
-        ...(opts.schedule ? { schedule: opts.schedule } : {}),
-      };
-      members.push(member);
+      members.push(
+        newAiMember({
+          role,
+          handle,
+          displayName,
+          sponsor: input.owner.handle,
+          specialty: specialtyName,
+          schedule: opts.schedule,
+        }),
+      );
       return handle;
     },
 
@@ -162,6 +156,12 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
     },
 
     finish(pipeline, limits = DEFAULT_LIMITS) {
+      // Every project has a project manager (PM-429), whether or not the template hired one.
+      if (!members.some(isProjectManager)) {
+        members.push(
+          projectManagerMember({ language: input.language, sponsor: input.owner.handle, taken: [...taken] }),
+        );
+      }
       return ProjectConfig.parse({
         schemaVersion: 1,
         project: {

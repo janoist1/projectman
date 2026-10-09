@@ -1137,6 +1137,8 @@ describe('task drawer loop box (PM-261)', () => {
   /** Three messages between two AI members of the fake team start a loop on the card. */
   function startLoop(project: ReturnType<typeof mockProject>) {
     project.backend.config.team.limits.loopWatch = { enabled: true, count: 3, minutes: 30 };
+    // The fake team's project manager holds the scheduling duty; on leave, nobody does.
+    project.backend.handle('PATCH', '/api/projects/AC/members/pm', { onLeave: true });
     for (let i = 0; i < 3; i++) {
       const [from, to] = i % 2 === 0 ? ['fe-1', 'code-review'] : ['code-review', 'fe-1'];
       project.backend.addTimeline('AC-21', from!, 'team_message', { messageId: `m${i}`, from, to: [to] });

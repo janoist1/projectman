@@ -51,6 +51,15 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           role: 'code_review',
           sponsor: input.owner.handle,
         },
+        // Every project has a project manager (PM-429); on leave, so it starts no sessions here.
+        {
+          kind: 'ai',
+          handle: 'pm',
+          displayName: 'Project Manager',
+          role: 'project_manager',
+          sponsor: input.owner.handle,
+          onLeave: true,
+        },
       ],
       limits: { maxConcurrentAi: 3, pauseAbovePlanUsagePercent: 80 },
     },

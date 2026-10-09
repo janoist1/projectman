@@ -11,6 +11,7 @@ Address members by handle.
 - `communication`: Communication (AI, communication member)
 - `fe-1`: Frontend developer (AI, developer, Frontend)
 - `be-1`: Backend developer (AI, developer, Backend)
+- `pm`: Project manager (AI, project manager)
 - `data-steward`: Data steward (AI, Data steward) ← you
 
 # How the team works

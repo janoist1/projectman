@@ -22,3 +22,8 @@ members:
     displayName: Reviewer
     role: code_review
     sponsor: owner
+  - kind: ai
+    handle: pm
+    displayName: Project manager
+    role: project_manager
+    sponsor: owner

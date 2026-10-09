@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
   holdersAllow,
+  isRequiredProjectManager,
   isSenior,
   MemberHandle,
   memberDuties,
@@ -468,6 +469,12 @@ export class MemberService {
   ): Promise<void> {
     const config = await this.projects.config(projectKey);
     requireAiMember(config, handle);
+    if (isRequiredProjectManager(config, handle)) {
+      throw conflict(
+        'project_manager_required',
+        'the only AI project manager cannot be retired; hire another one first',
+      );
+    }
     const handoverTo = opts.handoverTo ?? null;
     if (handoverTo !== null) {
       if (handoverTo === handle) throw invalid('invalid_request', 'cannot hand over to the retiring member');

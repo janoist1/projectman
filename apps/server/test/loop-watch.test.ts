@@ -26,14 +26,9 @@ describe('loop watch', () => {
       config.team.limits.maxConcurrentAi = 10;
       config.team.limits.loopWatch = { enabled: opts.watch?.enabled ?? true, count: 3, minutes: 30 };
       config.pipeline.labels.push({ id: 'tag', name: 'Tag', setBy: 'anyone' });
-      if (opts.scheduler ?? true)
-        config.team.members.push({
-          kind: 'ai',
-          handle: 'pm',
-          displayName: 'PM',
-          role: 'project_manager',
-          sponsor: 'owner',
-        } as ProjectConfig['team']['members'][number]);
+      // The test template's project manager (PM-429) is the scheduler; it is on leave, which leaves none.
+      const manager = config.team.members.find((m) => m.handle === 'pm');
+      if (manager?.kind === 'ai' && (opts.scheduler ?? true)) delete manager.onLeave;
     };
 
   async function prepare(opts: Parameters<typeof setup>[0] = {}) {

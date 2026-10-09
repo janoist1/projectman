@@ -744,6 +744,10 @@ export const hu = {
       custom_role_shadows_builtin: 'Az azonosító egy beépített szerepé.',
       duplicate_role: 'Ilyen azonosítójú szerep már létezik.',
       role_in_use: 'A szerep még használatban van.',
+      project_manager_required:
+        'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
+      project_manager_move_refused:
+        'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',
       role_id_mismatch: 'A szerep azonosítója nem egyezik.',
       not_human_member: 'Ez nem emberi tag.',
@@ -3523,6 +3527,7 @@ export const hu = {
       unrecognized_keys: 'Nem módosítható vagy ismeretlen mező.',
       duplicate_handle: 'A tagok azonosítói nem ismétlődhetnek.',
       no_owner: 'Legalább egy emberi tulajdonos szükséges.',
+      no_ai_project_manager: 'A projektben mindig kell egy AI Projektmenedzser.',
       release_without_human_approval: 'A kiadási lépéshez emberi jóváhagyás szükséges.',
       release_approval_needs_duty:
         'A kiadás jóváhagyását csak a „Kiadás jóváhagyása” feladatkör felelősei adhatják.',

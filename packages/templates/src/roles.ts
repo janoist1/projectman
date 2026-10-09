@@ -6,9 +6,11 @@ import {
   DEFAULT_PERMISSION_MODE,
   DEFAULT_PROVIDER_MODELS,
   type AiBuiltInRoleId,
+  type AiMemberConfig,
   type Approver,
   type BuiltInRoleId,
   type CustomRoleDefinition,
+  type MemberSchedule,
   type PermissionMode,
   type RoleOverrides,
 } from '@projectman/shared';
@@ -59,7 +61,37 @@ export function aiRoleDefaults(role: AiBuiltInRoleId): AiRoleDefaults {
 }
 
 /**
- * Defaults for an AI member of any role: the built-in role's defaults (with the team's
+ * A new AI member of a built-in role with the role's defaults. The one place the starting
+ * values are formed: a template's hire and the project manager helper both call it.
+ */
+export function newAiMember(input: {
+  role: AiBuiltInRoleId;
+  handle: string;
+  displayName: string;
+  sponsor: string;
+  specialty?: string | undefined;
+  schedule?: MemberSchedule | undefined;
+}): AiMemberConfig {
+  const defaults = aiRoleDefaults(input.role);
+  return {
+    kind: 'ai',
+    handle: input.handle,
+    displayName: input.displayName,
+    role: input.role,
+    ...(input.specialty ? { specialty: input.specialty } : {}),
+    model: defaults.model,
+    permissionMode: defaults.permissionMode,
+    approver: defaults.approver,
+    capacity: defaults.capacity,
+    instructions: defaults.instructions,
+    sponsor: input.sponsor,
+    temp: false,
+    ...(input.schedule ? { schedule: input.schedule } : {}),
+  };
+}
+
+/**
+ * Defaults for an AI member of any role:the built-in role's defaults (with the team's
  * override of its duties), or the generic ones for a custom role that AI members may hold.
  * Null when the role is unknown or only humans may hold it.
  */

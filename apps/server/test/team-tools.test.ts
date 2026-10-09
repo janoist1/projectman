@@ -422,6 +422,18 @@ describe('team tools', () => {
     expect(result.find((task) => task.key === other.key)).not.toHaveProperty('priority');
   });
 
+  it('list_tasks and get_task show the place in the project focus only on cards in it (PM-437)', async () => {
+    const other = await h.domain.tasks.create('AR', { title: 'Not in focus' }, OWNER_ACTOR);
+    await h.domain.projectFocus.add('AR', 'AR-1', OWNER_ACTOR);
+    const result = await h.domain.teamTools.listTasks(dev, {});
+    expect(result.find((task) => task.key === 'AR-1')).toMatchObject({ focus: { position: 1 } });
+    expect(result.find((task) => task.key === other.key)).not.toHaveProperty('focus');
+    expect(await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).toMatchObject({
+      focus: { position: 1 },
+    });
+    expect(await h.domain.teamTools.getTask(dev, { taskKey: other.key })).not.toHaveProperty('focus');
+  });
+
   it('create_task puts an unassigned task into the first stage, attributed to the member', async () => {
     const { task } = await h.domain.teamTools.createTask(dev, {
       title: '  Signup form accepts an empty email ',

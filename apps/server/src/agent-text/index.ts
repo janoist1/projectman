@@ -12,6 +12,7 @@ export {
   type CardQuestionText,
   type CardWorkerText,
 } from './card-thread';
+export { focusPlaceText } from './focus';
 export { describeLink, linkTarget, numberedRef } from './links';
 export { describeRelatedCard, relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';

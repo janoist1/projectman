@@ -65,6 +65,7 @@ import type { InboxService } from './inbox';
 import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
+import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
 import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
@@ -273,6 +274,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers' | 'cardWorkersFor'>;
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly projects: ProjectService;
+  private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly tasks: TaskService;
   private readonly members: MemberService;
   private readonly messaging: Messaging;
@@ -306,6 +308,8 @@ export class TeamToolsService implements TeamToolsHandler {
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     tasks: TaskService;
+    /** The project's focus (PM-437): list_tasks and get_task show a card's place in it. */
+    projectFocus: Pick<ProjectFocusService, 'places'>;
     members: MemberService;
     messaging: Messaging;
     inbox: InboxService;
@@ -346,6 +350,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
+    this.projectFocus = deps.projectFocus;
     this.members = deps.members;
     this.messaging = deps.messaging;
     this.inbox = deps.inbox;
@@ -413,6 +418,7 @@ export class TeamToolsService implements TeamToolsHandler {
         throw new TeamToolError('invalid', 'limit must be an integer between 1 and 200.');
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
+      const places = this.projectFocus.places(ctx.projectKey);
       return this.tasks
         .list(ctx.projectKey)
         .filter(
@@ -434,6 +440,7 @@ export class TeamToolsService implements TeamToolsHandler {
           updatedAt,
           ...(kind === 'theme' ? { kind } : {}),
           ...(priority !== null ? { priority } : {}),
+          ...(places.has(key) ? { focus: places.get(key) } : {}),
         }));
     });
   }
@@ -454,9 +461,11 @@ export class TeamToolsService implements TeamToolsHandler {
       const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
       const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
       const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
+      const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
       return {
         ...detail,
         effectiveRepo: effectiveRepo(config, detail.task),
+        ...(focus ? { focus } : {}),
         repoChoiceNeeded: needsRepoChoice(config, detail.task),
         relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
         ...(themeCard

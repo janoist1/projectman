@@ -1,15 +1,18 @@
 import {
+  hasCardRole,
   isOpenTask,
+  isTheme,
   labelDefinition,
   memberOf,
   messageStaleReason,
+  messageWakeBlock,
   messageWakes,
   permissionDelegationOf,
   permissionDelegationState,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
-import type { ProjectConfig, StaleReason, TeamMessage } from '@projectman/shared';
+import type { ProjectConfig, StaleReason, Task, TeamMessage, WakeBlock, WakeFacts } from '@projectman/shared';
 import type { DomainContext } from '../context';
 
 /** Server facts for the shared message validity rule; no git lookup is needed at delivery. */
@@ -71,6 +74,43 @@ export function senderResultLabelFor(
   return labels.at(-1) ?? null;
 }
 
+/**
+ * Whether the recipient has a role on the card (PM-426): the shared rule, with the server fact that they
+ * have or had a session on the card, or on its parent when it is a subtask (the sessions table keeps one
+ * row per member and work item and is never emptied).
+ */
+export function recipientHasCardRole(
+  ctx: DomainContext,
+  config: ProjectConfig,
+  task: Task,
+  recipient: string,
+): boolean {
+  const worked = (taskKey: string) =>
+    ctx.repos.sessions.findByWorkItem(task.projectKey, recipient, { type: 'task', taskKey }) !== null;
+  return hasCardRole(
+    config,
+    task,
+    recipient,
+    worked(task.key) || (!!task.parentKey && worked(task.parentKey)),
+  );
+}
+
+/** The shared wake facts: a message about no card, a missing card or a theme never lacks a role. */
+export function wakeFactsFor(
+  ctx: DomainContext,
+  config: ProjectConfig,
+  message: TeamMessage,
+  recipient: string,
+): WakeFacts {
+  const sender = memberOf(config, message.from);
+  const task = message.taskKey ? ctx.repos.tasks.get(message.taskKey) : null;
+  return {
+    fromHuman: sender?.kind === 'human',
+    fromAi: sender?.kind === 'ai',
+    recipientHasRole: !task || isTheme(task) || recipientHasCardRole(ctx, config, task, recipient),
+  };
+}
+
 export function wakesFor(
   ctx: DomainContext,
   config: ProjectConfig,
@@ -79,7 +119,21 @@ export function wakesFor(
 ): boolean {
   return messageWakes(
     message,
-    { fromHuman: memberOf(config, message.from)?.kind === 'human' },
+    wakeFactsFor(ctx, config, message, recipient),
+    staleReasonFor(ctx, config, message, recipient),
+  );
+}
+
+/** Why a valid action message starts no session for the recipient, or null (PM-426). */
+export function wakeBlockFor(
+  ctx: DomainContext,
+  config: ProjectConfig,
+  message: TeamMessage,
+  recipient: string,
+): WakeBlock | null {
+  return messageWakeBlock(
+    message,
+    wakeFactsFor(ctx, config, message, recipient),
     staleReasonFor(ctx, config, message, recipient),
   );
 }

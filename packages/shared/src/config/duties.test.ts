@@ -6,6 +6,7 @@ import type { Session, SessionState } from '../domain/session';
 import {
   cardWorkerSessions,
   dutyMembers,
+  hasCardRole,
   hasStepOnTask,
   isSessionAtWork,
   isWorkingOnTask,
@@ -149,6 +150,45 @@ describe('duty bundles', () => {
     // A card that is not open has no step at all.
     expect(hasStepOnTask(c, card('work', 'builder', 'cancelled'), 'builder', 'builder')).toBe(false);
     expect(hasStepOnTask(c, card('work', 'builder', 'done'), 'builder', null)).toBe(false);
+  });
+  it('says who has a role on a card: its assignee, a reviewer, a step owner or a worker (PM-426)', () => {
+    const c = config();
+    const ai = (handle: string, role: string) =>
+      ({ kind: 'ai', handle, displayName: handle, role, sponsor: 'owner' }) as never;
+    c.team.members.push(
+      ai('dev2', 'developer'),
+      ai('lead', 'lead_developer'),
+      ai('ux', 'designer'),
+      ai('sec', 'security_review'),
+      ai('qa1', 'qa'),
+      ai('arch', 'architect'),
+    );
+    c.pipeline.stages.splice(2, 0, {
+      id: 'review',
+      name: 'Review',
+      kind: 'step',
+      owners: ['arch'],
+      columnId: 'all',
+    });
+    const card = (stageId: string, assignee: string | null) => ({ stageId, assignee });
+    const role = (stageId: string, handle: string, workedOn = false, assignee: string | null = 'builder') =>
+      hasCardRole(c, card(stageId, assignee), handle, workedOn);
+    // The assignee; the other developers of the work stage's owners do not count.
+    expect(role('work', 'builder')).toBe(true);
+    expect(role('work', 'dev2')).toBe(false);
+    expect(role('work', 'dev2', false, null)).toBe(false);
+    // A reviewer, tester or designer has a role in any stage, a work stage included.
+    for (const handle of ['lead', 'ux', 'sec', 'qa1']) {
+      expect(role('work', handle)).toBe(true);
+      expect(role('queue', handle)).toBe(true);
+    }
+    // An owner of a step stage has one there only.
+    expect(role('review', 'arch')).toBe(true);
+    expect(role('work', 'arch')).toBe(false);
+    // Whoever worked on the card has one, in any stage.
+    expect(role('work', 'dev2', true)).toBe(true);
+    expect(role('work', 'unknown')).toBe(false);
+    expect(role('missing', 'dev2')).toBe(false);
   });
   it('says whether a session is at work: an engaged state, or idle with a sign of work (PM-288)', () => {
     const none = { awaitsFirstTurn: false, pendingInput: false, messageOnItsWay: false };

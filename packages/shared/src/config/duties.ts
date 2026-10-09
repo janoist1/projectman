@@ -93,6 +93,27 @@ export function stageHandsOverForReview(config: Pick<ProjectConfig, 'team'>, sta
     (m) => owners.has(m.handle) && memberDuties(config, m).some((duty) => REVIEW_DUTIES.includes(duty)),
   );
 }
+/** The duties whose members review a card wherever it is (PM-426): an AI member's message may start them on any card. */
+export const CARD_REVIEWER_DUTIES: readonly DutyId[] = [...REVIEW_DUTIES, 'ux_design'];
+/**
+ * Whether `handle` has a role on the card (PM-426), so that an AI member's action message may start them
+ * there: its assignee; a member with a duty of CARD_REVIEWER_DUTIES, in any stage of the card; an owner of
+ * its current stage when that is a `step` stage (a work stage's owners do not count); or a member who
+ * worked on it (`workedOn`, a server fact: has or had a session on the card, or on its parent when it is a
+ * subtask).
+ */
+export function hasCardRole(
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+  task: Pick<Task, 'assignee' | 'stageId'>,
+  handle: string,
+  workedOn: boolean,
+): boolean {
+  if (workedOn || task.assignee === handle) return true;
+  const member = config.team.members.find((m) => m.handle === handle);
+  if (member && memberDuties(config, member).some((duty) => CARD_REVIEWER_DUTIES.includes(duty))) return true;
+  const stage = stageOf(config, task.stageId);
+  return stage?.kind === 'step' && stageOwners(config, stage).includes(handle);
+}
 /**
  * Session states of a member that is doing something now: a turn runs, or it waits for an answer.
  * The server's `BUSY_SESSION_STATES` (the concurrency limit) leaves out `waiting_input`: a session

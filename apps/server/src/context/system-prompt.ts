@@ -6,6 +6,7 @@ import {
   roleBundle,
   roleUsesWorktree,
   roleSessionTools,
+  stageOwners,
   teamRules,
   usesCodexCli,
 } from '@projectman/shared';
@@ -191,12 +192,35 @@ function teamworkSection({ project, member }: ContextPackInput): string {
     '- send_message requires kind: action when the recipient has something to do, info for status or results (review and QA results live in labels). A plain acknowledgement needs no message; if sent, use info. Do not act on or answer an out-of-date or fulfilled request. Check the message time and card state before acting on delayed requests.',
     '- Before acting on a request, compare its time and version with the current card. Do not carry out a request its sender has since superseded by another message or closed with a result label. Never reset or force-rewrite a branch with approval labels without asking the approving reviewer first.',
     '- Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.',
-    '- Message only when someone has something to do, and send humans only what needs their decision or action.',
+    '- Message only when someone has something to do, and send humans only what needs their decision or action. Your message starts only members with a role on the card: its assignee, its reviewers (code, security, QA and UI/UX review), the owners of its current review step, and members who have worked on it or on its parent. Anyone else gets it the next time they work on that card.',
+    ...codeReviewLine(project),
     "- When other members work on the same card (your brief or get_task names them), split the work with them by send_message, addressed to all of them, and do not overwrite each other's part.",
     `- Write messages, notes, questions, task titles and descriptions in ${languageName(language)} (${code(language)}), the project's language. ${rules} decides the language of code, commits and pull requests.`,
     '- Check the primary source (the code, the logs, the task) before you state a fact.',
     '- Other sessions may share a checkout: never switch branches, reset, stash or clean in a working directory that is not your own.',
   ].join('\n');
+}
+
+/**
+ * Who does the code review and when it starts (PM-426), so that nobody writes to other developers for a
+ * "developer review". A code review stage is a step or release stage whose duty is code review, or one
+ * of whose owners has that duty. The line is left out when there is none, or it has no owner.
+ */
+function codeReviewLine(project: ContextPackInput['project']): string[] {
+  const stages = project.pipeline.stages.filter(
+    (stage) =>
+      (stage.kind === 'step' || stage.kind === 'release') &&
+      (stage.duty
+        ? stage.duty === 'code_review'
+        : stageOwners(project, stage).some((handle) =>
+            dutyMembers(project, 'code_review').some((m) => m.handle === handle),
+          )),
+  );
+  const owners = [...new Set(stages.flatMap((stage) => stageOwners(project, stage)))];
+  if (stages.length === 0 || owners.length === 0) return [];
+  return [
+    `- Code review is the job of ${codeList(owners)} in the ${stages.map((stage) => stage.name).join(' or ')} stage: it starts when the card moves there. Do not message other developers for a "developer review" or to integrate your work.`,
+  ];
 }
 
 /**

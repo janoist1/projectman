@@ -219,6 +219,8 @@ describe('versioned message wake-up', () => {
     h = await createDomainHarness({ now: () => time });
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
     await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+    // dev-2 worked on the card, so it has a role there and the request is about validity only (PM-426).
+    await h.domain.sessions.ensureSession('AR', 'dev-2', { type: 'task', taskKey: 'AR-1' });
     const request = await h.domain.messaging.send('AR', 'cr', {
       to: ['dev-1', 'dev-2'],
       text: 'Fix this.',

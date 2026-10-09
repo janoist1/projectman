@@ -38,7 +38,7 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import { createAttachmentStorage, createDomain } from './domain';
+import { createAttachmentStorage, createDomain, createEventBus } from './domain';
 import { freeBytesOf } from './engine-host';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
@@ -58,7 +58,7 @@ import {
 import type { AccountLookup, BoundaryConfig } from './runtime-boundary';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
-import { createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
+import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
 import type { EngineLinks } from './engine-link';
 import { EngineRegistry } from './domain';
 
@@ -406,8 +406,42 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     await configStore.init();
 
     const log = app.log;
+    // Cloud mode (PM-315): the machine's work (sessions, worktrees, gh, the full test, screenshots, the
+    // machine display) is the connected engine's. The registry, the links and the remote parts exist
+    // before the domain, which takes them as its engines, runner and probes; the bus is made here too
+    // because the registry publishes on it.
+    const cloudBus =
+      options.engineMode === 'cloud' ? createEventBus(log.child({ module: 'events' })) : undefined;
+    const engineRegistry = cloudBus
+      ? new EngineRegistry({
+          repos,
+          bus: cloudBus,
+          version: options.appVersion ?? 'dev',
+          now: options.now,
+        })
+      : undefined;
+    const clientIpHeader = options.clientIpHeader;
+    const engineLinks = engineRegistry
+      ? createEngineLinks({
+          registry: engineRegistry,
+          clientIpHeader,
+          now: options.now ? () => options.now!().getTime() : undefined,
+        })
+      : undefined;
+    const remote =
+      engineRegistry && engineLinks
+        ? createCloudRemote({
+            links: engineLinks,
+            registry: engineRegistry,
+            recordedEngine: (sessionId) => repos!.sessions.get(sessionId)?.engineId ?? null,
+            spoolDir: join(home, 'engine-spool'),
+            logger: log.child({ module: 'engine-remote' }),
+            now: options.now ? () => options.now!().getTime() : undefined,
+          })
+        : undefined;
     const github =
       modules.github ??
+      remote?.github ??
       createGithubService({
         ghBin: options.ghBin ?? APP_DEFAULTS.ghBin,
         ghHost: options.ghHost ?? APP_DEFAULTS.ghHost,
@@ -504,41 +538,57 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         : {}),
       boundaryAdapter: modules.boundaryAdapter,
       nanogptKeyCheck: modules.nanogptKeyCheck,
-      fullTestExecutor: modules.createFullTestExecutor?.({ logger: log.child({ module: 'full-test' }) }),
-      screenshotExecutor: modules.createScreenshotExecutor?.({
-        logger: log.child({ module: 'screenshots' }),
-      }),
+      fullTestExecutor: remote
+        ? undefined
+        : modules.createFullTestExecutor?.({ logger: log.child({ module: 'full-test' }) }),
+      screenshotExecutor: remote
+        ? undefined
+        : modules.createScreenshotExecutor?.({
+            logger: log.child({ module: 'screenshots' }),
+          }),
       repos,
       configStore,
       logger: log.child({ module: 'domain' }),
       publicBaseUrl,
       instanceTag,
-      machineProbe: modules.createMachineProbe
-        ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
-        : undefined,
+      ...(remote
+        ? {
+            bus: cloudBus,
+            engines: remote.directory,
+            engineAttachments: remote.attachments,
+            machineEngine: remote.machineProbe,
+          }
+        : {}),
+      machineProbe: remote
+        ? () => remote.machineProbe
+        : modules.createMachineProbe
+          ? ({ runningPids }) => modules.createMachineProbe!({ runningPids, instanceTag })
+          : undefined,
       createRunner: (broker, nanogptKey) =>
-        makeRunner({
-          claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
-          codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
-          codexHome: options.codexHome,
-          nanogptCodexHome: join(home, 'providers', 'nanogpt', 'codex-home'),
-          nanogptKey,
-          geminiBin: options.geminiBin,
-          geminiConfigDir: options.geminiConfigDir,
-          claudeConfigPath: options.claudeConfigPath,
-          env: options.agentEnv,
-          terminal: options.terminal,
-          managedVm: verifiedManagedVm,
-          publicBaseUrl,
-          instanceTag,
-          broker,
-          refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
-          permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
-          logger: log.child({ module: 'runner' }),
-          ...(runtimeBoundary.mode === 'managed_vm' && runtimeBoundary.launcher && runtimeBoundary.layout
-            ? { launcher: runtimeBoundary.launcher, workerLayout: runtimeBoundary.layout }
-            : {}),
-        }),
+        remote
+          ? remote.createRunnerModule(broker, nanogptKey)
+          : makeRunner({
+              claudeBin: options.claudeBin ?? APP_DEFAULTS.claudeBin,
+              codexBin: options.codexBin ?? APP_DEFAULTS.codexBin,
+              codexHome: options.codexHome,
+              nanogptCodexHome: join(home, 'providers', 'nanogpt', 'codex-home'),
+              nanogptKey,
+              geminiBin: options.geminiBin,
+              geminiConfigDir: options.geminiConfigDir,
+              claudeConfigPath: options.claudeConfigPath,
+              env: options.agentEnv,
+              terminal: options.terminal,
+              managedVm: verifiedManagedVm,
+              publicBaseUrl,
+              instanceTag,
+              broker,
+              refreshDependencies: (cwd) => worktrees.refreshDependencies(cwd).then(() => undefined),
+              permissionTimeoutMs: options.permissionTimeoutMs ?? APP_DEFAULTS.permissionTimeoutMs,
+              logger: log.child({ module: 'runner' }),
+              ...(runtimeBoundary.mode === 'managed_vm' && runtimeBoundary.launcher && runtimeBoundary.layout
+                ? { launcher: runtimeBoundary.launcher, workerLayout: runtimeBoundary.layout }
+                : {}),
+            }),
       github,
       githubPublisher,
       contextBuilder,
@@ -614,25 +664,12 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? resolve(options.webDistDir)
         : null;
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
-    const clientIpHeader = options.clientIpHeader;
     registerAuth(app, { auth, domain, clientIpHeader });
-    const engineRegistry =
-      options.engineMode === 'cloud'
-        ? new EngineRegistry({
-            repos,
-            bus: domain.bus,
-            version: options.appVersion ?? 'dev',
-            now: options.now,
-          })
-        : undefined;
-    const engineLinks = engineRegistry
-      ? createEngineLinks({
-          registry: engineRegistry,
-          clientIpHeader,
-          now: options.now ? () => options.now!().getTime() : undefined,
-        })
-      : undefined;
+    // The remote parts that need the domain, and what the engine's settings view counts.
+    remote?.bind(domain, app);
+    engineRegistry?.useCounters((id) => domain.engineCounters(id));
     engineLinks?.register(app);
+    remote?.transfers.register(app);
     registerApiRoutes(app, { domain, auth, clientIpHeader, engineRegistry });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
@@ -710,7 +747,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       await controlSocket?.close();
       await egressProxy?.close();
       await bridges?.close();
+      // The team is paused over the links that are up; none waits for an engine that is not.
+      remote?.stopWaiting();
       await domain.stop();
+      remote?.close();
       try {
         await domain.runnerModule.runner.shutdown();
       } catch (err) {

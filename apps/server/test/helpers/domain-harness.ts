@@ -8,6 +8,7 @@ import { createRepositories, openDatabase } from '../../src/db';
 import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
+  EngineAttachments,
   EngineDirectory,
   FullTestExecutor,
   ScreenshotExecutor,
@@ -122,6 +123,8 @@ export async function createDomainHarness(
     heavyLockDir?: string;
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
+    /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
+    engineAttachments?: EngineAttachments;
   } = {},
 ) {
   const restarted = opts.directory !== undefined;
@@ -163,6 +166,7 @@ export async function createDomainHarness(
 
   const domain: Domain = createDomain({
     ...(opts.engines ? { engines: opts.engines } : {}),
+    ...(opts.engineAttachments ? { engineAttachments: opts.engineAttachments } : {}),
     sessionFoldersDir,
     sessionTmpDir,
     // Not this machine's: the harness directory may lie below the Claude Code root the tests run in.

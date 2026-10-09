@@ -37,7 +37,7 @@ describe('the machine fixture', () => {
         PROJECTMAN_INSTANCE: 'abcdef0123456789',
         PROJECTMAN_SESSION_ID: 'ses_fixture_a',
       });
-      expect(probe.signal(roots[0]!.pid, 'SIGTERM')).toBe('sent');
+      await expect(probe.signal(roots[0]!.pid, 'SIGTERM')).resolves.toBe('sent');
       const after = (await probe.processes())!;
       expect(after.some((record) => record.pid === roots[0]!.pid)).toBe(false);
       expect(kill).not.toHaveBeenCalled();

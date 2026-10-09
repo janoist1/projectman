@@ -109,7 +109,7 @@ function makeProbe(): FakeProbe {
     },
     signal(pid, signal) {
       probe.signals.push({ pid, signal });
-      return probe.onSignal(pid, signal);
+      return Promise.resolve(probe.onSignal(pid, signal));
     },
   };
   return probe;

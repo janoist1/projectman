@@ -7,6 +7,7 @@ import {
   isTheme,
   labelDefinition,
   memberOf,
+  messageRoute,
   projectRefines,
   routeFor,
   sameWorkItem,
@@ -27,7 +28,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
-import type { SentMessageRecipient } from '../../contracts';
+import type { EngineDirectory, SentMessageRecipient } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
 import { DomainError, invalid } from '../errors';
@@ -107,6 +108,7 @@ export class Messaging {
   private readonly messages: MessageService;
   private readonly delivery: MessageDelivery;
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
+  private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests:
     | {
@@ -123,7 +125,10 @@ export class Messaging {
     messages: MessageService;
     delivery: MessageDelivery;
     refinement: Pick<RefinementSteps, 'turnMember'>;
+    /** The engines (PM-315): a message to a member whose engine is not connected waits for it. */
+    engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   }) {
+    this.engines = deps.engines;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -549,13 +554,68 @@ export class Messaging {
     from: string,
     handle: string,
     opts: SendOptions,
-  ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | null {
+  ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | 'engine' | null {
+    // The project manager runs on the engine too: no engine, no delivery, whatever its other holds are.
+    if (this.heldForEngine(config.project.key, handle)) return 'engine';
     if (isProjectManager(memberOf(config, handle))) return null;
     if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
     if (this.heldForFullTest(config, task, from, handle)) return 'full_test';
     return null;
+  }
+
+  /**
+   * Whether a message to the member waits because the engine its sessions run on is not connected
+   * (PM-315): it is stored and typed in, or wakes the member, when the engine is back
+   * (`releaseForEngine`). On this machine's own engine nothing waits.
+   */
+  private heldForEngine(projectKey: string, handle: string): boolean {
+    if (!this.engines) return false;
+    const engineId = this.engines.engineFor(projectKey, handle);
+    return engineId === null || this.engines.get(engineId) === null;
+  }
+
+  /**
+   * An engine is connected again (PM-315): the messages that waited for it, and every other message
+   * that is still waiting for a member that works on it, reach the member the usual way, unless its card
+   * holds them back for another reason.
+   */
+  async releaseForEngine(engineId: string): Promise<void> {
+    if (!this.engines) return;
+    for (const summary of this.projects.summaries()) {
+      const config = await this.projects.config(summary.key);
+      for (const member of config.team.members) {
+        if (member.kind !== 'ai' || this.engines.engineFor(summary.key, member.handle) !== engineId) continue;
+        const places: WorkItemRef[] = [];
+        for (const message of this.ctx.repos.messages.pending(summary.key, member.handle)) {
+          const route = sessionWorkItemOf(member, messageRoute(message, member.handle));
+          if (!places.some((place) => sameWorkItem(place, route))) places.push(route);
+        }
+        for (const workItem of places) {
+          if (await this.holdsMessagesOf({ projectKey: summary.key, member: member.handle, workItem }))
+            continue;
+          const running = this.sessions.findRunning(summary.key, member.handle, workItem);
+          for (const message of this.messages.waiting(summary.key, member.handle, workItem))
+            this.deliverOrWake(config, summary.key, member.handle, workItem, running, message);
+        }
+      }
+    }
+  }
+
+  /** How many messages wait for members that work on the engine (PM-315, the engine's settings view). */
+  waitingForEngine(engineId: string): number {
+    if (!this.engines) return 0;
+    let count = 0;
+    for (const summary of this.projects.summaries()) {
+      const config = this.projects.cachedConfig(summary.key);
+      if (!config) continue;
+      for (const member of config.team.members) {
+        if (member.kind !== 'ai' || this.engines.engineFor(summary.key, member.handle) !== engineId) continue;
+        count += this.ctx.repos.messages.pending(summary.key, member.handle).length;
+      }
+    }
+    return count;
   }
 
   /**
@@ -632,6 +692,7 @@ export class Messaging {
    * theirs, the fix round limit, or the full test. A resumed session must respect these holds too.
    */
   async holdsMessagesOf(session: Pick<Session, 'projectKey' | 'member' | 'workItem'>): Promise<boolean> {
+    if (this.heldForEngine(session.projectKey, session.member)) return true;
     if (session.workItem.type !== 'task') return false;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task) return false;

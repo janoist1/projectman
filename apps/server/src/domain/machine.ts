@@ -16,6 +16,7 @@ import type {
 import type { FastifyBaseLogger } from 'fastify';
 import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../contracts';
 import { shortName } from '../machine/parse';
+import { conflict } from './errors';
 
 /**
  * The machine display's server side (PM-320): measures the machine and the processes now and then,
@@ -91,6 +92,14 @@ export interface MachineMonitorOptions {
   serverPid?: number;
   /** The server's user; null where there are no user ids (no orphan is then recognised). */
   serverUid?: number | null;
+  /**
+   * The identity of the process the machine display belongs to, read at every use (PM-315: in cloud mode
+   * it is the engine's, from its `hello`, and changes with the engine's restarts). It replaces
+   * `serverPid`, `serverUid` and `instanceTag` while it answers; null: the engine is not known yet.
+   */
+  identity?: () => { pid: number; uid: number | null; instanceTag?: string } | null;
+  /** The machine to show is not reachable (PM-315, cloud mode, no engine): the display is refused with `engine_offline`. */
+  unavailable?: () => boolean;
   logger: FastifyBaseLogger;
   now?: () => Date;
   /** Starts a timer; the returned function cancels it (tests pass a fake). */
@@ -120,8 +129,21 @@ export class MachineMonitor {
   private readonly now: () => Date;
   private readonly setTimer: (run: () => void, ms: number) => () => void;
   private readonly sleep: (ms: number) => Promise<void>;
-  private readonly serverPid: number;
-  private readonly serverUid: number | null;
+  private get serverPid(): number {
+    const identity = this.o.identity;
+    // An engine not known yet: pid 0 is nobody's, and no uid means no orphan is recognised.
+    if (identity) return identity()?.pid ?? 0;
+    return this.o.serverPid ?? process.pid;
+  }
+  private get serverUid(): number | null {
+    const identity = this.o.identity;
+    if (identity) return identity()?.uid ?? null;
+    return this.o.serverUid !== undefined ? this.o.serverUid : (process.getuid?.() ?? null);
+  }
+  private get instanceTag(): string | undefined {
+    const identity = this.o.identity;
+    return identity ? identity()?.instanceTag : this.o.instanceTag;
+  }
 
   private lastPanelAt: number | null = null;
   private lastAnyAt: number | null = null;
@@ -144,8 +166,6 @@ export class MachineMonitor {
     this.now = options.now ?? (() => new Date());
     this.setTimer = options.setTimer ?? realTimer;
     this.sleep = options.sleep ?? realSleep;
-    this.serverPid = options.serverPid ?? process.pid;
-    this.serverUid = options.serverUid !== undefined ? options.serverUid : (process.getuid?.() ?? null);
   }
 
   /* ---------- demand and rounds ---------- */
@@ -160,6 +180,8 @@ export class MachineMonitor {
 
   /** The machine as measured last, measuring first when there is no sample or it is old. */
   async view(request: { panel: boolean }): Promise<MachineView> {
+    if (this.o.unavailable?.())
+      throw conflict('engine_offline', 'The engine whose machine is shown is not connected');
     const at = this.now().getTime();
     this.lastAnyAt = at;
     if (request.panel) this.lastPanelAt = at;
@@ -435,7 +457,7 @@ export class MachineMonitor {
 
     // Candidates: the server's user's processes that no live session or the server owns.
     const candidates = new Map<number, ProcessRecord>();
-    if (this.serverUid !== null && this.o.instanceTag) {
+    if (this.serverUid !== null && this.instanceTag) {
       for (const record of processes) {
         if (record.uid !== this.serverUid || record.pid <= 1) continue;
         if (taken.has(record.pid) || ancestors.has(record.pid) || record.pid === this.serverPid) continue;
@@ -501,7 +523,7 @@ export class MachineMonitor {
       }
       const sessionId = values?.[SESSION_ID_VAR];
       const marker: Marker | null =
-        values && values[INSTANCE_VAR] === this.o.instanceTag && sessionId?.startsWith('ses_')
+        values && values[INSTANCE_VAR] === this.instanceTag && sessionId?.startsWith('ses_')
           ? { sessionId }
           : null;
       found.set(root.pid, marker);
@@ -723,12 +745,15 @@ export class MachineMonitor {
     const targets = orphan.members.filter((member) => member.uid === this.serverUid);
     let rootDenied = false;
     // The pid and start time are compared again right before a signal: a pid may be reused.
-    const signalAll = (signal: 'SIGTERM' | 'SIGKILL', current: Map<number, ProcessRecord>): void => {
+    const signalAll = async (
+      signal: 'SIGTERM' | 'SIGKILL',
+      current: Map<number, ProcessRecord>,
+    ): Promise<void> => {
       for (const target of targets) {
         const now = current.get(target.pid);
         if (!now || now.startedAt !== target.startedAt || target.pid <= 1 || target.pid === this.serverPid)
           continue;
-        if (probe.signal(target.pid, signal) === 'denied' && target.pid === orphan.root.pid)
+        if ((await probe.signal(target.pid, signal)) === 'denied' && target.pid === orphan.root.pid)
           rootDenied = true;
       }
     };
@@ -740,7 +765,7 @@ export class MachineMonitor {
     // The list the orphan was recognised in is older than the environment reads: look again.
     let latest: ProcessRecord[] | null = await probe.processes();
     if (!latest) return 'failed';
-    signalAll('SIGTERM', new Map(latest.map((record) => [record.pid, record])));
+    await signalAll('SIGTERM', new Map(latest.map((record) => [record.pid, record])));
     for (let waited = 0; waited < STOP_TERM_WAIT_MS; waited += STOP_POLL_MS) {
       await this.sleep(STOP_POLL_MS);
       latest = await probe.processes();
@@ -748,7 +773,7 @@ export class MachineMonitor {
       if (alive(latest).length === 0) break;
     }
     if (latest && alive(latest).length > 0) {
-      signalAll('SIGKILL', new Map(latest.map((record) => [record.pid, record])));
+      await signalAll('SIGKILL', new Map(latest.map((record) => [record.pid, record])));
       await this.sleep(STOP_KILL_WAIT_MS);
       latest = await probe.processes();
       if (!latest) return 'failed';

@@ -126,7 +126,7 @@ describe('engine local limit', () => {
       processes: async () => processes,
       envValues: async (pids: number[]) =>
         new Map(pids.flatMap((pid) => (markers.has(pid) ? [[pid, markers.get(pid)!]] : []))) as never,
-      signal: vi.fn(() => 'sent' as const),
+      signal: vi.fn(async () => 'sent' as const),
     };
   });
 

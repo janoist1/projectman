@@ -135,6 +135,30 @@ export class FullTestRuns {
     await this.syncAll();
   }
 
+  /**
+   * An engine connected after the startup check (PM-315, a remote engine): asks its executor and, when it
+   * can run the sandbox, puts it in and queues the pins that wait for a run. An engine that is gone stays
+   * in: a run on it ends with `engine_offline` and the reviewers see why, instead of being let through.
+   */
+  async engineOnline(engineId: EngineId): Promise<void> {
+    if (this.stopped || this.availableOn.has(engineId)) return;
+    const executor = this.engines.get(engineId)?.fullTestExecutor;
+    if (!executor) return;
+    const state = await executor.available().catch((err: unknown) => ({
+      ok: false as const,
+      reason: err instanceof Error ? err.message : String(err),
+    }));
+    if (!state.ok) {
+      this.ctx.logger.warn(
+        { reason: state.reason, engineId },
+        'the full test before review is off: no sandbox',
+      );
+      return;
+    }
+    this.availableOn.add(engineId);
+    await this.syncAll();
+  }
+
   /** Whether a full test runs on the task's handed-over commits: the feature is on and its repository asks for one. */
   runsFor(task: Task, config: ProjectConfig): boolean {
     return (

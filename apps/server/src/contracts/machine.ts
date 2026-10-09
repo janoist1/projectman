@@ -41,5 +41,6 @@ export interface MachineProbe {
   processes(): Promise<ProcessRecord[] | null>;
   /** Values of the named environment variables per pid; a process whose environment cannot be read is missing. */
   envValues(pids: number[], names: string[]): Promise<Map<number, Record<string, string>>>;
-  signal(pid: number, signal: 'SIGTERM' | 'SIGKILL'): 'sent' | 'gone' | 'denied';
+  /** Asynchronous since PM-315: in cloud mode the signal goes to the engine's machine. */
+  signal(pid: number, signal: 'SIGTERM' | 'SIGKILL'): Promise<'sent' | 'gone' | 'denied'>;
 }

@@ -2992,6 +2992,7 @@ export const hu = {
         checkout_dirty: 'a munkafában mentetlen változás volt',
         spawn_failed: 'a parancs nem indult el',
         killed: 'leállították',
+        engine_offline: 'a futtató gép nem volt elérhető',
       },
       review_repinned: 'Új átnézési kör: az átadott commit {previous} helyett {commit}',
       task_assigned: 'Kiosztva: {assignee}',

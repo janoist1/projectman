@@ -1023,6 +1023,45 @@ workers follow the machine's size.
   The link client uses the runtime's `WebSocket`, which cannot send the close codes 1001, 1002 and
   1011: it closes with 1000 and a reason text (`engine_shutdown`) instead.
 
+- **Cloud composition** — `engine-link/remote/{hub,transfers,runner,transcripts,host,attachments,machine,github,handlers,index}.ts`,
+  `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
+  `domain/{sessions,engine-registry,messaging/messaging,machine,full-tests,screenshot-runs}.ts` (PM-315).
+  `PROJECTMAN_MODE=cloud` runs the UI, the API and the database and no machine-dependent part: the
+  runner, the transcripts, the plan usage, the machine probe, the engine directory (worktrees, workspaces,
+  session folders, free disk), the GitHub CLI, the full test and the screenshots are the engine's, asked
+  over its link. `createCloudRemote` builds them before the domain (which takes them as its own runner,
+  engines, machine probe and GitHub service) and `bind` hands over the domain and the app afterwards (the
+  team-tools relay and the reconciliation). The hub (`hub.ts`) keeps a mirror of each engine (running
+  sessions, pending inputs, session folders) built from its `hello` and its events, so the synchronous
+  questions (`isRunning`, `list`, `hasPendingInput`, `processExists`, `sessionFolders.of`) are answered
+  without a call. A call waits up to 60 seconds for a dropped link while the engine counts as available
+  (120 seconds); a request that was in flight when the link dropped fails with `link_down` and is not
+  repeated; at shutdown nothing waits (`stopWaiting`). A connecting engine is reconciled before it counts
+  as online: a session the database calls live that the engine does not report ends with `server_restart`
+  (a cloud restart ends every running remote session, because the team-tools tokens are in memory), and
+  what the engine runs that the database does not know is stopped. Messages for a session on an engine
+  that is away are held (`SentMessageHold` `engine`) and delivered when it is back.
+  The team tools reach the cloud as `mcp.relay`: the cloud runs the request through its own
+  `/mcp/<token>` route (`app.inject`) only when the token's session runs on the requesting engine, and
+  answers 404 otherwise. Transcripts, bundles, attachments and exported files cross as single-use,
+  purpose-scoped transfers (`transfers.ts`: 5 minutes, size and sha256 checked, 404 for an expired,
+  reused or another engine's token); the files an engine uploads wait in a spool folder that is emptied at
+  start. The NanoGPT key is released to a starting NanoGPT session of the asking engine only (the PM-313
+  condition, now answered by `handlers.ts`) and is never logged.
+  **Assumptions:** the cloud has no CLI, git checkout, browser or session folder of its own; the one
+  engine of a project (the default engine) is the machine the owner sees. `PROJECTMAN_MACHINE_FIXTURE`
+  is ignored and no full-test or screenshot executor is built locally. Publishing a task branch
+  (`PublishingGate`) is not available in cloud mode: `githubPublishTokenFile` is valid with `managed_vm`
+  only, so `publish_task_branch` answers `not_available` (the remote `exportBranch` exists, unused). The
+  local worktree manager is still created because `DomainOptions.worktrees` is required, and is unused.
+  The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
+  can be counted twice, because the cloud's memory of handled events does not survive its restart.
+  **Does this work on a remote engine?** This entry is the cloud's side of the remote engine: nothing
+  here starts a process on the cloud's host. Without a connected engine a project cannot be created
+  (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
+  the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
+  `hello` paths are the engine's own and are never opened by the cloud.
+
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
@@ -1045,6 +1084,8 @@ workers follow the machine's size.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.assert_workspace_config` (PM-313) and run both inspections beside the CLI on the engine. The domain preflight
   becomes a server/engine call; return relative file names and key names only, never values.
   Today the server and CLI share the filesystem. NanoGPT retains its separate `any` rule.
+  **Cloud mode (PM-315):** `RemoteRunner.assertWorkspaceConfig` calls `session.assert_workspace_config` on the
+  session's engine; the engine refuses with its relative file names and key names only, never values.
 
 - **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
   `runner/env.ts`, `app.ts`, `index.ts`
@@ -1089,6 +1130,10 @@ workers follow the machine's size.
   unauthenticated GitHub announcement request remains a CLI network assumption.
   The environment filter also removes AuthManager's OAuth client-id and token-endpoint
   overrides, so a host environment cannot redirect child subscription authentication.
+  **Cloud mode (PM-315):** the key stays in the cloud's secret store. The `secret.nanogpt_key` handler
+  (`engine-link/remote/handlers.ts`) releases it only to the engine of a NanoGPT session that is starting
+  (`RemoteRunner.takeKeyGrant`: a grant held only until the start call returns), never caches or logs it, and a key change asks each engine for its login state again
+  (`provider.status`).
 
 - **Gemini (agy) CLI, conversation directories and keychain login** —
   `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
@@ -1233,6 +1278,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   a restart, `Sessions.folderRemovals`), and the member's sandbox directory (0700) with its git
   settings (0600) is made by `EngineHost.prepareMemberSandboxDir`; a failure is the start's
   `session_start_failed` with `details.stage = 'member_sandbox_dir'`. The domain computes the paths.
+  **Cloud mode (PM-315):** `RemoteEngineDirectory` (`engine-link/remote/host.ts`) makes, removes and releases
+  the folders on the engine (`folders.*`, `host.*`) and keeps the paths in the hub's mirror, so
+  `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
+  ignored (the engine cleans up when it is back).
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
@@ -1247,6 +1296,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   managed VM profile and off macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
+  **Cloud mode (PM-315):** `screenshots.run/cancel` run on the session's engine
+  (`domain/screenshot-runs.ts` takes a remote executor, announced by the engine's `screenshot_started`
+  event); a run with no connected engine is refused as `engine_offline`. The scenario and the image list come from the engine (`files.*`).
+  `index.ts` builds no local screenshot executor in cloud mode.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `screenshots.run/cancel`, `files.resolve_scenario` and `files.list_images` (PM-313), provision a compatible browser on the engine, preserve the disposable
   instance's network fence and read-only browser access, and return images as artifacts. The
   screenshot run belongs on the engine that owns the member's worktree and session folder (the
@@ -1260,6 +1313,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   checked against PID reuse. **Remote engine (engine mode, PM-314: runs in the engine process):** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,
   identify the engine with every process identity, and preserve fresh ownership/orphan
   checks and owner access. A remote PID must never be signalled on the server.
+  **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
+  (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
+  engine the machine view answers `engine_offline` (409).
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
   `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
@@ -1294,6 +1350,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Since PM-311 a session records its engine (`sessions.engine_id`, `Session.engineId`), the transcript
   reader calls carry the optional `engineId`, and a conversation resumes only on the same engine (a
   different one counts as `relocated`, like a changed execution profile).
+  **Cloud mode (PM-315):** `createRemoteTranscripts` (`engine-link/remote/transcripts.ts`) asks the session's
+  engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
   `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
@@ -1302,6 +1360,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   forwarding/origin headers; merely changing the URL to a public server cannot work.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
+  **Cloud mode (PM-315):** the cloud registers no hook routes (`registerHookRoutes` is empty) and listens
+  on no loopback for the CLIs. `permission.*` and `mcp.relay` are handled by `engine-link/remote/handlers.ts`;
+  the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
+  session runs on another engine.
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
@@ -1316,6 +1378,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
+  **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`), and the branch
+  leaves the engine only as an upload (`workspace.export_branch`, unused: publishing is not available in
+  cloud mode). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
+  is required.
 - **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
   `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
@@ -1324,6 +1390,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   storage; keep unavailable measurements distinct from low capacity.
   Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
   since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
+  **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
 - **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
@@ -1400,6 +1467,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   events. These observe the local account, not an arbitrary remote sponsor.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `usage.plan` and `provider.status` (PM-313), obtain usage where that sponsor's CLI is logged in and send attributed,
   timestamped measurements; leave credentials there and retain subscription-only execution.
+  **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
+  (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
 - **Claude workspace trust** — `runner/providers/claude/trust.ts`,
   `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
   in `~/.claude.json` (or the configured Claude config directory); the managed launcher
@@ -1419,6 +1488,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   An unavailable executor must not become a passing verdict.
   Since PM-311 the executor is the `EngineHost.fullTestExecutor` of the card's engine, with that
   engine's `EnginePaths` (`userHome`, `home`, `claudeTmpRoots` and the `sessionTmpRoot` parent as `closedTmpRoots`).
+  **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
+  available only while the engine is; without it a run is refused with `engine_offline`
+  (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,

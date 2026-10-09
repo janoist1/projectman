@@ -40,6 +40,8 @@ export type SentMessageHold =
   | 'refinement_turn'
   | 'fix_limit'
   | 'full_test'
+  /** The engine the recipient's sessions run on is not connected (PM-315): it gets the message when it is back. */
+  | 'engine'
   | 'pause'
   | 'restart'
   /** The card is being handed over from the recipient (PM-342): the receiver gets the message. */

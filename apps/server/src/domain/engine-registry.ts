@@ -15,10 +15,23 @@ const StoredHello = z.object({
 export type EngineHelloMetadata = z.infer<typeof StoredHello>;
 export const machineKeyHash = (key: string): string => createHash('sha256').update(key).digest('hex');
 
+/** What the cloud counts per engine for the settings view (PM-315): sessions and what waits for it. */
+export interface EngineCounters {
+  runningSessions: number;
+  waitingStarts: number;
+  waitingMessages: number;
+}
+
 /** Cloud registry. Secrets are returned once; only their hashes and display prefixes persist. */
 export class EngineRegistry {
   private readonly online = new Set<EngineId>();
   private readonly revokeListeners = new Set<(id: EngineId) => void>();
+  private readonly onlineListeners = new Set<(id: EngineId, online: boolean) => void>();
+  private counters: (id: EngineId) => EngineCounters = () => ({
+    runningSessions: 0,
+    waitingStarts: 0,
+    waitingMessages: 0,
+  });
   private readonly repos: Repositories;
   private readonly bus: EventBus;
   private readonly version: string;
@@ -49,9 +62,38 @@ export class EngineRegistry {
       version: hello?.version ?? null,
       versionMismatch: !!hello && hello.version !== this.version,
       providers: hello?.providers ?? [],
-      runningSessions: 0,
-      waitingStarts: 0,
-      waitingMessages: 0,
+      ...this.counters(row.id),
+    };
+  }
+
+  /** The domain provides the counters once it exists (the registry is built before it). */
+  useCounters(counters: (id: EngineId) => EngineCounters): void {
+    this.counters = counters;
+  }
+
+  /** The engine a new session goes to: the default one that is not revoked; null when there is none. */
+  defaultId(): EngineId | null {
+    return this.repos.engines.list().find((row) => row.is_default && !row.revoked_at)?.id ?? null;
+  }
+
+  /** Every engine that is not revoked. */
+  ids(): EngineId[] {
+    return this.repos.engines
+      .list()
+      .filter((row) => !row.revoked_at)
+      .map((row) => row.id);
+  }
+
+  /** Connected, or disconnected for less than `ENGINE_OFFLINE_AFTER_MS` (the link's own timer sets it). */
+  isOnline(id: EngineId): boolean {
+    return this.online.has(id);
+  }
+
+  /** Called when the online flag changes (not for a change of the registry's other fields). */
+  onOnlineChange(listener: (id: EngineId, online: boolean) => void): () => void {
+    this.onlineListeners.add(listener);
+    return () => {
+      this.onlineListeners.delete(listener);
     };
   }
 
@@ -90,7 +132,8 @@ export class EngineRegistry {
   revoke(id: string, userId: string): EngineView {
     this.active(id);
     this.repos.engines.revoke(id, userId, this.now().toISOString());
-    this.online.delete(id);
+    // A revoked engine stops counting as available now, and what waits for it is told.
+    this.setOnline(id, false);
     for (const listener of this.revokeListeners) listener(id);
     this.changed(id);
     return this.view(this.repos.engines.get(id)!);
@@ -122,7 +165,10 @@ export class EngineRegistry {
     const before = this.online.has(id);
     if (online) this.online.add(id);
     else this.online.delete(id);
-    if (before !== online) this.changed(id);
+    if (before !== online) {
+      this.changed(id);
+      for (const listener of this.onlineListeners) listener(id, online);
+    }
   }
   onRevoke(listener: (id: EngineId) => void): () => void {
     this.revokeListeners.add(listener);

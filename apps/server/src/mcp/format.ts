@@ -524,6 +524,8 @@ function recipientLine(
           return `${handle}: held: ${card} reached its fix round limit; they get it once that is decided.`;
         case 'full_test':
           return `${handle}: held until the server's full test of ${card}'s pinned commit has a result.`;
+        case 'engine':
+          return `${handle}: held: the machine their session runs on is not connected; they get it when it is back.`;
         case 'pause':
           return `${handle}: held: their session is paused; they get it when the pause ends.`;
         case 'handoff':

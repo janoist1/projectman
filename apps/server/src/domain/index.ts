@@ -12,15 +12,17 @@ import {
   stageOf,
 } from '@projectman/shared';
 export { EngineRegistry, machineKeyHash } from './engine-registry';
-export type { EngineHelloMetadata } from './engine-registry';
-import type { ExecutionProfile, Me } from '@projectman/shared';
+export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
+import type { EngineId, ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
+import type { EngineCounters } from './engine-registry';
 import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
   ConfigStore,
   ContextPackBuilder,
+  EngineAttachments,
   EngineDirectory,
   EventBus,
   FullTestExecutor,
@@ -84,6 +86,7 @@ import { PauseService } from './pause';
 import { MachineMonitor } from './machine';
 import { createMachineProbe } from '../machine';
 import { createLocalEngine, LocalEngineDirectory } from './engines';
+import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
@@ -209,6 +212,8 @@ export interface DomainOptions {
    * the options below (`worktrees`, `memberWorkspaces`, the directories, the executors).
    */
   engines?: EngineDirectory;
+  /** The attachments' way to a remote engine (PM-315, cloud mode); absent: the sessions read the stored files. */
+  engineAttachments?: EngineAttachments;
   /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
   attachmentStorage: AttachmentStorage;
   /** Creates the accounts of accepted invitations. */
@@ -324,6 +329,14 @@ export interface DomainOptions {
    */
   machineProbe?: (deps: { runningPids: () => number[] }) => MachineProbe;
   /**
+   * Cloud mode (PM-315): the machine shown is the default engine's. `identity` is the engine's own process
+   * (from its `hello`), `available` whether there is an engine to show; without one the display is refused.
+   */
+  machineEngine?: {
+    identity(): { pid: number; uid: number | null; instanceTag?: string } | null;
+    available(): boolean;
+  };
+  /**
    * The tag of this instance (PM-320), set in the environment of every session the runner starts:
    * only a process that carries it can be an orphan of this instance. Absent: none is recognised.
    */
@@ -360,11 +373,17 @@ export function createDomain(opts: DomainOptions) {
     // from this service's cached configurations, so it is looked up when asked).
     isDirectory: async (projectKey, path) => {
       const engineId = engines.engineFor(projectKey, OWNER_HANDLE);
-      return (engineId ? await engines.get(engineId)?.isDirectory(path) : false) ?? false;
+      const engine = engineId ? engines.get(engineId) : null;
+      // The folder can only be checked where it is: no engine to ask is a refusal, not "not a folder" (PM-315).
+      if (!engine) throw conflict('engine_offline', 'The engine the project would run on is not connected');
+      return engine.isDirectory(path);
     },
   });
+  // A session on a remote engine reads a card's attachments from that engine's cache (PM-315).
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
-    opts.attachmentStorage.taskDirectory(projectKey, taskKey);
+    opts.engineAttachments
+      ? opts.engineAttachments.directory(projectKey, taskKey)
+      : opts.attachmentStorage.taskDirectory(projectKey, taskKey);
   // The machines the sessions can run on (PM-311): without a given directory, the one this server runs
   // on, built from the options below (a single-machine installation behaves as before).
   const engines: EngineDirectory =
@@ -500,7 +519,16 @@ export function createDomain(opts: DomainOptions) {
       .catch(() => ctx.logger.warn('could not refresh NanoGPT readiness'));
   });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
-  const messaging = new Messaging({ ctx, projects, tasks, sessions, messages, delivery, refinement });
+  const messaging = new Messaging({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    messages,
+    delivery,
+    refinement,
+    engines,
+  });
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
   );
@@ -662,6 +690,9 @@ export function createDomain(opts: DomainOptions) {
       };
     },
     instanceTag: opts.instanceTag,
+    ...(opts.machineEngine
+      ? { identity: opts.machineEngine.identity, unavailable: () => !opts.machineEngine!.available() }
+      : {}),
     logger: opts.logger.child({ module: 'machine' }),
     now,
   });
@@ -701,14 +732,17 @@ export function createDomain(opts: DomainOptions) {
   });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
   // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
-  const screenshotRuns = engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
-    ? new ScreenshotRuns({
-        executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
-        diskFor: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
-        sessions,
-        logger: opts.logger,
-      })
-    : undefined;
+  // Remote engines are not connected yet when this is built, so a given directory always gets the runs (PM-315).
+  const screenshotRuns =
+    opts.engines || engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
+      ? new ScreenshotRuns({
+          executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
+          platformFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.platform,
+          diskFor: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
+          sessions,
+          logger: opts.logger,
+        })
+      : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const teamTools = new TeamToolsService({
     screenshots: screenshotRuns,
@@ -732,6 +766,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
+    materializeAttachment: opts.engineAttachments?.materialize,
     // The files and the folder of a session are on its engine.
     sessionEngine: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
   });
@@ -755,8 +790,21 @@ export function createDomain(opts: DomainOptions) {
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
   // A start that waits for an engine (`engine_offline`) goes on when the engine connects (PM-311).
-  const unsubscribeEngines = engines.onChange((_id, online) => {
-    if (online) retryDeferredStarts();
+  const unsubscribeEngines = engines.onChange((id, online) => {
+    if (!online) return;
+    // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
+    if (!opts.standby)
+      background.run(
+        () => fullTests.engineOnline(id),
+        (err) =>
+          opts.logger.warn({ err, engineId: id }, 'could not check the full test sandbox of an engine'),
+      );
+    // The messages that waited for the engine reach their members.
+    background.run(
+      () => messaging.releaseForEngine(id),
+      (err) => opts.logger.warn({ err, engineId: id }, 'could not release the messages held for an engine'),
+    );
+    retryDeferredStarts();
   });
   /** A deferred start as it was stored, made again by the module that made it. */
   const rebuildDeferredStart = (spec: StartSpec) => {
@@ -1069,7 +1117,17 @@ export function createDomain(opts: DomainOptions) {
   let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
   let handoffTimer: ReturnType<typeof setInterval> | undefined;
 
+  /** What the engine's settings view counts (PM-315): its sessions and what waits for it. */
+  const engineCounters = (id: EngineId): EngineCounters => ({
+    runningSessions: sessions.liveOn(id),
+    waitingStarts: deferredStarts
+      .list()
+      .filter((entry) => entry.waiting.reason === 'engine_offline' && entry.waiting.engine === id).length,
+    waitingMessages: messaging.waitingForEngine(id),
+  });
+
   return {
+    engineCounters,
     ctx,
     projectManagerChannels: new ProjectManagerChannels({ ctx, projects, deferred: deferredStarts, pauses }),
     bus,

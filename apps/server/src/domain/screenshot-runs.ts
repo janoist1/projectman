@@ -40,6 +40,8 @@ export interface ScreenshotRunsDeps {
   logger: FastifyBaseLogger;
   /** Default: this machine's platform (the sandbox is macOS only). */
   platform?: NodeJS.Platform;
+  /** The platform of the machine the session runs on (PM-315), when it is not this one; undefined: `platform`. */
+  platformFor?: (sessionId: string) => NodeJS.Platform | undefined;
   /** Default `SCREENSHOT_POLL_MS`. */
   pollMs?: number;
   /** Default `SCREENSHOT_RUN_TIMEOUT_MS`. */
@@ -90,11 +92,11 @@ export class ScreenshotRuns {
 
   /** Starts a run for the calling session and waits up to the poll time for its end. */
   async take(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {
-    const platform = this.deps.platform ?? process.platform;
+    const platform = this.deps.platformFor?.(ctx.sessionId) ?? this.deps.platform ?? process.platform;
     if (platform !== 'darwin')
       throw new TeamToolError(
         'forbidden',
-        `Screenshots by the server need macOS (this machine is ${platform}): its sandbox runs the browser.`,
+        `Screenshots by the server need macOS (the machine is ${platform}): its sandbox runs the browser.`,
       );
     const scope = this.deps.sessions.screenshotScope(ctx.sessionId);
     if (!scope)

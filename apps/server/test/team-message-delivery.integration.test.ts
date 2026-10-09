@@ -41,6 +41,83 @@ const told = (chat: ChatItem[]) =>
   );
 
 it(
+  'starts another manager turn for idle, busy and resumed conversations with or without a card',
+  { timeout: 120_000 },
+  async () => {
+    h = await createAppHarness({ runner: 'fake-cli', real: { context: true } });
+    const cookie = await setupOwner(h.app);
+    await createProject(h, cookie);
+    await h.app.projectman.domain.projects.update(
+      'AR',
+      {
+        actor: { kind: 'human', handle: 'owner' },
+        author: OWNER_LOGIN,
+      },
+      (config) => {
+        const pm = config.team.members.find((m) => m.handle === 'pm');
+        if (pm?.kind === 'ai') {
+          pm.onLeave = false;
+          pm.capacity = 1;
+        }
+        return 'Enable project manager';
+      },
+    );
+    const task = await h.app.projectman.domain.tasks.create(
+      'AR',
+      { title: 'Manager request' },
+      { kind: 'human', handle: 'owner' },
+    );
+    const { session } = await h.app.projectman.domain.sessions.ensureSession('AR', 'pm', { type: 'general' });
+    const idle = () =>
+      waitFor(() => h!.app.projectman.domain.sessions.get('AR', session.id).state === 'idle', {
+        what: 'manager idle',
+      });
+    await idle();
+    for (const phase of ['idle', 'busy', 'resumed'] as const) {
+      if (phase === 'resumed') {
+        await h.app.projectman.domain.sessions.stop('AR', session.id);
+        const resumed = await h.app.projectman.domain.sessions.ensureSession(
+          'AR',
+          'pm',
+          { type: 'general' },
+          { messages: ['Resume manager work'] },
+        );
+        expect(resumed.session.id).toBe(session.id);
+        await idle();
+      }
+      for (const taskKey of [undefined, task.key]) {
+        const domain = h.app.projectman.domain;
+        if (phase === 'busy') {
+          await domain.messaging.sendToSession('AR', session.id, 'SLOW manager work', 'owner');
+          await waitFor(() => domain.sessions.get('AR', session.id).state === 'working', {
+            what: 'manager working',
+          });
+        }
+        const body = `Manager request ${phase} ${taskKey ?? 'general'}`;
+        const echo = `Echo: [team message from owner${taskKey ? ` about ${taskKey}` : ''}]`;
+        const previousReplies = (await domain.sessions.detail('AR', session.id)).chat.filter(
+          (i) => i.kind === 'assistant_text' && i.text === echo,
+        ).length;
+        const sent = await domain.messaging.send('AR', 'owner', { to: ['pm'], taskKey, text: body });
+        await vi.waitFor(
+          async () => {
+            const chat = (await domain.sessions.detail('AR', session.id)).chat;
+            expect(chat.filter((i) => i.kind === 'assistant_text' && i.text === echo)).toHaveLength(
+              previousReplies + 1,
+            );
+            expect(told(chat).some((text) => text.includes(body))).toBe(true);
+            expect(domain.messages.get(sent.id)?.receipts?.[0]?.deliveredAt).toBeTruthy();
+          },
+          { timeout: 30_000 },
+        );
+        await idle();
+        expect(domain.sessions.list('AR', { member: 'pm' })).toHaveLength(1);
+      }
+    }
+  },
+);
+
+it(
   'types a long team message into an idle and into a busy Codex session in full, and tells the sender which',
   { timeout: 120_000 },
   async () => {

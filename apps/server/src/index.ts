@@ -74,7 +74,7 @@ interface ServerConfig {
   machineFixture: boolean;
 }
 
-function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
+async function configFromEnv(env: NodeJS.ProcessEnv): Promise<ServerConfig> {
   const port = Number.parseInt(env.PORT ?? String(APP_DEFAULTS.port), 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`invalid PORT: ${env.PORT}`);
   const host = env.HOST ?? APP_DEFAULTS.host;
@@ -131,7 +131,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     machineFixture: machineFixture !== undefined,
     app: {
       engineMode,
-      appVersion: resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
+      appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       modules: machineFixture
         ? {
             createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
@@ -191,7 +191,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
 }
 
 async function main(): Promise<void> {
-  const config = configFromEnv(process.env);
+  const config = await configFromEnv(process.env);
   // The server's full test before review (PM-217) runs in the Anthropic Sandbox Runtime on the Mac. The
   // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
   const app = await buildApp({

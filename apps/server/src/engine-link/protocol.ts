@@ -142,7 +142,7 @@ export type EngineEvent = z.infer<typeof EngineEvent>;
 export const Hello = z.strictObject({
   t: z.literal('hello'),
   protocol: z.number().int(),
-  version: text,
+  version: z.string().regex(/^[A-Za-z0-9._+-]{1,64}$/),
   hostname: text,
   platform: z.enum(['darwin', 'linux']),
   paths: Paths,

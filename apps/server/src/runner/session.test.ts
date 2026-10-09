@@ -146,6 +146,7 @@ function start(
     /** The launch put the initial message on the command line (Codex). */
     initialMessageSent?: boolean;
     refreshDependencies?: (cwd: string) => Promise<void>;
+    logger?: ReturnType<typeof silentLogger>;
   } = {},
 ) {
   const pty = new FakePty();
@@ -157,7 +158,7 @@ function start(
     adapter: opts.adapter ?? createClaudeAdapter({ bin: 'claude', logger: silentLogger() }),
     initialMessageSent: opts.initialMessageSent,
     deps: {
-      logger: silentLogger(),
+      logger: opts.logger ?? silentLogger(),
       refreshDependencies: opts.refreshDependencies,
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
       permissionTimeoutMs: PERMISSION_TIMEOUT_MS,
@@ -369,6 +370,45 @@ describe('AgentSession', () => {
     await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'hello' });
     await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.enterRetryMs * 3);
     expect(pty.typed().enters).toBe(2);
+  });
+
+  it('describes a resumed session stalled after a completed turn with bounded screen and hook metadata', async () => {
+    const logger = silentLogger();
+    const warn = vi.spyOn(logger, 'warn');
+    const { session, pty, hook } = await ready({ spec: { resume: true }, logger });
+    await hook({ hook_event_name: 'UserPromptSubmit' });
+    await hook({ hook_event_name: 'Stop' });
+    const lastHookAt = new Date().toISOString();
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.stopSettleMs);
+    const text = 'A private request';
+    const sent = session.enqueue(text);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await expect(sent).resolves.toBeUndefined();
+    // This fake terminal swallows Enter and emits no submission hook.
+    pty.print('x'.repeat(600) + '\r\nDo you trust the files in this folder?');
+    const { enterRetryMs, submitTimeoutMs, maxEnterRetries } = CLAUDE_TIMING;
+    const waitMs = Math.ceil(submitTimeoutMs / enterRetryMs) * enterRetryMs;
+    await vi.advanceTimersByTimeAsync(waitMs);
+    const screen = session.screen.screenText(15);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        sessionId: 'ses_1',
+        enterRetries: maxEnterRetries,
+        waitMs,
+        command: false,
+        idle: true,
+        promptSeen: true,
+        resumed: true,
+        lastHookName: 'Stop',
+        lastHookAt,
+        blockingScreen: 'Workspace trust confirmation is waiting in the terminal',
+        screen: screen.slice(-500),
+      },
+      'typed message was not reported as submitted',
+    );
+    expect(screen.length).toBeGreaterThan(500);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(text);
+    expect(session.state.state).toBe('idle');
   });
 
   it('moves on to the next message when a typed one is never reported as submitted', async () => {

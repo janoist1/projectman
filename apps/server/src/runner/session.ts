@@ -118,6 +118,8 @@ export class AgentSession {
   private readyAt = 0;
   /** A prompt reached the CLI (UserPromptSubmit): start-up dialogs are over. */
   private promptSeen = false;
+  /** Most recent hook received by this process, for submission timeout diagnostics. */
+  private lastHook: { name: string; at: string } | null = null;
   /** Why the session is flagged as blocked by a dialog in the terminal, if it is. */
   private blockedReason: string | null = null;
   /** The brief went on the command line: its submission is awaited before anything is typed. */
@@ -201,6 +203,17 @@ export class AgentSession {
       checkBeforeTyping: () => this.checkBeforeTyping(),
       write: (data) => this.write(data),
       onChange: () => this.evaluatePause(),
+      describeStall: () => {
+        const screen = this.screen.screenText(DIALOG_ROWS);
+        return {
+          promptSeen: this.promptSeen,
+          resumed: this.spec.resume,
+          lastHookName: this.lastHook?.name ?? null,
+          lastHookAt: this.lastHook?.at ?? null,
+          blockingScreen: this.adapter.detectBlockingScreen(screen),
+          screen: screen.slice(-500),
+        };
+      },
     });
     this.permissions = new PermissionGate({
       sessionId: this.id,
@@ -682,6 +695,7 @@ export class AgentSession {
    * `withdrawn` aborts when the caller stops waiting (the HTTP request closed).
    */
   async handleHook(payload: HookPayload, withdrawn: AbortSignal): Promise<unknown> {
+    this.lastHook = { name: payload.hook_event_name, at: new Date().toISOString() };
     if (this.hasExited)
       return this.adapter.capabilities.toolGate === 'pre_tool_use' && payload.hook_event_name === 'PreToolUse'
         ? this.adapter.denyOutput('The session has exited.')

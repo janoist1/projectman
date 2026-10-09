@@ -32,6 +32,8 @@ export interface InputQueueHost {
    * session may re-check whether it has stopped (PM-218).
    */
   onChange?(): void;
+  /** Bounded session diagnostics when a typed prompt was not reported as submitted. */
+  describeStall?(): Record<string, unknown>;
 }
 
 interface QueuedMessage {
@@ -202,7 +204,14 @@ export class InputQueue {
     if (!pending || this.closed) return;
     if (Date.now() - pending.at >= pending.timeoutMs) {
       this.host.logger.warn(
-        { sessionId: this.host.sessionId },
+        {
+          ...this.host.describeStall?.(),
+          sessionId: this.host.sessionId,
+          enterRetries: pending.retries,
+          waitMs: Date.now() - pending.at,
+          command: pending.command,
+          idle: this.host.isIdle(),
+        },
         'typed message was not reported as submitted',
       );
       this.awaitingSubmit = null;

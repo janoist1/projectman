@@ -54,6 +54,8 @@ export const queryKeys = {
   /** "All messages" under a filter (PM-78). */
   allMessages: (key: string, filter: AllMessagesFilter) =>
     ['project', key, 'messages', 'all', filter] as const,
+  /** The project manager's channel state (PM-429); its own prefix, reloaded on the events that change it. */
+  projectManager: (key: string) => ['project', key, 'project-manager'] as const,
   schedules: (key: string) => ['project', key, 'schedules'] as const,
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,

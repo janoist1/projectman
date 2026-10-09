@@ -17,6 +17,7 @@ import {
   MemberMemories,
   Session,
   TeamMessage,
+  ProjectManagerChannel,
   ProvidersView,
   CreatedInvitation,
   InvitationsView,
@@ -223,6 +224,8 @@ export const api = {
   readTeamMessages: (key: string, ids: string[]) =>
     apiRequest(routes.readTeamMessages(key), { method: 'POST', body: { ids }, schema: TeamMessagesView }),
   teamThreads: (key: string) => apiRequest(routes.teamThreads(key), { schema: TeamThreadsView }),
+  /** The state of the project manager's channel: who it is and whether it can answer now (PM-434). */
+  projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
   /** One conversation with `peer` (the server's page limit) or the project's messages under the filters. */
   teamMessageList: (
     key: string,

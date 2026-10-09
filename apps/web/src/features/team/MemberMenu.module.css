@@ -1,0 +1,8 @@
+.note {
+  margin: 0;
+  padding: 2px 12px 8px;
+  max-width: 240px;
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--c-ink-3);
+}

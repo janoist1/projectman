@@ -10,6 +10,7 @@ import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { usePausedRows } from '../pause/usePause';
+import { useIsRequiredPm } from '../pm/useRequiredPm';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
@@ -79,6 +80,7 @@ function MemberIdentity({
 }) {
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
+  const required = useIsRequiredPm(member.handle);
   return (
     <div className={styles.memberCell}>
       <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={status} />
@@ -102,6 +104,11 @@ function MemberIdentity({
             </>
           ) : null}
           {member.temp ? <Chip tone="needs">{t('team.temp')}</Chip> : null}
+          {required && !compact ? (
+            <Chip tone="accent" title={t('pm.required.title')}>
+              {t('pm.required.chip')}
+            </Chip>
+          ) : null}
           <LeaveChip member={member} />
         </span>
         <span className={styles.handle}>

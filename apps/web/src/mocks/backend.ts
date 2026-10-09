@@ -97,6 +97,7 @@ import {
   memberRoles,
   modelForProvider,
   nextCronRun,
+  projectManagerOf,
   noApproverReason,
   approverBlocker,
   ownerOnlyChanges,
@@ -1707,6 +1708,7 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
+    if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
     if (rest === '/measure/closed-cards' && method === 'GET') {
       if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
@@ -4368,6 +4370,27 @@ export class MockBackend {
       if (message.receipts!.every((r) => r.deliveredAt)) message.deliveredAt = nowIso();
       this.emit({ type: 'team_message', projectKey: fixtures.PROJECT_KEY, message: clone(message) });
     }
+  }
+
+  /** The project manager's channel (PM-434): the same order of conditions as the server's. */
+  private projectManagerChannel(): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (!viewer || viewer.kind !== 'human' || !['owner', 'admin', 'developer'].includes(viewer.role))
+      return error(403, 'insufficient_access', 'Developer access required');
+    const pm = projectManagerOf(this.config);
+    const session = pm
+      ? this.sessions.find((s) => s.member === pm.handle && s.workItem.type === 'general')
+      : undefined;
+    const sessionId = session?.id ?? null;
+    if (!pm) return ok({ member: null, state: 'missing', sessionId });
+    const member = { handle: pm.handle, displayName: pm.displayName, onLeave: isOnLeave(pm) };
+    if (member.onLeave) return ok({ member, state: 'on_leave', sessionId });
+    if (this.pauses.isPaused())
+      return ok({ member, state: 'waiting', waiting: { reason: 'team_paused', since: nowIso() }, sessionId });
+    if (session?.state === 'starting') return ok({ member, state: 'starting', sessionId });
+    if (session?.state === 'working' || session?.state === 'waiting_permission')
+      return ok({ member, state: 'working', sessionId });
+    return ok({ member, state: 'available', sessionId });
   }
 
   private startConversation(handle: string): MockResponse {

@@ -1,0 +1,131 @@
+.button {
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: var(--text-md);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--c-muted-hover);
+  color: var(--c-ink);
+}
+
+.open {
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+/* The phone header's icon: a 44px touch target with the avatar only. */
+.phone {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 12px;
+}
+
+.avatar {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.dot {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 10px;
+  height: 10px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  border: 2px solid var(--c-surface);
+}
+
+.dot_available {
+  background: var(--c-ok);
+}
+
+.dot_working {
+  background: var(--c-accent);
+  animation: pm-dot-pulse 1.4s ease-in-out infinite;
+}
+
+/* On leave: a hollow ring. */
+.dot_leave {
+  background: var(--c-surface);
+  border: 2px solid var(--c-ink-3);
+}
+
+.dot_waiting {
+  background: var(--c-ink-4);
+}
+
+/* A reply the viewer has not seen, while the panel is closed. */
+.newReply {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  border: 2px solid var(--c-surface);
+}
+
+.narrow {
+  display: none;
+}
+
+@keyframes pm-dot-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* The label sheds width in steps: name, then "PM", then the avatar only. */
+@media (max-width: 1499px) {
+  .wide {
+    display: none;
+  }
+
+  .narrow {
+    display: inline;
+  }
+}
+
+@media (max-width: 900px) {
+  .narrow {
+    display: none;
+  }
+
+  .button:not(.phone) {
+    padding: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot_working {
+    animation: none;
+  }
+}

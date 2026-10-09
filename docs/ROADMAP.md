@@ -39,7 +39,7 @@ Less churn, less load, safer providers. Roughly in this order:
 - **Housekeeping:** rewrite the public repository's history to remove a client's name (PM-354,
   decision 39); these documents (PM-381).
 
-## Next: hybrid mode (PM-286, decision 44)
+## Next: hybrid mode (PM-286, decision 45)
 
 The board in the cloud, AI work in an office or as remote work (decision 38). In order: an engine
 interface in front of the machine-dependent parts (PM-311), disk and terminal behind it (PM-312),

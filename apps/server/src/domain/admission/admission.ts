@@ -9,6 +9,7 @@ import {
   isWorkPaused,
   openPrerequisites,
   seniorsOf,
+  sessionWorkItemOf,
   workStageOf,
 } from '@projectman/shared';
 import type {
@@ -216,6 +217,7 @@ export class Admission {
   async start(
     request: AdmissionRequest & { member: AiMemberConfig; workItem: WorkItemRef },
   ): Promise<EnsureSessionResult> {
+    request = { ...request, workItem: sessionWorkItemOf(request.member, request.workItem) };
     const projectKey = request.config.project.key;
     const running = this.sessions.findRunning(projectKey, request.member.handle, request.workItem);
     await this.sessions.refreshProviderQuota();

@@ -30,7 +30,27 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import { Task, TaskKey, TaskKind, TaskPriority, Visibility } from '../domain/task';
+import { Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting, Visibility } from '../domain/task';
+
+export const ProjectManagerChannelState = z.enum([
+  'available',
+  'starting',
+  'working',
+  'waiting',
+  'on_leave',
+  'missing',
+]);
+export type ProjectManagerChannelState = z.infer<typeof ProjectManagerChannelState>;
+export const ProjectManagerChannel = z.object({
+  /** Null when the project has no AI project manager (state missing). */
+  member: z.object({ handle: MemberHandle, displayName: z.string(), onLeave: z.boolean() }).nullable(),
+  state: ProjectManagerChannelState,
+  /** Present only while the conversation waits to run. */
+  waiting: TaskStartWaiting.optional(),
+  /** The general conversation, running or ended; null before its first start. */
+  sessionId: z.string().nullable(),
+});
+export type ProjectManagerChannel = z.infer<typeof ProjectManagerChannel>;
 
 /* ---------- auth ---------- */
 

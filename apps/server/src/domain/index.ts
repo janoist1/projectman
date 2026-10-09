@@ -56,6 +56,7 @@ import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
+import { ProjectManagerChannels } from './project-manager';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
 import { createDomainContext, defaultTemplateRegistry } from './context';
@@ -407,7 +408,7 @@ export function createDomain(opts: DomainOptions) {
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
-  const messages = new MessageService({ ctx, timeline });
+  const messages = new MessageService({ ctx, timeline, projects });
   const tasks = new TaskService({
     ctx,
     timeline,
@@ -1066,6 +1067,7 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     ctx,
+    projectManagerChannels: new ProjectManagerChannels({ ctx, projects, deferred: deferredStarts, pauses }),
     bus,
     templates,
     timeline,

@@ -22,6 +22,7 @@ import {
   repoOf,
   routes,
   sameWorkItem,
+  sessionWorkItemOf,
   stageOf,
   stageOwners,
 } from '@projectman/shared';
@@ -713,6 +714,8 @@ export class SessionOrchestrator {
     workItem: WorkItemRef,
     opts: EnsureSessionOptions = {},
   ): Promise<EnsureSessionResult> {
+    const config = await this.deps.projects.config(projectKey);
+    workItem = sessionWorkItemOf(requireAiMember(config, handle), workItem);
     return this.locks.run(sessionLockKey(projectKey, handle, workItem), async () => {
       const config = await this.deps.projects.config(projectKey);
       const member = requireAiMember(config, handle);
@@ -1079,9 +1082,13 @@ export class SessionOrchestrator {
 
   /** A team message for the session's member and work item is not typed into it yet, a held one too. */
   messageWaiting(session: Session): boolean {
+    const config = this.deps.projects.cachedConfig(session.projectKey);
+    const member = config ? memberOf(config, session.member) : undefined;
     return this.ctx.repos.messages
       .pending(session.projectKey, session.member)
-      .some((m) => sameWorkItem(messageRoute(m, session.member), session.workItem));
+      .some((m) =>
+        sameWorkItem(sessionWorkItemOf(member, messageRoute(m, session.member)), session.workItem),
+      );
   }
 
   /**
@@ -2820,7 +2827,13 @@ export class SessionOrchestrator {
       .pending(session.projectKey, session.member)
       .find(
         (m) =>
-          sameWorkItem(messageRoute(m, session.member), workItem) &&
+          sameWorkItem(
+            sessionWorkItemOf(
+              config ? memberOf(config, session.member) : undefined,
+              messageRoute(m, session.member),
+            ),
+            workItem,
+          ) &&
           !!config &&
           wakesFor(this.ctx, config, m, session.member),
       );

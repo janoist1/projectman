@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { CreateProjectRequest, routes } from '@projectman/shared';
+import { CreateProjectRequest, routes, TASK_CREATE_MIN_ACCESS } from '@projectman/shared';
 import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
@@ -15,6 +15,11 @@ export function registerProjectRoutes(
   deps: { domain: Domain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
+
+  app.get<ProjectParams>(routes.projectManager(':key'), async (request) => {
+    await requireAccess(domain, request, request.params.key, { minimum: TASK_CREATE_MIN_ACCESS });
+    return domain.projectManagerChannels.view(request.params.key);
+  });
 
   app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>
     domain.templates.list().map(summarizeTemplate),

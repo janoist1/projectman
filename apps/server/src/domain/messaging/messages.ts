@@ -1,4 +1,11 @@
-import { isUnreadBy, messageRoute, sameWorkItem, threadPeersOf } from '@projectman/shared';
+import {
+  isProjectManager,
+  isUnreadBy,
+  memberOf,
+  messageRoute,
+  sameWorkItem,
+  threadPeersOf,
+} from '@projectman/shared';
 import type {
   Actor,
   ProjectConfig,
@@ -11,6 +18,7 @@ import { isoNow } from '../context';
 import { wakesFor } from './staleness';
 import type { DomainContext } from '../context';
 import type { TimelineService } from '../timeline';
+import type { ProjectService } from '../projects';
 import { forbidden, notFound } from '../errors';
 import { excerpt, newId } from '../util';
 
@@ -44,10 +52,12 @@ export interface RecordMessageInput {
 export class MessageService {
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
+  private readonly projects: ProjectService;
 
-  constructor(deps: { ctx: DomainContext; timeline: TimelineService }) {
+  constructor(deps: { ctx: DomainContext; timeline: TimelineService; projects: ProjectService }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
+    this.projects = deps.projects;
   }
 
   get(id: string): TeamMessage | null {
@@ -107,9 +117,12 @@ export class MessageService {
 
   /** Messages an AI recipient has not received yet for a work item (where `messageRoute` puts them), oldest first. */
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
+    const config = this.projects.cachedConfig(projectKey);
+    const allRoutes = workItem.type === 'general' && config && isProjectManager(memberOf(config, handle));
     // A task's session takes the messages routed to that task; any other chat takes everything not
     // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
     return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
+      if (allRoutes) return true;
       const route = messageRoute(m, handle);
       return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type !== 'task';
     });

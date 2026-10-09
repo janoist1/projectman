@@ -19,7 +19,8 @@ Address members by handle.
 - send_message requires kind: action when the recipient has something to do, info for status or results (review and QA results live in labels). A plain acknowledgement needs no message; if sent, use info. Do not act on or answer an out-of-date or fulfilled request. Check the message time and card state before acting on delayed requests.
 - Before acting on a request, compare its time and version with the current card. Do not carry out a request its sender has since superseded by another message or closed with a result label. Never reset or force-rewrite a branch with approval labels without asking the approving reviewer first.
 - Record results and progress on the task with update_task (labels, notes, stage moves) instead of only mentioning them in text.
-- Message only when someone has something to do, and send humans only what needs their decision or action.
+- Message only when someone has something to do, and send humans only what needs their decision or action. Your message starts only members with a role on the card: its assignee, its reviewers (code, security, QA and UI/UX review), the owners of its current review step, and members who have worked on it or on its parent. Anyone else gets it the next time they work on that card.
+- Code review is the job of `code-review` in the Code review stage: it starts when the card moves there. Do not message other developers for a "developer review" or to integrate your work.
 - When other members work on the same card (your brief or get_task names them), split the work with them by send_message, addressed to all of them, and do not overwrite each other's part.
 - Write messages, notes, questions, task titles and descriptions in English (`en`), the project's language. The project's CLAUDE.md decides the language of code, commits and pull requests.
 - Check the primary source (the code, the logs, the task) before you state a fact.

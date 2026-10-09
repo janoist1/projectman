@@ -18,6 +18,7 @@ import type {
   ThemeProgress,
   TimelineEvent,
   Visibility,
+  WakeBlock,
   WorkDoing,
   WorkItemRef,
   BoundaryRequest,
@@ -56,6 +57,8 @@ export interface SentMessageRecipient {
   /** Only with delivery 'held'. */
   hold?: SentMessageHold;
   waitingPermission?: { inboxItemId: string; deciders: string[]; since: string };
+  /** Only with delivery 'next_input' (PM-426): why the message starts no session for the recipient. */
+  noWake?: WakeBlock;
 }
 
 export interface ToolContext {

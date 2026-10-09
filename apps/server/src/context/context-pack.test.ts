@@ -511,9 +511,10 @@ describe('token economy (PM-181)', () => {
   // PM-287 names priority (high, not 2), adding three characters to the brief.
   // PM-368 adds 634 characters for message kinds, obsolete requests and approved-branch handling.
   // PM-251 adds 158 characters for the attributed integrator prefix.
+  // PM-426 adds 463 characters: who a message starts, and whose job the code review is.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 15592, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 13692, brief: 1903 },
+    { name: 'developer', handle: 'fe-1', system: 16062, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 14162, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -538,7 +539,8 @@ describe('token economy (PM-181)', () => {
   it('does not grow the system prompt of a custom role', () => {
     // PM-376 adds provider-specific waiting instructions, avoiding stranded background checks.
     // PM-251 explains the integrator prefix (+158 characters).
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(10341);
+    // PM-426 adds the same 463 characters (who a message starts, whose job the code review is).
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(10811);
   });
 });
 
@@ -886,6 +888,26 @@ describe('system prompt', () => {
     const teamwork = section(prompt, '# How the team works');
     expect(teamwork).toContain('mcp__team__<tool>');
     expect(teamwork).not.toContain('list_network_denials');
+  });
+
+  it('says who is started by a message and whose job the code review is (PM-426)', () => {
+    const project = buildProject();
+    const teamwork = section(builder.build(input({ project })).appendSystemPrompt, '# How the team works');
+    expect(teamwork).toContain('Your message starts only members with a role on the card');
+    const review = project.pipeline.stages.find((s) => s.kind === 'step' && s.duty === 'code_review');
+    expect(review).toBeDefined();
+    expect(teamwork).toContain(
+      `- Code review is the job of \`code-review\` in the ${review!.name} stage: it starts when the card moves there. Do not message other developers for a "developer review" or to integrate your work.`,
+    );
+    // A pipeline with no code review stage leaves the line out.
+    const without = buildProject();
+    without.pipeline.stages = without.pipeline.stages.filter((s) => s.id !== review!.id);
+    const bare = section(
+      builder.build(input({ project: without })).appendSystemPrompt,
+      '# How the team works',
+    );
+    expect(bare).not.toContain('Code review is the job of');
+    expect(bare).toContain('Your message starts only members with a role on the card');
   });
 
   it('tells the member to write in the project language', () => {

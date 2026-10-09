@@ -535,6 +535,19 @@ describe('formatSentMessage', () => {
     expect(out).toContain('decides: owner');
     expect(out).toContain('in one input with the others');
   });
+  it('says why a recipient without a role on the card is not started (PM-426)', () => {
+    const out = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['dev'],
+      deliveredTo: ['dev'],
+      taskKey: 'AR-1',
+      recipients: [{ handle: 'dev', delivery: 'next_input', noWake: 'no_card_role' }],
+    });
+    expect(out).toContain(
+      '- dev: not started: they have no role on AR-1 (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on AR-1. If they really must act now, ask a person to bring them in.',
+    );
+    expect(out).not.toContain('it starts nothing');
+  });
   it('reports recipients the message did not reach', () => {
     expect(
       formatSentMessage({

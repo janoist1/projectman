@@ -493,7 +493,7 @@ export function formatSentMessage(result: {
 
 /** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
 function recipientLine(
-  { handle, delivery, hold, waitingPermission }: SentMessageRecipient,
+  { handle, delivery, hold, waitingPermission, noWake }: SentMessageRecipient,
   taskKey: string | null,
 ): string {
   if (waitingPermission)
@@ -501,6 +501,8 @@ function recipientLine(
   const card = taskKey ?? 'the card';
   switch (delivery) {
     case 'next_input':
+      if (noWake === 'no_card_role')
+        return `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
       return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;

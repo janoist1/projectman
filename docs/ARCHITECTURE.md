@@ -237,6 +237,14 @@ Documentation map:
   `messageStaleReason` / `messageWakes` rules again before a deferred start: obsolete actions remain
   readable and reach the next input with an out-of-date marker; old unknown versions and human
   messages remain actionable. Result-label events retain the caller's reviewed commit.
+  PM-426: an action from an AI member starts only a recipient with a role on the card
+  (`hasCardRole` in `packages/shared`: its assignee, a member with a review, testing or UI/UX
+  duty, an owner of its current `step` stage, or a member with a session on the card or its
+  parent). The others get `next_input` with `noWake: 'no_card_role'` in the send result, and no
+  review round is requested of them. The role is checked again before every deferred start, and
+  when a card gets its assignee the waiting messages of the new assignee wake them. People, the
+  integrator and `system` messages start anyone; a message about no card or a theme is not
+  limited.
   AI messages wait in storage while the recipient works or waits for permission. At idle they
   reach it in one input, prefixed with the current card state, within the first-input size limit.
   The transcript and web chat split the batch into existing system-note and team-message items.

@@ -37,7 +37,7 @@ import type { TaskService } from '../tasks';
 import { actorHandle, humanActor, newId, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
-import { wakesFor } from './staleness';
+import { recipientHasCardRole, wakeBlockFor, wakesFor } from './staleness';
 
 export interface SendOptions {
   origin?: TeamMessage['origin'];
@@ -169,8 +169,11 @@ export class Messaging {
       task.assignee === from &&
       (!opts.workItem || opts.workItem.type === 'task')
     ) {
+      // An AI member's message asks a new round only of a recipient with a role on the card (PM-426).
+      const fromAi = memberOf(config, from)?.kind === 'ai';
       for (const handle of recipients)
-        if (!humans.includes(handle)) this.sessions.requestReviewRound(projectKey, task.key, handle);
+        if (!humans.includes(handle) && (!fromAi || recipientHasCardRole(this.ctx, config, task, handle)))
+          this.sessions.requestReviewRound(projectKey, task.key, handle);
       // The task's pinned commit follows the branch (PM-183) when it is the stage's reviewers or
       // testers who were asked: that is a new round, not a branch that moved behind their back.
       const stage = stageOf(config, task.stageId);
@@ -641,7 +644,12 @@ export class Messaging {
     untilInput = false,
   ): Omit<SentMessageRecipient, 'handle'> {
     const wakes = wakesFor(this.ctx, config, message, handle);
-    if (!running && !wakes) return { delivery: 'next_input' };
+    const block = wakes ? null : wakeBlockFor(this.ctx, config, message, handle);
+    const notWoken: Omit<SentMessageRecipient, 'handle'> = {
+      delivery: 'next_input',
+      ...(block ? { noWake: block } : {}),
+    };
+    if (!running && !wakes) return notWoken;
     if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
       return {
         delivery: 'after_turn',
@@ -666,7 +674,7 @@ export class Messaging {
         this.sessions.assertProviderCooldown(running.provider ?? DEFAULT_AGENT_PROVIDER);
       } catch (err) {
         if (!(err instanceof DomainError) || err.code !== 'provider_rate_limited') throw err;
-        if (!wakes) return { delivery: 'next_input' };
+        if (!wakes) return notWoken;
         void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
         return { delivery: 'wake' };
       }

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { messageStaleReason, messageWakes } from './message-wake';
-import type { StaleFacts } from './message-wake';
+import { messageStaleReason, messageWakeBlock, messageWakes } from './message-wake';
+import type { StaleFacts, WakeFacts } from './message-wake';
 import type { TeamMessage } from './message';
+
+/** A system or unknown sender: the role never matters. */
+const wake: WakeFacts = { fromHuman: false, fromAi: false, recipientHasRole: true };
 
 const facts: StaleFacts = {
   fromHuman: false,
@@ -27,15 +30,15 @@ describe('message validity and wake-up', () => {
   ] as const)('marks obsolete actions from current server facts', (changes, reason) => {
     const stale = messageStaleReason(action, { ...facts, ...changes });
     expect(stale).toBe(reason);
-    expect(messageWakes(action, facts, stale)).toBe(false);
+    expect(messageWakes(action, wake, stale)).toBe(false);
   });
 
   it('never discards old unknown versions or human messages', () => {
     const obsolete = { ...facts, superseded: true, card: { open: false, stageId: 'done' } };
     expect(messageStaleReason({}, obsolete)).toBeNull();
-    expect(messageWakes({}, facts, null)).toBe(true);
+    expect(messageWakes({}, wake, null)).toBe(true);
     expect(messageStaleReason(action, { ...obsolete, fromHuman: true })).toBeNull();
-    expect(messageWakes({ kind: 'info' }, { fromHuman: true }, null)).toBe(true);
+    expect(messageWakes({ kind: 'info' }, { ...wake, fromHuman: true }, null)).toBe(true);
   });
 
   it('keeps a changed stage actionable for its assignee or owner', () => {
@@ -66,7 +69,29 @@ describe('message validity and wake-up', () => {
 
   it('an info message starts nothing and needs no stale marker', () => {
     expect(messageStaleReason({ ...action, kind: 'info' }, { ...facts, superseded: true })).toBeNull();
-    expect(messageWakes({ kind: 'info' }, facts, null)).toBe(false);
-    expect(messageWakes(action, facts, null)).toBe(true);
+    expect(messageWakes({ kind: 'info' }, wake, null)).toBe(false);
+    expect(messageWakes(action, wake, null)).toBe(true);
+  });
+
+  describe('card role (PM-426)', () => {
+    const aiNoRole: WakeFacts = { fromHuman: false, fromAi: true, recipientHasRole: false };
+
+    it('an AI member starts only recipients with a role on the card', () => {
+      expect(messageWakes(action, aiNoRole, null)).toBe(false);
+      expect(messageWakeBlock(action, aiNoRole, null)).toBe('no_card_role');
+      expect(messageWakes({}, aiNoRole, null)).toBe(false);
+      expect(messageWakes(action, { ...aiNoRole, recipientHasRole: true }, null)).toBe(true);
+      expect(messageWakeBlock(action, { ...aiNoRole, recipientHasRole: true }, null)).toBeNull();
+    });
+
+    it('a person, the system, an info or a stale message is not blocked by the role', () => {
+      expect(messageWakes(action, { ...aiNoRole, fromHuman: true, fromAi: false }, null)).toBe(true);
+      expect(messageWakeBlock(action, { ...aiNoRole, fromHuman: true, fromAi: false }, null)).toBeNull();
+      expect(messageWakes(action, { ...aiNoRole, fromAi: false }, null)).toBe(true);
+      expect(messageWakeBlock(action, { ...aiNoRole, fromAi: false }, null)).toBeNull();
+      expect(messageWakeBlock({ kind: 'info' }, aiNoRole, null)).toBeNull();
+      expect(messageWakeBlock(action, aiNoRole, 'stage_moved')).toBeNull();
+      expect(messageWakes(action, aiNoRole, 'stage_moved')).toBe(false);
+    });
   });
 });

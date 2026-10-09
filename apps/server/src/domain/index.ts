@@ -3,9 +3,12 @@ import path from 'node:path';
 import {
   canManageInstancePause,
   isOnLeave,
+  isOpenTask,
   isSenior,
+  isTheme,
   memberOf,
   permissionDelegationOf,
+  routeFor,
   seniorWaitMinutesOf,
   stageOf,
 } from '@projectman/shared';
@@ -832,6 +835,24 @@ export function createDomain(opts: DomainOptions) {
     if (config && current) seniorWaits.settle(current, config);
   };
   events.on('task_assigned', ({ task }) => settleSeniorWait(task));
+  // A message from an AI member that waits for a member with no role on the card starts nothing (PM-426).
+  // The new assignee has a role: their waiting messages wake them now, unless the card holds them back.
+  events.on('task_assigned', ({ task }) => {
+    const assignee = task.assignee;
+    const config = projects.cachedConfig(task.projectKey);
+    if (!assignee || !config || memberOf(config, assignee)?.kind !== 'ai') return;
+    if (!isOpenTask(task) || isTheme(task)) return;
+    background.run(
+      () =>
+        messaging.wakeWaiting({
+          projectKey: task.projectKey,
+          member: assignee,
+          workItem: routeFor(task.key),
+        }),
+      (err) =>
+        opts.logger.warn({ err, taskKey: task.key }, 'could not wake the new assignee for waiting messages'),
+    );
+  });
   events.on('task_stage_changed', (change) => settleSeniorWait(change.task));
   events.on('task_cancelled', (task) => settleSeniorWait(task));
   events.on('task_level_changed', ({ task }) => {

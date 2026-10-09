@@ -316,6 +316,24 @@
   color: var(--c-ink-4);
 }
 
+/* The project manager's row: the label stays whole, the picker keeps room, the hint gets its own line. */
+.taskRowMark {
+  flex-wrap: wrap;
+}
+
+.taskRowMark label {
+  white-space: nowrap;
+}
+
+.taskRowMark .taskSelect {
+  flex: 1 1 200px;
+  max-width: 320px;
+}
+
+.taskRowMark .hint {
+  flex-basis: 100%;
+}
+
 .readOnly {
   margin: 0;
   padding: 14px;
@@ -351,6 +369,9 @@
     height: 40px;
     /* 16px keeps iOS from zooming the page in when the field gets the focus. */
     font-size: 16px;
+  }
+  .taskRowMark .taskSelect {
+    max-width: none;
   }
 }
 

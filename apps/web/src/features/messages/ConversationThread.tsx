@@ -1,6 +1,6 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { isUnreadBy } from '@projectman/shared';
+import { isUnreadBy, PROJECT_MANAGER_ROLE } from '@projectman/shared';
 import type { InboxItem, ResolveInboxRequest, RoleView, TeamMessage } from '@projectman/shared';
 import {
   useBoard,
@@ -83,6 +83,8 @@ export function ConversationThread({
   const isMobile = useIsMobile();
   const visible = useDocumentVisible();
   const member = members.get(peer);
+  // The project manager has one conversation (PM-434): a card only marks the message, it never picks a thread.
+  const marksOnly = member?.kind === 'ai' && member.role === PROJECT_MANAGER_ROLE && !member.temp;
   const access = me.projects.find((p) => p.key === key)?.access;
   const canSend = Boolean(access && ['owner', 'admin', 'developer', 'client'].includes(access));
 
@@ -317,7 +319,7 @@ export function ConversationThread({
                 <p className={styles.emptyBody}>
                   {member?.kind === 'human'
                     ? t('messages.thread.emptyHuman')
-                    : t('messages.thread.emptyBody')}
+                    : t(marksOnly ? 'messages.thread.emptyMarkBody' : 'messages.thread.emptyBody')}
                 </p>
               </div>
             ) : (
@@ -347,17 +349,21 @@ export function ConversationThread({
               {t('messages.composer.failed')} {errorMessage(send.error)}
             </ErrorBanner>
           ) : null}
-          <div className={styles.taskRow}>
-            <label htmlFor={`task-${peer}`}>{t('messages.composer.task')}</label>
+          <div className={clsx(styles.taskRow, marksOnly && styles.taskRowMark)}>
+            <label htmlFor={`task-${peer}`}>
+              {t(marksOnly ? 'messages.composer.markTask' : 'messages.composer.task')}
+            </label>
             <select
               id={`task-${peer}`}
               className={styles.taskSelect}
               value={task}
               onChange={(event) => setTaskChoice(event.target.value)}
             >
-              <option value="">{t('messages.composer.noTask')}</option>
+              <option value="">
+                {t(marksOnly ? 'messages.composer.markNoTask' : 'messages.composer.noTask')}
+              </option>
               {recentTasks.length ? (
-                <optgroup label={t('messages.composer.recent')}>
+                <optgroup label={t(marksOnly ? 'messages.composer.markRecent' : 'messages.composer.recent')}>
                   {recentTasks.map((taskKey) => (
                     <option key={taskKey} value={taskKey}>
                       {taskKey} · {titles.get(taskKey) ?? ''}
@@ -366,12 +372,18 @@ export function ConversationThread({
                 </optgroup>
               ) : null}
               {recentTasks.length ? (
-                <optgroup label={t('messages.composer.otherTasks')}>{otherTaskOptions}</optgroup>
+                <optgroup
+                  label={t(marksOnly ? 'messages.composer.markOtherTasks' : 'messages.composer.otherTasks')}
+                >
+                  {otherTaskOptions}
+                </optgroup>
               ) : (
                 otherTaskOptions
               )}
             </select>
-            {!task && member?.kind === 'ai' ? (
+            {marksOnly ? (
+              <span className={styles.hint}>{t('messages.composer.markHint')}</span>
+            ) : !task && member?.kind === 'ai' ? (
               <span className={styles.hint}>{t('messages.composer.generalHint')}</span>
             ) : null}
           </div>

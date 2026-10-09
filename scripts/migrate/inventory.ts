@@ -276,9 +276,19 @@ const COUNTED_TABLES = [
 ];
 
 /** The projects of the customization repository and the repositories each names (absolute paths). */
-export function readProjectFiles(
-  home: string,
-): { key: string; workspacePath: string; repos: { name: string; path: string; defaultBranch: string }[] }[] {
+export function readProjectFiles(home: string): {
+  key: string;
+  workspacePath: string;
+  repos: {
+    name: string;
+    path: string;
+    defaultBranch: string;
+    /** The repository's own path as written (relative to the workspace, or absolute). */
+    configuredPath: string;
+    /** `reviewTest.command`: the full test the engine runs for this repository. */
+    fullTestCommand?: string;
+  }[];
+}[] {
   const root = join(home, 'customization', 'projects');
   if (!existsSync(root)) return [];
   const projects = [];
@@ -286,7 +296,10 @@ export function readProjectFiles(
     const file = join(root, key, 'project.yaml');
     if (!existsSync(file)) continue;
     const doc = parseYaml(readFileSync(file, 'utf8')) as {
-      project?: { workspacePath?: string; repos?: { name: string; path: string; defaultBranch?: string }[] };
+      project?: {
+        workspacePath?: string;
+        repos?: { name: string; path: string; defaultBranch?: string; reviewTest?: { command?: string } }[];
+      };
     };
     const project = doc?.project;
     if (!project?.workspacePath) continue;
@@ -297,6 +310,8 @@ export function readProjectFiles(
         name: r.name,
         path: isAbsolute(r.path) ? r.path : resolve(project.workspacePath!, r.path),
         defaultBranch: r.defaultBranch ?? 'main',
+        configuredPath: r.path,
+        ...(r.reviewTest?.command ? { fullTestCommand: r.reviewTest.command } : {}),
       })),
     });
   }

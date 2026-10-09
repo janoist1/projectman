@@ -82,6 +82,38 @@ describe('the marker file', () => {
     expect(() => assertHomeMayStart(home)).toThrow(/retired \(moved to the VM\)/);
   });
 
+  it('keeps a hybrid engine home out of the single and the cloud server, and says how to start it', () => {
+    const home = tempHome();
+    writeInstanceMarker(home, 'engine', 'hybrid engine of the cloud');
+    expect(instanceRole(home)).toBe('engine');
+    expect(() => assertHomeMayStart(home)).toThrow(
+      /hybrid engine home; start it with `npm run engine -- start`/,
+    );
+    expect(() => assertHomeMayStart(home, 'single')).toThrow(InstanceMarkerError);
+    expect(() => assertHomeMayStart(home, 'cloud')).toThrow(InstanceMarkerError);
+    expect(assertHomeMayStart(home, 'engine')).toBe('engine');
+  });
+
+  it('starts the engine in a new home and in an engine home, not in a live single-machine one', () => {
+    const fresh = tempHome();
+    expect(assertHomeMayStart(fresh, 'engine')).toBe('active');
+    expect(assertHomeMayStart(join(fresh, 'not-made-yet'), 'engine')).toBe('active');
+
+    const live = tempHome();
+    writeFileSync(join(live, 'db.sqlite'), '');
+    expect(() => assertHomeMayStart(live, 'engine')).toThrow(/not marked as a hybrid engine home/);
+    expect(assertHomeMayStart(live)).toBe('active'); // the single server is the home's own mode
+
+    writeInstanceMarker(live, 'engine', 'moved to the hybrid mode');
+    expect(assertHomeMayStart(live, 'engine')).toBe('engine');
+  });
+
+  it('never starts the engine in a retired home', () => {
+    const home = tempHome();
+    writeInstanceMarker(home, 'retired', 'moved to the VM');
+    expect(() => assertHomeMayStart(home, 'engine')).toThrow(/retired/);
+  });
+
   it.each([
     ['broken JSON', '{nope'],
     [
@@ -121,6 +153,25 @@ describe('the server', () => {
     ).rejects.toThrow(/retired/);
     expect(existsSync(join(home, 'db.sqlite'))).toBe(false);
     expect(existsSync(join(home, 'secret'))).toBe(false);
+  });
+
+  it.each(['single', 'cloud'] as const)('does not start in %s mode on a hybrid engine home', async (mode) => {
+    const home = tempHome();
+    writeInstanceMarker(home, 'engine', 'hybrid engine of the cloud');
+    const runner = createFakeRunnerModule();
+    await expect(
+      buildApp({
+        home,
+        logger: false,
+        engineMode: mode,
+        modules: {
+          createRunnerModule: (opts) => runner.create(opts),
+          createMcpModule: (opts) => createFakeMcp().create(opts),
+          github: new FakeGithub(),
+        },
+      }),
+    ).rejects.toThrow(/hybrid engine home; start it with `npm run engine -- start`/);
+    expect(existsSync(join(home, 'db.sqlite'))).toBe(false);
   });
 
   it('shows the data of a standby copy but starts no AI session', async () => {

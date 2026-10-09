@@ -272,14 +272,13 @@ data). Revoke the machine key in Settings → Engines first, if the cloud is sti
 
 - The cloud runs one machine. High availability, a read replica and several regions are not
   provided.
-- **No control socket client and no migration tools in the container (for PM-318).** The image
-  holds the server only: no `scripts/control` (pause, status), no `scripts/migrate` (instance
-  activation, marking a home standby or active) and no development dependencies. Pause and stop
-  go through the platform (SIGTERM, the server's own shutdown pause); a changeover from the
-  single-machine mode to the hybrid and back (PM-318) has to carry the database and the files by
-  the Litestream and restic restore (or an equivalent import) and set `instance.json` by hand
-  or by a tool PM-318 adds; do not expect `npm run control` or `npm run migrate` in `fly ssh
-console`.
+- **No control socket client and no migration tools in the container.** The image holds the
+  server only: no `scripts/control` (pause, status), no `scripts/migrate` (instance activation,
+  marking a home standby or active) and no development dependencies. Pause and stop go through the
+  platform (SIGTERM, the server's own shutdown pause). The changeover from the single-machine mode
+  to the hybrid and back is the Mac's `npm run migrate -- hybrid …` (PM-318, the second part of
+  this page); it makes and reads the data directory outside the container. Do not expect
+  `npm run control` or `npm run migrate` in `fly ssh console`.
 - Litestream's replica is not encrypted by Litestream; the bucket's encryption and key scoping are
   your protection.
 - A restic backup every 6 hours can lose up to 6 hours of files (attachments, customization) that
@@ -288,3 +287,159 @@ console`.
   their documentation and could not be built or run where this was written (no container daemon).
   The first deployment is therefore also the test: run the build, the smoke test and the restore
   rehearsal, and fix this guide with what you find.
+
+# Moving between the single-machine mode and the hybrid mode (PM-318, part 8 of 8 of PM-286)
+
+The board runs in the cloud (`PROJECTMAN_MODE=cloud`); the AI work runs on the Mac as an **engine**
+(`PROJECTMAN_MODE=engine`), connected outward to the cloud with a machine key
+([ARCHITECTURE.md](ARCHITECTURE.md) "Machine-dependent parts"). This page is how the owner's Mac
+gets there from the single-machine mode, how it comes back, and what stays where.
+**This page is not a permission to move.** The live instance is never stopped, changed or updated by
+anything here until the owner has said so for the concrete move.
+
+The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
+read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
+
+## What goes where
+
+| On the Mac (the home keeps them)                                        | In the cloud package (`hybrid package`)                         |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `engine.key` (the machine key), `engine.json` (the engine's config)     | `db.sqlite` (a consistent copy), `secret` (the cookie key)      |
+| `providers/` (the CLIs' logins and conversation directories)            | `secrets/`, `customization/`, `attachments/`, `memory/`         |
+| repositories, `workspaces/`, `worktrees/`, `member-caches/`, `browsers` | the engine's row (only the **hash** of the key) in the database |
+| `github-publish/`, `spool/`, `logs/`, `instance.json`                   |                                                                 |
+
+The package holds exactly the six entries on the right and nothing else; the list is
+`HYBRID_CLOUD_ENTRIES` in `scripts/migrate/hybrid-entries.ts`, and `verify --hybrid-cloud` refuses a
+package that holds anything more (`forbidden_entry`). No CLI login, no repository, no key travels.
+The machine key is made on the Mac, written to `engine.key` (mode 0600) and shown nowhere; the cloud
+learns only its SHA-256 hash.
+
+## 1. The plan sheet (read-only)
+
+```sh
+npm run migrate -- hybrid plan --home ~/.projectman
+```
+
+Prints what goes to the cloud, what stays, the engine configuration it would write (projects, the
+repositories inside their workspaces, their full-test commands) and the findings: a missing workspace,
+a repository outside its workspace, an over-long test command (dropped with a warning) and the
+blockers of the inventory (a running server, an unreadable database). It changes nothing.
+
+## 2. Dry run on a copy
+
+Rehearse on a **copy** of the stopped home (never on the running live instance), with the cloud
+build started on the package in a disposable place:
+
+1. Copy the stopped home to a scratch directory (`cp -R`), run `hybrid package` on the copy.
+2. `npm run migrate -- verify --home <out>/home --hybrid-cloud`.
+3. Start the cloud build on `<out>/home` (as in PM-317's deployment page) and sign in.
+4. Connect the engine from the copy's home: `PROJECTMAN_HOME=<copy> npm run engine -- start`.
+
+What a rehearsal proves: the package is whole, the cloud opens it, the engine connects and its
+sessions are listed. **What it does not prove:** that a session which was running at the cutover
+resumes. The package is made from a stopped source, so no session is running in it; the first sessions
+after the cutover are new starts or resumes from the CLIs' own conversation directories on the Mac.
+
+## 3. The cutover
+
+1. Pause the team ([DEPLOY.md](DEPLOY.md) "Pausing the team") and stop the live instance. `hybrid
+package` refuses a running server (`database_in_use`).
+2. Make the package. It writes `engine.key` and `engine.json` into the Mac's home, last, and refuses to
+   overwrite either:
+
+   ```sh
+   npm run migrate -- hybrid package --home ~/.projectman --out ~/hybrid-package \
+     --engine-name "Mac" --cloud https://<the cloud's address>
+   ```
+
+   `--out` is a new directory outside the home and outside any git repository (mode 0700). The
+   cloud address must be `https://` (`http://` only on a loopback host).
+
+3. Check it: `npm run migrate -- verify --home ~/hybrid-package/home --hybrid-cloud` (one non-revoked
+   default engine, every session on a known engine, nothing from the never-carried list).
+4. Put **only** `~/hybrid-package/home/` on the cloud's data volume and start the cloud build on it.
+   Never put the package in a repository, a task attachment or a message.
+   **Then delete the package from the Mac** (`rm -rf ~/hybrid-package`), or keep it off the machine.
+   It holds the cookie key, the secrets and the whole database, and a session's sandbox only _denies_
+   named places (the home's own entries, `~/.ssh` …): any other folder under your user, this one too,
+   is readable by every AI session on the Mac.
+5. Retire the Mac's single-machine role and mark the home as the engine's:
+
+   ```sh
+   npm run migrate -- instance engine --home ~/.projectman --reason "hybrid mode"
+   ```
+
+   The home's `instance.json` now says `engine`: a single-machine or cloud server refuses to start on
+   it, while the engine may (its `home_in_use` check allows the stale database of an `engine` home;
+   sandboxes keep every session out of it). The engine, in turn, refuses a home that holds a database
+   and is not marked `engine`.
+
+6. Start the engine, in the foreground first: `npm run engine -- status`, `npm run engine -- start`.
+   Then let launchd keep it running.
+
+## 4. The engine as a service (launchd)
+
+Run from **the checkout that should run the engine** (the plist names it), on the Mac, as the user who
+owns the CLI logins:
+
+```sh
+npm run engine -- service install     # writes ~/Library/LaunchAgents/com.projectman.engine.plist, loads it
+npm run engine -- service status      # launchd's state and pid; exit 0 only when it runs
+npm run engine -- service uninstall   # unloads it and removes the file; the logs stay
+```
+
+- It is a LaunchAgent (user `gui` domain), not a daemon: the CLIs need the login keychain.
+- The job's environment is only `PATH`, `PROJECTMAN_MODE=engine` and `PROJECTMAN_HOME`. No API key
+  and no integrator key is written to the file or passed on.
+- `install` checks what `start` checks (configuration, key file, home role) and refuses another
+  home's installed agent. The engine restarts after an exit, 30 s apart. Logs:
+  `<home>/logs/engine-service.{out,err}.log`.
+- After a `git pull` in that checkout, restart it: `npm run engine -- service install` again.
+- `PATH` in the file is the installing shell's, without the `node_modules/.bin` folders that `npm run`
+  puts in front of it. If a CLI of the sessions lives elsewhere, start `install` from a shell that
+  finds it. A `bootstrap` that fails with "5: Input/output error" while launchd is still tearing the
+  old job down is retried a few times.
+
+## 5. The way back
+
+For when the owner wants the single-machine mode again.
+
+1. Pause the team in the cloud and stop the cloud build, so its data is final.
+2. Stop the engine and **uninstall its service first**: `npm run engine -- service uninstall` (and stop
+   a foreground one). A LaunchAgent that is still installed restarts the engine 30 s after every exit,
+   so both `hybrid back` and `instance activate` refuse while its file is in `~/Library/LaunchAgents`.
+3. Copy the cloud's data directory to the Mac (a new place, not inside the home), then:
+
+   ```sh
+   npm run migrate -- hybrid back --home ~/.projectman --from <the copy> --confirm-source-retired
+   ```
+
+   `--confirm-source-retired` is the person's statement that the cloud is stopped. The tool verifies
+   the copy, stages it inside the home (`.hybrid-back/`), revokes this engine in the copied database,
+   makes its sessions local again, and **moves the former entries to `pre-hybrid/YYYY-MM-DD/`** instead
+   of deleting them. It refuses while the engine runs, when a session is open on another engine, or
+   when the copy is not the cloud's data.
+
+   The copy may hold what the running cloud writes itself: `logs/` (its server log), Litestream's
+   metadata folder next to the database (`.db.sqlite-litestream`), `engine-spool/`, `spool/`, empty
+   `worktrees/` and `workspaces/`, and the `instance.json` of a restored copy. None of them is carried
+   back. Anything that belongs to the Mac (`providers/`, `engine.key` …) still stops the move.
+
+4. `npm run migrate -- instance activate --home ~/.projectman --confirm-source-retired`, then start the
+   single-machine mode as before. Activating from the `engine` role needs a database that holds the
+   cloud's engine row, so that the old pre-hybrid database does not replace the cloud's later work;
+   `--discard-cloud-data` states the opposite on purpose.
+5. **Clean up the secrets.** After `hybrid back`, delete the downloaded copy (`--from`): it holds the
+   live cookie key, the secrets and the database, in a folder the sessions' sandboxes do not deny.
+   `pre-hybrid/` and `.hybrid-back/` inside the home are denied to every session (they hold the old
+   database, the old keys and the former machine key). Once the single-machine mode has run well, delete
+   `pre-hybrid/` too; the former machine key in it is revoked in the database already.
+
+Sessions the cloud left open are not closed by the move (the tool reports their number); the first
+start resumes or ends them as after any restart.
+
+## Not decided here
+
+The real cutover date, the cloud address and the rehearsal's evidence are the owner's. Nothing in this
+repository has run the cutover.

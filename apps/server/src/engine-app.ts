@@ -40,6 +40,7 @@ import type { EngineEvent, Hello } from './engine-link/protocol';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { freeBytesOf } from './engine-host';
 import { nonLocalReason } from './http/local-guard';
+import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
 import { createRunnerModule } from './runner';
 import { createGithubService } from './github';
@@ -154,6 +155,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
   const resolved = resolveEngineConfig(loadEngineConfig(home), home, {
     ...(options.tmpdir ? { tmpdir: options.tmpdir } : {}),
   });
+  assertHomeMayStart(home, 'engine'); // a damaged or retired marker stops the engine too (PM-318)
   // The key and the extra headers are read here once so a wrong mode stops the start, not a later reconnect.
   readSecretFile(resolved.keyFile, 'The engine key');
   if (resolved.linkHeadersFile) readLinkHeaders(resolved.linkHeadersFile);

@@ -374,7 +374,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const home = resolve(options.home);
   // A retired copy never starts, a standby copy only shows its data (PM-143): checked before anything
   // in the home is created or opened.
-  const standby = assertHomeMayStart(home) === 'standby';
+  const standby = assertHomeMayStart(home, options.engineMode ?? 'single') === 'standby';
   const attachmentsDir = join(home, 'attachments');
   for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });

@@ -81,6 +81,8 @@ describe('deploy/cloud shell scripts', () => {
     // A failed restore stops the start: only the "does not exist" answers continue empty.
     expect(entrypoint).toContain('-if-db-not-exists -if-replica-exists');
     expect(backup).toContain('10) return 1 ;;');
+    // A repository without any snapshot restores nothing instead of failing the start.
+    expect(backup).toContain("'[]' | null | '')");
     expect(entrypoint.split('\n')[0]).toBe('#!/usr/bin/env bash');
     expect(entrypoint).toMatch(/^set -euo pipefail$/m);
   });
@@ -132,6 +134,13 @@ describe('deploy/cloud image', () => {
     for (const path of ['/engine/link', '/engine/files/downloads/', '/engine/files/uploads/']) {
       expect(smoke, path).toContain(path);
     }
+  });
+
+  it('the guide carries the account protection, the cost estimate and the limits of the container', () => {
+    expect(guide).toMatch(/passkey or a hardware security key/);
+    expect(guide).toMatch(/5 to 10 USD a month/);
+    expect(guide).toMatch(/No control socket client and no migration tools in the container/);
+    expect(fly).toContain('memory = "1gb"');
   });
 
   it('does not claim the processes are isolated from a compromised server', () => {

@@ -28,6 +28,16 @@ not touched by anything here.
 - Two S3-compatible buckets (or one bucket, two prefixes), for example Cloudflare R2 or Backblaze B2.
   Prefer two buckets with two keys: the key that replicates the database should not be able to
   touch the backup repository, and the other way round.
+- **Protected accounts.** Whoever controls the hosting account, the storage account or the
+  Cloudflare account controls the installation (the Cloudflare account can change the Access
+  policy, the host account can read the volume and the secrets, the storage account holds the
+  backups). Protect all three with a **passkey or a hardware security key** (not only a password
+  and an SMS code), keep the Cloudflare Access session short, and give only the owner access to
+  these accounts.
+- **Cost.** On Fly.io about 5 to 10 USD a month: one `shared-cpu-1x` machine with 1 GB of memory, a
+  1 GB volume, and the outbound traffic of a team-sized installation. The Cloudflare free plan
+  (Zero Trust up to 50 users) and a bucket of a few megabytes (R2 has a free tier) add little or
+  nothing. Check the providers' current prices; the figures here are an estimate.
 
 ## The image
 
@@ -53,8 +63,8 @@ docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev
   `/proc/<pid>/environ` of the tunnel, Litestream and restic processes, and so reach the tunnel
   token, the storage keys and the restic password, and could delete or read the backups. Real
   separation would need the server under its own uid; that is not done. Limit the damage with
-  the bucket-scoped keys (no access to other buckets), a bucket with versioning or object lock
-  where the provider has it, and a restore rehearsal now and then.
+  the bucket-scoped keys (no access to other buckets), the `RESTIC_PASSWORD` kept outside the
+  host, and a restore rehearsal now and then.
 - **Data:** `PROJECTMAN_HOME=/data`, the volume.
 
 ### Settings
@@ -90,7 +100,7 @@ losing the host needs it.
 - **One key per job, bucket-scoped.** On R2 and B2 an API token can be limited to a bucket; do that.
   The restic key needs list, read, write and delete (restic prunes); the Litestream key needs the
   same for its prefix.
-- **Cost.** The database replicates every second; the storage is the database (small) plus a daily
+- **Storage size.** The database replicates every second; the storage is the database (small) plus a daily
   snapshot kept for a week and the restic snapshots (daily for a week, weekly for a month, monthly
   for half a year). For a team-sized installation this is megabytes.
 - **Versioning.** Do not turn on bucket versioning for the Litestream prefix: Litestream manages
@@ -262,6 +272,14 @@ data). Revoke the machine key in Settings → Engines first, if the cloud is sti
 
 - The cloud runs one machine. High availability, a read replica and several regions are not
   provided.
+- **No control socket client and no migration tools in the container (for PM-318).** The image
+  holds the server only: no `scripts/control` (pause, status), no `scripts/migrate` (instance
+  activation, marking a home standby or active) and no development dependencies. Pause and stop
+  go through the platform (SIGTERM, the server's own shutdown pause); a changeover from the
+  single-machine mode to the hybrid and back (PM-318) has to carry the database and the files by
+  the Litestream and restic restore (or an equivalent import) and set `instance.json` by hand
+  or by a tool PM-318 adds; do not expect `npm run control` or `npm run migrate` in `fly ssh
+console`.
 - Litestream's replica is not encrypted by Litestream; the bucket's encryption and key scoping are
   your protection.
 - A restic backup every 6 hours can lose up to 6 hours of files (attachments, customization) that

@@ -96,8 +96,11 @@ describe('the first setup in cloud mode (PM-317)', () => {
     expect(h!.app.projectman.auth.needsSetup()).toBe(false);
 
     const again = await setup({ ...OWNER_LOGIN, setupCode: CODE });
-    expect(again.statusCode).toBe(403);
-    expect(codeOf(again)).toBe('setup_code_invalid');
+    // An owner exists: no code error, the plain answer (the code is gone and cannot be guessed at).
+    expect(again.statusCode).toBe(409);
+    expect(codeOf(again)).toBe('already_set_up');
+    const noCode = await setup({ ...OWNER_LOGIN });
+    expect(codeOf(noCode)).toBe('already_set_up');
     const status = await h!.app.inject({ method: 'GET', url: '/api/setup' });
     expect(status.json<SetupStatus>()).toEqual({ needsSetup: false });
   });

@@ -4,7 +4,8 @@
 #
 #   backup.sh backup            back up (creates the repository the first time), then forget old snapshots
 #   backup.sh restore <dir>     restore the latest snapshot into <dir>; exit 0 and no files if the repository
-#                               does not exist yet (a brand new installation), non-zero on any other error
+#                               does not exist or has no snapshot yet (a brand new installation), non-zero
+#                               on any other error
 #   backup.sh check             verify the repository
 #
 # The repository password (RESTIC_PASSWORD) is not the storage key: whoever has the storage key but not
@@ -59,6 +60,14 @@ case "$command_name" in
       echo "backup: no restic repository yet; nothing to restore" >&2
       exit 0
     fi
+    # A repository that was created but never got a snapshot (the first backup failed) is as empty as none.
+    snapshots="$(restic snapshots --tag projectman-cloud --host projectman-cloud --json)"
+    case "$snapshots" in
+      '[]' | null | '')
+        echo "backup: the restic repository has no snapshot yet; nothing to restore" >&2
+        exit 0
+        ;;
+    esac
     # The snapshot keeps absolute paths, so it goes to a staging directory and the home's files are copied up.
     staging="$(mktemp -d "${TMPDIR:-/tmp}/restore.XXXXXX")"
     trap 'rm -rf "$staging"' EXIT

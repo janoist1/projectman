@@ -177,8 +177,9 @@ export function registerAuth(
     const body = parseBody(SetupRequest, request.body);
     // Cloud mode: a request that does not come from the machine needs the one-time setup code from the
     // server log. A missing code is not a guess and does not count; a wrong one does, for all clients
-    // together, and the tenth voids the code.
-    if (!local) {
+    // together, and the tenth voids the code. Once an owner exists there is no code and the answer is
+    // already_set_up (from createFirstUser), not a code error.
+    if (!local && auth.needsSetup()) {
       const result = body.setupCode === undefined ? 'missing' : (setupCode?.verify(body.setupCode) ?? 'void');
       if (result !== 'ok') {
         throw forbidden(

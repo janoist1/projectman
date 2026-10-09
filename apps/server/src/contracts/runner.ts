@@ -3,6 +3,7 @@ import type {
   AgentEffort,
   AgentProvider,
   ChatItem,
+  EngineId,
   HandoffSummary,
   PausePoint,
   PlanUsage,
@@ -97,6 +98,11 @@ export interface SubagentDefinition {
 export interface StartSessionSpec {
   /** Our session id ("ses_..."). */
   sessionId: string;
+  /**
+   * The engine the session runs on (PM-311); absent: `local`. The local runner ignores it; the
+   * router of the hybrid mode (PM-315) sends the start to that engine.
+   */
+  engineId?: EngineId;
   /**
    * Conversation id of the agent CLI. Claude Code: the session UUID (`--session-id` for new
    * sessions, `--resume` for resumed ones). Codex: ignored for new sessions (Codex picks its
@@ -333,7 +339,7 @@ export interface SessionRunner {
    * own project configuration could run or allow commands outside the sandbox; resolves for
    * other providers and a clean directory.
    */
-  assertWorkspaceConfig?(input: { provider: AgentProvider; cwd: string }): Promise<void>;
+  assertWorkspaceConfig?(input: { provider: AgentProvider; cwd: string; engineId?: EngineId }): Promise<void>;
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
   /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
   sendUserMessage(sessionId: string, text: string): Promise<void>;
@@ -394,7 +400,7 @@ export interface SessionRunner {
    */
   providerStatus?(
     provider: AgentProvider,
-    opts?: { refresh?: boolean; member?: string },
+    opts?: { refresh?: boolean; member?: string; engineId?: EngineId },
   ): Promise<ProviderStatus>;
 }
 
@@ -450,7 +456,7 @@ export interface TranscriptReader {
    * resumed, the CLI writes the file after its first message. `confineTo` as in `read`. Rejects
    * when the file cannot be checked (not a regular file in the worker home, no access).
    */
-  hasContent(path: string, opts?: { confineTo?: string }): Promise<boolean>;
+  hasContent(path: string, opts?: { confineTo?: string; engineId?: EngineId }): Promise<boolean>;
   /**
    * Parses a whole transcript (Claude Code JSONL or Codex rollout JSONL) into chat items.
    * `provider` is the agent CLI that wrote it (default: guessed from the file name, Codex
@@ -471,6 +477,8 @@ export interface TranscriptReader {
        * in it, without following a final symlink or blocking on a FIFO.
        */
       confineTo?: string;
+      /** The engine the transcript is on (PM-311); absent: `local`. The local reader ignores it. */
+      engineId?: EngineId;
     },
   ): Promise<ChatItem[]>;
   /**
@@ -482,7 +490,7 @@ export interface TranscriptReader {
    */
   summary(
     path: string,
-    opts: { provider: AgentProvider; confineTo?: string },
+    opts: { provider: AgentProvider; confineTo?: string; engineId?: EngineId },
   ): Promise<HandoffSummary | null>;
 }
 

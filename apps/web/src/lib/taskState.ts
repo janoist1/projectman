@@ -292,8 +292,11 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
   const waiting = task.startWaiting!;
   if (waiting.reason === 'provider_rate_limited' && !waiting.until)
     return t('taskStatus.startWaiting.provider_rate_limited_unknown');
+  if (waiting.reason === 'engine_offline' && !waiting.engine)
+    return t('taskStatus.startWaiting.engine_offline_none');
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
+    engine: waiting.engine ?? '',
     percent: waiting.threshold ?? '',
     until: waiting.until ? formatStamp(waiting.until) : '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),

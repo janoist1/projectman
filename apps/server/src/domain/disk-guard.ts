@@ -1,6 +1,7 @@
 import { statfs } from 'node:fs/promises';
 import { ALERT_SEEN_OPTION, alertPayloadOf } from '@projectman/shared';
-import type { DiskLowAlert, ProjectConfig } from '@projectman/shared';
+import type { DiskLowAlert, EngineId, ProjectConfig } from '@projectman/shared';
+import type { EngineDirectory } from '../contracts';
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
 import { conflict } from './errors';
@@ -27,6 +28,7 @@ export class DiskGuard {
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
   private readonly freeBytes: () => Promise<number | null>;
+  private readonly engines: EngineDirectory | undefined;
   /** Projects whose owners were warned of the shortage that lasts. */
   private readonly told = new Set<string>();
 
@@ -34,18 +36,33 @@ export class DiskGuard {
     ctx: DomainContext;
     projects: ProjectService;
     inbox: InboxService;
+    /** The measurement of the server's own disk, when there are no engines. */
     freeBytes?: () => Promise<number | null>;
+    /** The engines (PM-311): each is asked for the disk its sessions work on. */
+    engines?: EngineDirectory;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.inbox = deps.inbox;
     this.freeBytes = deps.freeBytes ?? (async () => null);
+    this.engines = deps.engines;
   }
 
-  /** Free bytes now, or null when they cannot be measured. */
-  async free(): Promise<number | null> {
+  /**
+   * Free bytes now, or null when they cannot be measured: the target engine's disk, else the least of
+   * the connected engines' (the alert is per project, not per engine).
+   */
+  async free(engineId?: EngineId): Promise<number | null> {
+    const engines = this.engines;
     try {
-      return await this.freeBytes();
+      if (!engines) return await this.freeBytes();
+      if (engineId) return (await engines.get(engineId)?.freeDiskBytes()) ?? null;
+      let least: number | null = null;
+      for (const id of engines.ids()) {
+        const free = await engines.get(id)?.freeDiskBytes();
+        if (free !== undefined && free !== null && (least === null || free < least)) least = free;
+      }
+      return least;
     } catch (err) {
       this.ctx.logger.warn({ err }, 'could not measure the free disk space');
       return null;
@@ -53,8 +70,8 @@ export class DiskGuard {
   }
 
   /** Throws `disk_low` when the project's limit is not met; raises or withdraws the alert as it finds. */
-  async assertRoom(config: ProjectConfig): Promise<void> {
-    const state = await this.evaluate(config, await this.free());
+  async assertRoom(config: ProjectConfig, engineId?: EngineId): Promise<void> {
+    const state = await this.evaluate(config, await this.free(engineId));
     if (state.low)
       throw conflict(
         'disk_low',

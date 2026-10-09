@@ -1,6 +1,8 @@
 import {
   Approver,
   DEFAULT_AGENT_PROVIDER,
+  EngineId,
+  LOCAL_ENGINE_ID,
   mergeTokenUsage,
   SelectablePermissionMode,
   SessionStop,
@@ -52,6 +54,7 @@ interface SessionRow {
   doing_detail: string | null;
   last_stop: string | null;
   start_cause: string | null;
+  engine_id: string;
 }
 
 /** The stored reason of the last stop (JSON); a broken or empty value is no reason (PM-288). */
@@ -152,6 +155,11 @@ const baseSession = (r: SessionRow): Session => ({
     : {}),
   ...(lastStopOf(r.last_stop) ? { lastStop: lastStopOf(r.last_stop) } : {}),
   ...(startCauseOf(r.start_cause) ? { startCause: startCauseOf(r.start_cause) } : {}),
+  // The column has a default, so a row from before engines is the local one; a session without an
+  // `engineId` is local, so a local session reads as it always did.
+  ...(r.engine_id !== LOCAL_ENGINE_ID && EngineId.safeParse(r.engine_id).success
+    ? { engineId: r.engine_id }
+    : {}),
 });
 
 /** A summed row of the token_usage table. */
@@ -180,6 +188,7 @@ export type SessionPatch = Partial<
     | 'startedAt'
     | 'lastActivityAt'
     | 'endedAt'
+    | 'engineId'
   >
 > & {
   /** The session's own permission settings (PM-170); null goes back to the member's. */
@@ -214,6 +223,7 @@ const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop' | 'startC
   startedAt: 'started_at',
   lastActivityAt: 'last_activity_at',
   endedAt: 'ended_at',
+  engineId: 'engine_id',
 };
 
 export function createSessionRepository(db: Db) {
@@ -239,8 +249,9 @@ export function createSessionRepository(db: Db) {
     ),
     insert: db.prepare(
       `INSERT INTO sessions (id, project_key, member, work_item_type, work_item_ref, claude_session_id, provider,
-         cwd, branch, transcript_path, state, activity, state_since, started_at, last_activity_at, ended_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         cwd, branch, transcript_path, state, activity, state_since, started_at, last_activity_at, ended_at,
+         engine_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     findByWorkItem: db.prepare(
       'SELECT * FROM sessions WHERE project_key = ? AND member = ? AND work_item_type = ? AND work_item_ref = ?',
@@ -345,6 +356,7 @@ export function createSessionRepository(db: Db) {
         s.startedAt,
         s.lastActivityAt,
         s.endedAt,
+        s.engineId ?? LOCAL_ENGINE_ID,
       );
     },
     findByWorkItem(projectKey: string, member: string, item: WorkItemRef): Session | null {

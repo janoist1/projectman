@@ -1040,6 +1040,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   The PID belongs to this host (including local launcher workers).
   **Remote engine:** run this probe beside the CLI on the engine and transport the exit event;
   a remote PID must never be checked against the server's process table.
+  Since PM-311 the domain asks the workspace's engine (`EngineHost.processExists`, `contracts/engine.ts`).
 
 - **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
   `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
@@ -1085,6 +1086,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   for each named ticket to be readable through `readHeavyQueue` before starting the next;
   temporary files from atomic writes do not count as queued waiters. Run it on the execution
   host, using its own temporary directory and PID namespace.
+  Since PM-311 the folder is `EnginePaths.heavyLockDir` of the session's engine (`contracts/engine.ts`).
 - **Session output folders** — `index.ts`, `domain/session-folders.ts` (`SessionFolders`),
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
@@ -1127,6 +1129,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   machines through `attach_file` → `read_attachment`. The Claude Code roots (`/tmp/claude-<uid>`,
   the server's `CLAUDE_CODE_TMPDIR`) are those of the engine's host too: compute `sharedClaudeTmpRoots`
   and allocate the session's tmp there, and pass `CLAUDE_CODE_TMPDIR` to the CLI on the engine.
+  Since PM-311 the registry is `EngineHost.sessionFolders` (`EngineSessionFolders`) and the roots are
+  `EnginePaths.sessionFoldersRoot`, `sessionTmpRoot` and `claudeTmpRoots` (`contracts/engine.ts`);
+  `createLocalEngine` (`domain/engines.ts`) prepares them, with the same checks as before.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270).
   Playwright loads local Chromium binaries from the configured browser directory (default
@@ -1142,6 +1147,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   instance's network fence and read-only browser access, and return images as artifacts. The
   screenshot run belongs on the engine that owns the member's worktree and session folder (the
   server cannot run it against a remote path); the server keeps only the tool and the run record.
+  Since PM-311 the browser directory is `EnginePaths.browsersDir` and the run is the
+  `EngineHost.screenshotExecutor` of the requesting session's engine (`contracts/engine.ts`).
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
   `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
@@ -1180,6 +1187,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
   next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
   server/engine boundary, and the managed worker's `confineTo` restriction stays.
+  Since PM-311 a session records its engine (`sessions.engine_id`, `Session.engineId`), the transcript
+  reader calls carry the optional `engineId`, and a conversation resumes only on the same engine (a
+  different one counts as `relocated`, like a changed execution profile).
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
   `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
@@ -1200,12 +1210,15 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
   as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
+  Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
+  card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
 - **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
   `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
   hosts or even every local worktree volume. **Remote engine:** report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
   storage; keep unavailable measurements distinct from low capacity.
+  Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`).
 - **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
@@ -1267,6 +1280,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   filesystem, PATH, user home and administrator/workspace configuration, including executable
   symlink resolution and installation grants. Only sanitized setting names and
   structured setup errors cross back to the server; host-side inspection is not a substitute.
+  Since PM-311 the paths the policy is built from are the session's engine's `EnginePaths`
+  (`userHome`, `home`, `worktreesRoot`, `workspacesRoot`, `installDir`, `gitExcludesFile`;
+  `contracts/engine.ts`).
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
@@ -1293,6 +1309,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent
   isolation and resource queuing there, and transport of the attributed verdict/cancellation.
   An unavailable executor must not become a passing verdict.
+  Since PM-311 the executor is the `EngineHost.fullTestExecutor` of the card's engine, with that
+  engine's `EnginePaths` (`userHome`, `home`, `claudeTmpRoots` and the `sessionTmpRoot` parent as `closedTmpRoots`).
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,

@@ -35,7 +35,10 @@ const IMAGE = /\.(?:png|jpe?g)$/i;
 export const SHOTS_DIRECTORY = 'shots';
 
 export interface ScreenshotRunsDeps {
-  executor: ScreenshotExecutor;
+  /** The executor of every session; `executorFor` takes precedence. */
+  executor?: ScreenshotExecutor;
+  /** The executor of the session's engine (PM-311); undefined: its engine has none. */
+  executorFor?: (sessionId: string) => ScreenshotExecutor | undefined;
   sessions: Pick<SessionOrchestrator, 'screenshotScope'>;
   logger: FastifyBaseLogger;
   /** Default: this machine's platform (the sandbox is macOS only). */
@@ -84,6 +87,10 @@ export class ScreenshotRuns {
     this.deps = deps;
   }
 
+  private executorOf(sessionId: string): ScreenshotExecutor | undefined {
+    return this.deps.executorFor ? this.deps.executorFor(sessionId) : this.deps.executor;
+  }
+
   /** Starts a run for the calling session and waits up to the poll time for its end. */
   async take(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {
     const platform = this.deps.platform ?? process.platform;
@@ -98,6 +105,8 @@ export class ScreenshotRuns {
         'forbidden',
         'Screenshots by the server are only for a session that works in a worktree and has a session folder of its own; yours has not.',
       );
+    if (!this.executorOf(ctx.sessionId))
+      throw new TeamToolError('forbidden', 'The engine this session runs on cannot take screenshots.');
     this.prune();
     const active = [...this.runs.values()].find(
       (run) => run.sessionId === ctx.sessionId && isActive(run.status),
@@ -179,7 +188,7 @@ export class ScreenshotRuns {
   private launch(ctx: ToolContext, run: Run, args: string[]): void {
     const scope = run.scope;
     const label = `shots ${ctx.taskKey ?? ctx.sessionId} ${ctx.member}`;
-    run.executing = this.deps.executor
+    run.executing = this.executorOf(ctx.sessionId)!
       .run(
         {
           runId: run.id,

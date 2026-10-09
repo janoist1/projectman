@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TaskDeveloperLevel } from './developer-level';
+import { EngineId } from './engine';
 import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { TaskHandoff, TaskHandoffRef } from './handoff';
@@ -104,7 +105,11 @@ export const TaskStartWaiting = z.object({
     // The card is being handed over to the member (PM-342): the start continues once the old assignee
     // (`member`) has handed over.
     'handoff_open',
+    // The session's engine is not connected (PM-311): the start continues once it is (`engine`).
+    'engine_offline',
   ]),
+  /** `engine_offline`: the engine the start waits for; absent: there is no default engine. */
+  engine: EngineId.optional(),
   /** `prerequisite_open`: the keys of the prerequisites still open. */
   prerequisites: z.array(TaskKey).optional(),
   /** `senior_busy`: the Seniors the card waits for; `waitDecidedBy` is who chose "wait on" after the question. */

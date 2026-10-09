@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EngineId } from './engine';
 import { SessionStop, SessionStartCause } from './involvement';
 import { AgentProvider, Approver, MemberHandle, SelectablePermissionMode } from './member';
 import { TaskKey } from './task';
@@ -156,6 +157,8 @@ export const Session = z.object({
    */
   lastStop: SessionStop.optional(),
   startCause: SessionStartCause.optional(),
+  /** The engine the session runs on (PM-311). Absent: `local`, a row from before engines. */
+  engineId: EngineId.optional(),
 });
 export type Session = z.infer<typeof Session>;
 

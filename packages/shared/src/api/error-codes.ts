@@ -177,6 +177,8 @@ export const ERROR_CODES = [
   'fix_limit_no_planner',
   // The server's full test of the pinned commit (PM-217) has not ended: the review start waits for it.
   'full_test_pending',
+  // The session's engine is not connected (PM-311): the start waits for it.
+  'engine_offline',
   // The assignee handoff (PM-342): the card is being handed over to the member, whose start waits for it;
   // the caller is not the member the card is being handed over from.
   'task_handoff_open',

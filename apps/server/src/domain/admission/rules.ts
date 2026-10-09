@@ -1,6 +1,7 @@
 import { isOnLeave, isWorkPaused, openPrerequisites, repoRequired } from '@projectman/shared';
 import type {
   AgentProvider,
+  EngineId,
   ErrorCode,
   MemberConfig,
   OpenPause,
@@ -118,6 +119,8 @@ const DEFERRABLE = new Set<ErrorCode>([
   'workspace_codex_config',
   // The card is being handed over to the member (PM-342): the start retries once the old assignee has handed over.
   'task_handoff_open',
+  // The session's engine is not connected (PM-311): the start continues once it is.
+  'engine_offline',
 ] satisfies (DeferrableReason | 'task_handoff_open')[]);
 
 /** `also`: the further refusals the start in question waits for. */
@@ -146,6 +149,8 @@ export function waitingOf(
         prerequisites?: string[];
         seniors?: string[];
         waitDecidedBy?: string;
+        /** `engine_offline`: the engine the start waits for; absent when there is no default engine. */
+        engine?: EngineId;
       }
     | undefined;
   if (err.code === 'task_handoff_open')
@@ -172,6 +177,7 @@ export function waitingOf(
     ].includes(err.code)
       ? { provider: details?.provider }
       : {}),
+    ...(err.code === 'engine_offline' && details?.engine ? { engine: details.engine } : {}),
     ...(err.code === 'prerequisite_open' ? { prerequisites: details?.prerequisites } : {}),
     ...(err.code === 'senior_busy'
       ? {

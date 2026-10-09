@@ -10,6 +10,7 @@ import {
   rmSync,
 } from 'node:fs';
 import path from 'node:path';
+import type { EngineSessionFolders } from '../contracts';
 
 /**
  * The session folders (PM-268): a Claude session's own writable directory for what its commands
@@ -151,7 +152,7 @@ export function prepareSessionTmpRoot(root: string): void {
  * one) still holds the old path in its sandbox; it can neither reach the new folder nor put
  * anything at the new path, which it never learns, and the old path is gone with its folder.
  */
-export class SessionFolders {
+export class SessionFolders implements EngineSessionFolders {
   private readonly folders = new Map<string, string>();
   private readonly tmps = new Map<string, string>();
   readonly root: string;

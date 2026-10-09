@@ -1,6 +1,13 @@
-import { ALERT_SEEN_OPTION, alertPayloadOf, effectiveRepo, isOpenTask, isTheme } from '@projectman/shared';
+import {
+  ALERT_SEEN_OPTION,
+  alertPayloadOf,
+  effectiveRepo,
+  isOpenTask,
+  isTheme,
+  LOCAL_ENGINE_ID,
+} from '@projectman/shared';
 import type { ProjectConfig, Task, WorktreeKeptAlert } from '@projectman/shared';
-import type { WorktreeManager } from '../contracts';
+import type { EngineDirectory, WorktreeManager } from '../contracts';
 import { ownerHandles } from './access';
 import type { DomainContext } from './context';
 import type { DiskGuard } from './disk-guard';
@@ -35,8 +42,10 @@ export class WorktreeSweep {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
-  private readonly sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'>;
-  private readonly worktrees: WorktreeManager;
+  private readonly sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'> &
+    Partial<Pick<SessionOrchestrator, 'cardEngineId'>>;
+  private readonly worktrees: WorktreeManager | undefined;
+  private readonly engines: EngineDirectory | undefined;
   private readonly disk: Pick<DiskGuard, 'free'>;
   private readonly keepMs: number;
 
@@ -44,8 +53,13 @@ export class WorktreeSweep {
     ctx: DomainContext;
     projects: ProjectService;
     inbox: InboxService;
-    sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'>;
-    worktrees: WorktreeManager;
+    /** `cardEngineId` names the engine a card's worktree is on (PM-311), with `engines`. */
+    sessions: Pick<SessionOrchestrator, 'list' | 'isRunning'> &
+      Partial<Pick<SessionOrchestrator, 'cardEngineId'>>;
+    /** The worktrees of the one machine, when there are no engines. */
+    worktrees?: WorktreeManager;
+    /** The engines (PM-311): a card's worktree is swept through the engine it is on. */
+    engines?: EngineDirectory;
     disk: Pick<DiskGuard, 'free'>;
     keepMs?: number;
   }) {
@@ -54,8 +68,16 @@ export class WorktreeSweep {
     this.inbox = deps.inbox;
     this.sessions = deps.sessions;
     this.worktrees = deps.worktrees;
+    this.engines = deps.engines;
     this.disk = deps.disk;
     this.keepMs = deps.keepMs ?? CLOSED_WORKTREE_KEEP_MS;
+  }
+
+  /** The worktrees of the card's engine; null: that engine is not connected (the card waits for the next sweep). */
+  private worktreesOf(task: Task): WorktreeManager | null {
+    if (!this.engines) return this.worktrees ?? null;
+    const engineId = this.sessions.cardEngineId?.(task.projectKey, task) ?? LOCAL_ENGINE_ID;
+    return this.engines.get(engineId)?.worktrees ?? null;
   }
 
   async run(): Promise<WorktreeSweepReport> {
@@ -101,18 +123,20 @@ export class WorktreeSweep {
     const repoName = effectiveRepo(config, task);
     if (!repoName) return;
     if (this.hasRunningSession(task)) return;
-    const found = await this.worktrees.find({ project: config, repoName, taskKey: task.key });
+    const worktrees = this.worktreesOf(task);
+    if (!worktrees) return;
+    const found = await worktrees.find({ project: config, repoName, taskKey: task.key });
     if (!found) return;
-    const status = await this.worktrees.status(found.path);
+    const status = await worktrees.status(found.path);
     // Looked at again right before the removal: the card may have been reopened meanwhile.
     const latest = this.ctx.repos.tasks.get(task.key);
     if (!latest || !this.due(latest) || this.hasRunningSession(latest)) return;
     if (status.dirty) {
       report.kept.push(task.key);
-      await this.tellOnce(config, task, found.path);
+      await this.tellOnce(config, task, found.path, worktrees);
       return;
     }
-    await this.worktrees.remove({ path: found.path });
+    await worktrees.remove({ path: found.path });
     report.removed.push(task.key);
   }
 
@@ -123,14 +147,19 @@ export class WorktreeSweep {
   }
 
   /** One alert per closing of the card: an earlier one (`createdAt` after `closedAt`) says it already. */
-  private async tellOnce(config: ProjectConfig, task: Task, path: string): Promise<void> {
+  private async tellOnce(
+    config: ProjectConfig,
+    task: Task,
+    path: string,
+    worktrees: WorktreeManager,
+  ): Promise<void> {
     const owners = ownerHandles(config);
     if (owners.length === 0) return;
     const told = this.inbox
       .list(task.projectKey, { kind: 'alert', taskKey: task.key })
       .some((item) => alertPayloadOf(item)?.alert === 'worktree_kept' && item.createdAt >= task.closedAt!);
     if (told) return;
-    const changes = (await this.worktrees.head(path))?.changes ?? 0;
+    const changes = (await worktrees.head(path))?.changes ?? 0;
     const payload: WorktreeKeptAlert = { alert: 'worktree_kept', taskKey: task.key, path, changes };
     this.inbox.create({
       projectKey: task.projectKey,

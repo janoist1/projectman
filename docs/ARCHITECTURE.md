@@ -933,7 +933,9 @@ workers follow the machine's size.
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
-  its SHA-256 hash and display prefix. Human cookies and integrator keys do not authenticate this
+  its SHA-256 hash and display prefix. Remote requests require HTTPS; forwarded protocol headers
+  are trusted only from a loopback reverse proxy. Plain sockets are restricted to local requests.
+  Human cookies and integrator keys do not authenticate this
   socket; machine keys grant no human API access. The method table is the sole RPC gateway,
   validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
   File export forwards `exactRoot` when the caller requires a root without symbolic links.

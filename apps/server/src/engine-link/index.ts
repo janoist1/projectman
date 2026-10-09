@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { EngineId } from '@projectman/shared';
 import { routes } from '@projectman/shared';
-import { clientAddress, createAttemptLimiter } from '../auth';
+import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../auth';
 import { DomainError } from '../domain';
 import type { EngineRegistry } from '../domain';
 import { createEngineRpc, createRpcState } from './rpc';
@@ -59,6 +59,8 @@ export function createEngineLinks(options: {
     now,
   });
   const authenticate = (request: FastifyRequest): EngineId => {
+    if (!(isLocalRequest(request) || requestProtocol(request) === 'https'))
+      throw new DomainError('unauthorized', 'Engine connections require HTTPS', { status: 401 });
     const ip = clientAddress(request, options.clientIpHeader);
     const release = attempts.reserve(ip);
     const key = request.headers.authorization?.match(/^Bearer (pme_[A-Za-z0-9_-]{43})$/)?.[1];

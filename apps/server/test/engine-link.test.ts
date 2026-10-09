@@ -3,6 +3,8 @@ import type { CreateEngineResponse, EngineView, ServerEvent } from '@projectman/
 import { routes } from '@projectman/shared';
 import { createAppHarness, setupOwner, createProject, addHumanAndLogin, inject } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
+import type { IncomingHttpHeaders } from 'node:http';
+import type { Socket as NetSocket } from 'node:net';
 import { machineKeyHash } from '../src/domain';
 import { decodeFrame, encodeFrame, ENGINE_MAX_FRAME_BYTES } from '../src/engine-link';
 import type { EngineFrame, Hello } from '../src/engine-link';
@@ -43,6 +45,10 @@ const hello: Hello = {
   bootId: 'aaaaaaaaaaaaaaaa',
 };
 const spyIntervals = () => vi.spyOn(globalThis, 'setInterval');
+const upgradeContext = (headers: IncomingHttpHeaders = {}, remoteAddress = '127.0.0.1') => ({
+  socket: { remoteAddress } as NetSocket,
+  headers: { host: 'localhost', ...headers },
+});
 describe('cloud engine registry and link', () => {
   let h: AppHarness;
   let cookie: string;
@@ -74,7 +80,7 @@ describe('cloud engine registry and link', () => {
     let closed: number | undefined;
     const ws = (await h.app.injectWS(
       routes.engineLink(),
-      { headers: { authorization: `Bearer ${key}` } },
+      upgradeContext({ authorization: `Bearer ${key}` }),
       {
         onInit: (raw) => {
           const socket = raw as unknown as Socket;
@@ -156,7 +162,7 @@ describe('cloud engine registry and link', () => {
       { authorization: 'Bearer pmi_fictional' },
       { authorization: 'Bearer pme_bad' },
     ]) {
-      await expect(h.app.injectWS(routes.engineLink(), { headers })).rejects.toThrow('401');
+      await expect(h.app.injectWS(routes.engineLink(), upgradeContext(headers))).rejects.toThrow('401');
     }
     expect(
       (
@@ -168,13 +174,36 @@ describe('cloud engine registry and link', () => {
     ).toBe(401);
     await inject(h.app, 'POST', routes.revokeEngine(engine.engine.id), cookie);
     await expect(
-      h.app.injectWS(routes.engineLink(), { headers: { authorization: `Bearer ${engine.key}` } }),
+      h.app.injectWS(routes.engineLink(), upgradeContext({ authorization: `Bearer ${engine.key}` })),
     ).rejects.toThrow('401');
   });
 
   it('limits invalid keys to ten attempts per IP per minute', async () => {
-    for (let i = 0; i < 10; i++) await expect(h.app.injectWS(routes.engineLink(), {})).rejects.toThrow('401');
-    await expect(h.app.injectWS(routes.engineLink(), {})).rejects.toThrow('429');
+    for (let i = 0; i < 10; i++)
+      await expect(h.app.injectWS(routes.engineLink(), upgradeContext())).rejects.toThrow('401');
+    await expect(h.app.injectWS(routes.engineLink(), upgradeContext())).rejects.toThrow('429');
+  });
+
+  it('requires HTTPS for remote engines and trusts protocol headers only from a loopback proxy', async () => {
+    const engine = await create();
+    const headers = { host: 'cloud.example', authorization: `Bearer ${engine.key}` };
+    const resolve = vi.spyOn(h.app.projectman.engineRegistry!, 'resolve');
+    await expect(h.app.injectWS(routes.engineLink(), upgradeContext(headers, '192.0.2.10'))).rejects.toThrow(
+      '401',
+    );
+    await expect(
+      h.app.injectWS(
+        routes.engineLink(),
+        upgradeContext({ ...headers, 'x-forwarded-proto': 'https' }, '192.0.2.10'),
+      ),
+    ).rejects.toThrow('401');
+    expect(resolve).not.toHaveBeenCalled();
+    const ws = await h.app.injectWS(
+      routes.engineLink(),
+      upgradeContext({ ...headers, 'x-forwarded-proto': 'https', 'x-forwarded-for': '192.0.2.10' }),
+    );
+    sockets.push(ws as unknown as Socket);
+    expect(resolve).toHaveBeenCalledWith(engine.key);
   });
 
   it('welcomes, replaces and immediately revokes connections', async () => {

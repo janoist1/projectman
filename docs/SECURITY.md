@@ -27,6 +27,14 @@ tenants into separate OS accounts or machines.
 
 ## Protection
 
+- Engine machine keys (PM-313) start with `pme_` and contain 32 random bytes.
+  The cloud stores only their SHA-256 hash and display prefix; the full key is
+  returned once at creation and never logged. A key authenticates only
+  `/engine/link`, grants no access to the human API, and can be revoked immediately.
+  Remote engine connections require HTTPS (`wss://`); plain WebSockets are allowed
+  only for requests classified as local. HTTPS termination is trusted only from
+  a loopback reverse proxy, using the same protocol check as integrator keys.
+
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in
   `PROJECTMAN_HOME/secrets/nanogpt.json`: directory 0700, file 0600, atomic replacement

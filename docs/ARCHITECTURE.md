@@ -1380,6 +1380,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
 
+- **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
+  `buildSessionEnv`), `runtime-boundary/launcher/daemon.ts` (`workerEnvironment`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
+  `EDITOR` and `VISUAL` set to `true`, so git (a rebase's message or todo list) never opens
+  Vim on a terminal nobody types into. The values override the service's environment and are
+  set for every provider; the managed VM launcher's worker environment (sessions and one-off
+  programs) takes the same constant. **Remote engine:** the engine builds the session
+  environment beside the CLI with the same function (or the same four variables).
+
 After this inventory reaches `main`, the architect must compare the PM-286 hybrid plan and
 its breakdown with it before PM-311 starts, including the related remote-work directions
 PM-310 and PM-331. PM-341 is PM-311's prerequisite; that planning review is separate from

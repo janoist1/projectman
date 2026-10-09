@@ -261,6 +261,10 @@ describe('the unit command line', () => {
       NO_PROXY: '127.0.0.1,localhost,::1',
       PROJECTMAN_SESSION_ID: 'ses_abc123',
       DISABLE_AUTOUPDATER: '1',
+      GIT_EDITOR: 'true',
+      GIT_SEQUENCE_EDITOR: 'true',
+      EDITOR: 'true',
+      VISUAL: 'true',
     });
     for (const name of Object.keys(env))
       expect(name).not.toMatch(/API_KEY|AUTH_TOKEN|BASE_URL|SSH_AUTH_SOCK/);

@@ -6,6 +6,7 @@ import type { Session, SessionState } from '../domain/session';
 import { isOpenTask } from '../domain/task';
 import type { Task } from '../domain/task';
 import { isOnLeave } from './leave';
+import { isProjectManager } from './project-manager';
 import { memberRoles, stageOf } from './lookup';
 import type { MemberConfig, ProjectConfig } from './schema';
 
@@ -110,6 +111,7 @@ export function hasCardRole(
 ): boolean {
   if (workedOn || task.assignee === handle) return true;
   const member = config.team.members.find((m) => m.handle === handle);
+  if (isProjectManager(member)) return true;
   if (member && memberDuties(config, member).some((duty) => CARD_REVIEWER_DUTIES.includes(duty))) return true;
   const stage = stageOf(config, task.stageId);
   return stage?.kind === 'step' && stageOwners(config, stage).includes(handle);

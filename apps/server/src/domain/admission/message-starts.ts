@@ -1,4 +1,4 @@
-import { isOpenTask, memberOf, quoteOf } from '@projectman/shared';
+import { isOpenTask, memberOf, quoteOf, sessionWorkItemOf } from '@projectman/shared';
 import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
@@ -58,6 +58,7 @@ export class MessageStarts {
    * takes the waiting messages, in full, in its first input.
    */
   async wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<void> {
+    await this.projects.config(projectKey);
     await this.admission.attempt(this.startFor(projectKey, handle, workItem));
   }
 
@@ -129,6 +130,8 @@ export class MessageStarts {
     workItem: WorkItemRef,
     stageId?: string,
   ): AutomaticStart {
+    const config = this.projects.cachedConfig(projectKey);
+    workItem = sessionWorkItemOf(config ? memberOf(config, handle) : undefined, workItem);
     const wi = encodeWorkItem(workItem);
     const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
     /** The task's stage when the wake-up was tried: a move makes a waiting wake-up obsolete. */

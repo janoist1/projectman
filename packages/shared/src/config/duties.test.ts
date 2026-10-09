@@ -178,6 +178,9 @@ describe('duty bundles', () => {
     expect(role('work', 'builder')).toBe(true);
     expect(role('work', 'dev2')).toBe(false);
     expect(role('work', 'dev2', false, null)).toBe(false);
+    // The project manager distributes every card through its general conversation.
+    expect(role('work', 'pm')).toBe(true);
+    expect(role('queue', 'pm')).toBe(true);
     // A reviewer, tester or designer has a role in any stage, a work stage included.
     for (const handle of ['lead', 'ux', 'sec', 'qa1']) {
       expect(role('work', handle)).toBe(true);

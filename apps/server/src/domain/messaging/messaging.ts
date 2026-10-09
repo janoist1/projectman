@@ -2,6 +2,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
+  isProjectManager,
   isRefining,
   isTheme,
   labelDefinition,
@@ -9,6 +10,7 @@ import {
   projectRefines,
   routeFor,
   sameWorkItem,
+  sessionWorkItemOf,
   quoteOf,
   stageHandsOverForReview,
   stageOf,
@@ -34,7 +36,7 @@ import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
-import { actorHandle, humanActor, newId, unique } from '../util';
+import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, wakeBlockFor, wakesFor } from './staleness';
@@ -77,6 +79,27 @@ export interface SendOptions {
  * Humans read theirs in the app. A message never goes to its own sender.
  */
 export class Messaging {
+  /** A card start mapped to the permanent channel still gives the manager its assignment. */
+  async projectManagerStart(
+    projectKey: string,
+    handle: string,
+    taskKey: string,
+    cause?: SessionStartCause,
+  ): Promise<void> {
+    const config = await this.projects.config(projectKey);
+    const task = this.tasks.get(projectKey, taskKey);
+    await this.send(
+      projectKey,
+      'system',
+      {
+        to: [handle],
+        taskKey,
+        text: `Work on ${task.key}: ${task.title}${startReason(config, cause ?? null)}. Read get_task task_key ${task.key} for the current requirements and act on this assignment.`,
+      },
+      { actor: SYSTEM_ACTOR, kind: 'action' },
+    );
+  }
+
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
@@ -453,6 +476,7 @@ export class Messaging {
     if (asker?.kind !== 'ai') return;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
+    const manager = Boolean(isProjectManager(asker));
     await this.send(
       item.projectKey,
       resolution.by,
@@ -463,7 +487,11 @@ export class Messaging {
       },
       {
         sessionId: item.sessionId,
-        workItem: session?.member === asker.handle ? session.workItem : routeFor(item.taskKey),
+        workItem: manager
+          ? { type: 'general' }
+          : session?.member === asker.handle
+            ? session.workItem
+            : routeFor(item.taskKey),
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
         actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
@@ -491,6 +519,7 @@ export class Messaging {
     workItem: WorkItemRef,
     ownCard = false,
   ): { workItem: WorkItemRef; running: Session | null } {
+    workItem = sessionWorkItemOf(memberOf(config, handle), workItem);
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };
     // Meant for the work on this card (an analyst check): not for the member's session on a family card.
@@ -521,6 +550,7 @@ export class Messaging {
     handle: string,
     opts: SendOptions,
   ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | null {
+    if (isProjectManager(memberOf(config, handle))) return null;
     if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
@@ -574,7 +604,7 @@ export class Messaging {
    */
   async releaseWaiting(projectKey: string, taskKey: string, handle: string): Promise<void> {
     const config = await this.projects.config(projectKey);
-    const workItem = routeFor(taskKey);
+    const workItem = sessionWorkItemOf(memberOf(config, handle), routeFor(taskKey));
     const waiting = this.messages.waiting(projectKey, handle, workItem);
     const running = this.sessions.findRunning(projectKey, handle, workItem);
     for (const message of waiting) this.deliverOrWake(config, projectKey, handle, workItem, running, message);
@@ -606,6 +636,7 @@ export class Messaging {
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task) return false;
     const config = await this.projects.config(session.projectKey);
+    if (isProjectManager(memberOf(config, session.member))) return false;
     return (
       this.heldForHandoff(task, session.member) ||
       this.heldForTurn(config, task, session.member, {}) ||

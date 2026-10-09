@@ -5,6 +5,7 @@
  * per-session token.
  */
 export const routes = {
+  projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,

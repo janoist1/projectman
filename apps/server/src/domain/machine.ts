@@ -723,12 +723,15 @@ export class MachineMonitor {
     const targets = orphan.members.filter((member) => member.uid === this.serverUid);
     let rootDenied = false;
     // The pid and start time are compared again right before a signal: a pid may be reused.
-    const signalAll = (signal: 'SIGTERM' | 'SIGKILL', current: Map<number, ProcessRecord>): void => {
+    const signalAll = async (
+      signal: 'SIGTERM' | 'SIGKILL',
+      current: Map<number, ProcessRecord>,
+    ): Promise<void> => {
       for (const target of targets) {
         const now = current.get(target.pid);
         if (!now || now.startedAt !== target.startedAt || target.pid <= 1 || target.pid === this.serverPid)
           continue;
-        if (probe.signal(target.pid, signal) === 'denied' && target.pid === orphan.root.pid)
+        if ((await probe.signal(target.pid, signal)) === 'denied' && target.pid === orphan.root.pid)
           rootDenied = true;
       }
     };
@@ -740,7 +743,7 @@ export class MachineMonitor {
     // The list the orphan was recognised in is older than the environment reads: look again.
     let latest: ProcessRecord[] | null = await probe.processes();
     if (!latest) return 'failed';
-    signalAll('SIGTERM', new Map(latest.map((record) => [record.pid, record])));
+    await signalAll('SIGTERM', new Map(latest.map((record) => [record.pid, record])));
     for (let waited = 0; waited < STOP_TERM_WAIT_MS; waited += STOP_POLL_MS) {
       await this.sleep(STOP_POLL_MS);
       latest = await probe.processes();
@@ -748,7 +751,7 @@ export class MachineMonitor {
       if (alive(latest).length === 0) break;
     }
     if (latest && alive(latest).length > 0) {
-      signalAll('SIGKILL', new Map(latest.map((record) => [record.pid, record])));
+      await signalAll('SIGKILL', new Map(latest.map((record) => [record.pid, record])));
       await this.sleep(STOP_KILL_WAIT_MS);
       latest = await probe.processes();
       if (!latest) return 'failed';

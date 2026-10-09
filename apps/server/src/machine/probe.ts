@@ -205,14 +205,14 @@ export function createMachineProbe(system: ProbeSystem = realSystem()): MachineP
       return result;
     },
 
-    signal(pid, signal): 'sent' | 'gone' | 'denied' {
+    signal(pid, signal) {
       // Never a group or a broadcast (kill(-1), kill(0)), and never init.
-      if (!Number.isInteger(pid) || pid <= 1) return 'denied';
+      if (!Number.isInteger(pid) || pid <= 1) return Promise.resolve('denied');
       try {
         system.kill(pid, signal);
-        return 'sent';
+        return Promise.resolve('sent');
       } catch (error) {
-        return (error as NodeJS.ErrnoException).code === 'ESRCH' ? 'gone' : 'denied';
+        return Promise.resolve((error as NodeJS.ErrnoException).code === 'ESRCH' ? 'gone' : 'denied');
       }
     },
   };

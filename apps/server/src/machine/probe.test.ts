@@ -201,22 +201,23 @@ describe('signals', () => {
   it('maps the outcome of kill', async () => {
     const kill = vi.fn();
     const probe = createMachineProbe(system({ kill }));
-    expect(probe.signal(4321, 'SIGTERM')).toBe('sent');
+    await expect(probe.signal(4321, 'SIGTERM')).resolves.toBe('sent');
     expect(kill).toHaveBeenCalledWith(4321, 'SIGTERM');
     kill.mockImplementation(() => {
       throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
     });
-    expect(probe.signal(4321, 'SIGKILL')).toBe('gone');
+    await expect(probe.signal(4321, 'SIGKILL')).resolves.toBe('gone');
     kill.mockImplementation(() => {
       throw Object.assign(new Error('not permitted'), { code: 'EPERM' });
     });
-    expect(probe.signal(4321, 'SIGKILL')).toBe('denied');
+    await expect(probe.signal(4321, 'SIGKILL')).resolves.toBe('denied');
   });
 
-  it('never signals init, a group or a broadcast', () => {
+  it('never signals init, a group or a broadcast', async () => {
     const kill = vi.fn();
     const probe = createMachineProbe(system({ kill }));
-    for (const pid of [1, 0, -1, -4321, 1.5, Number.NaN]) expect(probe.signal(pid, 'SIGTERM')).toBe('denied');
+    for (const pid of [1, 0, -1, -4321, 1.5, Number.NaN])
+      await expect(probe.signal(pid, 'SIGTERM')).resolves.toBe('denied');
     expect(kill).not.toHaveBeenCalled();
   });
 });

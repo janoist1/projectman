@@ -178,9 +178,9 @@ export function createFixtureProbe(fixture: MachineFixture, options: FixtureProb
     /** Never a real signal: the orphan the pid belongs to leaves the list. */
     signal(pid) {
       const group = orphanGroups.find((g) => g.records.some((r) => r.pid === pid));
-      if (!group || removed.has(group.records[0]!.pid)) return 'gone';
+      if (!group || removed.has(group.records[0]!.pid)) return Promise.resolve('gone');
       removed.add(group.records[0]!.pid);
-      return 'sent';
+      return Promise.resolve('sent');
     },
   };
 }

@@ -60,9 +60,16 @@ tenants into separate OS accounts or machines.
     owner). A local request needs no code, and a single-machine installation is unchanged
     (`setup_requires_localhost`). A missing code is not a try. The log is read through the host's
     own access, so whoever reads it is the host's owner. The deployment ([HYBRID.md](HYBRID.md))
-    gives each process in the container only its own secrets, runs as an unprivileged user without
-    new privileges, and keeps the database replica and the restic repository in separate
-    buckets with separate keys; the replica is not encrypted by Litestream.
+    starts each process in a cleared environment with only its own variables, runs as an
+    unprivileged user without new privileges, and keeps the database replica and the restic
+    repository in separate buckets with separate keys; the replica is not encrypted by Litestream
+    (the database holds only hashes; protect it with the bucket's encryption and a bucket-scoped
+    key). Residual risk: the processes share one uid, so the environment filter does not protect
+    against a compromised server, which could read the tunnel token, storage keys and restic
+    password from `/proc/<pid>/environ` of the other processes and delete or read the backups.
+    The Access application of the engine covers the path `/engine` (the link and the file
+    transfers) with the engine's own service token only; that token is never put on the
+    whole-hostname application, which would reach `/api`.
 
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in

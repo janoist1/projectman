@@ -54,7 +54,7 @@ describe('deploy/cloud shell scripts', () => {
     expect(entrypoint).toContain('RUN_UID=10001');
   });
 
-  it('the server never gets the tunnel token, the storage keys or the restic password', () => {
+  it('the server environment holds no tunnel token, storage key or restic password (an environment filter only)', () => {
     const allowlist = entrypoint.split('\n').filter((line) => line.startsWith('load_env server_env'));
     expect(allowlist).toHaveLength(1);
     expect(allowlist[0]).not.toMatch(/TUNNEL|LITESTREAM|RESTIC|AWS/);
@@ -121,7 +121,24 @@ describe('deploy/cloud image', () => {
       expect(dockerfile).toContain(`deploy/cloud/${name}`);
     }
     const ignored = read('.dockerignore').split('\n');
-    expect(ignored).toEqual(expect.arrayContaining(['.git', '**/node_modules', '.env']));
+    expect(ignored).toEqual(expect.arrayContaining(['.git', '**/node_modules', '**/.env', '**/.env.*']));
+  });
+
+  it('the engine Access application covers the whole /engine path, and the smoke test checks the file routes', () => {
+    // The engine calls /engine/link and /engine/files/{uploads,downloads}/:token with one token.
+    expect(guide).toContain('projectman.example.com/engine`');
+    expect(guide).not.toContain('projectman.example.com/engine/link');
+    const smoke = read('deploy/cloud/smoke.sh');
+    for (const path of ['/engine/link', '/engine/files/downloads/', '/engine/files/uploads/']) {
+      expect(smoke, path).toContain(path);
+    }
+  });
+
+  it('does not claim the processes are isolated from a compromised server', () => {
+    for (const text of [guide, entrypoint, read('docs/SECURITY.md'), read('docs/ARCHITECTURE.md')]) {
+      expect(text).not.toMatch(/server never sees the tunnel token/i);
+    }
+    expect(guide).toMatch(/does not protect against a compromised server/);
   });
 });
 

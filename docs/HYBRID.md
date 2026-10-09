@@ -46,8 +46,15 @@ docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev
   `127.0.0.1:4700` only.
 - **Processes:** the server, Litestream, `cloudflared` (started once the server answers) and a restic
   loop. If one exits, the container stops the others and exits, and the host restarts it. Each
-  process gets only its own secrets: the server never sees the tunnel token, the storage keys or
-  the restic password.
+  process is started in a cleared environment (`env -i`) with only its own variables, so the
+  server's environment holds no tunnel token, storage key or restic password. **This filters the
+  environment only; it does not protect against a compromised server.** All processes run as the
+  same user (uid 10001), so a server with a code-execution hole can read
+  `/proc/<pid>/environ` of the tunnel, Litestream and restic processes, and so reach the tunnel
+  token, the storage keys and the restic password, and could delete or read the backups. Real
+  separation would need the server under its own uid; that is not done. Limit the damage with
+  the bucket-scoped keys (no access to other buckets), a bucket with versioning or object lock
+  where the provider has it, and a restore rehearsal now and then.
 - **Data:** `PROJECTMAN_HOME=/data`, the volume.
 
 ### Settings
@@ -128,9 +135,12 @@ ingress is set in the Cloudflare dashboard, not in a config file as in the PM-20
    - **Browsers and the integrator:** the whole hostname; policy **Allow** for the owner's and the
      members' exact email addresses (and, for the integrator, a **Service Auth** policy for its own
      service token).
-   - **The engine:** a second application for the path `projectman.example.com/engine/link`, with
-     **one Service Auth policy** for the engine's own service token (Access → Service Auth →
-     Service Tokens → create). Nothing else may be allowed on that path. Access picks the most
+   - **The engine:** a second application for the path `projectman.example.com/engine` (it covers
+     every `/engine/*` path: `/engine/link` and the file transfers `/engine/files/uploads/…` and
+     `/engine/files/downloads/…`, which the engine calls with the same headers), with **one
+     Service Auth policy** for the engine's own service token (Access → Service Auth → Service
+     Tokens → create). Nothing else may be allowed on that path, and the engine's token must not
+     be added to the whole-hostname application: it would reach `/api` too. Access picks the most
      specific application for a path.
 4. Cloudflare sets the real client address in `cf-connecting-ip`; the image sets
    `PROJECTMAN_CLIENT_IP_HEADER=cf-connecting-ip`, which the server trusts only from the tunnel's
@@ -182,7 +192,7 @@ CF_ACCESS_CLIENT_ID=… CF_ACCESS_CLIENT_SECRET=… deploy/cloud/smoke.sh https:
 ```
 
 It checks that `/api/setup` answers projectman's JSON through the tunnel and that `/engine/link`
-refuses a caller without a machine key. Without the service token variables it shows what an
+and the engine file routes (`/engine/files/…`) refuse a caller without a machine key. Without the service token variables it shows what an
 anonymous caller meets (an Access login page is the right result then, and the first check fails).
 
 ## Backup and restore

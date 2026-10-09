@@ -38,13 +38,17 @@ else
   echo "ok: /api/setup answers: $json"
 fi
 
-# The engine link must refuse a caller without a machine key (never a 2xx).
-link_code="$(curl -sS --max-time 15 ${headers[@]+"${headers[@]}"} -o /dev/null -w '%{http_code}' "$base/engine/link" || true)"
-case "$link_code" in
-  2??) fail "/engine/link answered $link_code without a machine key" ;;
-  000) fail "/engine/link is not reachable" ;;
-  *) echo "ok: /engine/link refuses an anonymous caller ($link_code)" ;;
-esac
+# The engine door (the link and the file transfers, all under /engine) must refuse a caller without a
+# machine key (never a 2xx). The service token passes Access on the /engine application only when
+# that application covers the whole /engine path.
+for door in /engine/link /engine/files/downloads/smoke-test /engine/files/uploads/smoke-test; do
+  door_code="$(curl -sS --max-time 15 ${headers[@]+"${headers[@]}"} -o /dev/null -w '%{http_code}' "$base$door" || true)"
+  case "$door_code" in
+    2??) fail "$door answered $door_code without a machine key" ;;
+    000) fail "$door is not reachable" ;;
+    *) echo "ok: $door refuses an anonymous caller ($door_code)" ;;
+  esac
+done
 
 if [ "$failures" -gt 0 ]; then
   echo "$failures check(s) failed" >&2

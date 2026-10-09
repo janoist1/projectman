@@ -1068,8 +1068,9 @@ workers follow the machine's size.
   unprivileged user (the entrypoint starts as root only to hand the mounted volume over, then drops
   with `setpriv --no-new-privs`). Its processes: the server (`HOST=127.0.0.1`), Litestream
   (`replicate`), `cloudflared` (token-managed tunnel, outbound only) and a restic loop; each runs in
-  a cleared environment with only its own variables, so the server never sees the tunnel token, the
-  storage keys or the restic password. `PROJECTMAN_HOME` is the platform volume (`/data`): the
+  a cleared environment with only its own variables, so the server's environment holds no tunnel
+  token, storage key or restic password (an environment filter only: one uid, so `/proc/<pid>/environ`
+  of the others stays readable to a compromised server). `PROJECTMAN_HOME` is the platform volume (`/data`): the
   database is replicated by Litestream (continuously, S3-compatible storage) and the rest of the
   home (`secret`, `secrets/`, `customization/` with `.git`, `attachments/`, memory, `instance.json`)
   by restic into a separate encrypted repository (its password is not the storage key). A fresh

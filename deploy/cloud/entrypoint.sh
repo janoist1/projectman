@@ -7,8 +7,11 @@
 #                            start a standby copy on the loopback, with no tunnel and no replication;
 #                            proves a restore works without touching the production replica
 #
-# Every process gets only the secrets it needs: the server never sees the tunnel token, the storage
-# keys or the restic password. A process exiting stops the rest, and the platform restarts the container.
+# Every process is started in a cleared environment (env -i) with only the variables it needs, so the
+# server's environment holds no tunnel token, storage key or restic password. That filters the
+# environment only: all processes share one uid, so a compromised server could still read the others'
+# /proc/<pid>/environ (docs/HYBRID.md, "Processes"). A process exiting stops the rest, and the platform
+# restarts the container.
 set -euo pipefail
 
 APP_DIR=/app

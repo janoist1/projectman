@@ -123,8 +123,12 @@ describe('cloud mode remote parts', () => {
     rmSync(spool, { recursive: true, force: true });
   });
 
-  const online = async (id = 'eng_a', hello: Parameters<typeof helloOf>[0] = {}): Promise<FakeEngine> => {
-    const engine = cloud.connect(id as never, { hello });
+  const online = async (
+    id = 'eng_a',
+    hello: Parameters<typeof helloOf>[0] = {},
+    prepare?: (engine: FakeEngine) => void,
+  ): Promise<FakeEngine> => {
+    const engine = cloud.connect(id as never, { hello, ...(prepare ? { prepare } : {}) });
     // The connect hooks run before the engine counts as connected.
     await vi.waitFor(() => expect(remote.hub.mirror(id as never).connected).toBe(true));
     await vi.waitFor(() => expect(domain.reconciled.some((entry) => entry.engine === id)).toBe(true));
@@ -227,7 +231,15 @@ describe('cloud mode remote parts', () => {
       await remote.runner.start(spec());
       // After a cloud restart the database is all the cloud knows of who runs what.
       sessionEngines.set('s2', 'eng_a');
-      const b = await online('eng_b', { running: [running('s1'), running('s2')] });
+      const b = await online('eng_b', { running: [running('s1'), running('s2')] }, (engine) =>
+        engine.answer('session.stop', () => null),
+      );
+      // It is stopped on the engine that reported it, and is not in that engine's mirror.
+      await vi.waitFor(() =>
+        expect(b.requests.filter((item) => item.method === 'session.stop')).toHaveLength(2),
+      );
+      expect(a.requests.some((item) => item.method === 'session.stop')).toBe(false);
+      expect(remote.hub.mirror('eng_b').running.size).toBe(0);
       expect(remote.runner.engineOf('s1')).toBe('eng_a');
       expect(remote.runner.engineOf('s2')).toBe('eng_a');
       expect(remote.runner.list().map((item) => item.sessionId)).toEqual(['s1']);

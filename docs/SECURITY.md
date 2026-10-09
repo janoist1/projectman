@@ -35,6 +35,25 @@ tenants into separate OS accounts or machines.
   only for requests classified as local. HTTPS termination is trusted only from
   a loopback reverse proxy, using the same protocol check as integrator keys.
 
+- Cloud mode (`PROJECTMAN_MODE=cloud`, PM-315) adds three surfaces for the engine, and an
+  engine is trusted only with its own sessions:
+  - `GET /engine/files/downloads/:token` and `POST /engine/files/uploads/:token` need the
+    machine key, a local request or HTTPS (the same check as `/engine/link`, with the IP limit),
+    and a 256-bit token issued for that engine alone. A token lives 5 minutes and works once; an
+    expired, used or foreign token answers 404. Uploads are written with `wx` to a 0600 file in a
+    0700 spool and stop at the size limit of their purpose; a download reads only the path the
+    cloud stored and checks the size. A file name from the engine is sanitized before it is stored.
+  - `mcp.relay` runs a team-tool request only when the session behind the token runs on the
+    engine that sent it (the `engine_id` in the database); otherwise the answer is 404. The
+    request goes through `app.inject` on the loopback `/mcp/:token` route, so the `/mcp` rules are
+    unchanged. A resent request id gets the cached answer (memory only, per engine).
+  - `secret.nanogpt_key` gives the key only to a NanoGPT member session that this engine is
+    starting right now (`session.start` sent, `started` not yet seen), once, never from a cache
+    and never to the log. Any other request is `secret_not_allowed`.
+  - The `hello` of an engine is its own word and nothing more: a session that the database
+    records on another engine is not taken over (no owner change, no mirror entry, no events or
+    permission decisions accepted from the reporter), and the reporter is told to stop it.
+
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in
   `PROJECTMAN_HOME/secrets/nanogpt.json`: directory 0700, file 0600, atomic replacement

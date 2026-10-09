@@ -90,7 +90,10 @@ export interface FakeCloud {
     add(id: EngineId): void;
   };
   /** Connects an engine; its `hello` is what the cloud mirrors. */
-  connect(id: EngineId, options?: { hello?: Partial<Hello>; resumed?: boolean }): FakeEngine;
+  connect(
+    id: EngineId,
+    options?: { hello?: Partial<Hello>; resumed?: boolean; prepare?: (engine: FakeEngine) => void },
+  ): FakeEngine;
 }
 
 /** `x-engine: <id>` stands for the machine key of the file endpoints. */
@@ -173,8 +176,7 @@ export function createFakeCloud(): FakeCloud {
       };
       let seq = hello.nextSeq;
       active.set(id, link);
-      for (const listener of [...changeListeners]) listener(id, true);
-      return {
+      const engine: FakeEngine = {
         id,
         requests,
         callIds,
@@ -199,6 +201,10 @@ export function createFakeCloud(): FakeCloud {
           for (const listener of [...changeListeners]) listener(id, false);
         },
       };
+      // What the cloud asks as soon as it sees the link (the connect steps) needs an answer before it.
+      options.prepare?.(engine);
+      for (const listener of [...changeListeners]) listener(id, true);
+      return engine;
     },
   };
 }

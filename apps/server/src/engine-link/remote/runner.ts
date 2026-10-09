@@ -112,6 +112,14 @@ export function createRemoteRunner(options: RemoteRunnerOptions): RemoteRunner {
       const owner = owners.get(info.sessionId) ?? options.recordedEngine(info.sessionId);
       if (owner && owner !== id) {
         logger.warn({ engineId: id, ownerId: owner }, 'an engine reported a session of another engine');
+        // Not in this engine's mirror either (`list`, `processExists`, the folder sweep), and stopped on the
+        // engine that reported it: `stop` goes to the recorded owner, which is the real one.
+        hub.mirror(id).running.delete(info.sessionId);
+        void hub
+          .call(id, 'session.stop', { sessionId: info.sessionId, force: true })
+          .catch((err: unknown) =>
+            logger.warn({ err, engineId: id }, 'the session of another engine was not stopped'),
+          );
         continue;
       }
       owners.set(info.sessionId, id);

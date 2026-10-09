@@ -1,16 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { EngineId as EngineIdSchema, LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { EngineId, MemberHandle, Session } from '@projectman/shared';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/db';
-import type { EngineDirectory, EngineHost } from '../src/contracts';
+import type { EngineDirectory, EngineHost, ScreenshotExecutor, ScreenshotRunSpec } from '../src/contracts';
 import { createLocalEngine, engineIdOf, engineOption, LocalEngineDirectory } from '../src/domain/engines';
+import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { capturingLogger, FakeWorktreeManager } from './helpers/fakes';
+import { capturingLogger, FakeWorktreeManager, settle } from './helpers/fakes';
 
 /**
  * PM-311: the engine, the machine a session runs on. One engine (`local`) changes nothing; a second
@@ -164,13 +165,16 @@ describe('sessions on engines', () => {
   const worktreesOf: Record<string, FakeWorktreeManager> = {};
   const logger = capturingLogger().logger;
 
+  /** An engine that does not hold the project: its working directory is null. */
+  const without = new Set<EngineId>();
+
   function host(id: EngineId, workspace: string): EngineHost {
     const worktrees = new FakeWorktreeManager(join(root, id, 'worktrees'));
     worktreesOf[id] = worktrees;
     const engine = createLocalEngine(
       {
         worktrees,
-        workspacePath: () => workspace,
+        workspacePath: () => (without.has(id) ? null : workspace),
         freeDiskBytes: async () => free[id] ?? null,
         worktreesRootDir: join(root, id, 'worktrees'),
       },
@@ -182,6 +186,7 @@ describe('sessions on engines', () => {
   beforeEach(async () => {
     root = mkdtempSync(join(tmpdir(), 'pm-engines-'));
     free = {};
+    without.clear();
     engines = new TestEngines();
     const localWorkspace = join(root, 'local-workspace');
     const remoteWorkspace = join(root, 'remote-workspace');
@@ -314,6 +319,55 @@ describe('sessions on engines', () => {
       expect(err?.details?.engine).toBeUndefined();
       expect(h.runner.started).toEqual([]);
     });
+
+    it("refuses a start on an engine that does not hold the project, never on the server's own path", async () => {
+      engines.placement.set('dev-1', REMOTE);
+      without.add(REMOTE);
+
+      await expect(startCard()).rejects.toMatchObject({
+        code: 'engine_offline',
+        status: 409,
+        details: { engine: REMOTE },
+      });
+      expect(h.runner.started).toEqual([]);
+    });
+
+    it('keeps an automatic start waiting, shows why, and starts it when the engine connects', async () => {
+      engines.placement.set('cr', REMOTE);
+      engines.setOnline(REMOTE, false);
+      await startCard();
+      expect(h.runner.started).toHaveLength(1);
+
+      // Moving the card to review starts the reviewer; its engine is not there.
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await settle();
+      expect(h.runner.started).toHaveLength(1);
+      expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toMatchObject({
+        reason: 'engine_offline',
+        engine: REMOTE,
+        member: 'cr',
+      });
+
+      // The engine connects: the start goes on without anyone asking again.
+      engines.setOnline(REMOTE, true);
+      await waitFor(() => (h.runner.started.length === 2 ? true : undefined), {
+        what: 'the reviewer starts on the engine that connected',
+      });
+      expect(h.runner.lastStarted()).toMatchObject({ engineId: REMOTE });
+      expect(h.domain.tasks.get('AR', 'AR-1').startWaiting).toBeUndefined();
+    });
+
+    it('shows no engine in the waiting of a member who has none chosen', async () => {
+      engines.placement.set('cr', null);
+      await startCard();
+
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+      await settle();
+
+      const waiting = h.domain.tasks.get('AR', 'AR-1').startWaiting;
+      expect(waiting).toMatchObject({ reason: 'engine_offline', member: 'cr' });
+      expect(waiting?.engine).toBeUndefined();
+    });
   });
 
   describe('free disk space of the engine', () => {
@@ -334,5 +388,120 @@ describe('sessions on engines', () => {
       ).rejects.toMatchObject({ code: 'disk_low', status: 409 });
       expect(h.runner.started).toHaveLength(1);
     });
+  });
+});
+
+describe("the places of the session's engine", () => {
+  let h: DomainHarness;
+  let root: string;
+  const task = { type: 'task', taskKey: 'AR-1' } as const;
+
+  /** A screenshot executor that records the runs it is given and ends them at once. */
+  const executor = () => {
+    const specs: ScreenshotRunSpec[] = [];
+    const run: ScreenshotExecutor = {
+      run: async (spec, _signal, started) => {
+        specs.push(spec);
+        started();
+        return { exitCode: 0, timedOut: false, aborted: false, output: 'done' };
+      },
+    };
+    return { run, specs };
+  };
+
+  beforeEach(() => {
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'pm-engine-places-')));
+  });
+  afterEach(async () => {
+    await h.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it("are the remote engine's: session folders, temporary root, queue folder and the screenshot executor", async () => {
+    const logger = capturingLogger().logger;
+    const remote = join(root, 'remote');
+    const local = executor();
+    const far = executor();
+    const folders = join(remote, 'folders');
+    const tmpRoot = join(remote, 'projectman-501-tmp', '0123abcd');
+    const heavy = join(remote, 'projectman-501', 'heavy');
+    const workspaces: Record<string, string> = {
+      [LOCAL_ENGINE_ID]: join(root, 'local-workspace'),
+      [REMOTE]: join(remote, 'workspace'),
+    };
+    for (const dir of Object.values(workspaces)) mkdirSync(dir, { recursive: true });
+    const engines = new TestEngines();
+    engines.add({
+      ...createLocalEngine(
+        {
+          worktrees: new FakeWorktreeManager(join(root, 'local-worktrees')),
+          workspacePath: () => workspaces[LOCAL_ENGINE_ID]!,
+          screenshotExecutor: local.run,
+          userHome: join(root, 'local-user'),
+          claudeTmpRoots: ['/tmp/claude-local'],
+        },
+        logger,
+      ),
+      id: LOCAL_ENGINE_ID,
+    });
+    engines.add({
+      ...createLocalEngine(
+        {
+          worktrees: new FakeWorktreeManager(join(remote, 'worktrees')),
+          workspacePath: () => workspaces[REMOTE]!,
+          screenshotExecutor: far.run,
+          userHome: join(remote, 'user'),
+          appHome: join(remote, 'home'),
+          worktreesRootDir: join(remote, 'worktrees'),
+          sessionFoldersDir: folders,
+          sessionTmpDir: tmpRoot,
+          heavyLockDir: heavy,
+          claudeTmpRoots: ['/tmp/claude-remote'],
+        },
+        logger,
+      ),
+      id: REMOTE,
+    });
+    engines.placement.set('dev-1', REMOTE);
+    h = await createDomainHarness({
+      engines,
+      adjust: (config) => {
+        const dev = config.team.members.find((m) => m.handle === 'dev-1');
+        if (dev?.kind === 'ai') {
+          dev.provider = 'codex';
+          dev.permissionMode = 'acceptEdits';
+        }
+      },
+    });
+    await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
+
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', task);
+
+    const spec = h.runner.lastStarted();
+    const { env, tmpDir, allowWrite } = spec.sandbox!.portable!;
+    const folder = env.PROJECTMAN_SESSION_DIR!;
+    expect(folder.startsWith(`${folders}/`)).toBe(true);
+    expect(existsSync(folder)).toBe(true);
+    expect(tmpDir!.startsWith(`${tmpRoot}/`)).toBe(true);
+    expect(allowWrite).toContain(join(remote, 'projectman-501'));
+    // The session works in the remote engine's worktree, and the remote engine's home is its own.
+    expect(spec.cwd.startsWith(join(remote, 'worktrees'))).toBe(true);
+    expect(JSON.stringify(spec.sandbox)).toContain(join(remote, 'home'));
+    expect(JSON.stringify(spec.sandbox)).not.toContain('local-user');
+
+    // The screenshot run goes to the executor of the session's engine.
+    if (process.platform === 'darwin') {
+      mkdirSync(join(session.cwd, 'shots'), { recursive: true });
+      writeFileSync(join(session.cwd, 'shots', 'login.mjs'), 'export default {};');
+      const ctx = { sessionId: session.id, projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1' };
+      await h.domain.teamTools.takeScreenshots(ctx, { scenario: 'shots/login.mjs', widths: [390] });
+      await vi.waitFor(() => expect(far.specs).toHaveLength(1));
+      expect(local.specs).toEqual([]);
+      expect(far.specs[0]).toMatchObject({ cwd: session.cwd, sessionDir: folder });
+    }
+
+    // The folder is removed from the engine that holds it when the session ends.
+    await h.runner.stop(session.id);
+    expect(existsSync(folder)).toBe(false);
   });
 });

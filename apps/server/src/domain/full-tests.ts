@@ -36,16 +36,18 @@ export function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): R
  * The shared git directory the checkout's commits live in: the `.git` directory of the configured
  * repository (the checkout is a linked worktree of it). It comes from the project's configuration and
  * not from the checkout's own `.git` file, which the developer can write. Undefined when the
- * repository has no such directory.
+ * repository has no such directory. `workspacePath` is the project's working directory on the engine
+ * that runs the test (PM-311); by default the configured one.
  */
 export async function repoGitDir(
   config: ProjectConfig,
   task: Pick<Task, 'repo'>,
+  workspacePath: string = config.project.workspacePath,
 ): Promise<string | undefined> {
   const repo = repoOf(config, effectiveRepo(config, task));
   if (!repo) return undefined;
   try {
-    const gitDir = await realpath(path.join(path.resolve(config.project.workspacePath, repo.path), '.git'));
+    const gitDir = await realpath(path.join(path.resolve(workspacePath, repo.path), '.git'));
     return (await stat(gitDir)).isDirectory() ? gitDir : undefined;
   } catch {
     return undefined;
@@ -323,7 +325,9 @@ export class FullTestRuns {
     // The card's engine runs it, with its places (PM-311).
     const engine = this.engines.get(this.sessions.cardEngineId(projectKey, task));
     const executor = engine?.fullTestExecutor;
-    if (!engine || !executor)
+    // The engine's working directory of the project; null: the engine does not hold the project.
+    const workspace = engine?.workspacePath(projectKey);
+    if (!engine || !executor || !workspace)
       return this.end(
         run,
         task,
@@ -347,7 +351,7 @@ export class FullTestRuns {
           timeoutMs: reviewTest.timeoutMinutes * 60_000,
           sandbox: fullTestSandbox({
             checkout: head.path,
-            gitDir: await repoGitDir(config, task),
+            gitDir: await repoGitDir(config, task, workspace),
             userHome: paths.userHome,
             appHome: paths.home ?? undefined,
             closedTmpRoots: [

@@ -485,9 +485,13 @@ export class SessionOrchestrator {
       .filter((w): w is MemberWorkspaces => w !== null);
   }
 
-  /** The member workspaces of the engine a session ran or runs on. */
+  /**
+   * The member workspaces of the engine a session ran or runs on. While the engine is not connected
+   * the set it had is used, so a session's end still releases its reservation.
+   */
   private workspacesOfSession(session: Session): MemberWorkspaces | null {
-    return this.workspacesOf(engineIdOf(session));
+    const engineId = engineIdOf(session);
+    return this.workspacesOf(engineId) ?? this.workspaceSets.get(engineId)?.workspaces ?? null;
   }
 
   /**
@@ -1534,7 +1538,14 @@ export class SessionOrchestrator {
     // The question-free profile starts only on a boundary proven right now (PM-141); the runner asks
     // again at the spawn. Nothing is prepared before the proof.
     const vm = await this.managedVmAttestation();
-    let cwd = engine.workspacePath(projectKey) ?? config.project.workspacePath;
+    // The project's working directory on the engine; null: the engine does not hold the project, so
+    // the start waits like one for an engine that is not connected (never on the server's own path).
+    const workspaceRoot = engine.workspacePath(projectKey);
+    if (!workspaceRoot)
+      throw conflict('engine_offline', `engine ${engineId} does not hold project ${projectKey}`, {
+        engine: engineId,
+      });
+    let cwd = workspaceRoot;
     let branch: string | null = null;
     let additionalDirectories: string[] | undefined;
     // The repository the task's work happens in: its own, else the project's only one (see
@@ -1771,7 +1782,7 @@ export class SessionOrchestrator {
             github: Boolean(repoOf(config, effectiveRepo(config, task))?.github),
             // A reader changes no checkout of the project or the installation (PM-188).
             readerDenyWrite: [
-              config.project.workspacePath,
+              workspaceRoot,
               ...[paths.home, paths.worktreesRoot, paths.workspacesRoot, paths.installDir].filter(
                 (dir): dir is string => !!dir,
               ),

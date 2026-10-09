@@ -1601,6 +1601,7 @@ export class MockBackend {
       if (!input) return error(400, 'invalid_request', 'Invalid engine name');
       const engine = this.addEngine({ name: input.name });
       this.lastEngineKey = `pme_mock_${engine.id}_for_ui_tests_only`;
+      this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
       return { status: 201, body: { engine: clone(engine), key: this.lastEngineKey } };
     }
     const m = /^\/api\/engines\/(local|eng_[a-z0-9]{12})\/(revoke|default)$/.exec(path);
@@ -1612,9 +1613,16 @@ export class MockBackend {
         engine.revokedAt = nowIso();
         engine.isDefault = false;
         engine.online = false;
+        // Like the server, a revoked engine is announced with the ordinary change event.
+        this.emit({ type: 'engine_changed', engine: this.engineStatus(engine) });
         return ok(clone(engine));
       }
-      for (const entry of this.engines) entry.isDefault = entry.id === engine.id;
+      for (const entry of this.engines) {
+        const isDefault = entry.id === engine.id;
+        if (entry.isDefault === isDefault) continue;
+        entry.isDefault = isDefault;
+        this.emit({ type: 'engine_changed', engine: this.engineStatus(entry) });
+      }
       return ok(clone(this.engines));
     }
     return error(404, 'not_found', `No route for ${method} ${path}`);

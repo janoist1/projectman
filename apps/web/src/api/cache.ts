@@ -168,6 +168,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       client.setQueryData<EngineStatusResponse>(queryKeys.engineStatus, (status) =>
         status ? { ...status, engines: upsertBy(status.engines, event.engine, (entry) => entry.id) } : status,
       );
+      // The event does not say that an engine was revoked: the reload drops it from the status list.
+      void client.invalidateQueries({ queryKey: queryKeys.engineStatus });
       void client.invalidateQueries({ queryKey: queryKeys.engines });
       // What failed because the engine was away (a machine view, a session's chat) loads again at connect.
       if (event.engine.online)

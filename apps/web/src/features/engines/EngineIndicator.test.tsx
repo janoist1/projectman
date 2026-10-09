@@ -47,6 +47,8 @@ describe('engine indicator', () => {
     const view = project.render(<EngineIndicator />);
     await screen.findByRole('button', { name: t('engines.labelOnline', { name: 'Mac Studio' }) });
 
+    // The reload that follows the event reads the registry, so it changes first, as on the server.
+    engine.online = false;
     act(() => {
       applyServerEvent(view.client, {
         type: 'engine_changed',
@@ -63,6 +65,7 @@ describe('engine indicator', () => {
     expect(offline.textContent).toContain(t('engines.offlineSuffix'));
     expect(screen.getByRole('status').textContent).toBe(t('engines.announceOffline', { name: 'Mac Studio' }));
 
+    engine.online = true;
     act(() => {
       applyServerEvent(view.client, {
         type: 'engine_changed',
@@ -76,6 +79,31 @@ describe('engine indicator', () => {
       });
     });
     await screen.findByRole('button', { name: t('engines.labelOnline', { name: 'Mac Studio' }) });
+  });
+
+  it('drops an engine another tab revoked from the list', async () => {
+    const backend = new MockBackend();
+    backend.engineMode = 'cloud';
+    const main = backend.addEngine({ name: 'Mac Studio' });
+    backend.setEngineOnline(main.id, true);
+    const old = backend.addEngine({ name: 'Régi iMac', lastSeenAt: '2026-01-01T10:00:00.000Z' });
+    const project = mockProject(backend);
+    const view = project.render(<EngineIndicator />);
+    fireEvent.click(await screen.findByRole('button', { name: /Motor: Mac Studio/ }));
+    const panel = await screen.findByRole('dialog');
+    expect(within(panel).getByText(/Régi iMac/)).toBeTruthy();
+
+    // The server announces a revoked engine with the ordinary change event, nothing on it says "revoked".
+    old.revokedAt = new Date().toISOString();
+    old.online = false;
+    act(() => {
+      applyServerEvent(view.client, {
+        type: 'engine_changed',
+        engine: { id: old.id, name: old.name, isDefault: false, online: false, lastSeenAt: old.lastSeenAt },
+      });
+    });
+    await waitFor(() => expect(within(panel).queryByText(/Régi iMac/)).toBeNull());
+    expect(within(panel).getByText(/Mac Studio/)).toBeTruthy();
   });
 
   it('says there is no engine and sends the owner to the settings', async () => {

@@ -43,6 +43,7 @@ export function EnginesSection() {
   const [dialog, setDialog] = useState<Dialogs>(null);
   const [flash, setFlash] = useState<ReadonlySet<string>>(new Set());
   const known = useRef<Map<string, boolean> | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
   const engines = query.data;
   const active = engines?.filter((engine) => !engine.revokedAt) ?? [];
   const revoked = engines?.filter((engine) => engine.revokedAt) ?? [];
@@ -56,9 +57,11 @@ export function EnginesSection() {
     const connected = engines.filter((engine) => engine.online && before.get(engine.id) === false);
     if (connected.length === 0) return;
     setFlash((previous) => new Set([...previous, ...connected.map((engine) => engine.id)]));
-    const timer = window.setTimeout(() => setFlash(new Set()), FLASH_MS);
-    return () => window.clearTimeout(timer);
+    // The timer outlives a reload of the list (another change must not leave a row tinted); only a new connection restarts it.
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(new Set()), FLASH_MS);
   }, [engines]);
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   const newButton = (variant: 'secondary' | 'primary') => (
     <Button variant={variant} size="md" icon="plus" onClick={() => setDialog({ kind: 'new' })}>

@@ -300,6 +300,41 @@ describe('engines settings', () => {
     });
     expect(await screen.findByText(t('engines.online'))).toBeTruthy();
   });
+
+  it('ends the tint of a connected row even when the list reloads meanwhile', async () => {
+    const project = cloud((backend) => {
+      backend.addEngine({ name: 'Mac Studio', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+      backend.addEngine({ name: 'Linux box', lastSeenAt: '2026-10-01T10:00:00.000Z' });
+    });
+    const view = project.render(<EnginesSection />);
+    await screen.findByText('Mac Studio');
+    const [studio, linux] = project.backend.engines as [
+      (typeof project.backend.engines)[0],
+      (typeof project.backend.engines)[0],
+    ];
+    const event = (engine: typeof studio, online: boolean) =>
+      applyServerEvent(view.client, {
+        type: 'engine_changed',
+        engine: {
+          id: engine.id,
+          name: engine.name,
+          isDefault: engine.isDefault,
+          online,
+          lastSeenAt: new Date().toISOString(),
+        },
+      });
+    const rowOf = (name: string) => screen.getByText(name).closest('li');
+
+    studio.online = true;
+    act(() => event(studio, true));
+    await waitFor(() => expect(rowOf('Mac Studio')?.getAttribute('data-flash')).toBe('true'));
+    // Another engine's change reloads the list while the row is still tinted.
+    linux.lastSeenAt = new Date().toISOString();
+    act(() => event(linux, false));
+    await waitFor(() => expect(rowOf('Mac Studio')?.getAttribute('data-flash')).toBeNull(), {
+      timeout: 3000,
+    });
+  });
 });
 
 describe('engines in the settings page', () => {

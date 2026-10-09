@@ -18,6 +18,7 @@ import { AccountMenu, ProjectSwitcher } from './Menus';
 import { CombinedPlanUsageMeter, PlanUsageBadge, PlanUsageMeter } from './PlanUsageMeter';
 import { useProject } from './contexts';
 import styles from './Shell.module.css';
+import { EngineIndicator } from '../features/engines/EngineIndicator';
 import { MachineIndicator } from '../features/machine/MachineIndicator';
 
 /*
@@ -333,6 +334,7 @@ export function TopBar({
           ))
         )}
       </span>
+      <EngineIndicator />
       <MachineIndicator />
       <span className={styles.hideNarrow}>
         <Presence board={board} members={members} />
@@ -408,6 +410,7 @@ export function MobileHeader({
         pauseAbove={pauseAbove}
         to={`/p/${key}/team`}
       />
+      <EngineIndicator phone />
       <MachineIndicator phone />
       {can.createTasks ? (
         <Button

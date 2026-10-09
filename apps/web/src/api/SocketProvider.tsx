@@ -30,6 +30,7 @@ export function SocketProvider({
     // Events may have been missed while disconnected: refetch everything project-scoped.
     const offReconnect = client.onReconnect(() => {
       void queryClient.invalidateQueries({ queryKey: ['project'] });
+      void queryClient.invalidateQueries({ queryKey: ['engines'] });
     });
     client.start();
     return () => {

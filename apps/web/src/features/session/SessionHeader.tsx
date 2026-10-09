@@ -44,6 +44,7 @@ export function SessionHeader({
   taskPhase,
   live,
   pauseRow,
+  engineName,
 }: {
   session: Session;
   task: Task | null;
@@ -55,6 +56,8 @@ export function SessionHeader({
   live: { status: SessionStatus | 'paused'; label: string; title?: string };
   /** The row the pause holds this session in: what it still waits for while it stops (PM-220). */
   pauseRow?: PausedSession;
+  /** The engine the session runs on; given only in cloud mode (PM-316). */
+  engineName?: string;
 }) {
   const { key } = useProject();
   const stop = useStopSession(key);
@@ -160,7 +163,12 @@ export function SessionHeader({
         : runningText(pauseRow?.waitingFor ?? null)}
     </Chip>
   ) : null;
-  const hasChips = stageChip || prBadge || alertChip || pointChip;
+  const engineTag = engineName ? (
+    <Chip tone="outline" size="md" icon="server" className={styles.engineChip}>
+      {t('engines.chatEngine', { name: engineName })}
+    </Chip>
+  ) : null;
+  const hasChips = stageChip || prBadge || alertChip || pointChip || engineTag;
   const heading = task ? (
     <Link to={withCardSize(`/p/${key}/tasks/${task.key}`, 'large')} className={styles.titleLink}>
       {title}
@@ -215,6 +223,7 @@ export function SessionHeader({
           {prBadge}
           {alertChip}
           {pointChip}
+          {engineTag}
         </div>
       ) : null}
       <Dialog

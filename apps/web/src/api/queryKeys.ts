@@ -17,6 +17,9 @@ export const queryKeys = {
   closedCards: (key: string, days: number) => ['project', key, 'closed-cards', days] as const,
   closedCardsAll: (key: string) => ['project', key, 'closed-cards'] as const,
   providers: ['providers'] as const,
+  /** Hybrid mode (PM-316): what every internal member sees, kept live by `engine_changed`, and the owner's list. */
+  engineStatus: ['engines', 'status'] as const,
+  engines: ['engines', 'list'] as const,
   invitations: (key: string) => ['project', key, 'invitations'] as const,
   invite: (token: string) => ['invite', token] as const,
   setupStatus: ['setupStatus'] as const,

@@ -80,6 +80,8 @@ export interface TaskStateContext {
   pausedSessions?: ReadonlyMap<string, PausedSession>;
   /** The team and the pipeline, for the shared start rule (PM-291); missing for a client and while it loads. */
   config?: Pick<ProjectConfig, 'team' | 'pipeline'>;
+  /** Engine names by engine id (PM-316), for the `engine_offline` start wait; an unknown id reads as itself. */
+  engineNames?: ReadonlyMap<string, string>;
 }
 
 /** Done and cancelled tasks are closed: they no longer move or start. */
@@ -296,7 +298,7 @@ function startWaitingLabel(task: Task, ctx: TaskStateContext): string {
     return t('taskStatus.startWaiting.engine_offline_none');
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
-    engine: waiting.engine ?? '',
+    engine: waiting.engine ? (ctx.engineNames?.get(waiting.engine) ?? waiting.engine) : '',
     percent: waiting.threshold ?? '',
     until: waiting.until ? formatStamp(waiting.until) : '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),

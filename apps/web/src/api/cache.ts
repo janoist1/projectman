@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query';
 import type {
   BoardView,
   ChatItem,
+  EngineStatusResponse,
   InboxView,
   Me,
   MemberProfile,
@@ -14,6 +15,7 @@ import type {
 } from '@projectman/shared';
 import { withSessionWork } from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
+import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
 
 /** Replaces the item with the same id, or appends it. Returns the same array when unchanged. */
@@ -161,6 +163,22 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'task_attachments_changed':
       invalidateAttachments(client, event.projectKey, event.taskKey);
       return;
+    case 'engine_changed': {
+      // The status list of every internal member, then the owner's list (counts, hello data) where it is on screen.
+      client.setQueryData<EngineStatusResponse>(queryKeys.engineStatus, (status) =>
+        status ? { ...status, engines: upsertBy(status.engines, event.engine, (entry) => entry.id) } : status,
+      );
+      void client.invalidateQueries({ queryKey: queryKeys.engines });
+      // What failed because the engine was away (a machine view, a session's chat) loads again at connect.
+      if (event.engine.online)
+        void client.invalidateQueries({
+          predicate: (query) =>
+            query.state.status === 'error' &&
+            query.state.error instanceof ApiError &&
+            query.state.error.code === 'engine_offline',
+        });
+      return;
+    }
     case 'plan_usage': {
       const { projectKey: key, provider, usage } = event;
       client.setQueryData<BoardView>(queryKeys.board(key), (board) =>

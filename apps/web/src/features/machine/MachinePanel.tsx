@@ -8,7 +8,7 @@ import type {
   OrphanStopOutcome,
   OtherProcessRow,
 } from '@projectman/shared';
-import { useMachine, useStopOrphans } from '../../api/queries';
+import { useEngineStatus, useMachine, useStopOrphans } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { MiniMeter } from '../../components/MiniMeter';
@@ -16,6 +16,8 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { useToast } from '../../components/toastContext';
 import { formatAgo, formatMemory } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { errorCode } from '../../lib/errors';
+import { defaultEngine } from '../engines/engineView';
 import { holdKeys, holdOrder, isDelayed, percent, sortSessions } from './machineView';
 import type { MachineSort } from './machineView';
 import { Confirm, Usage, SessionRow, OrphanRow } from './MachineRows';
@@ -87,6 +89,11 @@ export function MachinePanel({
   const stop = useStopOrphans();
   const toast = useToast();
   const data = query.data;
+  // In cloud mode the machine shown is the default engine's; while it is away there is nothing to measure (PM-316).
+  const engines = useEngineStatus().data;
+  const main = engines?.mode === 'cloud' ? defaultEngine(engines.engines) : null;
+  const engineName = main?.name ?? null;
+  const engineOffline = query.isError && errorCode(query.error) === 'engine_offline';
   const sessionView = useLeavingRows(data?.sessions, sessionKey);
   const orphanView = useLeavingRows(data?.orphans, orphanKey);
   const delayed = data ? isDelayed(data, now) : false;
@@ -295,13 +302,27 @@ export function MachinePanel({
         <header className={styles.header}>
           <h2 ref={title} tabIndex={-1} id={`${id}-title`}>
             {t('machine.title')}
+            {engineName && (
+              <small className={styles.engine}> {t('machine.engineName', { name: engineName })}</small>
+            )}
           </h2>
-          <span className={delayed ? styles.late : styles.fresh}>{freshness}</span>
+          <span className={delayed ? styles.late : styles.fresh}>{engineOffline ? '' : freshness}</span>
           <Button iconOnly variant="ghost" icon="close" aria-label={t('common.close')} onClick={onClose} />
         </header>
       )}
-      {phone && <p className={delayed ? styles.late : styles.fresh}>{freshness}</p>}
-      {query.isError ? (
+      {phone && engineName && <p className={styles.fresh}>{t('machine.engineName', { name: engineName })}</p>}
+      {phone && !engineOffline && <p className={delayed ? styles.late : styles.fresh}>{freshness}</p>}
+      {engineOffline ? (
+        <div className={styles.empty}>
+          <strong>{t('machine.engineOfflineTitle')}</strong>
+          <p>
+            {main?.lastSeenAt
+              ? t('machine.engineOfflineSince', { ago: formatAgo(main.lastSeenAt, new Date(now)) })
+              : ''}
+            {t('machine.engineOfflineBody')}
+          </p>
+        </div>
+      ) : query.isError ? (
         <div className={styles.empty}>
           <p>{t('machine.loadFailed')}</p>
           <Button onClick={() => void query.refetch()}>{t('app.retry')}</Button>

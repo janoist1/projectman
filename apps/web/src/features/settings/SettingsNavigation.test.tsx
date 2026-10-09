@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useLocation } from 'react-router';
 import { setFetchImplementation } from '../../api/client';
@@ -68,12 +68,21 @@ describe('settings navigation', () => {
     fireEvent.click(screen.getByRole('link', { name: t('settings.backLabel') }));
     expect(document.activeElement?.id).toBe('settings-nav-project');
   });
-  it.each([...SETTINGS_SECTIONS, 'problems'])('replaces legacy anchor %s', async (section) => {
-    mockProject().render(<Fixture />, `/p/AC/settings#settings-${section}`);
-    expect(screen.getByTestId('location').textContent).toBe(
-      `/p/AC/settings/${section === 'problems' ? 'pipeline' : section}`,
-    );
-    await screen.findByRole('link', { name: t('settings.backLabel') });
+  // The engines section exists on a cloud installation only; it has its own test in the engines section.
+  it.each([...SETTINGS_SECTIONS.filter((id) => id !== 'engines'), 'problems'])(
+    'replaces legacy anchor %s',
+    async (section) => {
+      mockProject().render(<Fixture />, `/p/AC/settings#settings-${section}`);
+      expect(screen.getByTestId('location').textContent).toBe(
+        `/p/AC/settings/${section === 'problems' ? 'pipeline' : section}`,
+      );
+      await screen.findByRole('link', { name: t('settings.backLabel') });
+    },
+  );
+  it('sends the engines anchor of a one-machine installation to the narrow list', async () => {
+    mockProject().render(<Fixture />, '/p/AC/settings#settings-engines');
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/p/AC/settings'));
+    expect(screen.getByRole('navigation', { name: t('settings.nav.label') })).toBeTruthy();
   });
   it('replaces an unknown section with the narrow list', async () => {
     mockProject().render(<Fixture />, '/p/AC/settings/unknown');

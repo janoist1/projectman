@@ -7,6 +7,7 @@ export const SETTINGS_SECTIONS = [
   'project',
   'repos',
   'history',
+  'engines',
   'providers',
   'integrator',
   'account',

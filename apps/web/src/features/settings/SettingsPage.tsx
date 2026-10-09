@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { Link, Navigate, NavLink, useLocation, useParams } from 'react-router';
 import { validateProjectConfig } from '@projectman/shared';
-import type { ConfigView } from '@projectman/shared';
-import { useConfig } from '../../api/queries';
+import type { ConfigView, EngineStatusView } from '@projectman/shared';
+import { useConfig, useEngineStatus } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -26,11 +26,24 @@ import { PipelineSection } from './sections/PipelineSection';
 import { ProjectSection } from './sections/ProjectSection';
 import { ReposSection } from './sections/ReposSection';
 import { TeamSection } from './sections/TeamSection';
+import { EnginesSection } from './sections/EnginesSection';
 import { ProvidersSection } from './sections/ProvidersSection';
 import { IntegratorSection } from './sections/IntegratorSection';
 
-function summary(section: SettingsSectionId, view: ConfigView | undefined, name: string): string {
+function summary(
+  section: SettingsSectionId,
+  view: ConfigView | undefined,
+  name: string,
+  engines: readonly EngineStatusView[] = [],
+): string {
   if (section === 'account') return t('settings.summary.account', { name });
+  if (section === 'engines')
+    return engines.length
+      ? t('settings.summary.engines', {
+          count: engines.length,
+          online: engines.filter((engine) => engine.online).length,
+        })
+      : t('settings.summary.enginesEmpty');
   if (section === 'providers') return t('settings.summary.providers');
   if (section === 'integrator') return t('settings.summary.integrator');
   if (!view) return '';
@@ -73,6 +86,9 @@ function summary(section: SettingsSectionId, view: ConfigView | undefined, name:
 export function SettingsPage() {
   const { key, isOwner, me } = useProject();
   const config = useConfig(key);
+  // Engines exist in cloud mode only, and only the host owner manages them (PM-316).
+  const engineStatus = useEngineStatus();
+  const enginesShown = me.hostOwner && engineStatus.data?.mode === 'cloud';
   const wide = useMediaQuery(SETTINGS_WIDE_QUERY);
   const { section: routeSection } = useParams();
   const section = isSettingsSection(routeSection) ? routeSection : undefined;
@@ -115,6 +131,9 @@ export function SettingsPage() {
   if (isSettingsSection(legacy))
     return <Navigate replace to={{ pathname: `${base}/${legacy}`, search: location.search }} />;
   if (routeSection && !section) return <Navigate replace to={base} />;
+  // The engines section is not there for a member who cannot manage them, or on a one-machine installation.
+  if (section === 'engines' && !enginesShown && !(me.hostOwner && engineStatus.isPending))
+    return <Navigate replace to={base} />;
   if (!section && wide)
     return <Navigate replace to={{ pathname: `${base}/pipeline`, search: location.search }} />;
 
@@ -125,19 +144,24 @@ export function SettingsPage() {
       const target = issueTarget(issue.path, config.data.config);
       if (target) counts[target.section] = (counts[target.section] ?? 0) + 1;
     }
+  const shownSections = SETTINGS_SECTIONS.filter(
+    (id) => (id !== 'integrator' || me.hostOwner) && (id !== 'engines' || enginesShown),
+  );
+  // The divider before the sections that are not the project's: the first of engines and providers.
+  const accountStart = shownSections.find((id) => id === 'engines' || id === 'providers');
   const navigation = (
     <nav
       className={wide ? styles.nav : styles.list}
       aria-label={t('settings.nav.label')}
       aria-busy={config.isPending}
     >
-      {SETTINGS_SECTIONS.filter((id) => id !== 'integrator' || me.hostOwner).map((id) => (
+      {shownSections.map((id) => (
         <NavLink
           id={`settings-nav-${id}`}
           key={id}
           to={`${base}/${id}`}
           className={({ isActive }) =>
-            `${styles.navLink} ${isActive ? styles.active : ''} ${id === 'providers' ? styles.account : ''}`
+            `${styles.navLink} ${isActive ? styles.active : ''} ${id === accountStart ? styles.account : ''}`
           }
         >
           <span className={styles.linkText}>
@@ -157,7 +181,7 @@ export function SettingsPage() {
               <span
                 className={`${styles.summary} ${id === 'limits' && config.data?.config.team.limits.aiEnabled === false ? styles.disabled : ''}`}
               >
-                {summary(id, config.data, me.name)}
+                {summary(id, config.data, me.name, engineStatus.data?.engines)}
               </span>
             ) : null}
           </span>
@@ -169,6 +193,7 @@ export function SettingsPage() {
   let content;
   if (section === 'account') content = <AccountSection />;
   else if (section === 'integrator') content = <IntegratorSection />;
+  else if (section === 'engines') content = enginesShown ? <EnginesSection /> : <LoadingState />;
   else if (config.data && section) {
     const view = config.data;
     switch (section) {
@@ -237,7 +262,7 @@ export function SettingsPage() {
       <div className={styles.grid}>
         {wide ? navigation : null}
         <div ref={main} className={styles.mainCol} data-settings-content>
-          {section !== 'account' ? (
+          {section !== 'account' && section !== 'engines' ? (
             <>
               {config.isPending && section ? <LoadingState /> : null}
               {config.isError ? (

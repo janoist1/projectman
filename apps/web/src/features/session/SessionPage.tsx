@@ -6,6 +6,7 @@ import { isWorkPaused } from '@projectman/shared';
 import type { SessionDetail } from '@projectman/shared';
 import {
   useBoard,
+  useEngineStatus,
   useInbox,
   useLabels,
   useResolveInbox,
@@ -15,17 +16,19 @@ import {
   useTaskDetail,
 } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
-import { ErrorState, LoadingState } from '../../components/States';
+import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { Timeline } from '../../components/Timeline';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
 import type { PlainMessageKey } from '../../i18n/t';
+import { errorCode, errorMessage } from '../../lib/errors';
 import { useDocumentTitle, useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { openItemIds, openItemsFor } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
 import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
 import { deriveTaskState, groupOpenInboxByTask } from '../../lib/taskState';
 import { nextStepLine } from '../board/NextStep';
+import { engineNameMap } from '../engines/engineView';
 import { openPauses, pausedSessionMap } from '../pause/pauseView';
 import { ChatView } from './ChatView';
 import { Composer } from './Composer';
@@ -77,6 +80,11 @@ function SessionView({ detail }: { detail: SessionDetail }) {
   const stickToBottom = useRef(true);
   const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
 
+  const engines = useEngineStatus().data;
+  const engineName =
+    engines?.mode === 'cloud' && session.engineId
+      ? (engines.engines.find((engine) => engine.id === session.engineId)?.name ?? session.engineId)
+      : undefined;
   const memberName = nameOf(session.member, members, myHandle);
   const title = sessionTitle(session, task, memberName, {
     scheduledFor: scheduleRun?.scheduledFor,
@@ -132,6 +140,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
           myHandle,
           labels,
           pausedSessions,
+          engineNames: engineNameMap(engines?.engines),
         })
       : null;
   const timeline = taskDetail.data?.timeline ?? [];
@@ -247,6 +256,7 @@ function SessionView({ detail }: { detail: SessionDetail }) {
         taskPhase={taskState?.phase ?? null}
         live={live}
         pauseRow={pausedSessions.get(session.id)}
+        engineName={engineName}
       />
 
       <div className={styles.body}>
@@ -320,6 +330,37 @@ export function SessionPage() {
   const { key } = useProject();
   const detail = useSessionDetail(key, sessionId);
   if (detail.isPending) return <LoadingState />;
+  // The history lives on the engine: while it is away the page waits quietly, it is no error (PM-316).
+  if (detail.isError && errorCode(detail.error) === 'engine_offline')
+    return <EngineOfflineSession sessionId={sessionId} />;
   if (detail.isError) return <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />;
   return <SessionView detail={detail.data} />;
+}
+
+/** The chat cannot be read while the engine is offline; a message still waits for it and goes on at connect. */
+function EngineOfflineSession({ sessionId }: { sessionId: string }) {
+  const { key } = useProject();
+  const send = useSendSessionMessage(key, sessionId);
+  const toast = useToast();
+  return (
+    <div className={styles.page}>
+      <div className={styles.offline}>
+        <EmptyState
+          icon="server"
+          titleAs="h1"
+          title={t('engines.chatOfflineTitle')}
+          body={t('engines.chatOfflineBody')}
+        />
+      </div>
+      <Composer
+        onSend={(text) =>
+          send.mutateAsync(text).catch((error: unknown) => {
+            toast.show(errorMessage(error), 'error');
+            throw error;
+          })
+        }
+        closedNote={t('engines.composerNote')}
+      />
+    </div>
+  );
 }

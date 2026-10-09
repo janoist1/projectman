@@ -283,6 +283,13 @@ export const en: TemplateLocale = {
     frontend: 'Frontend',
     backend: 'Backend',
   },
+  projectManagerReport: {
+    done: 'Done',
+    newCard: 'New card',
+    forwarded: 'Forwarded',
+    waiting: 'Waiting for you',
+    nothing: 'Nothing.',
+  },
   labels: {
     'code-review-ok': {
       name: 'Code review ok',

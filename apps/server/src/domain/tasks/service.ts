@@ -22,6 +22,7 @@ import type {
   Visibility,
 } from '@projectman/shared';
 import {
+  actorMoveRefusal,
   boardColumnOf,
   dropStageOfColumn,
   evaluateMove,
@@ -45,7 +46,7 @@ import type { TaskPatch } from '../../db';
 import { requireHuman } from '../access';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { conflict, forbidden, invalid, themeRefused } from '../errors';
+import { conflict, forbidden, invalid, projectManagerMoveRefused, themeRefused } from '../errors';
 import type { AddedRelation } from '../events';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -521,8 +522,9 @@ export class TaskService {
       : null;
     if (level) patch.developerLevel = level.next;
     if (change.priority !== undefined) {
-      const refusal = priorityRefusal(actor);
-      if (refusal) throw forbidden(refusal, 'the priority of a card is set by people only');
+      const refusal = priorityRefusal(actor, config);
+      if (refusal)
+        throw forbidden(refusal, 'the priority of a card is set by people and the project manager only');
       if (change.priority !== task.priority) {
         patch.priority = change.priority;
         fields.push('priority');
@@ -614,6 +616,9 @@ export class TaskService {
     const moving = change.stageId !== undefined && change.stageId !== task.stageId;
     if (moving) {
       if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
+      // Checked before anything is written, so a refused move leaves the rest of the change unrecorded (PM-433).
+      const moveRefusal = actorMoveRefusal(config, actor, task.stageId, change.stageId!);
+      if (moveRefusal) throw projectManagerMoveRefused();
       const prospective = { ...task, ...patch, labels: labels.labels };
       const evaluation = evaluateMove(
         prospective,

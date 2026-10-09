@@ -754,7 +754,7 @@ export const hu = {
       approver_unavailable: 'Ez a döntnök most nem választható.',
       task_not_cancelled: 'Csak megszakított feladat nyitható újra.',
       task_session_live: 'Még fut egy munkamenet. A módosítás előtt állítsd le.',
-      priority_humans_only: 'A prioritást csak ember állíthatja.',
+      priority_humans_only: 'A prioritást csak ember vagy a Projektmenedzser állíthatja.',
       repo_required: 'Válassz repót a feladathoz: nélküle az AI-fejlesztő nem indulhat el.',
       prerequisite_open: 'A feladat előfeltétele még nincs lezárva.',
       unknown_member: 'Ismeretlen csapattag.',

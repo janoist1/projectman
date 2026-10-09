@@ -78,6 +78,15 @@ export interface TemplateLocale {
   roles: Record<BuiltInRoleId, RoleText>;
   members: Record<TemplateMemberKey, string>;
   specialties: Record<SpecialtyKey, string>;
+  /** The bold labels of the project manager's report to whoever asked (PM-433), in the order of its lines. */
+  projectManagerReport: {
+    done: string;
+    newCard: string;
+    forwarded: string;
+    waiting: string;
+    /** What the waiting line says when the owner has nothing to do. */
+    nothing: string;
+  };
   labels: Record<StandardLabelId, { name: string; meaning: string }>;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;

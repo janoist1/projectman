@@ -44,6 +44,13 @@ const OWNER_LOGIN_MESSAGES: Record<IntegratorRefusal, string> = {
 export const ownerLoginRequired = (category: IntegratorRefusal) =>
   forbidden('owner_login_required', OWNER_LOGIN_MESSAGES[category], { category });
 
+/** The project manager tried a stage move beyond starting a card (PM-433). */
+export const projectManagerMoveRefused = () =>
+  forbidden(
+    'project_manager_move_refused',
+    'the project manager only starts cards: from a queue stage after the first into a work stage',
+  );
+
 export const invalid = (code: ErrorCode, message: string, details?: unknown) =>
   new DomainError(code, message, { status: 400, details });
 

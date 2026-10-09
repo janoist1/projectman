@@ -1,6 +1,8 @@
+import type { Actor } from '../domain/event';
 import type { WorkItemRef } from '../domain/session';
 import { stageIndex } from './gates';
 import { isOnLeave } from './leave';
+import { memberOf } from './lookup';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 /** The built-in role of the project manager every project requires (PM-429). */
@@ -43,6 +45,26 @@ export function projectManagerMoveRefusal(
   if (config.pipeline.stages[from]!.kind !== 'queue') return 'project_manager_move_refused';
   if (config.pipeline.stages[to]!.kind !== 'work') return 'project_manager_move_refused';
   return null;
+}
+
+/** Whether the actor is an AI project manager of the team (PM-433): a person, the system or another AI never is. */
+export function isProjectManagerActor(
+  config: Pick<ProjectConfig, 'team'>,
+  actor: Pick<Actor, 'kind' | 'handle'>,
+): boolean {
+  return actor.kind === 'ai' && isProjectManager(memberOf(config, actor.handle));
+}
+
+/** The stage-move refusal that binds `actor`: the project manager's (above); nobody else's here. */
+export function actorMoveRefusal(
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
+  actor: Pick<Actor, 'kind' | 'handle'>,
+  fromStageId: string,
+  toStageId: string,
+): 'project_manager_move_refused' | null {
+  return isProjectManagerActor(config, actor)
+    ? projectManagerMoveRefusal(config, fromStageId, toStageId)
+    : null;
 }
 
 /** Where a member's work item runs: a project manager's card work runs in its one general conversation. */

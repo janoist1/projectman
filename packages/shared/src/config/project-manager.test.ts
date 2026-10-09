@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { memberOf } from './lookup';
 import {
+  actorMoveRefusal,
   isProjectManager,
   isRequiredProjectManager,
   PROJECT_MANAGER_ROLE,
@@ -163,6 +164,24 @@ describe('projectManagerMoveRefusal', () => {
   it('refuses an unknown stage on either side', () => {
     expect(projectManagerMoveRefusal(config, 'nowhere', 'dev')).toBe('project_manager_move_refused');
     expect(projectManagerMoveRefusal(config, 'ready', 'nowhere')).toBe('project_manager_move_refused');
+  });
+});
+
+describe('actorMoveRefusal', () => {
+  const config = configWith([ai('pm'), ai('dev-1', { role: 'developer' })]);
+
+  it('binds the AI project manager alone', () => {
+    expect(actorMoveRefusal(config, { kind: 'ai', handle: 'pm' }, 'ideas', 'ready')).toBe(
+      'project_manager_move_refused',
+    );
+    expect(actorMoveRefusal(config, { kind: 'ai', handle: 'pm' }, 'ready', 'dev')).toBeNull();
+    for (const actor of [
+      { kind: 'ai', handle: 'dev-1' },
+      { kind: 'human', handle: 'ann' },
+      { kind: 'human', handle: 'pm' },
+      { kind: 'system', handle: null },
+    ] as const)
+      expect(actorMoveRefusal(config, actor, 'ideas', 'review'), actor.kind).toBeNull();
   });
 });
 

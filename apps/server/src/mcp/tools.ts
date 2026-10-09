@@ -11,6 +11,7 @@ import {
   questionChoices,
   StageId,
   TaskKey,
+  TaskPriority,
   TaskRelationKind,
   TaskStatus,
   Visibility,
@@ -456,10 +457,6 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
 
   defineTool({
     name: 'update_task',
-    refused: {
-      priority:
-        'priority is set by people only: AI members can read it (get_task, list_tasks) but cannot set it.',
-    },
     title: 'Update a task',
     readOnly: false,
     description:
@@ -565,11 +562,18 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .nullable()
         .optional()
         .describe('The theme this card belongs to (a theme of this project that is open); null removes it.'),
+      priority: TaskPriority.nullable()
+        .optional()
+        .describe(
+          'The card priority: urgent, high, normal or low; null clears it. Only people and the project ' +
+            'manager may set it; others are refused.',
+        ),
     },
     async run({ ctx, args, handler }) {
       const {
         task_key: taskKey,
         stage_id: stageId,
+        priority,
         add_labels: addLabels,
         remove_labels: removeLabels,
         note,
@@ -584,6 +588,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       if (
         !stageId &&
         themeKey === undefined &&
+        priority === undefined &&
         !developerLevel &&
         !addLabels?.length &&
         !removeLabels?.length &&
@@ -597,7 +602,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         throw new TeamToolError(
           'invalid',
           'Nothing to update: pass stage_id, add_labels, remove_labels, note, title, description, repo, ' +
-            'add_relations, remove_relations, theme_key and/or developer_level.',
+            'add_relations, remove_relations, theme_key, priority and/or developer_level.',
         );
       }
       const relations = {
@@ -615,10 +620,12 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(repo !== undefined ? { repo } : {}),
         ...(relations.add.length + relations.remove.length > 0 ? { relations } : {}),
         ...(themeKey !== undefined ? { themeKey } : {}),
+        ...(priority !== undefined ? { priority } : {}),
         ...(developerLevel ? { developerLevel } : {}),
       });
       return formatTaskUpdate(task, {
         stageId,
+        ...(priority !== undefined ? { priority } : {}),
         ...(developerLevel ? { developerLevel: true } : {}),
         ...(themeKey !== undefined ? { themeKey } : {}),
         labels: { added: addLabels ?? [], removed: removeLabels ?? [] },

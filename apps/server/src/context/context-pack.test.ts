@@ -919,6 +919,51 @@ describe('system prompt', () => {
     expect(english.appendSystemPrompt).toContain("in English (`en`), the project's language");
   });
 
+  describe('the project manager rule (PM-433)', () => {
+    const roleOf = (prompt: string) => section(prompt, '# Your role instructions');
+    const withPm = (language: string) => {
+      const project = buildProject('web-client-project', language);
+      addMember(project, 'pm', 'project_manager');
+      return project;
+    };
+
+    it('gives the dispatcher role and the order of the report to the project manager alone', () => {
+      const project = withPm('en');
+      const pm = roleOf(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt);
+      expect(pm).toContain(
+        "You are the project manager: the owner's main contact and the team's dispatcher, not an executor.",
+      );
+      expect(pm).toContain(
+        'in one continuous conversation, one after the other; the card key is in the message prefix',
+      );
+      expect(pm).toContain("set a card's priority (update_task priority)");
+      expect(pm).toContain('(the system picks the member)');
+      expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
+      expect(pm).toContain('Only propose what needs the owner: stopping a session');
+      expect(pm).toContain('never decide permission or boundary requests, never release');
+      for (const handle of ['code-review', 'fe-1'])
+        expect(roleOf(builder.build(input({ project, handle })).appendSystemPrompt)).not.toContain(
+          'You are the project manager',
+        );
+    });
+
+    it('writes the labels of the report in the language of the project', () => {
+      const english = roleOf(
+        builder.build(input({ project: withPm('en'), handle: 'pm' })).appendSystemPrompt,
+      );
+      expect(english).toContain(
+        'each opening with its bold label: **Done**, **New card**, **Forwarded** (card → member: why), **Waiting for you** (what the owner must do, with the card key where they can do it; if nothing: Nothing.)',
+      );
+      const hungarian = roleOf(
+        builder.build(input({ project: withPm('hu'), handle: 'pm' })).appendSystemPrompt,
+      );
+      expect(hungarian).toContain(
+        'each opening with its bold label: **Megtettem**, **Új kártya**, **Továbbadtam** (card → member: why), **Rád vár** (what the owner must do, with the card key where they can do it; if nothing: Semmi.)',
+      );
+      expect(hungarian).not.toContain('**Done**');
+    });
+  });
+
   it('words the plan, the tool names and the rules file for Claude Code members', () => {
     const prompt = builder.build(input({ handle: 'fe-1' })).appendSystemPrompt;
     expect(prompt).toContain("you run on Anna Example's Claude subscription.");

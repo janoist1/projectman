@@ -14,7 +14,7 @@ export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt
 export type { AttemptLimiter } from './attempt-limiter';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
-export { clientAddress, isLocalRequest } from './local-request';
+export { clientAddress, isLocalRequest, requestProtocol } from './local-request';
 export { loadOrCreateSecret } from './secret';
 
 declare module 'fastify' {

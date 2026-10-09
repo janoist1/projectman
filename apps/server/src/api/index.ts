@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
+import type { EngineRegistry } from '../domain';
+import { registerEngineRoutes } from './engines';
 import { registerAttachmentRoutes } from './attachments';
 import { registerProviderRoutes } from './providers';
 import { registerConfigRoutes } from './config';
@@ -23,6 +25,7 @@ export { parseBody } from './validation';
 
 /** What the routes call: the domain services and the accounts. */
 export interface ApiServices {
+  engineRegistry?: EngineRegistry;
   domain: Domain;
   auth: AuthService;
   /** The header that names the real client behind a trusted entrance (see clientAddress). */
@@ -32,6 +35,7 @@ export interface ApiServices {
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */
 export function registerApiRoutes(app: FastifyInstance, services: ApiServices): void {
   const { domain } = services;
+  registerEngineRoutes(app, services);
   registerProviderRoutes(app, domain);
   registerProjectRoutes(app, services);
   registerTaskRoutes(app, domain);

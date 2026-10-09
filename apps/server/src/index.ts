@@ -12,6 +12,7 @@ import { createFixtureProbe, parseMachineFixture } from './machine';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './domain';
+import { resolveAppVersion } from './engine-link';
 
 /**
  * Server entry point. The environment is read here, once, into the app's options (defaults:
@@ -57,6 +58,9 @@ import { createNanogptKeyCheck } from './domain';
  *   TimeoutStopSec must exceed it by about 20 seconds.
  *   PROJECTMAN_CLONE_DEPENDENCIES (on): `off` stops cloning node_modules into task worktrees from an
  *   installed checkout with the same lockfile (PM-332, APFS clones on macOS); any other value stops the server.
+ *   PROJECTMAN_MODE (single): `cloud` enables the engine registry and authenticated engine link (PM-313).
+ *   The remote execution composition is supplied by PM-315.
+ *   PROJECTMAN_VERSION (unset): shared cloud/engine version; otherwise the installation git HEAD, then dev.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
  * runner removes them); the git and gh commands the server runs inherit it.
  * Remote access goes through Tailscale (`tailscale serve`), not by binding publicly.
@@ -70,7 +74,7 @@ interface ServerConfig {
   machineFixture: boolean;
 }
 
-function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
+async function configFromEnv(env: NodeJS.ProcessEnv): Promise<ServerConfig> {
   const port = Number.parseInt(env.PORT ?? String(APP_DEFAULTS.port), 10);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`invalid PORT: ${env.PORT}`);
   const host = env.HOST ?? APP_DEFAULTS.host;
@@ -113,6 +117,10 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
   // apps/web/dist, from src/index.ts (tsx) as well as from dist/index.js (bundle).
   const webDist = fileURLToPath(new URL('../../web/dist', import.meta.url));
   const home = resolve(env.PROJECTMAN_HOME ?? join(homedir(), '.projectman'));
+  const installDir = fileURLToPath(new URL('../../..', import.meta.url));
+  const engineMode = env.PROJECTMAN_MODE ?? 'single';
+  if (engineMode !== 'single' && engineMode !== 'cloud')
+    throw new Error('Invalid PROJECTMAN_MODE (single or cloud)');
   // The screenshot mode's fixed machine (PM-320): invalid JSON stops the start.
   const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
     ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
@@ -122,6 +130,8 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
     host,
     machineFixture: machineFixture !== undefined,
     app: {
+      engineMode,
+      appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
       modules: machineFixture
         ? {
             createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
@@ -168,7 +178,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
       logger: env.LOG_LEVEL === undefined ? undefined : { level: env.LOG_LEVEL },
       webDistDir: existsSync(join(webDist, 'index.html')) ? webDist : null,
       // The checkout the server runs from (three levels up from src/ or dist/).
-      installDir: fileURLToPath(new URL('../../..', import.meta.url)),
+      installDir,
       memberWorkspaces: workspaces === 'member',
       runtimeBoundary,
       executionProfile,
@@ -181,7 +191,7 @@ function configFromEnv(env: NodeJS.ProcessEnv): ServerConfig {
 }
 
 async function main(): Promise<void> {
-  const config = configFromEnv(process.env);
+  const config = await configFromEnv(process.env);
   // The server's full test before review (PM-217) runs in the Anthropic Sandbox Runtime on the Mac. The
   // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
   const app = await buildApp({

@@ -94,6 +94,15 @@ export function registerWebsocket(
       .then(async () => {
         if (event.type === 'hello' || event.type === 'error') return;
         for (const client of clients) {
+          if (event.type === 'engine_changed') {
+            const memberships = await domain.projectsFor(client.user.email);
+            if (
+              deps.auth.isHostOwner(client.user.id) ||
+              memberships.some((project) => project.access !== 'client')
+            )
+              send(client, event);
+            continue;
+          }
           if (event.type === 'terminal_data' || event.type === 'terminal_snapshot') {
             if (!client.terminals.has(event.sessionId)) continue;
             try {
@@ -133,6 +142,10 @@ export function registerWebsocket(
 
   const handle = async (client: Client, data: unknown) => {
     if (!authenticated(client)) return;
+    if (Buffer.byteLength(messageText(data)) > 1024 * 1024) {
+      client.socket.close(1009);
+      return;
+    }
     let command: ClientCommand;
     try {
       command = ClientCommand.parse(JSON.parse(messageText(data)));

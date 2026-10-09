@@ -12,6 +12,6 @@ export function serializeRequest(request: FastifyRequest) {
       typeof request.headers['accept-version'] === 'string' ? request.headers['accept-version'] : undefined,
     hostname: request.hostname,
     remoteAddress: request.ip,
-    remotePort: request.socket.remotePort,
+    remotePort: request.socket?.remotePort,
   };
 }

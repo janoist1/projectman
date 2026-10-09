@@ -89,9 +89,13 @@ export function PmThread({
     return <ErrorState error={conversation.error} onRetry={() => void conversation.refetch()} compact />;
   }
 
-  const cardKey = (taskKey: string) => (
-    <TaskChip projectKey={key} taskKey={taskKey} title={titles.get(taskKey)} />
-  );
+  // Only this project's keys are cards; words like GPT-5 or SHA-256 stay plain text.
+  const cardKey = (taskKey: string) =>
+    taskKey.startsWith(`${key}-`) ? (
+      <TaskChip projectKey={key} taskKey={taskKey} title={titles.get(taskKey)} />
+    ) : (
+      taskKey
+    );
 
   const renderEntry = (entry: ThreadEntry) => {
     const { item } = entry;

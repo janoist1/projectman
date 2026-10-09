@@ -9,12 +9,15 @@ import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt
 import { AuthService } from './auth-service';
 import type { AuthUser } from './auth-service';
 import { clientAddress, isLocalRequest, requestProtocol, sameOrigin } from './local-request';
+import type { SetupCode } from './setup-code';
 
 export { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from './attempt-limiter';
 export type { AttemptLimiter } from './attempt-limiter';
 export { AuthService, SESSION_TTL_MS } from './auth-service';
 export type { AuthUser } from './auth-service';
 export { clientAddress, isLocalRequest, requestProtocol } from './local-request';
+export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
+export type { SetupCode } from './setup-code';
 export { loadOrCreateSecret } from './secret';
 
 declare module 'fastify' {
@@ -93,9 +96,16 @@ export function startSession(
  */
 export function registerAuth(
   app: FastifyInstance,
-  deps: { auth: AuthService; domain: Domain; clientIpHeader?: string },
+  deps: {
+    auth: AuthService;
+    domain: Domain;
+    clientIpHeader?: string;
+    /** `cloud` mode: a non-local first setup is possible, with the setup code (PM-317). */
+    cloud?: boolean;
+    setupCode?: SetupCode;
+  },
 ): void {
-  const { auth, domain, clientIpHeader } = deps;
+  const { auth, domain, clientIpHeader, cloud = false, setupCode } = deps;
   const loginAttempts = createAttemptLimiter({
     max: MAX_FAILED_LOGINS,
     sharedMax: MAX_FAILED_ATTEMPTS_ALL_CLIENTS,
@@ -151,17 +161,37 @@ export function registerAuth(
     }
   });
 
-  app.get(routes.setupStatus(), async (): Promise<SetupStatus> => ({ needsSetup: auth.needsSetup() }));
+  app.get(routes.setupStatus(), async (): Promise<SetupStatus> => {
+    const needsSetup = auth.needsSetup();
+    return { needsSetup, ...(cloud && needsSetup ? { needsSetupCode: true } : {}) };
+  });
 
   app.post(routes.setup(), async (request, reply) => {
-    if (!isLocalRequest(request)) {
+    const local = isLocalRequest(request);
+    if (!local && !cloud) {
       throw forbidden(
         'setup_requires_localhost',
         'the first setup must be done on the machine running projectman',
       );
     }
     const body = parseBody(SetupRequest, request.body);
-    const user = await auth.createFirstUser(body);
+    // Cloud mode: a request that does not come from the machine needs the one-time setup code from the
+    // server log. A missing code is not a guess and does not count; a wrong one does, for all clients
+    // together, and the tenth voids the code. Once an owner exists there is no code and the answer is
+    // already_set_up (from createFirstUser), not a code error.
+    if (!local && auth.needsSetup()) {
+      const result = body.setupCode === undefined ? 'missing' : (setupCode?.verify(body.setupCode) ?? 'void');
+      if (result !== 'ok') {
+        throw forbidden(
+          'setup_code_invalid',
+          result === 'void'
+            ? 'the setup code is void; restart the server to get a new one'
+            : 'the setup code is missing or wrong',
+        );
+      }
+    }
+    const user = await auth.createFirstUser({ name: body.name, email: body.email, password: body.password });
+    setupCode?.consume();
     startSession(auth, request, reply, user.id);
     return reply.code(201).send(await meOf(domain, user, auth));
   });

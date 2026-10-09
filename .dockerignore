@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/dist
+**/coverage
+.data
+.projectman
+.demo
+**/.env
+**/.env.*
+.claude
+*.log

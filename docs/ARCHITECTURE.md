@@ -1062,6 +1062,38 @@ workers follow the machine's size.
   the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
   `hello` paths are the engine's own and are never opened by the cloud.
 
+- **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
+  `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
+  unprivileged user (the entrypoint starts as root only to hand the mounted volume over, then drops
+  with `setpriv --no-new-privs`). Its processes: the server (`HOST=127.0.0.1`), Litestream
+  (`replicate`), `cloudflared` (token-managed tunnel, outbound only) and a restic loop; each runs in
+  a cleared environment with only its own variables, so the server's environment holds no tunnel
+  token, storage key or restic password (an environment filter only: one uid, so `/proc/<pid>/environ`
+  of the others stays readable to a compromised server). `PROJECTMAN_HOME` is the platform volume (`/data`): the
+  database is replicated by Litestream (continuously, S3-compatible storage) and the rest of the
+  home (`secret`, `secrets/`, `customization/` with `.git`, `attachments/`, memory, `instance.json`)
+  by restic into a separate encrypted repository (its password is not the storage key). A fresh
+  volume restores both before the server starts and stops the start on any restore error other
+  than "no replica / no repository yet". The first setup from a browser needs a one-time setup code
+  from the server log (`auth/setup-code.ts`): `isLocalRequest` is false behind the tunnel, because
+  the tunnel must not rewrite the Host header, and the code replaces "localhost" as the proof.
+  **Assumptions:** one container and one volume at a time (two would replicate into one replica);
+  the host knows the platform's volume semantics (Fly.io volumes are single-attach); the origin
+  of the Cloudflare tunnel is `http://127.0.0.1:4700` with no Host override; the client address
+  comes from `cf-connecting-ip` (`PROJECTMAN_CLIENT_IP_HEADER`), trusted from the loopback peer
+  only; the Litestream replica is the SQLite database itself (not encrypted by Litestream), so the
+  bucket's own encryption and a bucket-scoped key protect it. The Cloudflare Access service tokens
+  of the engine (`linkHeadersFile`) and of the integrator are the only machine credentials that pass
+  the edge.
+  **Does this work on a remote engine?** This is the cloud's side only; the container runs no
+  engine, no session and no machine-dependent part. What must run on the engine: everything in the
+  "Cloud composition" entry. What crosses the boundary: the engine's `cloudUrl`, machine key and
+  `linkHeadersFile` (`docs/HYBRID.md`, "Connecting the engine"); the restic repository holds the
+  cloud's home, never an engine's worktrees or transcripts. The restore rehearsal
+  (`entrypoint.sh rehearse`) starts a standby copy on the loopback with no tunnel and no
+  replication, so it cannot disturb the production replica.
+
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
@@ -1073,6 +1105,11 @@ workers follow the machine's size.
   **Remote engine:** key authentication and audit stay on the server; the credential is never
   sent to an engine or member session. Engines must deny the same directory in their worker
   homes and strip the environment variable before spawning a CLI.
+  **Cloud (PM-317):** in front of the cloud the integrator also passes Cloudflare Access with a
+  service token of its own, kept beside the key in `~/.config/projectman/` (DEPLOY.md,
+  "Integrator access"); the key still works only over HTTPS, which the container sees as
+  `x-forwarded-proto: https` from the tunnel's loopback connection. The service token is a second
+  secret with the same rules: never in a message, task, commit, prompt or engine payload.
 
 - **Codex project layer check** — `runner/managed-vm.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
@@ -1407,6 +1444,11 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
+  **Cloud container (PM-317):** the container has no control socket client and no pause script;
+  the platform stops it with SIGTERM, which the entrypoint forwards to the server (its own
+  shutdown pause and stop) before Litestream ships the last writes and the process ends. A
+  deployment is replacing the container; the restored or rehearsed copy is a `standby` home
+  (`instance.json`) that starts no session, and only one container may replicate into a replica.
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the

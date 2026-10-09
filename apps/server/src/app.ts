@@ -9,7 +9,13 @@ import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import type { FastifyBaseLogger, FastifyInstance, FastifyServerOptions } from 'fastify';
 import { registerApiRoutes, registerErrorHandling } from './api';
-import { AuthService, loadOrCreateSecret, registerAuth } from './auth';
+import {
+  AuthService,
+  createSetupCode,
+  loadOrCreateSecret,
+  MAX_SETUP_CODE_FAILURES,
+  registerAuth,
+} from './auth';
 import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
@@ -184,6 +190,8 @@ export const APP_DEFAULTS = {
 
 export interface BuildAppOptions {
   engineMode?: 'single' | 'cloud';
+  /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
+  setupCode?: string;
   appVersion?: string;
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
@@ -664,7 +672,16 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         ? resolve(options.webDistDir)
         : null;
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
-    registerAuth(app, { auth, domain, clientIpHeader });
+    // The first setup from a non-local request needs a one-time code from this log (PM-317).
+    const setupCode =
+      options.engineMode === 'cloud' && auth.needsSetup()
+        ? createSetupCode({ code: options.setupCode })
+        : undefined;
+    if (setupCode)
+      log.warn(
+        `the first setup needs the setup code ${setupCode.value}; enter it on the setup page (it is void after ${MAX_SETUP_CODE_FAILURES} wrong tries or a restart)`,
+      );
+    registerAuth(app, { auth, domain, clientIpHeader, cloud: options.engineMode === 'cloud', setupCode });
     // The remote parts that need the domain, and what the engine's settings view counts.
     remote?.bind(domain, app);
     engineRegistry?.useCounters((id) => domain.engineCounters(id));

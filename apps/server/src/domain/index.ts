@@ -70,7 +70,7 @@ import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging, RelationNotices } from './messaging';
 import { PlanUsageMonitor } from './plan-usage';
 import { PresenceService } from './presence';
-import { ProjectService } from './projects';
+import { OWNER_HANDLE, ProjectService } from './projects';
 import { PublishingGate } from './publishing';
 import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
@@ -121,14 +121,7 @@ export type {
   StartTaskOptions,
   StartTaskResult,
 } from './admission';
-export {
-  AttachmentService,
-  contentDisposition,
-  createAttachmentStorage,
-  openWorkspaceFile,
-  WorkspaceFileRefusal,
-} from './attachments';
-export type { WorkspaceFile, WorkspaceFileHooks, WorkspaceFileRefusalReason } from './attachments';
+export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
@@ -153,7 +146,7 @@ export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-us
 export { PresenceService } from './presence';
 export { ProjectService, OWNER_HANDLE } from './projects';
 export type { Author, LoadedProject, ConfigChange } from './projects';
-export { DiskGuard, freeBytesOf } from './disk-guard';
+export { DiskGuard } from './disk-guard';
 export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from './worktree-sweep';
 export type { WorktreeSweepReport } from './worktree-sweep';
 export { ScheduleService } from './schedules';
@@ -355,7 +348,18 @@ export function createDomain(opts: DomainOptions) {
 
   const timeline = new TimelineService(ctx);
   const involvements = new InvolvementService(ctx);
-  const projects = new ProjectService({ ctx, configStore: opts.configStore, templates, timeline });
+  const projects = new ProjectService({
+    ctx,
+    configStore: opts.configStore,
+    templates,
+    timeline,
+    // The new project's work runs on the engine its owner's sessions get (`engines` is built below,
+    // from this service's cached configurations, so it is looked up when asked).
+    isDirectory: async (projectKey, path) => {
+      const engineId = engines.engineFor(projectKey, OWNER_HANDLE);
+      return (engineId ? await engines.get(engineId)?.isDirectory(path) : false) ?? false;
+    },
+  });
   const attachmentDirectory = (projectKey: string, taskKey: string) =>
     opts.attachmentStorage.taskDirectory(projectKey, taskKey);
   // The machines the sessions can run on (PM-311): without a given directory, the one this server runs
@@ -694,6 +698,7 @@ export function createDomain(opts: DomainOptions) {
   const screenshotRuns = engines.ids().some((id) => engines.get(id)?.screenshotExecutor)
     ? new ScreenshotRuns({
         executorFor: (sessionId) => engines.get(sessions.engineOf(sessionId))?.screenshotExecutor,
+        diskFor: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
         sessions,
         logger: opts.logger,
       })
@@ -721,10 +726,8 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     attachments,
     attachmentDirectory,
-    // The folder of a session is on its engine.
-    sessionFolders: {
-      of: (sessionId) => engines.get(sessions.engineOf(sessionId))?.sessionFolders?.of(sessionId),
-    },
+    // The files and the folder of a session are on its engine.
+    sessionEngine: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
   });
   const agentQuestions = new AgentQuestions({
     ctx,
@@ -1110,7 +1113,7 @@ export function createDomain(opts: DomainOptions) {
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
     async start(): Promise<void> {
       await projects.syncFromStore();
-      sessions.reconcileAfterRestart();
+      await sessions.reconcileAfterRestart();
       members.reconcileAfterRestart();
       inbox.expireOpenPermissions();
       await boundary.sweep();
@@ -1252,7 +1255,9 @@ export function createDomain(opts: DomainOptions) {
       await background.stop();
       pauses.dispose();
       sessions.dispose();
-      for (const id of engines.ids()) engines.get(id)?.sessionFolders?.releaseTmpRoot();
+      // The folders still being removed finish before the temporary root is released.
+      await sessions.settleFolderRemovals();
+      await Promise.all(engines.ids().map((id) => engines.get(id)?.sessionFolders?.releaseTmpRoot()));
       await machine.stop();
       await drained;
     },

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
-import { sharedClaudeTmpRoots } from '../src/domain/session-folders';
+import { sharedClaudeTmpRoots } from '../src/engine-host';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -68,6 +68,7 @@ describe('the shared Claude Code temporary roots', () => {
     expect(spec.sandbox!.allowWrite).toContain(tmpDir);
     // It goes with the session's end.
     await h.runner.stop(session.id);
+    await h.domain.sessions.settleFolderRemovals();
     expect(existsSync(tmpDir)).toBe(false);
     expect(readdirSync(h.sessionTmpDir!)).toEqual([]);
   });

@@ -11,9 +11,9 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { TeamToolError } from '../src/contracts';
+import { TeamToolError, WorkspaceFileRefusal } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { openWorkspaceFile, WorkspaceFileRefusal } from '../src/domain/attachments';
+import { openWorkspaceFile } from '../src/engine-host';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

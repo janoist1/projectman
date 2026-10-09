@@ -13,11 +13,16 @@ import {
   placementReadsOnly,
 } from '@projectman/shared';
 import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
+import {
+  BROWSERS_PATH_VARIABLE,
+  MEMBER_SANDBOX_DIRS,
+  SANDBOX_GIT_CONFIG_FILE,
+  SESSION_DIR_VARIABLE,
+} from '../contracts';
 import type { FullTestSandbox, SessionPolicy } from '../contracts';
 import { claudeShellRule, claudeToolRules, directoryRulePaths } from '../runner';
 import type { AgentSandbox } from '../contracts';
 import { isWithin, isWithinAny } from './command-paths';
-import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
 import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
 import { isReadOnlyCommand } from './read-only-commands';
 import { parseShellCommand } from './shell-words';
@@ -190,10 +195,7 @@ export const SANDBOX_HOME_READS = ['.gitconfig', '.config/git', '.claude/shell-s
  *   into that rewrite. The owner accepted these two risks on 2026-10-08 (PM-411), conditional
  *   on the mitigation follow-up PM-413. A live hard-link creation probe is still required before release.
  */
-export const SANDBOX_GIT_CONFIG_FILE = 'gitconfig';
 export const GIT_SETTINGS_VARIABLE = 'GIT_CONFIG_SYSTEM';
-export const SANDBOX_GIT_CONFIG =
-  '[gc]\n\tauto = 0\n[maintenance]\n\tauto = false\n[core]\n\tpackedRefsTimeout = 0\n';
 
 /**
  * A member's own directory for what its sandboxed commands keep between sessions (PM-193): its npm
@@ -204,16 +206,6 @@ export const SANDBOX_GIT_CONFIG =
 export function memberSandboxDir(appHome: string, projectKey: string, handle: string): string {
   return path.join(appHome, 'member-caches', projectKey, handle);
 }
-
-/**
- * The directories in a member's sandbox directory and the variables that point there: npm's cache
- * (`npm_config_cache`, `npx` included) and the development instance's home (`PROJECTMAN_HOME`,
- * which `npm run dev` and `npm start` take).
- */
-export const MEMBER_SANDBOX_DIRS = [
-  { name: 'npm-cache', variable: 'npm_config_cache' },
-  { name: 'projectman-dev', variable: 'PROJECTMAN_HOME' },
-] as const;
 
 /**
  * The files of a shared git directory a worktree's commands never write (PM-153): the default

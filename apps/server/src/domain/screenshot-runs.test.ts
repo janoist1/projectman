@@ -19,7 +19,10 @@ import type {
   ScreenshotScope,
   ToolContext,
 } from '../contracts';
-import { listImages, ScreenshotRuns, scenarioPath, screenshotArgs } from './screenshot-runs';
+import { listImages, resolveScenario } from '../engine-host';
+import { ScreenshotRuns, screenshotArgs } from './screenshot-runs';
+
+const localDisk = () => ({ resolveScenario, listImages });
 
 /** The screenshot runs of the session members (PM-351), with an executor that does not start anything. */
 let base: string;
@@ -82,6 +85,7 @@ function runs(options: { pollMs?: number; platform?: NodeJS.Platform; now?: () =
   const fake = fakeExecutor();
   const service = new ScreenshotRuns({
     executor: fake.executor,
+    diskFor: localDisk,
     sessions: {
       screenshotScope: (sessionId) => (sessionId === 'ses_1' || sessionId === 'ses_2' ? scope : undefined),
     },
@@ -219,9 +223,23 @@ describe('take_screenshots', () => {
   it('refuses a scenario that is missing, outside, or a directory, before any run starts', async () => {
     const { service, calls } = runs();
     writeFileSync(path.join(base, 'outside.mjs'), '');
-    for (const scenario of ['shots/none.mjs', '../outside.mjs', path.join(base, 'outside.mjs'), 'shots']) {
+    // The engine says why (`resolveScenario`'s reason), and the member reads today's texts.
+    const texts: [string, string][] = [
+      ['shots/none.mjs', 'The scenario shots/none.mjs does not exist.'],
+      [
+        '../outside.mjs',
+        'The scenario ../outside.mjs is outside your working directory and your session folder.',
+      ],
+      [
+        path.join(base, 'outside.mjs'),
+        `The scenario ${path.join(base, 'outside.mjs')} is outside your working directory and your session folder.`,
+      ],
+      ['shots', 'The scenario shots is not a file.'],
+    ];
+    for (const [scenario, message] of texts) {
       const err = await refusal(service.take(ctx, { scenario }));
       expect(err.code).toBe('invalid');
+      expect(err.message).toBe(message);
     }
     expect(calls).toHaveLength(0);
   });
@@ -295,6 +313,7 @@ describe('how a run ends', () => {
   it('logs and ends as a sandbox failure when the executor throws', async () => {
     const service = new ScreenshotRuns({
       executor: { run: () => Promise.reject(new Error('boom')) },
+      diskFor: localDisk,
       sessions: { screenshotScope: () => scope },
       logger,
       platform: 'darwin',
@@ -365,34 +384,42 @@ describe('screenshotArgs', () => {
   });
 });
 
-describe('scenarioPath', () => {
+/** The disk of the screenshot runs is the engine host's (PM-312): the local one answers here. */
+describe('resolveScenario (the local engine host)', () => {
   const scopeOf = (): ScreenshotScope => scope!;
 
   it('resolves a relative path against the worktree and returns the real path', async () => {
-    expect(await scenarioPath(scopeOf(), 'shots/login.mjs')).toBe(path.join(cwd, 'shots', 'login.mjs'));
+    expect(await resolveScenario(scopeOf(), 'shots/login.mjs')).toEqual({
+      path: path.join(cwd, 'shots', 'login.mjs'),
+    });
   });
 
   it('refuses a link that leads out of the worktree and the session folder', async () => {
     writeFileSync(path.join(base, 'secret.mjs'), '');
     symlinkSync(path.join(base, 'secret.mjs'), path.join(cwd, 'shots', 'link.mjs'));
-    const err = await refusal(scenarioPath(scopeOf(), 'shots/link.mjs'));
-    expect(err.code).toBe('invalid');
-    expect(err.message).toContain('outside');
+    expect(await resolveScenario(scopeOf(), 'shots/link.mjs')).toEqual({ refused: 'outside' });
   });
 
   it('follows a link that stays inside', async () => {
     symlinkSync(path.join(cwd, 'shots', 'login.mjs'), path.join(cwd, 'shots', 'same.mjs'));
-    expect(await scenarioPath(scopeOf(), 'shots/same.mjs')).toBe(path.join(cwd, 'shots', 'login.mjs'));
+    expect(await resolveScenario(scopeOf(), 'shots/same.mjs')).toEqual({
+      path: path.join(cwd, 'shots', 'login.mjs'),
+    });
   });
 
   it('refuses a sibling directory whose name starts like the worktree', async () => {
     mkdirSync(`${cwd}-evil`);
     writeFileSync(path.join(`${cwd}-evil`, 'x.mjs'), '');
-    expect((await refusal(scenarioPath(scopeOf(), `${cwd}-evil/x.mjs`))).code).toBe('invalid');
+    expect(await resolveScenario(scopeOf(), `${cwd}-evil/x.mjs`)).toEqual({ refused: 'outside' });
+  });
+
+  it('names a missing file and a directory', async () => {
+    expect(await resolveScenario(scopeOf(), 'shots/none.mjs')).toEqual({ refused: 'missing' });
+    expect(await resolveScenario(scopeOf(), 'shots')).toEqual({ refused: 'not_file' });
   });
 });
 
-describe('listImages', () => {
+describe('listImages (the local engine host)', () => {
   it('lists png, jpg and jpeg files, deep, newest-or-equal to the floor, sorted, at most 100, skipping links', async () => {
     const dir = path.join(sessionDir, 'shots');
     mkdirSync(path.join(dir, 'a', 'b'), { recursive: true });

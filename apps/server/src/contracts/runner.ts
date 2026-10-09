@@ -362,6 +362,18 @@ export interface SessionRunner {
   resize(sessionId: string, cols: number, rows: number): void;
   /** Serialized screen and scrollback for newly attached viewers. */
   snapshot(sessionId: string): { data: string; cols: number; rows: number } | null;
+  /**
+   * A viewer attaches the terminal (PM-312): the runner may need to ask the engine that runs the
+   * session to stream it first, so the screen comes asynchronously. Called for every attach; absent
+   * (the local runner, whose screen is in memory): the hub uses `snapshot`. `null`: no screen.
+   */
+  attachTerminal?(sessionId: string): Promise<{ data: string; cols: number; rows: number } | null>;
+  /**
+   * The last viewer of the session's terminal has left (detached, disconnected or lost access), so a
+   * remote engine can stop streaming it. Safe to call again for a session that has no viewer.
+   * Absent: nothing to stop.
+   */
+  detachTerminal?(sessionId: string): void;
   stop(sessionId: string, opts?: { force?: boolean }): Promise<void>;
   isRunning(sessionId: string): boolean;
   list(): RunningSessionInfo[];

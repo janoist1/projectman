@@ -73,6 +73,18 @@ export function registerWebsocket(
     }
   };
 
+  /** Whether any client has the session's terminal attached. */
+  const viewed = (sessionId: string): boolean => {
+    for (const client of clients) if (client.terminals.has(sessionId)) return true;
+    return false;
+  };
+
+  /** A client stops viewing a terminal; the runner hears of it when it was the last viewer (PM-312). */
+  const leave = (client: Client, sessionId: string): void => {
+    if (!client.terminals.delete(sessionId)) return;
+    if (!viewed(sessionId)) runner.detachTerminal?.(sessionId);
+  };
+
   // Every delivery rechecks the current membership and then the login session (in send),
   // terminal streams included; clients that did not subscribe to the project or attach the
   // terminal are skipped first, without any lookups.
@@ -87,7 +99,7 @@ export function registerWebsocket(
             try {
               await requireTerminalAccess(client, event.sessionId, 'viewer');
             } catch {
-              client.terminals.delete(event.sessionId);
+              leave(client, event.sessionId);
               continue;
             }
             send(client, event);
@@ -142,13 +154,26 @@ export function registerWebsocket(
         case 'terminal_attach': {
           await requireTerminalAccess(client, command.sessionId, 'viewer');
           client.terminals.add(command.sessionId);
-          const snapshot = runner.snapshot(command.sessionId);
+          let snapshot: { data: string; cols: number; rows: number } | null;
+          try {
+            snapshot = runner.attachTerminal
+              ? await runner.attachTerminal(command.sessionId)
+              : runner.snapshot(command.sessionId);
+          } catch (err) {
+            leave(client, command.sessionId);
+            throw err;
+          }
+          // The viewer left while the engine was answering: what the attach started stops with no viewer.
+          if (!client.terminals.has(command.sessionId)) {
+            if (!viewed(command.sessionId)) runner.detachTerminal?.(command.sessionId);
+            return;
+          }
           if (snapshot)
             send(client, { type: 'terminal_snapshot', sessionId: command.sessionId, ...snapshot });
           return;
         }
         case 'terminal_detach':
-          client.terminals.delete(command.sessionId);
+          leave(client, command.sessionId);
           return;
         case 'terminal_input':
           if (!client.terminals.has(command.sessionId))
@@ -201,6 +226,8 @@ export function registerWebsocket(
     socket.on('error', (err) => app.log.debug({ err }, 'websocket error'));
     socket.on('close', () => {
       clients.delete(client);
+      for (const sessionId of client.terminals) if (!viewed(sessionId)) runner.detachTerminal?.(sessionId);
+      client.terminals.clear();
       if (domain.presence.disconnect(user.email)) void presenceChanged(user.email);
     });
     if (domain.presence.connect(user.email)) void presenceChanged(user.email);

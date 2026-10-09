@@ -1,4 +1,3 @@
-import { statfs } from 'node:fs/promises';
 import { ALERT_SEEN_OPTION, alertPayloadOf } from '@projectman/shared';
 import type { DiskLowAlert, EngineId, ProjectConfig } from '@projectman/shared';
 import type { EngineDirectory } from '../contracts';
@@ -9,12 +8,6 @@ import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
 
 const GB = 1024 ** 3;
-
-/** The bytes free for an unprivileged user on the volume of `dir` (`statfs`, the same on every platform). */
-export async function freeBytesOf(dir: string): Promise<number> {
-  const stats = await statfs(dir);
-  return Number(stats.bavail) * Number(stats.bsize);
-}
 
 /**
  * Free disk space (PM-243). A full disk froze the owner's machine, so below the project's

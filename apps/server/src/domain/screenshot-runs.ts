@@ -1,8 +1,9 @@
-import { lstat, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { TeamToolError } from '../contracts';
 import type {
+  EngineHost,
+  ScenarioRefusal,
   ScreenshotExecutor,
   ScreenshotFailure,
   ScreenshotRun,
@@ -13,7 +14,6 @@ import type {
   ToolContext,
 } from '../contracts';
 import { outputTail } from '../full-test/output';
-import { isWithin } from './command-paths';
 import type { SessionOrchestrator } from './sessions';
 import { newId } from './util';
 
@@ -24,12 +24,7 @@ export const SCREENSHOT_RUN_TIMEOUT_MS = 15 * 60_000;
 /** An ended run is kept this long, and at most `KEPT_PER_SESSION` per session. */
 const KEEP_MS = 60 * 60_000;
 const KEPT_PER_SESSION = 5;
-/** The most images named, the most directory entries looked at, and how deep. */
-const FILES_LIMIT = 100;
-const SCAN_LIMIT = 5_000;
-const SCAN_DEPTH = 6;
 const OUTPUT_TAIL_CHARS = 4_000;
-const IMAGE = /\.(?:png|jpe?g)$/i;
 
 /** The folder of the images below the session folder: `shots`'s default output. */
 export const SHOTS_DIRECTORY = 'shots';
@@ -39,6 +34,8 @@ export interface ScreenshotRunsDeps {
   executor?: ScreenshotExecutor;
   /** The executor of the session's engine (PM-311); undefined: its engine has none. */
   executorFor?: (sessionId: string) => ScreenshotExecutor | undefined;
+  /** The disk of the session's engine (PM-312): the scenario it names and the images the run wrote. */
+  diskFor: (sessionId: string) => Pick<EngineHost, 'resolveScenario' | 'listImages'> | undefined;
   sessions: Pick<SessionOrchestrator, 'screenshotScope'>;
   logger: FastifyBaseLogger;
   /** Default: this machine's platform (the sandbox is macOS only). */
@@ -105,7 +102,8 @@ export class ScreenshotRuns {
         'forbidden',
         'Screenshots by the server are only for a session that works in a worktree and has a session folder of its own; yours has not.',
       );
-    if (!this.executorOf(ctx.sessionId))
+    const disk = this.deps.diskFor(ctx.sessionId);
+    if (!this.executorOf(ctx.sessionId) || !disk)
       throw new TeamToolError('forbidden', 'The engine this session runs on cannot take screenshots.');
     this.prune();
     const active = [...this.runs.values()].find(
@@ -120,7 +118,13 @@ export class ScreenshotRuns {
     const run = this.register(ctx, scope);
     let scenario: string;
     try {
-      scenario = await scenarioPath(scope, input.scenario);
+      const resolved = await disk.resolveScenario(scope, input.scenario);
+      if ('refused' in resolved)
+        throw new TeamToolError(
+          'invalid',
+          `The scenario ${input.scenario} ${SCENARIO_REFUSALS[resolved.refused]}`,
+        );
+      scenario = resolved.path;
     } catch (err) {
       this.runs.delete(run.id);
       run.ending = true;
@@ -243,7 +247,12 @@ export class ScreenshotRuns {
       settle();
       return;
     }
-    void listImages(path.join(run.scope.sessionDir, SHOTS_DIRECTORY), run.startedAt)
+    const disk = this.deps.diskFor(run.sessionId);
+    void (
+      disk
+        ? disk.listImages(path.join(run.scope.sessionDir, SHOTS_DIRECTORY), run.startedAt)
+        : Promise.resolve([])
+    )
       .then((files) => {
         run.files = files;
       })
@@ -335,48 +344,9 @@ export function screenshotArgs(input: Omit<TakeScreenshotsInput, 'scenario'>): s
   return args;
 }
 
-/**
- * The scenario's real path: it exists, is a file, and lies in the session's working directory or its
- * own folder after links are resolved. The run gets this path, not the one the agent wrote.
- */
-export async function scenarioPath(scope: ScreenshotScope, requested: string): Promise<string> {
-  const refuse = (why: string): never => {
-    throw new TeamToolError('invalid', `The scenario ${requested} ${why}`);
-  };
-  let real: string;
-  try {
-    real = await realpath(path.resolve(scope.cwd, requested));
-  } catch {
-    return refuse('does not exist.');
-  }
-  const roots = await Promise.all(
-    [scope.cwd, scope.sessionDir].map((root) => realpath(root).catch(() => root)),
-  );
-  if (!roots.some((root) => isWithin(root, real)))
-    return refuse('is outside your working directory and your session folder.');
-  const info = await stat(real).catch(() => null);
-  if (!info?.isFile()) return refuse('is not a file.');
-  return real;
-}
-
-/** The images below `dir` (`.png`, `.jpg`, `.jpeg`) written at or after `since` (ms), absolute, sorted. */
-export async function listImages(dir: string, since: number): Promise<string[]> {
-  const found: string[] = [];
-  let seen = 0;
-  const walk = async (current: string, depth: number): Promise<void> => {
-    const entries = await readdir(current, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (++seen > SCAN_LIMIT) return;
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        if (depth < SCAN_DEPTH) await walk(full, depth + 1);
-      } else if (entry.isFile() && IMAGE.test(entry.name)) {
-        const info = await lstat(full).catch(() => null);
-        // Whole milliseconds: a file written in the same millisecond the run started counts.
-        if (info && Math.floor(info.mtimeMs) >= Math.floor(since)) found.push(full);
-      }
-    }
-  };
-  await walk(dir, 0);
-  return found.sort().slice(0, FILES_LIMIT);
-}
+/** What the engine's refusal of a scenario says to the member. */
+const SCENARIO_REFUSALS: Record<ScenarioRefusal, string> = {
+  missing: 'does not exist.',
+  outside: 'is outside your working directory and your session folder.',
+  not_file: 'is not a file.',
+};

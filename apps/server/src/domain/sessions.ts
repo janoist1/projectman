@@ -1,4 +1,3 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
 import { wakesFor } from './messaging';
 import path from 'node:path';
 import {
@@ -50,8 +49,10 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import {
+  BROWSERS_PATH_VARIABLE,
   COMPACTING_PROVIDERS,
   MANAGED_VM_UNAVAILABLE,
+  SESSION_DIR_VARIABLE,
   WORKSPACE_CODEX_CONFIG,
   openingTurnOrigin,
   PROVIDER_NOT_LOGGED_IN,
@@ -67,6 +68,7 @@ import type {
   MemberMemoryStore,
   MemberWorkspaceManager,
   EngineDirectory,
+  EngineHost,
   EngineSessionFolders,
   PreviousConversation,
   RelatedSession,
@@ -100,16 +102,12 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   DONE_TASK_TURN_LIMIT_MS,
-  MEMBER_SANDBOX_DIRS,
   memberSandboxDir,
-  SANDBOX_GIT_CONFIG,
-  SANDBOX_GIT_CONFIG_FILE,
   sensitivePaths,
   sessionSandbox,
   usesWorktree,
   withSessionFolders,
 } from './session-policy';
-import { BROWSERS_PATH_VARIABLE, SESSION_DIR_VARIABLE } from './session-folders';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import type { InputStallAlerts } from './input-stall-alert';
@@ -442,6 +440,8 @@ export class SessionOrchestrator {
   private readonly screenshotScopes = new Map<string, ScreenshotScope>();
   /** Told when a session's folder is removed (the session ended), before it is (PM-351). */
   private readonly folderListeners = new Set<(sessionId: string) => void>();
+  /** The removals of session folders that are going on, by session (see `removeSessionFolderOf`). */
+  private readonly folderRemovals = new Map<string, Promise<void>>();
   private readonly unsubscribe: () => void;
   private readonly providerHolds = new ProviderQuotaHolds();
   private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
@@ -1398,7 +1398,7 @@ export class SessionOrchestrator {
   }
 
   /** Startup: sessions do not survive a restart (their conversations do, via --resume). */
-  reconcileAfterRestart(): void {
+  async reconcileAfterRestart(): Promise<void> {
     for (const session of this.ctx.repos.sessions.listInStates(LIVE_SESSION_STATES)) {
       if (this.isRunning(session.id)) continue;
       this.markEnded(session.id, null, null, { kind: 'server_restart' });
@@ -1408,7 +1408,7 @@ export class SessionOrchestrator {
       const folders = this.deps.engines.get(engineId)?.sessionFolders;
       if (!folders) continue;
       try {
-        const removed = folders.sweep((id) => this.isRunning(id));
+        const removed = await folders.sweep((id) => this.isRunning(id));
         if (removed.length > 0)
           this.ctx.logger.info({ count: removed.length }, 'removed old session folders');
       } catch (err) {
@@ -1751,7 +1751,7 @@ export class SessionOrchestrator {
     // A developer's npm cache and development data live in its own directory (PM-193).
     const memberDir =
       !vm && !this.managed && policy.access === 'task_worktree' && appHome
-        ? this.prepareMemberSandboxDir(appHome, projectKey, member.handle)
+        ? await this.prepareMemberSandboxDir(engine, appHome, projectKey, member.handle)
         : undefined;
     const excludesFile = paths.gitExcludesFile;
     // A Claude session of the legacy profile gets its own folder and the browsers (PM-268), a Codex
@@ -1861,10 +1861,10 @@ export class SessionOrchestrator {
     // failed start removes it (`start`); a restart's old folder was removed when its process ended.
     const sessionTmpDir = sandbox?.portable?.tmpDir;
     if (folders && (sessionFolder || sessionTmpDir))
-      this.prepareSessionFolder(folders, sessionId, sessionFolder, sessionTmpDir);
+      await this.prepareSessionFolder(folders, sessionId, sessionFolder, sessionTmpDir);
     // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
     // that exists (a link). `make` makes it new, with the folder.
-    this.preparePortablePaths(sandbox?.portable?.allowWrite);
+    await this.preparePortablePaths(engine, sandbox?.portable?.allowWrite);
     if (sessionFolder && sandbox && policy.access === 'task_worktree') {
       const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
       this.screenshotScopes.set(sessionId, {
@@ -2315,16 +2315,19 @@ export class SessionOrchestrator {
       });
   }
 
-  /** The member's directory for sessions without a workspace, made as its worker (managed VM). */
-  /** The member's sandbox directory with its npm cache and development data, made if missing (PM-193). */
-  private prepareMemberSandboxDir(appHome: string, projectKey: string, handle: string): string {
+  /**
+   * The member's sandbox directory with its npm cache and development data, made if missing on the
+   * session's engine (PM-193); the git settings in it are written at every start (PM-216).
+   */
+  private async prepareMemberSandboxDir(
+    engine: EngineHost,
+    appHome: string,
+    projectKey: string,
+    handle: string,
+  ): Promise<string> {
     const dir = memberSandboxDir(appHome, projectKey, handle);
     try {
-      // Two small local directories: made at once, so the start does not wait an extra turn.
-      for (const sub of MEMBER_SANDBOX_DIRS)
-        mkdirSync(path.join(dir, sub.name), { recursive: true, mode: 0o700 });
-      // Written at every start, so the commands' git settings are always the current ones (PM-216).
-      writeFileSync(path.join(dir, SANDBOX_GIT_CONFIG_FILE), SANDBOX_GIT_CONFIG, { mode: 0o600 });
+      await engine.prepareMemberSandboxDir(dir);
     } catch (err) {
       throw new DomainError(
         'session_start_failed',
@@ -2339,14 +2342,16 @@ export class SessionOrchestrator {
    * The session's own folder (PM-268) and, for Codex, its temporary directory (PM-339), made before
    * its process starts. A path that exists already stops the start.
    */
-  private prepareSessionFolder(
+  private async prepareSessionFolder(
     folders: EngineSessionFolders,
     sessionId: string,
     dir: string | undefined,
     tmpDir?: string,
-  ): void {
+  ): Promise<void> {
     try {
-      folders.make(sessionId, dir, tmpDir);
+      // The folder an earlier run of this session had goes first (see `removeSessionFolderOf`).
+      await this.folderRemovals.get(sessionId);
+      await folders.make(sessionId, dir, tmpDir);
     } catch (err) {
       throw new DomainError(
         'session_start_failed',
@@ -2361,19 +2366,19 @@ export class SessionOrchestrator {
    * PM-346), made before its process starts so it gets an existing path. A failure is logged: the
    * start goes on.
    */
-  private preparePortablePaths(paths: readonly string[] | undefined): void {
-    for (const dir of paths ?? []) {
-      try {
-        mkdirSync(dir, { recursive: true, mode: 0o700 });
-      } catch (err) {
-        this.ctx.logger.warn({ path: dir, err }, 'could not make a writable path of the session sandbox');
-      }
-    }
+  private async preparePortablePaths(
+    engine: EngineHost,
+    paths: readonly string[] | undefined,
+  ): Promise<void> {
+    if (paths?.length) await engine.preparePortablePaths(paths);
   }
 
   /**
-   * Removes the session's folder (PM-268). Synchronous, so a restart's new folder is made after
-   * it; a failure is logged and never stops the caller.
+   * Removes the session's folder (PM-268), on whichever engine holds it: a session's folder is on the
+   * engine it ran on, and nothing elsewhere. The removal starts at once and is tracked
+   * (`folderRemovals`): whoever makes the session's next folder (`prepareSessionFolder`) awaits it,
+   * so a restart's new folder is made after the old one's removal. A failure is logged and never
+   * stops the caller.
    */
   private removeSessionFolderOf(sessionId: string): void {
     this.screenshotScopes.delete(sessionId);
@@ -2384,14 +2389,30 @@ export class SessionOrchestrator {
         this.ctx.logger.warn({ err, sessionId }, 'a listener of the session folder removal failed');
       }
     }
-    // Whichever engine holds it: a session's folder is on the engine it ran on, and nothing elsewhere.
+    const removals: Promise<void>[] = [];
     for (const engineId of this.deps.engines.ids()) {
-      try {
-        this.deps.engines.get(engineId)?.sessionFolders?.remove(sessionId);
-      } catch (err) {
+      const folders = this.deps.engines.get(engineId)?.sessionFolders;
+      if (!folders) continue;
+      const failed = (err: unknown) =>
         this.ctx.logger.warn({ err, sessionId, engineId }, 'could not remove the session folder');
+      try {
+        removals.push(folders.remove(sessionId).catch(failed));
+      } catch (err) {
+        failed(err);
       }
     }
+    if (removals.length === 0) return;
+    // After an earlier removal of the same session that is still going, so the order is kept.
+    const done = Promise.all([this.folderRemovals.get(sessionId), ...removals]).then(() => undefined);
+    this.folderRemovals.set(sessionId, done);
+    void done.then(() => {
+      if (this.folderRemovals.get(sessionId) === done) this.folderRemovals.delete(sessionId);
+    });
+  }
+
+  /** Resolves when every removal of a session folder that was started has finished (the server's stop, tests). */
+  async settleFolderRemovals(): Promise<void> {
+    await Promise.all([...this.folderRemovals.values()]);
   }
 
   private async workerSessionDir(handle: string, projectKey: string): Promise<string> {

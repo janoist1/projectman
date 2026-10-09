@@ -1,4 +1,3 @@
-import { realpath } from 'node:fs/promises';
 import { isAbsolute, resolve, sep } from 'node:path';
 import {
   approvalRefusal,
@@ -578,10 +577,18 @@ export class InboxService {
     let validToolCwd = toolCwd === undefined;
     if (typeof toolCwd === 'string' && isAbsolute(toolCwd) && session.cwd) {
       const under = (p: string, root: string) => p === root || p.startsWith(`${root}${sep}`);
+      // The canonical paths are the engine's (the directories are on its disk); a path that is not
+      // there, or an engine that is gone, makes the directory invalid.
       try {
+        const real = engine
+          ? await Promise.all([engine.realpath(toolCwd), engine.realpath(session.cwd)])
+          : null;
         validToolCwd =
           under(resolve(toolCwd), resolve(session.cwd)) &&
-          under(await realpath(toolCwd), await realpath(session.cwd));
+          real !== null &&
+          real[0] !== null &&
+          real[1] !== null &&
+          under(real[0], real[1]);
       } catch {
         validToolCwd = false;
       }

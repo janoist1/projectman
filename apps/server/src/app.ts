@@ -38,7 +38,8 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import { createAttachmentStorage, createDomain, freeBytesOf } from './domain';
+import { createAttachmentStorage, createDomain } from './domain';
+import { freeBytesOf } from './engine-host';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
 import { assertHomeMayStart } from './instance';

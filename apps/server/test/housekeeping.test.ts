@@ -2,7 +2,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { alertPayloadOf } from '@projectman/shared';
-import { freeBytesOf } from '../src/domain';
+import { freeBytesOf } from '../src/engine-host';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 

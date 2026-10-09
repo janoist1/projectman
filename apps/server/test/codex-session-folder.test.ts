@@ -120,6 +120,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
 
     writeFileSync(join(tmpDir!, 'scratch'), 'x');
     await h.runner.stop(session.id);
+    await h.domain.sessions.settleFolderRemovals();
     expect(existsSync(folder)).toBe(false);
     expect(existsSync(tmpDir!)).toBe(false);
     expect(readdirSync(h.sessionFoldersDir!)).toEqual([]);
@@ -189,6 +190,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
     const seen: boolean[] = [];
     h!.domain.sessions.onFolderRemoved((id) => seen.push(id === session.id && existsSync(folder)));
     await h!.runner.stop(session.id);
+    await h!.domain.sessions.settleFolderRemovals();
     expect(seen).toEqual([true]);
     expect(h!.domain.sessions.screenshotScope(session.id)).toBeUndefined();
     expect(existsSync(folder)).toBe(false);
@@ -251,6 +253,7 @@ describe('the session folder and the temporary directory of a Codex session (PM-
         await h!.runner.stop(session.id);
         expect(f.signals[1]!.aborted).toBe(true);
         expect(await second).toMatchObject({ status: 'failed', failure: 'stopped' });
+        await h!.domain.sessions.settleFolderRemovals();
         expect(existsSync(folder)).toBe(false);
       },
     );

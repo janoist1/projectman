@@ -1,5 +1,4 @@
 import os from 'node:os';
-import path from 'node:path';
 import { LOCAL_ENGINE_ID } from '@projectman/shared';
 import type { EngineId, MemberHandle, Session } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
@@ -7,22 +6,13 @@ import type {
   EngineDirectory,
   EngineHost,
   EnginePaths,
-  EngineSessionFolders,
   FullTestExecutor,
   MemberWorkspaceManager,
   RuntimeBoundary,
   ScreenshotExecutor,
   WorktreeManager,
 } from '../contracts';
-import { isWithin } from './command-paths';
-import { userExcludesFile } from './git-excludes';
-import {
-  prepareSessionFoldersRoot,
-  prepareSessionTmpRoot,
-  realpathOfNearest,
-  SessionFolders,
-  sharedClaudeTmpRoots,
-} from './session-folders';
+import { createLocalEngineHost } from '../engine-host';
 import { processExists } from './workspaces';
 import type { ProcessProbe } from './workspaces';
 
@@ -64,64 +54,30 @@ export interface LocalEngineOptions {
 }
 
 /**
- * The session folders of an engine (PM-268, PM-339): `undefined` when they are off, which they are
- * when no root is configured, in the managed VM, and when the root is not a safe directory (logged).
- * A temporary root that is not safe turns off only the Codex folders.
+ * The engine of the machine the server runs on (`local`), from the options the domain was given.
+ * Its disk is the local engine host's (`engine-host/`, PM-312); this assembles the places and the
+ * parts that are not the disk's.
  */
-function prepareSessionFolders(
-  opts: LocalEngineOptions,
-  logger: FastifyBaseLogger,
-): EngineSessionFolders | undefined {
-  if (!opts.sessionFoldersDir || opts.runtimeBoundary?.mode === 'managed_vm') return undefined;
-  try {
-    prepareSessionFoldersRoot(opts.sessionFoldersDir);
-    // One registry for the sessions (which make the folders) and the team tools (which attach from them).
-    let tmpRoot: string | undefined;
-    if (opts.sessionTmpDir) {
-      try {
-        // The queue folder's parent is writable for every member's commands: a tmp root in it (or
-        // above it) would be too.
-        // Compared as written and canonically: a link (or macOS `/tmp` -> `/private/tmp`) must not hide it.
-        const queueParent = opts.heavyLockDir ? path.dirname(opts.heavyLockDir) : undefined;
-        if (queueParent) {
-          const overlaps = (a: string, b: string) => isWithin(a, b) || isWithin(b, a);
-          if (
-            overlaps(queueParent, opts.sessionTmpDir) ||
-            overlaps(realpathOfNearest(queueParent), realpathOfNearest(opts.sessionTmpDir))
-          )
-            throw new Error(`${opts.sessionTmpDir} and ${queueParent}, which the sandboxes write, overlap`);
-        }
-        prepareSessionTmpRoot(opts.sessionTmpDir);
-        tmpRoot = opts.sessionTmpDir;
-      } catch (err) {
-        logger.error(
-          { err, dir: opts.sessionTmpDir },
-          'the Codex session folders are off: their temporary root is not a safe directory',
-        );
-      }
-    }
-    return new SessionFolders(opts.sessionFoldersDir, tmpRoot, (err, dir) =>
-      logger.warn({ err, dir }, 'could not remove a temporary directory of a session'),
-    );
-  } catch (err) {
-    logger.error(
-      { err, dir: opts.sessionFoldersDir },
-      'the session folders are off: their root is not a safe directory',
-    );
-    return undefined;
-  }
-}
-
-/** The engine of the machine the server runs on (`local`), from the options the domain was given. */
 export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseLogger): EngineHost {
-  // Once at the start: the roots of this machine's Claude Code (PM-353).
-  const claudeTmpRoots = opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ claudeTmpBase: opts.claudeTmpBase });
-  const sessionFolders = prepareSessionFolders(opts, logger);
+  const userHome = opts.userHome ?? os.homedir();
+  const disk = createLocalEngineHost(
+    {
+      userHome,
+      ...(opts.sessionFoldersDir ? { sessionFoldersDir: opts.sessionFoldersDir } : {}),
+      ...(opts.sessionTmpDir ? { sessionTmpDir: opts.sessionTmpDir } : {}),
+      ...(opts.heavyLockDir ? { heavyLockDir: opts.heavyLockDir } : {}),
+      sessionFoldersOff: opts.runtimeBoundary?.mode === 'managed_vm',
+      ...(opts.claudeTmpBase ? { claudeTmpBase: opts.claudeTmpBase } : {}),
+      ...(opts.claudeTmpRoots ? { claudeTmpRoots: opts.claudeTmpRoots } : {}),
+      ...(opts.freeDiskBytes ? { freeDiskBytes: opts.freeDiskBytes } : {}),
+    },
+    logger,
+  );
+  const { claudeTmpRoots, gitExcludesFile, ...operations } = disk;
   const alive = opts.processExists ?? processExists;
   return {
     id: LOCAL_ENGINE_ID,
     paths(): EnginePaths {
-      const userHome = opts.userHome ?? os.homedir();
       return {
         userHome,
         home: opts.appHome ?? null,
@@ -135,7 +91,7 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
         heavyLockDir: opts.heavyLockDir ?? null,
         // Read when asked for, as a session start always has: the user may change the git configuration.
         get gitExcludesFile() {
-          return userExcludesFile(userHome) ?? null;
+          return gitExcludesFile();
         },
       };
     },
@@ -143,8 +99,7 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
     ...(opts.memberWorkspaces ? { memberWorkspaces: opts.memberWorkspaces } : {}),
     ...(opts.fullTestExecutor ? { fullTestExecutor: opts.fullTestExecutor } : {}),
     ...(opts.screenshotExecutor ? { screenshotExecutor: opts.screenshotExecutor } : {}),
-    ...(sessionFolders ? { sessionFolders } : {}),
-    freeDiskBytes: opts.freeDiskBytes ?? (async () => null),
+    ...operations,
     processExists: alive,
     workspacePath: opts.workspacePath,
   };

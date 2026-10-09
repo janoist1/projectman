@@ -1,14 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  lstatSync,
-  mkdirSync,
-  readdirSync,
-  realpathSync,
-  renameSync,
-  rmdirSync,
-  rmSync,
-} from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { EngineSessionFolders } from '../contracts';
 
@@ -16,23 +8,35 @@ import type { EngineSessionFolders } from '../contracts';
  * The session folders (PM-268): a Claude session's own writable directory for what its commands
  * produce (screenshots, reports), outside every checkout and the app home. The server computes the
  * path, makes it before the start and removes it when the process ends and at the server's start.
- * Everything here is synchronous on purpose: a restart's new folder must come after the old one's
- * removal.
+ * The registry (`of`, `allocate`) is synchronous; what touches the disk is asynchronous (PM-312), and
+ * the caller awaits a removal before it makes the next folder of the same session: a restart's new
+ * folder must come after the old one's removal.
  */
-
-/**
- * The variables of the session folder and of Playwright's browsers directory, set in the sandbox's
- * environment of the members that get them.
- */
-export const SESSION_DIR_VARIABLE = 'PROJECTMAN_SESSION_DIR';
-export const BROWSERS_PATH_VARIABLE = 'PLAYWRIGHT_BROWSERS_PATH';
 
 const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A session's temporary directory name (`allocateTmp`); not a `.trash-*` name. */
 const TMP_NAME = /^[0-9a-f]{12}$/;
 
-function assertOwnDirectory(dir: string, mustExist = false): void {
+const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
+
+function assertOwnDirectorySync(dir: string, mustExist = false): void {
   const stat = lstatSync(dir, { throwIfNoEntry: false });
+  checkOwnDirectory(dir, stat, mustExist);
+}
+
+async function assertOwnDirectory(dir: string, mustExist = false): Promise<void> {
+  const stat = await lstat(dir).catch((err: unknown) => {
+    if (code(err) === 'ENOENT') return undefined;
+    throw err;
+  });
+  checkOwnDirectory(dir, stat, mustExist);
+}
+
+function checkOwnDirectory(
+  dir: string,
+  stat: ReturnType<typeof lstatSync> | undefined,
+  mustExist: boolean,
+): void {
   if (!stat) {
     if (mustExist) throw new Error(`${dir} is gone`);
     return;
@@ -51,15 +55,13 @@ function assertOwnDirectory(dir: string, mustExist = false): void {
  */
 export function prepareSessionFoldersRoot(root: string): void {
   // Before the mkdir as well: nothing is made behind a link that is already there.
-  assertOwnDirectory(path.dirname(root));
-  assertOwnDirectory(root);
+  assertOwnDirectorySync(path.dirname(root));
+  assertOwnDirectorySync(root);
   mkdirSync(root, { recursive: true, mode: 0o700 });
-  assertOwnDirectory(path.dirname(root));
-  assertOwnDirectory(root);
+  assertOwnDirectorySync(path.dirname(root));
+  assertOwnDirectorySync(root);
   if ((lstatSync(root).mode & 0o077) !== 0) chmodSync(root, 0o700);
 }
-
-const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
 /**
  * Removes `dir` (a direct child of `root`) with everything in it. It is renamed away first, inside
@@ -67,16 +69,16 @@ const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException
  * in it cannot swap a directory for a link while the removal walks it; its sandbox rule does not
  * reach the new name.
  */
-function removeTree(root: string, dir: string): void {
+async function removeTree(root: string, dir: string): Promise<void> {
   const trash = path.join(root, `.trash-${randomBytes(8).toString('hex')}`);
   try {
-    renameSync(dir, trash);
+    await rename(dir, trash);
   } catch (err) {
     if (code(err) === 'ENOENT') return;
-    rmSync(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true });
     return;
   }
-  rmSync(trash, { recursive: true, force: true });
+  await rm(trash, { recursive: true, force: true });
 }
 
 /**
@@ -138,9 +140,9 @@ export function realpathOfNearest(target: string): string {
  */
 export function prepareSessionTmpRoot(root: string): void {
   const base = path.dirname(root);
-  assertOwnDirectory(base);
+  assertOwnDirectorySync(base);
   mkdirSync(base, { recursive: true, mode: 0o700 });
-  assertOwnDirectory(base, true);
+  assertOwnDirectorySync(base, true);
   if ((lstatSync(base).mode & 0o077) !== 0) chmodSync(base, 0o700);
   prepareSessionFoldersRoot(root);
 }
@@ -195,7 +197,7 @@ export class SessionFolders implements EngineSessionFolders {
    * directory of the server's user, and records them as the session's. What the session had before
    * is removed first. Either may be absent.
    */
-  make(sessionId: string, dir: string | undefined, tmpDir?: string): void {
+  async make(sessionId: string, dir: string | undefined, tmpDir?: string): Promise<void> {
     if (dir && (path.dirname(dir) !== this.root || !path.basename(dir).startsWith(`${sessionId}.`)))
       throw new Error(`${dir} is not a folder of session ${sessionId}`);
     if (
@@ -203,17 +205,17 @@ export class SessionFolders implements EngineSessionFolders {
       (!this.tmpRoot || path.dirname(tmpDir) !== this.tmpRoot || !TMP_NAME.test(path.basename(tmpDir)))
     )
       throw new Error(`${tmpDir} is not a temporary directory of session ${sessionId}`);
-    this.remove(sessionId);
+    await this.remove(sessionId);
     // Recorded before the check: a directory that fails it is removed with the session's end.
     if (dir) {
-      mkdirSync(dir, { mode: 0o700 });
+      await mkdir(dir, { mode: 0o700 });
       this.folders.set(sessionId, dir);
-      assertOwnDirectory(dir, true);
+      await assertOwnDirectory(dir, true);
     }
     if (tmpDir) {
-      mkdirSync(tmpDir, { mode: 0o700 });
+      await mkdir(tmpDir, { mode: 0o700 });
       this.tmps.set(sessionId, tmpDir);
-      assertOwnDirectory(tmpDir, true);
+      await assertOwnDirectory(tmpDir, true);
     }
   }
 
@@ -228,21 +230,25 @@ export class SessionFolders implements EngineSessionFolders {
    * session's, so a command of the old run that is still writing in it cannot swap a directory for
    * a link while the removal walks it; its sandbox rule does not reach the new name.
    */
-  remove(sessionId: string): void {
-    this.removeTmp(sessionId);
+  async remove(sessionId: string): Promise<void> {
+    // Both are taken out of the registry before the first await: a call that follows sees no folder.
+    const tmp = this.takeTmp(sessionId);
     const dir = this.folders.get(sessionId);
-    if (!dir) return;
     this.folders.delete(sessionId);
-    removeTree(this.root, dir);
+    if (tmp) await this.removeTmp(tmp);
+    if (dir) await removeTree(this.root, dir);
   }
 
-  /** The session's temporary directory goes the same way; a failure is reported to `warn`, never thrown. */
-  private removeTmp(sessionId: string): void {
+  private takeTmp(sessionId: string): string | undefined {
     const dir = this.tmps.get(sessionId);
-    if (!dir) return;
     this.tmps.delete(sessionId);
+    return dir;
+  }
+
+  /** A session's temporary directory goes the same way; a failure is reported to `warn`, never thrown. */
+  private async removeTmp(dir: string): Promise<void> {
     try {
-      removeTree(this.tmpRoot!, dir);
+      await removeTree(this.tmpRoot!, dir);
     } catch (err) {
       this.warn?.(err, dir);
     }
@@ -252,7 +258,7 @@ export class SessionFolders implements EngineSessionFolders {
    * Removes every entry of the root (a symbolic link as a link, never its target) except the
    * folders of the sessions `keep` returns true for; returns the removed names.
    */
-  sweep(keep: (sessionId: string) => boolean): string[] {
+  async sweep(keep: (sessionId: string) => boolean): Promise<string[]> {
     const kept = new Set<string>();
     for (const [sessionId, dir] of this.folders) {
       if (keep(sessionId)) kept.add(path.basename(dir));
@@ -264,12 +270,12 @@ export class SessionFolders implements EngineSessionFolders {
       else this.tmps.delete(sessionId);
     }
     const removed: string[] = [];
-    for (const name of readdirSync(this.root)) {
+    for (const name of await readdir(this.root)) {
       if (kept.has(name)) continue;
-      rmSync(path.join(this.root, name), { recursive: true, force: true });
+      await rm(path.join(this.root, name), { recursive: true, force: true });
       removed.push(name);
     }
-    this.sweepTmp(keptTmps);
+    await this.sweepTmp(keptTmps);
     return removed;
   }
 
@@ -278,22 +284,22 @@ export class SessionFolders implements EngineSessionFolders {
    * instance that ran and left no session does not leave a folder in `/tmp` behind. A root with
    * entries stays (the next start sweeps it); never throws.
    */
-  releaseTmpRoot(): void {
+  async releaseTmpRoot(): Promise<void> {
     if (!this.tmpRoot) return;
     try {
-      rmdirSync(this.tmpRoot);
+      await rmdir(this.tmpRoot);
     } catch {
       // Not empty, or already gone: nothing to do.
     }
   }
 
   /** The temporary directories of sessions that are gone (the root's own entries, a link as a link). */
-  private sweepTmp(keptNames: ReadonlySet<string>): void {
+  private async sweepTmp(keptNames: ReadonlySet<string>): Promise<void> {
     if (!this.tmpRoot) return;
     try {
-      for (const name of readdirSync(this.tmpRoot)) {
+      for (const name of await readdir(this.tmpRoot)) {
         if (keptNames.has(name)) continue;
-        rmSync(path.join(this.tmpRoot, name), { recursive: true, force: true });
+        await rm(path.join(this.tmpRoot, name), { recursive: true, force: true });
       }
     } catch (err) {
       if (code(err) !== 'ENOENT') this.warn?.(err, this.tmpRoot);

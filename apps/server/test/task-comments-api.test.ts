@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes, TaskDetail } from '@projectman/shared';
 import {
   addHumanAndLogin,
@@ -47,8 +47,8 @@ describe('task comments API', () => {
         expect.objectContaining({ handle: 'robin', kind: 'human', readAt: null }),
       ]),
     });
+    await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
     await flush();
-    expect(h.runner.started).toHaveLength(1);
     expect(h.runner.lastStarted().initialMessage).toContain('[team message from owner about AR-1]');
     expect(h.runner.lastStarted().initialMessage).toContain(text);
     expect(h.runner.messages).toEqual([]);

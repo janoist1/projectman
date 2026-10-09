@@ -16,8 +16,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openWorkspaceFile, WorkspaceFileRefusal } from '../src/domain';
-import type { WorkspaceFile, WorkspaceFileHooks } from '../src/domain';
+import { WorkspaceFileRefusal } from '../src/contracts';
+import type { WorkspaceFile } from '../src/contracts';
+import { openWorkspaceFile } from '../src/engine-host';
+import type { WorkspaceFileHooks } from '../src/engine-host';
 
 async function readAll(stream: Readable): Promise<Buffer> {
   const chunks: Buffer[] = [];

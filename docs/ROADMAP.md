@@ -39,12 +39,7 @@ Less churn, less load, safer providers. Roughly in this order:
 - **Housekeeping:** rewrite the public repository's history to remove a client's name (PM-354,
   decision 39); these documents (PM-381).
 
-## Next: the operator's UI (decision 41)
-
-Features for the person who runs the team: the flow map (PM-379), intent-driven control
-(PM-384), then the views and smaller UI work listed under Later. Critical fixes go first.
-
-## Then: hybrid mode (PM-286)
+## Next: hybrid mode (PM-286, decision 44)
 
 The board in the cloud, AI work in an office or as remote work (decision 38). In order: an engine
 interface in front of the machine-dependent parts (PM-311), disk and terminal behind it (PM-312),
@@ -57,6 +52,9 @@ office (PM-378).
 ## Later
 
 Planned and mostly designed; the order is decided when hybrid mode is done.
+
+- **The operator's UI (decision 41):** intent-driven control (PM-384) and setting the team's focus
+  from the UI (PM-427); the flow map (PM-379) and the hand-over (PM-342) are done.
 
 - **Settings rework (PM-298):** the pipeline, labels and history, 3/9 to 9/9 (PM-303–309).
 - **Hand-over between members and providers (PM-342)**, for example when a provider's plan runs

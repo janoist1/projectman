@@ -321,3 +321,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     (leave, removal, other provider, no conversation), the receiver gets the summary of the old
     transcript (the CLI's compaction summary plus the last replies). The old session is never
     compacted for this. The receiver waits until the handoff ends.
+44. **Hybrid mode is the focus now.** Decided by the owner on 2026-10-09, after the flow map
+    (PM-379) and the hand-over (PM-342) shipped in v2026.10.9. The board runs in the cloud and
+    the AI work runs on an engine on the Mac (PM-286, PM-311 to PM-318). Critical bugs still come
+    first; the architect checks the October 4 plans against the current code before development
+    starts.

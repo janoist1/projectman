@@ -5,6 +5,11 @@
  * per-session token.
  */
 export const routes = {
+  engines: () => '/api/engines',
+  engineStatus: () => '/api/engines/status',
+  revokeEngine: (id: string) => `/api/engines/${id}/revoke`,
+  defaultEngine: (id: string) => `/api/engines/${id}/default`,
+  engineLink: () => '/engine/link',
   integratorKey: () => '/api/auth/integrator-key',
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   boundaryRequest: (key: string, id: string) => `/api/projects/${key}/boundary/${id}`,

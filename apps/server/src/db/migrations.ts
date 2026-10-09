@@ -788,5 +788,25 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     // PM-311: the engine a session runs on; the sessions from before engines ran on the local one.
     sql: `ALTER TABLE sessions ADD COLUMN engine_id TEXT NOT NULL DEFAULT 'local';`,
   },
+  {
+    version: 42,
+    name: 'engine registry and machine keys',
+    sql: `CREATE TABLE engines (
+    id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_by TEXT REFERENCES users(id),
+    last_seen_at TEXT,
+    last_seen_ip TEXT,
+    last_hello TEXT
+  );
+  CREATE UNIQUE INDEX engines_one_default ON engines(is_default)
+    WHERE is_default = 1 AND revoked_at IS NULL;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

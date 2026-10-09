@@ -32,6 +32,7 @@ export const forbidden = (code: ErrorCode, message: string, details?: unknown) =
   new DomainError(code, message, { status: 403, details });
 
 const OWNER_LOGIN_MESSAGES: Record<IntegratorRefusal, string> = {
+  engines: 'Only the host owner may manage engines and machine keys, using their own login',
   approval_rules: 'Only the owner may change approval labels or gates, using their own login',
   owner_settings: 'Only the owner may change owner-only settings, using their own login',
   members:

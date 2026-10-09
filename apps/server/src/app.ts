@@ -58,6 +58,9 @@ import {
 import type { AccountLookup, BoundaryConfig } from './runtime-boundary';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 import { registerWebsocket } from './ws';
+import { createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
+import type { EngineLinks } from './engine-link';
+import { EngineRegistry } from './domain';
 
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
@@ -170,6 +173,8 @@ export const APP_DEFAULTS = {
 } as const;
 
 export interface BuildAppOptions {
+  engineMode?: 'single' | 'cloud';
+  appVersion?: string;
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
@@ -222,6 +227,8 @@ export interface BuildAppOptions {
   sessionTmpDir?: string;
   /** The base of Claude Code's shared temporary root (`CLAUDE_CODE_TMPDIR` of the server's environment, PM-353). */
   claudeTmpBase?: string;
+  /** Explicit engine roots for isolated tests; otherwise discovered on the local machine. */
+  claudeTmpRoots?: readonly string[];
   /**
    * Playwright's browsers (PM-268), read-only for the members' commands in `PLAYWRIGHT_BROWSERS_PATH`.
    * Absent (tests): the variable is not set.
@@ -288,6 +295,8 @@ export interface BuildAppOptions {
 
 /** What `app.projectman` exposes (tests and tooling reach the services through it). */
 export interface AppContext {
+  engineRegistry?: EngineRegistry;
+  engineLinks?: EngineLinks;
   home: string;
   /** Pauses the team before the server closes (`shutdownPauseMs`); nothing when that is 0 or this is a standby copy. */
   pauseForShutdown: () => Promise<void>;
@@ -375,7 +384,9 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   let repos: Repositories | null = null;
   try {
     await app.register(fastifyCookie, { secret: loadOrCreateSecret(home) });
-    await app.register(fastifyWebsocket, { options: { maxPayload: 1024 * 1024 } });
+    await app.register(fastifyWebsocket, {
+      options: { maxPayload: options.engineMode === 'cloud' ? ENGINE_MAX_FRAME_BYTES : 1024 * 1024 },
+    });
 
     repos = createRepositories(openDatabase(options.dbPath ?? join(home, 'db.sqlite')));
     const configStore = createConfigStore({
@@ -531,6 +542,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       sessionFoldersDir: options.sessionFoldersDir,
       sessionTmpDir: options.sessionTmpDir,
       claudeTmpBase: options.claudeTmpBase,
+      claudeTmpRoots: options.claudeTmpRoots,
       browsersDir: options.browsersDir,
       heavyLockDir: options.heavyLockDir,
       memberWorkspaces,
@@ -594,7 +606,24 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     registerErrorHandling(app, { spaIndex: webDistDir !== null });
     const clientIpHeader = options.clientIpHeader;
     registerAuth(app, { auth, domain, clientIpHeader });
-    registerApiRoutes(app, { domain, auth, clientIpHeader });
+    const engineRegistry =
+      options.engineMode === 'cloud'
+        ? new EngineRegistry({
+            repos,
+            bus: domain.bus,
+            version: options.appVersion ?? 'dev',
+            now: options.now,
+          })
+        : undefined;
+    const engineLinks = engineRegistry
+      ? createEngineLinks({
+          registry: engineRegistry,
+          clientIpHeader,
+          now: options.now ? () => options.now!().getTime() : undefined,
+        })
+      : undefined;
+    engineLinks?.register(app);
+    registerApiRoutes(app, { domain, auth, clientIpHeader, engineRegistry });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
@@ -602,6 +631,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     const shutdownPauseMs = options.shutdownPauseMs ?? APP_DEFAULTS.shutdownPauseMs;
     app.decorate('projectman', {
+      engineRegistry,
+      engineLinks,
       home,
       pauseForShutdown: async () => {
         if (shutdownPauseMs <= 0 || standby) return;

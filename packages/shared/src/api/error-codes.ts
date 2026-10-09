@@ -129,6 +129,8 @@ export const ERROR_CODES = [
   'ai_approval_forbidden',
   'not_a_recipient',
   // AI work: admission, task starts, schedules and sessions
+  'engine_not_found',
+  'engine_revoked',
   'ai_disabled',
   'ai_limit_reached',
   'plan_usage_paused',

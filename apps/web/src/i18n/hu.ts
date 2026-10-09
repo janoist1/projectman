@@ -638,6 +638,7 @@ export const hu = {
     /** `owner_login_required` with its category named (PM-418). */
     ownerLoginRequiredIn: 'Ezt csak a tulajdonos teheti meg, a saját bejelentkezésével: {what}.',
     ownerLoginRequiredCategory: {
+      engines: 'motorok és gépkulcsok kezelése',
       approval_rules: 'jóváhagyó címke vagy kapu szabálya',
       owner_settings: 'tulajdonosi beállítás',
       members: 'tagok kezelése; a kulcs csak szabadságra küldhet és visszahívhat',
@@ -650,6 +651,8 @@ export const hu = {
     code: 'Hibakód: {code}',
     /** Stable error codes from the server (ApiError.code and websocket error events). */
     codes: {
+      engine_not_found: 'Nincs ilyen motor.',
+      engine_revoked: 'Ezt a motort visszavonták.',
       subtask_self_parent: 'A feladat nem lehet saját maga alfeladata.',
       subtask_parent_not_found: 'A szülőfeladat nem található.',
       subtask_parent_project: 'A szülőfeladatnak ugyanebben a projektben kell lennie.',

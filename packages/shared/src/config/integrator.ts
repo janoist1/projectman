@@ -6,7 +6,13 @@ import { DEFAULT_MAX_FIX_ROUNDS } from './schema';
 import type { ProjectConfig } from './schema';
 
 /** What the integrator key may not change (PM-418), in the order integratorConfigRefusal checks them. */
-export const IntegratorRefusal = z.enum(['approval_rules', 'owner_settings', 'members', 'invitations']);
+export const IntegratorRefusal = z.enum([
+  'approval_rules',
+  'owner_settings',
+  'members',
+  'invitations',
+  'engines',
+]);
 export type IntegratorRefusal = z.infer<typeof IntegratorRefusal>;
 
 /**

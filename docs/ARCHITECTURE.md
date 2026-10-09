@@ -930,6 +930,40 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
+  `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
+  Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
+  its SHA-256 hash and display prefix. Human cookies and integrator keys do not authenticate this
+  socket; machine keys grant no human API access. The method table is the sole RPC gateway,
+  validated in both directions and tied to the engine contracts, including the PM-312 disk operations.
+  File export forwards `exactRoot` when the caller requires a root without symbolic links.
+  Events are acknowledged after handling, and engine-scoped request
+  results survive reconnects for five minutes in memory. `secret.nanogpt_key` is never cached or
+  logged; the starting-session condition is enforced by the PM-315 handler, unavailable by default.
+  `bootId` identifies a process start; `instanceTag` still identifies the engine home. Disconnects
+  immediately remove the live link, but status stays online for 120 seconds. Registry and key
+  management run only in cloud engine mode; single mode exposes an empty status list.
+  **Remote engine:** the socket, event buffer and method dispatch run on the engine beside its
+  CLIs and files; the registry, auth, idempotency store and human websocket broadcasts stay in the
+  cloud. Non-JSON/large data uses purpose-scoped uploads (PM-315), with only a hash and size in
+  RPC results. `PROJECTMAN_VERSION` overrides the version on both hosts; otherwise
+  `resolveAppVersion` reads the installation checkout's git HEAD, falling back to `dev`.
+  The override must match `[A-Za-z0-9._+-]{1,64}`. This assumes a git checkout when no override is
+  supplied; packaged cloud and engine builds should set the same version explicitly.
+  Existing inventory boundaries use these groups:
+  - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
+  - Codex project layer inspection: `session.assert_workspace_config`.
+  - NanoGPT secret delivery: `secret.nanogpt_key`; the secret store and HTTP usage remain in cloud.
+  - Dependencies and task/member workspaces: `worktree.*`, `workspace.*` (including uploaded bundles).
+  - Session output folders: `folders.*`; canonical paths and preparation: `host.*`.
+  - Screenshots, scenario paths and image lists: `screenshots.*`, `files.resolve_scenario`, `files.list_images`.
+  - Attachments: `files.export`, `files.materialize`; transcripts/resume: `transcript.*`.
+  - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
+  - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
+  - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
+  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
+  - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
+
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
@@ -949,7 +983,7 @@ workers follow the machine's size.
   nearest ancestor with a `.git` entry. Member starts and resumes allow only `config.toml`
   with model and project-document roots; confined reads reject links and nonregular files.
   Preflight runs before session rows/folders, and the adapter checks again before launch.
-  **Remote engine:** run both inspections beside the CLI on the engine. The domain preflight
+  **Remote engine:** use `session.assert_workspace_config` (PM-313) and run both inspections beside the CLI on the engine. The domain preflight
   becomes a server/engine call; return relative file names and key names only, never values.
   Today the server and CLI share the filesystem. NanoGPT retains its separate `any` rule.
 
@@ -959,7 +993,8 @@ workers follow the machine's size.
   `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
-  Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** the CLI,
+  Codex home. Managed VM execution is refused pending PM-331. **Remote engine:** use `session.start`,
+  `provider.status` and `secret.nanogpt_key` (PM-313); the CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
   CLI share a machine and filesystem. A remote engine performs local version and auth-file
@@ -1020,7 +1055,8 @@ workers follow the machine's size.
   The server stores the installation key under `PROJECTMAN_HOME/secrets/nanogpt.json`,
   with POSIX directory/file modes 0700/0600 and an atomic same-directory rename. Only an
   owner of every project may change it. Save-time checking needs outbound HTTPS to NanoGPT.
-  **Remote engine:** storage and validation remain on the server; this card does not send
+  **Remote engine:** delivery uses `secret.nanogpt_key` (PM-313), with the starting-session guard in PM-315;
+  storage and validation remain on the server; this card does not send
   the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
   server/engine boundary, without configuration, database or logging persistence on either side.
 
@@ -1064,7 +1100,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   during selection and immediately before every copy, rename and removal, including rollback
   and cleanup. Symlinked workspace paths skip the clone as unsupported. Node has no `openat`,
   so a small check-to-operation race remains; checks never deliberately traverse a replaced parent.
-  **Remote engine:** find reference checkouts and probe the filesystem on the engine;
+  **Remote engine:** use `worktree.refreshDependencies` (PM-313), find reference checkouts and probe the filesystem on the engine;
   retain the existing skip/install fallback on other platforms. The server's installation
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
@@ -1122,7 +1158,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   sandbox `allowRead`; it writes only its own folder. A resumed session gets a new folder, and its
   system prompt says that the old paths are gone and the card's attachments stay. Another
   instance's root (another home hash) gets no rule.
-  **Remote engine:** allocate and clean up on the executing host, generate its sandbox paths
+  **Remote engine:** use `folders.*`, `files.export` and `files.materialize` (PM-313), allocate and clean up on the executing host, generate its sandbox paths
   there, and transfer output through an authenticated attachment path rather than reading a
   remote absolute path on the server. The root is a property of the engine (the PM-312 host's
   file system), not of the server; the policy carries the two paths to the host that runs the
@@ -1152,7 +1188,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   managed VM profile and off macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
-  **Remote engine:** provision a compatible browser on the engine, preserve the disposable
+  **Remote engine:** use `screenshots.run/cancel`, `files.resolve_scenario` and `files.list_images` (PM-313), provision a compatible browser on the engine, preserve the disposable
   instance's network fence and read-only browser access, and return images as artifacts. The
   screenshot run belongs on the engine that owns the member's worktree and session folder (the
   server cannot run it against a remote path); the server keeps only the tool and the run record.
@@ -1162,7 +1198,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
   ownership checks and signals use its UID and PID namespace, with process start times
-  checked against PID reuse. **Remote engine:** measure and stop on the owning engine,
+  checked against PID reuse. **Remote engine:** use `machine.snapshot/processes/env_values/signal` (PM-313), measure and stop on the owning engine,
   identify the engine with every process identity, and preserve fresh ownership/orphan
   checks and owner access. A remote PID must never be signalled on the server.
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
@@ -1175,7 +1211,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
   SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
   In local mode stopping the CLI does not itself prove that detached children are gone.
-  **Remote engine:** execute stop/kill on the engine owning that process, return its exit
+  **Remote engine:** use `session.stop` and runner exit events (PM-313), execute stop/kill on the engine owning that process, return its exit
   acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
   is not evidence that a remote session has stopped.
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
@@ -1191,7 +1227,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   handed over without a note, the server reads the old transcript for the CLI's compaction
   summary plus the last replies (at most `HANDOFF_SUMMARY_MAX` = 8000 characters) and puts it in
   the new conversation's first message.
-  **Remote engine:** keep CLI conversation state and resume checks on its engine/account,
+  **Remote engine:** use `transcript.has_content/read/summary` and runner events (PM-313), keep CLI conversation state and resume checks on its engine/account,
   stream conversation events to the server, and preserve confinement. A conversation ID
   without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
   next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
@@ -1205,7 +1241,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
-  **Remote engine:** plan an authenticated engine transport/local relay for hooks, decisions
+  **Remote engine:** use `permission.decide/cancel/forward_question`, `refused` events and `mcp.relay` (PM-313), plan an authenticated engine transport/local relay for hooks, decisions
   and MCP while preserving token isolation and the internal endpoint guard.
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
@@ -1215,7 +1251,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   operations. PM-368's `domain/messaging/{messaging,delivery}.ts` also uses
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `domain/handoffs.ts` uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
-  **Remote engine:** run this git query beside the worktrees and return the attributed branch head
+  **Remote engine:** use `worktree.*` and `workspace.*`, including `workspace.export_branch` (PM-313), run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
   as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
@@ -1224,7 +1260,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
   `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
-  hosts or even every local worktree volume. **Remote engine:** report capacity for the
+  hosts or even every local worktree volume. **Remote engine:** use `host.free_disk` (PM-313), report capacity for the
   engine's execution/storage volumes and plan admission against those as well as server
   storage; keep unavailable measurements distinct from low capacity.
   Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
@@ -1235,7 +1271,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
-  **Remote engine:** keep the administrative socket local, propagate pause/stop to engines
+  **Remote engine:** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
@@ -1279,7 +1315,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   only its `packages/standalone` installation ancestor read-only beneath a denied path,
   provided that ancestor contains no denied path. Unknown layouts stay closed.
   macOS MDM-managed Codex preferences are not inspected yet (PM-375).
-  **Remote engine:** build the policy from its filesystem and supported OS/provider
+  **Remote engine:** use `session.start`, `session.assert_workspace_config` and `host.*` (PM-313), build the policy from its filesystem and supported OS/provider
   enforcement, preserve protected paths and fail closed where required; do not copy Mac
   path grants or infer Codex permissions from Claude syntax. The outbound network intent
   (`SessionPolicy.network.outbound`) is abstract: the remote engine enforces it with its own
@@ -1303,13 +1339,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Token counts come from the running CLI's transcript/hook data. Claude plan usage probes
   the locally logged-in CLI without a conversation; Codex reads local rollout rate-limit
   events. These observe the local account, not an arbitrary remote sponsor.
-  **Remote engine:** obtain usage where that sponsor's CLI is logged in and send attributed,
+  **Remote engine:** use `usage.plan` and `provider.status` (PM-313), obtain usage where that sponsor's CLI is logged in and send attributed,
   timestamped measurements; leave credentials there and retain subscription-only execution.
 - **Claude workspace trust** — `runner/providers/claude/trust.ts`,
   `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
   in `~/.claude.json` (or the configured Claude config directory); the managed launcher
   helper does so as the worker, for that worker's home and local repository path.
-  **Remote engine:** prepare trust on the engine as the executing account, for the actual
+  **Remote engine:** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
 - **Server full test before review** — `domain/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
@@ -1319,7 +1355,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   it is unavailable without macOS/`srt` and is off in the managed VM profile. Its sandbox
   (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
-  **Remote engine:** plan where the pinned commit and dependencies are tested, equivalent
+  **Remote engine:** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
   isolation and resource queuing there, and transport of the attributed verdict/cancellation.
   An unavailable executor must not become a passing verdict.
   Since PM-311 the executor is the `EngineHost.fullTestExecutor` of the card's engine, with that

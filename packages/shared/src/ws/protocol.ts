@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EngineStatusView } from '../domain/engine';
 import { MemberView, PlanUsage } from '../api/dto';
 import { ChatItem } from '../chat/chat';
 import { TimelineEvent } from '../domain/event';
@@ -11,6 +12,7 @@ import { Task, TaskKey } from '../domain/task';
 
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
   z.object({ type: z.literal('timeline_appended'), projectKey: z.string(), event: TimelineEvent }),

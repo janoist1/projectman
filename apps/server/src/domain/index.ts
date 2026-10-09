@@ -11,6 +11,8 @@ import {
   seniorWaitMinutesOf,
   stageOf,
 } from '@projectman/shared';
+export { EngineRegistry, machineKeyHash } from './engine-registry';
+export type { EngineHelloMetadata } from './engine-registry';
 import type { ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';

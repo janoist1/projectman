@@ -1,4 +1,6 @@
 import { createAttachmentRepository } from './attachments';
+import { createEngineRepository } from './engines';
+export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createBoundaryRepository } from './boundary';
 import { createEgressRepository } from './egress';
@@ -49,6 +51,7 @@ export { encodeWorkItem, decodeWorkItem } from './sessions';
 export function createRepositories(db: Db) {
   return {
     db,
+    engines: createEngineRepository(db),
     users: createUserRepository(db),
     integratorKeys: createIntegratorKeyRepository(db),
     invitations: createInvitationRepository(db),

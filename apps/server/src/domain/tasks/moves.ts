@@ -2,6 +2,7 @@ import {
   actorMoveRefusal,
   boardColumnOf,
   evaluateMove,
+  fixLimitDecisionOf,
   gateRequestOf,
   cardMoverHandle,
   handOnDecision,
@@ -672,6 +673,7 @@ export class TaskMoves {
       state: 'open',
       taskKey: task.key,
     })) {
+      if (fixLimitDecisionOf(item)) continue;
       this.inbox.cancel(item.id);
     }
     const change: StageChange = {

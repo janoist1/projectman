@@ -11,6 +11,11 @@
   min-width: 0;
 }
 
+/* An outage (PM-468): the orange stripe of what stops the work. */
+.card[data-alert='work_outage'] {
+  box-shadow: inset 3px 0 0 var(--c-needs);
+}
+
 .compact {
   padding: 13px 14px;
   gap: 8px;

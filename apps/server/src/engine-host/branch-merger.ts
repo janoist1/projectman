@@ -406,6 +406,10 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       const holderInfo = await lstat(holder).catch(() => null);
       // The merged tree may not have that directory any more, or may track something of that name.
       if (!holderInfo || !holderInfo.isDirectory() || holderInfo.isSymbolicLink()) continue;
+      // The merged tree is the card's: a tracked link on any part of the path (`apps -> /elsewhere`) would
+      // lead the copy out of the check worktree. `target` is already a real path, so the real holder must
+      // be exactly where the path says.
+      if ((await realpath(holder).catch(() => null)) !== holder) continue;
       const dest = path.join(holder, 'node_modules');
       if (await lstat(dest).catch(() => null)) continue;
       const remaining = deadline - Date.now();

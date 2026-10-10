@@ -162,6 +162,28 @@ export type MergePushResult =
 export type MergeAdvanceResult =
   { ok: true } | { ok: false; reason: 'checkout_in_the_way' | 'moved'; message: string; paths: string[] };
 
+export const MERGE_ERROR_CODES = [
+  'invalid_input',
+  'unknown_object',
+  'no_remote',
+  'no_identity',
+  'git_failed',
+] as const;
+export type MergeErrorCode = (typeof MERGE_ERROR_CODES)[number];
+
+/**
+ * An error of a merge call that is the caller's to read (`message` is safe to show). The same class
+ * comes out of a local merger and out of a remote engine's proxy.
+ */
+export class MergeError extends Error {
+  readonly code: MergeErrorCode;
+  constructor(code: MergeErrorCode, message: string) {
+    super(message);
+    this.name = 'MergeError';
+    this.code = code;
+  }
+}
+
 /**
  * The git work of merging a card's approved commit into the repository's default branch and sending it
  * up (PM-448). It runs on the engine, where the repository and the machine's git identity are; the

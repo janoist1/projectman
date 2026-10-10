@@ -15,6 +15,7 @@ import type {
   ScreenshotRunSpec,
   StartSessionSpec,
 } from '../../contracts';
+import { MergeError } from '../../contracts';
 import type { EngineEvent } from '../protocol';
 import { createCloudRemote } from './index';
 import type { CloudDomain, CloudRemote } from './index';
@@ -549,12 +550,14 @@ describe('cloud mode remote parts', () => {
         reason: 'non_fast_forward',
         message: 'fetch first',
       });
-      await expect(merger.build(ref, { onto: sha, commit: sha, message: 'Merge' })).rejects.toMatchObject({
-        code: 'no_identity',
-      });
-      await expect(merger.advance(ref, { base: 'main', from: sha, to: sha })).rejects.toMatchObject({
-        code: 'merge_not_allowed',
-      });
+      // The engine's MergeError comes out as a MergeError, like a local merger's.
+      const built = await merger.build(ref, { onto: sha, commit: sha, message: 'Merge' }).catch((e) => e);
+      expect(built).toBeInstanceOf(MergeError);
+      expect(built).toMatchObject({ code: 'no_identity', message: 'no identity' });
+      // A refusal of the link stays a call error with its link code.
+      const refused = await merger.advance(ref, { base: 'main', from: sha, to: sha }).catch((e) => e);
+      expect(refused).not.toBeInstanceOf(MergeError);
+      expect(refused).toMatchObject({ code: 'merge_not_allowed' });
     });
 
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {

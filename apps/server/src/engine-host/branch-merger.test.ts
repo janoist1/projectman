@@ -4,6 +4,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -320,6 +321,27 @@ describe('checkoutForCheck and releaseCheck', () => {
     expect(existsSync(expected)).toBe(false);
     expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain('mrg_first0001');
     await merger.releaseCheck(REF, { mergeId: 'mrg_first0001' }); // releasing again is fine
+  });
+
+  it('does not copy dependencies through a link the merged tree tracks, out of the checkout', async () => {
+    const { merger, repo } = fixture({ withRemote: false });
+    const outside = path.join(root, `outside-${counter}`);
+    mkdirSync(path.join(outside, 'app'), { recursive: true });
+    symlinkSync(outside, path.join(repo, 'packages'));
+    mkdirSync(path.join(repo, 'web'), { recursive: true });
+    symlinkSync(path.join(outside, 'app'), path.join(repo, 'web', 'node_modules'));
+    const tracked = commit(repo, 'track links');
+    const deps = path.join(root, `deps-link-${counter}`);
+    mkdirSync(path.join(deps, 'packages', 'app', 'node_modules', 'pkg'), { recursive: true });
+    mkdirSync(path.join(deps, 'web', 'node_modules', 'pkg'), { recursive: true });
+    const made = await merger.checkoutForCheck(REF, {
+      mergeId: 'mrg_escape001',
+      mergeCommit: tracked,
+      depsFrom: deps,
+    });
+    expect(readdirSync(path.join(outside, 'app'))).toEqual([]);
+    expect(lstatSync(path.join(made.path, 'web', 'node_modules')).isSymbolicLink()).toBe(true);
+    await merger.releaseCheck(REF, { mergeId: 'mrg_escape001' });
   });
 
   it('remakes a leftover of an earlier try with the same id', async () => {

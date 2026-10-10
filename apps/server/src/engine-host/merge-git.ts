@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { MergeError } from '../contracts';
 import { BILLING_ENV_VARS } from '../runner/env';
 
 /**
@@ -95,15 +96,7 @@ export function runGit(
   });
 }
 
-/** An error of a merge call that is the caller's to read (`message` is safe to show). */
-export class MergeError extends Error {
-  readonly code: 'invalid_input' | 'unknown_object' | 'no_remote' | 'no_identity' | 'git_failed';
-  constructor(code: MergeError['code'], message: string) {
-    super(message);
-    this.name = 'MergeError';
-    this.code = code;
-  }
-}
+export { MergeError };
 
 /** The end of a git output, at most `max` characters, without credentials. */
 export function outputTail(text: string, max = 2000): string {

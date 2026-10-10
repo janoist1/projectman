@@ -55,6 +55,7 @@ import { useDrawerBase, withQueryParam } from './drawerBase';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
 import { SignalBox } from './SignalBox';
+import { WhyBox } from './WhyBox';
 import { primarySession } from './taskModel';
 import { useBoardModel } from './useBoardModel';
 import { useCanAttach, useUploadQueue } from './attachmentUploads';
@@ -315,7 +316,11 @@ export function TaskDrawer() {
   }, [thread]);
 
   const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
-  const myItems = openItemsFor(inbox.data?.items, myHandle).filter((item) => item.taskKey === taskKey);
+  // The "Miért áll?" box carries the button of the viewer's hand-on item (PM-461): no card of it as well.
+  const handOnId = entry?.state.next?.you ? entry.state.wait?.inboxItemId : null;
+  const myItems = openItemsFor(inbox.data?.items, myHandle).filter(
+    (item) => item.taskKey === taskKey && !(item.kind === 'hand_on' && item.id === handOnId),
+  );
 
   const body = (() => {
     // Until there is a head, the close button stands alone above the state: behind the large window
@@ -394,6 +399,16 @@ export function TaskDrawer() {
     // a group keeps its place under the scroll box, so what is typed in it is not lost.
     const signals = (
       <div key="signals" className={styles.group} hidden={thread}>
+        {entry && !theme ? (
+          <WhyBox
+            task={task}
+            state={entry.state}
+            pipeline={pipeline}
+            members={members}
+            labels={labels}
+            inboxItems={inbox.data?.items}
+          />
+        ) : null}
         <SignalBox
           task={task}
           members={members}
@@ -432,21 +447,27 @@ export function TaskDrawer() {
         ) : null}
       </div>
     );
+    const boxShown = !!entry && !theme && !!entry.state.next;
+    const loginCommand =
+      task.startWaiting?.reason === 'provider_not_logged_in' && task.startWaiting.provider !== 'nanogpt'
+        ? t(`providerSettings.loginCommands.${task.startWaiting.provider ?? 'claude'}`)
+        : null;
     const side = (
       <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
         {task.outage ? (
           // The card stands on an outage (PM-468), a start or a continuation: the header says why, this what to do.
+          // The state has no `next` then, so the "Miért áll?" box is not shown beside it.
           <div className={drawer.section} data-testid="drawer-outage">
             <OutageTodoBox outage={task.outage} projectKey={key} />
           </div>
-        ) : task.startWaiting ? (
+        ) : task.startWaiting && (!boxShown || loginCommand) ? (
           <p className={drawer.section}>
-            {startWaitingHint(task, members, myHandle)}
-            {task.startWaiting.reason === 'provider_not_logged_in' &&
-            task.startWaiting.provider !== 'nanogpt' ? (
+            {/* The "Miért áll?" box already says the hint as its "Mit kell tenni" row. */}
+            {boxShown ? null : startWaitingHint(task, members, myHandle)}
+            {loginCommand ? (
               <>
-                {' '}
-                <code>{t(`providerSettings.loginCommands.${task.startWaiting.provider ?? 'claude'}`)}</code>
+                {boxShown ? null : ' '}
+                <code>{loginCommand}</code>
               </>
             ) : null}
           </p>

@@ -17,6 +17,7 @@ import { prChip } from './cardModel';
 import { CardSizeToggle, useCardLink } from './cardSize';
 import { useDrawerBase } from './drawerBase';
 import type { CardSize } from './cardSize';
+import { NextLine } from './NextLine';
 import { TaskTitle } from './TaskEdit';
 import { RefinementRow } from './RefinementRow';
 import { TaskLifecycleMenu } from './TaskLifecycle';
@@ -100,6 +101,11 @@ export function TaskHeader({
       ? `${column.name} · ${stage.name}`
       : (stage?.name ?? task.stageId);
   const pr = prChip(task);
+  const stageChipLabel = t('task.stageChip', {
+    stage: stageLabel,
+    index: position.index,
+    total: position.total,
+  });
   const prBadge = pr ? (
     <Chip tone="neutral" size="md" icon={pr.merged ? 'prMerged' : 'prOpen'}>
       {pr.label}
@@ -113,8 +119,15 @@ export function TaskHeader({
         </Link>
       ) : null}
       <div className={styles.chips}>
-        <Chip tone="column" data-column-color={column?.color} size="md">
-          {t('task.stageChip', { stage: stageLabel, index: position.index, total: position.total })}
+        <Chip
+          tone="column"
+          data-column-color={column?.color}
+          size="md"
+          className={styles.stageChip}
+          title={stageChipLabel}
+          aria-label={stageChipLabel}
+        >
+          {stageChipLabel}
         </Chip>
         {pr?.href ? (
           <a href={pr.href} target="_blank" rel="noreferrer noopener" className={styles.prLink}>
@@ -149,6 +162,9 @@ export function TaskHeader({
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
           {state.workers[0]?.doing ? (
             <WorkerText worker={state.workers[0]} />
+          ) : state.next ? (
+            // The same "{ki} · {mire vár}" row as on the card; the box under the header says the rest.
+            <NextLine next={state.next} className={styles.nowText} wrap />
           ) : (
             <span className={styles.nowText}>{state.label}</span>
           )}

@@ -63,14 +63,14 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           sponsor: input.owner.handle,
           onLeave: true,
         },
-        // Every project has an Operator (PM-447); on leave for the same reason.
+        // Every project has an Operator (PM-447). It cannot go on leave (PM-473); only the owner's own
+        // message wakes it, so it starts no session unless a test sends one.
         {
           kind: 'ai',
           handle: 'operator',
           displayName: 'Operator',
           role: 'ai_operator',
           sponsor: input.owner.handle,
-          onLeave: true,
         },
       ],
       limits: { maxConcurrentAi: 3, pauseAbovePlanUsagePercent: 80 },

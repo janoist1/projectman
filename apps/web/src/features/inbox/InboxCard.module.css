@@ -226,3 +226,23 @@
   min-height: 40px;
   align-self: flex-start;
 }
+
+/* Why the last answer was refused (PM-461): under the buttons. */
+.error {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-blocked-text);
+}
+
+/* "Vidd tovább" and "Megnyitom": stacked and full width on the phone. */
+.mobile .handOnActions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.mobile .handOnActions > * {
+  flex: none;
+  width: 100%;
+  min-height: 44px;
+}

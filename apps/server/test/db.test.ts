@@ -9,11 +9,11 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
-describe('merge migration 47', () => {
+describe('merge migration 48', () => {
   it('backfills persistent handovers from review pins and allows only one open merge per card', () => {
     const db = new Database(':memory:');
     try {
-      const prior = migrations.filter((item) => item.version < 47);
+      const prior = migrations.filter((item) => item.version < 48);
       for (const migration of prior) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
       const old = createRepositories(db);
@@ -35,7 +35,7 @@ describe('merge migration 47', () => {
         now,
         'dev-1',
       );
-      expect(migrate(db)).toBe(47);
+      expect(migrate(db)).toBe(48);
       const repos = createRepositories(db);
       expect(repos.taskHandovers.get('AR', 'AR-1')).toEqual({ commit: 'approved', branch: 'task/AR-1' });
       repos.reviewPins.clear('AR-1');

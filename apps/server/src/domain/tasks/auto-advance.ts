@@ -80,7 +80,9 @@ export class AutoAdvance {
       return;
     if (this.rejected(task, advance.to.id)) return;
     try {
-      await this.tasks.moveToStage(projectKey, taskKey, advance.to.id, SYSTEM_ACTOR);
+      await this.tasks.moveToStage(projectKey, taskKey, advance.to.id, SYSTEM_ACTOR, {
+        expectedFrom: { stageId: task.stageId, stageEnteredAt: task.stageEnteredAt },
+      });
     } catch (err) {
       // Nobody may give the approval, the head of the branch is not committed, a gate changed under us:
       // nothing to do for the system; the card shows why it waits.

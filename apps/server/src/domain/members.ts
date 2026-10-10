@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
   holdersAllow,
+  isOperator,
   isRequiredOperator,
   isRequiredProjectManager,
   isSenior,
@@ -490,10 +491,7 @@ export class MemberService {
       );
     }
     if (isRequiredOperator(config, handle)) {
-      throw conflict(
-        'operator_required',
-        'the only Operator cannot be retired; send it on leave instead, or hire another one first',
-      );
+      throw conflict('operator_required', 'the Operator cannot be retired');
     }
     const handoverTo = opts.handoverTo ?? null;
     if (handoverTo !== null) {
@@ -533,6 +531,16 @@ export class MemberService {
       // Sponsors and explicit gate approvers must be reassigned before removal.
       for (const stage of draft.pipeline.stages) {
         if (stage.owners) stage.owners = stage.owners.filter((h) => h !== handle);
+      }
+      // The Operator is fixed (PM-473) and cannot be handed to anyone by the owner afterwards: its
+      // sponsor goes to the first owner left, in the same commit.
+      const sponsored = draft.team.members.filter(
+        (m): m is AiMemberConfig => isOperator(m) && m.kind === 'ai' && m.sponsor === handle,
+      );
+      const heir = draft.team.members.find((m) => m.kind === 'human' && m.access === 'owner');
+      if (sponsored.length && heir) {
+        for (const operator of sponsored) operator.sponsor = heir.handle;
+        return `Remove human member ${handle}; the Operator is now sponsored by ${heir.handle}`;
       }
       return `Remove human member ${handle}`;
     });

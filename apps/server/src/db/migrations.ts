@@ -855,7 +855,7 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
             );`,
   },
   {
-    version: 47,
+    version: 48,
     name: 'member merges and persistent handovers',
     sql: `CREATE TABLE task_merges (
       id TEXT PRIMARY KEY, project_key TEXT NOT NULL, task_key TEXT NOT NULL,

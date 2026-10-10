@@ -7,6 +7,7 @@ import {
   integratorConfigRefusal,
   isTheme,
   memberOf,
+  operatorFixedChange,
   ownerOnlyChanges,
   unknownPatchRepo,
   validateProjectConfig,
@@ -31,6 +32,18 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired } from './errors';
 import type { TimelineService } from './timeline';
 import { humanActor, KeyedMutex } from './util';
+
+/** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
+function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {
+  const fixed = operatorFixedChange(previous, next);
+  if (fixed) {
+    throw conflict(
+      'operator_fixed',
+      'the Operator is fixed: only its model, provider and effort can change',
+      fixed,
+    );
+  }
+}
 
 export interface LoadedProject {
   config: ProjectConfig;
@@ -249,6 +262,7 @@ export class ProjectService {
       if (validateProjectConfig(config).some((issue) => issue.code === 'duplicate_repo')) {
         throw invalid('duplicate_repo', 'repository names must be unique');
       }
+      assertOperatorFixed(null, config);
       if (projectAccessFor(config, creator.email)?.access !== 'owner') {
         throw new DomainError('invalid_config', 'template did not make the creator an owner', {
           status: 422,
@@ -444,6 +458,7 @@ export class ProjectService {
     } else {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
+    assertOperatorFixed(previous, next);
     if (meta.actor.via === 'integrator') {
       const refusal = integratorConfigRefusal(previous, next);
       if (refusal) throw ownerLoginRequired(refusal);

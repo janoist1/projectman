@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { routes } from '@projectman/shared';
+import { isOperator, routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
 import { HARD_DENIED_HOSTS, SANDBOX_DENIED_ENV_VARS, SANDBOX_PTY_ENV, sensitivePaths } from '../src/domain';
@@ -38,7 +38,8 @@ it(
     const author = { actor: { kind: 'human' as const, handle: 'owner' }, author: OWNER_LOGIN };
     await domain.projects.update('AR', author, (config) => {
       for (const member of config.team.members) {
-        if (member.kind !== 'ai') continue;
+        // The Operator is fixed (PM-473): its permission mode is not for a test to change.
+        if (member.kind !== 'ai' || isOperator(member)) continue;
         member.permissionMode = 'auto';
         member.approver = 'none';
         // PM-355: the network is on by default; the reader has it switched off, to see both shapes.

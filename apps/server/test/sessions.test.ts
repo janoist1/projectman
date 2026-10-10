@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isOperator } from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
 import {
@@ -411,7 +412,8 @@ describe('session orchestrator', () => {
   it('runs readers in their own mode, Auto too, in the read-only sandbox, chats included (PM-167)', async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       for (const member of draft.team.members) {
-        if (member.kind !== 'ai') continue;
+        // The Operator is fixed (PM-473): its permission mode is not for a test to change.
+        if (member.kind !== 'ai' || isOperator(member)) continue;
         member.permissionMode = 'auto';
         member.approver = 'none';
       }

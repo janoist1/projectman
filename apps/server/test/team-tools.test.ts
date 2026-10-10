@@ -38,10 +38,10 @@ describe('team tools', () => {
   it('send_message delivers to the recipient session for the task without waiting for it', async () => {
     const result = await h.domain.teamTools.sendMessage(dev, {
       kind: 'action',
-      to: ['cr', 'owner', 'dev-1'],
+      to: ['cr', 'dev-1'],
       text: 'Ready for review',
     });
-    expect(result.deliveredTo).toEqual(['cr', 'owner']);
+    expect(result.deliveredTo).toEqual(['cr']);
     await flush();
 
     const crSession = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
@@ -52,7 +52,7 @@ describe('team tools', () => {
     );
     expect(h.runner.messages.filter((m) => m.sessionId === crSession.id)).toEqual([]);
     const stored = h.repos.messages.get(result.messageId)!;
-    expect(stored).toMatchObject({ from: 'dev-1', to: ['cr', 'owner'], taskKey: 'AR-1' });
+    expect(stored).toMatchObject({ from: 'dev-1', to: ['cr'], taskKey: 'AR-1' });
     expect(stored.deliveredAt).not.toBeNull();
 
     expect(
@@ -65,19 +65,37 @@ describe('team tools', () => {
     ).toBe('invalid');
   });
 
+  it('send_message refuses an action for a person, alone or with AI members, and sends nothing (PM-445)', async () => {
+    for (const to of [['owner'], ['cr', 'owner']]) {
+      const err = await toolError(
+        h.domain.teamTools.sendMessage(dev, { kind: 'action', to, text: 'Please decide' }),
+      );
+      expect(err.code).toBe('invalid');
+      expect(err.message).toContain('ask_human');
+    }
+    expect(h.repos.messages.list('AR').filter((m) => m.body === 'Please decide')).toEqual([]);
+    expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toEqual([]);
+    // Information for a person and an action for an AI member go through as before.
+    await h.domain.teamTools.sendMessage(dev, { kind: 'info', to: ['owner'], text: 'FYI' });
+    await h.domain.teamTools.sendMessage(dev, { kind: 'action', to: ['cr'], text: 'Please review' });
+  });
+
   describe('what send_message says per recipient (PM-144)', () => {
     const task = { type: 'task', taskKey: 'AR-1' } as const;
     const send = (to: string[]) =>
       h.domain.teamTools.sendMessage(dev, { kind: 'action', to, text: 'Please take a look' });
+    // A message to a person carries information only (PM-445).
+    const inform = (to: string[]) =>
+      h.domain.teamTools.sendMessage(dev, { kind: 'info', to, text: 'For your information' });
 
     it('says typed_now for an idle session, after_turn for one in a turn, wake without a session, inbox for a person', async () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
       h.runner.setState(session.id, 'idle');
-      expect((await send(['dev-2', 'owner', 'cr'])).recipients).toEqual([
+      expect((await send(['dev-2', 'cr'])).recipients).toEqual([
         { handle: 'dev-2', delivery: 'typed_now' },
-        { handle: 'owner', delivery: 'inbox' },
         { handle: 'cr', delivery: 'wake' },
       ]);
+      expect((await inform(['owner'])).recipients).toEqual([{ handle: 'owner', delivery: 'inbox' }]);
       await flush();
       for (const state of ['working', 'waiting_permission'] as const) {
         h.runner.setState(session.id, state);
@@ -107,7 +125,7 @@ describe('team tools', () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
       // The fake runner types at once; a session that waits for its restart keeps the message.
       h.repos.sessions.update(session.id, { permissionRestartPending: true });
-      const { messageId } = await send(['dev-2', 'owner']);
+      const { messageId } = await send(['dev-2']);
       expect((await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).pendingSentMessages).toEqual([
         { messageId, handles: ['dev-2'] },
       ]);

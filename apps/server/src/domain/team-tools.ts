@@ -376,7 +376,15 @@ export class TeamToolsService implements TeamToolsHandler {
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      const config = await this.caller(ctx);
+      // A person's decision or action is asked with ask_human, which lands in their "Rád vár" list; a message
+      // to a person carries information only (PM-445). The whole call is refused, so no half message goes out.
+      if (args.kind === 'action' && args.to.some((handle) => memberOf(config, handle)?.kind === 'human')) {
+        throw new TeamToolError(
+          'invalid',
+          'use_ask_human: a human\'s decision or action is asked with ask_human; send_message to a human carries information only (kind "info"). Nothing was sent: ask the human with ask_human, and message AI members separately.',
+        );
+      }
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       // Humans have it in their messages now; AI recipients get it typed into their session
       // for the work item as soon as that session is idle (queued, never awaited here).

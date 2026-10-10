@@ -193,6 +193,45 @@ export function evaluateStart(
   return evaluateGates(task, config.pipeline.stages.slice(from, to + 1), config, { forward: true });
 }
 
+/**
+ * What the card does next on its own (PM-445): the next stage, entered because every condition of its
+ * gate holds (`move`), or because only approvals only a person may give are missing (`approve`: the
+ * system asks for them in the inbox).
+ */
+export type StageAdvance =
+  { kind: 'move'; to: Stage } | { kind: 'approve'; to: Stage; approvals: ApprovalRequirement[] };
+
+/**
+ * The rule of a card that goes on by itself (PM-445). Only a card in a `step` or `release` stage does,
+ * because there the result of the stage is a label: the gate of the next stage then says the stage is done.
+ * A `work` stage never goes on by itself (its gate does not say the work is finished: the developer hands
+ * it over), nor does a queue, a card never goes on by itself into a work stage (that starts the work), and a
+ * next stage with no gate has no result to wait for. Null when a
+ * condition other than a human approval is unmet, a blocking label holds the card, or there is no next stage.
+ * Whether somebody works on the card, or it is held in another way, is the caller's to check.
+ */
+export function stageAdvance(
+  task: GateTask & Pick<Task, 'stageId'>,
+  config: GateConfig,
+): StageAdvance | null {
+  const stages = config.pipeline.stages;
+  const from = stages[stageIndex(config.pipeline, task.stageId)];
+  const to = from ? stages[stageIndex(config.pipeline, from.id) + 1] : undefined;
+  if (!from || !to || (from.kind !== 'step' && from.kind !== 'release')) return null;
+  // Entering a work stage starts the work: that is the refinement's and the people's to decide.
+  if (to.kind === 'work') return null;
+  // The result of the stage must be a label this card is to get: a `has_label` condition that binds it.
+  const resultLabel = (to.gate?.conditions ?? []).some(
+    (c) => c.type === 'has_label' && (c.when === undefined || task.labels.includes(c.when)),
+  );
+  if (!resultLabel) return null;
+  const evaluation = evaluateMove(task, config, from.id, to.id);
+  if (evaluation.unmet.length > 0) return null;
+  return evaluation.approvals.length > 0
+    ? { kind: 'approve', to, approvals: evaluation.approvals }
+    : { kind: 'move', to };
+}
+
 /** Gates of a move from one stage to another; forward moves also respect blocking labels. */
 export function evaluateMove(
   task: GateTask,

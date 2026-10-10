@@ -1,7 +1,7 @@
 import { CODEX_PERMISSION_PROFILE_MIN_VERSION } from '@projectman/shared';
 import type { InboxItem, MemberView, Stage, Task, WorkDoing } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { t } from '../i18n/t';
+import { joinAlternatives, t } from '../i18n/t';
 import { formatStamp } from '../i18n/format';
 import { buildConfig, tasks } from '../mocks/fixtures';
 import { mockIndexes } from '../test/render';
@@ -515,10 +515,104 @@ describe('a card that cannot be started yet (PM-291)', () => {
       expect(state.startBlock).toMatchObject({ kind: 'approval', label: 'approved' });
     });
 
-    it('only names what it waits for when the viewer is not one of them', () => {
-      const state = deriveTaskState(queued(['scope-ok']), approvalCtx('be-1'));
-      expect(state.label).toBe(t('taskStatus.approvalMissing', { label: quoted }));
+    it('only names who gives it and what when the viewer is not one of them', () => {
+      const ctx = approvalCtx('be-1');
+      const state = deriveTaskState(queued(['scope-ok']), ctx);
+      const who = joinAlternatives(['owner', 'kata', 'bence'].map((handle) => name(ctx, handle)));
+      expect(state.label).toBe(t('taskStatus.approvalMissingBy', { who, label: quoted }));
       expect(state.phase).toBe('waiting');
+    });
+  });
+
+  describe('an approval the card lacks after its stage is done (PM-445)', () => {
+    /** The card stands in Merge with everything its next gate asks for, but the release approval. */
+    const merged = (): Task => ({
+      ...card('AC-24'),
+      stageId: 'merge',
+      labels: ['client-accepted', 'pr-merged'],
+      status: 'active',
+    });
+    const approvalName = (ctx: TaskStateContext) =>
+      t('taskStatus.quoted', { name: ctx.labels!.find((label) => label.id === 'release-approved')!.name });
+    const withConfig = (myHandle: string): TaskStateContext => {
+      const ctx = ctxFor('anyone', false);
+      return { ...ctx, myHandle };
+    };
+    const gateItem = (assignees: string[]): InboxItem => ({
+      id: 'inb_gate',
+      projectKey: 'AC',
+      kind: 'decision',
+      state: 'open',
+      assignees,
+      source: 'system',
+      sessionId: null,
+      taskKey: 'AC-24',
+      title: 'Hozzáférés',
+      body: null,
+      resolution: null,
+      payload: {
+        gate: {
+          requestId: 'gat_1',
+          taskKey: 'AC-24',
+          fromStageId: 'merge',
+          toStageId: 'release',
+          stageId: 'release',
+          label: 'release-approved',
+          requestedBy: { kind: 'system', handle: null },
+        },
+      },
+      options: [],
+      createdAt: '2026-10-10T10:00:00.000Z',
+    });
+
+    it('asks the viewer for the approval before the request is even in the inbox', () => {
+      const ctx = withConfig('owner');
+      const state = deriveTaskState(merged(), ctx);
+      expect(state.label).toBe(t('taskStatus.approvalMissingYou', { label: approvalName(ctx) }));
+      expect(state.phase).toBe('needs_you');
+    });
+
+    it('names those who may give it for everyone else', () => {
+      const ctx = withConfig('be-1');
+      const state = deriveTaskState(merged(), ctx);
+      expect(state.phase).toBe('waiting');
+      expect(state.label).toContain(name(ctx, 'owner'));
+      expect(state.label).toContain(approvalName(ctx));
+      expect(state.label).not.toBe(t('taskStatus.queuedFor', { stage: 'Merge' }));
+    });
+
+    it('reads the same from the open request, for the one it is asked of and for the others', () => {
+      const request = gateItem(['owner']);
+      const mine = { ...withConfig('owner'), openInboxByTask: groupOpenInboxByTask([request]) };
+      expect(deriveTaskState(merged(), mine)).toMatchObject({
+        phase: 'needs_you',
+        label: t('taskStatus.approvalMissingYou', { label: approvalName(mine) }),
+        since: request.createdAt,
+      });
+      const other = { ...withConfig('be-1'), openInboxByTask: groupOpenInboxByTask([request]) };
+      expect(deriveTaskState(merged(), other).label).toBe(
+        t('taskStatus.approvalMissingBy', { who: name(other, 'owner'), label: approvalName(other) }),
+      );
+    });
+
+    it('says nobody can give it when nobody may', () => {
+      const ctx = withConfig('owner');
+      const lonely = { ...merged(), assignee: 'owner' };
+      const config = ctx.config!;
+      config.team.releaseFourEyes = true;
+      config.team.members = config.team.members.filter(
+        (member) => member.kind !== 'human' || member.handle === 'owner',
+      );
+      expect(deriveTaskState(lonely, ctx)).toMatchObject({
+        phase: 'blocked',
+        label: t('taskStatus.approvalNobody', { label: approvalName(ctx) }),
+      });
+    });
+
+    it('keeps the queue line for a card whose other conditions are not met', () => {
+      const ctx = withConfig('owner');
+      const state = deriveTaskState({ ...merged(), labels: ['client-accepted'] }, ctx);
+      expect(state.label).toBe(t('taskStatus.queuedFor', { stage: 'Merge' }));
     });
   });
 

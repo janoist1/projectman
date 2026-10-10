@@ -386,14 +386,30 @@ export function withConsequences(item: InboxItem, options: readonly InboxOption[
 interface GatePayload {
   fromStageId?: unknown;
   toStageId?: unknown;
+  label?: unknown;
 }
 
-/** "Továbblépés: Merge → Élesítés" for gate approval decisions. */
-export function gateMoveText(item: InboxItem, pipeline: PipelineIndex | null | undefined): string | null {
+/**
+ * "Jóváhagyás: „Merge jóváhagyva” · Code review → Kész" for gate approval decisions (PM-445); a request
+ * from before the approval was a label names none, and reads "Továbblépés: Code review → Kész".
+ */
+export function gateMoveText(
+  item: InboxItem,
+  pipeline: PipelineIndex | null | undefined,
+  labels: readonly LabelView[] = [],
+): string | null {
   const gate = item.payload.gate as GatePayload | undefined;
   if (!gate || typeof gate !== 'object' || typeof gate.toStageId !== 'string') return null;
   const name = (id: unknown) => (typeof id === 'string' ? (pipeline?.stageById.get(id)?.name ?? id) : '');
-  return t('inbox.gateMove', { from: name(gate.fromStageId), to: name(gate.toStageId) });
+  const from = name(gate.fromStageId);
+  const to = name(gate.toStageId);
+  return typeof gate.label === 'string'
+    ? t('inbox.gateApproval', {
+        label: t('taskStatus.quoted', { name: labelName(gate.label, labels) }),
+        from,
+        to,
+      })
+    : t('inbox.gateMove', { from, to });
 }
 
 /** Short text of what was decided, for history lists. */

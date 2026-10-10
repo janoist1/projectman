@@ -2,8 +2,10 @@ import {
   DEFAULT_AGENT_PROVIDER,
   CODEX_PERMISSION_PROFILE_MIN_VERSION,
   fixLimitDecisionOf,
+  gateRequestOf,
   labelDefinition,
   openPrerequisites,
+  stageAdvance,
   startBlock,
 } from '@projectman/shared';
 import type {
@@ -19,7 +21,7 @@ import type {
   WorkDoing,
 } from '@projectman/shared';
 import { formatAge, formatStamp } from '../i18n/format';
-import { joinNames, t } from '../i18n/t';
+import { joinAlternatives, joinNames, t } from '../i18n/t';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
@@ -333,8 +335,41 @@ export function deriveTaskState(task: Task, ctx: TaskStateContext): TaskState {
 }
 
 /** A label's name in a status line, in quotes; several read as a list. */
-function quotedLabels(ids: readonly string[], ctx: TaskStateContext): string {
+function quotedLabels(ids: readonly string[], ctx: Pick<TaskStateContext, 'labels'>): string {
   return joinNames(ids.map((id) => t('taskStatus.quoted', { name: labelName(id, ctx.labels ?? []) })));
+}
+
+/**
+ * The main line of a card that waits for approvals only a person may give (PM-445), whether the card
+ * cannot start yet or its stage is done: the viewer when they may give it, otherwise the people who may
+ * (any one of them), or that nobody may.
+ */
+function approvalWaiting(
+  labelIds: readonly string[],
+  approvers: readonly string[],
+  since: string,
+  ctx: Pick<TaskStateContext, 'members' | 'myHandle' | 'labels'>,
+): Omit<TaskState, 'workers'> {
+  const label = quotedLabels(labelIds, ctx);
+  const state = (phase: TaskPhase, text: string) => ({ phase, label: text, since, worker: null });
+  if (approvers.length === 0) return state('blocked', t('taskStatus.approvalNobody', { label }));
+  if (ctx.myHandle && approvers.includes(ctx.myHandle))
+    return state('needs_you', t('taskStatus.approvalMissingYou', { label }));
+  const who = joinAlternatives(approvers.map((handle) => nameOf(handle, ctx.members, ctx.myHandle)));
+  return state('waiting', t('taskStatus.approvalMissingBy', { who, label }));
+}
+
+/** The labels and the approvers of the open gate requests among a card's inbox items, null when one names no label. */
+function gateApprovalsOf(items: readonly InboxItem[]): { labels: string[]; approvers: string[] } | null {
+  const gates = items.flatMap((item) => {
+    const gate = gateRequestOf(item);
+    return gate ? [{ gate, item }] : [];
+  });
+  if (gates.length === 0 || gates.some(({ gate }) => !gate.label)) return null;
+  return {
+    labels: [...new Set(gates.map(({ gate }) => gate.label!))],
+    approvers: [...new Set(gates.flatMap(({ item }) => item.assignees))],
+  };
 }
 
 /**
@@ -372,12 +407,8 @@ function startBlockState(
       const who = joinNames(setters.map((handle) => nameOf(handle, members, myHandle)));
       return waiting(t('taskStatus.waitingOn', { who }));
     }
-    case 'approval': {
-      const label = quotedLabels([block.label], ctx);
-      return myHandle && block.approvers.includes(myHandle)
-        ? waiting(t('taskStatus.approvalMissingYou', { label }), 'needs_you')
-        : waiting(t('taskStatus.approvalMissing', { label }));
-    }
+    case 'approval':
+      return approvalWaiting([block.label], block.approvers, task.updatedAt, ctx);
     case 'unmet':
       return block.refines
         ? { ...waiting(t('taskStatus.notRefined'), 'ready'), since: task.createdAt }
@@ -446,6 +477,9 @@ function deriveOpenState(
 
   const mine = newestFirst(open.filter((item) => isAssignedTo(item, myHandle)));
   if (mine[0]) {
+    // A request to approve the card's move says which approval it is (PM-445).
+    const gate = gateRequestOf(mine[0]) ? gateApprovalsOf(mine) : null;
+    if (gate) return approvalWaiting(gate.labels, gate.approvers, mine[0].createdAt, ctx);
     // The decision of a held card says how many rounds it took, like the line of everybody else.
     const label =
       task.fixLimit && fixLimitDecisionOf(mine[0])
@@ -493,6 +527,8 @@ function deriveOpenState(
 
   const others = newestFirst(open);
   if (others[0]) {
+    const gate = gateRequestOf(others[0]) ? gateApprovalsOf(others) : null;
+    if (gate) return approvalWaiting(gate.labels, gate.approvers, others[0].createdAt, ctx);
     const who = joinNames(others[0].assignees.map((handle) => nameOf(handle, members, myHandle)));
     return {
       phase: 'waiting',
@@ -505,6 +541,18 @@ function deriveOpenState(
   // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
   const blocked = block ? startBlockState(task, block, ctx) : null;
   if (blocked) return blocked;
+
+  // The stage is done and only an approval only a person may give is missing (PM-445): the system asks
+  // for it in the inbox; until that item is here the line already says whose it is.
+  const advance = ctx.config ? stageAdvance(task, ctx.config) : null;
+  if (advance?.kind === 'approve') {
+    return approvalWaiting(
+      advance.approvals.map((approval) => approval.label),
+      [...new Set(advance.approvals.flatMap((approval) => approval.approvers))],
+      task.updatedAt,
+      ctx,
+    );
+  }
 
   if (stage?.kind === 'queue') {
     if (task.status === 'waiting' || wait) return standingOnPrerequisite(wait, task.updatedAt);

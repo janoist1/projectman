@@ -520,6 +520,7 @@ export const hu = {
     optional: 'nem kötelező',
     listSeparator: ', ',
     and: ' és ',
+    or: ' vagy ',
     dash: '–',
     moreCount: '+{count}',
     moreActions: 'További műveletek',
@@ -1274,8 +1275,10 @@ export const hu = {
     /** A label's name in a status line (PM-291). */
     quoted: '„{name}”',
     /** The card is not ready to start (PM-291): what it waits for instead of the Start. */
-    approvalMissing: 'Jóváhagyásra vár: {label}',
+    /** The approval only a person may give is the only thing missing (PM-445): who gives it, and what. */
+    approvalMissingBy: '{who} jóváhagyására vár: {label}',
     approvalMissingYou: 'Rád vár: jóváhagyás ({label})',
+    approvalNobody: 'Senki sem adhatja meg a jóváhagyást: {label}',
     notRefined: 'Még nincs kidolgozva',
     labelsMissing: 'Címkére vár: {labels}',
     /** The standing of a card's refinement (PM-291); the steps are the labels the gates ask for. */
@@ -2600,6 +2603,8 @@ export const hu = {
     commandLess: 'Kevesebb',
     permissionHeading: 'Engedélyt kér: {tool}',
     gateMove: 'Továbblépés: {from} → {to}',
+    /** The decision names what it approves (PM-445); older requests carry no label and read `gateMove`. */
+    gateApproval: 'Jóváhagyás: {label} · {from} → {to}',
     answerLabel: 'Válaszod',
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',

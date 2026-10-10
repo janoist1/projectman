@@ -695,6 +695,25 @@ describe('REST API', () => {
       const own = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
       expect(own.body.wait?.reason).toBe('ready');
       expect(own.body.wait?.toStageId).toEqual(expect.any(String));
+      // The requester is the viewer: an open item assigned to them is their wait (PM-460).
+      h.app.projectman.repos.inbox.insert({
+        id: 'inb_mine',
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        taskKey: 'AR-2',
+        title: 'Which colour?',
+        body: null,
+        payload: {},
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: '2026-09-30T10:00:00.000Z',
+      });
+      const asked = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
+      expect(asked.body.wait).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_mine' });
       expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(403);
       expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
     });

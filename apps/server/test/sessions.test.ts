@@ -19,7 +19,7 @@ import {
 import { SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { testConfig } from './helpers/test-template';
+import { dropSystemLabelGates, testConfig } from './helpers/test-template';
 
 describe('session orchestrator', () => {
   let h: DomainHarness;
@@ -377,6 +377,7 @@ describe('session orchestrator', () => {
   it('grants reviewers the existing developer worktree and propagates local-only deny rules', async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       delete draft.project.repos[0]!.github;
+      dropSystemLabelGates(draft);
       return 'Use a local-only repository';
     });
     const withRepo = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);

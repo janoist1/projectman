@@ -3875,6 +3875,12 @@ export const hu = {
       refinement_step_manual:
         'Egy kidolgozási lépés címkéjét egyetlen AI-tag sem teheti rá, ezért azt embernek kell elvégeznie.',
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',
+      stage_without_owner: 'Egy lépésnek nincs gazdája: a kártya ott elakadna.',
+      work_stage_without_worker: 'Egy munka-lépésben senki nem dolgozna: vegyél fel fejlesztőt.',
+      gate_unreachable: 'Egy kapu olyan címkét kér, amelyet egyik tag sem tehet fel.',
+      mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
+      mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
+      mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

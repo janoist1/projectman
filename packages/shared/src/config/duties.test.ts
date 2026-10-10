@@ -47,6 +47,7 @@ function config() {
           id: 'release',
           name: 'Release',
           kind: 'release',
+          owners: ['owner'],
           columnId: 'all',
           gate: { conditions: [{ type: 'has_label', label: 'release-ok' }] },
         },

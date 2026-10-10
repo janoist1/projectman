@@ -10,7 +10,8 @@ function configInput(): ProjectConfigInput {
       key: 'AC',
       name: 'Acme',
       workspacePath: '/work/acme',
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      // No merge is required, so the base configuration needs no merger (see 'merger_unresolved').
+      repos: [{ name: 'web', path: '.', github: 'acme/web', requireMerge: false }],
     },
     team: {
       members: [

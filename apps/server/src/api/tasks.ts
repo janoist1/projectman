@@ -49,7 +49,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
       (id) => domain.messages.get(id),
     );
     if (isClient(access)) return detail;
-    const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task);
+    const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task, access.handle);
     return wait ? { ...detail, wait } : detail;
   };
 

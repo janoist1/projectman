@@ -9,8 +9,9 @@ import type { MemberService } from '../members';
  * the project's state. The API's `TaskDetail.wait` and the text the AI members read (`get_task`,
  * `list_tasks`) both come from here, so they say what the board says.
  *
- * It reads once per call, for any number of cards, and names no viewer: an inbox item assigned to a
- * particular person is not "their" wait here.
+ * It reads once per call, for any number of cards. The API names the viewer (the requester: an inbox
+ * item assigned to them comes first, as on the board); the AI text names none, so an item assigned
+ * to a particular person is not "their" wait there.
  */
 export class TaskWaits {
   private readonly ctx: DomainContext;
@@ -22,7 +23,11 @@ export class TaskWaits {
   }
 
   /** The wait of each card (null: the card is closed, a theme, or not waiting), by task key. */
-  of(config: ProjectConfig, cards: readonly Task[]): Map<string, TaskWait | null> {
+  of(
+    config: ProjectConfig,
+    cards: readonly Task[],
+    viewer: string | null = null,
+  ): Map<string, TaskWait | null> {
     const projectKey = config.project.key;
     if (cards.length === 0) return new Map();
     const roster = this.members.rosterFor(config);
@@ -49,7 +54,7 @@ export class TaskWaits {
             workers: waitWorkers(task, config, roster),
             holders: waitHolders(task, roster),
             openPrerequisites: openPrerequisites(task, linked).map((card) => card.key),
-            viewer: null,
+            viewer,
           }),
         ];
       }),
@@ -57,7 +62,7 @@ export class TaskWaits {
   }
 
   /** One card's wait. */
-  ofCard(config: ProjectConfig, task: Task): TaskWait | null {
-    return this.of(config, [task]).get(task.key) ?? null;
+  ofCard(config: ProjectConfig, task: Task, viewer: string | null = null): TaskWait | null {
+    return this.of(config, [task], viewer).get(task.key) ?? null;
   }
 }

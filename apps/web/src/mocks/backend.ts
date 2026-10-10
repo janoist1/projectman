@@ -2704,7 +2704,7 @@ export class MockBackend {
       workers: waitWorkers(task, this.config, roster),
       holders: waitHolders(task, roster),
       openPrerequisites: openPrerequisites(task, linked).map((card) => card.key),
-      viewer: null,
+      viewer: this.viewerHandle,
     });
   }
 

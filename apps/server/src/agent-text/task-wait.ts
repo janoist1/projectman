@@ -81,13 +81,20 @@ export function taskWaitShort(wait: TaskWait): string {
     case 'nobody':
       return 'nobody can take it on';
     case 'start_waiting':
+      return `its start waits${wait.startWaiting ? ` (${wait.startWaiting.reason})` : ''}`;
     case 'inbox':
+      return `waits for ${handles(wait) || 'an open request'}`;
     case 'fix_limit':
+      return `waits for a decision at the fix round limit${wait.next.length > 0 ? ` (${handles(wait)})` : ''}`;
     case 'hand_on':
+      return `done, to be moved on by ${handles(wait) || 'the card mover'}`;
     case 'approval':
+      return `waits for the approval of ${handles(wait) || 'a person'}`;
     case 'refinement':
+      return `refinement step on turn${wait.next.length > 0 ? ` (${handles(wait)})` : ''}`;
     case 'queued':
+      return `queued for ${handles(wait) || 'the owner of its stage'}`;
     case 'assignee':
-      return `waits for ${handles(wait) || wait.reason.replace('_', ' ')}`;
+      return `waits for ${handles(wait) || 'its assignee'}`;
   }
 }

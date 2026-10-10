@@ -40,7 +40,19 @@ describe('describeTaskWait and taskWaitShort (PM-460)', () => {
     expect(describeTaskWait(wait('hand_on', { next: owner, toStageId: 'review' }))).toBe(
       'the work is done; owner moves it on to review.',
     );
-    expect(taskWaitShort(wait('approval', { next: owner }))).toBe('waits for owner');
+    expect(taskWaitShort(wait('approval', { next: owner }))).toBe('waits for the approval of owner');
+  });
+
+  it('say something useful in the short part when nobody is named', () => {
+    const nobodyNamed = { next: [] };
+    expect(taskWaitShort(wait('queued', nobodyNamed))).toBe('queued for the owner of its stage');
+    expect(taskWaitShort(wait('hand_on', nobodyNamed))).toBe('done, to be moved on by the card mover');
+    expect(taskWaitShort(wait('approval', nobodyNamed))).toBe('waits for the approval of a person');
+    expect(taskWaitShort(wait('inbox', nobodyNamed))).toBe('waits for an open request');
+    expect(taskWaitShort(wait('assignee', nobodyNamed))).toBe('waits for its assignee');
+    for (const reason of TaskWaitReason.options) {
+      expect(taskWaitShort(wait(reason, nobodyNamed)), reason).not.toMatch(/waits for (queued|hand on)\b/);
+    }
   });
 
   it('name the prerequisites, the holding labels and the faulty set-up', () => {

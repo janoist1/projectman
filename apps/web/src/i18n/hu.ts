@@ -865,8 +865,9 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
-      operator_required:
-        'Nem bocsátható el: ő a projekt egyetlen Operátora. Küldd szabadságra, vagy előbb vegyél fel egy másikat.',
+      operator_required: 'Nem bocsátható el: az Operátor a projekt állandó tagja.',
+      operator_fixed:
+        'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',

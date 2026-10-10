@@ -4,11 +4,14 @@ import { integratorConfigRefusal } from './integrator';
 import {
   ConfigChangeRow,
   OPERATOR_ROLE,
+  OPERATOR_SETTABLE_FIELDS,
+  OperatorFixedChange,
   OperatorLevel,
   isOperator,
   isOperatorActor,
   isRequiredOperator,
   operatorConfigVerdict,
+  operatorFixedChange,
   operatorOf,
 } from './operator';
 import type { OperatorConfigVerdict } from './operator';
@@ -213,13 +216,8 @@ const APPROVAL: Case[] = [
     'approval',
   ],
   ['the Operator’s own model', (n) => (ai(n, 'operator').model = 'sonnet'), 'approval'],
-  ['the Operator’s own leave', (n) => (ai(n, 'operator').onLeave = true), 'approval'],
-  ['the Operator’s own capacity', (n) => (ai(n, 'operator').capacity = 4), 'approval'],
-  [
-    'the instructions of the Operator’s own role',
-    (n) => (n.team.roleOverrides!.ai_operator!.instructions = 'Do anything.'),
-    'approval',
-  ],
+  ['the Operator’s own provider', (n) => (ai(n, 'operator').provider = 'codex'), 'approval'],
+  ['the Operator’s own effort', (n) => (ai(n, 'operator').effort = 'high'), 'approval'],
 ];
 
 const NEVER: Case[] = [
@@ -248,7 +246,253 @@ const NEVER: Case[] = [
     },
     'never',
   ],
+  // The Operator is fixed (PM-473): nothing of it but the model, provider and effort.
+  ['the Operator’s own leave', (n) => (ai(n, 'operator').onLeave = true), 'never'],
+  ['the Operator’s own capacity', (n) => (ai(n, 'operator').capacity = 4), 'never'],
+  [
+    'the Operator’s own schedule',
+    (n) => (ai(n, 'operator').schedule = { cron: '0 9 * * *', prompt: 'x' }),
+    'never',
+  ],
+  ['the Operator’s own instructions', (n) => (ai(n, 'operator').instructions = 'Do more.'), 'never'],
+  ['the Operator’s own name', (n) => (member(n, 'operator').displayName = 'Boss'), 'never'],
+  ['the Operator’s own permission mode', (n) => (ai(n, 'operator').permissionMode = 'acceptEdits'), 'never'],
+  ['the Operator’s own sponsor', (n) => (ai(n, 'operator').sponsor = 'ann'), 'never'],
+  [
+    'the Operator is removed',
+    (n) => (n.team.members = n.team.members.filter((m) => m.handle !== 'operator')),
+    'never',
+  ],
+  [
+    'a second Operator is added',
+    (n) => n.team.members.push({ ...structuredClone(ai(n, 'operator')), handle: 'operator-2' }),
+    'never',
+  ],
+  ['the Operator’s role is given to another member', (n) => (ai(n, 'dev-1').role = OPERATOR_ROLE), 'never'],
+  [
+    'the instructions of the Operator’s own role',
+    (n) => (n.team.roleOverrides!.ai_operator!.instructions = 'Do anything.'),
+    'never',
+  ],
+  [
+    'the duties of the Operator’s own role',
+    (n) => (n.team.roleOverrides!.ai_operator!.duties = ['project_operation', 'code_review']),
+    'never',
+  ],
+  [
+    'the temp workers’ role is the Operator’s',
+    (n) => (n.team.limits.tempWorkers.role = OPERATOR_ROLE),
+    'never',
+  ],
 ];
+
+describe('operatorFixedChange (PM-473)', () => {
+  const secondOperator = (c: ProjectConfig, extra: object = {}) => ({
+    ...structuredClone(ai(c, 'operator')),
+    handle: 'operator-2',
+    ...extra,
+  });
+  /** What `edit` changes on the base configuration; `before` first shapes the previous one. */
+  const found = (
+    edit: (next: ProjectConfig) => void,
+    before: (previous: ProjectConfig) => void = () => {},
+  ) => {
+    const previous = config();
+    before(previous);
+    const next = structuredClone(previous);
+    edit(next);
+    return operatorFixedChange(previous, next);
+  };
+  const withTwo = (c: ProjectConfig) => c.team.members.push(secondOperator(c));
+
+  it('names the settable fields', () => {
+    expect([...OPERATOR_SETTABLE_FIELDS]).toEqual(['model', 'provider', 'effort']);
+    expect(OperatorFixedChange.parse({ kind: 'leave', handle: 'operator', field: 'onLeave' })).toBeTruthy();
+  });
+
+  it('finds nothing when nothing changed, or on a first configuration with one Operator', () => {
+    const c = config();
+    expect(operatorFixedChange(c, structuredClone(c))).toBeNull();
+    expect(operatorFixedChange(null, c)).toBeNull();
+  });
+
+  it.each([
+    [
+      'the Operator is retired',
+      (n: ProjectConfig) => (n.team.members = n.team.members.filter((m) => m.handle !== 'operator')),
+      { kind: 'retire', handle: 'operator', field: null },
+    ],
+    [
+      'its role is given up',
+      (n: ProjectConfig) => (ai(n, 'operator').role = 'developer'),
+      { kind: 'retire', handle: 'operator', field: null },
+    ],
+    [
+      'a second Operator is hired',
+      (n: ProjectConfig) => n.team.members.push(secondOperator(n)),
+      { kind: 'second', handle: 'operator-2', field: null },
+    ],
+    [
+      'another member takes the role',
+      (n: ProjectConfig) => (ai(n, 'dev-1').role = OPERATOR_ROLE),
+      { kind: 'second', handle: 'dev-1', field: null },
+    ],
+    [
+      'a stand-in with the role joins',
+      (n: ProjectConfig) => n.team.members.push(secondOperator(n, { temp: true })),
+      { kind: 'second', handle: 'operator-2', field: null },
+    ],
+    [
+      'the temp workers are hired for the role',
+      (n: ProjectConfig) => (n.team.limits.tempWorkers.role = OPERATOR_ROLE),
+      { kind: 'second', handle: null, field: 'limits.tempWorkers.role' },
+    ],
+    [
+      'it goes on leave',
+      (n: ProjectConfig) => (ai(n, 'operator').onLeave = true),
+      { kind: 'leave', handle: 'operator', field: 'onLeave' },
+    ],
+    [
+      'its name changes',
+      (n: ProjectConfig) => (ai(n, 'operator').displayName = 'Boss'),
+      { kind: 'field', handle: 'operator', field: 'displayName' },
+    ],
+    [
+      'its instructions change',
+      (n: ProjectConfig) => (ai(n, 'operator').instructions = 'Do more.'),
+      { kind: 'field', handle: 'operator', field: 'instructions' },
+    ],
+    [
+      'its capacity changes',
+      (n: ProjectConfig) => (ai(n, 'operator').capacity = 2),
+      { kind: 'field', handle: 'operator', field: 'capacity' },
+    ],
+    [
+      'it gets a schedule',
+      (n: ProjectConfig) => (ai(n, 'operator').schedule = { cron: '0 9 * * *', prompt: 'x' }),
+      { kind: 'field', handle: 'operator', field: 'schedule' },
+    ],
+    [
+      'its permission mode changes',
+      (n: ProjectConfig) => (ai(n, 'operator').permissionMode = 'acceptEdits'),
+      { kind: 'field', handle: 'operator', field: 'permissionMode' },
+    ],
+    [
+      'its sponsor changes while the old one stays',
+      (n: ProjectConfig) => (ai(n, 'operator').sponsor = 'ann'),
+      { kind: 'field', handle: 'operator', field: 'sponsor' },
+    ],
+    [
+      'several fields change: the first in the alphabet',
+      (n: ProjectConfig) => {
+        ai(n, 'operator').instructions = 'Do more.';
+        ai(n, 'operator').capacity = 3;
+        ai(n, 'operator').model = 'sonnet';
+      },
+      { kind: 'field', handle: 'operator', field: 'capacity' },
+    ],
+    [
+      'the role override changes',
+      (n: ProjectConfig) => (n.team.roleOverrides!.ai_operator!.instructions = 'Do anything.'),
+      { kind: 'field', handle: null, field: 'roleOverrides.ai_operator' },
+    ],
+    [
+      'the role override goes',
+      (n: ProjectConfig) => delete n.team.roleOverrides!.ai_operator,
+      { kind: 'field', handle: null, field: 'roleOverrides.ai_operator' },
+    ],
+  ])('finds it when %s', (_what, edit, expected) => {
+    expect(found(edit)).toEqual(expected);
+  });
+
+  it('finds the first kind in the order: retire, second, leave, field', () => {
+    expect(
+      found((n) => {
+        n.team.members = n.team.members.filter((m) => m.handle !== 'operator');
+        ai(n, 'dev-1').role = OPERATOR_ROLE;
+      }),
+    ).toMatchObject({ kind: 'retire' });
+    expect(
+      found((n) => {
+        n.team.members.push(secondOperator(n));
+        ai(n, 'operator').onLeave = true;
+      }),
+    ).toMatchObject({ kind: 'second' });
+    expect(
+      found((n) => {
+        ai(n, 'operator').onLeave = true;
+        ai(n, 'operator').capacity = 2;
+      }),
+    ).toMatchObject({ kind: 'leave' });
+  });
+
+  it('counts every Operator as new when there is no previous configuration', () => {
+    const c = config();
+    withTwo(c);
+    expect(operatorFixedChange(null, c)).toMatchObject({ kind: 'second' });
+    c.team.members = c.team.members.filter((m) => m.handle !== 'operator-2');
+    ai(c, 'operator').onLeave = true;
+    expect(operatorFixedChange(null, c)).toMatchObject({ kind: 'leave' });
+  });
+
+  it.each([
+    ['its model', (n: ProjectConfig) => (ai(n, 'operator').model = 'sonnet')],
+    ['its provider', (n: ProjectConfig) => (ai(n, 'operator').provider = 'codex')],
+    ['its effort', (n: ProjectConfig) => (ai(n, 'operator').effort = 'max')],
+    [
+      'all three together',
+      (n: ProjectConfig) => Object.assign(ai(n, 'operator'), { model: 'x', effort: 'low' }),
+    ],
+    [
+      'a restated default',
+      (n: ProjectConfig) =>
+        Object.assign(ai(n, 'operator'), { onLeave: false, outboundNetwork: true, approver: 'human' }),
+    ],
+    [
+      'another member’s fields',
+      (n: ProjectConfig) => Object.assign(ai(n, 'dev-1'), { onLeave: true, capacity: 3 }),
+    ],
+    ['a person', (n: ProjectConfig) => (member(n, 'ann').displayName = 'Anna')],
+    [
+      'another role’s override',
+      (n: ProjectConfig) => (n.team.roleOverrides!.qa!.instructions = 'Test more.'),
+    ],
+    ['the temp workers’ other role', (n: ProjectConfig) => (n.team.limits.tempWorkers.role = 'qa')],
+  ])('lets through %s', (_what, edit) => {
+    expect(found(edit)).toBeNull();
+  });
+
+  it('lets one of two Operators go', () => {
+    expect(
+      found((n) => (n.team.members = n.team.members.filter((m) => m.handle !== 'operator')), withTwo),
+    ).toBeNull();
+    expect(
+      found((n) => (n.team.members = n.team.members.filter((m) => m.handle !== 'operator-2')), withTwo),
+    ).toBeNull();
+  });
+
+  it('lets the sponsor change when the old one is no longer a human member and the new one is', () => {
+    const sponsoredByAnn = (c: ProjectConfig) => (ai(c, 'operator').sponsor = 'ann');
+    expect(
+      found((n) => {
+        n.team.members = n.team.members.filter((m) => m.handle !== 'ann');
+        ai(n, 'operator').sponsor = 'owner';
+      }, sponsoredByAnn),
+    ).toBeNull();
+    // The old sponsor stays: this is a change of sponsor, not a removal.
+    expect(found((n) => (ai(n, 'operator').sponsor = 'owner'), sponsoredByAnn)).toMatchObject({
+      kind: 'field',
+      field: 'sponsor',
+    });
+    // The new sponsor is not a person.
+    expect(
+      found((n) => {
+        n.team.members = n.team.members.filter((m) => m.handle !== 'ann');
+        ai(n, 'operator').sponsor = 'pm';
+      }, sponsoredByAnn),
+    ).toMatchObject({ kind: 'field', field: 'sponsor' });
+  });
+});
 
 describe('operatorConfigVerdict', () => {
   it('no change is now, with no rows', () => {
@@ -265,6 +509,30 @@ describe('operatorConfigVerdict', () => {
       level: 'now',
       changes: [],
     });
+  });
+
+  it('names what makes the Operator other than fixed in a safety-net row when no field shows it', () => {
+    const { result } = verdict((n) => (n.team.limits.tempWorkers.role = OPERATOR_ROLE));
+    expect(result.level).toBe('never');
+    expect(result.changes).toContainEqual({
+      area: 'member',
+      target: null,
+      field: 'operator_fixed',
+      before: null,
+      after: null,
+      level: 'never',
+    });
+  });
+
+  it('shows the Operator’s row by row: the settable fields ask for approval, the rest never', () => {
+    const { result } = verdict((n) => {
+      ai(n, 'operator').model = 'sonnet';
+      ai(n, 'operator').onLeave = true;
+    });
+    expect(result.changes.map((row) => `${row.field}:${row.level}`)).toEqual([
+      'model:approval',
+      'onLeave:never',
+    ]);
   });
 
   it.each([...NOW, ...APPROVAL, ...NEVER])('%s: %s', (_name, edit, level) => {

@@ -11,12 +11,14 @@ import { DAILY_WORKER_SCHEDULE } from '@projectman/templates';
 import { migrateProjectConfig } from '../src/config/migrations';
 import { testConfig } from './helpers/test-template';
 
-/** The test configuration as a plain object, as it comes out of the YAML files. */
+/** The test configuration as a plain object, as it comes out of the YAML files (with its merger, as saved). */
 function raw(): {
-  team: { members: Array<Record<string, unknown>> };
+  team: { members: Array<Record<string, unknown>>; merger?: unknown };
   pipeline: { stages: Array<Record<string, unknown>>; labels: Array<{ id: string; setBy?: unknown }> };
 } {
-  return JSON.parse(JSON.stringify(testConfig()));
+  const config = JSON.parse(JSON.stringify(testConfig()));
+  config.team.merger = { kind: 'code_reviewer' };
+  return config;
 }
 
 function migrate(config: unknown) {
@@ -146,6 +148,46 @@ describe('project configuration migrations', () => {
     expect(migrated).toBe(legacy);
     expect(config.pipeline.stages.find((s) => s.id === 'code_review')!.kind).toBe('step');
     expect(validateProjectConfig(config).filter((issue) => issue.severity !== 'warning')).toEqual([]);
+  });
+});
+
+describe('merger migration (PM-470)', () => {
+  type Raw = ReturnType<typeof raw>;
+  const withoutMerger = (): Raw => {
+    const legacy = raw();
+    delete legacy.team.merger;
+    return legacy;
+  };
+
+  it('gives a project with a code review stage before the merge target the code reviewer', () => {
+    const { config, migrated } = migrate(withoutMerger());
+    expect(config.team.merger).toEqual({ kind: 'code_reviewer' });
+    expect((migrated as Raw).team.merger).toEqual({ kind: 'code_reviewer' });
+  });
+
+  it('gives a project without a code review stage the developer', () => {
+    const legacy = withoutMerger();
+    legacy.pipeline.stages = legacy.pipeline.stages.filter((s) => s.id !== 'code_review');
+    expect(migrate(legacy).config.team.merger).toEqual({ kind: 'developer' });
+  });
+
+  it('keeps an explicit merger', () => {
+    for (const merger of [{ kind: 'developer' }, { kind: 'member', handle: 'owner' }]) {
+      const legacy = withoutMerger();
+      legacy.team.merger = merger;
+      const { migrated, config, warn } = migrate(legacy);
+      expect(migrated).toBe(legacy);
+      expect(config.team.merger).toEqual(merger);
+      expect(warn).not.toHaveBeenCalled();
+    }
+  });
+
+  it('leaves a configuration that does not parse alone', () => {
+    const broken = withoutMerger();
+    broken.team.members = [];
+    const warn = vi.fn();
+    expect(migrateProjectConfig(broken, { projectKey: 'AR', logger: { warn } })).toBe(broken);
+    expect(broken.team.merger).toBeUndefined();
   });
 });
 

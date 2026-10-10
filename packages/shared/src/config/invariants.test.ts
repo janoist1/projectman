@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS, holdersAllow, roleHolders, RoleId } from '../domain/role';
 import { introducedErrors, isToleratedOnLoad, validateProjectConfig } from './invariants';
-import { AiMemberConfig, ProjectConfig, type ProjectConfigInput } from './schema';
+import { AiMemberConfig, ProjectConfig, type Merger, type ProjectConfigInput } from './schema';
 
 function configInput(): ProjectConfigInput {
   return {
@@ -519,10 +519,10 @@ describe('validateProjectConfig team and pipeline', () => {
       'a repository name used twice',
       (input) => {
         input.project.repos = [
-          { name: 'web', path: '.' },
-          { name: 'api', path: 'api' },
-          { name: 'web', path: 'web-copy' },
-          { name: 'web', path: 'web-old' },
+          { name: 'web', path: '.', requireMerge: false },
+          { name: 'api', path: 'api', requireMerge: false },
+          { name: 'web', path: 'web-copy', requireMerge: false },
+          { name: 'web', path: 'web-old', requireMerge: false },
         ];
       },
       [
@@ -654,8 +654,8 @@ describe('validateProjectConfig team and pipeline', () => {
     expect(
       errors((input) => {
         input.project.repos = [
-          { name: 'web', path: '.' },
-          { name: 'api', path: 'api' },
+          { name: 'web', path: '.', requireMerge: false },
+          { name: 'api', path: 'api', requireMerge: false },
         ];
         input.pipeline.columns.push({ id: 'later', name: 'Later' });
       }),
@@ -670,6 +670,7 @@ describe('errors a stored configuration may keep', () => {
       'duplicate_column',
       'release_approval_needs_duty',
       'custom_role_shadows_builtin',
+      'merger_unresolved',
     ] as const;
     for (const code of tolerated) expect(isToleratedOnLoad({ code })).toBe(true);
     for (const code of [
@@ -685,5 +686,79 @@ describe('errors a stored configuration may keep', () => {
       'missing_duty_holder',
     ] as const)
       expect(isToleratedOnLoad({ code })).toBe(false);
+  });
+});
+
+describe('merger_unresolved', () => {
+  /** A repository that requires a merge; a work stage but no code review stage before the done stage. */
+  function mergeBuild(merger: Merger | undefined, change: (input: ProjectConfigInput) => void = () => {}) {
+    return build((input) => {
+      input.project.repos = [{ name: 'web', path: '.' }];
+      members(input).push({ kind: 'human', handle: 'vera', displayName: 'Vera', access: 'viewer' });
+      input.pipeline.stages.splice(1, 0, {
+        id: 'dev',
+        name: 'Dev',
+        kind: 'work',
+        owners: ['dev-1'],
+        columnId: 'todo',
+      });
+      if (merger) input.team.merger = merger;
+      change(input);
+    });
+  }
+  const unresolved = (config: ProjectConfig) =>
+    validateProjectConfig(config).filter((issue) => issue.code === 'merger_unresolved');
+
+  it('is not raised where the merger resolves', () => {
+    expect(unresolved(mergeBuild(undefined))).toEqual([]);
+    expect(unresolved(mergeBuild({ kind: 'developer' }))).toEqual([]);
+    expect(unresolved(mergeBuild({ kind: 'member', handle: 'ann' }))).toEqual([]);
+    expect(unresolved(mergeBuild({ kind: 'member', handle: 'dev-1' }))).toEqual([]);
+  });
+
+  it('names a code_reviewer without a code review stage before the target', () => {
+    expect(unresolved(mergeBuild({ kind: 'code_reviewer' }))).toEqual([
+      { code: 'merger_unresolved', path: 'team.merger', detail: 'code_reviewer' },
+    ]);
+  });
+
+  it('names a developer without a work stage before the target', () => {
+    const config = mergeBuild({ kind: 'developer' }, (input) => {
+      input.pipeline.stages = input.pipeline.stages.filter((stage) => stage.kind !== 'work');
+    });
+    expect(unresolved(config)).toEqual([
+      { code: 'merger_unresolved', path: 'team.merger', detail: 'developer' },
+    ]);
+  });
+
+  it('names a member who is not on the team or a person without developer access', () => {
+    for (const handle of ['ghost', 'vera'])
+      expect(unresolved(mergeBuild({ kind: 'member', handle }))).toEqual([
+        { code: 'merger_unresolved', path: 'team.merger', detail: handle },
+      ]);
+  });
+
+  it('is not raised where no repository requires a merge', () => {
+    const merger: Merger = { kind: 'code_reviewer' };
+    expect(
+      unresolved(
+        mergeBuild(
+          merger,
+          (input) => (input.project.repos = [{ name: 'web', path: '.', fullTestAtMerge: true }]),
+        ),
+      ),
+    ).toEqual([]);
+    expect(unresolved(mergeBuild(merger, (input) => (input.project.repos = [])))).toEqual([]);
+  });
+
+  it('a stored configuration keeps it, a save or a new project cannot introduce it', () => {
+    const broken = mergeBuild({ kind: 'member', handle: 'ghost' });
+    expect(introducedErrors(broken, broken)).toEqual([]);
+    expect(introducedErrors(mergeBuild(undefined), broken)).toEqual([
+      { code: 'merger_unresolved', path: 'team.merger', detail: 'ghost' },
+    ]);
+    expect(introducedErrors(null, broken)).toEqual([
+      { code: 'merger_unresolved', path: 'team.merger', detail: 'ghost' },
+    ]);
   });
 });

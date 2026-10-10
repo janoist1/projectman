@@ -64,6 +64,7 @@ import {
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
+  unknownPatchRepo,
   approvalRefusal,
   attachmentPreviewOf,
   canDeleteAttachment,
@@ -2212,6 +2213,8 @@ export class MockBackend {
     if (input.baseVersion !== this.configVersion) {
       return error(409, 'config_conflict', 'Configuration changed', { currentVersion: this.configVersion });
     }
+    if (unknownPatchRepo(this.config, input) !== null)
+      return error(400, 'unknown_repo', 'Unknown repository');
     const next = applyConfigPatch(this.config, input);
     const failure = this.configChangeFailure(next);
     if (failure) return failure;

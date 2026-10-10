@@ -40,6 +40,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   role_not_for_human: 'errors.codes.role_not_for_human',
   custom_role_shadows_builtin: 'errors.codes.custom_role_shadows_builtin',
   duplicate_role: 'errors.codes.duplicate_role',
+  merger_unresolved: 'errors.codes.merger_unresolved',
 };
 
 function isInvariantCode(code: string): code is ConfigIssue['code'] {

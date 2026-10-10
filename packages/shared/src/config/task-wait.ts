@@ -87,6 +87,11 @@ export interface TaskWaitInput {
   openPrerequisites: readonly string[];
   /** The viewer: an inbox item assigned to them comes first, as on the board today; null for the API and AI text. */
   viewer: string | null;
+  /**
+   * False when `config` is only a sketch of the team and the stages (a client, or the configuration still
+   * loads in the web): the start rule and the gates are then not asked, as the board never asked them.
+   */
+  rulesKnown?: boolean;
 }
 
 type Fields = Partial<Omit<TaskWait, 'reason' | 'since' | 'next'>>;
@@ -334,11 +339,11 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
   if (others[0]) return itemWait(others[0], others, task, config);
 
   // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
-  const block = startBlock(task, config);
+  const block = input.rulesKnown === false ? null : startBlock(task, config);
   if (block) return startBlockWait(task, block, config);
 
   // The stage is done and only an approval only a person may give is missing (PM-445).
-  const advance = stageAdvance(task, config);
+  const advance = input.rulesKnown === false ? null : stageAdvance(task, config);
   if (advance?.kind === 'approve') {
     return approvalWait(
       config,

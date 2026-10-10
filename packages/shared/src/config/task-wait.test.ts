@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '../domain/inbox';
 import type { Task } from '../domain/task';
 import { ProjectConfig } from './schema';
-import { taskWait } from './task-wait';
+import { taskWait, waitHolders, waitWorkers } from './task-wait';
 import type { TaskWaitInput } from './task-wait';
 
 type Options = {
@@ -509,5 +509,60 @@ describe('the order of the reasons', () => {
     const result = wait(card({ stageId: 'merge' }), { openItems: [gateItem(['owner'])], viewer: 'owner' });
     expect(result?.reason).toBe('approval');
     expect(handles(result)).toEqual(['owner']);
+  });
+});
+
+describe('where the rules are not known', () => {
+  it('does not ask the start rule or the gates, as the board never asked them for a client', () => {
+    const task = card({ stageId: 'ready', assignee: null, labels: ['refine'] });
+    expect(wait(task, {}, { refines: true })?.reason).toBe('refinement');
+    expect(wait(task, { rulesKnown: false }, { refines: true })?.reason).toBe('ready');
+  });
+});
+
+describe('who works on a card and who holds it', () => {
+  const members = [
+    { handle: 'dev-1', kind: 'ai' as const, currentTaskKeys: ['AC-1'], taskWork: [] },
+    { handle: 'lead', kind: 'ai' as const, currentTaskKeys: ['AC-1'], taskWork: [work('lead', '10:05')] },
+    {
+      handle: 'analyst',
+      kind: 'ai' as const,
+      currentTaskKeys: ['AC-1'],
+      taskWork: [work('analyst', '10:00')],
+    },
+    { handle: 'kata', kind: 'human' as const, currentTaskKeys: ['AC-1'] },
+    { handle: 'pm', kind: 'ai' as const, currentTaskKeys: [], taskWork: [work('pm', '10:00', 'AC-2')] },
+  ];
+
+  function work(handle: string, time: string, taskKey = 'AC-1') {
+    return { taskKey, since: `2026-10-05T${time}:00.000Z`, sessionId: `ses_${handle}` };
+  }
+
+  it('puts the step owner first, then the assignee, then the rest by when they began', () => {
+    const task = card({ stageId: 'merge', assignee: 'analyst' });
+    // The merge step is owned by the lead; the assignee comes next.
+    expect(waitWorkers(task, config(), members).map((worker) => worker.handle)).toEqual(['lead', 'analyst']);
+    const developing = card({ stageId: 'dev', assignee: 'lead' });
+    expect(waitWorkers(developing, config(), members).map((worker) => worker.handle)).toEqual([
+      'lead',
+      'analyst',
+    ]);
+    expect(waitWorkers(card({ assignee: null }), config(), members).map((worker) => worker.handle)).toEqual([
+      'analyst',
+      'lead',
+    ]);
+  });
+
+  it('says that the old assignee of an open handoff hands the card over', () => {
+    const handoff = { from: 'lead' } as Task['handoff'];
+    const workers = waitWorkers(card({ handoff }), config(), members);
+    expect(workers.map((worker) => [worker.handle, worker.handingOff])).toEqual([
+      ['analyst', false],
+      ['lead', true],
+    ]);
+  });
+
+  it('holds a card by the AI members that carry it, people not counted', () => {
+    expect(waitHolders(card(), members)).toEqual(['dev-1', 'lead', 'analyst']);
   });
 });

@@ -1,12 +1,12 @@
 import {
   DEFAULT_AGENT_PROVIDER,
   CODEX_PERMISSION_PROFILE_MIN_VERSION,
-  fixLimitDecisionOf,
-  gateRequestOf,
   labelDefinition,
   openPrerequisites,
   stageAdvance,
   startBlock,
+  taskWait,
+  waitHolders,
 } from '@projectman/shared';
 import type {
   InboxItem,
@@ -18,12 +18,13 @@ import type {
   Task,
   TaskPhase,
   TaskStartWaiting,
+  TaskWait,
   WorkDoing,
 } from '@projectman/shared';
 import { formatAge, formatStamp } from '../i18n/format';
 import { joinAlternatives, joinNames, t } from '../i18n/t';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
-import { isAssignedTo, newestFirst, openItems, permissionCommand, shortCommand } from './inbox';
+import { isAssignedTo, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
@@ -359,19 +360,6 @@ function approvalWaiting(
   return state('waiting', t('taskStatus.approvalMissingBy', { who, label }));
 }
 
-/** The labels and the approvers of the open gate requests among a card's inbox items, null when one names no label. */
-function gateApprovalsOf(items: readonly InboxItem[]): { labels: string[]; approvers: string[] } | null {
-  const gates = items.flatMap((item) => {
-    const gate = gateRequestOf(item);
-    return gate ? [{ gate, item }] : [];
-  });
-  if (gates.length === 0 || gates.some(({ gate }) => !gate.label)) return null;
-  return {
-    labels: [...new Set(gates.map(({ gate }) => gate.label!))],
-    approvers: [...new Set(gates.flatMap(({ item }) => item.assignees))],
-  };
-}
-
 /**
  * The main line of a card a person cannot start yet (PM-291), who or what it waits for: the part of
  * the shared start rule the viewer reads. Null when the rule does not hold the card back, or when an
@@ -424,7 +412,7 @@ type DerivedState = Omit<TaskState, 'workers'> & { workers?: TaskWorker[] };
 function deriveOpenState(
   task: Task,
   ctx: TaskStateContext,
-  wait: PrerequisiteWait | null,
+  prerequisites: PrerequisiteWait | null,
   block: StartBlock | null,
 ): DerivedState {
   const { pipeline, members, myHandle } = ctx;
@@ -450,169 +438,182 @@ function deriveOpenState(
     };
   }
 
-  if (task.startWaiting?.reason === 'prerequisite_open') {
-    return standingOnPrerequisite(wait, task.startWaiting.since);
-  }
-  // The old assignee still hands the card over (PM-342): that, and not the receiver's wait, is the news.
-  if (task.handoff) {
-    const handing = findWorkers(task, ctx).filter((worker) => worker.verb === 'handingOff');
-    if (handing[0]) {
-      return {
-        phase: 'working',
-        label: workersLabel(handing),
-        since: handing[0].since,
-        worker: handing[0].member,
-        workers: handing,
-      };
-    }
-  }
-  if (task.startWaiting) {
-    return {
-      phase: 'waiting',
-      label: startWaitingLabel(task, ctx),
-      since: task.startWaiting.since,
-      worker: null,
-    };
-  }
-
-  const mine = newestFirst(open.filter((item) => isAssignedTo(item, myHandle)));
-  if (mine[0]) {
-    // A request to approve the card's move says which approval it is (PM-445).
-    const gate = gateRequestOf(mine[0]) ? gateApprovalsOf(mine) : null;
-    if (gate) return approvalWaiting(gate.labels, gate.approvers, mine[0].createdAt, ctx);
-    // The decision of a held card says how many rounds it took, like the line of everybody else.
-    const label =
-      task.fixLimit && fixLimitDecisionOf(mine[0])
-        ? fixLimitStatus(task.fixLimit, members, myHandle)
-        : needsYouLabel(mine[0]);
-    return { phase: 'needs_you', label, since: mine[0].createdAt, worker: null };
-  }
-
-  if (task.status === 'blocked') {
-    return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: task.updatedAt, worker: null };
-  }
-
-  // A card held at its fix round limit waits for a decision, whoever else is on it (PM-262).
-  if (task.fixLimit) {
-    return {
-      phase: decidesFixLimit(task.fixLimit, myHandle) ? 'needs_you' : 'waiting',
-      label: fixLimitStatus(task.fixLimit, members, myHandle),
-      since: task.fixLimit.heldAt,
-      worker: null,
-    };
-  }
-
   const workers = findWorkers(task, ctx);
-  if (workers[0]) {
-    return {
-      phase: 'working',
-      label: workersLabel(workers),
-      since: workers[0].since,
-      worker: workers[0].member,
-      workers,
-    };
-  }
+  const wait = taskWait({
+    task,
+    // Where the configuration is not known (a client, or it still loads) the team and the stages are
+    // sketched from what the board has, and the start rule and the gates are not asked (PM-460).
+    config: ctx.config ?? sketchConfig(ctx),
+    rulesKnown: !!ctx.config,
+    openItems: open,
+    workers: workers.map((worker) => ({
+      handle: worker.member.handle,
+      since: worker.since,
+      handingOff: worker.verb === 'handingOff',
+    })),
+    holders: waitHolders(task, [...members.values()]),
+    openPrerequisites: (prerequisites?.cards ?? []).map((card) => card.key),
+    viewer: myHandle,
+  });
+  if (!wait) return queuedFor(task, ctx);
+  return stateOfWait(task, wait, { ctx, workers, prerequisites, block });
+}
 
-  // A blocking label (e.g. "waiting for an answer") holds the task until someone takes it off.
-  const holding = (ctx.labels ?? []).filter((label) => label.blocks && task.labels.includes(label.id));
-  if (holding.length > 0) {
-    return {
-      phase: 'waiting',
-      label: joinNames(holding.map((label) => label.name)),
-      since: task.updatedAt,
-      worker: null,
-      holdingLabels: holding.map((label) => label.id),
-    };
-  }
-
-  const others = newestFirst(open);
-  if (others[0]) {
-    const gate = gateRequestOf(others[0]) ? gateApprovalsOf(others) : null;
-    if (gate) return approvalWaiting(gate.labels, gate.approvers, others[0].createdAt, ctx);
-    const who = joinNames(others[0].assignees.map((handle) => nameOf(handle, members, myHandle)));
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who }),
-      since: others[0].createdAt,
-      worker: null,
-    };
-  }
-
-  // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
-  const blocked = block ? startBlockState(task, block, ctx) : null;
-  if (blocked) return blocked;
-
-  // The stage is done and only an approval only a person may give is missing (PM-445): the system asks
-  // for it in the inbox; until that item is here the line already says whose it is.
-  const advance = ctx.config ? stageAdvance(task, ctx.config) : null;
-  if (advance?.kind === 'approve') {
-    return approvalWaiting(
-      advance.approvals.map((approval) => approval.label),
-      [...new Set(advance.approvals.flatMap((approval) => approval.approvers))],
-      task.updatedAt,
-      ctx,
-    );
-  }
-
-  if (stage?.kind === 'queue') {
-    if (task.status === 'waiting' || wait) return standingOnPrerequisite(wait, task.updatedAt);
-    // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
-    const label = nextStage(pipeline, stage.id)?.kind === 'queue' ? stage.name : t('taskStatus.ready');
-    return { phase: 'ready', label, since: task.createdAt, worker: null };
-  }
-
-  const owners = stage?.owners ?? [];
-  const humanOwners = owners.filter((handle) => members.get(handle)?.kind === 'human');
-  if (task.status === 'waiting' && humanOwners.length > 0) {
-    if (myHandle && humanOwners.includes(myHandle)) {
-      return {
-        phase: 'needs_you',
-        label: t('taskStatus.needsYou', { what: stage?.name ?? '' }),
-        since: task.updatedAt,
-        worker: null,
-      };
-    }
-    const who = joinNames(humanOwners.map((handle) => nameOf(handle, members, myHandle)));
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who }),
-      since: task.updatedAt,
-      worker: null,
-    };
-  }
-
-  const assignee = task.assignee ? members.get(task.assignee) : undefined;
-  if (task.status === 'active' && assignee && stage?.kind === 'work') {
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who: nameOf(assignee.handle, members, myHandle) }),
-      since: task.updatedAt,
-      worker: null,
-    };
-  }
-
-  // An AI stage owner already carries the task (its session is idle between turns).
-  const holder = owners.find(
-    (handle) =>
-      handle !== task.assignee &&
-      members.get(handle)?.kind === 'ai' &&
-      members.get(handle)?.currentTaskKeys.includes(task.key),
-  );
-  if (holder) {
-    return {
-      phase: 'waiting',
-      label: t('taskStatus.waitingOn', { who: nameOf(holder, members, myHandle) }),
-      since: task.updatedAt,
-      worker: null,
-    };
-  }
-
+function queuedFor(task: Task, ctx: Pick<TaskStateContext, 'pipeline'>): Omit<TaskState, 'workers'> {
+  const stage = ctx.pipeline.stageById.get(task.stageId);
   return {
     phase: 'waiting',
     label: t('taskStatus.queuedFor', { stage: stage?.name ?? task.stageId }),
     since: task.updatedAt,
     worker: null,
   };
+}
+
+/**
+ * The team and the stages as far as the board knows them, for the shared rule where the configuration
+ * is not known: members with their kind, stages without gates, the blocking labels.
+ */
+function sketchConfig(ctx: TaskStateContext): Pick<ProjectConfig, 'team' | 'pipeline'> {
+  return {
+    team: {
+      members: [...ctx.members.values()].map((member) => ({
+        handle: member.handle,
+        kind: member.kind,
+        displayName: member.displayName,
+      })),
+    },
+    pipeline: {
+      stages: ctx.pipeline.stages.map(({ gate: _gate, ...stage }) => stage),
+      labels: (ctx.labels ?? []).map(({ id, name, blocks }) => ({ id, name, blocks })),
+    },
+  } as unknown as Pick<ProjectConfig, 'team' | 'pipeline'>;
+}
+
+/**
+ * The state of a card from the shared reason it stands still (PM-460): the phase and the sentence the
+ * board has always shown for each reason. A reason that several causes share (`nobody`, `labels_missing`,
+ * `refinement`) keeps the line of its cause.
+ */
+function stateOfWait(
+  task: Task,
+  wait: TaskWait,
+  parts: {
+    ctx: TaskStateContext;
+    workers: TaskWorker[];
+    prerequisites: PrerequisiteWait | null;
+    block: StartBlock | null;
+  },
+): DerivedState {
+  const { ctx, workers, prerequisites, block } = parts;
+  const { members, myHandle } = ctx;
+  const stage = ctx.pipeline.stageById.get(task.stageId);
+  const item = ctx.openInboxByTask.get(task.key)?.find((entry) => entry.id === wait.inboxItemId);
+  const mine = !!item && isAssignedTo(item, myHandle);
+  const handles = wait.next.map((actor) => actor.handle);
+  const waitingOn = (who: readonly string[], since: string): Omit<TaskState, 'workers'> => ({
+    phase: 'waiting',
+    label: t('taskStatus.waitingOn', {
+      who: joinNames(who.map((handle) => nameOf(handle, members, myHandle))),
+    }),
+    since,
+    worker: null,
+  });
+
+  switch (wait.reason) {
+    case 'prerequisite':
+      return standingOnPrerequisite(prerequisites, wait.since);
+    case 'handing_off': {
+      const handing = workers.filter((worker) => worker.verb === 'handingOff');
+      return {
+        phase: 'working',
+        label: workersLabel(handing),
+        since: handing[0]!.since,
+        worker: handing[0]!.member,
+        workers: handing,
+      };
+    }
+    case 'start_waiting':
+      return { phase: 'waiting', label: startWaitingLabel(task, ctx), since: wait.since, worker: null };
+    case 'inbox':
+    case 'hand_on': {
+      if (item && mine)
+        return { phase: 'needs_you', label: needsYouLabel(item), since: wait.since, worker: null };
+      return waitingOn(handles, wait.since);
+    }
+    case 'blocked':
+      return { phase: 'blocked', label: t('taskStatus.statuses.blocked'), since: wait.since, worker: null };
+    case 'fix_limit': {
+      const limit = task.fixLimit!;
+      return {
+        phase: mine || decidesFixLimit(limit, myHandle) ? 'needs_you' : 'waiting',
+        label: fixLimitStatus(limit, members, myHandle),
+        since: wait.since,
+        worker: null,
+      };
+    }
+    case 'working':
+      return {
+        phase: 'working',
+        label: workersLabel(workers),
+        since: wait.since,
+        worker: workers[0]!.member,
+        workers,
+      };
+    case 'held': {
+      const names = wait.labels.map((id) => labelName(id, ctx.labels ?? []));
+      return {
+        phase: 'waiting',
+        label: joinNames(names),
+        since: wait.since,
+        worker: null,
+        holdingLabels: [...wait.labels],
+      };
+    }
+    case 'approval':
+      return approvalWaiting(wait.labels, handles, wait.since, ctx);
+    case 'labels_missing':
+    case 'refinement':
+      return (block && startBlockState(task, block, ctx)) || queuedFor(task, ctx);
+    case 'ready': {
+      // An earlier queue (e.g. incoming requests before "ready") is not ready to start yet.
+      const label =
+        stage && nextStage(ctx.pipeline, stage.id)?.kind === 'queue' ? stage.name : t('taskStatus.ready');
+      return { phase: 'ready', label, since: wait.since, worker: null };
+    }
+    case 'queued': {
+      const [first] = wait.next;
+      // The people who own the stage: the viewer among them is asked, the others are waited for.
+      if (first?.kind === 'human') {
+        return myHandle && handles.includes(myHandle)
+          ? {
+              phase: 'needs_you',
+              label: t('taskStatus.needsYou', { what: stage?.name ?? '' }),
+              since: wait.since,
+              worker: null,
+            }
+          : waitingOn(handles, wait.since);
+      }
+      // An AI stage owner already carries the card (its session is idle between turns).
+      return first ? waitingOn(handles, wait.since) : queuedFor(task, ctx);
+    }
+    case 'assignee':
+      return waitingOn(handles, wait.since);
+    case 'nobody': {
+      // Nobody can act: the line says what is missing, as its cause always did.
+      const blocked = block ? startBlockState(task, block, ctx) : null;
+      if (blocked) return blocked;
+      const advance = ctx.config ? stageAdvance(task, ctx.config) : null;
+      if (advance?.kind === 'approve') {
+        return approvalWaiting(
+          advance.approvals.map((approval) => approval.label),
+          [],
+          task.updatedAt,
+          ctx,
+        );
+      }
+      return queuedFor(task, ctx);
+    }
+  }
 }
 
 /** Sort order inside a column: what needs you first, finished work last. */

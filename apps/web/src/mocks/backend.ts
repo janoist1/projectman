@@ -164,6 +164,9 @@ import {
   DEFAULT_CLOSED_CARDS_DAYS,
   isClosedSince,
   measureClosedCard,
+  taskWait,
+  waitHolders,
+  waitWorkers,
 } from '@projectman/shared';
 import type {
   EngineStatusView,
@@ -2687,8 +2690,28 @@ export class MockBackend {
     return ok({ task: clone(task) });
   }
 
+  /** Why the card stands still, by the shared rule (PM-460), as the server serves it to the team. */
+  private taskWaitOf(task: Task) {
+    const roster = this.members.map((member) => this.viewOf(member));
+    const linked = task.links.flatMap((link) => {
+      const other = link.kind === 'prerequisite' ? this.findTask(link.ref) : undefined;
+      return other ? [other] : [];
+    });
+    return taskWait({
+      task,
+      config: this.config,
+      openItems: this.inbox.filter((item) => item.taskKey === task.key && item.state === 'open'),
+      workers: waitWorkers(task, this.config, roster),
+      holders: waitHolders(task, roster),
+      openPrerequisites: openPrerequisites(task, linked).map((card) => card.key),
+      viewer: null,
+    });
+  }
+
   private taskDetail(task: Task) {
+    const wait = this.findMember(this.viewerHandle)?.role === 'client' ? null : this.taskWaitOf(task);
     return {
+      ...(wait ? { wait } : {}),
       task: clone(task),
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),

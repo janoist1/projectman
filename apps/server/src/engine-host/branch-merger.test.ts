@@ -410,6 +410,35 @@ describe('push', () => {
     expect(git(remote, 'rev-parse', 'main')).toBe(built.mergeCommit);
   });
 
+  it('sends no tags even when the repository follows them', async () => {
+    const { merger, repo, remote } = fixture();
+    git(repo, 'config', 'push.followTags', 'true');
+    const id = feature(repo, 'f.txt', 'x\n');
+    git(repo, 'tag', '-a', '-m', 'release', 'v1', id);
+    const built = await merger.build(REF, {
+      onto: git(repo, 'rev-parse', 'main'),
+      commit: id,
+      message: 'Merge',
+    });
+    if (!built.ok) throw new Error('expected a clean merge');
+    expect(await merger.push(REF, { base: 'main', mergeCommit: built.mergeCommit })).toEqual({ ok: true });
+    expect(git(remote, 'tag', '--list')).toBe('');
+  });
+
+  it('refuses a base that tracks a remote branch of another name, in prepare and in push', async () => {
+    const { merger, repo, remote } = fixture();
+    git(repo, 'push', '-q', 'origin', 'main:other');
+    git(repo, 'branch', '-q', '--set-upstream-to=origin/other', 'main');
+    const head = git(repo, 'rev-parse', 'HEAD');
+    await expect(merger.prepare(REF, { base: 'main', commit: head })).rejects.toMatchObject({
+      code: 'no_remote',
+    });
+    await expect(merger.push(REF, { base: 'main', mergeCommit: head })).rejects.toMatchObject({
+      code: 'no_remote',
+    });
+    expect(git(remote, 'rev-parse', 'main')).toBe(head);
+  });
+
   it('is refused as non_fast_forward when the remote moved on, and never forces', async () => {
     const { merger, repo, remote } = fixture();
     const other = path.join(root, `clone-push-${counter}`);

@@ -203,6 +203,9 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       if (refname !== `refs/heads/${base}` || !ref || !remote || remote === '.' || !remoteRef) continue;
       if (!REMOTE_NAME.test(remote))
         throw new MergeError('no_remote', 'The upstream remote has an unusable name');
+      // The fetch reads the upstream's branch and the push writes `refs/heads/<base>`: they must be one.
+      if (remoteRef !== `refs/heads/${base}`)
+        throw new MergeError('no_remote', `${base} tracks a remote branch of another name (${remoteRef})`);
       return { ref, remote, remoteRef };
     }
     return null;
@@ -495,6 +498,7 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
         'push',
         '--no-verify',
         '--no-recurse-submodules',
+        '--no-follow-tags',
         '--no-signed',
         '--',
         upstream.remote,

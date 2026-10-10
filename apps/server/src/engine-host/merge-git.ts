@@ -34,6 +34,9 @@ export const SAFE_GIT_CONFIG = [
   'core.fsmonitor=false',
   '-c',
   'protocol.ext.allow=never',
+  // A replace ref cannot swap the content of an approved commit.
+  '-c',
+  'core.useReplaceRefs=false',
 ] as const;
 
 export const MERGE_GIT_TIMEOUT_MS = 120_000;
@@ -58,7 +61,7 @@ export function mergeGitEnv(extra: Record<string, string> = {}): NodeJS.ProcessE
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const name of REPOSITORY_OVERRIDES) delete env[name];
   for (const name of BILLING_ENV_VARS) delete env[name];
-  return { ...env, GIT_TERMINAL_PROMPT: '0', LC_ALL: 'C', ...extra };
+  return { ...env, GIT_TERMINAL_PROMPT: '0', GIT_NO_REPLACE_OBJECTS: '1', LC_ALL: 'C', ...extra };
 }
 
 /** Runs git; resolves with the exit code and the output whatever it was (only a failure to start rejects). */

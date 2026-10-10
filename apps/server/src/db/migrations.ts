@@ -822,5 +822,10 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   );
   CREATE INDEX project_focus_items_order ON project_focus_items(project_key, position);`,
   },
+  {
+    version: 44,
+    name: 'relayed project manager replies',
+    sql: `ALTER TABLE team_messages ADD COLUMN relayed TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

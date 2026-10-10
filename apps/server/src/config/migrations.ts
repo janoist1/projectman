@@ -5,6 +5,7 @@ import {
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_PROJECT_LANGUAGE,
+  defaultMerger,
   FALLBACK_PERMISSION_MODE,
   isOperator,
   isProjectManager,
@@ -271,11 +272,11 @@ function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
   for (const member of rawAiMembers(raw)) {
     if (!isOperator(member as unknown as MemberConfig)) continue;
     const fields: string[] = [];
-    for (const field of ['onLeave', 'schedule']) {
-      if (member[field] === undefined) continue;
-      delete member[field];
-      fields.push(field);
-    }
+    // A stated `onLeave: false` is dropped silently: it is the default, nothing is put back.
+    if (member.onLeave === true) fields.push('onLeave');
+    delete member.onLeave;
+    if (member.schedule !== undefined) fields.push('schedule');
+    delete member.schedule;
     if (member.capacity !== undefined && member.capacity !== 1) {
       member.capacity = 1;
       fields.push('capacity');
@@ -300,6 +301,19 @@ function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
 }
 
 /**
+ * A project without a merger (PM-470) gets the one its pipeline implies: the code reviewer when a code
+ * review stage comes before the merge target, else the developer. A configuration that does not parse is
+ * left alone: at run time the same rule (`mergerOf`) applies to the missing value.
+ */
+export function addMerger(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team || team.merger !== undefined) return raw;
+  const parsed = ProjectConfig.safeParse(raw);
+  if (parsed.success) team.merger = defaultMerger(parsed.data);
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -315,29 +329,36 @@ function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
  *   - a missing card mover becomes worker (above);
  *   - a project without an Operator gets one, at work (above);
  *   - the Operator is fixed: no leave, no schedule, capacity 1, no instructions of its own, no role
- *     override, and temp workers are not hired for its role (above).
+ *     override, and temp workers are not hired for its role (above);
+ *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
+ *     the fixed configuration.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return fixOperator(
-    addOperator(
-      addCardMover(
-        addProjectManager(
-          migrateReleaseApproval(
-            migrateLegacyConfig(
-              migrateCodexBypass(
-                migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-                context,
+  return addMerger(
+    fixOperator(
+      addOperator(
+        addCardMover(
+          addProjectManager(
+            migrateReleaseApproval(
+              migrateLegacyConfig(
+                migrateCodexBypass(
+                  migrateScheduledRole(
+                    dropMessageBurst(migrateShadowingRoles(raw, context), context),
+                    context,
+                  ),
+                  context,
+                ),
               ),
+              context,
             ),
             context,
           ),
-          context,
         ),
+        context,
       ),
       context,
     ),
-    context,
   );
 }

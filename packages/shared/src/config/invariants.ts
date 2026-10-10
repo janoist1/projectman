@@ -5,6 +5,7 @@ import { gateAcceptsCondition, gateAcceptsWhen, stageIndex } from './gates';
 import { labelDefinition, labelExcludesAuthors, labelHolders } from './labels';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
+import { unresolvedMerger } from './merger';
 import { projectManagerOf, projectManagersOf } from './project-manager';
 import { developmentStage, projectRefines } from './refinement';
 import { isHumanOnlyLabel } from '../domain/label';
@@ -47,7 +48,8 @@ export interface ConfigIssue {
     | 'gate_unreachable'
     | 'mover_not_member'
     | 'mover_cannot_move'
-    | 'mover_on_leave';
+    | 'mover_on_leave'
+    | 'merger_unresolved';
   /** Absent in older clients means error. */
   severity?: 'error' | 'warning';
   path: string;
@@ -73,7 +75,9 @@ export interface ConfigIssue {
  *   with another label (`when`): a release approval holds for every task;
  * - the label a condition's `when` names is defined;
  * - every role a member holds (and the temp workers' role) is a built-in or custom role that
- *   the member's kind may hold; custom role ids are unique and never reuse a built-in id.
+ *   the member's kind may hold; custom role ids are unique and never reuse a built-in id;
+ * - when a repository requires a merge, the merger can be resolved (PM-448): a code review stage, a
+ *   work stage or a member of the team who may work comes before the merge target.
  * Unfilled recommended duties are warnings, never errors.
  */
 export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
@@ -226,6 +230,9 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     if (DUTIES[id].recommended && !dutyMembers(config, id).length)
       issues.push({ code: 'recommended_duty_unfilled', severity: 'warning', path: 'team', detail: id });
   }
+  const unresolved = unresolvedMerger(config);
+  if (unresolved !== null)
+    issues.push({ code: 'merger_unresolved', path: 'team.merger', detail: unresolved });
   issues.push(...manualRefinementSteps(config));
   return issues;
 }
@@ -371,6 +378,7 @@ const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([
   'mover_not_member',
   'mover_cannot_move',
   'mover_on_leave',
+  'merger_unresolved',
 ]);
 
 /**

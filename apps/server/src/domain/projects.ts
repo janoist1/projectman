@@ -9,6 +9,7 @@ import {
   memberOf,
   operatorFixedChange,
   ownerOnlyChanges,
+  unknownPatchRepo,
   validateProjectConfig,
 } from '@projectman/shared';
 import type {
@@ -311,10 +312,14 @@ export class ProjectService {
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
-      (current) => ({
-        next: applyConfigPatch(current, patch),
-        message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
-      }),
+      (current) => {
+        const unknownRepo = unknownPatchRepo(current, patch);
+        if (unknownRepo !== null) throw invalid('unknown_repo', `unknown repository: ${unknownRepo}`);
+        return {
+          next: applyConfigPatch(current, patch),
+          message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
+        };
+      },
     );
   }
 

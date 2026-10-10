@@ -40,6 +40,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   role_not_for_human: 'errors.codes.role_not_for_human',
   custom_role_shadows_builtin: 'errors.codes.custom_role_shadows_builtin',
   duplicate_role: 'errors.codes.duplicate_role',
+  merger_unresolved: 'errors.codes.merger_unresolved',
   stage_without_owner: 'settings.issues.stage_without_owner',
   work_stage_without_worker: 'settings.issues.work_stage_without_worker',
   gate_unreachable: 'settings.issues.gate_unreachable',

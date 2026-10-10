@@ -21,6 +21,8 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
     },
     team: {
       cardMover: input.cardMover ?? { kind: 'worker' },
+      // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
+      merger: input.merger ?? { kind: 'developer' },
       members: [
         {
           kind: 'human',

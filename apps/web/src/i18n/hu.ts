@@ -856,6 +856,7 @@ export const hu = {
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
       missing_duty_holder: 'A folyamat egy szükséges feladatkörének nincs felelőse.',
       recommended_duty_unfilled: 'Egy ajánlott feladatkörnek még nincs felelőse.',
+      merger_unresolved: 'A beolvasztó nem oldható fel: a beállított tag vagy lépés nincs meg.',
       unknown_role: 'Ismeretlen szerep.',
       role_not_for_ai: 'Ezt a szerepet AI-tag nem töltheti be.',
       role_not_for_human: 'Ezt a szerepet ember nem töltheti be.',

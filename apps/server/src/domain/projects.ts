@@ -3,6 +3,7 @@ import {
   DEFAULT_PROJECT_LANGUAGE,
   ProjectConfig,
   applyConfigPatch,
+  configPatchIssues,
   configSchemaIssues,
   integratorConfigRefusal,
   isTheme,
@@ -275,10 +276,14 @@ export class ProjectService {
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
-      (current) => ({
-        next: applyConfigPatch(current, patch),
-        message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
-      }),
+      (current) => {
+        const issues = configPatchIssues(current, patch);
+        if (issues.length) throw invalid('config_invalid', 'unknown repository', { issues });
+        return {
+          next: applyConfigPatch(current, patch),
+          message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
+        };
+      },
     );
   }
 

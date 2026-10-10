@@ -2,8 +2,10 @@
 
 Tasks live in projectman's own database. GitHub is used for what it does best: pull
 requests, reviews, checks, merges and releases (decision 9 in [DECISIONS.md](DECISIONS.md)).
-projectman **reads** from GitHub with the owner's login and never changes anything there with it. The
-one writing path is the managed VM's publishing gate with its own, separate identity
+projectman **reads** GitHub pull requests with the owner's login. Merge on Done (PM-452) pushes the
+approved merge commit to the default branch through the engine's git login, never through the publisher.
+The publishing gate's separate identity still cannot write the default branch. Its writing path is
+the managed VM's publishing gate
 ([Publishing from the managed VM](#publishing-from-the-managed-vm-pm-142)); everywhere else agents do
 not push (decision 21).
 

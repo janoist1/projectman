@@ -822,5 +822,27 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   );
   CREATE INDEX project_focus_items_order ON project_focus_items(project_key, position);`,
   },
+  {
+    version: 46,
+    name: 'merge on done and persistent handovers',
+    sql: `CREATE TABLE task_merges (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, task_key TEXT NOT NULL,
+      repo TEXT NOT NULL, base TEXT NOT NULL, "commit" TEXT NOT NULL, branch TEXT NOT NULL,
+      from_stage_id TEXT NOT NULL, to_stage_id TEXT NOT NULL, requested_by TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('queued','running','blocked','merged','sent_back','cancelled')),
+      step TEXT NOT NULL, merge_commit TEXT, check_json TEXT, landed TEXT NOT NULL,
+      block_json TEXT, pushed_json TEXT, pull_requests_json TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
+    );
+    CREATE INDEX task_merges_queue ON task_merges(project_key, repo, state, created_at);
+    CREATE UNIQUE INDEX task_merges_open ON task_merges(project_key, task_key)
+      WHERE state IN ('queued','running','blocked');
+    CREATE TABLE task_handovers (
+      project_key TEXT NOT NULL, task_key TEXT NOT NULL, "commit" TEXT NOT NULL,
+      branch TEXT NOT NULL, stage_id TEXT NOT NULL, at TEXT NOT NULL,
+      PRIMARY KEY (project_key, task_key)
+    );
+    INSERT INTO task_handovers SELECT project_key, task_key, commit_id, branch, stage_id, pinned_at FROM task_review_pins;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

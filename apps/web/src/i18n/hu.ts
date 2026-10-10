@@ -850,6 +850,7 @@ export const hu = {
       handoff_not_open: 'Ezt a kártyát most nem adják át tőled, ezért nem írhatsz átadó jegyzetet.',
       handover_uncommitted:
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
+      merge_not_blocked: 'A kártyának nincs elakadt beolvasztása.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',

@@ -62,6 +62,13 @@ function permissionsChanged(previous: ProjectConfig, next: ProjectConfig): boole
 
 /** Stage and condition ordering do not alter the approval policy. Removal does. */
 export function approvalPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  const mergePolicy = (config: ProjectConfig) =>
+    JSON.stringify(
+      config.project.repos
+        .map((repo) => ({ name: repo.name, mergeOnDone: repo.mergeOnDone }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  if (mergePolicy(previous) !== mergePolicy(next)) return true;
   const boundarySignature = (config: ProjectConfig) =>
     JSON.stringify({
       settings: config.team.boundary ?? { enabled: false, leadTimeoutSeconds: 120 },

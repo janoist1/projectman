@@ -7,6 +7,7 @@ import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { TaskHandoff, TaskHandoffRef } from './handoff';
 import { LabelId } from './label';
+import { TaskMergeState, TaskMerged } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
@@ -219,6 +220,8 @@ export const Task = z.object({
   developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
   reviewPin: TaskReviewPin.optional(),
+  merge: TaskMergeState.optional(),
+  merged: TaskMerged.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
   loop: TaskLoop.optional(),
   /** The fix round limit that holds the card back (PM-262); absent when it is not held. Hidden from clients. */

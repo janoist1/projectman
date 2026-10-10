@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
+import { MergeBlockReason } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
 import { TaskRelationKind } from './relations';
@@ -327,7 +328,16 @@ export const ProviderRateLimitAlert = z.object({
 });
 export type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
 
+export const MergeBlockedAlert = z.object({
+  alert: z.literal('merge_blocked'),
+  taskKey: TaskKey,
+  mergeId: z.string(),
+  reason: MergeBlockReason,
+  message: z.string(),
+});
+export type MergeBlockedAlert = z.infer<typeof MergeBlockedAlert>;
 export const AlertPayload = z.discriminatedUnion('alert', [
+  MergeBlockedAlert,
   SessionTokensAlert,
   MessageBurstAlert,
   SessionInputAlert,

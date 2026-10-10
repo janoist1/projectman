@@ -64,6 +64,7 @@ import {
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
+  configPatchIssues,
   approvalRefusal,
   attachmentPreviewOf,
   canDeleteAttachment,
@@ -2116,6 +2117,8 @@ export class MockBackend {
     if (input.baseVersion !== this.configVersion) {
       return error(409, 'config_conflict', 'Configuration changed', { currentVersion: this.configVersion });
     }
+    const issues = configPatchIssues(this.config, input);
+    if (issues.length) return error(400, 'config_invalid', 'Invalid configuration', { issues });
     const next = applyConfigPatch(this.config, input);
     const failure = this.configChangeFailure(next);
     if (failure) return failure;

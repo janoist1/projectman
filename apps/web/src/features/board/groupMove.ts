@@ -27,6 +27,7 @@ export function groupOutcome(result: BoardMoveResult): { moved: string[]; held: 
 export function heldReason(item: BoardGroupItem, labels: readonly LabelView[]): string {
   switch (item.outcome) {
     case 'moved':
+    case 'merging':
       return '';
     case 'approval_pending':
       return t('board.groupMove.reason.approval');

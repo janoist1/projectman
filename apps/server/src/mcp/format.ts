@@ -372,7 +372,7 @@ export function formatTaskUpdate(
   if (task.status === 'cancelled' && change.relations?.add.some((r) => r.kind === 'duplicate_of'))
     done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
-  if (change.stageId) done.push(`moved to ${change.stageId}`);
+  if (change.stageId) done.push(task.merge ? 'merge started' : `moved to ${change.stageId}`);
   if (change.developerLevel) done.push('recommended developer set');
   const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
   return [`Updated ${task.key}: ${done.join('; ')}.`, ...level, `Now: ${taskStatusLine(task)}`].join('\n');

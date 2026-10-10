@@ -20,6 +20,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   no_owner: 'settings.issues.no_owner',
   no_ai_project_manager: 'settings.issues.no_ai_project_manager',
   unknown_member: 'errors.codes.unknown_member',
+  unknown_repo: 'errors.codes.unknown_repo',
   unknown_label: 'settings.issues.unknown_label',
   duplicate_label: 'settings.issues.duplicate_label',
   missing_label_setter: 'settings.issues.missing_label_setter',

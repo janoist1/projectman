@@ -69,6 +69,7 @@ import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { Merges } from './merges';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -720,6 +721,21 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  const merges = new Merges({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    messaging,
+    timeline,
+    engines,
+    github: opts.github,
+    inbox,
+  });
+  tasks.useMerges(merges);
+  events.on('task_cancelled', (task) => {
+    merges.cancel(task.projectKey, task.key);
+  });
   sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
@@ -1194,6 +1210,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     reviewWatch,
     fullTests,
+    merges,
     loopWatch,
     seniorWaits,
     fixLimit,
@@ -1232,6 +1249,7 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (restoredStarts > 0) retryDeferredStarts();
@@ -1353,6 +1371,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await merges.stop();
       await screenshotRuns?.stop();
       await background.stop();
       pauses.dispose();

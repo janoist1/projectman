@@ -60,6 +60,7 @@ export function inboxHeading(item: InboxItem): string {
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
+    if (alert?.alert === 'merge_blocked') return t('inbox.alerts.unknown');
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
@@ -236,6 +237,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'merge_blocked') return alert.message;
   if (alert.alert === 'provider_rate_limited')
     return t(
       alert.until ? 'inbox.alerts.provider_rate_limited.body' : 'inbox.alerts.provider_rate_limited.unknown',

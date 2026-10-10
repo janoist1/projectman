@@ -10,6 +10,7 @@ import type {
   BoundaryOperationAdapter,
   EngineAttachments,
   EngineDirectory,
+  BranchMerger,
   FullTestExecutor,
   ScreenshotExecutor,
   GithubPublisher,
@@ -29,6 +30,7 @@ import type { ScheduleTimer } from '../../src/domain/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
+import { createLocalEngine, LocalEngineDirectory } from '../../src/domain/engines';
 import {
   capturingLogger,
   createFakeRunnerModule,
@@ -123,6 +125,7 @@ export async function createDomainHarness(
     heavyLockDir?: string;
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
+    merger?: BranchMerger;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
   } = {},
@@ -165,7 +168,24 @@ export async function createDomainHarness(
         : undefined;
 
   const domain: Domain = createDomain({
-    ...(opts.engines ? { engines: opts.engines } : {}),
+    ...(opts.engines
+      ? { engines: opts.engines }
+      : opts.merger
+        ? {
+            engines: new LocalEngineDirectory({
+              ...createLocalEngine(
+                {
+                  worktrees,
+                  workspacePath: () => workspace,
+                  fullTestExecutor: opts.fullTestExecutor,
+                  claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
+                },
+                log.logger,
+              ),
+              merger: opts.merger,
+            }),
+          }
+        : {}),
     ...(opts.engineAttachments ? { engineAttachments: opts.engineAttachments } : {}),
     sessionFoldersDir,
     sessionTmpDir,

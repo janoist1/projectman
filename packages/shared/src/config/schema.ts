@@ -253,6 +253,8 @@ export const RepoConfig = z.object({
    * Absent or false: retain the existing hand-over policy. Does not disable `reviewTest`.
    */
   fullTestAtMerge: z.boolean().optional(),
+  /** True: merge on Done; false: skip; absent: mergesOnDone decides. */
+  mergeOnDone: z.boolean().optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 

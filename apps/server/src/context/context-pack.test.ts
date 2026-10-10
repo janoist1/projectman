@@ -39,6 +39,18 @@ import { describeTeamRule } from './team-rules';
 
 const builder = createContextPackBuilder();
 
+it('explains server-owned merging and never asks members to merge or push', () => {
+  const project = buildProject();
+  project.project.repos[0]!.mergeOnDone = true;
+  const pack = builder.build(input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev' }) }));
+  expect(pack.initialMessage).toContain(
+    'Moving this card to Done makes the server merge its approved commit into `main`',
+  );
+  expect(pack.initialMessage).toContain('The project manager must not request a manual git merge');
+  expect(pack.appendSystemPrompt).toContain('Never merge or push');
+  expect(pack.appendSystemPrompt).not.toContain('Commit, push, open a pull request');
+});
+
 describe('team rules in the system prompt', () => {
   it.each(['codex', 'gemini', 'nanogpt'] as const)('requires %s to await heavy commands', (provider) => {
     const project = buildProject();
@@ -130,7 +142,13 @@ function buildProject(templateId = 'web-client-project', language = 'en'): Proje
     language,
     owner: { handle: 'owner', displayName: 'Anna Example', email: 'anna@example.com' },
   });
-  config.project.repos.push({ name: 'app', path: 'app', github: 'acme/app', defaultBranch: 'main' });
+  config.project.repos.push({
+    name: 'app',
+    path: 'app',
+    github: 'acme/app',
+    defaultBranch: 'main',
+    mergeOnDone: false,
+  });
   return config;
 }
 

@@ -122,7 +122,11 @@ export class BoardGroupMove {
     items.sort((a, b) => rankOf(order, a.taskKey) - rankOf(order, b.taskKey));
     return {
       task: this.store.get(parent.projectKey, parent.key),
-      outcome: parentMoved ? 'moved' : 'unchanged',
+      outcome: parentMoved
+        ? 'moved'
+        : items.some((item) => item.taskKey === parent.key && item.outcome === 'merging')
+          ? 'merging'
+          : 'unchanged',
       reranked,
       group: items,
     };
@@ -159,6 +163,10 @@ export class BoardGroupMove {
           outcome: 'approval_pending',
           inboxItemIds: result.pendingApproval.map((item) => item.id),
         };
+      if (result.merging) {
+        effects.push(...cardEffects);
+        return { taskKey: card.key, outcome: 'merging', mergeId: result.merging.id };
+      }
       return { taskKey: card.key, outcome: 'skipped', reason: 'changed' };
     } catch (error) {
       if (!(error instanceof DomainError)) throw error;

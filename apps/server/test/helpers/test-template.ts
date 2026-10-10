@@ -15,7 +15,7 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       key: input.key,
       name: input.name,
       workspacePath: input.workspacePath,
-      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+      repos: [{ name: 'web', path: '.', github: 'acme/web', mergeOnDone: false }],
       language: input.language,
       templateId: 'test',
     },

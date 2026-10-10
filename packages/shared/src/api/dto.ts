@@ -560,6 +560,7 @@ export type BoardMoveRequest = z.infer<typeof BoardMoveRequest>;
  * closed) and was not touched.
  */
 export const BoardGroupItem = z.discriminatedUnion('outcome', [
+  z.object({ taskKey: TaskKey, outcome: z.literal('merging'), mergeId: z.string() }),
   z.object({ taskKey: TaskKey, outcome: z.literal('moved') }),
   z.object({
     taskKey: TaskKey,
@@ -585,7 +586,7 @@ export type BoardGroupItem = z.infer<typeof BoardGroupItem>;
  */
 export const BoardMoveResult = z.object({
   task: Task,
-  outcome: z.enum(['reordered', 'moved', 'unchanged']),
+  outcome: z.enum(['reordered', 'moved', 'unchanged', 'merging']),
   reranked: z.array(TaskKey),
   /**
    * The result of every card of a group move (PM-121), the collecting card first, then its subtasks in

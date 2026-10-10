@@ -16,6 +16,9 @@ import { createCounterRepository, createProjectRepository } from './projects';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
 import { createReviewPinRepository } from './review-pins';
+import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
+export { mergeState, mergedState } from './task-merges';
+export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
 import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
@@ -65,6 +68,8 @@ export function createRepositories(db: Db) {
     sessions: createSessionRepository(db),
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
+    taskMerges: createTaskMergeRepository(db),
+    taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),

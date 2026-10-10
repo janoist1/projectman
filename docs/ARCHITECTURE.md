@@ -886,6 +886,28 @@ without a server result also receive instructions to run only targeted tests.
 No machine boundary changes: the check runs where the integrator runs. Dependencies are
 installed only when missing from the working directory.
 
+## Merge on Done (PM-452)
+
+`mergeRepoOf` and `mergesOnDone` in `packages/shared/src/domain/merge.ts` decide whether a Done move
+merges the card's repository. An explicit `mergeOnDone` wins; otherwise `fullTestAtMerge: true`
+keeps the integrating-session policy. Every move path, including board groups and approved moves,
+queues the last handed-over commit (`task_handovers`, migration 46) before changing the stage.
+Without a handover the server reads the clean branch head. Clients never see `Task.merge` or `Task.merged`.
+
+`domain/merges.ts` persists a FIFO in `task_merges`, with one running merge per project/repository.
+Git work uses the card engine's `BranchMerger`: prepare, validate linked PRs, build without changing
+the base, check checkout conflicts, run the repository's full check, re-evaluate the gate, push and
+advance the local branch. Only then does the card enter Done. Conflicts and failed checks send work
+back as a fix round; operational failures leave the card in place with an owner alert. The retry route
+keeps the merge id. Cancellation is allowed before push, and a successful remote push is recorded as
+`landed: remote` so a retry only advances locally and finishes. Running rows resume from prepare on
+startup, and known abandoned check worktrees are released. The `_merge` directory is separate from
+card worktrees and is never swept as a closed card.
+
+**Does this work on a remote engine?** Yes: the server owns the durable queue, gates and inbox;
+all git operations, check checkouts, dependency copies and sandbox checks run on the card's engine
+through the existing `merge.*` and `full_test.*` contracts. See the machine inventory entry below.
+
 ## Heavy-run queue (PM-332)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -1565,8 +1587,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
 - **Merge on Done (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
-  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`) (PM-451, part 1/3 of PM-448; the server
-  does not call it yet).
+  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
+  (PM-451 and PM-452, parts 1/3 and 2/3 of PM-448).
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made

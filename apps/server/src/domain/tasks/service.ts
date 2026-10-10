@@ -124,6 +124,18 @@ export interface TaskUpdate {
  * attributed to an Actor in the timeline.
  */
 export class TaskService {
+  useMerges(merges: import('../merges').Merges): void {
+    this.moves.useMerges(merges);
+  }
+  finishMerge(
+    config: ProjectConfig,
+    task: Task,
+    target: Stage,
+    actor: Actor,
+    record: () => void,
+  ): Promise<void> {
+    return this.moves.finishMerge(config, task, target, actor, record);
+  }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -395,7 +407,7 @@ export class TaskService {
       ),
     );
     await runEffects(effects);
-    if (result.pendingApproval) throw approvalRequestedError(result.pendingApproval);
+    if (result.pendingApproval?.length) throw approvalRequestedError(result.pendingApproval);
     return result.handoffStart ? { ...result.task, handoffStart: result.handoffStart } : result.task;
   }
 
@@ -443,7 +455,7 @@ export class TaskService {
       });
       if (!moved.moved)
         return {
-          board: { task: moved.task, outcome: 'unchanged', reranked: [] },
+          board: { task: moved.task, outcome: moved.merging ? 'merging' : 'unchanged', reranked: [] },
           pending: moved.pendingApproval,
         };
       return { board: { task: moved.task, outcome: 'moved', reranked: moved.reranked ?? [] } };
@@ -819,7 +831,10 @@ export class TaskService {
     effects: Effect[],
   ): Task {
     const at = isoNow(this.ctx);
-    const cancelled = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+    this.moves.cancelMerge(task.projectKey, task.key, effects);
+    const cancelled = this.store.view(
+      this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at }),
+    );
     this.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
@@ -914,7 +929,7 @@ export class TaskService {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed'>,
+    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'mergeFailed'>,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }

@@ -1,4 +1,12 @@
-import { developerLevelText, isCardLink, refinementSteps, refinementTurn } from '@projectman/shared';
+import {
+  developerLevelText,
+  effectiveRepo,
+  repoOf,
+  mergesOnDone,
+  isCardLink,
+  refinementSteps,
+  refinementTurn,
+} from '@projectman/shared';
 import type { Attachment, Task } from '@projectman/shared';
 import {
   describeAttachment,
@@ -58,6 +66,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   const style = promptStyle(input.project);
   const sections: string[] = [];
   const testLine = fullTestLine(input.project, task);
+  const mergeRepo = repoOf(input.project, effectiveRepo(input.project, task));
 
   sections.push(
     [
@@ -83,6 +92,10 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   sections.push(['## Description', description(task.description)].join('\n'));
+  if (mergeRepo && mergesOnDone(mergeRepo))
+    sections.push(
+      `Moving this card to Done makes the server merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. Members must never merge or push themselves. The project manager must not request a manual git merge.`,
+    );
 
   // A card handed over to the member, or a conversation that replaces one that could not go on (PM-342).
   for (const block of [previousConversationBlock(input), handoffBlock(input)])

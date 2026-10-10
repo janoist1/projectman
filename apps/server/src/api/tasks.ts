@@ -36,6 +36,11 @@ const ClosedCardsQuery = z.object({
 });
 
 export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
+  app.post<TaskParams>(routes.retryMerge(':key', ':taskKey'), async (request): Promise<{ task: Task }> => {
+    const { key, taskKey } = request.params;
+    await requireAccess(domain, request, key, { minimum: 'developer' });
+    return { task: await domain.merges.retry(key, taskKey) };
+  });
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
     return visibleTasks(access, domain.tasks.list(request.params.key));

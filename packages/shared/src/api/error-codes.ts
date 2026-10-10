@@ -4,6 +4,7 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'merge_not_blocked',
   'integrator_key_invalid',
   'integrator_https_required',
   'integrator_not_allowed',

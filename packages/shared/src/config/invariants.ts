@@ -20,6 +20,7 @@ export interface ConfigIssue {
     | 'no_owner'
     | 'no_ai_project_manager'
     | 'unknown_member'
+    | 'unknown_repo'
     | 'unknown_label'
     | 'duplicate_label'
     | 'missing_label_setter'

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Pipeline } from '../domain/pipeline';
+import type { ConfigIssue } from './invariants';
 import {
   AutoCompactWindowTokens,
   MaxConcurrentAi,
@@ -14,6 +15,10 @@ const tempWorkersSchema = TeamLimits.shape.tempWorkers.removeDefault();
 export const PatchConfigRequest = z
   .object({
     baseVersion: z.string().min(1),
+    repoMerge: z
+      .array(z.object({ repo: z.string(), mergeOnDone: z.boolean().nullable() }))
+      .max(20)
+      .optional(),
     message: z.string().trim().min(1).max(500).optional(),
     project: ProjectConfig.shape.project
       .pick({ name: true, language: true, timezone: true })
@@ -56,6 +61,15 @@ export const PatchConfigRequest = z
   .strict();
 export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 
+/** Request invariants that cannot be inferred from the resulting configuration. */
+export function configPatchIssues(config: ProjectConfig, patch: PatchConfigRequest): ConfigIssue[] {
+  return (patch.repoMerge ?? []).flatMap((edit, index) =>
+    config.project.repos.some((repo) => repo.name === edit.repo)
+      ? []
+      : [{ code: 'unknown_repo' as const, path: `repoMerge.${index}.repo`, detail: edit.repo }],
+  );
+}
+
 /** Schema failures share the same issue list shape as invariant failures. */
 export function configSchemaIssues(issues: readonly { code: string; path: readonly PropertyKey[] }[]) {
   return issues.map(({ code, path }) => ({ code, path: path.map(String).join('.') }));
@@ -77,7 +91,19 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   else if (autoCompactWindowTokens !== undefined) limits.autoCompactWindowTokens = autoCompactWindowTokens;
   return {
     ...config,
-    project: { ...config.project, ...patch.project },
+    project: {
+      ...config.project,
+      ...patch.project,
+      repos: config.project.repos.map((repo) => {
+        const next = { ...repo };
+        for (const edit of patch.repoMerge ?? [])
+          if (edit.repo === repo.name) {
+            if (edit.mergeOnDone === null) delete next.mergeOnDone;
+            else next.mergeOnDone = edit.mergeOnDone;
+          }
+        return next;
+      }),
+    },
     team: {
       ...config.team,
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),

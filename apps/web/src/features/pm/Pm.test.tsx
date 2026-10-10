@@ -67,6 +67,18 @@ describe('the project manager button', () => {
 });
 
 describe('the project manager panel', () => {
+  it('shows the source of a relayed reply', async () => {
+    const project = mockProject();
+    project.backend.sendTeamMessage('pm', ['owner'], null, 'Final manager reply', undefined, undefined, {
+      sessionId: 'manager-session',
+      inReplyTo: 'human-message',
+    });
+    renderLayout(project);
+    fireEvent.click(await button());
+    const log = await screen.findByRole('log', { name: t('pm.thread.label') });
+    expect(await within(log).findByText('Final manager reply')).toBeTruthy();
+    expect(within(log).getByText(t('pm.relayed'))).toBeTruthy();
+  });
   it('opens beside the page with the focus in the composer and closes with Escape, back to the button', async () => {
     const project = mockProject();
     renderLayout(project);

@@ -41,6 +41,7 @@ export interface RecordMessageInput {
   routes?: Record<string, WorkItemRef>;
   /** Set on the message that carries a person's answer to an AI member's question (PM-249). */
   answer?: TeamMessageAnswer;
+  relayed?: TeamMessage['relayed'];
   origin?: TeamMessage['origin'];
 }
 
@@ -90,6 +91,7 @@ export class MessageService {
         ...(input.routes?.[handle] ? { route: input.routes[handle] } : {}),
       })),
       ...(input.answer ? { answer: input.answer } : {}),
+      ...(input.relayed ? { relayed: input.relayed } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
     };

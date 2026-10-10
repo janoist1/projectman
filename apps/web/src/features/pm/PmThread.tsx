@@ -123,6 +123,7 @@ export function PmThread({
               {mine ? <Markdown text={message.body} /> : <Markdown text={message.body} cardKey={cardKey} />}
             </div>
             <div className={styles.meta}>
+              {message.relayed ? <span>{t('pm.relayed')}</span> : null}
               <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
               {mine ? <span className={styles.sent}>{sentLine(message, handle, wait, members)}</span> : null}
             </div>

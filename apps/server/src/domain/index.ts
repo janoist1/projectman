@@ -60,6 +60,7 @@ import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { ProjectManagerChannels } from './project-manager';
+import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
 import { createDomainContext, defaultTemplateRegistry } from './context';
@@ -522,6 +523,9 @@ export function createDomain(opts: DomainOptions) {
     engines,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
+  const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
+  events.on('session_idle', (session) => pmReplyRelay.finish(session));
+  events.on('session_ended', (session) => pmReplyRelay.finish(session));
   providerKeys?.onChange(() => {
     void runnerModule.runner
       .providerStatus?.('nanogpt', { refresh: true })

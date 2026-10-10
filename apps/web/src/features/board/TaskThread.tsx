@@ -584,6 +584,7 @@ function MessageBubble({
           <Markdown text={message.body} />
         </div>
         <div className={styles.meta}>
+          {message.relayed ? <span>{t('pm.relayed')}</span> : null}
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
           {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
           {mine || (system && canSeeAll) ? (

@@ -850,8 +850,8 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
           WHERE hold_phase IS NOT NULL
             AND inbox_item_id IS NOT NULL
             AND (
-              NOT EXISTS (SELECT 1 FROM inbox WHERE id = task_fix_limits.inbox_item_id)
-              OR EXISTS (SELECT 1 FROM inbox WHERE id = task_fix_limits.inbox_item_id AND state != 'open')
+              NOT EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id)
+              OR EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id AND state = 'cancelled')
             );`,
   },
 ];

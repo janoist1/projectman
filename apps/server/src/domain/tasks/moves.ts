@@ -2,6 +2,7 @@ import {
   actorMoveRefusal,
   boardColumnOf,
   evaluateMove,
+  fixLimitDecisionOf,
   gateRequestOf,
   cardMoverHandle,
   handOnDecision,

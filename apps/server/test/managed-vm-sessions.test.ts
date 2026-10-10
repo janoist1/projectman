@@ -12,6 +12,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { FakeBoundaryAdapter, fakeBoundaryTarget } from './helpers/fake-boundary';
 import { flush } from './helpers/fakes';
+import { makeLocalOnly } from './helpers/test-template';
 
 /*
  * PM-141: the managed VM execution profile in the domain, with the fake runner. The adapters and
@@ -150,7 +151,7 @@ describe('the managed VM profile in the domain (PM-141)', { timeout: 60_000 }, (
     await managed({
       adjust: (c) => {
         modes(c);
-        delete c.project.repos[0]!.github;
+        makeLocalOnly(c);
       },
     });
     await startTask('AR-1', 'dev-1');

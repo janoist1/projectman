@@ -6,7 +6,12 @@ import { AiMemberConfig, ProjectConfig, type Merger, type ProjectConfigInput } f
 function configInput(): ProjectConfigInput {
   return {
     schemaVersion: 1,
-    project: { key: 'AC', name: 'Acme', workspacePath: '/work/acme', repos: [] },
+    project: {
+      key: 'AC',
+      name: 'Acme',
+      workspacePath: '/work/acme',
+      repos: [{ name: 'web', path: '.', github: 'acme/web' }],
+    },
     team: {
       members: [
         { kind: 'human', handle: 'owner', displayName: 'Owner', access: 'owner', roles: ['operator'] },
@@ -308,7 +313,7 @@ function labels(input: ProjectConfigInput, ...defined: Array<Record<string, unkn
 
 /** Inserts a stage before the done stage (index 1 of the base pipeline). */
 function insertStage(input: ProjectConfigInput, stage: Record<string, unknown>) {
-  stages(input).splice(1, 0, { name: stage.id, owners: [], columnId: 'todo', ...stage });
+  stages(input).splice(1, 0, { name: stage.id, owners: ['dev-1'], columnId: 'todo', ...stage });
 }
 
 function gate(...conditions: Array<[type: 'has_label' | 'lacks_label', label: string]>) {
@@ -554,6 +559,7 @@ describe('validateProjectConfig team and pipeline', () => {
       (input) => {
         stages(input)[0]!.kind = 'work';
         stages(input)[1]!.kind = 'step';
+        stages(input)[1]!.owners = ['dev-1'];
       },
       [
         { code: 'first_stage_not_queue', path: 'pipeline.stages[0]' },
@@ -663,6 +669,191 @@ describe('validateProjectConfig team and pipeline', () => {
   });
 });
 
+/** The issues with this code in the configuration the change makes. */
+function issuesOf(code: string, change: (input: ProjectConfigInput) => void) {
+  return validateProjectConfig(build(change)).filter((issue) => issue.code === code);
+}
+
+describe('validateProjectConfig working system (PM-459)', () => {
+  it.each(['step', 'release'])('reports a %s stage nobody owns', (kind) => {
+    const stage = (input: ProjectConfigInput, extra: Record<string, unknown>) =>
+      insertStage(input, { id: 'gated', kind, ...extra });
+    expect(issuesOf('stage_without_owner', (input) => stage(input, { owners: [] }))).toEqual([
+      { code: 'stage_without_owner', path: 'pipeline.stages[1]', detail: 'gated' },
+    ]);
+    expect(issuesOf('stage_without_owner', (input) => stage(input, { owners: ['dev-1'] }))).toEqual([]);
+    // A duty with no holder is `missing_duty_holder`, not this.
+    expect(
+      issuesOf('stage_without_owner', (input) => stage(input, { owners: undefined, duty: 'code_review' })),
+    ).toEqual([]);
+  });
+
+  it('reports a work stage nobody can work', () => {
+    const work = (input: ProjectConfigInput, extra: Record<string, unknown>) =>
+      insertStage(input, { id: 'dev', kind: 'work', ...extra });
+    const noDeveloper = (extra: Record<string, unknown>) => (input: ProjectConfigInput) => {
+      members(input)[2]!.role = 'code_review';
+      work(input, extra);
+    };
+    expect(issuesOf('work_stage_without_worker', noDeveloper({ owners: undefined }))).toEqual([
+      { code: 'work_stage_without_worker', path: 'pipeline.stages[1]', detail: 'dev' },
+    ]);
+    expect(issuesOf('work_stage_without_worker', noDeveloper({ owners: [] }))).toHaveLength(1);
+    expect(issuesOf('work_stage_without_worker', noDeveloper({ owners: ['dev-1'] }))).toEqual([]);
+    // Without owners the stage stands for the implementation duty: dev-1 holds it.
+    expect(issuesOf('work_stage_without_worker', (input) => work(input, { owners: undefined }))).toEqual([]);
+  });
+
+  describe('gate_unreachable', () => {
+    /** dev (work, one worker) -> review (step) whose gate wants `rv`, set by `setters`. */
+    const pipeline = (
+      input: ProjectConfigInput,
+      setters: string[],
+      options: { notByAuthor?: boolean; workers?: string[] } = {},
+    ) => {
+      labels(input, {
+        id: 'rv',
+        name: 'Rv',
+        setBy: { members: setters },
+        notByAuthor: options.notByAuthor ?? true,
+      });
+      insertStage(input, { id: 'review', kind: 'step', owners: ['ann'], gate: gate(['has_label', 'rv']) });
+      insertStage(input, { id: 'dev', kind: 'work', owners: options.workers ?? ['dev-1'] });
+    };
+    const path = 'pipeline.stages[2].gate.conditions[0]';
+
+    it('reports a label only the one worker may set and the author cannot', () => {
+      expect(issuesOf('gate_unreachable', (input) => pipeline(input, ['dev-1']))).toEqual([
+        { code: 'gate_unreachable', path, detail: 'rv' },
+      ]);
+    });
+
+    it('accepts a label another member may set, or one the author may set', () => {
+      expect(issuesOf('gate_unreachable', (input) => pipeline(input, ['dev-1', 'ann']))).toEqual([]);
+      expect(
+        issuesOf('gate_unreachable', (input) => pipeline(input, ['dev-1'], { notByAuthor: false })),
+      ).toEqual([]);
+      expect(
+        issuesOf('gate_unreachable', (input) => pipeline(input, ['dev-1'], { workers: ['dev-1', 'owner'] })),
+      ).toEqual([]);
+    });
+
+    it('leaves a label nobody may set to missing_label_setter', () => {
+      // `code_review` is held by nobody in the base team, so the label has no holder.
+      expect(
+        issuesOf('gate_unreachable', (input) => {
+          pipeline(input, ['dev-1']);
+          labels(input, { id: 'rv', name: 'Rv', setBy: { duties: ['code_review'] }, notByAuthor: true });
+        }),
+      ).toEqual([]);
+    });
+
+    it('reports a system label when no repository has a GitHub repository', () => {
+      const system = (repos: ProjectConfigInput['project']['repos']) => (input: ProjectConfigInput) => {
+        labels(input, { id: 'merged', name: 'Merged', setBy: 'system' });
+        insertStage(input, { id: 'merge', kind: 'step', gate: gate(['has_label', 'merged']) });
+        input.project.repos = repos;
+      };
+      expect(issuesOf('gate_unreachable', system([{ name: 'web', path: '.' }]))).toEqual([
+        { code: 'gate_unreachable', path: 'pipeline.stages[1].gate.conditions[0]', detail: 'merged' },
+      ]);
+      expect(issuesOf('gate_unreachable', system([]))).toHaveLength(1);
+      expect(issuesOf('gate_unreachable', system([{ name: 'web', path: '.', github: 'acme/web' }]))).toEqual(
+        [],
+      );
+    });
+  });
+
+  describe('card mover', () => {
+    const mover = (cardMover: unknown) => (input: ProjectConfigInput) => {
+      (input.team as { cardMover?: unknown }).cardMover = cardMover;
+    };
+
+    it('accepts the worker, a project manager and a developer human', () => {
+      for (const cardMover of [
+        undefined,
+        { kind: 'worker' },
+        { kind: 'project_manager' },
+        { kind: 'human', handle: 'ann' },
+        { kind: 'human', handle: 'owner' },
+      ])
+        expect(
+          validateProjectConfig(build(mover(cardMover))).filter((i) => i.code.startsWith('mover_')),
+        ).toEqual([]);
+    });
+
+    it('reports a human mover who is not a human member', () => {
+      const expected = (handle: string) => [
+        { code: 'mover_not_member', path: 'team.cardMover.handle', detail: handle },
+      ];
+      expect(issuesOf('mover_not_member', mover({ kind: 'human', handle: 'ghost' }))).toEqual(
+        expected('ghost'),
+      );
+      expect(issuesOf('mover_not_member', mover({ kind: 'human', handle: 'dev-1' }))).toEqual(
+        expected('dev-1'),
+      );
+    });
+
+    it('reports a human mover without the access to move cards', () => {
+      const viewer = (input: ProjectConfigInput) => {
+        (members(input)[1] as { access: string }).access = 'viewer';
+        mover({ kind: 'human', handle: 'ann' })(input);
+      };
+      expect(issuesOf('mover_cannot_move', viewer)).toEqual([
+        { code: 'mover_cannot_move', path: 'team.cardMover', detail: 'human' },
+      ]);
+    });
+
+    it('reports a project manager mover when the team has no project manager', () => {
+      const none = (input: ProjectConfigInput) => {
+        members(input).splice(3, 1);
+        mover({ kind: 'project_manager' })(input);
+      };
+      expect(issuesOf('mover_cannot_move', none)).toEqual([
+        { code: 'mover_cannot_move', path: 'team.cardMover', detail: 'project_manager' },
+      ]);
+    });
+
+    it('warns when the project manager mover is on leave, and only then', () => {
+      const leave = (onLeave: boolean) => (input: ProjectConfigInput) => {
+        members(input)[3]!.onLeave = onLeave;
+        mover({ kind: 'project_manager' })(input);
+      };
+      expect(issuesOf('mover_on_leave', leave(true))).toEqual([
+        { code: 'mover_on_leave', severity: 'warning', path: 'team.cardMover', detail: 'pm' },
+      ]);
+      expect(issuesOf('mover_on_leave', leave(false))).toEqual([]);
+      expect(
+        issuesOf('mover_on_leave', (input) => {
+          members(input)[3]!.onLeave = true;
+          mover({ kind: 'worker' })(input);
+        }),
+      ).toEqual([]);
+    });
+  });
+
+  it('keeps a stored configuration that breaks the new rules loadable and editable', () => {
+    const broken = build((input) => {
+      insertStage(input, { id: 'review', kind: 'step', owners: [] });
+      (input.team as { cardMover?: unknown }).cardMover = { kind: 'human', handle: 'ghost' };
+    });
+    const codes = introducedErrors(null, broken).map((issue) => issue.code);
+    expect(codes).toEqual(expect.arrayContaining(['stage_without_owner', 'mover_not_member']));
+    for (const code of codes) expect(isToleratedOnLoad({ code })).toBe(true);
+    // An unrelated change keeps them; only a new one is introduced.
+    const renamed = ProjectConfig.parse({ ...broken, project: { ...broken.project, name: 'Renamed' } });
+    expect(introducedErrors(broken, renamed)).toEqual([]);
+    const worse = build((input) => {
+      insertStage(input, { id: 'review', kind: 'step', owners: [] });
+      insertStage(input, { id: 'qa', kind: 'step', owners: [] });
+      (input.team as { cardMover?: unknown }).cardMover = { kind: 'human', handle: 'ghost' };
+    });
+    expect(introducedErrors(broken, worse)).toEqual([
+      { code: 'stage_without_owner', path: 'pipeline.stages[1]', detail: 'qa' },
+    ]);
+  });
+});
+
 describe('errors a stored configuration may keep', () => {
   it('tolerates the rules added after configurations were written, and nothing else', () => {
     const tolerated = [
@@ -670,6 +861,12 @@ describe('errors a stored configuration may keep', () => {
       'duplicate_column',
       'release_approval_needs_duty',
       'custom_role_shadows_builtin',
+      'stage_without_owner',
+      'work_stage_without_worker',
+      'gate_unreachable',
+      'mover_not_member',
+      'mover_cannot_move',
+      'mover_on_leave',
       'merger_unresolved',
     ] as const;
     for (const code of tolerated) expect(isToleratedOnLoad({ code })).toBe(true);

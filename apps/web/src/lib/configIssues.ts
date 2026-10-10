@@ -40,6 +40,12 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   role_not_for_human: 'errors.codes.role_not_for_human',
   custom_role_shadows_builtin: 'errors.codes.custom_role_shadows_builtin',
   duplicate_role: 'errors.codes.duplicate_role',
+  stage_without_owner: 'settings.issues.stage_without_owner',
+  work_stage_without_worker: 'settings.issues.work_stage_without_worker',
+  gate_unreachable: 'settings.issues.gate_unreachable',
+  mover_not_member: 'settings.issues.mover_not_member',
+  mover_cannot_move: 'settings.issues.mover_cannot_move',
+  mover_on_leave: 'settings.issues.mover_on_leave',
 };
 
 function isInvariantCode(code: string): code is ConfigIssue['code'] {

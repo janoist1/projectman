@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance, InjectOptions, LightMyRequestResponse } from 'fastify';
+import type { ProjectTemplate } from '@projectman/templates';
 import { vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
@@ -35,6 +36,8 @@ export interface AppHarnessOptions {
   scheduleTimer?: ScheduleTimer;
   /** What the machine display measures with (PM-320); default: the real probe of the operating system. */
   machineProbe?: AppModules['createMachineProbe'];
+  /** Templates registered next to the test template. */
+  extraTemplates?: ProjectTemplate[];
   /** Modules that stay real instead of being replaced by the fakes the harness returns. */
   real?: { context?: boolean; memory?: boolean; worktrees?: boolean; mcp?: boolean; templates?: boolean };
   /** Further buildApp options. */
@@ -129,7 +132,9 @@ export async function createAppHarness(
     contextPackBuilder: real.context ? undefined : contextBuilder,
     memberMemory: real.memory ? undefined : memory,
     worktrees: real.worktrees ? undefined : worktrees,
-    templates: real.templates ? undefined : createTemplateRegistry([testTemplate]),
+    templates: real.templates
+      ? undefined
+      : createTemplateRegistry([testTemplate, ...(opts.extraTemplates ?? [])]),
     createMachineProbe: opts.machineProbe,
   };
 

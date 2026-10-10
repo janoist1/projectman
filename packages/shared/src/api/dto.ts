@@ -192,8 +192,25 @@ export const CreateProjectRequest = z.object({
   templateId: z.string(),
   /** Repositories of the workspace; templates start without any (they can also be added later in the config). */
   repos: z.array(RepoConfig).optional(),
+  /** Who moves the cards on; absent means `worker`. `creator` makes the creating human the mover. */
+  cardMover: z.enum(['worker', 'project_manager', 'creator']).optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
+
+/** What `POST /api/projects/preview` answers: the configuration a create would save and its issues. */
+export const ProjectPreview = z.object({
+  config: ProjectConfig,
+  /** The fields of `ConfigIssue`; an absent severity is an error. */
+  issues: z.array(
+    z.object({
+      code: z.string(),
+      severity: z.enum(['error', 'warning']).optional(),
+      path: z.string(),
+      detail: z.string().optional(),
+    }),
+  ),
+});
+export type ProjectPreview = z.infer<typeof ProjectPreview>;
 
 export const TemplateSummary = z.object({
   id: z.string(),

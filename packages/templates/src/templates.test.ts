@@ -49,6 +49,20 @@ function build(id: string, language = 'hu', ownerHandle = 'owner') {
   return template.build(input(language, ownerHandle));
 }
 
+describe.each([{ kind: 'worker' }, { kind: 'project_manager' }, { kind: 'human', handle: 'owner' }] as const)(
+  'every template with the card mover %o',
+  (cardMover) => {
+    it.each(templates.map((t) => [t.id, t] as const))(
+      '%s works: no error, no mover warning',
+      (_id, template) => {
+        const config = template.build({ ...input('hu'), cardMover });
+        expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+        expect(validateProjectConfig(config).filter((i) => i.code.startsWith('mover_'))).toEqual([]);
+      },
+    );
+  },
+);
+
 it('all templates default to worker and preserve an explicitly selected mover', () => {
   for (const template of templates) {
     expect(template.build(input('en')).team.cardMover).toEqual({ kind: 'worker' });

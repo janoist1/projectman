@@ -6,6 +6,7 @@ import {
   describeAttachment,
   describeLink,
   describeRepo,
+  describeTaskWait,
   describeTheme,
   focusPlaceText,
   themeCardLines,
@@ -173,6 +174,7 @@ export function formatTaskDetail(
     theme
       ? `Visibility: ${task.visibility}`
       : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
     ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.

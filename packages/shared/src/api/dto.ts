@@ -4,6 +4,7 @@ import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
+import { TaskWait } from '../config/task-wait';
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
@@ -445,6 +446,8 @@ export const TaskDetail = z.object({
   fixRounds: z
     .object({ rounds: z.number().int().nonnegative(), limit: z.number().int().positive() })
     .optional(),
+  /** Why the card stands still (PM-460), for the viewer; null for a closed card; not shared with clients. */
+  wait: TaskWait.nullable().optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 

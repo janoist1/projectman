@@ -24,7 +24,8 @@ import type {
 } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { notFound } from '../domain';
-import { canSeeTask, visibleTaskDetail, visibleTasks } from '../domain/visibility';
+import type { ProjectAccess } from '../domain/access';
+import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../domain/visibility';
 import { actorOf, authorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -36,6 +37,22 @@ const ClosedCardsQuery = z.object({
 });
 
 export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
+  /** The detail the viewer sees, with why the card stands still (PM-460); a client gets no `wait`. */
+  const detailFor = async (access: ProjectAccess, key: string, taskKey: string): Promise<TaskDetail> => {
+    const detail = visibleTaskDetail(
+      access,
+      domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
+      (linked) => {
+        const other = domain.tasks.find(key, linked);
+        return !!other && canSeeTask(access, other);
+      },
+      (id) => domain.messages.get(id),
+    );
+    if (isClient(access)) return detail;
+    const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task);
+    return wait ? { ...detail, wait } : detail;
+  };
+
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
     return visibleTasks(access, domain.tasks.list(request.params.key));
@@ -53,17 +70,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.get<TaskParams>(routes.task(':key', ':taskKey'), async (request): Promise<TaskDetail> => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key);
-    const detail = domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey));
-    if (!canSeeTask(access, detail.task)) throw notFound('task', taskKey);
-    return visibleTaskDetail(
-      access,
-      detail,
-      (linked) => {
-        const other = domain.tasks.find(key, linked);
-        return !!other && canSeeTask(access, other);
-      },
-      (id) => domain.messages.get(id),
-    );
+    if (!canSeeTask(access, domain.tasks.get(key, taskKey))) throw notFound('task', taskKey);
+    return detailFor(access, key, taskKey);
   });
 
   /** A stage move is gated: 409 gate_blocked, or 409 approval_requested when approvers were asked. */
@@ -114,12 +122,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     await domain.tasks.changeLabels(key, taskKey, { add: body.add, remove: body.remove }, actorOf(access), {
       comment: body.comment,
     });
-    return visibleTaskDetail(
-      access,
-      domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
-      undefined,
-      (id) => domain.messages.get(id),
-    );
+    return detailFor(access, key, taskKey);
   });
 
   app.post<TaskParams>(routes.cancelTask(':key', ':taskKey'), async (request): Promise<Task> => {
@@ -158,12 +161,7 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
       author: authorOf(request),
       sponsor: await domain.members.sponsorFor(access),
     });
-    return visibleTaskDetail(
-      access,
-      domain.cardMeasure.withRounds(domain.tasks.detail(key, taskKey)),
-      undefined,
-      (id) => domain.messages.get(id),
-    );
+    return detailFor(access, key, taskKey);
   });
 
   /**

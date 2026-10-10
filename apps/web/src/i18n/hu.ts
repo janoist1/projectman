@@ -762,7 +762,8 @@ export const hu = {
       invitations: 'meghívó létrehozása',
     },
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
-    gateUnmet: 'Még hiányzik: {conditions}',
+    /** The conditions say what is needed themselves ("Kell: …", "Nem lehet rajta: …"). */
+    gateUnmet: '{conditions}.',
     approvalRequested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
     details: 'Részletek',
     code: 'Hibakód: {code}',

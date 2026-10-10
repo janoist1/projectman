@@ -79,6 +79,9 @@
 .kind {
   font-size: var(--text-xs);
   color: var(--c-ink-3);
+  /* A long name wraps, the marker does not. */
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .actions {

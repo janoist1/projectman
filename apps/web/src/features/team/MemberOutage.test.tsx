@@ -56,8 +56,11 @@ describe('the roster with an outage', () => {
     project.backend.startOutage(claude, ['fe-1'], []);
     project.render(<TeamPage />);
 
-    const text = t('memberStatus.cannotWorkWithReason', { reason: outageReason(claude) });
-    const line = await screen.findByText(text);
+    // Only the lead is bold; the reason follows it in the normal weight, on the same line.
+    const lead = await screen.findByText(t('memberStatus.cannotWorkLead'));
+    expect(lead.tagName).toBe('STRONG');
+    const line = lead.parentElement!;
+    expect(line.textContent).toBe(`${t('memberStatus.cannotWorkLead')} ${outageReason(claude)}`);
     expect(line.closest('[data-status="cannot_work"]')).not.toBeNull();
   });
 

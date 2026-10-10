@@ -83,13 +83,13 @@ describe('the drawer of a stuck card', () => {
     </Routes>
   );
 
-  it('heads the login box with the same line and keeps the command', async () => {
+  it('keeps the login box and does not repeat the header line in it', async () => {
     const project = mockProject();
     project.backend.startOutage(claude, ['be-1'], ['AC-20']);
     project.render(drawer, '/p/AC/tasks/AC-20');
 
     const box = (await screen.findByTestId('drawer-outage')) as HTMLElement;
-    expect(box.textContent).toContain(outageStuckLabel(claude));
+    expect(box.textContent).not.toContain(outageStuckLabel(claude));
     expect(box.textContent).toContain(t('providerSettings.loginCommands.claude'));
     expect(box.textContent).toContain(t('inbox.alerts.work_outage.todo.login'));
   });

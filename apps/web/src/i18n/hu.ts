@@ -2016,6 +2016,8 @@ export const hu = {
     /** An outage keeps the member from working (PM-468); the reason follows (`inbox.alerts.work_outage.reasons`). */
     cannotWork: 'Nem tud dolgozni',
     cannotWorkWithReason: 'Nem tud dolgozni: {reason}',
+    /** The bold lead of the phone card's line; the reason follows it in the normal weight. */
+    cannotWorkLead: 'Nem tud dolgozni:',
   },
 
   sessionState: {

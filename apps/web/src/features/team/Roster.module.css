@@ -104,8 +104,12 @@
 
 /* On a phone card the status and its reason are one line that may wrap. */
 .statusTextWrap {
-  font-weight: 800;
+  font-weight: 400;
   color: var(--status-text);
+}
+
+.statusLead {
+  font-weight: 800;
 }
 
 .nowCell {

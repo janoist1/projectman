@@ -16,6 +16,7 @@ export const fakeEnv = { FAKE_CLAUDE_LOGGED_OUT: '1' };
 // The texts of the Hungarian UI the scenario waits for (apps/web/src/i18n/hu.ts).
 const TEXT = {
   heading: 'A Claude nincs bejelentkezve',
+  engineHeading: 'A(z) Mac mini motor nem csatlakozik',
   cannotWork: 'Nem tud dolgozni',
   stuck: 'Áll: ',
   command: 'claude auth login',
@@ -38,10 +39,57 @@ export default async ({ instance, open, shoot, step, log }) => {
   });
   log(`card ${card} waits for ${developer.handle}`);
 
+  // No highlight on the card itself: its outline would hide the 3 px stripe the review looks at.
   await step('a. Rád vár', async () => {
     const page = await open({ path: '/p/AC/inbox' });
     await page.getByRole('heading', { name: TEXT.heading }).first().waitFor({ timeout: 90_000 });
-    await shoot(page, 'a-inbox', { widths: WIDTHS, highlight: `[data-alert="work_outage"] >> visible=true` });
+    await shoot(page, 'a-inbox', { widths: WIDTHS });
+  });
+
+  // The server's real outage is the Claude one; the other cases rewrite the inbox answer in the browser.
+  const inboxOf = async (change, headingText) => {
+    const page = await open({ path: '/p/AC' });
+    await page.route(/\/api\/projects\/AC\/inbox\?/, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      let changed = 0;
+      body.items = body.items.map((item) => {
+        if (item.payload?.alert !== 'work_outage') return item;
+        changed += 1;
+        return change(item);
+      });
+      log(`inbox answer rewritten: ${changed} outage item(s) of ${body.items.length}`);
+      await route.fulfill({
+        status: response.status(),
+        contentType: 'application/json',
+        body: JSON.stringify(body),
+      });
+    });
+    await page.goto(new URL('/p/AC/inbox', page.url()).href);
+    await page.getByRole('heading', { name: headingText }).first().waitFor();
+    return page;
+  };
+
+  await step('a2. Rád vár, a remote engine does not connect', async () => {
+    const outage = {
+      kind: 'engine',
+      id: 'out_engine',
+      engine: { id: 'eng_macmini00001', name: 'Mac mini' },
+      since: new Date(Date.now() - 3 * 3600_000).toISOString(),
+    };
+    const page = await inboxOf(
+      (item) => ({ ...item, payload: { ...item.payload, outage } }),
+      TEXT.engineHeading,
+    );
+    await shoot(page, 'a2-inbox-engine', { widths: WIDTHS });
+  });
+
+  await step('a3. Rád vár, no card waits', async () => {
+    const page = await inboxOf(
+      (item) => ({ ...item, payload: { ...item.payload, tasks: [] } }),
+      TEXT.heading,
+    );
+    await shoot(page, 'a3-inbox-no-cards', { widths: WIDTHS });
   });
 
   await step('b. the roster', async () => {
@@ -53,7 +101,8 @@ export default async ({ instance, open, shoot, step, log }) => {
   await step('c. the board', async () => {
     const page = await open({ path: '/p/AC' });
     await page.getByText(TEXT.stuck, { exact: false }).first().waitFor();
-    await shoot(page, 'c-board', { widths: WIDTHS, highlight: `[data-phase="stuck"] >> visible=true` });
+    // The highlight is on the status line, not on the card: the card's orange stripe stays visible.
+    await shoot(page, 'c-board', { widths: WIDTHS, highlight: `[data-phase="stuck"] >> text=${TEXT.stuck}` });
   });
 
   await step('d. the drawer', async () => {

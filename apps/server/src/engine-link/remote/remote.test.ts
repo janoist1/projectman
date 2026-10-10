@@ -517,6 +517,46 @@ describe('cloud mode remote parts', () => {
       await expect(run).resolves.toMatchObject({ aborted: true });
     });
 
+    it('sends the merge calls with the repository named and not a path, and keeps the error codes', async () => {
+      const engine = await online();
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const sha = 'a'.repeat(40);
+      const state = {
+        local: sha,
+        remote: null,
+        relation: 'same' as const,
+        contains: { local: false, remote: null },
+        checkout: null,
+      };
+      engine.answer('merge.prepare', () => state);
+      engine.answer('merge.release_check', () => null);
+      engine.answer('merge.push', () => ({ ok: false, reason: 'non_fast_forward', message: 'fetch first' }));
+      engine.answer('merge.build', () => {
+        throw Object.assign(new Error('no identity'), { code: 'no_identity' });
+      });
+      engine.answer('merge.advance', () => {
+        throw Object.assign(new Error('not allowed'), { code: 'merge_not_allowed' });
+      });
+      const merger = remote.directory.get('eng_a' as never)!.merger!;
+      expect(await merger.prepare(ref, { base: 'main', commit: sha })).toEqual(state);
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.prepare',
+        params: { ref, base: 'main', commit: sha },
+      });
+      await expect(merger.releaseCheck(ref, { mergeId: 'mrg_abcdefgh1' })).resolves.toBeUndefined();
+      expect(await merger.push(ref, { base: 'main', mergeCommit: sha })).toEqual({
+        ok: false,
+        reason: 'non_fast_forward',
+        message: 'fetch first',
+      });
+      await expect(merger.build(ref, { onto: sha, commit: sha, message: 'Merge' })).rejects.toMatchObject({
+        code: 'no_identity',
+      });
+      await expect(merger.advance(ref, { base: 'main', from: sha, to: sha })).rejects.toMatchObject({
+        code: 'merge_not_allowed',
+      });
+    });
+
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {
       const engine = await online();
       engine.answer('screenshots.run', () => new Promise(() => {}));

@@ -964,6 +964,7 @@ workers follow the machine's size.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
+  - Merge on Done: `merge.*` (PM-451, see "Merge on Done").
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -972,8 +973,9 @@ workers follow the machine's size.
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
   no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
   Files, all under the engine's home (`PROJECTMAN_HOME`, default `~/.projectman`): `engine.json`
-  (cloud address, engine id, project workspaces, registered repos and their full-test command, the
-  highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
+  (cloud address, engine id, project workspaces, registered repos with their full-test command and the
+  optional `mergeBranch` (the one branch the cloud may merge into and push; absent: every `merge.*` call
+  is refused with `merge_not_allowed`), the highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
   mode 0600; a looser mode, another owner or a link is refused at start-up), an optional link-headers
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
   secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
@@ -1561,6 +1563,28 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+- **Merge on Done (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
+  `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
+  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`) (PM-451, part 1/3 of PM-448; the server
+  does not call it yet).
+  Merging a card's approved commit into the repository's default branch and sending it up is git work on
+  the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
+  (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
+  with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
+  `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
+  `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from a source the engine limit bounds, an
+  APFS clone `cp -c` on macOS), `merge.push` (never forced, `--no-verify`) and `merge.advance` (a
+  fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
+  Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched
+  off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
+  repository is found from the engine's own binding (`engine.json` `repos[].path`, in single-machine mode the
+  project's config), never from the call; branch, commit and merge ids are checked in `engine-limit.ts` and
+  again in the merger. **Does this work on a remote engine?** Yes, it is built for it: the git work, the
+  check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
+  of the changed files and short results cross the link, and a merge to a repo or branch not named by
+  `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
+  engine's user's git credentials for the push, and macOS APFS for the cheap dependency copy (a plain copy
+  elsewhere).
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,

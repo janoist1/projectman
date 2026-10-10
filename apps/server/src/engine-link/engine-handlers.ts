@@ -51,6 +51,7 @@ const REFUSAL_CODES: ReadonlySet<EngineErrorCode> = new Set([
   'repo_not_registered',
   'signal_not_allowed',
   'secret_not_allowed',
+  'merge_not_allowed',
 ]);
 
 export interface EngineHandlerDeps {
@@ -104,6 +105,10 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     if (!engine.sessionFolders)
       throw new EngineRpcError('unknown_method', 'This engine has no session folders');
     return engine.sessionFolders;
+  };
+  const merger = () => {
+    if (!engine.merger) throw new EngineRpcError('merge_not_allowed', 'This engine does not merge');
+    return engine.merger;
   };
   const fullRuns = new Map<string, AbortController>();
   const shotRuns = new Map<string, AbortController>();
@@ -394,6 +399,31 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'files.list_images'({ dir, sinceMs }) {
       return engine.listImages(dir, sinceMs);
+    },
+    async 'merge.prepare'({ ref, ...input }) {
+      return merger().prepare(ref, input);
+    },
+    async 'merge.is_ancestor'({ ref, ...input }) {
+      return merger().isAncestor(ref, input);
+    },
+    async 'merge.build'({ ref, ...input }) {
+      return merger().build(ref, input);
+    },
+    async 'merge.checkout_conflicts'({ ref, ...input }) {
+      return merger().checkoutConflicts(ref, input);
+    },
+    async 'merge.checkout_for_check'({ ref, ...input }) {
+      return merger().checkoutForCheck(ref, input);
+    },
+    async 'merge.release_check'({ ref, ...input }) {
+      await merger().releaseCheck(ref, input);
+      return none;
+    },
+    async 'merge.push'({ ref, ...input }) {
+      return merger().push(ref, input);
+    },
+    async 'merge.advance'({ ref, ...input }) {
+      return merger().advance(ref, input);
     },
     async 'machine.snapshot'() {
       return probe.machine();

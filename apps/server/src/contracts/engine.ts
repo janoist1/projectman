@@ -133,6 +133,65 @@ export interface WorkspaceFileOptions {
 /** Why a screenshot scenario is not taken (`EngineHost.resolveScenario`). */
 export type ScenarioRefusal = 'missing' | 'outside' | 'not_file';
 
+/** A repository of a project on the engine: the engine finds its path from its own binding, never from the call. */
+export interface MergeRepoRef {
+  projectKey: string;
+  repo: string;
+}
+
+export interface MergeBaseState {
+  /** The local default branch's commit. */
+  local: string;
+  /** The default branch's upstream (`<base>@{upstream}`) after the fetch; null: no remote pair. */
+  remote: { name: string; commit: string } | null;
+  /** The local branch against the remote one; 'same' without a remote. */
+  relation: 'same' | 'local_behind' | 'local_ahead' | 'diverged';
+  /** Whether `commit` is already reachable from the local and from the remote branch (null: no remote). */
+  contains: { local: boolean; remote: boolean | null };
+  /** The worktree that has the default branch checked out; null: none. */
+  checkout: string | null;
+}
+
+export type MergeBuildResult =
+  | { ok: true; mergeCommit: string; changed: string[] } // paths differing between onto and mergeCommit, at most 1000
+  | { ok: false; conflict: string[] }; // sorted, at most 50
+
+export type MergePushResult =
+  { ok: true } | { ok: false; reason: 'non_fast_forward' | 'rejected' | 'unreachable'; message: string };
+
+export type MergeAdvanceResult =
+  { ok: true } | { ok: false; reason: 'checkout_in_the_way' | 'moved'; message: string; paths: string[] };
+
+/**
+ * The git work of merging a card's approved commit into the repository's default branch and sending it
+ * up (PM-448). It runs on the engine, where the repository and the machine's git identity are; the
+ * server only orchestrates. Absent on an `EngineHost`: the engine does not merge.
+ */
+export interface BranchMerger {
+  /** Fetches the upstream of `base` (when it has one), then reports the state; rejects when `base` or `commit` is unknown. */
+  prepare(ref: MergeRepoRef, input: { base: string; commit: string }): Promise<MergeBaseState>;
+  /** Whether `ancestor` is reachable from `commit`; null when either is unknown here. */
+  isAncestor(ref: MergeRepoRef, input: { ancestor: string; commit: string }): Promise<boolean | null>;
+  /** The merge commit of `commit` onto `onto` (parents: onto, commit); no ref, index or working tree is touched. */
+  build(
+    ref: MergeRepoRef,
+    input: { onto: string; commit: string; message: string },
+  ): Promise<MergeBuildResult>;
+  /** Uncommitted paths of the default branch's checkout that `changed` also touches; [] when it is not checked out. */
+  checkoutConflicts(ref: MergeRepoRef, input: { base: string; changed: string[] }): Promise<string[]>;
+  /** A detached worktree of `mergeCommit` for the check, with the dependencies of `depsFrom`. */
+  checkoutForCheck(
+    ref: MergeRepoRef,
+    input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
+  ): Promise<{ path: string; gitDir: string }>;
+  /** Removes that worktree; a missing one is fine. */
+  releaseCheck(ref: MergeRepoRef, input: { mergeId: string }): Promise<void>;
+  /** Pushes `mergeCommit` to `base` of the upstream remote, never forced; the remote is read here, not taken from the call. */
+  push(ref: MergeRepoRef, input: { base: string; mergeCommit: string }): Promise<MergePushResult>;
+  /** Moves the local `base` from `from` to `to`, a descendant of `from`. */
+  advance(ref: MergeRepoRef, input: { base: string; from: string; to: string }): Promise<MergeAdvanceResult>;
+}
+
 export interface EngineHost {
   readonly id: EngineId;
   /** The engine's operating system when it is not this process's (a remote engine, PM-315); absent: this machine's. */
@@ -142,6 +201,8 @@ export interface EngineHost {
   readonly memberWorkspaces?: MemberWorkspaceManager;
   readonly fullTestExecutor?: FullTestExecutor;
   readonly screenshotExecutor?: ScreenshotExecutor;
+  /** Merges into a repository's default branch and sends it up (PM-448); absent: the engine does not merge. */
+  readonly merger?: BranchMerger;
   /** The session folders of this engine; absent: they are off. */
   readonly sessionFolders?: EngineSessionFolders;
   /** null: not measurable (no start is refused for disk space). */

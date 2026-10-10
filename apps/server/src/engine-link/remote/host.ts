@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { EngineId, MemberHandle } from '@projectman/shared';
 import type {
+  BranchMerger,
   EngineDirectory,
   EngineHost,
   EnginePaths,
@@ -34,6 +35,9 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FULL_TEST_GRACE_MS = 60_000;
 const SCREENSHOT_GRACE_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 10_000;
+const MERGE_WAIT_MS = 120_000;
+const MERGE_NETWORK_WAIT_MS = 150_000;
+const MERGE_CHECKOUT_WAIT_MS = 360_000;
 
 export interface RemoteEngineDirectory extends EngineDirectory {
   /** The host of an engine even when it does not count as available (for the engine's own settings view). */
@@ -223,6 +227,22 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       },
     };
 
+    const merger: BranchMerger = {
+      // A fetch or a push waits up to 120 s on the engine, and copying the dependencies up to five minutes.
+      prepare: (ref, input) => call('merge.prepare', { ref, ...input }, { timeoutMs: MERGE_NETWORK_WAIT_MS }),
+      isAncestor: (ref, input) => call('merge.is_ancestor', { ref, ...input }, { timeoutMs: MERGE_WAIT_MS }),
+      build: (ref, input) => call('merge.build', { ref, ...input }, { timeoutMs: MERGE_WAIT_MS }),
+      checkoutConflicts: (ref, input) =>
+        call('merge.checkout_conflicts', { ref, ...input }, { timeoutMs: MERGE_WAIT_MS }),
+      checkoutForCheck: (ref, input) =>
+        call('merge.checkout_for_check', { ref, ...input }, { timeoutMs: MERGE_CHECKOUT_WAIT_MS }),
+      releaseCheck: async (ref, input) => {
+        await call('merge.release_check', { ref, ...input }, { timeoutMs: MERGE_WAIT_MS });
+      },
+      push: (ref, input) => call('merge.push', { ref, ...input }, { timeoutMs: MERGE_NETWORK_WAIT_MS }),
+      advance: (ref, input) => call('merge.advance', { ref, ...input }, { timeoutMs: MERGE_WAIT_MS }),
+    };
+
     return {
       id,
       get platform() {
@@ -236,6 +256,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       memberWorkspaces,
       fullTestExecutor,
       screenshotExecutor,
+      merger,
       get sessionFolders() {
         return helloOf().paths.sessionFoldersRoot ? sessionFolders : undefined;
       },

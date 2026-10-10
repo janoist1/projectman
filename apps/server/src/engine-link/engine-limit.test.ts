@@ -753,6 +753,151 @@ describe('engine local limit', () => {
     });
   });
 
+  describe('merge.*', () => {
+    const ref = { projectKey: 'PM', repo: 'projectman' };
+    const sha = 'a'.repeat(40);
+    const other = 'b'.repeat(40);
+    const mergeId = 'mrg_abcdefgh1';
+    const merging = (overrides: Partial<ResolvedEngineConfig> = {}) =>
+      make({
+        repos: [
+          { project: 'PM', repo: 'projectman', path: repo, fullTestCommand: 'npm test', mergeBranch: 'main' },
+        ],
+        ...overrides,
+      });
+
+    it('accepts well-formed calls for a repo with a mergeBranch', async () => {
+      const limit = merging();
+      const calls: [EngineMethod, Record<string, unknown>][] = [
+        ['merge.prepare', { ref, base: 'main', commit: sha }],
+        ['merge.is_ancestor', { ref, ancestor: sha, commit: other }],
+        ['merge.build', { ref, onto: sha, commit: other, message: 'Merge PM-1' }],
+        ['merge.checkout_conflicts', { ref, base: 'main', changed: ['a.txt'] }],
+        ['merge.checkout_for_check', { ref, mergeId, mergeCommit: sha, depsFrom: repo }],
+        ['merge.checkout_for_check', { ref, mergeId, mergeCommit: sha, depsFrom: null }],
+        [
+          'merge.checkout_for_check',
+          { ref, mergeId, mergeCommit: sha, depsFrom: path.join(worktrees, 'PM-1') },
+        ],
+        ['merge.release_check', { ref, mergeId }],
+        ['merge.push', { ref, base: 'main', mergeCommit: sha }],
+        ['merge.advance', { ref, base: 'main', from: sha, to: other }],
+      ];
+      for (const [method, params] of calls)
+        await expect(limit.check(method, params as never), method).resolves.toBeDefined();
+    });
+
+    it('refuses every call for a repo without a mergeBranch', async () => {
+      const limit = make();
+      const calls: [EngineMethod, Record<string, unknown>][] = [
+        ['merge.prepare', { ref, base: 'main', commit: sha }],
+        ['merge.is_ancestor', { ref, ancestor: sha, commit: other }],
+        ['merge.build', { ref, onto: sha, commit: other, message: 'm' }],
+        ['merge.checkout_conflicts', { ref, base: 'main', changed: [] }],
+        ['merge.checkout_for_check', { ref, mergeId, mergeCommit: sha, depsFrom: null }],
+        ['merge.release_check', { ref, mergeId }],
+        ['merge.push', { ref, base: 'main', mergeCommit: sha }],
+        ['merge.advance', { ref, base: 'main', from: sha, to: other }],
+      ];
+      for (const [method, params] of calls) await refused(limit, method, params, 'merge_not_allowed');
+    });
+
+    it('refuses an unregistered repo or project', async () => {
+      const limit = merging();
+      await refused(
+        limit,
+        'merge.prepare',
+        { ref: { projectKey: 'PM', repo: 'other' }, base: 'main', commit: sha },
+        'repo_not_registered',
+      );
+      await refused(
+        limit,
+        'merge.release_check',
+        { ref: { projectKey: 'XX', repo: 'projectman' }, mergeId },
+        'repo_not_registered',
+      );
+    });
+
+    it('refuses any base but the configured mergeBranch, and bases that are not branch names', async () => {
+      const limit = merging();
+      for (const base of ['develop', 'release/1', 'refs/heads/main'])
+        await refused(limit, 'merge.push', { ref, base, mergeCommit: sha }, 'merge_not_allowed');
+      for (const base of ['HEAD', '--upload-pack=x', '@{-1}', 'a b', '']) {
+        await refused(limit, 'merge.prepare', { ref, base, commit: sha }, 'invalid_params');
+        await refused(limit, 'merge.advance', { ref, base, from: sha, to: other }, 'invalid_params');
+      }
+    });
+
+    it('refuses anything that is not a commit id, a merge id or a commit message', async () => {
+      const limit = merging();
+      await refused(limit, 'merge.prepare', { ref, base: 'main', commit: 'main' }, 'invalid_params');
+      await refused(limit, 'merge.push', { ref, base: 'main', mergeCommit: '--force' }, 'invalid_params');
+      await refused(limit, 'merge.advance', { ref, base: 'main', from: sha, to: 'HEAD' }, 'invalid_params');
+      await refused(limit, 'merge.is_ancestor', { ref, ancestor: 'x', commit: sha }, 'invalid_params');
+      await refused(
+        limit,
+        'merge.build',
+        { ref, onto: sha, commit: other, message: '   ' },
+        'invalid_params',
+      );
+      await refused(
+        limit,
+        'merge.build',
+        { ref, onto: sha, commit: other, message: 'a\0b' },
+        'invalid_params',
+      );
+      await refused(limit, 'merge.release_check', { ref, mergeId: '../x' }, 'invalid_params');
+      await refused(
+        limit,
+        'merge.checkout_for_check',
+        { ref, mergeId: 'x/../y', mergeCommit: sha, depsFrom: null },
+        'invalid_params',
+      );
+      await refused(
+        limit,
+        'merge.checkout_conflicts',
+        { ref, base: 'main', changed: ['a\0b'] },
+        'invalid_params',
+      );
+    });
+
+    it('bounds the dependencies source to the worktrees root or the bound repository', async () => {
+      const limit = merging();
+      await refused(
+        limit,
+        'merge.checkout_for_check',
+        { ref, mergeId, mergeCommit: sha, depsFrom: outside },
+        'path_outside_roots',
+      );
+      await refused(
+        limit,
+        'merge.checkout_for_check',
+        { ref, mergeId, mergeCommit: sha, depsFrom: userHome },
+        'path_outside_roots',
+      );
+      await refused(
+        limit,
+        'merge.checkout_for_check',
+        { ref, mergeId, mergeCommit: sha, depsFrom: 'relative/path' },
+        'path_outside_roots',
+      );
+    });
+
+    it('lets a full test run in a check checkout under the worktrees root', async () => {
+      const check = path.join(worktrees, '_merge', mergeId);
+      mkdirSync(check, { recursive: true });
+      await expect(
+        merging().check('full_test.run', {
+          spec: {
+            command: 'npm test',
+            cwd: check,
+            sandbox: { allowRead: [], denyRead: [], denyWrite: [], allowWrite: [] },
+          },
+        } as never),
+      ).resolves.toBeDefined();
+    });
+  });
+
   it('keeps the home-wide places out of the roots', () => {
     const roots = make().roots();
     expect(roots).toContain(workspace);

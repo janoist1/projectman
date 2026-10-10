@@ -13,6 +13,7 @@ import {
 } from '@projectman/shared';
 export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry';
 export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
+import path from 'node:path';
 import type { EngineId, ExecutionProfile, Me } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
@@ -400,6 +401,11 @@ export function createDomain(opts: DomainOptions) {
           freeDiskBytes: opts.freeDiskBytes,
           processExists: opts.processExists,
           workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
+          repoPath: (projectKey, repoName) => {
+            const project = projects.cachedConfig(projectKey)?.project;
+            const repo = project?.repos.find((entry) => entry.name === repoName);
+            return project && repo ? path.resolve(project.workspacePath, repo.path) : null;
+          },
           runtimeBoundary: opts.runtimeBoundary,
           appHome: opts.appHome,
           userHome: opts.userHome,

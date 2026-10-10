@@ -175,6 +175,25 @@ describe('board group move', () => {
     expect(stageChanges('AR-1')).toHaveLength(1);
   });
 
+  it('moves a card that lacks nothing when the system left it because a member still works on it', async () => {
+    await create('Complete');
+    await tasks().moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    await settle();
+    // The reviewer is at work, so the system leaves the complete card where it is; the person's drop moves it.
+    const [reviewer] = h.repos.sessions.list('AR', { taskKey: 'AR-1' });
+    h.runner.setState(reviewer!.id, 'working');
+    await settle();
+    await tasks().changeLabels('AR', 'AR-1', { add: ['merge-ok'] }, OWNER_ACTOR);
+    await tasks().changeLabels('AR', 'AR-1', { add: ['code-review-ok'] }, aiActor('cr'));
+    await settle();
+    expect(stageOf('AR-1')).toBe('code_review');
+
+    const result = await dropGroup('AR-1', 'merging', { at: 'top' });
+    expect(result.outcome).toBe('moved');
+    expect(stageOf('AR-1')).toBe('merge');
+    expect(column('merging')).toEqual(['AR-1']);
+  });
+
   it('checks each subtask on its own when the collecting card is refused', async () => {
     await create('Collecting');
     await create('Child', 'AR-1');

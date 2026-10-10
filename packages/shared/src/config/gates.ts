@@ -220,7 +220,11 @@ export function stageAdvance(
   if (!from || !to || (from.kind !== 'step' && from.kind !== 'release')) return null;
   // Entering a work stage starts the work: that is the refinement's and the people's to decide.
   if (to.kind === 'work') return null;
-  if (!to.gate || to.gate.conditions.length === 0) return null;
+  // The result of the stage must be a label this card is to get: a `has_label` condition that binds it.
+  const resultLabel = (to.gate?.conditions ?? []).some(
+    (c) => c.type === 'has_label' && (c.when === undefined || task.labels.includes(c.when)),
+  );
+  if (!resultLabel) return null;
   const evaluation = evaluateMove(task, config, from.id, to.id);
   if (evaluation.unmet.length > 0) return null;
   return evaluation.approvals.length > 0

@@ -466,4 +466,21 @@ describe('stageAdvance (PM-445)', () => {
     c.pipeline.stages.find((s) => s.id === 'merge')!.gate = undefined;
     expect(stageAdvance(at('review', []), c)).toBeNull();
   });
+
+  it('does nothing when no condition of the next gate asks for a label this card is to get', () => {
+    const merge = (c: ReturnType<typeof config>) => c.pipeline.stages.find((s) => s.id === 'merge')!;
+    // Every condition is bound to a label the card lacks: the gate does not apply to it.
+    const bound = config();
+    merge(bound).gate = { conditions: [{ type: 'has_label', label: 'review-ok', when: 'wip' }] };
+    expect(stageAdvance(at('review', []), bound)).toBeNull();
+    // Only a forbidden label: nothing says the stage is done.
+    const forbidding = config();
+    merge(forbidding).gate = { conditions: [{ type: 'lacks_label', label: 'waiting' }] };
+    expect(stageAdvance(at('review', []), forbidding)).toBeNull();
+    // The same bound condition applies to a card that has the `when` label.
+    expect(stageAdvance(at('review', ['wip', 'review-ok']), bound)).toMatchObject({
+      kind: 'move',
+      to: { id: 'merge' },
+    });
+  });
 });

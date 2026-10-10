@@ -8,6 +8,7 @@ import {
   labelSetters,
   roleBundle,
   routes,
+  stageAdvance,
   stageOwners,
   type Actor,
   type BoardView,
@@ -37,6 +38,7 @@ import { createAppHarness, setupOwner } from './app-harness';
 const projectKey = 'GP';
 const owner: Actor = { kind: 'human', handle: 'owner' };
 const ai = (handle: string): Actor => ({ kind: 'ai', handle });
+const system: Actor = { kind: 'system', handle: null };
 
 /** Templates whose pipeline has a code review stage a QA member can take over. */
 const REVIEW_TEMPLATES = new Set(['web-client-project', 'internal-tool', 'small-team']);
@@ -143,7 +145,11 @@ async function startTask(h: Harness) {
   const labels: string[] = [];
   let assignee: string | null = null;
 
-  async function assertState(stageId: string, status = 'active') {
+  /** `status` defaults to what the open decisions say: a card whose approval is asked for waits (PM-445). */
+  async function assertState(
+    stageId: string,
+    status = decisions.some((item) => item.state === 'open') ? 'waiting' : 'active',
+  ) {
     const response = await h.server.inject({
       method: 'GET',
       url: routes.task(projectKey, task.key),
@@ -285,7 +291,51 @@ async function recordLabel(h: Harness, j: Journey, member: string, label: string
     sessionId: ctx.sessionId,
     data: { added: [label], removed },
   });
-  await j.assertState(result.task.stageId);
+  await awaitSystem(h, j);
+  await j.assertState(h.domain.tasks.get(projectKey, j.task.key).stageId);
+}
+
+/**
+ * What the system does by itself after a change (PM-445): it moves the card on when the gate of the
+ * next stage holds, or asks for the approval that only a person may give, in the background. The
+ * journey waits for exactly what the shared rule predicts, and records the events it finds on the
+ * timeline (they are the system's, in the order they happened), so no assertion races it.
+ */
+async function awaitSystem(h: Harness, j: Journey) {
+  const config = (await h.configView()).config;
+  const openDecisions = () => h.domain.inbox.list(projectKey, { state: 'open', taskKey: j.task.key });
+  for (let round = 0; round < config.pipeline.stages.length; round++) {
+    const task = h.domain.tasks.get(projectKey, j.task.key);
+    const advance = stageAdvance(task, config);
+    if (!advance) break;
+    if (advance.kind === 'approve') {
+      await waitFor(() => openDecisions().length > 0, { what: 'the system asks for the approval' });
+      break;
+    }
+    await waitFor(() => h.domain.tasks.get(projectKey, j.task.key).stageId !== task.stageId, {
+      what: `the system moves the card on from ${task.stageId}`,
+    });
+  }
+  const business = h.domain.timeline
+    .list(projectKey, { taskKey: j.task.key })
+    .filter((event) => !event.type.startsWith('session_'));
+  for (const event of business.slice(j.events.length)) {
+    expect(event.actor, `${event.type} that nobody asked for is the system's`).toMatchObject(system);
+    expect(['task_updated', 'task_stage_changed']).toContain(event.type);
+    j.events.push({ type: event.type, actor: system, data: {} });
+    if (event.type === 'task_updated') {
+      const request = event.data.gateRequest as { inboxItemIds: string[] } | undefined;
+      expect(request, 'the only update the system makes is an approval request').toBeDefined();
+      for (const id of request!.inboxItemIds) {
+        const item = openDecisions().find((candidate) => candidate.id === id);
+        expect(item, `open decision ${id}`).toBeDefined();
+        expect(item!.source).toBe('system');
+        j.decisions.push(item!);
+      }
+    } else {
+      await handedOverTo(h, j, null, event.data.from as string, event.data.to as string);
+    }
+  }
 }
 
 async function removeLabel(h: Harness, j: Journey, member: string, label: string) {
@@ -299,7 +349,8 @@ async function removeLabel(h: Harness, j: Journey, member: string, label: string
     sessionId: ctx.sessionId,
     data: { added: [], removed: [label] },
   });
-  await j.assertState(result.task.stageId);
+  await awaitSystem(h, j);
+  await j.assertState(h.domain.tasks.get(projectKey, j.task.key).stageId);
 }
 
 async function move(h: Harness, j: Journey, member: string, target: string) {
@@ -307,7 +358,23 @@ async function move(h: Harness, j: Journey, member: string, target: string) {
   await h.domain.teamTools.updateTask(await j.context(member), { taskKey: j.task.key, stageId: target });
   j.events.push({ type: 'task_stage_changed', actor: ai(member), data: { from, to: target } });
   await handedOverTo(h, j, member, from, target);
-  await j.assertState(target, target === 'done' ? 'done' : 'active');
+  await awaitSystem(h, j);
+  await j.assertState(
+    h.domain.tasks.get(projectKey, j.task.key).stageId,
+    target === 'done' ? 'done' : undefined,
+  );
+}
+
+/**
+ * A member moves the card into a stage, unless the system has done it already: it moves a card on by
+ * itself once the gate of the next stage holds and nobody works on the card (PM-445).
+ */
+async function enter(h: Harness, j: Journey, member: string, target: string) {
+  if (h.domain.tasks.get(projectKey, j.task.key).stageId === target) {
+    await j.assertState(target);
+    return;
+  }
+  await move(h, j, member, target);
 }
 
 /**
@@ -317,7 +384,7 @@ async function move(h: Harness, j: Journey, member: string, target: string) {
  * pin, PM-183, made it earlier), so the journey takes the owner's session now: the hand-over then
  * finds it running and only tells it, and the count of started sessions does not depend on a race.
  */
-async function handedOverTo(h: Harness, j: Journey, mover: string, from: string, target: string) {
+async function handedOverTo(h: Harness, j: Journey, mover: string | null, from: string, target: string) {
   const config = (await h.configView()).config;
   const stage = config.pipeline.stages.find((s) => s.id === target);
   if (!stage || (stage.kind !== 'step' && stage.kind !== 'release')) return;
@@ -328,7 +395,13 @@ async function handedOverTo(h: Harness, j: Journey, mover: string, from: string,
       m.handle !== j.developer &&
       stageOwners(config, stage).includes(m.handle),
   );
-  if (owner) await j.context(owner.handle, { kind: 'hand_over', from, to: target, by: ai(mover) });
+  if (owner)
+    await j.context(owner.handle, {
+      kind: 'hand_over',
+      from,
+      to: target,
+      by: mover ? ai(mover) : system,
+    });
 }
 
 async function approve(h: Harness, j: Journey, member: string, target: string, cookie = h.cookie) {
@@ -349,20 +422,25 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
     duties: [gatedStage.kind === 'release' ? 'release_approval' : 'final_decision'],
     humansOnly: true,
   });
+  // The system asked for the approval as soon as nothing else was missing (PM-445), so the member's
+  // attempt finds that request; a request of the member's own is the fallback when it did not.
+  const asked = j.decisions.find((decision) => decision.id === item.id);
   expect(item).toMatchObject({
     kind: 'decision',
     state: 'open',
-    source: member,
+    source: asked ? 'system' : member,
     taskKey: j.task.key,
     payload: { gate: { fromStageId: from, toStageId: target } },
   });
   expect(item.assignees).toEqual(labelSetters(config, approval, h.domain.tasks.get(projectKey, j.task.key)));
-  j.decisions.push(item);
-  j.events.push({
-    type: 'task_updated',
-    actor: ai(member),
-    data: { fields: ['status'], gateRequest: { from, to: target, inboxItemIds: [item.id] } },
-  });
+  if (!asked) {
+    j.decisions.push(item);
+    j.events.push({
+      type: 'task_updated',
+      actor: ai(member),
+      data: { fields: ['status'], gateRequest: { from, to: target, inboxItemIds: [item.id] } },
+    });
+  }
   await j.assertState(from, 'waiting');
   await expect(
     h.domain.inbox.resolve(projectKey, item.id, { optionId: 'approve' }, { handle: member, access: 'owner' }),
@@ -395,7 +473,9 @@ async function approve(h: Harness, j: Journey, member: string, target: string, c
     actor: owner,
     data: { from, to: target, approvedBy: ['owner'], inboxItemIds: [item.id] },
   });
-  await j.assertState(target, target === 'done' ? 'done' : 'active');
+  // The card may lack only the next approval now (merge, then release): the system asks for it.
+  await awaitSystem(h, j);
+  await j.assertState(target, target === 'done' ? 'done' : undefined);
 }
 
 async function rebundle(h: Harness, j: Journey) {
@@ -424,7 +504,8 @@ async function rebundle(h: Harness, j: Journey) {
   expect(config.pipeline.stages.find((stage) => stage.id === 'code_review')).toEqual(review);
   expect((await h.board()).stages.find((stage) => stage.id === 'code_review')!.owners).toEqual([qa.handle]);
   expect(stageOwners(config, review)).not.toContain(original);
-  await j.assertState('code_review');
+  // The review label is on the card already, so the card may have been moved on by the system (PM-445).
+  await j.assertState(h.domain.tasks.get(projectKey, j.task.key).stageId);
   await refuseOrphan(h, j, qa.handle, 'code_review', 'pipeline.stages[2].duty');
   // The QA member now holds code review: it may take the review label off and put it back.
   await removeLabel(h, j, qa.handle, 'code-review-ok');
@@ -510,7 +591,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
     const integration = config.pipeline.stages.find((stage) => stage.id === 'integration')!;
     expect(integration).toMatchObject({ kind: 'step', duty: 'deployment' });
     const devops = holder(config, integration);
-    await move(h, j, devops, integration.id);
+    await enter(h, j, devops, integration.id);
     const ctx = await j.context(devops);
     await h.domain.teamTools.updateTask(ctx, {
       taskKey: j.task.key,
@@ -527,7 +608,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
   const qa = config.pipeline.stages.find((stage) => stage.id === 'qa');
   if (qa) {
     expect(qa).toMatchObject({ kind: 'step', duty: 'testing_acceptance' });
-    await move(h, j, holder(config, qa), qa.id);
+    await enter(h, j, holder(config, qa), qa.id);
     const clientTest = config.pipeline.stages.find((stage) => stage.id === 'client_test');
     if (clientTest) {
       await expect(
@@ -542,7 +623,7 @@ async function throughQuality(h: Harness, j: Journey, rebundled = false) {
     if (clientTest) {
       expect(clientTest.duty).toBe('client_communication');
       const communication = holder(config, clientTest);
-      await move(h, j, communication, clientTest.id);
+      await enter(h, j, communication, clientTest.id);
       await expect(
         h.domain.teamTools.updateTask(await j.context(communication), {
           taskKey: j.task.key,

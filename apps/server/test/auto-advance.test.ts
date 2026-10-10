@@ -93,6 +93,30 @@ describe('automatic stage advance', () => {
     expect(openDecisions(key)).toEqual([]);
   });
 
+  it('does not move the card while a member works on it, and moves it when the session goes idle', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        const merge = config.pipeline.stages.find((s) => s.id === 'merge')!;
+        merge.gate = { conditions: [{ type: 'has_label', label: 'code-review-ok' }] };
+      },
+    });
+    const key = await cardInCodeReview();
+    await settle();
+    const [reviewer] = h.repos.sessions.list('AR', { taskKey: key });
+    expect(reviewer).toBeDefined();
+
+    h.runner.setState(reviewer!.id, 'working');
+    await settle();
+    await approve(key);
+    await settle();
+    expect(h.domain.tasks.get('AR', key).stageId).toBe('code_review');
+
+    // The round ends: the card is looked at again and goes on.
+    h.runner.setState(reviewer!.id, 'idle');
+    await settle();
+    expect(h.domain.tasks.get('AR', key).stageId).toBe('merge');
+  });
+
   it('asks for a card that got stuck before, in the sweep after the start', async () => {
     h = await createDomainHarness();
     const key = await cardInCodeReview();

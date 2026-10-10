@@ -8,15 +8,18 @@ import {
   isTheme,
   memberOf,
   ownerOnlyChanges,
+  unknownPatchRepo,
   validateProjectConfig,
 } from '@projectman/shared';
 import type {
   Actor,
+  CardMover,
   ConfigVersionEntry,
   CreateProjectRequest,
   HumanAccess,
   OwnerOnlyChange,
   PatchConfigRequest,
+  ProjectPreview,
   ProjectSummary,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../config/errors';
@@ -82,6 +85,12 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   owners: 'only an owner may change who is an owner',
   permissions: 'only an owner may change the permission mode or the approver of an AI member',
 };
+
+/** The card mover a create request names; absent means the worker. */
+function cardMoverOfRequest(choice: CreateProjectRequest['cardMover']): CardMover {
+  if (choice === 'creator') return { kind: 'human', handle: OWNER_HANDLE };
+  return { kind: choice ?? 'worker' };
+}
 
 function fromConfigError(err: unknown): never {
   if (err instanceof ConfigStoreError) {
@@ -186,42 +195,56 @@ export class ProjectService {
     return this.configStore.history(key, limit).catch(fromConfigError);
   }
 
+  /**
+   * The configuration a create would save: the template's, with the request's name, workspace,
+   * repositories and card mover. Reads no disk and changes nothing.
+   */
+  buildConfig(req: CreateProjectRequest, creator: Author): ProjectConfig {
+    const template = this.templates.get(req.templateId);
+    if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
+    const built = template.build({
+      key: req.key,
+      name: req.name,
+      workspacePath: req.workspacePath,
+      language: DEFAULT_PROJECT_LANGUAGE,
+      owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
+      cardMover: cardMoverOfRequest(req.cardMover),
+    });
+    const parsed = ProjectConfig.safeParse({
+      ...built,
+      project: {
+        ...built.project,
+        key: req.key,
+        name: req.name,
+        workspacePath: req.workspacePath,
+        templateId: req.templateId,
+        ...(req.repos ? { repos: req.repos } : {}),
+      },
+    });
+    if (!parsed.success) {
+      throw new DomainError('invalid_config', 'template produced an invalid configuration', {
+        status: 422,
+        details: { schemaIssues: parsed.error.issues },
+      });
+    }
+    return parsed.data;
+  }
+
+  /** What a create with this request would make and what is wrong with it; no side effects. */
+  preview(req: CreateProjectRequest, creator: Author): ProjectPreview {
+    const config = this.buildConfig(req, creator);
+    return { config, issues: validateProjectConfig(config) };
+  }
+
   async create(req: CreateProjectRequest, creator: Author): Promise<ProjectSummary> {
     return this.locks.run(`config:${req.key}`, async () => {
       if (this.has(req.key) || (await this.configStore.list()).includes(req.key)) {
         throw conflict('project_exists', `project ${req.key} already exists`);
       }
-      const template = this.templates.get(req.templateId);
-      if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
+      const config = this.buildConfig(req, creator);
       if (!isAbsolute(req.workspacePath) || !(await this.isDirectory(req.key, req.workspacePath))) {
         throw invalid('workspace_not_found', `workspace directory not found: ${req.workspacePath}`);
       }
-
-      const built = template.build({
-        key: req.key,
-        name: req.name,
-        workspacePath: req.workspacePath,
-        language: DEFAULT_PROJECT_LANGUAGE,
-        owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
-      });
-      const parsed = ProjectConfig.safeParse({
-        ...built,
-        project: {
-          ...built.project,
-          key: req.key,
-          name: req.name,
-          workspacePath: req.workspacePath,
-          templateId: req.templateId,
-          ...(req.repos ? { repos: req.repos } : {}),
-        },
-      });
-      if (!parsed.success) {
-        throw new DomainError('invalid_config', 'template produced an invalid configuration', {
-          status: 422,
-          details: { schemaIssues: parsed.error.issues },
-        });
-      }
-      const config = parsed.data;
       // The rule is the invariant's (one place); creation answers it with a code of its own.
       if (validateProjectConfig(config).some((issue) => issue.code === 'duplicate_repo')) {
         throw invalid('duplicate_repo', 'repository names must be unique');
@@ -275,10 +298,14 @@ export class ProjectService {
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
-      (current) => ({
-        next: applyConfigPatch(current, patch),
-        message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
-      }),
+      (current) => {
+        const unknownRepo = unknownPatchRepo(current, patch);
+        if (unknownRepo !== null) throw invalid('unknown_repo', `unknown repository: ${unknownRepo}`);
+        return {
+          next: applyConfigPatch(current, patch),
+          message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
+        };
+      },
     );
   }
 

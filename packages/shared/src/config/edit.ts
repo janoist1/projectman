@@ -51,6 +51,12 @@ export const PatchConfigRequest = z
     roles: ProjectConfig.shape.team.shape.roles.removeDefault().optional(),
     releaseFourEyes: z.boolean().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
+    merger: ProjectConfig.shape.team.shape.merger,
+    /** Per repository: whether a card's work must be merged (`requireMerge`); null removes the explicit value. */
+    repoMerge: z
+      .array(z.object({ repo: z.string(), requireMerge: z.boolean().nullable() }))
+      .max(20)
+      .optional(),
     boundary: ProjectConfig.shape.team.shape.boundary,
     pipeline: Pipeline.optional(),
   })
@@ -60,6 +66,15 @@ export type PatchConfigRequest = z.infer<typeof PatchConfigRequest>;
 /** Schema failures share the same issue list shape as invariant failures. */
 export function configSchemaIssues(issues: readonly { code: string; path: readonly PropertyKey[] }[]) {
   return issues.map(({ code, path }) => ({ code, path: path.map(String).join('.') }));
+}
+
+/** The first repository of `repoMerge` that the configuration does not know (the edit answers `unknown_repo`); null: none. */
+export function unknownPatchRepo(
+  config: Pick<ProjectConfig, 'project'>,
+  patch: PatchConfigRequest,
+): string | null {
+  const known = new Set(config.project.repos.map((repo) => repo.name));
+  return patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ?? null;
 }
 
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
@@ -76,12 +91,26 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   else if (warnAboveSessionTokens !== undefined) limits.warnAboveSessionTokens = warnAboveSessionTokens;
   if (autoCompactWindowTokens === null) delete limits.autoCompactWindowTokens;
   else if (autoCompactWindowTokens !== undefined) limits.autoCompactWindowTokens = autoCompactWindowTokens;
+  // The last entry for a repository wins.
+  const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
   return {
     ...config,
-    project: { ...config.project, ...patch.project },
+    project: {
+      ...config.project,
+      ...patch.project,
+      repos: repoMerge
+        ? config.project.repos.map((repo) => {
+            const change = repoMerge.get(repo.name);
+            if (change === undefined) return repo;
+            const { requireMerge: _previous, ...rest } = repo;
+            return change === null ? rest : { ...rest, requireMerge: change };
+          })
+        : config.project.repos,
+    },
     team: {
       ...config.team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
+      ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),
       ...(patch.roles !== undefined ? { roles: patch.roles } : {}),
       ...(patch.releaseFourEyes !== undefined ? { releaseFourEyes: patch.releaseFourEyes } : {}),

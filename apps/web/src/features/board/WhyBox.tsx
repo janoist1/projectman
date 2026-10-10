@@ -63,7 +63,8 @@ export function WhyBox({
     : moveOwn && move.isError
       ? moveErrorText(move.error, labels)
       : null;
-  const errorIsStatus = moveOwn && move.isError && isApprovalRequested(move.error);
+  // An approval request is a state, not a failure, whichever way the move went.
+  const errorIsStatus = isApprovalRequested(handOnOpen ? resolve.error : move.error);
   const busy = resolving || (moveOwn && move.isPending);
   const buttonLabel = busy ? t('task.whyBox.moving') : t('task.whyBox.move', { stage: to });
   const onClick = () => {

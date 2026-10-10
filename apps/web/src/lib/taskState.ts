@@ -29,6 +29,7 @@ import { labelName } from './labels';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
+import { outageStuckLabel, outageStuckTitle } from './outage';
 import type { PipelineIndex } from './pipeline';
 import { deriveNext } from './taskNext';
 import type { TaskNext } from './taskNext';
@@ -56,6 +57,8 @@ export interface PrerequisiteWait {
 export interface TaskState {
   phase: TaskPhase;
   label: string;
+  /** What to do about it, as a tooltip: set on a `stuck` card (PM-468). */
+  title?: string;
   /** When the current state began (for the age on the card); the first worker's, while it works. */
   since: string;
   /** The AI member working on it right now, if any (the first of `workers`). */
@@ -464,6 +467,17 @@ function deriveOpenState(
     openPrerequisites: (prerequisites?.cards ?? []).map((card) => card.key),
     viewer: myHandle,
   });
+  // The card stands because its provider or engine cannot work (PM-468), a start or a continuation alike.
+  // It wins over every other reason but a prerequisite and a handing-off, which stay the news (PM-342).
+  if (task.outage && wait?.reason !== 'prerequisite' && wait?.reason !== 'handing_off') {
+    return {
+      phase: 'stuck',
+      label: outageStuckLabel(task.outage),
+      title: outageStuckTitle(task.outage),
+      since: task.startWaiting?.since ?? task.outage.since,
+      worker: null,
+    };
+  }
   if (!wait) return queuedFor(task, ctx);
   const state = stateOfWait(task, wait, { ctx, workers, prerequisites, block });
   const next = deriveNext(task, wait, {
@@ -639,6 +653,7 @@ function stateOfWait(
 export const phaseOrder: Record<TaskPhase, number> = {
   needs_you: 0,
   blocked: 1,
+  stuck: 1,
   working: 2,
   waiting: 3,
   ready: 4,
@@ -650,6 +665,6 @@ export type BoardFilter = 'all' | 'needsYou' | 'waiting';
 
 export function matchesFilter(phase: TaskPhase, filter: BoardFilter): boolean {
   if (filter === 'needsYou') return phase === 'needs_you';
-  if (filter === 'waiting') return phase === 'waiting' || phase === 'blocked';
+  if (filter === 'waiting') return phase === 'waiting' || phase === 'blocked' || phase === 'stuck';
   return phase !== 'cancelled';
 }

@@ -15,7 +15,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+.chips > * {
+  flex-shrink: 0;
+}
+
+.chips .stageChip {
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .prLink {

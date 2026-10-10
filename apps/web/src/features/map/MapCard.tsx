@@ -101,7 +101,7 @@ export function MapCard({
       ref={itemRef}
       className={clsx(styles.card, flash && styles.flash)}
       data-card-key={task.key}
-      data-phase={mapState}
+      data-phase={state.phase === 'stuck' ? 'stuck' : mapState}
       data-linked={linked ? '' : undefined}
       onPointerEnter={() => onActive(task.key)}
       onPointerLeave={() => onActive(null)}

@@ -842,5 +842,17 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
       PRIMARY KEY (project_key, task_key)
     );`,
   },
+  {
+    version: 46,
+    name: 'clear stalled fix limits',
+    sql: `UPDATE task_fix_limits
+          SET hold_phase = NULL, held_at = NULL, decider = NULL, deciders = '[]', reason = NULL, inbox_item_id = NULL
+          WHERE hold_phase IS NOT NULL
+            AND inbox_item_id IS NOT NULL
+            AND (
+              NOT EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id)
+              OR EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id AND state = 'cancelled')
+            );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

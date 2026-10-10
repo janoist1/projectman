@@ -1,6 +1,7 @@
 import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
+  defaultMerger,
   isOperator,
   isProjectManager,
   type AiBuiltInRoleId,
@@ -174,7 +175,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           }),
         );
       }
-      return ProjectConfig.parse({
+      const config = ProjectConfig.parse({
         schemaVersion: 1,
         project: {
           key: input.key,
@@ -185,7 +186,12 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           timezone: locale.timezone,
           templateId,
         },
-        team: { members, roles: [], limits, cardMover: input.cardMover ?? { kind: 'worker' } },
+        team: {
+          members,
+          roles: [],
+          limits,
+          cardMover: input.cardMover ?? { kind: 'worker' },
+        },
         pipeline: {
           ...pipeline,
           // The standard labels the gates use, whole groups included.
@@ -195,6 +201,8 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           ),
         },
       });
+      // The merger the pipeline implies is written out, so that the setting is visible and editable.
+      return { ...config, team: { ...config.team, merger: input.merger ?? defaultMerger(config) } };
     },
   };
 }

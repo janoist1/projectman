@@ -101,6 +101,11 @@ export function TaskHeader({
       ? `${column.name} · ${stage.name}`
       : (stage?.name ?? task.stageId);
   const pr = prChip(task);
+  const stageChipLabel = t('task.stageChip', {
+    stage: stageLabel,
+    index: position.index,
+    total: position.total,
+  });
   const prBadge = pr ? (
     <Chip tone="neutral" size="md" icon={pr.merged ? 'prMerged' : 'prOpen'}>
       {pr.label}
@@ -114,8 +119,15 @@ export function TaskHeader({
         </Link>
       ) : null}
       <div className={styles.chips}>
-        <Chip tone="column" data-column-color={column?.color} size="md">
-          {t('task.stageChip', { stage: stageLabel, index: position.index, total: position.total })}
+        <Chip
+          tone="column"
+          data-column-color={column?.color}
+          size="md"
+          className={styles.stageChip}
+          title={stageChipLabel}
+          aria-label={stageChipLabel}
+        >
+          {stageChipLabel}
         </Chip>
         {pr?.href ? (
           <a href={pr.href} target="_blank" rel="noreferrer noopener" className={styles.prLink}>

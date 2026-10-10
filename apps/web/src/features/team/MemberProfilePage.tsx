@@ -203,7 +203,11 @@ export function MemberProfilePage() {
                 ·{' '}
               </>
             ) : null}
-            <span>{status.label}</span>
+            <span>
+              {status.reason
+                ? t('memberStatus.cannotWorkWithReason', { reason: status.reason })
+                : status.label}
+            </span>
           </>
         }
       >

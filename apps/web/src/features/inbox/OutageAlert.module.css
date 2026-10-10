@@ -1,0 +1,187 @@
+.outage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.body {
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--c-ink-2);
+}
+
+/* What to do: the one box of the card that asks for something. */
+.todo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-needs-soft);
+  border: 1px solid var(--c-needs-border);
+  min-width: 0;
+}
+
+.todoLabel {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--c-needs-text);
+}
+
+.todoText {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--c-ink);
+}
+
+.todoLink {
+  font-size: var(--text-sm);
+  font-weight: 800;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.command {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.commandText {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  border: 1px solid var(--c-needs-code-border);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow-x: auto;
+}
+
+.copied {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-ok-text);
+}
+
+.affected {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.affectedRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.affectedRow dt {
+  flex: 0 0 auto;
+  min-width: 130px;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-ink-3);
+}
+
+.affectedRow dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  box-sizing: border-box;
+  padding: 2px 10px 2px 4px;
+  border-radius: 999px;
+  background: var(--c-subtle);
+  border: 1px solid var(--c-line-soft);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+
+.cardChip {
+  padding: 2px 10px;
+  font-family: var(--font-mono);
+}
+
+.more {
+  min-height: 28px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px dashed var(--c-line-strong);
+  background: transparent;
+  font-size: var(--text-xs);
+  font-weight: 800;
+  color: var(--c-ink-3);
+  cursor: pointer;
+}
+
+.empty {
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.footer {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--c-ink-4);
+}
+
+.checkResult {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-needs-text);
+}
+
+@media (max-width: 640px) {
+  .affectedRow {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .affectedRow dt {
+    min-width: 0;
+  }
+
+  .chip,
+  .more {
+    min-height: 44px;
+  }
+
+  .todoLink {
+    min-height: 44px;
+  }
+
+  .command > button {
+    min-height: 44px;
+  }
+}

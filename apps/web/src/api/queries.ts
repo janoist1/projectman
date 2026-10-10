@@ -474,6 +474,23 @@ export function useResolveInbox(key: string, myHandle: string | null) {
   });
 }
 
+/**
+ * "Check now" on an outage alert: the server checks again at once. The answer holds the item as it is
+ * now (closed when the outage is over); it replaces the one in the list.
+ */
+export function useCheckOutage(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) => api.checkOutage(key, itemId),
+    onSuccess: (response) => {
+      const next = client.setQueryData<InboxView>(queryKeys.inbox(key), (view) =>
+        view ? { items: upsertBy(view.items, response.item, (entry) => entry.id) } : view,
+      );
+      if (next) patchOpenInboxCount(client, key, next);
+    },
+  });
+}
+
 /* ---------- config ---------- */
 export function useRevokeBoundary(key: string) {
   const client = useQueryClient();

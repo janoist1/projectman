@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
-import { BoundaryReason, handOnRequestOf } from '@projectman/shared';
+import { BoundaryReason, alertPayloadOf, handOnRequestOf } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
@@ -32,6 +32,7 @@ import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './InboxCard.module.css';
+import { OutageAlert, OutageCheck } from './OutageAlert';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { QuestionBody, QuestionChoices, QuestionDetails } from './Question';
 
@@ -144,6 +145,9 @@ export function InboxCard({
   const fixLimitText = fixLimitDecisionText(item, members, myHandle);
   const seniorWaitText = seniorWaitDecisionText(item, members, myHandle);
   const alert = alertText(item, members, myHandle, labels) ?? loopText ?? fixLimitText ?? seniorWaitText;
+  // An outage (a provider or an engine that cannot work, PM-468) has its own body, and "Check now".
+  const alertPayload = item.kind === 'alert' ? alertPayloadOf(item) : null;
+  const outageAlert = alertPayload?.alert === 'work_outage' ? alertPayload : null;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
@@ -168,6 +172,7 @@ export function InboxCard({
     <article
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={item.kind}
+      data-alert={outageAlert ? 'work_outage' : undefined}
     >
       <div className={styles.head}>
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
@@ -225,6 +230,9 @@ export function InboxCard({
       ) : null}
       {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
+      {outageAlert ? (
+        <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
+      ) : null}
       {item.body && loopText === null && fixLimitText === null && seniorWaitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
@@ -345,6 +353,9 @@ export function InboxCard({
               </Button>
             ))
           )}
+          {outageAlert && item.state === 'open' ? (
+            <OutageCheck item={item} size={buttonSize === 'xl' ? 'xl' : 'lg'} />
+          ) : null}
           {allowsFreeAnswer && !answering ? (
             <Button variant="ghost" size={buttonSize} onClick={() => setAnswering(true)} disabled={pending}>
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}

@@ -319,13 +319,13 @@ export function TaskCard({
           <NextLine next={state.next} className={styles.statusText} />
         ) : (
           <span
-            className={styles.statusText}
+            className={clsx(styles.statusText, state.phase === 'stuck' && styles.statusStuck)}
             title={
               state.workers.length > 0
                 ? state.workers.map((worker) => worker.sentence).join('\n')
                 : state.prerequisite?.inLabel
                   ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
-                  : undefined
+                  : state.title
             }
           >
             {state.label}

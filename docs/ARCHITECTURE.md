@@ -1965,6 +1965,23 @@ stored system action message through the existing general conversation route. Th
 `task_hand_on_requested` timeline event records the requester and mover. Uncommitted work refuses
 the request immediately; the review pin is created only by the actual move.
 
+## Merger setting (PM-470, part of PM-448)
+
+Who merges a card's approved work into the default branch is the project's setting, never the
+code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the code review stage
+who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
+picks the code reviewer when a code review stage comes before the merge target, else the developer.
+`RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
+until PM-386). The merge target is the first release stage, else the done stage. The pure rules
+(`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
+`mergeReadiness`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
+the config migration `addMerger` writes the default merger into a valid configuration that has none.
+`PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
+unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
+pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
+
 Inbox resolution checks access and attempts the move as the resolving human before closing the
 item. Refused moves leave it open. Actual movement clears the request and resolves the item if
 it reaches the requested stage, otherwise cancels it; cancellation clears it too. Configuration

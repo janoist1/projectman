@@ -73,6 +73,12 @@
   --status-text: var(--c-needs-text);
   --status-bg: var(--c-needs-bg);
 }
+/* a member who cannot work because of an outage (PM-468): the needs tones, but not asking for you, no pulse */
+[data-status='cannot_work'] {
+  --status-dot: var(--c-needs);
+  --status-text: var(--c-needs-text);
+  --status-bg: var(--c-needs-bg);
+}
 /* a paused member or session (PM-220): quiet, no pulse */
 [data-status='paused'] {
   --status-dot: var(--c-ink-3);
@@ -105,7 +111,9 @@
 }
 
 /* task phase (derived) */
-[data-phase='needs_you'] {
+/* `stuck` (PM-468): a card that stands because of an outage; the needs tones, but not counted as yours */
+[data-phase='needs_you'],
+[data-phase='stuck'] {
   --phase-dot: var(--c-needs);
   --phase-text: var(--c-needs-text);
   --phase-bg: var(--c-needs-bg);

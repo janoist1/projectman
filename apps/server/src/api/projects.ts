@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { CreateProjectRequest, routes, TASK_CREATE_MIN_ACCESS } from '@projectman/shared';
-import type { BoardView, ProjectSummary, TemplateSummary } from '@projectman/shared';
+import type { BoardView, ProjectPreview, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
 import type { Domain } from '../domain';
@@ -38,6 +38,13 @@ export function registerProjectRoutes(
     const body = parseBody(CreateProjectRequest, request.body);
     const summary = await domain.projects.create(body, authorOf(request));
     return reply.code(201).send(summary);
+  });
+
+  /** What a create would make and its issues; nothing is saved. Host owner only, like the create. */
+  app.post(routes.projectPreview(), async (request): Promise<ProjectPreview> => {
+    if (!auth.isHostOwner(currentUser(request).id))
+      throw forbidden('owner_only', 'only the initial host owner may create projects');
+    return domain.projects.preview(parseBody(CreateProjectRequest, request.body), authorOf(request));
   });
 
   app.get<ProjectParams>(routes.project(':key'), async (request): Promise<ProjectSummary> => {

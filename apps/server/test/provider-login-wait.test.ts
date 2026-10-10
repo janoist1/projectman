@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { alertPayloadOf } from '@projectman/shared';
-import type { AgentProvider, ProjectConfig } from '@projectman/shared';
+import type { AgentProvider, ProjectConfig, Session } from '@projectman/shared';
+import { StartSpec } from '../src/domain/admission';
 import { waitFor } from '../src/runner/test-helpers';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
@@ -19,9 +20,10 @@ const codexDev1 = (config: ProjectConfig): void => {
 };
 
 /** Makes the fake runner report the login of each provider (undefined: it cannot tell). */
-function loginOf(h: DomainHarness, state: { loggedIn: boolean | null | 'throws' }) {
+function loginOf(h: DomainHarness, state: { loggedIn: boolean | null | 'throws' }, calls?: unknown[]) {
   Object.assign(h.runner, {
-    providerStatus: async (provider: AgentProvider) => {
+    providerStatus: async (provider: AgentProvider, opts?: unknown) => {
+      calls?.push(opts);
       if (state.loggedIn === 'throws') throw new Error('fictional: the check failed');
       return {
         provider,
@@ -143,6 +145,128 @@ describe('a start while the provider is not logged in', () => {
     expect(item.payload).toMatchObject({
       outage: { kind: 'provider', provider: 'codex' },
       members: ['dev-1'],
+    });
+  });
+
+  describe('a task session that loses its login (PM-467)', () => {
+    const resumes = () =>
+      h.repos.deferredStarts.list().filter((row) => StartSpec.parse(row.spec).kind === 'provider_resume');
+
+    async function setup(opts: { persistent?: boolean } = {}) {
+      h = await createDomainHarness({ adjust: codexDev1, ...opts });
+      const state = { loggedIn: true as boolean | null | 'throws' };
+      loginOf(h, state);
+      const task = await h.domain.tasks.create('AR', { title: 'Fictional lost login' }, OWNER_ACTOR);
+      const { session } = await h.domain.taskStarts.start('AR', task.key, {
+        assignee: 'dev-1',
+        actor: OWNER_ACTOR,
+        author: OWNER,
+      });
+      return { state, task, session: session! };
+    }
+
+    /** The CLI loses its login: the runner reports it, fails the session and stops it. */
+    async function loseLogin(session: Session) {
+      h.runner.emit({
+        type: 'auth_error',
+        sessionId: session.id,
+        provider: 'codex',
+        message: 'Login expired',
+      });
+      h.runner.setState(session.id, 'failed', 'Login expired');
+      await h.runner.stop(session.id);
+    }
+
+    it('waits for the login when it is gone, and continues by itself once it is back', async () => {
+      const { state, task, session } = await setup();
+      state.loggedIn = false;
+      await loseLogin(session);
+      expect(await waitFor(() => h.domain.tasks.get('AR', task.key).startWaiting)).toMatchObject({
+        reason: 'provider_not_logged_in',
+        member: 'dev-1',
+        provider: 'codex',
+      });
+      expect(h.domain.sessions.get('AR', session.id).lastStop).toMatchObject({ kind: 'login_lost' });
+      expect(resumes().map((row) => StartSpec.parse(row.spec))).toMatchObject([
+        { kind: 'provider_resume', taskKey: task.key, handle: 'dev-1', after: 'login' },
+      ]);
+      const started = h.runner.started.length;
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(started);
+
+      state.loggedIn = true;
+      await h.domain.admission.retryDeferred();
+      const resumed = h.runner.started.find((s, index) => index >= started && s.sessionId === session.id);
+      expect(resumed?.initialMessage).toContain('the provider login was lost');
+      expect(h.domain.sessions.get('AR', session.id).startCause).toEqual({ kind: 'provider_resume' });
+      expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+      expect(resumes()).toHaveLength(0);
+    });
+
+    it.each([true, null, 'throws'] as const)(
+      'does not restart by itself when the fresh check says %s',
+      async (checked) => {
+        const { state, task, session } = await setup();
+        state.loggedIn = checked;
+        const started = h.runner.started.length;
+        await loseLogin(session);
+        await settle();
+        expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+        expect(resumes()).toHaveLength(0);
+        await h.domain.admission.retryDeferred();
+        expect(h.runner.started).toHaveLength(started);
+      },
+    );
+
+    it('asks for a fresh check of the provider login', async () => {
+      const { state, session } = await setup();
+      state.loggedIn = false;
+      const calls: unknown[] = [];
+      loginOf(h, state, calls);
+      await loseLogin(session);
+      await waitFor(() => calls.length > 0);
+      expect(calls[0]).toMatchObject({ member: 'dev-1', refresh: true });
+    });
+
+    it('drops the wait when the task moves on or goes to someone else', async () => {
+      const { state, task, session } = await setup();
+      state.loggedIn = false;
+      await loseLogin(session);
+      await waitFor(() => resumes().length === 1);
+      h.repos.tasks.update(task.id, { assignee: 'dev-2' });
+      state.loggedIn = true;
+      const started = h.runner.started.length;
+      await h.domain.admission.retryDeferred();
+      expect(h.runner.started).toHaveLength(started);
+      expect(resumes()).toHaveLength(0);
+    });
+
+    it('rebuilds a stored resume without `after` as a quota resume', async () => {
+      const { task } = await setup({ persistent: true });
+      await h.runner.stop(
+        h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key })!.id,
+      );
+      await settle();
+      const since = '2026-01-01T00:00:00.000Z';
+      h.repos.deferredStarts.save({
+        key: `provider-resume:AR:${task.key}:dev-1`,
+        projectKey: 'AR',
+        taskKey: task.key,
+        spec: {
+          kind: 'provider_resume',
+          projectKey: 'AR',
+          taskKey: task.key,
+          handle: 'dev-1',
+          stageId: h.domain.tasks.get('AR', task.key).stageId,
+        },
+        waiting: { reason: 'provider_not_logged_in', member: 'dev-1', provider: 'codex', since },
+      });
+      h = await restartDomainHarness(h);
+      loginOf(h, { loggedIn: true });
+      expect(h.domain.tasks.get('AR', task.key).startWaiting).toMatchObject({ since });
+      await h.domain.admission.retryDeferred();
+      await waitFor(() => h.runner.started.length === 1);
+      expect(h.runner.started[0]!.initialMessage).toContain('NanoGPT reached a provider limit');
     });
   });
 

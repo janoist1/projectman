@@ -46,6 +46,7 @@ import { canStartRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
+import { Todo as OutageTodoBox } from '../inbox/OutageAlert';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
 import { SeniorWarning } from './SeniorWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
@@ -453,7 +454,13 @@ export function TaskDrawer() {
         : null;
     const side = (
       <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
-        {task.startWaiting && (!boxShown || loginCommand) ? (
+        {task.outage ? (
+          // The card stands on an outage (PM-468), a start or a continuation: the header says why, this what to do.
+          // The state has no `next` then, so the "Miért áll?" box is not shown beside it.
+          <div className={drawer.section} data-testid="drawer-outage">
+            <OutageTodoBox outage={task.outage} projectKey={key} />
+          </div>
+        ) : task.startWaiting && (!boxShown || loginCommand) ? (
           <p className={drawer.section}>
             {/* The "Miért áll?" box already says the hint as its "Mit kell tenni" row. */}
             {boxShown ? null : startWaitingHint(task, members, myHandle)}

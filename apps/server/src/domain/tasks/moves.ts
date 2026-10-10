@@ -78,6 +78,8 @@ export interface Handover {
 
 /** What a move may carry besides its target (PM-183). */
 export interface MoveOptions {
+  /** An automatic move is valid only during the stage stay that selected its target. */
+  expectedFrom?: Pick<Task, 'stageId' | 'stageEnteredAt'>;
   /** Read by `prepareHandover` before the unit of work; the move records the pin. */
   handover?: Handover | null;
   /** The system sends the task back because its branch moved after the hand-over. */
@@ -180,7 +182,7 @@ export class TaskMoves {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed'> = {},
+    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom'> = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
     const handover = await this.prepareHandover(config, this.store.get(projectKey, taskKey), stageId);
@@ -267,6 +269,16 @@ export class TaskMoves {
     effects: Effect[],
     opts: MoveOptions = {},
   ): MoveResult {
+    // Async preparation may finish after a human has moved or closed the card. Check inside the
+    // write transaction so an obsolete automatic target cannot move it back or request a hand-on.
+    if (
+      opts.expectedFrom &&
+      (!isOpenTask(task) ||
+        task.status === 'blocked' ||
+        task.stageId !== opts.expectedFrom.stageId ||
+        task.stageEnteredAt !== opts.expectedFrom.stageEnteredAt)
+    )
+      return { task, moved: false, pendingApproval: [] };
     if (isTheme(task)) throw themeRefused(task.key, 'move between stages');
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
     const target = requireStage(config, stageId);

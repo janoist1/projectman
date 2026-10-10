@@ -921,7 +921,7 @@ export class TaskService {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed'>,
+    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom'>,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }

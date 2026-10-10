@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
+import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
 import { TaskRelationKind } from './relations';
@@ -27,8 +28,23 @@ export const InboxKind = z.enum([
   'boundary',
   'alert',
   'hand_on',
+  'merge_request',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+export const MergeRequestPayload = z.object({
+  taskKey: TaskKey,
+  mergeId: z.string(),
+  repo: z.string(),
+  base: z.string(),
+  failure: MergeFailure.optional(),
+});
+export type MergeRequestPayload = z.infer<typeof MergeRequestPayload>;
+export function mergeRequestOf(item: Pick<InboxItem, 'kind' | 'payload'>): MergeRequestPayload | null {
+  if (item.kind !== 'merge_request') return null;
+  const parsed = MergeRequestPayload.safeParse(item.payload.mergeRequest);
+  return parsed.success ? parsed.data : null;
+}
 
 export const HandOnPayload = z.object({
   taskKey: TaskKey,
@@ -351,6 +367,14 @@ export const ProviderRateLimitAlert = z.object({
 });
 export type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
 
+export const MergeBlockedAlert = z.object({
+  alert: z.literal('merge_blocked'),
+  taskKey: TaskKey,
+  mergeId: z.string(),
+  reason: MergeBlockReason,
+  message: z.string(),
+});
+export type MergeBlockedAlert = z.infer<typeof MergeBlockedAlert>;
 export const WorkOutageAlert = z.object({
   alert: z.literal('work_outage'),
   outage: WorkOutage,
@@ -362,6 +386,7 @@ export type WorkOutageAlert = z.infer<typeof WorkOutageAlert>;
 
 export const AlertPayload = z.discriminatedUnion('alert', [
   WorkOutageAlert,
+  MergeBlockedAlert,
   SessionTokensAlert,
   MessageBurstAlert,
   SessionInputAlert,

@@ -36,6 +36,73 @@ const human = (handle: string) => ({ handle, kind: 'human' as const });
 const ai = (handle: string) => ({ handle, kind: 'ai' as const });
 
 describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
+  it('asks the selected human merger to merge the approved work before advancing', () => {
+    const next = deriveNext(
+      task,
+      wait({ reason: 'merge', next: [human('owner')], toStageId: 'done', inboxKind: 'merge_request' }),
+      ctx(),
+    )!;
+    expect(next).toMatchObject({
+      head: 'Rád vár',
+      you: true,
+      waiting: 'olvaszd be a fő ágba',
+      long: 'A kártya jóváhagyott munkáját a fő ágba kell beolvasztani.',
+      todo: 'Olvaszd be a kártya jóváhagyott munkáját a fő ágba.',
+      who: [{ handle: 'owner', kind: 'human', you: true }],
+      toStageId: 'done',
+      tone: 'needs',
+    });
+    expect(next.line).toBe('Rád vár · olvaszd be a fő ágba');
+  });
+
+  it('names an AI merger without asking another viewer to merge the card', () => {
+    const next = deriveNext(task, wait({ reason: 'merge', next: [ai('be-1')], toStageId: 'done' }), ctx())!;
+    expect(next.you).toBe(false);
+    expect(next.waiting).toBe('beolvasztás a fő ágba');
+    expect(next.who).toEqual([{ handle: 'be-1', kind: 'ai', you: false }]);
+    expect(next.todo).toBe(t('taskStatus.next.todo.merge', { merger: next.head }));
+    expect(next.toStageId).toBe('done');
+  });
+
+  it('keeps hand-on labels and adds the merge action using the same wording pattern', () => {
+    expect(t('inbox.kinds.hand_on')).toBe('Vidd tovább');
+    expect(t('inbox.kindsLower.hand_on')).toBe('továbbvitel');
+    expect(t('inbox.kinds.merge_request')).toBe('Olvaszd be');
+    expect(t('inbox.kindsLower.merge_request')).toBe('beolvasztás');
+  });
+
+  it.each(['queued', 'running'] as const)('does not request another start for a %s merge', (state) => {
+    const merging: Task = {
+      ...task,
+      merge: {
+        id: 'merge-1',
+        repo: 'app',
+        base: 'main',
+        toStageId: 'done',
+        merger: 'owner',
+        requestedAt: '2026-10-01T10:00:00.000Z',
+        state,
+        landed: 'nowhere',
+      },
+    };
+    for (const myHandle of ['owner', 'be-1']) {
+      const next = deriveNext(
+        merging,
+        wait({ reason: 'merge', next: [human('owner')], toStageId: 'done' }),
+        ctx({ myHandle }),
+      )!;
+      expect(next).toMatchObject({
+        you: false,
+        waiting: 'beolvasztás folyamatban',
+        long: 'A jóváhagyott munka beolvasztása folyamatban van.',
+        todo: 'Semmit: a beolvasztás magától halad.',
+        tone: 'neutral',
+        toStageId: 'done',
+      });
+      expect(next.line).not.toContain('Rád vár');
+    }
+  });
+
   it.each(['working', 'handing_off', 'ready'] as const)("keeps today's line for %s", (reason) => {
     expect(deriveNext(task, wait({ reason }), ctx())).toBeNull();
   });

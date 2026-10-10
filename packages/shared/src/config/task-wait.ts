@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { fixLimitDecisionOf, gateRequestOf, handOnRequestOf, InboxKind } from '../domain/inbox';
+import {
+  alertPayloadOf,
+  fixLimitDecisionOf,
+  gateRequestOf,
+  handOnRequestOf,
+  mergeRequestOf,
+  InboxKind,
+} from '../domain/inbox';
 import type { InboxItem } from '../domain/inbox';
 import { LabelId } from '../domain/label';
 import { MemberHandle } from '../domain/member';
@@ -38,6 +45,8 @@ export const TaskWaitReason = z.enum([
   'fix_limit',
   /** A holding label (for example waiting-answer) holds it. */
   'held',
+  /** The card merger must merge the approved work before the target stage. */
+  'merge',
   /** The work is done, the card mover takes it on. */
   'hand_on',
   /** A person's approval of the next gate is missing (PM-445). */
@@ -175,6 +184,19 @@ function itemWait(
   task: Task,
   config: Pick<ProjectConfig, 'team' | 'pipeline'>,
 ): TaskWait {
+  const merge = task.merge;
+  const alert = alertPayloadOf(item);
+  if (
+    merge &&
+    (mergeRequestOf(item)?.mergeId === merge.id ||
+      (alert?.alert === 'merge_blocked' && alert.mergeId === merge.id))
+  ) {
+    return make(config, 'merge', merge.requestedAt, [merge.merger], {
+      toStageId: merge.toStageId,
+      inboxItemId: item.id,
+      inboxKind: item.kind,
+    });
+  }
   const gate = gateRequestOf(item) ? gateApprovalsOf(items) : null;
   if (gate) {
     return approvalWait(config, gate.labels, gate.approvers, item.createdAt, {
@@ -318,6 +340,18 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
   const holding = task.labels.filter((id) => labelDefinition(config, id)?.blocks);
   if (holding.length > 0) return make(config, 'held', task.updatedAt, [], { labels: holding });
 
+  if (task.merge) {
+    const item = newestFirst(items).find(
+      (item) =>
+        item.kind === 'merge_request' ||
+        (item.kind === 'alert' && alertPayloadOf(item)?.alert === 'merge_blocked'),
+    );
+    return make(config, 'merge', task.merge.requestedAt, [task.merge.merger], {
+      toStageId: task.merge.toStageId,
+      inboxItemId: item?.id ?? null,
+      inboxKind: item?.kind ?? null,
+    });
+  }
   const handOnItem = newestFirst(items).find((item) => item.kind === 'hand_on');
   if (task.handOn || handOnItem) {
     const handOn = task.handOn;

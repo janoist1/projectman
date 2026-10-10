@@ -699,18 +699,27 @@ export class SessionOrchestrator {
    * holds uncommitted work (PM-183): the member workspace's with member workspaces, else the task's
    * worktree. Null for a task without a repository or a branch, and when it cannot be read.
    */
-  async sourceHead(config: ProjectConfig, task: Task): Promise<SourceHead | null> {
+  async sourceHead(
+    config: ProjectConfig,
+    task: Task,
+    opts: { strict?: boolean } = {},
+  ): Promise<SourceHead | null> {
     const repoName = effectiveRepo(config, task);
     if (!repoName) return null;
     try {
       const engineId = this.cardEngineId(config.project.key, task);
       const engine = this.deps.engines.get(engineId);
-      if (!engine) return null;
+      if (!engine) {
+        if (opts.strict)
+          throw conflict('engine_offline', 'the card engine is not connected', { engine: engineId });
+        return null;
+      }
       const workspaces = this.workspacesOf(engineId);
       if (workspaces) return await workspaces.sourceHead(config, task);
       const found = await engine.worktrees.find({ project: config, repoName, taskKey: task.key });
       return found ? await engine.worktrees.head(found.path) : null;
     } catch (err) {
+      if (opts.strict) throw err;
       this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
       return null;
     }

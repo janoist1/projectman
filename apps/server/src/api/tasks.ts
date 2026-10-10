@@ -52,7 +52,6 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const wait = domain.taskWaits.ofCard(await domain.projects.config(key), detail.task, access.handle);
     return wait ? { ...detail, wait } : detail;
   };
-
   app.get<ProjectParams>(routes.tasks(':key'), async (request): Promise<Task[]> => {
     const access = await requireAccess(domain, request, request.params.key);
     return visibleTasks(access, domain.tasks.list(request.params.key));
@@ -81,6 +80,12 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
     const body = parseBody(UpdateTaskRequest, request.body);
     if (body.assignee !== undefined) await requireAccess(domain, request, key, { minimum: 'admin' });
     return domain.tasks.update(key, taskKey, body, actorOf(access));
+  });
+
+  app.post<TaskParams>(routes.taskMerge(':key', ':taskKey'), async (request) => {
+    const { key, taskKey } = request.params;
+    const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    return { task: await domain.merges.start(key, taskKey, actorOf(access)) };
   });
 
   /** A closed handoff of the card with its note or summary (PM-342); an unknown or foreign one is 404. */

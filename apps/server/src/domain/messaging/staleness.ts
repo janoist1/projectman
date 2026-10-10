@@ -88,6 +88,7 @@ export function recipientHasCardRole(
 ): boolean {
   const worked = (taskKey: string) =>
     ctx.repos.sessions.findByWorkItem(task.projectKey, recipient, { type: 'task', taskKey }) !== null;
+  if (ctx.repos.taskMerges.open(task.projectKey, task.key)?.merger === recipient) return true;
   return hasCardRole(
     config,
     task,

@@ -50,6 +50,7 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'submit_boundary_request',
   'hand_off',
   'publish_task_branch',
+  'merge_task',
 ]);
 
 export interface OpenOperatorRequest {

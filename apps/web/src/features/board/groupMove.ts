@@ -33,6 +33,7 @@ export function heldReason(item: BoardGroupItem, labels: readonly LabelView[]): 
     case 'skipped':
       return t('board.groupMove.reason.skipped');
     case 'blocked': {
+      if (item.code === 'task_not_merged') return t('board.groupMove.reason.notMerged');
       if (item.code === 'handover_uncommitted') return t('board.groupMove.reason.uncommitted');
       if (item.code === 'no_approver') {
         const label = item.approvals[0]?.label;

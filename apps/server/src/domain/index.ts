@@ -6,6 +6,7 @@ import {
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
+  mergeReadiness,
   permissionDelegationOf,
   routeFor,
   seniorWaitMinutesOf,
@@ -71,6 +72,7 @@ import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { Merges } from './merges';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -454,7 +456,7 @@ export function createDomain(opts: DomainOptions) {
     startWaiting: deferredStarts,
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
-    sourceHead: (config, task) => sessions.sourceHead(config, task),
+    sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
     notifyHandOn: async (config, task, request) => {
       const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);
       const to = config.pipeline.stages.find((s) => s.id === request.toStageId);
@@ -686,7 +688,7 @@ export function createDomain(opts: DomainOptions) {
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
-  const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
+  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
   sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
     messageStarts.resumeAfter(session, stageId, after),
   );
@@ -765,6 +767,26 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  const merges = new Merges({
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    messaging,
+    timeline,
+    engines,
+    github: opts.github,
+    inbox,
+    background,
+    afterMerge: (task) => autoAdvance.check(task),
+  });
+  inbox.useMergeStart(async (item, by) => {
+    if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
+  });
+  tasks.useMerges(merges);
+  events.on('task_cancelled', (task) => {
+    merges.cancel(task.projectKey, task.key);
+  });
   sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
@@ -802,6 +824,7 @@ export function createDomain(opts: DomainOptions) {
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
   const teamTools = new TeamToolsService({
+    merges,
     operatorRequests,
     operatorSteps,
     taskWaits,
@@ -915,6 +938,25 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => handoffs.sessionEnded(session));
 
   // Configuration changes: runtime state follows the roster.
+  events.on('config_changed', (change) => {
+    background.run(
+      async () => {
+        for (const task of tasks.list(change.projectKey)) {
+          if (!task.merge && !mergeReadiness(change.next, task).ready) continue;
+          try {
+            await merges.reconcile(change.projectKey, task.key);
+          } catch (err) {
+            opts.logger.warn(
+              { err, projectKey: change.projectKey, taskKey: task.key },
+              'could not reconcile a merge request after configuration changed',
+            );
+          }
+        }
+      },
+      (err) =>
+        opts.logger.warn({ err, projectKey: change.projectKey }, 'merge configuration reconciliation failed'),
+    );
+  });
   events.on('config_changed', (change) => tasks.reconcileHandOns(change.next));
   events.on('config_changed', (change) => members.reconcile(change));
   events.on('config_changed', (change) => {
@@ -1029,7 +1071,10 @@ export function createDomain(opts: DomainOptions) {
   const advanceCard = (task: Task | null): void => {
     if (!task) return;
     background.run(
-      () => autoAdvance.check(task),
+      async () => {
+        await merges.reconcile(task.projectKey, task.key);
+        await autoAdvance.check(tasks.get(task.projectKey, task.key));
+      },
       (err) => opts.logger.warn({ err, taskKey: task.key }, 'automatic stage advance failed'),
     );
   };
@@ -1270,6 +1315,7 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     reviewWatch,
     fullTests,
+    merges,
     loopWatch,
     seniorWaits,
     fixLimit,
@@ -1310,6 +1356,7 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (restoredStarts > 0) retryDeferredStarts();
@@ -1441,6 +1488,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await merges.stop();
       await screenshotRuns?.stop();
       await outages.stop();
       await background.stop();

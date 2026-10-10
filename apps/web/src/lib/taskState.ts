@@ -567,6 +567,7 @@ function stateOfWait(
     }
     case 'start_waiting':
       return { phase: 'waiting', label: startWaitingLabel(task, ctx), since: wait.since, worker: null };
+    case 'merge':
     case 'inbox':
     case 'hand_on': {
       if (item && mine)

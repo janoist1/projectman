@@ -320,6 +320,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
+  private readonly merges: import('./merges').Merges;
   private readonly tasks: TaskService;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
@@ -353,6 +354,7 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The questions asked on a card, which get_task lists (PM-249). */
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
+    merges: import('./merges').Merges;
     tasks: TaskService;
     /** Why cards stand still (PM-460): get_task and list_tasks say it. */
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
@@ -403,6 +405,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.sessions = deps.sessions;
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
+    this.merges = deps.merges;
     this.tasks = deps.tasks;
     this.taskWaits = deps.taskWaits;
     this.projectFocus = deps.projectFocus;
@@ -758,6 +761,19 @@ export class TeamToolsService implements TeamToolsHandler {
         });
         return { attachmentId: id, fileName };
       });
+    });
+  }
+
+  async mergeTask(ctx: ToolContext, args: { taskKey: string }): Promise<{ task: Task }> {
+    return this.guard(async () => {
+      await this.caller(ctx, 'merge_task');
+      return {
+        task: await this.merges.start(
+          ctx.projectKey,
+          this.validTaskKey(ctx, args.taskKey),
+          aiActor(ctx.member),
+        ),
+      };
     });
   }
 

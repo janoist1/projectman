@@ -1,4 +1,12 @@
-import { developerLevelText, isCardLink, refinementSteps, refinementTurn } from '@projectman/shared';
+import {
+  developerLevelText,
+  effectiveRepo,
+  repoOf,
+  requiresMerge,
+  isCardLink,
+  refinementSteps,
+  refinementTurn,
+} from '@projectman/shared';
 import type { Attachment, Task } from '@projectman/shared';
 import {
   describeAttachment,
@@ -58,6 +66,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   const style = promptStyle(input.project);
   const sections: string[] = [];
   const testLine = fullTestLine(input.project, task);
+  const mergeRepo = repoOf(input.project, effectiveRepo(input.project, task));
 
   sections.push(
     [
@@ -83,6 +92,23 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   sections.push(['## Description', description(task.description)].join('\n'));
+  if (mergeRepo && requiresMerge(mergeRepo))
+    sections.push(
+      `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. AI members must never merge or push manually. The project manager must not request a manual git merge.`,
+    );
+
+  if (task.merge?.merger === input.member.handle) {
+    const merge = task.merge;
+    sections.push(
+      [
+        '## Merge',
+        `Repository: ${merge.repo}; base: ${merge.base}; approved commit: ${merge.commit ?? task.reviewPin?.commit ?? 'read by merge_task'}.`,
+        `State: ${merge.state}. Use merge_task to start or retry. A failure does not move the card: fix simple mechanical conflicts with the merge tool, otherwise send it back with update_task and explain why.`,
+        ...(merge.failure ? [JSON.stringify(merge.failure)] : []),
+        ...(merge.block ? [JSON.stringify(merge.block)] : []),
+      ].join('\n'),
+    );
+  }
 
   // A card handed over to the member, or a conversation that replaces one that could not go on (PM-342).
   for (const block of [previousConversationBlock(input), handoffBlock(input)])

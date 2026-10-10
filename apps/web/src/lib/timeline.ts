@@ -289,6 +289,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
+    case 'task_merge_requested':
+      return normal(str(d.base));
+    case 'task_merge_failed':
+      return normal(str(d.reason));
+    case 'task_merged':
+      return normal(str(d.mergeCommit));
+    case 'task_merge_blocked':
+      return normal(str(d.message));
     case 'boundary_changed': {
       const state = BoundaryState.safeParse(d.state);
       const reason = BoundaryAuditReason.safeParse(d.reason);

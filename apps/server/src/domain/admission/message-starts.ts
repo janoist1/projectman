@@ -16,6 +16,7 @@ import type { AutomaticStart, StartSpec } from './deferred-starts';
  * retried while its messages wait (they stay in SQLite) and its task stays in that stage.
  */
 export class MessageStarts {
+  private readonly ctx: import('../context').DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly admission: Admission;
@@ -23,12 +24,14 @@ export class MessageStarts {
   private readonly delivery: MessageDelivery;
 
   constructor(deps: {
+    ctx: import('../context').DomainContext;
     projects: ProjectService;
     tasks: TaskService;
     admission: Admission;
     messages: MessageService;
     delivery: MessageDelivery;
   }) {
+    this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.admission = deps.admission;
@@ -174,9 +177,14 @@ export class MessageStarts {
         const first = waiting.find((message) => this.messages.wakes(config, message, handle));
         if (!first) return;
         const origin = first.origin;
+        const mergeEvent =
+          origin?.kind === 'note' && first.from === 'system'
+            ? this.ctx.repos.timeline.get(projectKey, origin.eventId)
+            : null;
         const cause: SessionStartCause = {
-          kind:
-            origin?.kind === 'note'
+          kind: mergeEvent?.type.startsWith('task_merge_')
+            ? 'merge'
+            : origin?.kind === 'note'
               ? 'mention'
               : origin?.kind === 'label'
                 ? 'sent_back'

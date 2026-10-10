@@ -125,6 +125,9 @@ export interface TaskUpdate {
  * attributed to an Actor in the timeline.
  */
 export class TaskService {
+  useMerges(merges: import('../merges').Merges): void {
+    this.moves.useMerges(merges);
+  }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -385,7 +388,14 @@ export class TaskService {
     // A move into a review or test stage hands the branch over (PM-183): read before the write.
     const handover =
       change.stageId !== undefined
-        ? await this.moves.prepareHandover(config, this.get(projectKey, taskKey), change.stageId)
+        ? await this.moves.prepareHandover(
+            config,
+            {
+              ...this.get(projectKey, taskKey),
+              ...(change.repo !== undefined ? { repo: change.repo } : {}),
+            },
+            change.stageId,
+          )
         : null;
     const result = this.ctx.unitOfWork(() =>
       this.applyUpdate(
@@ -823,6 +833,7 @@ export class TaskService {
     effects: Effect[],
   ): Task {
     const at = isoNow(this.ctx);
+    this.moves.cancelMerge(task.projectKey, task.key, effects);
     this.moves.clearHandOn(task);
     const cancelled = this.store.view(
       this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at }),

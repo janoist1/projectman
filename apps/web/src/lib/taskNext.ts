@@ -234,6 +234,24 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
       });
     }
 
+    case 'merge': {
+      const running = task.merge?.state === 'queued' || task.merge?.state === 'running';
+      return build({
+        head: names || t('taskStatus.next.heads.nobody'),
+        you: meNext && !running,
+        waiting: running
+          ? t('taskStatus.next.short.mergeRunning')
+          : t(meNext ? 'taskStatus.next.short.mergeYou' : 'taskStatus.next.short.merge'),
+        long: t(running ? 'taskStatus.next.long.mergeRunning' : 'taskStatus.next.long.merge'),
+        todo: running
+          ? t('taskStatus.next.todo.mergeRunning')
+          : meNext
+            ? t('taskStatus.next.todo.mergeYou')
+            : t('taskStatus.next.todo.merge', { merger: names || t('taskStatus.next.heads.nobody') }),
+        toStageId: wait.toStageId,
+      });
+    }
+
     case 'hand_on': {
       const request = task.handOn ?? (ctx.item ? handOnRequestOf(ctx.item) : null);
       const owner = request ? nameOf(request.requestedBy, members, myHandle) : '';

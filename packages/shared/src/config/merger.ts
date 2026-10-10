@@ -6,6 +6,7 @@ import { evaluateMove, stageIndex } from './gates';
 import type { UnmetCondition, ApprovalRequirement } from './gates';
 import { isHandleOnLeave } from './leave';
 import { memberOf } from './lookup';
+import { isOperator } from './operator-member';
 import { effectiveRepo, repoOf } from './repos';
 import type { Merger, ProjectConfig, RepoConfig } from './schema';
 
@@ -64,7 +65,9 @@ export function unresolvedMerger(config: ProjectConfig): string | null {
   if (merger.kind === 'developer')
     return stagesBeforeTarget(config).some((s) => s.kind === 'work') ? null : merger.kind;
   const member = memberOf(config, merger.handle);
-  return member && (member.kind === 'ai' || hasAccess(member.access, 'developer')) ? null : merger.handle;
+  return member && !isOperator(member) && (member.kind === 'ai' || hasAccess(member.access, 'developer'))
+    ? null
+    : merger.handle;
 }
 
 /**
@@ -88,9 +91,9 @@ export function mergeRepoOf(
 }
 
 /**
- * The member who merges this card; null: nobody can.
+ * The member who merges this card; null: nobody can. The Operator is never selected.
  * - code_reviewer: `codeReviewer` when they own the code review stage before the target (stageOwners),
- *   else that stage's first owner who is not on leave;
+ *   else that stage's first non-Operator owner who is not on leave;
  * - developer: task.assignee;
  * - member: the handle, when it is a member of the team (a human needs `developer` access or more).
  * Leave is not skipped for developer and member: the card waits, and „Miért áll?” shows it.
@@ -101,18 +104,29 @@ export function cardMerger(
   codeReviewer: string | null,
 ): string | null {
   const merger = mergerOf(config);
-  if (merger.kind === 'developer') return task.assignee ?? null;
+  if (merger.kind === 'developer')
+    return isOperator(memberOf(config, task.assignee)) ? null : (task.assignee ?? null);
   if (merger.kind === 'member') {
     const member = memberOf(config, merger.handle);
-    if (!member) return null;
+    if (!member || isOperator(member)) return null;
     return member.kind === 'human' && !hasAccess(member.access, 'developer') ? null : member.handle;
   }
   const stage = codeReviewStageBeforeTarget(config);
   if (!stage) return null;
   const owners = stageOwners(config, stage);
-  if (codeReviewer && owners.includes(codeReviewer) && !isHandleOnLeave(config, codeReviewer))
+  if (
+    codeReviewer &&
+    owners.includes(codeReviewer) &&
+    !isOperator(memberOf(config, codeReviewer)) &&
+    !isHandleOnLeave(config, codeReviewer)
+  )
     return codeReviewer;
-  return owners.find((handle) => memberOf(config, handle) && !isHandleOnLeave(config, handle)) ?? null;
+  return (
+    owners.find(
+      (handle) =>
+        memberOf(config, handle) && !isOperator(memberOf(config, handle)) && !isHandleOnLeave(config, handle),
+    ) ?? null
+  );
 }
 
 export type MergeReadiness =

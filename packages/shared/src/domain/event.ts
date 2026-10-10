@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
+import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -58,6 +59,10 @@ export const TimelineEventType = z.enum([
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
+  'task_merge_requested',
+  'task_merge_failed',
+  'task_merged',
+  'task_merge_blocked',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -164,6 +169,18 @@ export interface TimelineEventData {
     previous?: string | null;
     reason?: 'member_removed' | 'handover';
     from?: string;
+  };
+  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  task_merge_failed: MergeFailure & { mergeId: string };
+  task_merged: TaskMerged & { mergeId?: string };
+  task_merge_blocked: {
+    mergeId: string;
+    repo: string;
+    base: string;
+    reason: MergeBlockReason;
+    message: string;
+    landed: 'nowhere' | 'remote';
+    mergeCommit?: string;
   };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {

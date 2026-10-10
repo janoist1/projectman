@@ -190,6 +190,53 @@ describe('a closed card', () => {
 });
 
 describe('every reason', () => {
+  it('merge precedes hand-on and names the merger and its human request', () => {
+    const merge = {
+      id: 'merge-1',
+      repo: 'web',
+      base: 'main',
+      toStageId: 'done',
+      merger: 'kata',
+      requestedAt: NOW,
+      state: 'requested' as const,
+      landed: 'nowhere' as const,
+    };
+    const request = item({
+      kind: 'merge_request',
+      assignees: ['kata'],
+      payload: {
+        mergeRequest: { taskKey: 'AC-1', mergeId: merge.id, repo: merge.repo, base: merge.base },
+      },
+    });
+    expect(
+      wait(
+        card({
+          merge,
+          handOn: {
+            fromStageId: 'merge',
+            toStageId: 'done',
+            mover: 'owner',
+            requestedBy: 'dev-1',
+            requestedAt: NOW,
+            inboxItemId: null,
+          },
+        }),
+        { openItems: [request] },
+      ),
+    ).toMatchObject({
+      reason: 'merge',
+      next: [{ handle: 'kata', kind: 'human' }],
+      toStageId: 'done',
+      inboxItemId: request.id,
+      inboxKind: 'merge_request',
+      since: NOW,
+    });
+    expect(wait(card({ merge }), { openItems: [request], viewer: 'kata' })).toMatchObject({
+      reason: 'merge',
+      next: [{ handle: 'kata', kind: 'human' }],
+      toStageId: 'done',
+    });
+  });
   it('prerequisite: the start waits for the cards it needs', () => {
     const result = wait(
       card({ startWaiting: { reason: 'prerequisite_open', prerequisites: ['AC-9'], since: NOW } }),

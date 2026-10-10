@@ -36,6 +36,7 @@ import { requireHuman } from '../access';
 import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
+import type { Merges } from '../merges';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';
@@ -96,7 +97,11 @@ export interface MoveOptions {
 }
 
 /** Reads the head of the branch a task's developer hands over, null when there is none to read. */
-export type SourceHeadReader = (config: ProjectConfig, task: Task) => Promise<SourceHead | null>;
+export type SourceHeadReader = (
+  config: ProjectConfig,
+  task: Task,
+  opts?: { strict?: boolean },
+) => Promise<SourceHead | null>;
 
 export function gateBlockedError(evaluation: GateEvaluation, block?: StartBlock) {
   return conflict('gate_blocked', 'the gate conditions of the target stage are not met', {
@@ -123,6 +128,13 @@ export function approvalRequestedError(items: InboxItem[]) {
  * event once it is committed.
  */
 export class TaskMoves {
+  private merges: Merges | undefined;
+  useMerges(merges: Merges): void {
+    this.merges = merges;
+  }
+  cancelMerge(projectKey: string, taskKey: string, effects: Effect[]): void {
+    this.merges?.cancel(projectKey, taskKey, effects);
+  }
   private readonly store: TaskStore;
   private readonly labels: TaskLabels;
   private readonly inbox: InboxService;
@@ -203,6 +215,7 @@ export class TaskMoves {
   async prepareHandover(config: ProjectConfig, task: Task, stageId: string): Promise<Handover | null> {
     const target = stageOf(config, stageId);
     if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task)) return null;
+    await this.merges?.checkGate(config, task, target.id);
     if (!stageHandsOverForReview(config, target)) return null;
     const head = await this.sourceHead(config, task);
     if (!head) return null;
@@ -448,6 +461,7 @@ export class TaskMoves {
     // An approved move into a review or test stage hands the branch over like any other (PM-183).
     let handover: Handover | null = null;
     let refused = false;
+    let mergeMissing = false;
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (
       resolution.optionId === 'approve' &&
@@ -458,13 +472,19 @@ export class TaskMoves {
       try {
         handover = await this.prepareHandover(config, task, gate.toStageId);
       } catch (err) {
-        if (!(err instanceof DomainError) || err.code !== 'handover_uncommitted') throw err;
-        refused = true;
+        if (!(err instanceof DomainError)) throw err;
+        if (err.code === 'task_not_merged') mergeMissing = true;
+        else if (err.code === 'handover_uncommitted') refused = true;
+        else throw err;
       }
     }
     const effects: Effect[] = [];
     this.store.ctx.unitOfWork(() =>
-      this.decide(config, item, gate, humanActor(resolution.by), effects, { handover, refused }),
+      this.decide(config, item, gate, humanActor(resolution.by), effects, {
+        handover,
+        refused,
+        mergeMissing,
+      }),
     );
     await runEffects(effects);
   }
@@ -475,7 +495,7 @@ export class TaskMoves {
     gate: GateRequestPayload,
     actor: Actor,
     effects: Effect[],
-    handed: { handover: Handover | null; refused: boolean },
+    handed: { handover: Handover | null; refused: boolean; mergeMissing: boolean },
   ): void {
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (!task) return;
@@ -529,6 +549,13 @@ export class TaskMoves {
     if (evaluation.unmet.length > 0 || evaluation.approvals.length > 0) {
       this.settleWaiting(current, actor, {
         gateBlocked: { to: target.id, unmet: evaluation.unmet, approvals: evaluation.approvals },
+      });
+      return;
+    }
+    if (handed.mergeMissing) {
+      this.settleWaiting(current, actor, { gateBlocked: { to: target.id, reason: 'task_not_merged' } });
+      effects.push(async () => {
+        await this.merges?.reconcile(current.projectKey, current.key);
       });
       return;
     }
@@ -634,6 +661,7 @@ export class TaskMoves {
     board: BoardPlace = { reranked: [] },
   ): Task {
     const at = isoNow(this.store.ctx);
+    this.cancelMerge(task.projectKey, task.key, effects);
     // The commit handed over with the stage the task leaves is no longer its pin.
     this.clearHandOn(task, target.id, actorHandle(actor));
     this.store.ctx.repos.reviewPins.clear(task.key);

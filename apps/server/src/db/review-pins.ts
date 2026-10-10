@@ -1,4 +1,5 @@
 import type { Db } from './database';
+import { createTaskHandoverRepository } from './task-merges';
 
 /** The commit handed over when a task entered a review or test stage (PM-183). */
 export interface ReviewPinRecord {
@@ -55,6 +56,7 @@ export function createReviewPinRepository(db: Db) {
     },
     save(pin: ReviewPinRecord): void {
       put.run(pin);
+      createTaskHandoverRepository(db).save({ ...pin, at: pin.pinnedAt });
     },
     clear(taskKey: string): void {
       remove.run(taskKey);

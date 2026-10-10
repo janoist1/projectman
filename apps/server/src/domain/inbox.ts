@@ -135,6 +135,18 @@ export class InboxService {
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
+  private mergeStart?: (item: InboxItem, by: Resolver) => Promise<void>;
+
+  useMergeStart(start: (item: InboxItem, by: Resolver) => Promise<void>): void {
+    this.mergeStart = start;
+  }
+
+  resolveMergeRequest(id: string, by: string): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'merge', by, at, note: null }, at);
+    if (item) this.publish(item);
+  }
+
   private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
 
   useHandOnMove(move: (item: InboxItem, by: Resolver) => Promise<void>): void {
@@ -280,6 +292,13 @@ export class InboxService {
     const note = req.note?.trim() ? req.note.trim() : null;
     if (item.kind === 'question' && req.optionId === ANSWER_OPTION.id && !note) {
       throw invalid('answer_required', 'a free-text answer needs a note');
+    }
+    if (item.kind === 'merge_request') {
+      if (!this.mergeStart) throw conflict('inbox_item_closed', 'the merge request is no longer available');
+      await this.mergeStart(item, by);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
     }
     if (item.kind === 'hand_on') {
       if (!handOnRequestOf(item) || !this.handOnMove)

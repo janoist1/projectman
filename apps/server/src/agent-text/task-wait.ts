@@ -42,6 +42,8 @@ export function describeTaskWait(wait: TaskWait): string {
       return `held at the fix round limit; a decision is needed${by}.`;
     case 'held':
       return `held by the label${wait.labels.length > 1 ? 's' : ''} ${labelsOf(wait)}; whoever set it takes it off.`;
+    case 'merge':
+      return `waits for ${handles(wait) || 'the merger'} to merge the approved commit${wait.toStageId ? ` before ${wait.toStageId}` : ''}`;
     case 'hand_on':
       return `the work is done; ${handles(wait) || 'the card mover'} moves it on${wait.toStageId ? ` to ${wait.toStageId}` : ''}.`;
     case 'approval':
@@ -86,6 +88,8 @@ export function taskWaitShort(wait: TaskWait): string {
       return `waits for ${handles(wait) || 'an open request'}`;
     case 'fix_limit':
       return `waits for a decision at the fix round limit${wait.next.length > 0 ? ` (${handles(wait)})` : ''}`;
+    case 'merge':
+      return `waits for ${handles(wait) || 'the merger'} to merge the approved commit${wait.toStageId ? ` before ${wait.toStageId}` : ''}`;
     case 'hand_on':
       return `done, to be moved on by ${handles(wait) || 'the card mover'}`;
     case 'approval':

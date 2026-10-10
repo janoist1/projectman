@@ -654,7 +654,7 @@ export const BoardGroupItem = z.discriminatedUnion('outcome', [
     taskKey: TaskKey,
     outcome: z.literal('blocked'),
     // `no_approver`: an approval the move needs cannot be given by anyone; `approvals` names it, no approvers.
-    code: z.enum(['gate_blocked', 'handover_uncommitted', 'no_approver']),
+    code: z.enum(['gate_blocked', 'handover_uncommitted', 'no_approver', 'task_not_merged']),
     message: z.string(),
     unmet: z.array(
       z.object({ stageId: StageId, condition: GateCondition, setters: z.array(z.string()).optional() }),

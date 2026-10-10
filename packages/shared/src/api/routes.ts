@@ -51,6 +51,7 @@ export const routes = {
   board: (key: string) => `/api/projects/${key}/board`,
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
+  taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>

@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { applyConfigPatch, PatchConfigRequest, unknownPatchRepo } from './edit';
-import { cardMerger, defaultMerger, mergeRepoOf, mergerOf, mergeTargetOf, requiresMerge } from './merger';
+import {
+  cardMerger,
+  defaultMerger,
+  mergeRepoOf,
+  mergerOf,
+  mergeTargetOf,
+  requiresMerge,
+  unresolvedMerger,
+} from './merger';
 import { ProjectConfig } from './schema';
 import type { Merger } from './schema';
 
@@ -55,6 +63,7 @@ function config(
         ai('cr', 'code_review'),
         ai('cr-2', 'code_review'),
         ai('pm', 'project_manager'),
+        ai('operator', 'ai_operator'),
       ],
     },
     pipeline: {
@@ -105,6 +114,24 @@ describe('defaultMerger and mergerOf', () => {
 
 describe('cardMerger', () => {
   const task = { assignee: 'dev' };
+
+  it('never selects the Operator as an explicit merger or an assigned developer', () => {
+    const explicit = config({ merger: { kind: 'member', handle: 'operator' } });
+    expect(cardMerger(explicit, task, null)).toBeNull();
+    expect(unresolvedMerger(explicit)).toBe('operator');
+    expect(cardMerger(config({ merger: { kind: 'developer' } }), { assignee: 'operator' }, null)).toBeNull();
+  });
+
+  it('skips an Operator review owner even when they were the last reviewer', () => {
+    const c = config({
+      merger: { kind: 'code_reviewer' },
+      stages: [queue, work, { ...codeReview, owners: ['operator', 'cr'] }, release, done],
+    });
+    expect(cardMerger(c, task, 'operator')).toBe('cr');
+    expect(cardMerger(c, task, null)).toBe('cr');
+    c.pipeline.stages.find((stage) => stage.id === 'code_review')!.owners = ['operator'];
+    expect(cardMerger(c, task, 'operator')).toBeNull();
+  });
 
   it('code_reviewer: the reviewer when they own the stage, else its first owner who is not on leave', () => {
     const c = config({ merger: { kind: 'code_reviewer' } });

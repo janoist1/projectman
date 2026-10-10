@@ -41,7 +41,11 @@ describe('merger setting (PM-470)', () => {
   });
 
   it('refuses a merger that cannot be resolved', async () => {
-    h = await createDomainHarness();
+    h = await createDomainHarness({
+      adjust: (c) => {
+        c.project.repos[0]!.requireMerge = true;
+      },
+    });
     await expect(patch({ merger: { kind: 'member', handle: 'ghost' } })).rejects.toMatchObject({
       code: 'config_invalid',
     });

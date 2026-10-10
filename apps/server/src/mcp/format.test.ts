@@ -39,6 +39,23 @@ describe('formatTaskDetail', () => {
       'The move to review goes to Owner (owner), who moves cards on in this project; the card waits for them. Your work on this stage is done.',
     );
     expect(text).not.toContain('moved to review');
+    task.merge = {
+      id: 'merge_1',
+      repo: 'web',
+      base: 'main',
+      commit: 'approved',
+      branch: 'task/AR-21',
+      toStageId: 'review',
+      merger: 'owner',
+      requestedAt: '2026-10-10T20:00:00Z',
+      state: 'queued',
+      step: 'queued',
+      startedAt: '2026-10-10T20:01:00Z',
+      landed: 'nowhere',
+    };
+    const merging = formatTaskUpdate(task, { stageId: 'review', note: false, moverName: 'Owner' });
+    expect(merging).not.toContain('merge started');
+    expect(merging).toContain('the card waits for them');
   });
   it('says why the card stands still in a Waiting line, and none when the detail has no wait (PM-460)', () => {
     const waitingLine = (detail: Parameters<typeof formatTaskDetail>[0]) =>

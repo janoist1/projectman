@@ -886,6 +886,38 @@ without a server result also receive instructions to run only targeted tests.
 No machine boundary changes: the check runs where the integrator runs. Dependencies are
 installed only when missing from the working directory.
 
+## Merge (PM-452)
+
+The system requests a merge; only the member selected by `cardMerger` starts it with `merge_task`,
+`POST /tasks/:taskKey/merge`, or the human inbox request. `mergeReadiness` and `mergeRepoOf` in shared
+configuration rules determine readiness and the forward moves that need the approved commit on the
+default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
+pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
+
+`domain/merges.ts` persists requested, queued, running, failed and blocked states in `task_merges`,
+with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
+the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
+runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
+Conflicts and failed checks notify the merger and keep the card in place. Operational failures notify
+the AI merger or create an alert for the human merger. Calling the same tool retries under the same id.
+Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check the ordinary move rules.
+The merger never moves the card itself. Every forward move path checks the default branch before the
+transaction, including approvals and hand-on requests; manual merges discovered there are recorded
+with `via: found` when a persistent handover exists.
+
+Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
+retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
+releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
+Release errors only log a warning. The `_merge` directory is separate from card worktrees and is never
+swept as a closed card; a failed release of a terminal row can leave a checkout for engine-side cleanup.
+
+**Does this work on a remote engine?** Yes: the server owns the durable queue, gates and inbox;
+all git operations, check checkouts, dependency copies and sandbox checks run on the card's engine
+through the existing `merge.*` and `full_test.*` contracts. PR metadata uses the existing application
+GitHub service (the default engine's `github.*` calls in cloud mode); it is independent of local git.
+Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
+as a code-free card. See the machine inventory entry below.
+
 ## Heavy-run queue (PM-332)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -979,7 +1011,7 @@ workers follow the machine's size.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
-  - Merge on Done: `merge.*` (PM-451, see "Merge on Done").
+  - Member initiated merges: `merge.*` (PM-451, see "Merge").
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1578,10 +1610,11 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
-- **Merge on Done (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
+- **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
-  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`) (PM-451, part 1/3 of PM-448; the server
-  does not call it yet).
+  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
+  (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
+  the server keeps the queue and member authorization, and never receives git credentials.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made

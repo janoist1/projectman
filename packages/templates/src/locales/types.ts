@@ -87,6 +87,14 @@ export interface TemplateLocale {
     /** What the waiting line says when the owner has nothing to do. */
     nothing: string;
   };
+  /** The bold labels of the Operator's report to the owner (PM-447), in the order of its lines. */
+  operatorReport: {
+    done: string;
+    approval: string;
+    waiting: string;
+    /** What the waiting line says when the owner has nothing to do. */
+    nothing: string;
+  };
   labels: Record<StandardLabelId, { name: string; meaning: string }>;
   /** Name of an approval label generated for a stage, e.g. "Merge: approved". */
   stageApproval: (stageName: string) => string;

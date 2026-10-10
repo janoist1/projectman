@@ -35,7 +35,8 @@ export function defaultMemberName(
 
 /** Handle stems per built-in role; developers get numbered handles (fe-1, be-1, dev-1). */
 const ROLE_HANDLES: Record<Exclude<BuiltInRoleId, 'developer'>, string> = {
-  operator: 'operator',
+  operator: 'owner',
+  ai_operator: 'operator',
   product_owner: 'po',
   project_manager: 'pm',
   business_analyst: 'analyst',

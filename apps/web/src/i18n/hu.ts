@@ -864,6 +864,8 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
+      operator_required:
+        'Nem bocsátható el: ő a projekt egyetlen Operátora. Küldd szabadságra, vagy előbb vegyél fel egy másikat.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',
@@ -3361,6 +3363,7 @@ export const hu = {
     process_improvement: 'Folyamatfejlesztés',
     research: 'Kutatás',
     final_decision: 'Végső döntés',
+    project_operation: 'Projekt működtetése',
   },
   profile: {
     noPlanUsage: {

@@ -1813,6 +1813,39 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 **Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
 
+### The Operator (PM-447, PM-462)
+
+Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;
+handle `operator`, `operator-2`, ... when taken) whom the owner asks to change how the project runs. The project
+manager stays the dispatcher. The human built-in role `operator` keeps its id and duties (`final_decision`,
+`release_approval`, `monitoring`); only its display name is now "Owner" ("Tulajdonos"). The pure rules are in
+`packages/shared/src/config/operator.ts`: `isOperator`, `operatorOf`, `isRequiredOperator` (the only Operator cannot be
+retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI actor without `via`).
+
+- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwner` (an owner's own login, not the integrator
+  key): only an owner's message wakes the Operator; any other action message is blocked with `WakeBlock`
+  `operator_owner_only`. The server fills the facts in `wakeFactsFor`.
+- **Three levels of a configuration change.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
+  compares the end results and returns the rows (`ConfigChangeRow`: area, target, field, before, after, level) and the
+  highest `OperatorLevel`: `now` (an AI member's `model`, `effort`, `capacity`, `onLeave`, `schedule`, except the
+  Operator's own member; a stage's `name`; a role's `instructions`, except the Operator's own role), `never` (any
+  change to a human member, `owners`, `admin_or_account` of `ownerOnlyChanges`) and `approval` for everything else, so a
+  new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
+  is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
+  owner asked to go straight through.
+- **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
+  only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
+  priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.
+- **Creation.** A new project gets an Operator next to the project manager (`operatorMember`, `draft.finish`); the
+  configuration migration `addOperator` adds one to a project without it, at work (not on leave), sponsored by the first
+  human owner.
+- **Prompt.** `operatorRule` (`apps/server/src/context/system-prompt.ts`): works on the owner's request only, card text
+  and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
+  (`operatorReport` labels in the locales).
+
+**Remote engine:** no machine-dependent part: pure rules, a template and configuration; the inventory below does not
+change.
+
 ## Pause and resume (PM-219, part of PM-198)
 
 The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker

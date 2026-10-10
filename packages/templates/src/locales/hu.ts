@@ -138,14 +138,28 @@ export const hu: TemplateLocale = {
       name: 'Végső döntés',
       description: 'Dönt az eszkalált kérdésekben. Csak ember töltheti be.',
     },
+    project_operation: {
+      name: 'Projekt működtetése',
+      description:
+        'A tulajdonos kérésére átállítja, hogyan dolgozik a projekt. Csak AI töltheti be, és csak kérésre dolgozik.',
+    },
   },
   roles: {
     operator: {
-      name: 'Operátor',
+      name: 'Tulajdonos',
       summary: 'Futtatja és felügyeli a rendszert, visszaterel minden félrement munkát, és övé a végső szó.',
       notTheirJob: 'Nem végzi a napi feladatokat: irányítja a csapatot, nem helyettesíti.',
       whenToAsk:
         'Ha valami félrement, elakadt egy döntés, vagy olyan jóváhagyás kell, amit csak ő adhat meg.',
+    },
+    ai_operator: {
+      name: 'Operátor',
+      summary:
+        'A tulajdonos kérésére átállítja, hogyan dolgozik a projekt: a tagok modelljét, a szabadságot, a szakaszok nevét, a szerepek utasításait. Amihez jóváhagyás kell, azt előkészíti, és a tulajdonosra vár.',
+      notTheirJob:
+        'Magától nem dolgozik, nem fejleszt, és nem ad jóváhagyást a tulajdonos helyett. Emberi tagot nem változtat.',
+      whenToAsk:
+        'Ha a projekt működésén változtatnál (ki melyik modellel dolgozik, ki van szabadságon), vagy tudni szeretnéd, miért áll egy kártya.',
     },
     product_owner: {
       name: 'Terméktulajdonos',
@@ -258,7 +272,7 @@ export const hu: TemplateLocale = {
     watchdog: {
       name: 'Felügyelő',
       summary:
-        'Az Operátor segítője: jelez, ha egy tag elakadt, körbe-körbe jár, túl sokat fogyaszt vagy túllépi a hatáskörét.',
+        'A tulajdonos segítője: jelez, ha egy tag elakadt, körbe-körbe jár, túl sokat fogyaszt vagy túllépi a hatáskörét.',
       notTheirJob: 'Nem avatkozik be, csak jelez.',
       whenToAsk: 'Ha gyanús, hogy egy tag elakadt vagy túl sokat fogyaszt.',
     },
@@ -292,6 +306,12 @@ export const hu: TemplateLocale = {
     done: 'Megtettem',
     newCard: 'Új kártya',
     forwarded: 'Továbbadtam',
+    waiting: 'Rád vár',
+    nothing: 'Semmi.',
+  },
+  operatorReport: {
+    done: 'Megtettem',
+    approval: 'Jóváhagyásra vár',
     waiting: 'Rád vár',
     nothing: 'Semmi.',
   },

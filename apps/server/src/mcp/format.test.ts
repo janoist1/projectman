@@ -573,6 +573,19 @@ describe('formatSentMessage', () => {
     );
     expect(out).not.toContain('it starts nothing');
   });
+  it('says the Operator starts only on the owner’s request (PM-447)', () => {
+    const out = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['operator'],
+      deliveredTo: ['operator'],
+      taskKey: null,
+      recipients: [{ handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' }],
+    });
+    expect(out).toContain(
+      '- operator: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.',
+    );
+    expect(out).not.toContain('it starts nothing');
+  });
   it('reports recipients the message did not reach', () => {
     expect(
       formatSentMessage({

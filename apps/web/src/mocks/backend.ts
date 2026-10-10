@@ -85,6 +85,7 @@ import {
   isBuiltInRole,
   isHandleOnLeave,
   isOnLeave,
+  isRequiredOperator,
   isRequiredProjectManager,
   isOpenTask,
   openPrerequisites,
@@ -4158,6 +4159,12 @@ export class MockBackend {
         409,
         'project_manager_required',
         'the only AI project manager cannot be retired; hire another one first',
+      );
+    if (isRequiredOperator(this.config, handle))
+      return error(
+        409,
+        'operator_required',
+        'the only Operator cannot be retired; send it on leave instead, or hire another one first',
       );
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
     const next = clone(this.config);

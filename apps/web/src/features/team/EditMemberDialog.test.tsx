@@ -196,7 +196,7 @@ describe('EditMemberDialog', () => {
       />,
     );
     expect(screen.queryByLabelText(t('providerSettings.provider'))).toBeNull();
-    expect((screen.getByRole('checkbox', { name: 'Operátor' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: 'Tulajdonos' }) as HTMLInputElement).checked).toBe(true);
     expect(screen.queryByRole('checkbox', { name: templateLocale.roles.watchdog.name })).toBeTruthy();
     fireEvent.click(screen.getByRole('checkbox', { name: 'QA' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'Terméktulajdonos' }));

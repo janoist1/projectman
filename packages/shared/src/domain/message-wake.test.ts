@@ -4,7 +4,13 @@ import type { StaleFacts, WakeFacts } from './message-wake';
 import type { TeamMessage } from './message';
 
 /** A system or unknown sender: the role never matters. */
-const wake: WakeFacts = { fromHuman: false, fromAi: false, recipientHasRole: true };
+const wake: WakeFacts = {
+  fromHuman: false,
+  fromAi: false,
+  recipientHasRole: true,
+  recipientIsOperator: false,
+  fromOwner: false,
+};
 
 const facts: StaleFacts = {
   fromHuman: false,
@@ -74,7 +80,7 @@ describe('message validity and wake-up', () => {
   });
 
   describe('card role (PM-426)', () => {
-    const aiNoRole: WakeFacts = { fromHuman: false, fromAi: true, recipientHasRole: false };
+    const aiNoRole: WakeFacts = { ...wake, fromAi: true, recipientHasRole: false };
 
     it('an AI member starts only recipients with a role on the card', () => {
       expect(messageWakes(action, aiNoRole, null)).toBe(false);
@@ -92,6 +98,42 @@ describe('message validity and wake-up', () => {
       expect(messageWakeBlock({ kind: 'info' }, aiNoRole, null)).toBeNull();
       expect(messageWakeBlock(action, aiNoRole, 'stage_moved')).toBeNull();
       expect(messageWakes(action, aiNoRole, 'stage_moved')).toBe(false);
+    });
+  });
+
+  describe('the Operator works only on the owner’s request (PM-447)', () => {
+    const toOperator: WakeFacts = { ...wake, recipientIsOperator: true };
+    const ownerSender: WakeFacts = { ...toOperator, fromHuman: true, fromOwner: true };
+
+    it('the owner’s own message wakes it, an action or an info alike', () => {
+      for (const message of [{}, { kind: 'action' as const }, { kind: 'info' as const }]) {
+        expect(messageWakes(message, ownerSender, null)).toBe(true);
+        expect(messageWakeBlock(message, ownerSender, null)).toBeNull();
+      }
+    });
+
+    it.each([
+      ['another person', { ...toOperator, fromHuman: true }],
+      ['the owner through the integrator key', { ...toOperator, fromHuman: true, fromOwner: false }],
+      ['an AI member with a role on the card', { ...toOperator, fromAi: true }],
+      ['an AI member without a role on the card', { ...toOperator, fromAi: true, recipientHasRole: false }],
+      ['the system', toOperator],
+    ])('a message from %s does not wake it and says why', (_who, facts) => {
+      expect(messageWakes({}, facts, null)).toBe(false);
+      expect(messageWakes({ kind: 'action' }, facts, null)).toBe(false);
+      expect(messageWakes({ kind: 'info' }, facts, null)).toBe(false);
+      expect(messageWakeBlock({}, facts, null)).toBe('operator_owner_only');
+    });
+
+    it('an info or a stale message is not blocked, it just starts nothing', () => {
+      const other: WakeFacts = { ...toOperator, fromAi: true };
+      expect(messageWakeBlock({ kind: 'info' }, other, null)).toBeNull();
+      expect(messageWakeBlock({}, other, 'stage_moved')).toBeNull();
+    });
+
+    it('does not change who wakes the other members', () => {
+      expect(messageWakes({}, { ...wake, fromHuman: true, fromOwner: false }, null)).toBe(true);
+      expect(messageWakes({}, { ...wake, fromOwner: true }, null)).toBe(true);
     });
   });
 });

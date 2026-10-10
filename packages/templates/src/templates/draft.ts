@@ -1,6 +1,7 @@
 import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
+  isOperator,
   isProjectManager,
   type AiBuiltInRoleId,
   type BoardColumn,
@@ -23,6 +24,7 @@ import {
 } from '../locales';
 import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members';
 import { standardLabelsFor } from '../labels';
+import { operatorMember } from '../operator';
 import { projectManagerMember } from '../project-manager';
 import { newAiMember } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate } from '../types';
@@ -160,6 +162,16 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
       if (!members.some(isProjectManager)) {
         members.push(
           projectManagerMember({ language: input.language, sponsor: input.owner.handle, taken: [...taken] }),
+        );
+      }
+      // So does it have an Operator (PM-447), next to the project manager.
+      if (!members.some(isOperator)) {
+        members.push(
+          operatorMember({
+            language: input.language,
+            sponsor: input.owner.handle,
+            taken: members.map((m) => m.handle),
+          }),
         );
       }
       return ProjectConfig.parse({

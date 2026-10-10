@@ -61,6 +61,15 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           sponsor: input.owner.handle,
           onLeave: true,
         },
+        // Every project has an Operator (PM-447); on leave for the same reason.
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Operator',
+          role: 'ai_operator',
+          sponsor: input.owner.handle,
+          onLeave: true,
+        },
       ],
       limits: { maxConcurrentAi: 3, pauseAbovePlanUsagePercent: 80 },
     },

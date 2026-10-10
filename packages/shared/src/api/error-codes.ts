@@ -58,6 +58,7 @@ export const ERROR_CODES = [
   'duplicate_role',
   'role_in_use',
   'project_manager_required',
+  'operator_required',
   'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',

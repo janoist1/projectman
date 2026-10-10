@@ -5,6 +5,7 @@ import { aiActor } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
+import { settle } from './helpers/fakes';
 
 /** A collecting card dragged to another column with the subtasks that stand in its column (PM-121). */
 describe('board group move', () => {
@@ -156,17 +157,19 @@ describe('board group move', () => {
     await create('Ready', 'AR-1');
     await create('Not ready', 'AR-1');
     for (const key of ['AR-1', 'AR-2', 'AR-3']) await place(key, 'code_review');
-    // Only AR-2 has both labels the merge gate asks for.
+    // Only AR-2 has both labels the merge gate asks for: nothing is missing, so the system moves it by
+    // itself (PM-445) as soon as the last label is there.
     await tasks().changeLabels('AR', 'AR-2', { add: ['code-review-ok'] }, aiActor('cr'));
     await tasks().changeLabels('AR', 'AR-2', { add: ['merge-ok'] }, OWNER_ACTOR);
+    await settle();
+    expect(stageOf('AR-2')).toBe('merge');
     const result = await dropGroup('AR-1', 'merging', { at: 'top' });
-    expect(outcomes(result.group)).toEqual({ 'AR-1': 'blocked', 'AR-2': 'moved', 'AR-3': 'blocked' });
+    expect(outcomes(result.group)).toEqual({ 'AR-1': 'blocked', 'AR-3': 'blocked' });
     expect(result.outcome).toBe('unchanged');
     const blocked = result.group!.find((item) => item.taskKey === 'AR-3');
     expect(blocked).toMatchObject({ outcome: 'blocked', code: 'gate_blocked' });
     expect(JSON.stringify(blocked)).toContain('code-review-ok');
     expect(stageOf('AR-1')).toBe('code_review');
-    expect(stageOf('AR-2')).toBe('merge');
     expect(stageOf('AR-3')).toBe('code_review');
     expect(column('merging')).toEqual(['AR-2']);
     expect(stageChanges('AR-1')).toHaveLength(1);
@@ -243,6 +246,9 @@ describe('board group move', () => {
       });
       // The only holder of the label is the assignee of AR-2: nobody may approve that card.
       tasks().assign('AR', 'AR-2', 'owner', OWNER_ACTOR);
+      // The system asked for the approval of AR-2 when its label was set (PM-445), before the rule changed.
+      await settle();
+      for (const item of items('AR-2')) h.domain.inbox.cancel(item.id);
       const result = await dropGroup('AR-1', 'merging', { at: 'top' });
       expect(outcomes(result.group)).toEqual({
         'AR-1': 'approval_pending',

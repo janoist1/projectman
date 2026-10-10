@@ -513,9 +513,10 @@ describe('token economy (PM-181)', () => {
   // PM-251 adds 158 characters for the attributed integrator prefix.
   // PM-426 adds 463 characters: who a message starts, and whose job the code review is.
   // PM-432 adds 39 characters: every team has a project manager, one more line in the team list.
+  // PM-445 adds 141 characters: a human's decision is asked with ask_human, never with send_message.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 16101, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 14201, brief: 1903 },
+    { name: 'developer', handle: 'fe-1', system: 16242, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 14342, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -542,7 +543,8 @@ describe('token economy (PM-181)', () => {
     // PM-251 explains the integrator prefix (+158 characters).
     // PM-426 adds the same 463 characters (who a message starts, whose job the code review is).
     // PM-432 adds the project manager's 39-character line to the team list.
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(10850);
+    // PM-445 adds 141 characters: a human's decision is asked with ask_human, never with send_message.
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(10991);
   });
 });
 

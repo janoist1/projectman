@@ -400,7 +400,12 @@ export class TaskMoves {
     placement?: BoardPlacement,
   ): { task: Task; items: InboxItem[] } {
     const open = this.inbox.openGateRequests(task.projectKey, task.key, task.stageId, target.id);
-    if (open.length > 0) return { task, items: open };
+    // The system may have asked already (PM-445), without a place; a person's drop on the board that
+    // names one asks again so that the place is kept with the request.
+    const keepsPlace = (item: InboxItem) =>
+      !placement || JSON.stringify(gateRequestOf(item)?.placement) === JSON.stringify(placement);
+    if (open.length > 0 && open.every(keepsPlace)) return { task, items: open };
+    for (const item of open) this.inbox.cancel(item.id);
 
     for (const req of approvals) {
       if (req.approvers.length > 0) continue;

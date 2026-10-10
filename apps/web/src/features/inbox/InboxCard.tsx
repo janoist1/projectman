@@ -88,7 +88,7 @@ export function InboxCard({
   const answerId = useId();
   const source = members.get(item.source);
   const code = payloadCode(item);
-  const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline) : null;
+  const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
   const heading = gateMove ?? inboxHeading(item);
   // What follows the short heading of a long question.
   const questionBody = item.kind === 'question' ? splitQuestion(item.title).body : null;

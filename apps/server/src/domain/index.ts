@@ -13,7 +13,7 @@ import {
 } from '@projectman/shared';
 export { EngineRegistry, machineKeyHash } from './engine-registry';
 export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
-import type { EngineId, ExecutionProfile, Me } from '@projectman/shared';
+import type { EngineId, ExecutionProfile, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
 import type { EngineCounters } from './engine-registry';
@@ -90,7 +90,7 @@ import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
-import { PrerequisiteClosures, TaskService } from './tasks';
+import { AutoAdvance, PrerequisiteClosures, TaskService } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
@@ -630,6 +630,7 @@ export function createDomain(opts: DomainOptions) {
   messaging.useFixLimit(fixLimit);
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
+  const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
   sessions.useQuotaRecovery(planUsage, (session, stageId) =>
     messageStarts.resumeAfterQuota(session, stageId),
@@ -943,6 +944,23 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_assigned', (change) => fixLimit.assigned(change));
   events.on('task_cancelled', (task) => fixLimit.closed(task));
   events.on('inbox_resolved', (item) => (item.kind === 'decision' ? fixLimit.decided(item) : undefined));
+  // A card that lacks only a human's approval for its next stage asks for it, or moves when nothing is
+  // missing (PM-445): looked at when its labels change or a session of it ends.
+  const advanceCard = (task: Task | null): void => {
+    if (!task) return;
+    background.run(
+      () => autoAdvance.check(task),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'automatic stage advance failed'),
+    );
+  };
+  events.on('task_labels_changed', ({ task }) => advanceCard(task));
+  events.on('task_stage_changed', (change) => advanceCard(change.task));
+  const advanceSessionCard = (session: Session) =>
+    advanceCard(
+      session.workItem.type === 'task' ? tasks.find(session.projectKey, session.workItem.taskKey) : null,
+    );
+  events.on('session_idle', advanceSessionCard);
+  events.on('session_ended', advanceSessionCard);
   // A card entering review gets its pinned commit tested, and one that left or got a new pin drops its
   // old run (PM-217); the pin is saved with the move, so it is there when this runs.
   const syncFullTest = (task: { projectKey: string; key: string }) =>
@@ -1167,6 +1185,7 @@ export function createDomain(opts: DomainOptions) {
     loopWatch,
     seniorWaits,
     fixLimit,
+    autoAdvance,
     disk,
     worktreeSweep,
     teamTools,
@@ -1212,6 +1231,11 @@ export function createDomain(opts: DomainOptions) {
       );
       // ... and the handoffs of cards that were open go on (PM-342); a note that is late falls back to the summary.
       handoffs.resumeAfterStartup();
+      // ... and the cards that lack only a human's approval, and got stuck before, ask for it (PM-445).
+      background.run(
+        () => autoAdvance.sweep(),
+        (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
+      );
       handoffTimer = setInterval(
         () =>
           background.run(

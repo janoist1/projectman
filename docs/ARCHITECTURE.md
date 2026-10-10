@@ -1591,6 +1591,21 @@ running assignee are not stored team messages (the timeline would show their Eng
 into the member's running session of the card, or the first input of a new one, like the loop watch's; only
 when admission cannot start the session now is the notice stored as a message from `system`.
 
+### Automatic stage advance (PM-445)
+
+A card in a `step` or `release` stage whose next gate lacks nothing but humans' approvals must not sit unseen.
+The rule is pure, `stageAdvance` in `packages/shared/src/config/gates.ts` (also used by the web's status line):
+`move` when no condition is missing, `approve` when only human-only labels are, `null` otherwise (never from a
+`work` or `queue` stage, never for a gate with unmet conditions). `AutoAdvance`
+(`apps/server/src/domain/tasks/auto-advance.ts`) acts on it as the system: it calls `moveToStage`, which moves the
+card or opens the same "Döntés" inbox item a person's move attempt opens (source `system`; the item names the
+label). It looks at a card when its labels or stage change, when a session of it goes idle or ends, and at every
+open card once after the start. It does not move a card a session works on (an idle one does not count), does not
+act on closed, blocked or theme cards, and does not ask again after the approvers rejected the request in the same
+stay in the stage until the card's labels change. A person's drop on the board that
+names a place replaces the system's open request, so that the place is kept with the request. It touches no
+machine-dependent part: it is server state only.
+
 ### Assignee handoff (PM-342)
 
 `HandoffService` (`apps/server/src/domain/handoffs.ts`, PM-423) hands a card's work from the old assignee to the new

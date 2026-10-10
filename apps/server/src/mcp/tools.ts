@@ -334,7 +334,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
       'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
       'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
-      'message. Specify action for a request, review or retest request, or question; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first.',
+      "message. Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
     input: {
       to: z
         .array(MemberHandle)
@@ -344,7 +344,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       kind: z
         .enum(['action', 'info'])
         .describe(
-          'action: the recipient has something to do; info: status, acknowledgement or result; starts nothing.',
+          'action: an AI member has something to do (refused when a human is a recipient: use ask_human); info: status, acknowledgement or result; starts nothing.',
         ),
       text: z
         .string()

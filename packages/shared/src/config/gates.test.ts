@@ -9,6 +9,7 @@ import {
   gateAcceptsCondition,
   gateAcceptsWhen,
   pullRequestsMerged,
+  stageAdvance,
   stageApprovers,
   stageIndex,
 } from './gates';
@@ -414,5 +415,55 @@ describe('evaluateStart (PM-248)', () => {
     const c = gated();
     expect(evaluateStart(at('dev', ['wip']), c, 'dev')).toEqual({ unmet: [], approvals: [] });
     expect(evaluateStart(at('review', ['wip']), c, 'dev')).toEqual({ unmet: [], approvals: [] });
+  });
+});
+
+describe('stageAdvance (PM-445)', () => {
+  const at = (stageId: string, labels: string[]) => ({ ...task(labels), stageId });
+
+  it('moves a card of a step stage on when the gate of the next stage holds', () => {
+    expect(stageAdvance(at('review', ['review-ok']), config())).toMatchObject({
+      kind: 'move',
+      to: { id: 'merge' },
+    });
+  });
+
+  it('asks for the approval when only a human-only label is missing', () => {
+    expect(stageAdvance(at('merge', ['review-ok', 'merged']), config())).toMatchObject({
+      kind: 'approve',
+      to: { id: 'release' },
+      approvals: [{ stageId: 'release', label: 'release-ok', approvers: ['owner', 'ann'] }],
+    });
+  });
+
+  it('keeps the approval request when nobody may give it, for the caller to say so', () => {
+    const authored = { ...at('merge', ['review-ok', 'merged']), assignee: 'owner' };
+    const advance = stageAdvance(authored, config(true));
+    expect(advance).toMatchObject({ kind: 'approve', approvals: [{ approvers: ['ann'] }] });
+  });
+
+  it('does nothing while another condition is unmet or a blocking label holds the card', () => {
+    expect(stageAdvance(at('review', []), config())).toBeNull();
+    expect(stageAdvance(at('merge', ['review-ok', 'release-ok']), config())).toBeNull();
+    expect(stageAdvance(at('review', ['review-ok', 'waiting']), config())).toBeNull();
+  });
+
+  it('never moves a work stage, a queue, or the last stage on', () => {
+    expect(stageAdvance(at('dev', ['review-ok']), config())).toBeNull();
+    expect(stageAdvance(at('backlog', []), config())).toBeNull();
+    expect(stageAdvance(at('done', []), config())).toBeNull();
+  });
+
+  it('never moves a card into a work stage by itself', () => {
+    const c = config();
+    const merge = c.pipeline.stages.find((s) => s.id === 'merge')!;
+    merge.kind = 'work';
+    expect(stageAdvance(at('review', ['review-ok']), c)).toBeNull();
+  });
+
+  it('does nothing when the next stage has no gate to say the stage is done', () => {
+    const c = config();
+    c.pipeline.stages.find((s) => s.id === 'merge')!.gate = undefined;
+    expect(stageAdvance(at('review', []), c)).toBeNull();
   });
 });

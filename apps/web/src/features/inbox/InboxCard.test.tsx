@@ -154,6 +154,27 @@ describe('InboxCard', () => {
     expect(onResolve).toHaveBeenLastCalledWith(entry, { optionId: 'reject' });
   });
 
+  it('names the approval a gate decision asks for when the request carries its label (PM-445)', () => {
+    const entry = item('inb_dec_release');
+    const labelled: InboxItem = {
+      ...entry,
+      payload: { gate: { ...(entry.payload.gate as object), label: 'release-approved' } },
+    };
+    renderUi(
+      <InboxCard
+        item={labelled}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={[{ id: 'release-approved', name: 'Élesítés jóváhagyva', holders: [] } as never]}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole('heading', { name: 'Jóváhagyás: „Élesítés jóváhagyva” · Merge → Élesítés' }),
+    ).toBeTruthy();
+  });
+
   it('shows items meant for someone else without actions', () => {
     const { card } = renderCard(item('inb_q_variant'));
     expect(within(card).getByText(t('inbox.assignedTo', { names: 'Kata' }))).toBeTruthy();

@@ -16,6 +16,7 @@ import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from 
 import type { BranchMerger, EngineDirectory, GithubService } from '../contracts';
 import { mergedState } from '../db';
 import type { MergeRecord } from '../db';
+import type { BackgroundTasks } from './background';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, DomainError, forbidden } from './errors';
@@ -38,6 +39,7 @@ type Deps = {
   engines: EngineDirectory;
   github: GithubService;
   inbox: InboxService;
+  background: BackgroundTasks;
   afterMerge: (task: Task) => Promise<void>;
 };
 type Active = { row: MergeRecord; controller: AbortController; pushing: boolean; promise: Promise<void> };
@@ -291,16 +293,43 @@ export class Merges {
     // Known abandoned check worktrees are released before any new check is made.
     for (const state of ['queued', 'blocked'] as const) {
       for (const row of ctx.repos.taskMerges.list(state)) {
-        const task = this.deps.tasks.find(row.projectKey, row.taskKey);
-        if (!task) continue;
-        const engine = this.deps.engines.get(this.deps.sessions.cardEngineId(row.projectKey, task));
-        await this.release(row, engine?.merger);
+        try {
+          const task = this.deps.tasks.find(row.projectKey, row.taskKey);
+          if (!task) continue;
+          const engine = this.deps.engines.get(this.deps.sessions.cardEngineId(row.projectKey, task));
+          await this.release(row, engine?.merger);
+        } catch (err) {
+          ctx.logger.warn({ err, mergeId: row.id }, 'could not recover a merge check worktree');
+        }
       }
     }
-    for (const project of this.deps.projects.summaries())
-      for (const task of this.deps.tasks.list(project.key))
-        if (isOpenTask(task)) await this.reconcile(project.key, task.key);
     this.pump();
+    this.deps.background.run(
+      async () => {
+        for (const project of this.deps.projects.summaries()) {
+          try {
+            await this.deps.projects.config(project.key);
+            for (const task of this.deps.tasks.list(project.key)) {
+              if (!isOpenTask(task)) continue;
+              try {
+                await this.reconcile(project.key, task.key);
+              } catch (err) {
+                ctx.logger.warn(
+                  { err, projectKey: project.key, taskKey: task.key },
+                  'could not reconcile a merge request after startup',
+                );
+              }
+            }
+          } catch (err) {
+            ctx.logger.warn(
+              { err, projectKey: project.key },
+              'could not reconcile project merge requests after startup',
+            );
+          }
+        }
+      },
+      (err) => ctx.logger.warn({ err }, 'merge startup recovery failed'),
+    );
   }
 
   async stop(): Promise<void> {
@@ -366,23 +395,21 @@ export class Merges {
     return { projectKey: row.projectKey, repo: row.repo };
   }
   private async release(row: MergeRecord, merger?: BranchMerger): Promise<void> {
-    await merger
-      ?.releaseCheck(this.ref(row), { mergeId: row.id })
-      .catch((err: unknown) =>
-        this.deps.ctx.logger.warn(
-          {
-            err,
-            mergeId: row.id,
-            engineId: this.deps.tasks.find(row.projectKey, row.taskKey)
-              ? this.deps.sessions.cardEngineId(
-                  row.projectKey,
-                  this.deps.tasks.get(row.projectKey, row.taskKey),
-                )
-              : undefined,
-          },
-          'could not release a merge checkout',
-        ),
-      );
+    await merger?.releaseCheck(this.ref(row), { mergeId: row.id }).catch((err: unknown) =>
+      this.deps.ctx.logger.warn(
+        {
+          err,
+          mergeId: row.id,
+          engineId: this.deps.tasks.find(row.projectKey, row.taskKey)
+            ? this.deps.sessions.cardEngineId(
+                row.projectKey,
+                this.deps.tasks.get(row.projectKey, row.taskKey),
+              )
+            : undefined,
+        },
+        'could not release a merge checkout',
+      ),
+    );
   }
   private save(row: MergeRecord, patch: Partial<MergeRecord>): void {
     Object.assign(row, patch, { updatedAt: isoNow(this.deps.ctx) });

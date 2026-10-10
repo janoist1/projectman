@@ -485,9 +485,79 @@ describe('member initiated merge', () => {
       { baseVersion: loaded.version, merger: { kind: 'member', handle: 'owner' } },
       { actor: OWNER_ACTOR, author: OWNER },
     );
-    expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled');
-    expect(row()).toMatchObject({ state: 'requested', merger: 'owner' });
-    expect(h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })).toHaveLength(1);
+    await vi.waitFor(() => {
+      expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled');
+      expect(row()).toMatchObject({ state: 'requested', merger: 'owner' });
+      expect(h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })).toHaveLength(1);
+    });
+  });
+
+  it('does not hold configuration changes or roster reconciliation behind a merge read', async () => {
+    await setup();
+    const pending = deferred<void>();
+    const reconcile = vi.spyOn(h!.domain.merges, 'reconcile').mockReturnValueOnce(pending.promise);
+    const members = vi.spyOn(h!.domain.members, 'reconcile');
+    const sessions = vi.spyOn(h!.domain.sessions, 'handleConfigChange');
+    try {
+      const loaded = await h!.domain.projects.load('AR');
+      await h!.domain.projects.patch(
+        'AR',
+        { baseVersion: loaded.version, merger: { kind: 'member', handle: 'owner' } },
+        { actor: OWNER_ACTOR, author: OWNER },
+      );
+      expect(reconcile).toHaveBeenCalledWith('AR', 'AR-1');
+      expect(members).toHaveBeenCalled();
+      expect(sessions).toHaveBeenCalled();
+    } finally {
+      pending.resolve();
+    }
+  });
+
+  it('continues configuration reconciliation after one card fails', async () => {
+    await setup();
+    await card('AR-2', 'web', 'dev-2');
+    vi.spyOn(h!.domain.merges, 'reconcile').mockRejectedValueOnce(new Error('unreadable card'));
+    const loaded = await h!.domain.projects.load('AR');
+    await h!.domain.projects.patch(
+      'AR',
+      { baseVersion: loaded.version, merger: { kind: 'member', handle: 'owner' } },
+      { actor: OWNER_ACTOR, author: OWNER },
+    );
+    await vi.waitFor(() => expect(row('AR-2')).toMatchObject({ state: 'requested', merger: 'owner' }));
+    expect(
+      h!.log.warnings.some(
+        (entry) =>
+          Array.isArray(entry) &&
+          entry.includes('could not reconcile a merge request after configuration changed'),
+      ),
+    ).toBe(true);
+  });
+
+  it('starts without waiting for merge request reconciliation', async () => {
+    await setup();
+    const pending = deferred<void>();
+    const reconcile = vi.spyOn(h!.domain.merges, 'reconcile').mockReturnValueOnce(pending.promise);
+    try {
+      await h!.domain.merges.init();
+      await vi.waitFor(() => expect(reconcile).toHaveBeenCalledWith('AR', 'AR-1'));
+      expect(row()).toBeNull();
+    } finally {
+      pending.resolve();
+    }
+  });
+
+  it('continues startup reconciliation after one card fails', async () => {
+    await setup();
+    await card('AR-2', 'web', 'dev-2');
+    vi.spyOn(h!.domain.merges, 'reconcile').mockRejectedValueOnce(new Error('unreadable card'));
+    await h!.domain.merges.init();
+    await vi.waitFor(() => expect(row('AR-2')).toMatchObject({ state: 'requested' }));
+    expect(
+      h!.log.warnings.some(
+        (entry) =>
+          Array.isArray(entry) && entry.includes('could not reconcile a merge request after startup'),
+      ),
+    ).toBe(true);
   });
 
   it('attributes a reviewer merge to the last label setter owning the review stage', async () => {

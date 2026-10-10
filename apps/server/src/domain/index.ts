@@ -6,6 +6,7 @@ import {
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
+  mergeReadiness,
   permissionDelegationOf,
   routeFor,
   seniorWaitMinutesOf,
@@ -769,6 +770,7 @@ export function createDomain(opts: DomainOptions) {
     engines,
     github: opts.github,
     inbox,
+    background,
     afterMerge: (task) => autoAdvance.check(task),
   });
   inbox.useMergeStart(async (item, by) => {
@@ -927,8 +929,24 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => handoffs.sessionEnded(session));
 
   // Configuration changes: runtime state follows the roster.
-  events.on('config_changed', async (change) => {
-    for (const task of tasks.list(change.projectKey)) await merges.reconcile(change.projectKey, task.key);
+  events.on('config_changed', (change) => {
+    background.run(
+      async () => {
+        for (const task of tasks.list(change.projectKey)) {
+          if (!task.merge && !mergeReadiness(change.next, task).ready) continue;
+          try {
+            await merges.reconcile(change.projectKey, task.key);
+          } catch (err) {
+            opts.logger.warn(
+              { err, projectKey: change.projectKey, taskKey: task.key },
+              'could not reconcile a merge request after configuration changed',
+            );
+          }
+        }
+      },
+      (err) =>
+        opts.logger.warn({ err, projectKey: change.projectKey }, 'merge configuration reconciliation failed'),
+    );
   });
   events.on('config_changed', (change) => tasks.reconcileHandOns(change.next));
   events.on('config_changed', (change) => members.reconcile(change));

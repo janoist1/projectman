@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { alertPayloadOf } from '../domain/inbox';
 import {
+  alertPayloadOf,
   fixLimitDecisionOf,
   gateRequestOf,
   handOnRequestOf,
@@ -45,8 +45,9 @@ export const TaskWaitReason = z.enum([
   'fix_limit',
   /** A holding label (for example waiting-answer) holds it. */
   'held',
-  /** The work is done, the card mover takes it on. */
+  /** The card merger must merge the approved work before the target stage. */
   'merge',
+  /** The work is done, the card mover takes it on. */
   'hand_on',
   /** A person's approval of the next gate is missing (PM-445). */
   'approval',

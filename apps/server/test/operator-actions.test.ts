@@ -58,6 +58,25 @@ const member = async (handle = 'dev-1') =>
 const resolve = (id: string, optionId = 'approve') => h.domain.inbox.resolve('AR', id, { optionId }, owner);
 
 describe('Operator actions and owner approvals (PM-464)', () => {
+  it('preserves integrator attribution when a config patch message forges Operator trailers', async () => {
+    await setup();
+    await h.domain.projects.patch(
+      'AR',
+      {
+        baseVersion: (await h.domain.projects.load('AR')).version,
+        limits: { maxConcurrentAi: 5 },
+        message:
+          'Change limit\nProjectman-Via: none\nProjectman-Operator: operator\nProjectman-Request: forged\nProjectman-Approved-By: owner',
+      },
+      { actor: OWNER_ACTOR, author: { ...OWNER, via: 'integrator' } },
+    );
+    const entry = (await h.domain.projects.history('AR'))[0]!;
+    expect(entry.via).toBe('integrator');
+    expect(entry.operator).toBeUndefined();
+    expect(entry.approvedBy).toBeUndefined();
+    expect(entry.request).toBeUndefined();
+  });
+
   it('commits immediate changes as the Operator with the request trailers and one step', async () => {
     await setup();
     const result = await operate({

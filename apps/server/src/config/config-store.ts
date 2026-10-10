@@ -57,7 +57,9 @@ function attributedMessage(
       : []),
     ...(author.approvedBy ? [`Projectman-Approved-By: ${line(author.approvedBy)}`] : []),
   ];
-  return message + (trailers.length ? `\n\n${trailers.join('\n')}` : '');
+  // User messages cannot introduce attribution, even without server-generated trailers.
+  const body = message.replace(/\r\n?/g, '\n').replace(/^[\t ]*Projectman-/gim, '> Projectman-');
+  return body + (trailers.length ? `\n\n${trailers.join('\n')}` : '');
 }
 
 const README = `# projectman customization repository
@@ -327,8 +329,18 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         .filter(Boolean)
         .map((record): ConfigVersionEntry => {
           const [version = '', author = '', at = '', message = ''] = record.split('\x1f');
+          const body = message.trim();
+          const separator = body.lastIndexOf('\n\n');
+          const ending = separator >= 0 ? body.slice(separator + 2) : '';
+          const hasTrailers =
+            ending.length > 0 &&
+            ending
+              .split('\n')
+              .every((line) => /^Projectman-(?:Via|Operator|Request|Approved-By): ?[^\r\n]*$/.test(line));
           const trailer = (name: string) =>
-            message.match(new RegExp(`(?:^|\\n)Projectman-${name}: ([^\\r\\n]*)`))?.[1]?.trim();
+            hasTrailers
+              ? ending.match(new RegExp(`(?:^|\\n)Projectman-${name}: ?([^\\r\\n]*)`))?.[1]?.trim()
+              : undefined;
           const via = trailer('Via') === 'integrator';
           const operator = trailer('Operator');
           const request = trailer('Request');
@@ -337,9 +349,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
             version,
             author,
             at,
-            message: message
-              .replace(/(?:^|\n)Projectman-(?:Via|Operator|Request|Approved-By):[^\r\n]*/g, '')
-              .trim(),
+            message: hasTrailers ? body.slice(0, separator).trim() : body,
             ...(via ? { via: 'integrator' } : {}),
             ...(operator ? { operator } : {}),
             ...(request !== undefined ? { request } : {}),

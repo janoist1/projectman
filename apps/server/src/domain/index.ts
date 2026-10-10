@@ -680,8 +680,8 @@ export function createDomain(opts: DomainOptions) {
   handOver.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
-  sessions.useQuotaRecovery(planUsage, (session, stageId) =>
-    messageStarts.resumeAfterQuota(session, stageId),
+  sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
+    messageStarts.resumeAfter(session, stageId, after),
   );
   const schedules = new ScheduleService({
     ctx,

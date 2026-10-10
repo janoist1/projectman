@@ -5,6 +5,7 @@ import {
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_PROJECT_LANGUAGE,
+  defaultMerger,
   FALLBACK_PERMISSION_MODE,
   isOperator,
   isProjectManager,
@@ -258,6 +259,19 @@ function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
 }
 
 /**
+ * A project without a merger (PM-470) gets the one its pipeline implies: the code reviewer when a code
+ * review stage comes before the merge target, else the developer. A configuration that does not parse is
+ * left alone: at run time the same rule (`mergerOf`) applies to the missing value.
+ */
+export function addMerger(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team || team.merger !== undefined) return raw;
+  const parsed = ProjectConfig.safeParse(raw);
+  if (parsed.success) team.merger = defaultMerger(parsed.data);
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -271,26 +285,29 @@ function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
- *   - a project without an Operator gets one, at work (above).
+ *   - a project without an Operator gets one, at work (above);
+ *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above).
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addOperator(
-    addCardMover(
-      addProjectManager(
-        migrateReleaseApproval(
-          migrateLegacyConfig(
-            migrateCodexBypass(
-              migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-              context,
+  return addMerger(
+    addOperator(
+      addCardMover(
+        addProjectManager(
+          migrateReleaseApproval(
+            migrateLegacyConfig(
+              migrateCodexBypass(
+                migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+                context,
+              ),
             ),
+            context,
           ),
           context,
         ),
-        context,
       ),
+      context,
     ),
-    context,
   );
 }

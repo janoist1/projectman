@@ -7,6 +7,8 @@ import {
   gateRequestOf,
   handOnRequestOf,
   memberOf,
+  operatorApprovalOf,
+  OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
   routePermissionRequest,
@@ -40,7 +42,7 @@ import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from './session-policy';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId } from './util';
+import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
 export const PERMISSION_OPTIONS: InboxOption[] = [
@@ -136,6 +138,22 @@ export class InboxService {
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
+  private readonly resolutionLocks = new KeyedMutex();
+  private operatorDecision?: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>;
+
+  useOperatorDecision(decide: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>): void {
+    this.operatorDecision = decide;
+  }
+
+  staleOperator(id: string, payload: Record<string, unknown>): void {
+    const updated = this.ctx.repos.inbox.updateOperator(
+      id,
+      payload,
+      [OPERATOR_DISMISS_OPTION],
+      isoNow(this.ctx),
+    );
+    if (updated) this.publish(updated);
+  }
 
   useHandOnMove(move: (item: InboxItem, by: Resolver) => Promise<void>): void {
     this.handOnMove = move;
@@ -249,6 +267,15 @@ export class InboxService {
     req: { optionId: string; note?: string },
     by: Resolver,
   ): Promise<InboxItem> {
+    return this.resolutionLocks.run(id, () => this.resolveLocked(projectKey, id, req, by));
+  }
+
+  private async resolveLocked(
+    projectKey: string,
+    id: string,
+    req: { optionId: string; note?: string },
+    by: Resolver,
+  ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
     if (by.via && !['question', 'alert'].includes(item.kind))
       throw forbidden(
@@ -258,6 +285,9 @@ export class InboxService {
       );
     if (item.state !== 'open')
       throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
+    const operator = operatorApprovalOf(item);
+    if (operator?.stale && req.optionId !== 'dismiss')
+      throw conflict('operator_approval_stale', 'the proposal is stale; dismiss it');
     if (!item.options.some((o) => o.id === req.optionId)) {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
@@ -289,6 +319,10 @@ export class InboxService {
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
+    }
+    if (operator) {
+      if (!this.operatorDecision) throw forbidden('operator_never', 'Operator decisions are unavailable');
+      await this.operatorDecision(item, by, req.optionId);
     }
     const at = isoNow(this.ctx);
     const resolved = this.ctx.repos.inbox.close(

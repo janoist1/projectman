@@ -25,6 +25,7 @@ export interface AddedRelation {
  * clients see goes out through the event bus (the websocket) instead.
  */
 export interface DomainEventMap {
+  pause_changed: { projectKey: string };
   /** A configuration change was committed (also a project's creation or import). */
   config_changed: ConfigChange;
   /** A human resolved an inbox item. */

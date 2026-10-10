@@ -102,5 +102,10 @@ export function createOperatorRequestRepository(db: Db) {
     steps(requestId: string): OperatorStepRecord[] {
       return (statements.stepsOf.all(requestId) as StepRow[]).map(toStep);
     },
+    updateStep(id: string, status: OperatorStepStatus, configVersion: string | null = null): void {
+      db.prepare(
+        'UPDATE operator_steps SET status = ?, config_version = COALESCE(?, config_version) WHERE id = ?',
+      ).run(status, configVersion, id);
+    },
   };
 }

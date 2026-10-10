@@ -69,6 +69,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { LoopWatch } from './loop-watch';
@@ -801,9 +802,19 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
+  const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
+  const operatorActions = new OperatorActions(operatorDeps);
+  const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
+  operatorActions.useApprovals(operatorApprovals);
+  inbox.useOperatorDecision((item, by, optionId) => operatorApprovals.apply(item, by, optionId));
+  events.on('config_changed', ({ projectKey }) => operatorApprovals.recheck(projectKey));
+  events.on('session_ended', ({ projectKey }) => operatorApprovals.recheck(projectKey));
+  events.on('pause_changed', ({ projectKey }) => operatorApprovals.recheck(projectKey));
   const teamTools = new TeamToolsService({
     operatorRequests,
     operatorSteps,
+    operatorActions,
+    taskStarts,
     taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
@@ -1251,6 +1262,8 @@ export function createDomain(opts: DomainOptions) {
     messages,
     messaging,
     sessionCloser,
+    operatorActions,
+    operatorApprovals,
     tasks,
     attachments,
     members,

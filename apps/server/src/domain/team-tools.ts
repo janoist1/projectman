@@ -74,6 +74,9 @@ import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import { OPERATOR_NEVER_TOOLS, OPERATOR_READ_TOOLS } from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
+import type { OperatorActions } from './operator-actions';
+import type { TaskStarts } from './admission';
+import type { OperatorOperation } from '@projectman/shared';
 import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
 import type { ScreenshotRuns } from './screenshot-runs';
@@ -312,6 +315,8 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record'>;
+  private readonly operatorActions: OperatorActions;
+  private readonly taskStarts: TaskStarts;
   private readonly boundary: BoundaryService;
   private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
@@ -391,9 +396,13 @@ export class TeamToolsService implements TeamToolsHandler {
     operatorRequests: Pick<OperatorRequests, 'openFor'>;
     /** The Operator's step log (PM-463). */
     operatorSteps: Pick<OperatorSteps, 'record'>;
+    operatorActions: OperatorActions;
+    taskStarts: TaskStarts;
   }) {
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
+    this.operatorActions = deps.operatorActions;
+    this.taskStarts = deps.taskStarts;
     this.screenshots = deps.screenshots;
     this.sessionEngine = deps.sessionEngine;
     this.boundary = deps.boundary;
@@ -1071,6 +1080,57 @@ export class TeamToolsService implements TeamToolsHandler {
     return (await this.callerWithRequest(ctx, tool)).config;
   }
 
+  async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
+    const caller = await this.callerWithRequest(ctx, 'operate');
+    return this.operatorActions
+      .run(ctx.projectKey, caller.request!.id, args.title, args.operation)
+      .catch((err: unknown) => {
+        if (err instanceof DomainError)
+          throw new TeamToolError(
+            err.status === 403 ? 'forbidden' : 'invalid',
+            `${err.code}: ${err.message}`,
+          );
+        throw err;
+      });
+  }
+
+  async startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+  ) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may start tasks through this tool.',
+      );
+    const caller = await this.callerWithRequest(ctx, 'start_task');
+    return this.recorded<{ task_key: string; session_id: string | null; hired: string | null }>(
+      caller,
+      { action: 'task_start', taskKey: args.taskKey, madeMember: (result) => result.hired },
+      async () => {
+        const operator = memberOf(config, ctx.member)!;
+        const result = await this.taskStarts.start(ctx.projectKey, this.validTaskKey(ctx, args.taskKey), {
+          ...args,
+          startSetters: true,
+          actor: aiActor(ctx.member),
+          author: { name: operator.displayName, email: `${ctx.member}@projectman.local` },
+          sponsor: caller.request!.fromHandle,
+        });
+        return {
+          task_key: result.task.key,
+          session_id: result.session?.id ?? null,
+          hired: result.hired?.handle ?? null,
+        };
+      },
+    ).catch((err: unknown) => {
+      throw toToolError(err);
+    });
+  }
+
   /**
    * `caller`, plus the owner request the guard let the Operator's call through on (null for any other
    * caller and for a reading tool with none open). The step log must use this very request: opening it
@@ -1112,6 +1172,7 @@ export class TeamToolsService implements TeamToolsHandler {
       member?: string | null;
       /** The task the call made, when the step names it only afterwards. */
       madeTask?: (result: T) => string;
+      madeMember?: (result: T) => string | null;
     } | null,
     run: () => Promise<T>,
     /** A refusal that is no refusal: the change waits for a human's approval. */
@@ -1138,6 +1199,7 @@ export class TeamToolsService implements TeamToolsHandler {
       requestId: request.id,
       ...target,
       ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
+      ...(step.madeMember ? { member: step.madeMember(result) } : {}),
       status: 'done',
     });
     return result;

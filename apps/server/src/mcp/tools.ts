@@ -18,6 +18,7 @@ import {
   WORK_DOING_DETAIL_MAX,
   WORK_DOING_SUMMARY_MAX,
   WorkDoing,
+  OperatorOperation,
 } from '@projectman/shared';
 import type { DeveloperLevelRequest } from '@projectman/shared';
 import { z } from 'zod';
@@ -51,6 +52,8 @@ import {
  */
 
 export const TEAM_TOOL_NAMES = [
+  'operate',
+  'start_task',
   'submit_boundary_request',
   'get_boundary_request',
   'decide_boundary_request',
@@ -214,6 +217,38 @@ const addedRelationInput = z.object({
 });
 
 export const TEAM_TOOLS: readonly TeamTool[] = [
+  defineTool({
+    name: 'operate',
+    title: 'Operate the project',
+    readOnly: false,
+    description:
+      'Only the Operator, during an open owner request. Propose a configuration, member, session or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Title describes the result in the project language (1–120 characters).',
+    input: { title: z.string().trim().min(1).max(120), operation: OperatorOperation },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.operate(ctx, args));
+    },
+  }),
+  defineTool({
+    name: 'start_task',
+    title: 'Start work on a task',
+    readOnly: false,
+    description:
+      'Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply.',
+    input: {
+      task_key: TaskKey,
+      assignee: MemberHandle.optional(),
+      despite_prerequisites: z.boolean().optional(),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(
+        await handler.startTask(ctx, {
+          taskKey: args.task_key,
+          assignee: args.assignee,
+          despitePrerequisites: args.despite_prerequisites,
+        }),
+      );
+    },
+  }),
   defineTool({
     name: 'submit_boundary_request',
     title: 'Submit a boundary request',

@@ -34,6 +34,7 @@ import type {
   ProjectConfig,
   SessionState,
   UpdateMemberRequest,
+  OperatorMemberChanges,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
 import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from './access';
@@ -263,61 +264,9 @@ export class MemberService {
   ): Promise<AiMemberConfig> {
     let hired: AiMemberConfig | null = null;
     await this.projects.update(projectKey, { actor: by.actor, author: by.author }, (draft) => {
-      assertRoleFor(draft, req.role, 'ai');
-      const defaults = aiMemberDefaults(req.role, draft.team.roles, draft.team.roleOverrides);
-      if (!defaults) throw invalid('role_not_for_ai', `no AI member can hold the role ${req.role}`);
-      const sponsor = memberOf(draft, by.sponsor);
-      if (!sponsor || sponsor.kind !== 'human') {
-        throw invalid('invalid_sponsor', `sponsor must be a human member: ${by.sponsor}`);
-      }
-      const taken = this.takenHandles(projectKey, draft);
-      if (req.handle && taken.has(req.handle))
-        throw conflict('handle_taken', `handle already used: ${req.handle}`);
-      const handle = req.handle ?? defaultMemberHandle(req.role, taken, req.specialty);
-      if (!MemberHandle.safeParse(handle).success || taken.has(handle)) {
-        throw conflict('handle_taken', `no free handle for role ${req.role}`);
-      }
-      const specialty = req.specialty?.trim() ?? '';
-      const index =
-        draft.team.members.filter(
-          (m) => m.kind === 'ai' && m.role === req.role && (m.specialty ?? '').trim() === specialty,
-        ).length + 1;
-      const member = AiMemberConfig.parse({
-        kind: 'ai',
-        handle,
-        displayName:
-          req.displayName?.trim() ||
-          defaultMemberName(req.role, draft.project.language, index, {
-            specialty: specialty || undefined,
-            customRoles: draft.team.roles,
-          }),
-        role: req.role,
-        ...(req.specialty ? { specialty: req.specialty } : {}),
-        ...(req.provider ? { provider: req.provider } : {}),
-        model:
-          req.provider && req.provider !== 'claude'
-            ? modelForProvider(req.provider, req.model)
-            : (req.model ?? defaults.model),
-        ...(req.effort ? { effort: req.effort } : {}),
-        ...(req.cheapSubagent ? { cheapSubagent: req.cheapSubagent } : {}),
-        permissionMode: defaults.permissionMode,
-        approver: defaults.approver,
-        capacity: defaults.capacity,
-        instructions: defaults.instructions,
-        sponsor: sponsor.handle,
-        temp: opts.temp ?? false,
-        ...(req.schedule ? { schedule: req.schedule } : {}),
-        outboundNetwork: req.outboundNetwork ?? DEFAULT_OUTBOUND_NETWORK,
-      });
-      draft.team.members.push(member);
-      if (opts.temp && opts.stageId) {
-        const stage = stageOf(draft, opts.stageId);
-        if (stage?.owners) stage.owners = [...stage.owners, handle];
-      } else if (!opts.temp) {
-        for (const stage of stagesToJoin(draft, member)) stage.owners = [...(stage.owners ?? []), handle];
-      }
-      hired = member;
-      return opts.temp ? `Hire temporary ${req.role} ${handle}` : `Hire ${req.role} ${handle}`;
+      const prepared = this.prepareHire(projectKey, draft, req, by.sponsor, opts);
+      hired = prepared.member;
+      return prepared.message;
     });
     const member = hired as AiMemberConfig | null;
     if (!member) throw new Error('hire did not produce a member');
@@ -330,146 +279,231 @@ export class MemberService {
     return member;
   }
 
+  /** Mutates only the in-memory draft; shared by execution and Operator previews. */
+  prepareHire(
+    projectKey: string,
+    draft: ProjectConfig,
+    req: HireMemberRequest,
+    sponsorHandle: string,
+    opts: { temp?: boolean; stageId?: string } = {},
+  ): { member: AiMemberConfig; message: string } {
+    assertRoleFor(draft, req.role, 'ai');
+    const defaults = aiMemberDefaults(req.role, draft.team.roles, draft.team.roleOverrides);
+    if (!defaults) throw invalid('role_not_for_ai', `no AI member can hold the role ${req.role}`);
+    const sponsor = memberOf(draft, sponsorHandle);
+    if (!sponsor || sponsor.kind !== 'human') {
+      throw invalid('invalid_sponsor', `sponsor must be a human member: ${sponsorHandle}`);
+    }
+    const taken = this.takenHandles(projectKey, draft);
+    if (req.handle && taken.has(req.handle))
+      throw conflict('handle_taken', `handle already used: ${req.handle}`);
+    const handle = req.handle ?? defaultMemberHandle(req.role, taken, req.specialty);
+    if (!MemberHandle.safeParse(handle).success || taken.has(handle)) {
+      throw conflict('handle_taken', `no free handle for role ${req.role}`);
+    }
+    const specialty = req.specialty?.trim() ?? '';
+    const index =
+      draft.team.members.filter(
+        (m) => m.kind === 'ai' && m.role === req.role && (m.specialty ?? '').trim() === specialty,
+      ).length + 1;
+    const member = AiMemberConfig.parse({
+      kind: 'ai',
+      handle,
+      displayName:
+        req.displayName?.trim() ||
+        defaultMemberName(req.role, draft.project.language, index, {
+          specialty: specialty || undefined,
+          customRoles: draft.team.roles,
+        }),
+      role: req.role,
+      ...(req.specialty ? { specialty: req.specialty } : {}),
+      ...(req.provider ? { provider: req.provider } : {}),
+      model:
+        req.provider && req.provider !== 'claude'
+          ? modelForProvider(req.provider, req.model)
+          : (req.model ?? defaults.model),
+      ...(req.effort ? { effort: req.effort } : {}),
+      ...(req.cheapSubagent ? { cheapSubagent: req.cheapSubagent } : {}),
+      permissionMode: defaults.permissionMode,
+      approver: defaults.approver,
+      capacity: defaults.capacity,
+      instructions: defaults.instructions,
+      sponsor: sponsor.handle,
+      temp: opts.temp ?? false,
+      ...(req.schedule ? { schedule: req.schedule } : {}),
+      outboundNetwork: req.outboundNetwork ?? DEFAULT_OUTBOUND_NETWORK,
+    });
+    draft.team.members.push(member);
+    if (opts.temp && opts.stageId) {
+      const stage = stageOf(draft, opts.stageId);
+      if (stage?.owners) stage.owners = [...stage.owners, handle];
+    } else if (!opts.temp) {
+      for (const stage of stagesToJoin(draft, member)) stage.owners = [...(stage.owners ?? []), handle];
+    }
+    return {
+      member,
+      message: opts.temp ? `Hire temporary ${req.role} ${handle}` : `Hire ${req.role} ${handle}`,
+    };
+  }
+
   /**
    * Changes a member (a configuration commit): the display name of anyone, the roles a human
-   * holds, and an AI member's specialty, provider, model, effort, compaction window, cheap subagent, schedule and own instructions. An AI member's one role stays.
+   * holds, and an AI member's settings, capacity and single role.
    */
   async update(
     projectKey: string,
     handle: string,
-    req: UpdateMemberRequest,
+    req: UpdateMemberRequest | OperatorMemberChanges,
     by: { actor: Actor; author: Author },
   ): Promise<MemberView> {
-    await this.projects.update(projectKey, by, (draft) => {
-      const member = memberOf(draft, handle);
-      if (!member) throw notFound('member', handle);
-      const fields: string[] = [];
-      // Only an AI member that is no stand-in can be the Senior (PM-347).
-      if (req.senior !== undefined && (member.kind === 'human' || member.temp))
-        throw invalid(
-          'senior_not_allowed',
-          member.kind === 'human'
-            ? 'a person cannot be the Senior: only an AI member can'
-            : 'a temp worker cannot be the Senior',
-        );
-      if (member.kind === 'human') {
-        if (req.access !== undefined) {
-          member.access = req.access;
-          fields.push('access');
-        }
-        if (
-          req.specialty !== undefined ||
-          req.model !== undefined ||
-          req.schedule !== undefined ||
-          req.provider !== undefined ||
-          req.effort !== undefined ||
-          req.autoCompactWindowTokens !== undefined ||
-          req.cheapSubagent !== undefined ||
-          req.onLeave !== undefined ||
-          req.instructions !== undefined ||
-          req.permissionMode !== undefined ||
-          req.approver !== undefined ||
-          req.outboundNetwork !== undefined
-        ) {
-          throw invalid(
-            'not_ai_member',
-            'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver and outbound network apply to AI members only',
-          );
-        }
-        if (req.roles !== undefined) {
-          const roles = [...new Set(req.roles)];
-          for (const role of roles) assertRoleFor(draft, role, 'human');
-          member.roles = roles;
-          fields.push('roles');
-        }
-      } else {
-        if (req.access !== undefined) throw invalid('not_human_member', 'Access applies to humans');
-        if (req.roles !== undefined) {
-          throw invalid('not_human_member', 'an AI member holds exactly one role; roles apply to humans');
-        }
-        if (req.specialty !== undefined) {
-          const specialty = req.specialty.trim();
-          if (specialty) member.specialty = specialty;
-          else delete member.specialty;
-          fields.push('specialty');
-        }
-        if (req.model !== undefined) {
-          member.model = req.model;
-          fields.push('model');
-        }
-        if (req.provider !== undefined && req.provider !== (member.provider ?? DEFAULT_AGENT_PROVIDER)) {
-          member.provider = req.provider;
-          member.model = modelForProvider(req.provider, req.model);
-          fields.push('provider');
-        }
-        if (req.effort !== undefined) {
-          if (req.effort === null) delete member.effort;
-          else member.effort = req.effort;
-          fields.push('effort');
-        }
-        // Kept for a Codex member too, where it has no effect.
-        if (req.autoCompactWindowTokens !== undefined) {
-          if (req.autoCompactWindowTokens === null) delete member.autoCompactWindowTokens;
-          else member.autoCompactWindowTokens = req.autoCompactWindowTokens;
-          fields.push('compaction window');
-        }
-        // Kept for a Codex member too, where it has no effect (`cheapSubagentOf`).
-        if (req.cheapSubagent !== undefined) {
-          if (req.cheapSubagent === null) delete member.cheapSubagent;
-          else member.cheapSubagent = req.cheapSubagent;
-          fields.push('cheap subagent');
-        }
-        if (req.schedule !== undefined) {
-          if (req.schedule) member.schedule = req.schedule;
-          else delete member.schedule;
-          fields.push('schedule');
-        }
-        if (req.instructions !== undefined) {
-          member.instructions = req.instructions.trim();
-          fields.push('instructions');
-        }
-        // Who may change the mode and the approver is `ownerOnlyChanges` (category `permissions`),
-        // checked on the commit.
-        if (req.permissionMode !== undefined) {
-          member.permissionMode = req.permissionMode;
-          fields.push('permission mode');
-        }
-        if (req.approver !== undefined) {
-          const blocker = approverBlocker(draft, handle, req.approver);
-          if (blocker) {
-            throw new DomainError(
-              'approver_unavailable',
-              `the approver ${req.approver} is not available: ${blocker}`,
-              { status: 422, details: { blocker } },
-            );
-          }
-          member.approver = req.approver;
-          fields.push('approver');
-        }
-        if (req.outboundNetwork !== undefined) {
-          member.outboundNetwork = req.outboundNetwork;
-          fields.push('outbound network');
-        }
-        if (req.onLeave !== undefined) {
-          if (req.onLeave) member.onLeave = true;
-          else delete member.onLeave;
-          fields.push(req.onLeave ? 'sent on leave' : 'called back from leave');
-        }
-        if (req.senior !== undefined) {
-          if (req.senior) member.senior = true;
-          else delete member.senior;
-          fields.push(req.senior ? 'marked as the Senior' : 'no longer the Senior');
-        }
-      }
-      if (req.displayName !== undefined) {
-        member.displayName = req.displayName;
-        fields.push('display name');
-      }
-      return `Update ${handle}${fields.length > 0 ? `: ${fields.join(', ')}` : ''}`;
-    });
+    await this.projects.update(projectKey, by, (draft) => this.prepareUpdate(draft, handle, req));
     const view = (await this.roster(projectKey)).find((m) => m.handle === handle);
     if (!view) throw notFound('member', handle);
     return view;
+  }
+
+  /** Mutates only the in-memory draft; shared by execution and Operator previews. */
+  prepareUpdate(
+    draft: ProjectConfig,
+    handle: string,
+    req: Omit<UpdateMemberRequest, 'permissionMode'> & Partial<OperatorMemberChanges>,
+  ): string {
+    const member = memberOf(draft, handle);
+    if (!member) throw notFound('member', handle);
+    const fields: string[] = [];
+    // Only an AI member that is no stand-in can be the Senior (PM-347).
+    if (req.senior !== undefined && (member.kind === 'human' || member.temp))
+      throw invalid(
+        'senior_not_allowed',
+        member.kind === 'human'
+          ? 'a person cannot be the Senior: only an AI member can'
+          : 'a temp worker cannot be the Senior',
+      );
+    if (member.kind === 'human') {
+      if (req.access !== undefined) {
+        member.access = req.access;
+        fields.push('access');
+      }
+      if (
+        req.specialty !== undefined ||
+        req.model !== undefined ||
+        req.schedule !== undefined ||
+        req.provider !== undefined ||
+        req.effort !== undefined ||
+        req.autoCompactWindowTokens !== undefined ||
+        req.cheapSubagent !== undefined ||
+        req.onLeave !== undefined ||
+        req.instructions !== undefined ||
+        req.permissionMode !== undefined ||
+        req.capacity !== undefined ||
+        req.role !== undefined ||
+        req.approver !== undefined ||
+        req.outboundNetwork !== undefined
+      ) {
+        throw invalid(
+          'not_ai_member',
+          'specialty, provider, model, effort, compaction window, cheap subagent, schedule, leave, instructions, permission mode, approver and outbound network apply to AI members only',
+        );
+      }
+      if (req.roles !== undefined) {
+        const roles = [...new Set(req.roles)];
+        for (const role of roles) assertRoleFor(draft, role, 'human');
+        member.roles = roles;
+        fields.push('roles');
+      }
+    } else {
+      if (req.access !== undefined) throw invalid('not_human_member', 'Access applies to humans');
+      if (req.roles !== undefined) {
+        throw invalid('not_human_member', 'an AI member holds exactly one role; roles apply to humans');
+      }
+      if (req.specialty !== undefined) {
+        const specialty = req.specialty.trim();
+        if (specialty) member.specialty = specialty;
+        else delete member.specialty;
+        fields.push('specialty');
+      }
+      if (req.model !== undefined) {
+        member.model = req.model;
+        fields.push('model');
+      }
+      if (req.provider !== undefined && req.provider !== (member.provider ?? DEFAULT_AGENT_PROVIDER)) {
+        member.provider = req.provider;
+        member.model = modelForProvider(req.provider, req.model);
+        fields.push('provider');
+      }
+      if (req.effort !== undefined) {
+        if (req.effort === null) delete member.effort;
+        else member.effort = req.effort;
+        fields.push('effort');
+      }
+      // Kept for a Codex member too, where it has no effect.
+      if (req.autoCompactWindowTokens !== undefined) {
+        if (req.autoCompactWindowTokens === null) delete member.autoCompactWindowTokens;
+        else member.autoCompactWindowTokens = req.autoCompactWindowTokens;
+        fields.push('compaction window');
+      }
+      // Kept for a Codex member too, where it has no effect (`cheapSubagentOf`).
+      if (req.cheapSubagent !== undefined) {
+        if (req.cheapSubagent === null) delete member.cheapSubagent;
+        else member.cheapSubagent = req.cheapSubagent;
+        fields.push('cheap subagent');
+      }
+      if (req.schedule !== undefined) {
+        if (req.schedule) member.schedule = req.schedule;
+        else delete member.schedule;
+        fields.push('schedule');
+      }
+      if (req.instructions !== undefined) {
+        member.instructions = req.instructions.trim();
+        fields.push('instructions');
+      }
+      // Who may change the mode and the approver is `ownerOnlyChanges` (category `permissions`),
+      // checked on the commit.
+      if (req.capacity !== undefined) {
+        member.capacity = req.capacity;
+        fields.push('capacity');
+      }
+      if (req.role !== undefined) {
+        assertRoleFor(draft, req.role, 'ai');
+        member.role = req.role;
+        fields.push('role');
+      }
+      if (req.permissionMode !== undefined) {
+        member.permissionMode = req.permissionMode;
+        fields.push('permission mode');
+      }
+      if (req.approver !== undefined) {
+        const blocker = approverBlocker(draft, handle, req.approver);
+        if (blocker) {
+          throw new DomainError(
+            'approver_unavailable',
+            `the approver ${req.approver} is not available: ${blocker}`,
+            { status: 422, details: { blocker } },
+          );
+        }
+        member.approver = req.approver;
+        fields.push('approver');
+      }
+      if (req.outboundNetwork !== undefined) {
+        member.outboundNetwork = req.outboundNetwork;
+        fields.push('outbound network');
+      }
+      if (req.onLeave !== undefined) {
+        if (req.onLeave) member.onLeave = true;
+        else delete member.onLeave;
+        fields.push(req.onLeave ? 'sent on leave' : 'called back from leave');
+      }
+      if (req.senior !== undefined) {
+        if (req.senior) member.senior = true;
+        else delete member.senior;
+        fields.push(req.senior ? 'marked as the Senior' : 'no longer the Senior');
+      }
+    }
+    if (req.displayName !== undefined) {
+      member.displayName = req.displayName;
+      fields.push('display name');
+    }
+    return `Update ${handle}${fields.length > 0 ? `: ${fields.join(', ')}` : ''}`;
   }
 
   /**
@@ -501,14 +535,7 @@ export class MemberService {
 
     const handovers = handoverTo ? { [handle]: handoverTo } : undefined;
     await this.projects.update(projectKey, { ...by, handovers }, (draft) => {
-      if (!memberOf(draft, handle)) throw notFound('member', handle);
-      draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
-      for (const stage of draft.pipeline.stages) {
-        if (!(stage.owners ?? []).includes(handle)) continue;
-        stage.owners = unique(
-          (stage.owners ?? []).flatMap((h) => (h === handle ? (handoverTo ? [handoverTo] : []) : [h])),
-        );
-      }
+      this.prepareRetire(draft, handle, handoverTo);
       return `Retire ${handle}${handoverTo ? ` (handover to ${handoverTo})` : ''}`;
     });
     for (const item of this.inbox.cancelOpenFromSource(projectKey, handle))
@@ -520,6 +547,18 @@ export class MemberService {
       type: 'member_retired',
       data: { handle, handoverTo },
     });
+  }
+
+  /** Mutates only the draft; the commit listeners perform the handovers and stops. */
+  prepareRetire(draft: ProjectConfig, handle: string, handoverTo: string | null = null): void {
+    requireAiMember(draft, handle);
+    draft.team.members = draft.team.members.filter((m) => m.handle !== handle);
+    for (const stage of draft.pipeline.stages) {
+      if (!(stage.owners ?? []).includes(handle)) continue;
+      stage.owners = unique(
+        (stage.owners ?? []).flatMap((h) => (h === handle ? (handoverTo ? [handoverTo] : []) : [h])),
+      );
+    }
   }
 
   async removeHuman(projectKey: string, handle: string, by: { actor: Actor; author: Author }): Promise<void> {

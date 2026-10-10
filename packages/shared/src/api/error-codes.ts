@@ -205,6 +205,8 @@ export const ERROR_CODES = [
   'operator_owner_only',
   'operator_no_request',
   'operator_never',
+  'operator_only',
+  'operator_approval_stale',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

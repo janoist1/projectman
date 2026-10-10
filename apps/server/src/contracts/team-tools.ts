@@ -26,6 +26,8 @@ import type {
   BoundaryGrant,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
+  OperatorOperation,
+  ConfigChangeRow,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
@@ -216,6 +218,20 @@ export interface ScreenshotRun {
 }
 
 export interface TeamToolsHandler {
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+  ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again

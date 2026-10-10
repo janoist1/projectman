@@ -1815,14 +1815,14 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 **Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
 
-### The Operator (PM-447, PM-462, PM-463)
+### The Operator (PM-447, PM-462, PM-463, PM-464)
 
 Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;
 handle `operator`, `operator-2`, ... when taken) whom the owner asks to change how the project runs. The project
 manager stays the dispatcher. The human built-in role `operator` keeps its id and duties (`final_decision`,
 `release_approval`, `monitoring`); only its display name is now "Owner" ("Tulajdonos"). The pure rules are in
 `packages/shared/src/config/operator.ts`: `isOperator`, `operatorOf`, `isRequiredOperator` (the only Operator cannot be
-retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI actor without `via`).
+retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an AI actor without `via`).
 
 - **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwner` (an owner's own login, not the integrator
   key): only an owner's message wakes the Operator; any other action message is blocked with `WakeBlock`
@@ -1869,6 +1869,22 @@ retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI 
   carries `TeamMessage.operatorRequest`. `GET /api/projects/:key/operator` returns `OperatorChannel` (the manager's
   channel plus the last 50 requests with their steps, the newest last) to the owner's own login only; no new WebSocket
   event.
+
+- **Operations and approvals** (PM-464, `domain/operator-actions.ts`). `operate` and `start_task` are Operator-only
+  MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
+  `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
+  recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
+  run before inbox closure, require an owner's own login, and are serialized per inbox item. Independent edits
+  preserve proposals; changed rows, ended or restarted sessions, and changed pause identities mark them stale
+  (`operator_approval_stale` 409). Stale items remain open with only `dismiss`. Configuration commits, session
+  ends and pause changes proactively recheck proposals. Approved/rejected/stale results update the existing step
+  and record a system message without waking the Operator. Configuration history reads `Projectman-Operator`,
+  `Projectman-Request` and `Projectman-Approved-By` trailers, including reverts. Runtime operations reuse session
+  stop and pause/resume; pause freshness is checked inside the existing admission lock.
+  The Operator's Start follows the person's prerequisite override and AI label-setter path, while a fix-limit
+  hold is always refused. When the configured temporary-worker policy permits a hire, Start hires as the system,
+  sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
+  remain approval operations.
 
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.

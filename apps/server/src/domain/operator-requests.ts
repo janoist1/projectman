@@ -146,6 +146,7 @@ function stepView(step: OperatorStepRecord): OperatorStep {
 }
 
 export interface OperatorStepInput {
+  id?: string;
   requestId: string;
   action: OperatorAction;
   status: OperatorStepStatus;
@@ -167,7 +168,7 @@ export class OperatorSteps {
 
   record(input: OperatorStepInput): OperatorStepRecord {
     const step: OperatorStepRecord = {
-      id: newId('ops'),
+      id: input.id ?? newId('ops'),
       requestId: input.requestId,
       at: isoNow(this.ctx),
       action: input.action,

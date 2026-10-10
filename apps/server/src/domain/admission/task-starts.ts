@@ -6,6 +6,7 @@ import {
   isOpenTask,
   isSenior,
   isTheme,
+  isOperatorActor,
   memberOf,
   pickDeveloper,
   projectRefines,
@@ -27,7 +28,7 @@ import type {
   Task,
 } from '@projectman/shared';
 import { ownerHandles } from '../access';
-import { conflict, invalid, notFound, themeRefused } from '../errors';
+import { conflict, forbidden, invalid, notFound, themeRefused } from '../errors';
 import type { MemberService } from '../members';
 import type { Author, ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
@@ -148,6 +149,10 @@ function refuseOwnStageApproval(task: Task, evaluation: GateEvaluation): void {
   if (evaluation.approvals.some((a) => a.stageId === task.stageId)) throw gateBlockedError(evaluation);
 }
 
+function startsAsPerson(config: ProjectConfig, actor: Actor): boolean {
+  return actor.kind === 'human' || isOperatorActor(config, actor);
+}
+
 /**
  * Starts work on tasks: picks the developer (the explicit one, the current assignee, else the
  * least loaded free owner of the work stage), hires a temp worker when nobody is free and the
@@ -199,6 +204,8 @@ export class TaskStarts {
     let task = this.tasks.get(projectKey, taskKey);
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
+    if (isOperatorActor(config, opts.actor) && task.fixLimit)
+      throw forbidden('operator_never', 'the Operator cannot start a task held by its fix round limit');
     const skipped = { task, session: null, hired: null };
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
@@ -206,12 +213,12 @@ export class TaskStarts {
     const needsMove = stageIndex(config.pipeline, task.stageId) < stageIndex(config.pipeline, workStage.id);
     // PM-291: a person's Start of a card that is not ready to start (being refined, held, an approval
     // of its own column missing, labels missing) is refused with the reason the drawer shows.
-    if (needsMove && opts.actor.kind === 'human') {
+    if (needsMove && startsAsPerson(config, opts.actor)) {
       const block = startBlock(task, config);
       if (block) throw gateBlockedError(evaluateStart(task, config, workStage.id), block);
     }
     // Before the developer is chosen: nobody is picked, hired or assigned for a card that waits.
-    if (!(opts.despitePrerequisites && opts.actor.kind === 'human'))
+    if (!(opts.despitePrerequisites && startsAsPerson(config, opts.actor)))
       assertPrerequisitesClosed(task, this.tasks.list(projectKey));
     // PM-248: the gate of the stage the card is in holds the Start too; a label only a person
     // sets there is no approval this Start can ask for, so it is refused before anyone is started.
@@ -221,7 +228,7 @@ export class TaskStarts {
     if (
       needsMove &&
       opts.startSetters &&
-      opts.actor.kind === 'human' &&
+      startsAsPerson(config, opts.actor) &&
       this.labelWait &&
       !projectRefines(config)
     ) {
@@ -470,7 +477,11 @@ export class TaskStarts {
     return this.members.hire(
       config.project.key,
       { role: temp.role },
-      { actor: opts.actor, author: opts.author, sponsor },
+      {
+        actor: isOperatorActor(config, opts.actor) ? SYSTEM_ACTOR : opts.actor,
+        author: isOperatorActor(config, opts.actor) ? SYSTEM_AUTHOR : opts.author,
+        sponsor,
+      },
       { temp: true, stageId: workStage.owners !== undefined ? workStage.id : undefined },
     );
   }

@@ -113,7 +113,9 @@ describe('mergeReadiness in the templates', () => {
     const readiness = mergeReadiness(config, task('merge', ['client-accepted', 'merge-approved']));
     expect(readiness).toMatchObject({ ready: true, repo: { name: 'web' }, target: { id: 'release' } });
     // The release approval comes after the merge, so it is not asked for; a blocking label still holds.
-    expect(mergeReadiness(config, task('merge', ['waiting-answer']))).toEqual({
+    expect(
+      mergeReadiness(config, task('merge', ['client-accepted', 'merge-approved', 'waiting-answer'])),
+    ).toEqual({
       ready: false,
       reason: 'gate',
     });

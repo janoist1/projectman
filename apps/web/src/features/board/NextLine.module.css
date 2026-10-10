@@ -11,6 +11,12 @@
   white-space: nowrap;
 }
 
+.wrap {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .head {
   font-weight: 800;
 }

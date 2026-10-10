@@ -38,6 +38,8 @@ export interface TaskNext {
   who: TaskNextActor[];
   /** The box's "who" row when `who` is empty. */
   noWho: string | null;
+  /** Set when `noWho` names a role that someone will fill (the next free Senior), not "nobody". */
+  noWhoKind: TaskNextActor['kind'] | null;
   /** The stage the card would enter, for the "Hová lépne" row; null when the wait is not about a move. */
   toStageId: string | null;
   /** "{head} · {waiting}": the row on the card. */
@@ -84,6 +86,7 @@ interface Parts {
   todo: string;
   tone?: TaskNextTone;
   noWho?: string | null;
+  noWhoKind?: TaskNextActor['kind'] | null;
   toStageId?: string | null;
 }
 
@@ -110,6 +113,7 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
       tone: parts.tone ?? (you ? 'needs' : 'neutral'),
       who: wait.next.map((actor) => ({ ...actor, you: actor.handle === myHandle })),
       noWho: wait.next.length === 0 ? (parts.noWho ?? nobodyAuto) : null,
+      noWhoKind: wait.next.length === 0 ? (parts.noWhoKind ?? null) : null,
       toStageId: parts.toStageId ?? null,
       line,
       title: t('taskStatus.next.title', {
@@ -150,6 +154,9 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
               reason === 'senior_busy'
                 ? hint || t('taskStatus.next.todo.auto')
                 : t('taskStatus.next.todo.auto'),
+            // Nobody is named yet, but the Senior who is free first takes the card.
+            noWho: t('task.whyBox.nobodySenior'),
+            noWhoKind: 'ai',
           });
         case 'no_free_member':
           return build({
@@ -257,7 +264,7 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
         head: names,
         you: meNext,
         waiting,
-        long: t('taskStatus.next.long.approval', { labels: quoted(wait.labels, labels), from: here, to }),
+        long: t('taskStatus.next.long.approval', { labels: quoted(wait.labels, labels) }),
         todo: meNext
           ? t('taskStatus.next.todo.approval')
           : t('taskStatus.next.todo.approvalOther', { who: names }),

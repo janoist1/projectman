@@ -16,11 +16,15 @@ function item(id: string): InboxItem {
   return found;
 }
 
-function renderCard(entry: InboxItem, props: { mobile?: boolean; myHandle?: string } = {}) {
+function renderCard(
+  entry: InboxItem,
+  props: { mobile?: boolean; myHandle?: string; taskTitle?: string } = {},
+) {
   const onResolve = vi.fn();
   renderUi(
     <InboxCard
       item={entry}
+      taskTitle={props.taskTitle}
       members={members}
       myHandle={props.myHandle ?? 'owner'}
       pipeline={pipeline}
@@ -560,6 +564,16 @@ describe('InboxCard "Vidd tovább" (PM-461)', () => {
     expect(within(card).getByRole('link', { name: t('inbox.handOn.open') })).toBeTruthy();
     fireEvent.click(buttons[0]!);
     expect(onResolve).toHaveBeenCalledWith(handOn, { optionId: 'move' });
+  });
+
+  it('leaves out the small card title line: the heading already names the card', () => {
+    const { card } = renderCard(handOn, { taskTitle: 'A kártya saját címe' });
+    expect(within(card).queryByText('A kártya saját címe')).toBeNull();
+  });
+
+  it('keeps that line on the other kinds of items', () => {
+    const { card } = renderCard(item('inb_q_ga4'), { taskTitle: 'A kártya saját címe' });
+    expect(within(card).getByText('A kártya saját címe')).toBeTruthy();
   });
 
   it('does not offer the details link twice on the phone', () => {

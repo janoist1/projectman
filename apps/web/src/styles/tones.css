@@ -154,6 +154,10 @@
   --kind-fg: var(--c-kind-question-fg);
   --kind-bg: var(--c-kind-question-bg);
 }
+[data-kind='hand_on'] {
+  --kind-fg: var(--c-needs-text);
+  --kind-bg: var(--c-needs-bg);
+}
 
 .pulse {
   animation: pm-pulse 1.8s infinite;

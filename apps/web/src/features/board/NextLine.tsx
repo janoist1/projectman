@@ -11,17 +11,22 @@ export function NextLine({
   next,
   className,
   prefix,
+  wrap,
 }: {
   next: TaskNext;
   className?: string;
   /** Text before the row (a stale map card says so), as part of the same line. */
   prefix?: string;
+  /** The row may run on to a second line (the drawer's header) instead of being cut. */
+  wrap?: boolean;
 }) {
+  const lead = prefix ? `${prefix}${t('taskStatus.next.between')}` : '';
+  const title = `${lead}${next.title}`;
   return (
-    <span className={clsx(styles.line, className)} title={next.title}>
-      <span className="visually-hidden">{next.title}</span>
-      <span aria-hidden="true" className={styles.text}>
-        {prefix ? `${prefix}${t('taskStatus.next.between')}` : null}
+    <span className={clsx(styles.line, className)} title={title}>
+      <span className="visually-hidden">{title}</span>
+      <span aria-hidden="true" className={clsx(styles.text, wrap && styles.wrap)}>
+        {lead}
         <strong className={styles.head}>{next.head}</strong>
         {t('taskStatus.next.between')}
         <span className={styles.waiting}>{next.waiting}</span>

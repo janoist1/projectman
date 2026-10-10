@@ -101,6 +101,13 @@ export function WhyBox({
                   </li>
                 ))}
               </ul>
+            ) : next.noWhoKind ? (
+              <span className={styles.person}>
+                <span className={styles.name}>{next.noWho}</span>
+                <span className={styles.kind}>
+                  {next.noWhoKind === 'ai' ? t('task.whyBox.kindAi') : t('task.whyBox.kindHuman')}
+                </span>
+              </span>
             ) : (
               next.noWho
             )}
@@ -123,7 +130,7 @@ export function WhyBox({
       </dl>
       {handOnOpen || moveOwn ? (
         <div className={styles.actions}>
-          <Button size="md" disabled={busy} onClick={onClick}>
+          <Button variant="primary" size="md" disabled={busy} onClick={onClick}>
             {buttonLabel}
           </Button>
           {error ? (

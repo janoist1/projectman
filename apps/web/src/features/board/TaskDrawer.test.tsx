@@ -40,13 +40,14 @@ describe('task drawer lifecycle', () => {
       since: task.updatedAt,
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
-    // The header and the "Miért áll?" box both say what the card waits for (PM-461).
+    // The header row says what the card waits for, short, like the card row; the box says it in full (PM-461).
+    const sentence = t(`taskStatus.startWaiting.${reason}`, {
+      provider: t('providers.claude'),
+      percent: 80,
+      name: nameOf('be-1', mockIndexes().members, 'owner'),
+    });
     const labels = await screen.findAllByText(
-      t(`taskStatus.startWaiting.${reason}`, {
-        provider: t('providers.claude'),
-        percent: 80,
-        name: nameOf('be-1', mockIndexes().members, 'owner'),
-      }),
+      reason === 'member_at_capacity' ? t('taskStatus.next.startReasons.member_at_capacity') : sentence,
     );
     expect(labels.length).toBeGreaterThan(0);
     // What to do is the box's last row; a member who is busy only needs to be waited for.
@@ -779,7 +780,9 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
 
-    await screen.findAllByText(t('taskStatus.prerequisiteOnMore', { key: 'AC-17', more: 1 }));
+    // The header row: "Előfeltételre vár · AC-17, AC-19".
+    await screen.findAllByText(t('taskStatus.next.heads.prerequisite'));
+    expect(screen.getAllByText('AC-17, AC-19').length).toBeGreaterThan(0);
     const box = screen.getByRole('region', { name: t('task.whyBox.title') });
     expect(within(box).getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
   });
@@ -1006,7 +1009,8 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     project.render(drawer, '/p/AC/tasks/AC-24');
 
     expect(await refineButton()).toBeTruthy();
-    expect(await screen.findByText(t('taskStatus.notRefined'))).toBeTruthy();
+    // The header row names the label the card waits for.
+    expect((await screen.findAllByText('Követelmény kész')).length).toBeGreaterThan(0);
     expectNoStart();
     // Nothing is being refined yet: no standing of the refinement either.
     expect(screen.queryByText(/Kidolgozás: \d+\/\d+ lépés kész/)).toBeNull();
@@ -1057,9 +1061,9 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     project.backend.findTask('AC-24')!.labels = ['refine'];
     project.render(drawer, '/p/AC/tasks/AC-24');
 
-    await screen.findByText(
-      t('taskStatus.refinement.yourStep', { label: t('taskStatus.quoted', { name: 'Követelmény kész' }) }),
-    );
+    // The header row says it is the viewer's step: "Rád vár · Követelmény kész".
+    expect((await screen.findAllByText(t('taskStatus.next.you'))).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Követelmény kész').length).toBeGreaterThan(0);
     await screen.findByText(t('taskStatus.refinement.progress', { done: 0, total: 1 }));
     expectNoStart();
     expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
@@ -1109,7 +1113,7 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     );
     project.render(drawer, '/p/AC/tasks/AC-24');
 
-    await screen.findByText(t('taskStatus.notRefined'));
+    expect((await screen.findAllByText('Követelmény kész')).length).toBeGreaterThan(0);
     expectNoStart();
     expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
   });
@@ -1127,9 +1131,7 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     const project = gatedProject(false);
     project.render(drawer, '/p/AC/tasks/AC-24');
 
-    await screen.findByText(
-      t('taskStatus.labelsMissing', { labels: t('taskStatus.quoted', { name: 'Követelmény kész' }) }),
-    );
+    expect((await screen.findAllByText('Követelmény kész')).length).toBeGreaterThan(0);
     expectNoStart();
     expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
   });

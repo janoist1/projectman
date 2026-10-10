@@ -3,7 +3,9 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
+import { nameOf } from '../../lib/members';
 import { mockProject } from '../../test/mockProject';
+import { mockIndexes } from '../../test/render';
 import { TaskDrawer } from './TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -79,6 +81,12 @@ describe('"Miért áll?" box in the drawer (PM-461)', () => {
     fireEvent.click(button);
     const alert = await within(region).findByRole('alert');
     expect(alert.textContent).toMatch(/^A kapu még nem enged tovább/);
+    // The error names what is missing, not only that the gate is shut.
+    expect(alert.textContent).toContain(
+      t('errors.gateUnmet', {
+        conditions: t('settings.pipeline.gateHasLabel', { label: 'design-review-ok' }),
+      }),
+    );
     expect(project.backend.findTask('AC-20')!.stageId).toBe('dev');
     expect(project.backend.inbox.find((item) => item.kind === 'hand_on')?.state).toBe('open');
     await waitFor(() =>
@@ -117,8 +125,23 @@ describe('"Miért áll?" box in the drawer (PM-461)', () => {
         .map((term) => term.textContent),
     ).toEqual([t('task.whyBox.who'), t('task.whyBox.waiting'), t('task.whyBox.todo')]);
     expect(within(region).queryByRole('button')).toBeNull();
-    expect(row(region, t('task.whyBox.who')).textContent).toContain(t('task.whyBox.kindAi'));
+    // The busy member is named, with the kind chip.
+    const who = row(region, t('task.whyBox.who')).textContent;
+    expect(who).toContain(nameOf('be-1', mockIndexes().members, 'owner'));
+    expect(who).toContain(t('task.whyBox.kindAi'));
     expect(within(region).getByText(t('taskStatus.next.todo.auto'))).toBeTruthy();
+  });
+
+  it('names the Senior role, not "nobody", while a Senior card waits for whoever is free first', async () => {
+    const project = mockProject();
+    const task = project.backend.findTask('AC-20')!;
+    task.startWaiting = { reason: 'senior_busy', since: task.updatedAt };
+    project.render(drawer, '/p/AC/tasks/AC-20');
+    const region = await box();
+    const who = row(region, t('task.whyBox.who')).textContent;
+    expect(who).toContain(t('task.whyBox.nobodySenior'));
+    expect(who).toContain(t('task.whyBox.kindAi'));
+    expect(who).not.toContain(t('task.whyBox.nobodyAuto'));
   });
 
   it('is not there while somebody works on the card', async () => {

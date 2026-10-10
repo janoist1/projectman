@@ -40,6 +40,45 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
     expect(deriveNext(task, wait({ reason }), ctx())).toBeNull();
   });
 
+  it('names the Senior role and an AI member for a capacity wait, and the busy member by name', () => {
+    const senior = deriveNext(
+      task,
+      wait({
+        reason: 'start_waiting',
+        startWaiting: { reason: 'senior_busy', since: '2026-10-01T10:00:00.000Z' },
+      }),
+      ctx(),
+    )!;
+    expect(senior).toMatchObject({
+      who: [],
+      noWho: 'Senior fejlesztő: aki elsőként felszabadul',
+      noWhoKind: 'ai',
+    });
+    const member = deriveNext(
+      task,
+      wait({
+        reason: 'start_waiting',
+        next: [ai('be-1')],
+        startWaiting: { reason: 'member_at_capacity', member: 'be-1', since: '2026-10-01T10:00:00.000Z' },
+      }),
+      ctx(),
+    )!;
+    expect(member.who).toEqual([{ handle: 'be-1', kind: 'ai', you: false }]);
+    expect(member.noWho).toBeNull();
+    expect(member.noWhoKind).toBeNull();
+  });
+
+  it('says only which approval is missing in the long text of an approval, not the route', () => {
+    const next = deriveNext(
+      task,
+      wait({ reason: 'approval', next: [human('owner')], toStageId: 'code_review', labels: ['qa-ok'] }),
+      ctx(),
+    )!;
+    expect(next.long).toBe('A következő lépéshez jóváhagyás kell: „qa-ok”.');
+    expect(next.long).not.toContain('Innen');
+    expect(next.todo).toBe('Döntsd el: jóváhagyod vagy elutasítod.');
+  });
+
   it('says "Rád vár" for the viewer and names the other member otherwise', () => {
     const mine = deriveNext(
       task,

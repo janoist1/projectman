@@ -130,7 +130,8 @@ export function InboxCard({
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   // The task the request is about: the most useful background of the decision, under the header row.
-  const contextTitle = taskTitle || (gateMove && item.title ? item.title : null);
+  // A "Vidd tovább" item names the card in its own heading.
+  const contextTitle = handOn ? null : taskTitle || (gateMove && item.title ? item.title : null);
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';

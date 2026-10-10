@@ -457,13 +457,14 @@ describe('fix round limit', () => {
 
     it('stage change does not close the decision item and decision still works', async () => {
       await owned();
-      await h.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', aiActor('dev-1'));
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('dev-1'));
       await settle();
+      expect(task().stageId).toBe('development');
       expect(items()).toHaveLength(1);
       expect(items()[0]!.state).toBe('open');
-      await resolve('another_round');
+      await resolve('reassign');
       await settle();
-      expect(record()).toMatchObject({ holdPhase: null, extraRounds: 1, inboxItemId: null });
+      expect(record()).toBeUndefined(); // reassign removes the record entirely, starting fresh
       expect(task().fixLimit).toBeUndefined();
     });
 

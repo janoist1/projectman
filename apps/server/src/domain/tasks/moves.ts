@@ -673,7 +673,7 @@ export class TaskMoves {
       state: 'open',
       taskKey: task.key,
     })) {
-      if ('fixLimit' in item.payload) continue;
+      if (fixLimitDecisionOf(item)) continue;
       this.inbox.cancel(item.id);
     }
     const change: StageChange = {

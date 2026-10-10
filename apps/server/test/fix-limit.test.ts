@@ -464,8 +464,9 @@ describe('fix round limit', () => {
       expect(items()[0]!.state).toBe('open');
       await resolve('reassign');
       await settle();
-      expect(record()).toBeUndefined(); // reassign removes the record entirely, starting fresh
+      expect(record()).toMatchObject({ holdPhase: null, inboxItemId: null, extraRounds: 0 });
       expect(task().fixLimit).toBeUndefined();
+      expect(task().assignee).not.toBe('dev-1');
     });
 
     it('another_round lets the card go on with one more round', async () => {

@@ -17,6 +17,7 @@ export { describeLink, linkTarget, numberedRef } from './links';
 export { describeRelatedCard, relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
 export { roleLabel } from './role';
+export { describeTaskWait, taskWaitShort } from './task-wait';
 export { describeRepo, type TaskRepoInfo } from './repo';
 export { describeTheme, themeCardLines, themeProgressText, themeState } from './theme';
 export { formatTimestamp, oneLine, PLAIN_STYLE, truncate, type TextStyle } from './text';

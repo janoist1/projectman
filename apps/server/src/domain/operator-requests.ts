@@ -39,13 +39,17 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_project_state',
 ]);
 
-/** The team tools the Operator never calls, request or not: decisions of other members and handovers. */
+/**
+ * The team tools the Operator never calls, request or not: decisions of other members, handovers and
+ * publishing outside the machine.
+ */
 export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'decide_permission_request',
   'decide_boundary_request',
   'decide_fix_limit',
   'submit_boundary_request',
   'hand_off',
+  'publish_task_branch',
 ]);
 
 export interface OpenOperatorRequest {

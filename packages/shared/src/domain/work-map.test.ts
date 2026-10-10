@@ -88,6 +88,11 @@ describe('mapStateOf', () => {
     expect(mapStateOf('working', false)).toBe('working');
     expect(mapStateOf('blocked', false)).toBe('blocked');
   });
+
+  it('keeps a card that stands on an outage waiting, even when it is stale (PM-468)', () => {
+    expect(mapStateOf('stuck', false)).toBe('waiting');
+    expect(mapStateOf('stuck', true)).toBe('waiting');
+  });
 });
 
 describe('workMap', () => {

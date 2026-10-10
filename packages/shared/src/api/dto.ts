@@ -6,6 +6,7 @@ import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
 import { ConfigChangeRow } from '../config/operator';
 import { ERROR_CODES } from './error-codes';
+import { TaskWait } from '../config/task-wait';
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
@@ -84,7 +85,14 @@ export const OperatorAction = z.enum([
   'project_resume',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
-export const OperatorStepStatus = z.enum(['done', 'awaiting_approval', 'approved', 'rejected', 'stale', 'refused']);
+export const OperatorStepStatus = z.enum([
+  'done',
+  'awaiting_approval',
+  'approved',
+  'rejected',
+  'stale',
+  'refused',
+]);
 export type OperatorStepStatus = z.infer<typeof OperatorStepStatus>;
 export const OperatorStep = z.object({
   id: z.string(),
@@ -253,8 +261,25 @@ export const CreateProjectRequest = z.object({
   templateId: z.string(),
   /** Repositories of the workspace; templates start without any (they can also be added later in the config). */
   repos: z.array(RepoConfig).optional(),
+  /** Who moves the cards on; absent means `worker`. `creator` makes the creating human the mover. */
+  cardMover: z.enum(['worker', 'project_manager', 'creator']).optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
+
+/** What `POST /api/projects/preview` answers: the configuration a create would save and its issues. */
+export const ProjectPreview = z.object({
+  config: ProjectConfig,
+  /** The fields of `ConfigIssue`; an absent severity is an error. */
+  issues: z.array(
+    z.object({
+      code: z.string(),
+      severity: z.enum(['error', 'warning']).optional(),
+      path: z.string(),
+      detail: z.string().optional(),
+    }),
+  ),
+});
+export type ProjectPreview = z.infer<typeof ProjectPreview>;
 
 export const TemplateSummary = z.object({
   id: z.string(),
@@ -507,6 +532,8 @@ export const TaskDetail = z.object({
   fixRounds: z
     .object({ rounds: z.number().int().nonnegative(), limit: z.number().int().positive() })
     .optional(),
+  /** Why the card stands still (PM-460), for the viewer; null for a closed card; not shared with clients. */
+  wait: TaskWait.nullable().optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 

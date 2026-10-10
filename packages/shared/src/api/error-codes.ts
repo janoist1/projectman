@@ -43,6 +43,7 @@ export const ERROR_CODES = [
   'duplicate_repo',
   'stage_in_use',
   'missing_duty_holder',
+  'merger_unresolved',
   // Members, roles and invitations
   'handle_taken',
   'unknown_member',

@@ -93,7 +93,7 @@ import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
-import { AutoAdvance, PrerequisiteClosures, TaskService } from './tasks';
+import { AutoAdvance, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
@@ -687,8 +687,8 @@ export function createDomain(opts: DomainOptions) {
   handOver.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
-  sessions.useQuotaRecovery(planUsage, (session, stageId) =>
-    messageStarts.resumeAfterQuota(session, stageId),
+  sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
+    messageStarts.resumeAfter(session, stageId, after),
   );
   const schedules = new ScheduleService({
     ctx,
@@ -800,9 +800,11 @@ export function createDomain(opts: DomainOptions) {
         })
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
+  const taskWaits = new TaskWaits({ ctx, members });
   const teamTools = new TeamToolsService({
     operatorRequests,
     operatorSteps,
+    taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
@@ -1272,6 +1274,7 @@ export function createDomain(opts: DomainOptions) {
     seniorWaits,
     fixLimit,
     autoAdvance,
+    taskWaits,
     disk,
     outages,
     worktreeSweep,

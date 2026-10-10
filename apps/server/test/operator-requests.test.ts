@@ -225,6 +225,7 @@ describe('the Operator’s write guard (PM-463)', () => {
           reason: 'x',
         } as never),
       () => h.domain.teamTools.submitBoundaryRequest(tool(), { operationId: 'x' } as never),
+      () => h.domain.teamTools.publishTaskBranch(tool(), { taskKey: 'AR-1', commit: 'abc1234' }),
     ];
     for (const call of calls()) expect(await refusal(call())).toMatch(/^operator_never:/);
     await endTurn();

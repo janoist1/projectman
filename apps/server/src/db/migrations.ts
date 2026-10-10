@@ -844,6 +844,18 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 46,
+    name: 'clear stalled fix limits',
+    sql: `UPDATE task_fix_limits
+          SET hold_phase = NULL, held_at = NULL, decider = NULL, deciders = '[]', reason = NULL, inbox_item_id = NULL
+          WHERE hold_phase IS NOT NULL
+            AND inbox_item_id IS NOT NULL
+            AND (
+              NOT EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id)
+              OR EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id AND state = 'cancelled')
+            );`,
+  },
+  {
+    version: 47,
     name: 'operator requests and steps',
     // PM-463: an owner's request to the Operator and what it did for it; changes and refusal are JSON.
     // operator_request on a message marks one the Operator sent during a request.

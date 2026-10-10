@@ -21,6 +21,7 @@ import type { FakeGh } from '../src/github/test-fixtures/harness';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { pullRequest } from './helpers/fakes';
+import { makeLocalOnly } from './helpers/test-template';
 
 /*
  * PM-142: the publishing gate in the domain, over the real publisher, a temp git remote that
@@ -363,9 +364,7 @@ describe('the publishing gate (PM-142)', { timeout: 90_000 }, () => {
 
     it('a local-only repository, and a task without a repository', async () => {
       await managed({
-        adjust: (c) => {
-          delete c.project.repos[0]!.github;
-        },
+        adjust: makeLocalOnly,
       });
       const ctx = await work('AR-1', 'dev-1');
       const commit = await commitIn('dev-1', 'login.txt');

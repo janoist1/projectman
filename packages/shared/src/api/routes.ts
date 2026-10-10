@@ -46,6 +46,7 @@ export const routes = {
 
   templates: () => '/api/templates',
   projects: () => '/api/projects',
+  projectPreview: () => '/api/projects/preview',
   project: (key: string) => `/api/projects/${key}`,
   board: (key: string) => `/api/projects/${key}/board`,
 

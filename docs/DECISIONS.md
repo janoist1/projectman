@@ -349,3 +349,11 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     developer or the developer who built the card merges it. "Done means merged" (PM-448)
     still holds; the system may give the member a tool and check that the work is in the main
     branch, but it does not merge on its own.
+48. **The board helps, the members work.** Decided by the owner on 2026-10-10 as a principle to
+    decide the details by. The board (the app) records, connects, reminds, checks and enforces
+    the rules (gates, approvals); it never works on the result: it writes no code, merges and
+    pushes nothing, and makes no decision. Every piece of work is done by a member, AI or
+    human, and shows whose it is. Decisions belong to people or to a member a person entrusted
+    with them; the board asks for them and records them. Who does a kind of work is set per
+    project, as a duty in the project's configuration, never fixed in the app: in projectman
+    the senior developer merges (decision 47), another project may choose differently.

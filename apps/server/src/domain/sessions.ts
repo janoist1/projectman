@@ -451,7 +451,10 @@ export class SessionOrchestrator {
   private readonly unsubscribe: () => void;
   private readonly providerHolds = new ProviderQuotaHolds();
   private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
-  private quotaResume: ((session: Session, stageId: string) => Promise<void>) | undefined;
+  private quotaResume:
+    ((session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>) | undefined;
+  /** Sessions whose CLI reported a lost login, and of which provider, until they end (PM-467). */
+  private readonly lostLogins = new Map<string, AgentProvider>();
   private quotaProbe: Promise<PlanUsage | null> | null = null;
   /** The member workspaces (PM-138) of each engine that has them, made when first used. */
   private readonly workspaceSets = new Map<
@@ -548,7 +551,7 @@ export class SessionOrchestrator {
 
   useQuotaRecovery(
     usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
-    resume: (session: Session, stageId: string) => Promise<void>,
+    resume: (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>,
   ): void {
     this.quotaUsage = usage;
     this.quotaResume = resume;
@@ -2672,6 +2675,7 @@ export class SessionOrchestrator {
     const resumeFailed =
       failed && session?.state === 'starting' && this.resumingProcesses.has(sessionId) && !stop;
     this.resumingProcesses.delete(sessionId);
+    this.lostLogins.delete(sessionId);
     this.stopReasons.delete(sessionId);
     this.closePending.delete(sessionId);
     this.closing.delete(sessionId);
@@ -2743,7 +2747,12 @@ export class SessionOrchestrator {
         }
         case 'state': {
           if (ENDED.has(event.state)) {
-            this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
+            const lostLogin = this.lostLogins.get(session.id);
+            const ended = this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
+            if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
+              void this.resumeAfterLoginLost(ended, lostLogin).catch((err: unknown) =>
+                this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
+              );
             return;
           }
           // A late event from a process that already ended must not revive the session.
@@ -2842,6 +2851,7 @@ export class SessionOrchestrator {
           return;
         }
         case 'auth_error': {
+          this.lostLogins.set(session.id, event.provider);
           this.deps.onAuthError?.(session.projectKey, session.member, event.provider, engineIdOf(session));
           // The runner stops the session; its final state carries the message.
           this.ctx.logger.warn(
@@ -2866,7 +2876,7 @@ export class SessionOrchestrator {
           // Persist the continuation while the usage request is still pending: a restart
           // during its timeout must not lose the affected task's wake-up.
           if (stageId)
-            void this.quotaResume?.(session, stageId).catch((err: unknown) =>
+            void this.quotaResume?.(session, stageId, 'quota').catch((err: unknown) =>
               this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
             );
           void this.finishQuotaFailure(session, event.message, started, stageId).catch((err: unknown) =>
@@ -2916,7 +2926,37 @@ export class SessionOrchestrator {
           options: [ALERT_SEEN_OPTION],
         });
     }
-    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId);
+    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId, 'quota');
+  }
+
+  /**
+   * A task's session ended because its CLI lost the provider login (PM-467). The login is checked
+   * afresh: only a confirmed logout parks the task until the login is back (then admission resumes
+   * it). A login the check still finds, or cannot judge, is not a reason to start again: the
+   * server may refuse a login the CLI believes in, and every restart would fail the same way.
+   */
+  private async resumeAfterLoginLost(session: Session, provider: AgentProvider): Promise<void> {
+    if (session.workItem.type !== 'task') return;
+    const stageId = this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId;
+    if (!stageId) return;
+    let status;
+    try {
+      status = await this.deps.runner.providerStatus?.(provider, {
+        member: session.member,
+        refresh: true,
+        ...engineOption(engineIdOf(session)),
+      });
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId: session.id, provider }, 'could not check the provider login');
+    }
+    if (status?.loggedIn !== false) {
+      this.ctx.logger.warn(
+        { sessionId: session.id, provider, loggedIn: status?.loggedIn ?? null },
+        'the session lost its login but the provider is not confirmed logged out: no automatic resume',
+      );
+      return;
+    }
+    await this.quotaResume?.(session, stageId, 'login');
   }
 
   /**

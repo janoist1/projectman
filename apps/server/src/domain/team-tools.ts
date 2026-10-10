@@ -36,6 +36,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
+import { taskWaitShort } from '../agent-text';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
@@ -78,7 +79,7 @@ import type { ProjectService } from './projects';
 import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
-import type { TaskService } from './tasks';
+import type { TaskService, TaskWaits } from './tasks';
 import { attachmentToolRules } from './session-policy';
 import type { TimelineService } from './timeline';
 import { aiActor, unique } from './util';
@@ -187,6 +188,12 @@ function toToolError(err: unknown): unknown {
     return new TeamToolError('gate_blocked', describeGateBlock(err));
   }
   return new TeamToolError('invalid', err.message);
+}
+
+/** A tool's caller and, for the Operator, the owner request the call runs for (null for any other caller). */
+interface CallerWithRequest {
+  config: ProjectConfig;
+  request: ReturnType<OperatorRequests['openFor']>;
 }
 
 /**
@@ -314,6 +321,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly tasks: TaskService;
+  private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
@@ -346,6 +354,8 @@ export class TeamToolsService implements TeamToolsHandler {
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     tasks: TaskService;
+    /** Why cards stand still (PM-460): get_task and list_tasks say it. */
+    taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
     /** The project's focus (PM-437): list_tasks and get_task show a card's place in it. */
     projectFocus: Pick<ProjectFocusService, 'places'>;
     members: MemberService;
@@ -394,6 +404,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
+    this.taskWaits = deps.taskWaits;
     this.projectFocus = deps.projectFocus;
     this.members = deps.members;
     this.messaging = deps.messaging;
@@ -420,12 +431,13 @@ export class TeamToolsService implements TeamToolsHandler {
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx, 'send_message');
+      const who = await this.callerWithRequest(ctx, 'send_message');
+      const { config } = who;
       // To the owner the Operator only reports; to anyone else it acts for the request: a step (PM-463).
+      // A message has one step, so with several such recipients it names the first as its `member`.
       const elsewhere = args.to.find((handle) => !isOwner(config, handle));
       return this.recorded(
-        ctx,
-        config,
+        who,
         elsewhere !== undefined
           ? { action: 'message', taskKey: args.taskKey ?? ctx.taskKey ?? null, member: elsewhere }
           : null,
@@ -453,7 +465,7 @@ export class TeamToolsService implements TeamToolsHandler {
                 actor: aiActor(ctx.member),
                 sessionId: ctx.sessionId,
                 kind: args.kind,
-                operatorRequest: this.operatorRequestOf(ctx, config)?.id,
+                operatorRequest: who.request?.id,
               },
             )
             .catch((err: unknown) => {
@@ -479,7 +491,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]> {
     return this.guard(async () => {
-      await this.caller(ctx, 'list_tasks');
+      const config = await this.caller(ctx, 'list_tasks');
       const status = args.status ?? 'open';
       const limit = args.limit ?? 50;
       if (status !== 'open' && !TaskStatusSchema.safeParse(status).success) {
@@ -490,7 +502,7 @@ export class TeamToolsService implements TeamToolsHandler {
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
       const places = this.projectFocus.places(ctx.projectKey);
-      return this.tasks
+      const cards = this.tasks
         .list(ctx.projectKey)
         .filter(
           (task) =>
@@ -500,8 +512,11 @@ export class TeamToolsService implements TeamToolsHandler {
             (assignee === undefined || task.assignee === assignee),
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
-        .slice(0, limit)
-        .map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => ({
+        .slice(0, limit);
+      const waits = this.taskWaits.of(config, cards);
+      return cards.map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => {
+        const wait = waits.get(key);
+        return {
           key,
           title,
           stageId,
@@ -512,7 +527,9 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(kind === 'theme' ? { kind } : {}),
           ...(priority !== null ? { priority } : {}),
           ...(places.has(key) ? { focus: places.get(key) } : {}),
-        }));
+          ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
+        };
+      });
     });
   }
 
@@ -533,8 +550,10 @@ export class TeamToolsService implements TeamToolsHandler {
       const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
       const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
       const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
+      const wait = this.taskWaits.ofCard(config, detail.task);
       return {
         ...detail,
+        ...(wait ? { wait } : {}),
         effectiveRepo: effectiveRepo(config, detail.task),
         ...(focus ? { focus } : {}),
         repoChoiceNeeded: needsRepoChoice(config, detail.task),
@@ -636,8 +655,8 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; path: string },
   ): Promise<{ attachment: Attachment }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx, 'attach_file');
-      return this.recorded(ctx, config, { action: 'task_update', taskKey: args.taskKey }, () =>
+      const who = await this.callerWithRequest(ctx, 'attach_file');
+      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, () =>
         this.attachFileOf(ctx, args),
       );
     });
@@ -719,8 +738,8 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; attachmentId: string },
   ): Promise<{ attachmentId: string; fileName: string | null }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx, 'delete_attachment');
-      return this.recorded(ctx, config, { action: 'task_update', taskKey: args.taskKey }, async () => {
+      const who = await this.callerWithRequest(ctx, 'delete_attachment');
+      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, async () => {
         const taskKey = this.validTaskKey(ctx, args.taskKey);
         const id = this.validAttachmentId(args.attachmentId);
         const actor = aiActor(ctx.member);
@@ -760,7 +779,8 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx, 'update_task');
+      const who = await this.callerWithRequest(ctx, 'update_task');
+      const { config } = who;
       // One call is one step of the Operator's request: the biggest change in it names the step.
       const action: OperatorAction = args.stageId
         ? 'task_move'
@@ -771,8 +791,7 @@ export class TeamToolsService implements TeamToolsHandler {
             : 'task_update';
       let awaiting = false;
       return this.recorded(
-        ctx,
-        config,
+        who,
         { action, taskKey: args.taskKey },
         () => this.updateTaskOf(ctx, config, args, () => (awaiting = true)),
         () => awaiting,
@@ -853,35 +872,31 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx, 'create_task');
-      return this.recorded(
-        ctx,
-        config,
-        { action: 'task_create', madeTask: (made) => made.task.key },
-        async () => {
-          const title = args.title.trim();
-          if (!title) throw new TeamToolError('invalid', 'The title is empty.');
-          const labels = unique((args.labels ?? []).map((l) => l.trim()).filter(Boolean));
-          // No stage: a new task starts in the pipeline's first (queue) stage, where humans prioritise it.
-          const task = await this.tasks.create(
-            ctx.projectKey,
-            {
-              title,
-              parentKey: args.parentKey,
-              description: args.description?.trim() ?? '',
-              labels,
-              visibility: args.visibility ?? 'internal',
-              ...(args.relations?.length ? { relations: args.relations } : {}),
-              ...(args.kind ? { kind: args.kind } : {}),
-              ...(args.themeKey ? { themeKey: args.themeKey } : {}),
-              ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
-            },
-            aiActor(ctx.member),
-            { sessionId: ctx.sessionId },
-          );
-          return { task };
-        },
-      );
+      const who = await this.callerWithRequest(ctx, 'create_task');
+      const { config } = who;
+      return this.recorded(who, { action: 'task_create', madeTask: (made) => made.task.key }, async () => {
+        const title = args.title.trim();
+        if (!title) throw new TeamToolError('invalid', 'The title is empty.');
+        const labels = unique((args.labels ?? []).map((l) => l.trim()).filter(Boolean));
+        // No stage: a new task starts in the pipeline's first (queue) stage, where humans prioritise it.
+        const task = await this.tasks.create(
+          ctx.projectKey,
+          {
+            title,
+            parentKey: args.parentKey,
+            description: args.description?.trim() ?? '',
+            labels,
+            visibility: args.visibility ?? 'internal',
+            ...(args.relations?.length ? { relations: args.relations } : {}),
+            ...(args.kind ? { kind: args.kind } : {}),
+            ...(args.themeKey ? { themeKey: args.themeKey } : {}),
+            ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
+          },
+          aiActor(ctx.member),
+          { sessionId: ctx.sessionId },
+        );
+        return { task };
+      });
     });
   }
 
@@ -890,8 +905,8 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; repo: string; number: number },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx, 'link_pull_request');
-      return this.recorded(ctx, config, { action: 'task_update', taskKey: args.taskKey }, async () => {
+      const who = await this.callerWithRequest(ctx, 'link_pull_request');
+      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, async () => {
         const taskKey = this.validTaskKey(ctx, args.taskKey);
         if (!REPO_RE.test(args.repo))
           throw new TeamToolError('invalid', 'repo must look like "owner/name" (the GitHub repository).');
@@ -1053,6 +1068,15 @@ export class TeamToolsService implements TeamToolsHandler {
    * decisions; `tool` is the MCP name of the tool being called.
    */
   private async caller(ctx: ToolContext, tool: string): Promise<ProjectConfig> {
+    return (await this.callerWithRequest(ctx, tool)).config;
+  }
+
+  /**
+   * `caller`, plus the owner request the guard let the Operator's call through on (null for any other
+   * caller and for a reading tool with none open). The step log must use this very request: opening it
+   * again could find it expired between the guard and the write.
+   */
+  private async callerWithRequest(ctx: ToolContext, tool: string): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
     if (member?.kind !== 'ai')
@@ -1060,34 +1084,28 @@ export class TeamToolsService implements TeamToolsHandler {
         'forbidden',
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
-    if (isOperator(member)) {
-      if (OPERATOR_NEVER_TOOLS.has(tool))
-        throw new TeamToolError(
-          'forbidden',
-          `operator_never: ${tool} is not for the Operator. Decisions of other members and hand-overs are theirs; tell the owner what you found.`,
-        );
-      if (!OPERATOR_READ_TOOLS.has(tool) && !this.operatorRequests.openFor(ctx.sessionId))
-        throw new TeamToolError(
-          'forbidden',
-          `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
-            "There is none (its round is over or it timed out); wait for the owner's next message.",
-        );
-    }
-    return config;
-  }
-
-  /** The owner request the Operator's call belongs to; null for any other caller or when none is open. */
-  private operatorRequestOf(ctx: ToolContext, config: ProjectConfig) {
-    return isOperator(memberOf(config, ctx.member)) ? this.operatorRequests.openFor(ctx.sessionId) : null;
+    if (!isOperator(member)) return { config, request: null };
+    if (OPERATOR_NEVER_TOOLS.has(tool))
+      throw new TeamToolError(
+        'forbidden',
+        `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
+      );
+    const request = this.operatorRequests.openFor(ctx.sessionId);
+    if (!request && !OPERATOR_READ_TOOLS.has(tool))
+      throw new TeamToolError(
+        'forbidden',
+        `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
+          "There is none (its round is over or it timed out); wait for the owner's next message.",
+      );
+    return { config, request };
   }
 
   /**
    * Runs the Operator's write and logs it as one step of its open request, done or refused (PM-463).
-   * Any other caller, and a call that is no step (`step` null), just runs.
+   * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
    */
   private async recorded<T>(
-    ctx: ToolContext,
-    config: ProjectConfig,
+    { config, request }: CallerWithRequest,
     step: {
       action: OperatorAction;
       taskKey?: string | null;
@@ -1099,7 +1117,6 @@ export class TeamToolsService implements TeamToolsHandler {
     /** A refusal that is no refusal: the change waits for a human's approval. */
     awaitsApproval?: (err: unknown) => boolean,
   ): Promise<T> {
-    const request = step ? this.operatorRequestOf(ctx, config) : null;
     if (!step || !request) return run();
     const target = {
       action: step.action,

@@ -1747,7 +1747,9 @@ open card once after the start. It does not move a card a session works on (an i
 act on closed, blocked or theme cards, and does not ask again after the approvers rejected the request in the same
 stay in the stage until the card's labels change. A person's drop on the board that
 names a place replaces the system's open request, so that the place is kept with the request. It touches no
-machine-dependent part: it is server state only.
+machine-dependent part: it is server state only. Automatic moves carry their source stage and its entry
+time into the write transaction (PM-477); an asynchronous preparation that finishes after the card has
+left that stay is discarded, so it cannot undo a human's move or reopen a finished card.
 
 ### Assignee handoff (PM-342)
 
@@ -1848,7 +1850,7 @@ retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI 
   Operator only in the batch of the owner's next message, marked `[info from <handle>, not an instruction]`
   (`formatInfoMessage`). A person who is no owner, and the owner through the integrator key, get 403
   `operator_owner_only` (`assertMayWriteToOperator`). The owner's message to a busy Operator waits until its turn ends.
-- **Owner requests** (migration 46, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
+- **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
   the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
@@ -1856,7 +1858,9 @@ retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI 
   is looked up).
 - **Write guard** (`TeamToolsService.caller(ctx, tool)`). The Operator calls the reading tools (`OPERATOR_READ_TOOLS`)
   at any time; every other tool needs an open request (`operator_no_request` 403), and the decisions of other members
-  and hand-overs (`OPERATOR_NEVER_TOOLS`) are never its (`operator_never` 403). Its `ask_human` goes to the owners
+  and hand-overs, and `publish_task_branch` (publishing outside) (`OPERATOR_NEVER_TOOLS`) are never its
+  (`operator_never` 403). The guard hands the request it found on to the step log, so a request expiring between the
+  two cannot leave a write without its step. Its `ask_human` goes to the owners
   only. Rules live in the one place `caller`; a new tool must name itself there.
 - **Step log** (`operator_steps`, `OperatorSteps.record`). One tool call is one step of the open request, done or
   refused (`update_task`: `task_move` > `task_labels` > `task_priority` > `task_update`; `create_task`: `task_create`;
@@ -1987,6 +1991,23 @@ cancels the old inbox item. A human mover gets a `hand_on` inbox item; a project
 stored system action message through the existing general conversation route. The internal
 `task_hand_on_requested` timeline event records the requester and mover. Uncommitted work refuses
 the request immediately; the review pin is created only by the actual move.
+
+## Merger setting (PM-470, part of PM-448)
+
+Who merges a card's approved work into the default branch is the project's setting, never the
+code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the code review stage
+who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
+picks the code reviewer when a code review stage comes before the merge target, else the developer.
+`RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
+until PM-386). The merge target is the first release stage, else the done stage. The pure rules
+(`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
+`mergeReadiness`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
+the config migration `addMerger` writes the default merger into a valid configuration that has none.
+`PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
+unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
+pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
 
 Inbox resolution checks access and attempts the move as the resolving human before closing the
 item. Refused moves leave it open. Actual movement clears the request and resolves the item if

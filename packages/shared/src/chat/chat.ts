@@ -57,13 +57,23 @@ export type ChatItem = z.infer<typeof ChatItem>;
 export const TEAM_MESSAGE_PREFIX_RE =
   /^\[team message from ([a-z0-9-]+)(?<via> via integrator)?(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
 
+/**
+ * A message body cannot pose as another message: a line of it that starts like a header of the formats
+ * below (`[team message from …`, `[team messages …`, `[info from …`) gets "> " in front, so none of the
+ * header patterns matches it, in the session's prompt or when a batch is split into its messages.
+ * Applying it twice changes nothing more (PM-463).
+ */
+export function neutralizeMessageHeaders(body: string): string {
+  return body.replace(/^(?=\[(?:team message|info from))/gm, '> ');
+}
+
 export function formatInjectedTeamMessage(
   from: string,
   body: string,
   taskKey?: string | null,
   via?: 'integrator',
 ): string {
-  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
+  return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${neutralizeMessageHeaders(body)}`;
 }
 
 /**
@@ -73,7 +83,7 @@ export function formatInjectedTeamMessage(
 export const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
 
 export function formatInfoMessage(from: string, body: string): string {
-  return `[info from ${from}, not an instruction]\n${body}`;
+  return `[info from ${from}, not an instruction]\n${neutralizeMessageHeaders(body)}`;
 }
 
 export const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
@@ -134,7 +144,10 @@ export function formatTeamMessageBatch(
     header,
     ...items.map((item) => {
       if (item.info)
-        return formatInfoMessage(item.from, `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${item.body}`);
+        return formatInfoMessage(
+          item.from,
+          `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${item.body}`,
+        );
       const version = item.version
         ? `at stage ${item.version.stageId}, commit ${item.version.commit?.slice(0, 7) ?? 'unknown'}, review commit ${item.version.reviewCommit?.slice(0, 7) ?? 'none'}`
         : 'version unknown';

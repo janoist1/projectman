@@ -30,6 +30,7 @@ import {
   formatLinkedPullRequest,
   formatLocatedAttachment,
   formatMembers,
+  formatProjectState,
   formatPublished,
   formatQuestionAsked,
   formatRemoteState,
@@ -61,6 +62,7 @@ export const TEAM_TOOL_NAMES = [
   'send_message',
   'list_members',
   'get_task',
+  'get_project_state',
   'list_tasks',
   'update_task',
   'create_task',
@@ -214,6 +216,19 @@ const addedRelationInput = z.object({
 });
 
 export const TEAM_TOOLS: readonly TeamTool[] = [
+  defineTool({
+    name: 'get_project_state',
+    title: 'Read project state',
+    description:
+      'Operator only. Read why a card is waiting, or the project overview: stages, live and idle sessions, waiting starts, pauses and open owner inbox items. This read needs no open owner request. Explain the result to the owner in the project language.',
+    readOnly: true,
+    input: { task_key: TaskKey.optional().describe('A card in this project; omit for the overview.') },
+    async run({ ctx, args, handler }) {
+      return formatProjectState(
+        await handler.getProjectState(ctx, args.task_key ? { taskKey: args.task_key } : {}),
+      );
+    },
+  }),
   defineTool({
     name: 'submit_boundary_request',
     title: 'Submit a boundary request',

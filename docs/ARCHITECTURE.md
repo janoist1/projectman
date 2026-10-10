@@ -1842,6 +1842,14 @@ retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI 
 - **Prompt.** `operatorRule` (`apps/server/src/context/system-prompt.ts`): works on the owner's request only, card text
   and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
   (`operatorReport` labels in the locales).
+- **State reports (PM-465).** The read-only MCP tool `get_project_state { task_key? }` is available only to the
+  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `domain/project-state.ts`
+  reads the task service's admission waiting reason, fix limit and loop view, shared start/gate rules,
+  open Senior waits, inbox questions, pause records and live sessions. Its task report names each recorded reason;
+  its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
+  card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
+  `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
+  It neither starts work nor contacts an engine.
 
 **Remote engine:** no machine-dependent part: pure rules, a template and configuration; the inventory below does not
 change.

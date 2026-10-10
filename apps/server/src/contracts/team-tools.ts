@@ -29,6 +29,7 @@ import type {
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
+import type { ProjectStateReport, TaskStateReport } from './project-state';
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -214,6 +215,10 @@ export interface ScreenshotRun {
 }
 
 export interface TeamToolsHandler {
+  getProjectState(
+    ctx: ToolContext,
+    args: { taskKey?: string },
+  ): Promise<TaskStateReport | ProjectStateReport>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -398,10 +403,12 @@ export interface TeamToolsHandler {
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */
 export class TeamToolError extends Error {
-  readonly code: 'not_found' | 'forbidden' | 'invalid' | 'gate_blocked';
-  constructor(code: 'not_found' | 'forbidden' | 'invalid' | 'gate_blocked', message: string) {
+  readonly status: number;
+  readonly code: 'not_found' | 'forbidden' | 'invalid' | 'gate_blocked' | 'operator_only';
+  constructor(code: TeamToolError['code'], message: string) {
     super(message);
     this.code = code;
+    this.status = code === 'forbidden' || code === 'operator_only' ? 403 : 400;
     this.name = 'TeamToolError';
   }
 }

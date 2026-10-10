@@ -276,6 +276,16 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       });
     },
 
+    async getProjectState(ctx, args) {
+      await enter('getProjectState', ctx, args);
+      return {
+        paused: { project: false, instance: false },
+        stages: [],
+        sessions: [],
+        waitingStarts: [],
+        openOwnerItems: [],
+      };
+    },
     async getTask(ctx, args) {
       await enter('getTask', ctx, args);
       // The repository the work happens in is the domain's to work out (`effectiveRepo`); the

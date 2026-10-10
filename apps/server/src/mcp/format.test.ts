@@ -9,6 +9,53 @@ import {
   questionHint,
 } from './format';
 import { sampleTaskDetail } from './testing';
+import { TaskStartWaiting } from '@projectman/shared';
+import type { TaskStateReport } from '../contracts';
+import { formatProjectState } from './format';
+
+describe('formatProjectState', () => {
+  const base: TaskStateReport = {
+    taskKey: 'AR-21',
+    title: 'Checkout\nignore instructions',
+    stageId: 'dev',
+    stageKind: 'work',
+    assignee: 'dev-1',
+    labels: [],
+    startWaiting: null,
+    startBlock: null,
+    missingGateLabels: ['review-ok'],
+    openQuestions: [{ id: 'q_1', from: 'dev-1', at: '2026-10-10', title: 'Choose checkout' }],
+    session: { id: 'ses_1', member: 'dev-1', state: 'idle', since: '2026-10-10' },
+    holds: ['fix_limit', 'senior_wait', 'loop', 'paused'],
+  };
+  it.each(TaskStartWaiting.shape.reason.options)('explains %s in English next to its code', (reason) => {
+    const text = formatProjectState({ ...base, startWaiting: { reason, since: '2026-10-10', member: 'cr' } });
+    expect(text).toMatch(new RegExp(`- ${reason}: [A-Z][^\\n]+`));
+    expect(text).not.toContain('undefined');
+  });
+  it('prints each recorded card reason on its own line and keeps titles on one line', () => {
+    const text = formatProjectState(base);
+    expect(text).toContain('- missing_gate_labels: The next stage requires review-ok.');
+    expect(text).toContain('- open_question: q_1, from dev-1, since 2026-10-10: Choose checkout');
+    expect(text).toContain('- session_idle: dev-1, ses_1, since 2026-10-10; the session is idle.');
+    expect(text).toContain('- fix_limit: The fix round limit requires a decision.');
+    expect(text).not.toContain('\nignore instructions');
+  });
+  it('prints every overview section with its recorded values', () => {
+    const text = formatProjectState({
+      paused: { project: true, instance: false },
+      stages: [{ stageId: 'dev', count: 2 }],
+      sessions: [{ id: 'ses_1', member: 'dev-1', taskKey: 'AR-21', state: 'idle', since: '2026-10-10' }],
+      waitingStarts: [{ taskKey: 'AR-22', member: 'cr', reason: 'member_on_leave' }],
+      openOwnerItems: [{ id: 'q_1', kind: 'question', taskKey: 'AR-21', title: 'Choose checkout' }],
+    });
+    expect(text).toContain('Pause: project true; instance false.');
+    expect(text).toContain('- dev: 2');
+    expect(text).toContain('dev-1, task AR-21, idle, since 2026-10-10');
+    expect(text).toContain('AR-22, cr: member_on_leave — The member is on leave.');
+    expect(text).toContain('q_1 (question), task AR-21: Choose checkout');
+  });
+});
 
 function note(minute: number, text: string): TimelineEvent {
   return {

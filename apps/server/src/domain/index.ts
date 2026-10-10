@@ -60,6 +60,8 @@ import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { ProjectManagerChannels } from './project-manager';
+import { ProjectState } from './project-state';
+export { ProjectState } from './project-state';
 import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
@@ -793,7 +795,9 @@ export function createDomain(opts: DomainOptions) {
         })
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
+  const projectState = new ProjectState({ ctx, projects, tasks, pauses, deferred: deferredStarts });
   const teamTools = new TeamToolsService({
+    projectState,
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
@@ -1216,6 +1220,7 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    projectState,
     ctx,
     projectManagerChannels: new ProjectManagerChannels({ ctx, projects, deferred: deferredStarts, pauses }),
     bus,

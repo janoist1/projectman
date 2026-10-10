@@ -30,6 +30,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
+import { taskWaitShort } from '../agent-text';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
@@ -70,7 +71,7 @@ import type { ProjectService } from './projects';
 import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
-import type { TaskService } from './tasks';
+import type { TaskService, TaskWaits } from './tasks';
 import { attachmentToolRules } from './session-policy';
 import type { TimelineService } from './timeline';
 import { aiActor, unique } from './util';
@@ -276,6 +277,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly tasks: TaskService;
+  private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
@@ -308,6 +310,8 @@ export class TeamToolsService implements TeamToolsHandler {
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     tasks: TaskService;
+    /** Why cards stand still (PM-460): get_task and list_tasks say it. */
+    taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
     /** The project's focus (PM-437): list_tasks and get_task show a card's place in it. */
     projectFocus: Pick<ProjectFocusService, 'places'>;
     members: MemberService;
@@ -350,6 +354,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
+    this.taskWaits = deps.taskWaits;
     this.projectFocus = deps.projectFocus;
     this.members = deps.members;
     this.messaging = deps.messaging;
@@ -416,7 +421,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      const config = await this.caller(ctx);
       const status = args.status ?? 'open';
       const limit = args.limit ?? 50;
       if (status !== 'open' && !TaskStatusSchema.safeParse(status).success) {
@@ -427,7 +432,7 @@ export class TeamToolsService implements TeamToolsHandler {
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
       const places = this.projectFocus.places(ctx.projectKey);
-      return this.tasks
+      const cards = this.tasks
         .list(ctx.projectKey)
         .filter(
           (task) =>
@@ -437,8 +442,11 @@ export class TeamToolsService implements TeamToolsHandler {
             (assignee === undefined || task.assignee === assignee),
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
-        .slice(0, limit)
-        .map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => ({
+        .slice(0, limit);
+      const waits = this.taskWaits.of(config, cards);
+      return cards.map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => {
+        const wait = waits.get(key);
+        return {
           key,
           title,
           stageId,
@@ -449,7 +457,9 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(kind === 'theme' ? { kind } : {}),
           ...(priority !== null ? { priority } : {}),
           ...(places.has(key) ? { focus: places.get(key) } : {}),
-        }));
+          ...(wait ? { waitsFor: taskWaitShort(wait) } : {}),
+        };
+      });
     });
   }
 
@@ -470,8 +480,10 @@ export class TeamToolsService implements TeamToolsHandler {
       const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
       const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
       const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
+      const wait = this.taskWaits.ofCard(config, detail.task);
       return {
         ...detail,
+        ...(wait ? { wait } : {}),
         effectiveRepo: effectiveRepo(config, detail.task),
         ...(focus ? { focus } : {}),
         repoChoiceNeeded: needsRepoChoice(config, detail.task),

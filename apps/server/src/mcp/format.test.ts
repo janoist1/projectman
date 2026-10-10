@@ -40,6 +40,32 @@ describe('formatTaskDetail', () => {
     );
     expect(text).not.toContain('moved to review');
   });
+  it('says why the card stands still in a Waiting line, and none when the detail has no wait (PM-460)', () => {
+    const waitingLine = (detail: Parameters<typeof formatTaskDetail>[0]) =>
+      formatTaskDetail(detail)
+        .split('\n')
+        .find((line) => line.startsWith('Waiting: '));
+    const detail = sampleTaskDetail();
+    expect(waitingLine(detail)).toBeUndefined();
+
+    detail.wait = {
+      reason: 'approval',
+      next: [{ handle: 'owner', kind: 'human' }],
+      toStageId: 'done',
+      labels: ['code-review-ok'],
+      inboxItemId: null,
+      inboxKind: null,
+      startWaiting: null,
+      prerequisites: [],
+      since: '2026-10-10T20:00:00.000Z',
+    };
+    expect(waitingLine(detail)).toBe(
+      'Waiting: waits for the approval code-review-ok of owner (to enter done).',
+    );
+
+    detail.wait = { ...detail.wait, reason: 'prerequisite', next: [], labels: [], prerequisites: ['AR-3'] };
+    expect(waitingLine(detail)).toBe('Waiting: open prerequisite: AR-3.');
+  });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
     const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>
       formatTaskDetail(detail)

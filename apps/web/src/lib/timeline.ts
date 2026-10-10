@@ -353,6 +353,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     }
+    case 'task_hand_on_requested':
+      return normal(
+        t('timeline.events.task_hand_on_requested', {
+          fromStageId: stageName(ctx, str(d.fromStageId)),
+          toStageId: stageName(ctx, str(d.toStageId)),
+          mover: str(d.mover),
+        }),
+      );
     case 'task_stage_changed': {
       const names = { from: stageName(ctx, str(d.from)), to: stageName(ctx, str(d.to)) };
       const moved = record(d.branchMoved);

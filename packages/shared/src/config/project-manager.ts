@@ -1,6 +1,7 @@
 import type { Actor } from '../domain/event';
 import type { WorkItemRef } from '../domain/session';
 import { stageIndex } from './gates';
+import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
@@ -31,14 +32,16 @@ export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, ha
 }
 
 /**
- * The only stage move a project manager makes on its own: from a queue stage that is not the
- * first into a later work stage. Anything else needs the owner.
+ * A project manager starts cards from a later queue into work, and hands cards on when
+ * selected as the project's card mover. Other stage moves need the owner.
  */
 export function projectManagerMoveRefusal(
-  config: Pick<ProjectConfig, 'pipeline'>,
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   fromStageId: string,
   toStageId: string,
 ): 'project_manager_move_refused' | null {
+  if (cardMoverOf(config).kind === 'project_manager' && isHandOnMove(config, fromStageId, toStageId))
+    return null;
   const from = stageIndex(config.pipeline, fromStageId);
   const to = stageIndex(config.pipeline, toStageId);
   if (from <= 0 || to <= from) return 'project_manager_move_refused';

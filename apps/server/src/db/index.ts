@@ -24,6 +24,7 @@ import { createTaskFixLimitRepository } from './fix-limits';
 import { createTaskHandoffRepository } from './task-handoffs';
 import { createTaskLoopRepository } from './task-loops';
 import { createTaskRepository } from './tasks';
+import { createTaskHandOnRepository } from './task-hand-ons';
 import { createTimelineRepository } from './timeline';
 import { createTokenUsageRepository } from './token-usage';
 import { createAuthSessionRepository, createUserRepository } from './users';
@@ -60,6 +61,7 @@ export function createRepositories(db: Db) {
     projects: createProjectRepository(db),
     counters: createCounterRepository(db),
     tasks: createTaskRepository(db),
+    taskHandOns: createTaskHandOnRepository(db),
     timeline: createTimelineRepository(db),
     attachments: createAttachmentRepository(db),
     sessions: createSessionRepository(db),

@@ -5,6 +5,7 @@ import {
   canDecidePermission,
   effectiveSessionPermissions,
   gateRequestOf,
+  handOnRequestOf,
   memberOf,
   permissionDelegationOf,
   permissionDelegationState,
@@ -134,6 +135,18 @@ export class InboxService {
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
+  private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
+
+  useHandOnMove(move: (item: InboxItem, by: Resolver) => Promise<void>): void {
+    this.handOnMove = move;
+  }
+
+  /** Close a hand-on item as part of the transaction that actually moved its card. */
+  resolveHandOn(id: string, by: string): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'move', by, at, note: null }, at);
+    if (item) this.publish(item);
+  }
 
   constructor(deps: {
     ctx: DomainContext;
@@ -259,6 +272,15 @@ export class InboxService {
     const note = req.note?.trim() ? req.note.trim() : null;
     if (item.kind === 'question' && req.optionId === ANSWER_OPTION.id && !note) {
       throw invalid('answer_required', 'a free-text answer needs a note');
+    }
+    if (item.kind === 'hand_on') {
+      if (!handOnRequestOf(item) || !this.handOnMove)
+        throw conflict('inbox_item_closed', 'the hand-on request is no longer available');
+      // The move closes the item in its own transaction; a refused move leaves it open.
+      await this.handOnMove(item, by);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
     }
     const at = isoNow(this.ctx);
     const resolved = this.ctx.repos.inbox.close(

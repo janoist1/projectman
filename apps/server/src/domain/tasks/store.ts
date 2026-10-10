@@ -78,6 +78,7 @@ export class TaskStore {
       fixLimit: _____,
       handoff: ______,
       lastHandoff: _______,
+      handOn: ________,
       ...rest
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
@@ -86,6 +87,18 @@ export class TaskStore {
     const loop = this.loop(task);
     const fixLimit = this.fixLimit?.(task);
     const handoffs = this.handoffs(task);
+    const record = this.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+    const handOn =
+      record && isOpenTask(task)
+        ? {
+            fromStageId: record.fromStageId,
+            toStageId: record.toStageId,
+            mover: record.mover,
+            requestedBy: record.requestedBy,
+            requestedAt: record.requestedAt,
+            inboxItemId: record.inboxItemId,
+          }
+        : undefined;
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
@@ -94,6 +107,7 @@ export class TaskStore {
       ...(loop ? { loop } : {}),
       ...(fixLimit ? { fixLimit } : {}),
       ...handoffs,
+      ...(handOn ? { handOn } : {}),
     };
   }
 

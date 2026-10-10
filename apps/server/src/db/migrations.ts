@@ -827,5 +827,20 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     name: 'relayed project manager replies',
     sql: `ALTER TABLE team_messages ADD COLUMN relayed TEXT;`,
   },
+  {
+    version: 45,
+    name: 'task hand-on requests',
+    sql: `CREATE TABLE task_hand_ons (
+      project_key TEXT NOT NULL,
+      task_key TEXT NOT NULL,
+      from_stage_id TEXT NOT NULL,
+      to_stage_id TEXT NOT NULL,
+      mover TEXT NOT NULL,
+      requested_by TEXT NOT NULL,
+      requested_at TEXT NOT NULL,
+      inbox_item_id TEXT,
+      PRIMARY KEY (project_key, task_key)
+    );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

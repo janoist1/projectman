@@ -220,6 +220,13 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
   return raw;
 }
 
+/** Existing projects retain worker-driven handovers (PM-457). */
+export function addCardMover(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.cardMover === undefined) team.cardMover = { kind: 'worker' };
+  return raw;
+}
+
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
@@ -232,21 +239,24 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
- *   - a project without an AI project manager gets one, on leave (above).
+ *   - a project without an AI project manager gets one, on leave (above);
+ *   - a missing card mover becomes worker (above).
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addProjectManager(
-    migrateReleaseApproval(
-      migrateLegacyConfig(
-        migrateCodexBypass(
-          migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-          context,
+  return addCardMover(
+    addProjectManager(
+      migrateReleaseApproval(
+        migrateLegacyConfig(
+          migrateCodexBypass(
+            migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+            context,
+          ),
         ),
+        context,
       ),
       context,
     ),
-    context,
   );
 }

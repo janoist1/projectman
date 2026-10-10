@@ -1,4 +1,4 @@
-import type { ProjectConfig } from '@projectman/shared';
+import type { CardMover, ProjectConfig } from '@projectman/shared';
 
 export interface TemplateOwner {
   handle: string;
@@ -7,6 +7,7 @@ export interface TemplateOwner {
 }
 
 export interface BuildTemplateInput {
+  cardMover?: CardMover;
   key: string;
   name: string;
   workspacePath: string;

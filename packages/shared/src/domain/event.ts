@@ -25,6 +25,7 @@ export const TimelineEventType = z.enum([
   'task_created',
   'task_updated',
   'task_stage_changed',
+  'task_hand_on_requested',
   'task_assigned',
   'task_level_changed',
   'task_senior_wait',
@@ -84,6 +85,12 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  task_hand_on_requested: {
+    fromStageId: string;
+    toStageId: string;
+    mover: string;
+    requestedBy: string;
+  };
   boundary_changed: {
     requestId: string;
     operation: string;

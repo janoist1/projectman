@@ -36,6 +36,7 @@ import { stageLabel } from './format';
 import { formatMemoryEntry, MEMORY_LIMIT_BYTES } from './memory';
 import { roleLabel } from './system-prompt';
 import { describeTeamRule } from './team-rules';
+import { handover } from './work-item';
 
 const builder = createContextPackBuilder();
 
@@ -947,6 +948,30 @@ describe('system prompt', () => {
         expect(roleOf(builder.build(input({ project, handle })).appendSystemPrompt)).not.toContain(
           'You are the project manager',
         );
+    });
+
+    it('tells the project manager to move cards when selected as the card mover', () => {
+      const project = withPm('en');
+      project.team.cardMover = { kind: 'project_manager' };
+      const pm = roleOf(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt);
+      expect(pm).toContain('You move cards on in this project when the system tells you a stage is finished');
+      project.team.cardMover = { kind: 'worker' };
+      expect(roleOf(builder.build(input({ project, handle: 'pm' })).appendSystemPrompt)).not.toContain(
+        'You move cards on in this project',
+      );
+    });
+
+    it('tells the worker who moves cards on while retaining queue starts', () => {
+      const project = withPm('en');
+      project.team.cardMover = { kind: 'human', handle: 'owner' };
+      const task = makeTask({ stageId: 'dev' });
+      const context = input({ project, handle: 'fe-1', task });
+      const target = project.pipeline.stages.find((stage) => stage.id === 'code_review')!;
+      expect(handover(context, target)).toContain('owner moves cards on in this project');
+      const queue = project.pipeline.stages.find((stage) => stage.kind === 'queue')!;
+      const work = project.pipeline.stages.find((stage) => stage.id === 'dev')!;
+      const queued = input({ project, handle: 'fe-1', task: makeTask({ stageId: queue.id }) });
+      expect(handover(queued, work)).not.toContain('the card waits for them');
     });
 
     it('writes the labels of the report in the language of the project', () => {

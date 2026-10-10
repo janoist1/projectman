@@ -20,6 +20,7 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       templateId: 'test',
     },
     team: {
+      cardMover: input.cardMover ?? { kind: 'worker' },
       members: [
         {
           kind: 'human',

@@ -874,6 +874,12 @@ export const hu = {
       operator_required: 'Nem bocsátható el: az Operátor a projekt állandó tagja.',
       operator_fixed:
         'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
+      operator_owner_only:
+        'Az Operátornak csak a projekt tulajdonosa írhat, a saját bejelentkezésével; más tagok üzenete csak tájékoztatás.',
+      operator_no_request:
+        'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
+      operator_never:
+        'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',

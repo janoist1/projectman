@@ -855,6 +855,41 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
             );`,
   },
   {
+    version: 47,
+    name: 'operator requests and steps',
+    // PM-463: an owner's request to the Operator and what it did for it; changes and refusal are JSON.
+    // operator_request on a message marks one the Operator sent during a request.
+    sql: `CREATE TABLE operator_requests (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('message', 'answer')),
+      message_id TEXT,
+      inbox_item_id TEXT,
+      from_handle TEXT NOT NULL,
+      quote TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    CREATE INDEX operator_requests_project ON operator_requests(project_key, opened_at);
+    CREATE INDEX operator_requests_session ON operator_requests(session_id) WHERE closed_at IS NULL;
+    CREATE TABLE operator_steps (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES operator_requests(id),
+      at TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      task_key TEXT,
+      member TEXT,
+      changes TEXT NOT NULL DEFAULT '[]',
+      config_version TEXT,
+      inbox_item_id TEXT,
+      refusal TEXT
+    );
+    CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
+    ALTER TABLE team_messages ADD COLUMN operator_request TEXT;`,
+  },
+  {
     version: 48,
     name: 'member merges and persistent handovers',
     sql: `CREATE TABLE task_merges (

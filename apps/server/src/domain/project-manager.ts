@@ -1,7 +1,8 @@
-import { isOnLeave, projectManagerOf } from '@projectman/shared';
-import type { ProjectManagerChannel } from '@projectman/shared';
+import { isOnLeave, operatorOf, projectManagerOf } from '@projectman/shared';
+import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { DeferredStarts } from './admission';
+import type { OperatorRequests } from './operator-requests';
 import type { PauseService } from './pause';
 import type { ProjectService } from './projects';
 
@@ -12,6 +13,7 @@ export class ProjectManagerChannels {
     projects: ProjectService;
     deferred: DeferredStarts;
     pauses: PauseService;
+    operatorRequests: OperatorRequests;
   };
 
   constructor(deps: ProjectManagerChannels['deps']) {
@@ -19,8 +21,22 @@ export class ProjectManagerChannels {
   }
 
   async view(projectKey: string): Promise<ProjectManagerChannel> {
-    const { ctx, projects, deferred, pauses } = this.deps;
-    const manager = projectManagerOf(await projects.config(projectKey));
+    const manager = projectManagerOf(await this.deps.projects.config(projectKey));
+    return this.channelOf(projectKey, manager);
+  }
+
+  /** The Operator's one conversation as the project manager's, plus its latest requests and their steps (PM-463). */
+  async operatorView(projectKey: string): Promise<OperatorChannel> {
+    const operator = operatorOf(await this.deps.projects.config(projectKey));
+    const channel = await this.channelOf(projectKey, operator);
+    return { ...channel, requests: this.deps.operatorRequests.views(projectKey) };
+  }
+
+  private async channelOf(
+    projectKey: string,
+    manager: AiMemberConfig | null,
+  ): Promise<ProjectManagerChannel> {
+    const { ctx, deferred, pauses } = this.deps;
     if (!manager) return { member: null, state: 'missing', sessionId: null };
     const session = ctx.repos.sessions.findByWorkItem(projectKey, manager.handle, { type: 'general' });
     const base = {

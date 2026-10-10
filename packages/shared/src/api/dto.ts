@@ -4,6 +4,8 @@ import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
+import { ConfigChangeRow } from '../config/operator';
+import { ERROR_CODES } from './error-codes';
 import { TaskWait } from '../config/task-wait';
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
@@ -61,6 +63,63 @@ export const ProjectManagerChannel = z.object({
   sessionId: z.string().nullable(),
 });
 export type ProjectManagerChannel = z.infer<typeof ProjectManagerChannel>;
+
+/* ---------- the Operator (PM-447, PM-463) ---------- */
+
+/** What the Operator did on an owner's request; one step per tool call. */
+export const OperatorAction = z.enum([
+  'task_create',
+  'task_update',
+  'task_move',
+  'task_labels',
+  'task_priority',
+  'task_start',
+  'message',
+  'config_change',
+  'member_change',
+  'member_hire',
+  'member_retire',
+  'config_revert',
+  'session_stop',
+  'project_pause',
+  'project_resume',
+]);
+export type OperatorAction = z.infer<typeof OperatorAction>;
+export const OperatorStepStatus = z.enum([
+  'done',
+  'awaiting_approval',
+  'approved',
+  'rejected',
+  'stale',
+  'refused',
+]);
+export type OperatorStepStatus = z.infer<typeof OperatorStepStatus>;
+export const OperatorStep = z.object({
+  id: z.string(),
+  requestId: z.string(),
+  at: z.string(),
+  action: OperatorAction,
+  status: OperatorStepStatus,
+  taskKey: TaskKey.nullable(),
+  member: MemberHandle.nullable(),
+  changes: z.array(ConfigChangeRow),
+  configVersion: z.string().nullable(),
+  inboxItemId: z.string().nullable(),
+  refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
+});
+export type OperatorStep = z.infer<typeof OperatorStep>;
+export const OperatorRequestView = z.object({
+  id: z.string(),
+  messageId: z.string().nullable(),
+  quote: z.string(),
+  openedAt: z.string(),
+  closedAt: z.string().nullable(),
+  steps: z.array(OperatorStep),
+});
+export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
+/** The Operator's conversation as the project manager's, plus the last 50 requests (the newest last). */
+export const OperatorChannel = ProjectManagerChannel.extend({ requests: z.array(OperatorRequestView) });
+export type OperatorChannel = z.infer<typeof OperatorChannel>;
 
 /* ---------- auth ---------- */
 

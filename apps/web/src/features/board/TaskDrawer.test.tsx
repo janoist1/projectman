@@ -40,14 +40,24 @@ describe('task drawer lifecycle', () => {
       since: task.updatedAt,
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
-    await screen.findByText(
+    // The header and the "Miért áll?" box both say what the card waits for (PM-461).
+    const labels = await screen.findAllByText(
       t(`taskStatus.startWaiting.${reason}`, {
         provider: t('providers.claude'),
         percent: 80,
         name: nameOf('be-1', mockIndexes().members, 'owner'),
       }),
     );
-    expect(screen.getByText(t(`taskStatus.startHints.${reason}`))).toBeTruthy();
+    expect(labels.length).toBeGreaterThan(0);
+    // What to do is the box's last row; a member who is busy only needs to be waited for.
+    const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+    const todo =
+      reason === 'member_at_capacity'
+        ? t('taskStatus.next.todo.auto')
+        : reason === 'repo_required'
+          ? t('taskStatus.next.todo.repo')
+          : t(`taskStatus.startHints.${reason}`);
+    expect(within(box).getByText(todo)).toBeTruthy();
   });
   it.each([
     ['claude', 'claude auth login'],
@@ -64,11 +74,13 @@ describe('task drawer lifecycle', () => {
         since: task.updatedAt,
       };
       project.render(drawer, '/p/AC/tasks/AC-20');
-      await screen.findByText(
+      await screen.findAllByText(
         t('taskStatus.startWaiting.provider_not_logged_in', { provider: t(`providers.${provider}`) }),
       );
-      const hint = screen.getByText(t('taskStatus.startHints.provider_not_logged_in'));
-      expect(within(hint).getByText(command).tagName).toBe('CODE');
+      // The box says what to do; the login command stays in its own line next to the buttons.
+      const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+      expect(within(box).getByText(t('taskStatus.startHints.provider_not_logged_in'))).toBeTruthy();
+      expect(screen.getByText(command).tagName).toBe('CODE');
     },
   );
   it('shows the commit handed over for review (PM-183)', async () => {
@@ -767,8 +779,9 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
 
-    await screen.findByText(t('taskStatus.prerequisiteOnMore', { key: 'AC-17', more: 1 }));
-    expect(screen.getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
+    await screen.findAllByText(t('taskStatus.prerequisiteOnMore', { key: 'AC-17', more: 1 }));
+    const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+    expect(within(box).getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
   });
 });
 
@@ -824,10 +837,11 @@ describe('starting a card that waits for a label an AI member sets (PM-236)', ()
 
     fireEvent.click(await startButton());
 
-    await screen.findByText(
+    await screen.findAllByText(
       t('taskStatus.startWaiting.label_missing', { name: 'Tervező', labels: 'Terv kész' }),
     );
-    expect(screen.getByText(t('taskStatus.startHints.label_missing'))).toBeTruthy();
+    const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+    expect(within(box).getByText(t('taskStatus.startHints.label_missing'))).toBeTruthy();
     const task = project.backend.findTask('AC-23')!;
     expect(task).toMatchObject({ stageId: 'ready', assignee: null });
     expect(task.startWaiting).toMatchObject({
@@ -842,7 +856,7 @@ describe('starting a card that waits for a label an AI member sets (PM-236)', ()
     const { project } = uiProject();
     project.render(drawer, '/p/AC/tasks/AC-23');
     fireEvent.click(await startButton());
-    await screen.findByText(t('taskStatus.startHints.label_missing'));
+    await screen.findAllByText(t('taskStatus.startHints.label_missing'));
 
     // A person takes the card out of the label's scope; the designer's own label change works the same way.
     const changed = project.backend.handle('POST', '/api/projects/AC/tasks/AC-23/labels', {

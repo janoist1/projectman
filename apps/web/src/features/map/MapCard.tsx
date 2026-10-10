@@ -7,6 +7,7 @@ import { Chip } from '../../components/Chip';
 import { StateMark } from '../../components/StateMark';
 import { formatAge } from '../../i18n/format';
 import { t } from '../../i18n/t';
+import { NextLine } from '../board/NextLine';
 import type { ZoomCard, Waiting } from './groupModel';
 import styles from './MapCard.module.css';
 
@@ -127,10 +128,18 @@ export function MapCard({
           )}
         </span>
         <span className={styles.title}>{task.title}</span>
-        <span className={styles.status} title={label}>
+        <span className={styles.status} title={state.next ? undefined : label}>
           <StateMark state={mapState} />
           <span className="visually-hidden">{t(`map.legend.${mapState}`)}: </span>
-          <span className={styles.statusText}>{label}</span>
+          {state.next ? (
+            <NextLine
+              next={state.next}
+              className={styles.statusText}
+              prefix={stale ? t('map.stalePrefix') : undefined}
+            />
+          ) : (
+            <span className={styles.statusText}>{label}</span>
+          )}
         </span>
       </Link>
       {drawn ? <span className="visually-hidden">{drawn}</span> : null}

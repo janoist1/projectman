@@ -296,6 +296,22 @@ describe('repository changes on the timeline', () => {
   });
 });
 
+describe('the hand-on request on the timeline (PM-461)', () => {
+  it('says who finished, who takes the card on and where it goes', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_hand_on_requested',
+      actor: { kind: 'system', handle: null },
+      data: { fromStageId: 'dev', toStageId: 'review', mover: 'kata', requestedBy: 'be-1' },
+    };
+    const { text } = describeEvent(event, context);
+    expect(text).toBe('be-1 végzett; kata viszi tovább ide: review');
+    expect(text).toBe(
+      t('timeline.events.task_hand_on_requested', { requestedBy: 'be-1', mover: 'kata', to: 'review' }),
+    );
+  });
+});
+
 describe('review pins on the timeline (PM-183)', () => {
   const move = (data: Record<string, unknown>): TimelineEvent => ({
     ...creation,

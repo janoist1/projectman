@@ -21,6 +21,7 @@ import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
+import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
@@ -314,6 +315,8 @@ export function TaskCard({
               </span>
             ))}
           </span>
+        ) : state.next ? (
+          <NextLine next={state.next} className={styles.statusText} />
         ) : (
           <span
             className={styles.statusText}

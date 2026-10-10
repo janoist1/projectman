@@ -67,7 +67,12 @@ describe('the Senior mark on a card (PM-349)', () => {
       startWaiting: { reason: 'senior_busy', seniors: ['be-1'], since: new Date().toISOString() },
     });
     project.render(<BoardPage />);
-    await screen.findByText(t('taskStatus.startWaiting.senior_busy'));
+    // The row names the Senior as the one it waits for (PM-461).
+    await screen.findByText(
+      new RegExp(
+        `Ki: ${t('taskStatus.next.senior')} · Mire vár: ${t('taskStatus.next.startReasons.senior_busy')}`,
+      ),
+    );
     expect(screen.queryByText(t('task.level.mark'))).toBeNull();
   });
 });

@@ -1,0 +1,115 @@
+/* "Miért áll?" (PM-461): a thing to read, so it has a box; the viewer's own turn takes the needs tone. */
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  color: var(--c-ink-2);
+  box-shadow: inset 0 0 0 1px var(--c-line);
+  animation: pm-fade-in 150ms ease-out;
+}
+
+.needs {
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+  box-shadow: inset 0 0 0 1px var(--c-needs-border);
+}
+
+.blocked {
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
+  box-shadow: inset 0 0 0 1px var(--c-blocked-border);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 800;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+/* Two columns on a wide drawer: the label (140px) and its text. */
+.row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 2px 12px;
+  align-items: baseline;
+}
+
+.row dt {
+  font-weight: 700;
+  color: var(--c-ink-3);
+}
+
+.row dd {
+  margin: 0;
+  color: var(--c-ink);
+  overflow-wrap: anywhere;
+}
+
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.name {
+  font-weight: 800;
+}
+
+/* The kind is said in words next to the name, so it never rests on the avatar's shape alone. */
+.kind {
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.error {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-blocked-text);
+}
+
+/* The phone: the label above its text. */
+@media (max-width: 480px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actions,
+  .actions button {
+    align-self: stretch;
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box {
+    animation: none;
+  }
+}

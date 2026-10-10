@@ -2,9 +2,9 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
-import { BoundaryReason } from '@projectman/shared';
+import { BoundaryReason, handOnRequestOf } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -58,6 +58,39 @@ export interface InboxCardProps {
   /** Smaller card inside the task drawer. */
   compact?: boolean;
   headingLevel?: 2 | 3;
+  /** Why the last answer was refused (a closed gate on "Tovább"); shown under the buttons. */
+  error?: string | null;
+}
+
+/** The "Vidd tovább" sentence with the next column in bold (PM-461). */
+function HandOnText({
+  item,
+  members,
+  myHandle,
+  pipeline,
+}: {
+  item: InboxItem;
+  members: MemberIndex;
+  myHandle: string | null;
+  pipeline?: PipelineIndex | null;
+}) {
+  const request = handOnRequestOf(item);
+  if (!request) return null;
+  const stageName = (id: string) => pipeline?.stageById.get(id)?.name ?? id;
+  const marker = '\u0000';
+  const params = { step: stageName(request.fromStageId), stage: marker };
+  const text = t('inbox.handOn.text', {
+    ...params,
+    owner: nameOf(request.requestedBy, members, myHandle),
+  });
+  const [before = '', after = ''] = text.split(marker);
+  return (
+    <p className={styles.body}>
+      {before}
+      <strong>{stageName(request.toStageId)}</strong>
+      {after}
+    </p>
+  );
 }
 
 /** One inbox request, including delegated boundary decisions. */
@@ -74,7 +107,9 @@ export function InboxCard({
   mobile = false,
   compact = false,
   headingLevel = 2,
+  error = null,
 }: InboxCardProps) {
+  const handOn = handOnRequestOf(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const choices = withConsequences(
     item,
@@ -187,6 +222,7 @@ export function InboxCard({
           </label>
         </div>
       ) : null}
+      {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
       {item.body && loopText === null && fixLimitText === null && seniorWaitText === null ? (
         item.kind === 'approval' ? (
@@ -261,7 +297,25 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : (
+      {assignedToOthers ? null : handOn ? (
+        <div className={clsx(styles.actions, styles.handOnActions)}>
+          <Button
+            variant="primary"
+            size={buttonSize}
+            disabled={pending}
+            onClick={() => onResolve(item, { optionId: 'move' })}
+          >
+            {t('inbox.handOn.move', {
+              stage: pipeline?.stageById.get(handOn.toStageId)?.name ?? handOn.toStageId,
+            })}
+          </Button>
+          {detailsHref ? (
+            <ButtonLink to={detailsHref} variant="secondary" size={buttonSize}>
+              {t('inbox.handOn.open')}
+            </ButtonLink>
+          ) : null}
+        </div>
+      ) : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
           {answering ? (
             <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={pending}>
@@ -306,7 +360,12 @@ export function InboxCard({
           ) : null}
         </div>
       )}
-      {detailsHref && mobile ? (
+      {error ? (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      ) : null}
+      {detailsHref && mobile && !handOn ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

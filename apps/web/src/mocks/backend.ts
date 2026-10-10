@@ -1341,9 +1341,11 @@ export class MockBackend {
 
   private checkOutage(itemId: string): MockResponse {
     const item = this.inbox.find((entry) => entry.id === itemId);
-    if (!item || WorkOutageAlert.safeParse(item.payload).success === false)
-      return error(404, 'not_found', 'Unknown outage item');
+    if (!item) return error(404, 'not_found', 'Unknown inbox item');
+    // The server's order: a closed item first, then an item that is no outage alert.
     if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already closed');
+    if (WorkOutageAlert.safeParse(item.payload).success === false)
+      return error(409, 'not_an_outage_alert', 'The item is not an outage alert');
     const checkedAt = nowIso();
     if (this.outageRecovers) {
       const resolved = this.endOutage(itemId)!;

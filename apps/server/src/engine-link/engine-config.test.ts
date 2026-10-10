@@ -46,6 +46,23 @@ describe('engine configuration', () => {
     expect(() => loadEngineConfig(dir)).toThrowError(expect.objectContaining({ code: 'config_invalid' }));
   });
 
+  it('keeps the optional mergeBranch of a repo, and refuses an empty one', () => {
+    const repo = { project: 'PM', repo: 'projectman', path: '/work/projectman' };
+    saveEngineConfig(
+      dir,
+      base({
+        repos: [
+          { ...repo, mergeBranch: 'main' },
+          { ...repo, repo: 'other' },
+        ],
+      }),
+    );
+    const loaded = loadEngineConfig(dir);
+    expect(loaded.repos[0]).toMatchObject({ mergeBranch: 'main' });
+    expect(loaded.repos[1]).not.toHaveProperty('mergeBranch');
+    expect(() => base({ repos: [{ ...repo, mergeBranch: '' }] })).toThrow();
+  });
+
   describe('secret files', () => {
     const file = () => path.join(dir, 'secret');
 

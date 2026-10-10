@@ -45,6 +45,11 @@ export const EngineConfig = z.strictObject({
       repo: RepoName,
       path: z.string().min(1),
       fullTestCommand: z.string().min(1).max(500).optional(),
+      /**
+       * The one branch the cloud may merge into and push to with this machine's git login (PM-451).
+       * Absent: every `merge.*` call for the repo is refused.
+       */
+      mergeBranch: z.string().min(1).max(200).optional(),
     }),
   ),
   maxPermissionMode: SelectablePermissionMode.default('auto'),
@@ -216,7 +221,13 @@ export interface ResolvedEngineConfig extends EngineConfig {
   keyFile: string;
   /** Real (symlink-free) absolute paths. */
   projects: Array<{ project: string; workspacePath: string }>;
-  repos: Array<{ project: string; repo: string; path: string; fullTestCommand?: string }>;
+  repos: Array<{
+    project: string;
+    repo: string;
+    path: string;
+    fullTestCommand?: string;
+    mergeBranch?: string;
+  }>;
 }
 
 function realAbsolute(value: string, what: string): string {

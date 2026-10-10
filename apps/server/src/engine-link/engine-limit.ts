@@ -9,6 +9,7 @@ import {
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
 } from '../domain/session-policy';
+import { isBranchName, isCommitId, isMergeId, isMergeMessage } from '../engine-host/merge-input';
 import { isWithin } from '../engine-host/within';
 import { BILLING_ENV_VARS } from '../runner';
 import { engineFiles } from './engine-config';
@@ -186,6 +187,35 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   const registeredProject = (projectKey: string) => {
     if (!config.projects.some((entry) => entry.project === projectKey))
       refuse('repo_not_registered', `${projectKey} is not registered on this engine`);
+  };
+
+  /**
+   * A merge call's repository (PM-451): registered, and with a `mergeBranch`. The merge and the push run
+   * with this machine's git login, so the cloud can reach only the one branch the owner named here.
+   */
+  const mergeRepo = (ref: { projectKey: string; repo: string }) => {
+    const entry = config.repos.find((repo) => repo.project === ref.projectKey && repo.repo === ref.repo);
+    if (!entry)
+      return refuse('repo_not_registered', `${ref.projectKey}/${ref.repo} is not registered on this engine`);
+    if (!entry.mergeBranch)
+      return refuse(
+        'merge_not_allowed',
+        `${ref.projectKey}/${ref.repo} may not be merged into from the cloud`,
+      );
+    return { ...entry, mergeBranch: entry.mergeBranch };
+  };
+  const mergeBase = async (ref: { projectKey: string; repo: string }, base: string) => {
+    const entry = mergeRepo(ref);
+    if (!(await isBranchName(base))) refuse('invalid_params', 'The base is not a branch name');
+    if (base !== entry.mergeBranch)
+      refuse('merge_not_allowed', `Only ${entry.mergeBranch} may be merged into from the cloud`);
+    return entry;
+  };
+  const commitIds = (...ids: string[]) => {
+    for (const id of ids) if (!isCommitId(id)) refuse('invalid_params', 'Not a commit id');
+  };
+  const mergeIdOf = (id: string) => {
+    if (!isMergeId(id)) refuse('invalid_params', 'Not a merge id');
   };
 
   const withDenials = <T extends { denyRead?: string[]; denyWrite?: string[]; deniedEnvVars?: string[] }>(
@@ -472,6 +502,55 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     },
     'files.list_images': (params) => {
       inside(params.dir, 'The image directory');
+      return params;
+    },
+    'merge.prepare': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.commit);
+      return params;
+    },
+    'merge.is_ancestor': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.ancestor, params.commit);
+      return params;
+    },
+    'merge.build': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      return params;
+    },
+    'merge.checkout_conflicts': async (params) => {
+      await mergeBase(params.ref, params.base);
+      if (params.changed.some((entry) => entry.includes('\0') || entry.length > 4096))
+        refuse('invalid_params', 'Not a path');
+      return params;
+    },
+    'merge.checkout_for_check': (params) => {
+      const entry = mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.mergeCommit);
+      if (params.depsFrom !== null)
+        inside(params.depsFrom, 'The dependencies path', [
+          ...present([paths.worktreesRoot]).map(resolveReal),
+          resolveReal(entry.path),
+        ]);
+      return params;
+    },
+    'merge.release_check': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      return params;
+    },
+    'merge.push': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.mergeCommit);
+      return params;
+    },
+    'merge.advance': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.from, params.to);
       return params;
     },
     'files.export': (params) => {

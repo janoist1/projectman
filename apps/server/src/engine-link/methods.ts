@@ -13,7 +13,9 @@ import {
 import type {
   FullTestResult,
   FullTestSpec,
+  BranchMerger,
   MachineSnapshot,
+  MergeRepoRef,
   PermissionDecision,
   PermissionRequestInfo,
   ProviderStatus,
@@ -96,6 +98,38 @@ const screenshotEnded: z.ZodType<ScreenshotRunEnded> = z.strictObject({
   spawnError: text.optional(),
   output: text,
 });
+const mergeRef: z.ZodType<MergeRepoRef> = z.strictObject({ projectKey: text.max(10), repo: text.max(100) });
+/** A commit id or a branch name as it crosses the wire; the engine's limit checks what they hold. */
+const mergeText = text.max(200);
+const mergeCall = <T extends z.ZodRawShape>(shape: T) => z.strictObject({ ref: mergeRef, ...shape });
+const mergeState = z.strictObject({
+  local: mergeText,
+  remote: z.strictObject({ name: mergeText, commit: mergeText }).nullable(),
+  relation: z.enum(['same', 'local_behind', 'local_ahead', 'diverged']),
+  contains: z.strictObject({ local: z.boolean(), remote: z.boolean().nullable() }),
+  checkout: text.nullable(),
+});
+const mergeBuilt = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true), mergeCommit: mergeText, changed: z.array(text).max(1000) }),
+  z.strictObject({ ok: z.literal(false), conflict: z.array(text).max(50) }),
+]);
+const mergePushed = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true) }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.enum(['non_fast_forward', 'rejected', 'unreachable']),
+    message: text.max(2000),
+  }),
+]);
+const mergeAdvanced = z.discriminatedUnion('ok', [
+  z.strictObject({ ok: z.literal(true) }),
+  z.strictObject({
+    ok: z.literal(false),
+    reason: z.enum(['checkout_in_the_way', 'moved']),
+    message: text.max(2000),
+    paths: z.array(text).max(50),
+  }),
+]);
 const snapshot: z.ZodType<MachineSnapshot> = z.strictObject({
   cpu: z.strictObject({ busyMs: z.number(), totalMs: z.number() }).nullable(),
   cores: int.nullable(),
@@ -156,6 +190,14 @@ type ContractResults = {
   'folders.release_tmp_root': EngineSessionFolders['releaseTmpRoot'];
   'files.resolve_scenario': EngineHost['resolveScenario'];
   'files.list_images': EngineHost['listImages'];
+  'merge.prepare': BranchMerger['prepare'];
+  'merge.is_ancestor': BranchMerger['isAncestor'];
+  'merge.build': BranchMerger['build'];
+  'merge.checkout_conflicts': BranchMerger['checkoutConflicts'];
+  'merge.checkout_for_check': BranchMerger['checkoutForCheck'];
+  'merge.release_check': BranchMerger['releaseCheck'];
+  'merge.push': BranchMerger['push'];
+  'merge.advance': BranchMerger['advance'];
 };
 /** Named wire parameters are projections of the engine contract's argument tuples. */
 type ContractParams = {
@@ -183,6 +225,15 @@ type ContractParams = {
     dir: Parameters<EngineHost['listImages']>[0];
     sinceMs: Parameters<EngineHost['listImages']>[1];
   };
+  // The merge calls (PM-451): the engine finds the repository from its own binding (`ref` names it).
+  'merge.prepare': { ref: MergeRepoRef } & Parameters<BranchMerger['prepare']>[1];
+  'merge.is_ancestor': { ref: MergeRepoRef } & Parameters<BranchMerger['isAncestor']>[1];
+  'merge.build': { ref: MergeRepoRef } & Parameters<BranchMerger['build']>[1];
+  'merge.checkout_conflicts': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutConflicts']>[1];
+  'merge.checkout_for_check': { ref: MergeRepoRef } & Parameters<BranchMerger['checkoutForCheck']>[1];
+  'merge.release_check': { ref: MergeRepoRef } & Parameters<BranchMerger['releaseCheck']>[1];
+  'merge.push': { ref: MergeRepoRef } & Parameters<BranchMerger['push']>[1];
+  'merge.advance': { ref: MergeRepoRef } & Parameters<BranchMerger['advance']>[1];
   // Streams and cleanup stay on the engine; only metadata and the upload receipt cross JSON.
   'files.export': {
     sessionId: string;
@@ -435,6 +486,23 @@ export const methods = {
     ]),
   ),
   'files.list_images': method(z.strictObject({ dir: text, sinceMs: z.number() }), texts),
+  'merge.prepare': method(mergeCall({ base: mergeText, commit: mergeText }), mergeState),
+  'merge.is_ancestor': method(mergeCall({ ancestor: mergeText, commit: mergeText }), z.boolean().nullable()),
+  'merge.build': method(
+    mergeCall({ onto: mergeText, commit: mergeText, message: text.max(2000) }),
+    mergeBuilt,
+  ),
+  'merge.checkout_conflicts': method(
+    mergeCall({ base: mergeText, changed: z.array(text).max(1000) }),
+    z.array(text).max(50),
+  ),
+  'merge.checkout_for_check': method(
+    mergeCall({ mergeId: mergeText, mergeCommit: mergeText, depsFrom: text.nullable() }),
+    z.strictObject({ path: text, gitDir: text }),
+  ),
+  'merge.release_check': method(mergeCall({ mergeId: mergeText }), done),
+  'merge.push': method(mergeCall({ base: mergeText, mergeCommit: mergeText }), mergePushed),
+  'merge.advance': method(mergeCall({ base: mergeText, from: mergeText, to: mergeText }), mergeAdvanced),
   'machine.snapshot': method(empty, snapshot),
   'machine.processes': method(empty, z.array(processRecord).nullable()),
   'machine.env_values': method(

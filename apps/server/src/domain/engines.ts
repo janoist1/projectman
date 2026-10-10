@@ -12,7 +12,7 @@ import type {
   ScreenshotExecutor,
   WorktreeManager,
 } from '../contracts';
-import { createLocalEngineHost } from '../engine-host';
+import { createLocalBranchMerger, createLocalEngineHost } from '../engine-host';
 import { processExists } from './workspaces';
 import type { ProcessProbe } from './workspaces';
 
@@ -39,6 +39,11 @@ export interface LocalEngineOptions {
   processExists?: ProcessProbe;
   /** The project's working directory; null: the project is not known (not loaded). */
   workspacePath: (projectKey: string) => string | null;
+  /**
+   * A repository's path on this machine (PM-451); null: not bound here. With it the engine merges
+   * (`EngineHost.merger`); without it, it does not.
+   */
+  repoPath?: (projectKey: string, repo: string) => string | null;
   runtimeBoundary?: RuntimeBoundary;
   appHome?: string;
   userHome?: string;
@@ -99,6 +104,14 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
     ...(opts.memberWorkspaces ? { memberWorkspaces: opts.memberWorkspaces } : {}),
     ...(opts.fullTestExecutor ? { fullTestExecutor: opts.fullTestExecutor } : {}),
     ...(opts.screenshotExecutor ? { screenshotExecutor: opts.screenshotExecutor } : {}),
+    ...(opts.repoPath
+      ? {
+          merger: createLocalBranchMerger({
+            repoPath: opts.repoPath,
+            worktreesRoot: opts.worktreesRootDir ?? null,
+          }),
+        }
+      : {}),
     ...operations,
     processExists: alive,
     workspacePath: opts.workspacePath,

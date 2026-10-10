@@ -168,6 +168,7 @@ export const EngineErrorCode = z.enum([
   'repo_not_registered',
   'signal_not_allowed',
   'secret_not_allowed',
+  'merge_not_allowed',
   'link_down',
   'timeout',
   'internal',

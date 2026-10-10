@@ -360,6 +360,9 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
       freeDiskBytes: () => freeBytesOf(home),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
+      // The engine's own binding (`engine.json`), never the cloud's paths (PM-451).
+      repoPath: (projectKey, repo) =>
+        resolved.repos.find((entry) => entry.project === projectKey && entry.repo === repo)?.path ?? null,
       appHome: home,
       userHome,
       worktreesRootDir: path.join(home, 'worktrees'),

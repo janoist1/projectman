@@ -81,6 +81,7 @@ export class TaskStore {
       lastHandoff: _______,
       merge: _merge,
       merged: _merged,
+      handOn: ________,
       ...rest
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
@@ -93,6 +94,18 @@ export class TaskStore {
     const lastMerge = this.ctx.repos.taskMerges.latestMerged(task.projectKey, task.key);
     const merge = openMerge ? mergeState(openMerge) : undefined;
     const merged = lastMerge ? mergedState(lastMerge) : undefined;
+    const record = this.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+    const handOn =
+      record && isOpenTask(task)
+        ? {
+            fromStageId: record.fromStageId,
+            toStageId: record.toStageId,
+            mover: record.mover,
+            requestedBy: record.requestedBy,
+            requestedAt: record.requestedAt,
+            inboxItemId: record.inboxItemId,
+          }
+        : undefined;
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
@@ -103,6 +116,7 @@ export class TaskStore {
       ...handoffs,
       ...(merge ? { merge } : {}),
       ...(merged ? { merged } : {}),
+      ...(handOn ? { handOn } : {}),
     };
   }
 

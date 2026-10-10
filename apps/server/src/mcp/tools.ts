@@ -626,7 +626,13 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(priority !== undefined ? { priority } : {}),
         ...(developerLevel ? { developerLevel } : {}),
       });
+      const moverName =
+        task.handOn && stageId
+          ? (await handler.listMembers(ctx)).find((member) => member.handle === task.handOn!.mover)
+              ?.displayName
+          : undefined;
       return formatTaskUpdate(task, {
+        ...(moverName ? { moverName } : {}),
         stageId,
         ...(priority !== undefined ? { priority } : {}),
         ...(developerLevel ? { developerLevel: true } : {}),

@@ -158,6 +158,7 @@ export class TaskService {
     startWaiting: StartWaitingReader;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
+    notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
     /**
@@ -179,6 +180,7 @@ export class TaskService {
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
       order: this.order,
+      notifyHandOn: deps.notifyHandOn,
     });
     this.group = new BoardGroupMove({ store: this.store, moves: this.moves, order: this.order });
     this.themes = new TaskThemes(this.store);
@@ -832,6 +834,7 @@ export class TaskService {
   ): Task {
     const at = isoNow(this.ctx);
     this.moves.cancelMerge(task.projectKey, task.key, effects);
+    this.moves.clearHandOn(task);
     const cancelled = this.store.view(
       this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at }),
     );
@@ -942,6 +945,10 @@ export class TaskService {
   /** Handler for resolved `decision` items: completes (or drops) the requested stage move. */
   handleDecisionResolved(item: InboxItem): Promise<void> {
     return this.moves.handleDecisionResolved(item);
+  }
+
+  reconcileHandOns(config: ProjectConfig): Promise<void> {
+    return this.moves.reconcileHandOns(config);
   }
 
   /** Adds and removes labels under the project's label rules (see TaskLabels). */

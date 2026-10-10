@@ -26,6 +26,7 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       roles: config.team.roles,
       roleOverrides: config.team.roleOverrides,
       releaseFourEyes: config.team.releaseFourEyes,
+      cardMover: config.team.cardMover,
       boundary: config.team.boundary,
     }),
     'pipeline.yaml': yaml({
@@ -69,6 +70,7 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       roles: team.roles,
       roleOverrides: team.roleOverrides,
       releaseFourEyes: team.releaseFourEyes,
+      cardMover: team.cardMover,
       boundary: team.boundary,
       limits: asRecord(project.team).limits ?? {},
     },

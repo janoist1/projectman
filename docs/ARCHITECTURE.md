@@ -1923,6 +1923,31 @@ pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pi
 - **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,
   [SCREENSHOTS.md](SCREENSHOTS.md)) swaps the probe for fixed data that never signals; the server warns at start.
 
+## Card mover and hand-on requests (PM-439)
+
+`team.cardMover` selects the worker (default), project manager, or a named human who moves
+cards forward. `packages/shared/src/config/card-mover.ts` owns the decision: only AI and system
+forward moves from work, step or release stages request a hand-on. Queue starts, backward moves,
+refinement (`step` with the `task_breakdown` duty) and human moves retain their existing rules.
+Unresolvable movers fall back to moving.
+Human gate approvals take precedence and complete the move through the existing approval path.
+
+`TaskMoves` records one request per card in `task_hand_ons` (migration 45); `TaskStore` exposes it
+as `Task.handOn`. Repeated requests for the same source, target and mover do nothing. Replacement
+cancels the old inbox item. A human mover gets a `hand_on` inbox item; a project manager gets a
+stored system action message through the existing general conversation route. The internal
+`task_hand_on_requested` timeline event records the requester and mover. Uncommitted work refuses
+the request immediately; the review pin is created only by the actual move.
+
+Inbox resolution checks access and attempts the move as the resolving human before closing the
+item. Refused moves leave it open. Actual movement clears the request and resolves the item if
+it reaches the requested stage, otherwise cancels it; cancellation clears it too. Configuration
+changes redirect outstanding requests while retaining the original requester. Selecting worker
+retries the requested move as the system, rechecking gates and logging refusal.
+
+No machine-dependent part is added: configuration, SQLite and domain state stay on the server;
+remote engines receive the existing messages and context packs through the existing boundary.
+
 ## GitHub
 
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks

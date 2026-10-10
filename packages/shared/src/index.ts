@@ -66,3 +66,4 @@ export * from './deploy/runtime-boundary';
 export * from './deploy/managed-vm';
 export * from './deploy/publishing';
 export * from './deploy/instance-role';
+export * from './config/card-mover';

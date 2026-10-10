@@ -24,6 +24,38 @@ function note(minute: number, text: string): TimelineEvent {
 }
 
 describe('formatTaskDetail', () => {
+  it('reports a hand-on request as waiting for its mover without claiming the move happened', () => {
+    const task = sampleTaskDetail().task;
+    task.handOn = {
+      fromStageId: 'dev',
+      toStageId: 'review',
+      mover: 'owner',
+      requestedBy: 'dev-1',
+      requestedAt: '2026-10-10T20:00:00Z',
+      inboxItemId: 'inb_1',
+    };
+    const text = formatTaskUpdate(task, { stageId: 'review', note: false, moverName: 'Owner' });
+    expect(text).toContain(
+      'The move to review goes to Owner (owner), who moves cards on in this project; the card waits for them. Your work on this stage is done.',
+    );
+    expect(text).not.toContain('moved to review');
+    task.merge = {
+      id: 'merge_1',
+      repo: 'web',
+      base: 'main',
+      commit: 'approved',
+      branch: 'task/AR-21',
+      toStageId: 'review',
+      requestedBy: 'owner',
+      state: 'queued',
+      step: 'queued',
+      startedAt: '2026-10-10T20:01:00Z',
+      landed: 'nowhere',
+    };
+    const merging = formatTaskUpdate(task, { stageId: 'review', note: false, moverName: 'Owner' });
+    expect(merging).toContain('merge started');
+    expect(merging).not.toContain('the card waits for them');
+  });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
     const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>
       formatTaskDetail(detail)

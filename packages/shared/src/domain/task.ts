@@ -205,7 +205,18 @@ export type TaskFixLimit = z.infer<typeof TaskFixLimit>;
 export const TaskKind = z.enum(['task', 'theme']);
 export type TaskKind = z.infer<typeof TaskKind>;
 
+export const TaskHandOn = z.object({
+  fromStageId: StageId,
+  toStageId: StageId,
+  mover: MemberHandle,
+  requestedBy: MemberHandle,
+  requestedAt: z.string(),
+  inboxItemId: z.string().nullable(),
+});
+export type TaskHandOn = z.infer<typeof TaskHandOn>;
+
 export const Task = z.object({
+  handOn: TaskHandOn.optional(),
   /** Absent: `task`. */
   kind: TaskKind.optional(),
   /**

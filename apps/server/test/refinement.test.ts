@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { alertPayloadOf } from '@projectman/shared';
-import type { ProjectConfig } from '@projectman/shared';
+import type { CardMover, ProjectConfig } from '@projectman/shared';
 import { aiActor } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -558,6 +558,26 @@ describe('Refinement line', () => {
     endTurn('ana');
     await vi.waitFor(() => expect(members()).toEqual(['ana', 'des']));
   });
+
+  it.each<CardMover>([{ kind: 'worker' }, { kind: 'project_manager' }, { kind: 'human', handle: 'owner' }])(
+    'finishes refinement without a hand-on request with mover $kind',
+    async (cardMover) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          setup({ plan: true })(config);
+          config.team.cardMover = cardMover;
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Plan' }, OWNER_ACTOR);
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'plan', OWNER_ACTOR);
+      await vi.waitFor(() => expect(members()).toEqual(['ana']));
+      await label({ add: ['scope-ok'] }, aiActor('ana'));
+      endTurn('ana');
+      await vi.waitFor(() => expect(task().stageId).toBe('ready'));
+      expect(task().handOn).toBeUndefined();
+      expect(h.domain.inbox.list('AR', { kind: 'hand_on', taskKey: 'AR-1' })).toEqual([]);
+    },
+  );
 
   it('spreads cards over the setters by load', async () => {
     await prepare({}, []);

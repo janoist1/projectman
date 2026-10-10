@@ -173,7 +173,7 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           timezone: locale.timezone,
           templateId,
         },
-        team: { members, roles: [], limits },
+        team: { members, roles: [], limits, cardMover: input.cardMover ?? { kind: 'worker' } },
         pipeline: {
           ...pipeline,
           // The standard labels the gates use, whole groups included.

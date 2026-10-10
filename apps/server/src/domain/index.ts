@@ -105,6 +105,7 @@ import { DiskGuard } from './disk-guard';
 import { WorktreeSweep } from './worktree-sweep';
 import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
+import { SYSTEM_SENDER } from '@projectman/shared';
 
 export * from './access';
 export * from './context';
@@ -446,6 +447,20 @@ export function createDomain(opts: DomainOptions) {
     startWaiting: deferredStarts,
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task) => sessions.sourceHead(config, task),
+    notifyHandOn: async (config, task, request) => {
+      const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);
+      const to = config.pipeline.stages.find((s) => s.id === request.toStageId);
+      await messaging.send(
+        task.projectKey,
+        SYSTEM_SENDER,
+        {
+          to: [request.mover],
+          taskKey: task.key,
+          text: `${request.requestedBy} finished ${from?.name ?? request.fromStageId} on ${task.key}. In this project you move cards on: check the card with get_task and move it to ${to?.name ?? request.toStageId} with update_task (stage_id ${request.toStageId}), or tell ${request.requestedBy} what is missing.`,
+        },
+        { kind: 'action' },
+      );
+    },
     // `fixLimit` is built below; the callback only runs when a task is read.
     fixLimit: (task) => fixLimit.view(task),
     // `handoffs` is built below; the callback only runs when a card changes its assignee.
@@ -867,6 +882,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => handoffs.sessionEnded(session));
 
   // Configuration changes: runtime state follows the roster.
+  events.on('config_changed', (change) => tasks.reconcileHandOns(change.next));
   events.on('config_changed', (change) => members.reconcile(change));
   events.on('config_changed', (change) => {
     if (!change.previous) return;

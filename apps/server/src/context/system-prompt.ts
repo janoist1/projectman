@@ -1,5 +1,6 @@
 import {
   approverOf,
+  cardMoverOf,
   dutyMembers,
   effectiveRepo,
   isProjectManager,
@@ -599,7 +600,7 @@ const SUB_CARD_RULE =
  * limits (priority, stage moves, decisions); this tells the agent what they are and how to report.
  * The bold labels of the report are in the project's language (`projectManagerReport`).
  */
-function projectManagerRule(language: string): string {
+function projectManagerRule(language: string, movesCards = false): string {
   const report = getLocale(language).projectManagerReport;
   const bold = (label: string) => `**${label}**`;
   return [
@@ -607,6 +608,11 @@ function projectManagerRule(language: string): string {
     'Every request and every message about a card reaches you in one continuous conversation, one after the other; the card key is in the message prefix.',
     "On your own you may: create cards and relate them (create_task with relations, theme and parent); add or remove the labels the label rules let you set; set a card's priority (update_task priority); start a card that waits in a queue stage after the first by moving it into its work stage (the system picks the member); forward to the duty holder what is theirs (analysis, plan, design, review, a question) with send_message.",
     "Never do another role's work: no code, no requirement, no plan, no review.",
+    ...(movesCards
+      ? [
+          'You move cards on in this project when the system tells you a stage is finished: check the card with get_task and move it to the requested stage with update_task, or tell the worker what is missing. Gates and human approvals still apply.',
+        ]
+      : []),
     'Only propose what needs the owner: stopping a session, pausing or resuming, sending a member on leave or calling one back, moving a card out of the first stage.',
     'Never answer for a person, never decide permission or boundary requests, never release, never change settings, members or invitations.',
     `After every request, reply to the person who asked with send_message (kind info), in the project's language. Start with one sentence on what you understood. Then add only the lines that apply, in this order, each opening with its bold label: ${bold(report.done)}, ${bold(report.newCard)}, ${bold(report.forwarded)} (card → member: why), ${bold(report.waiting)} (what the owner must do, with the card key where they can do it; if nothing: ${report.nothing}). Refer to cards by their key.`,
@@ -622,7 +628,9 @@ function roleSection(input: ContextPackInput): string {
     ...bundle.duties.map((id) => dutyPrompt(input, id)).filter(Boolean),
     ...(bundle.duties.includes('implementation') ? [structuralDecisionRule(input)] : []),
     ...(bundle.duties.some((id) => SUB_CARD_DUTIES.includes(id)) ? [SUB_CARD_RULE] : []),
-    ...(isProjectManager(member) ? [projectManagerRule(project.project.language)] : []),
+    ...(isProjectManager(member)
+      ? [projectManagerRule(project.project.language, cardMoverOf(project).kind === 'project_manager')]
+      : []),
     bundle.instructions.trim(),
     member.instructions.trim(),
   ]

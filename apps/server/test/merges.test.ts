@@ -5,6 +5,7 @@ import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../src/domain/v
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { pullRequest } from './helpers/fakes';
+import { aiActor } from '../src/domain';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -144,6 +145,42 @@ describe('merge on Done', () => {
     expect(task().merged).toBeUndefined();
     expect(merger.build).not.toHaveBeenCalled();
   });
+
+  it.each(['human', 'project_manager'] as const)(
+    'merges after the %s accepts a hand-on request',
+    async (kind) => {
+      await setup({
+        adjust: (config) => {
+          config.team.cardMover = kind === 'human' ? { kind, handle: 'owner' } : { kind };
+        },
+      });
+      const build = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+      merger.build.mockReturnValueOnce(build.promise);
+      const requested = await h!.domain.tasks.moveToStage('AR', 'AR-1', 'done', aiActor('dev-1'));
+      expect(requested.handOn).toMatchObject({ toStageId: 'done', mover: kind === 'human' ? 'owner' : 'pm' });
+      expect(row()).toBeNull();
+      if (kind === 'human') {
+        await h!.domain.inbox.resolve(
+          'AR',
+          requested.handOn!.inboxItemId!,
+          { optionId: 'move' },
+          { handle: 'owner', access: 'owner' },
+        );
+      } else {
+        const updated = await h!.domain.tasks.update('AR', 'AR-1', { stageId: 'done' }, aiActor('pm'));
+        expect(updated.merge).toBeDefined();
+      }
+      expect(task().stageId).toBe('code_review');
+      expect(task().merge?.commit).toBe('approved-AR-1');
+      build.resolve({ ok: true, mergeCommit: 'hand-on-merged', changed: [] });
+      await done();
+      expect(task().handOn).toBeUndefined();
+      expect(task().merged?.mergeCommit).toBe('hand-on-merged');
+      expect(h!.repos.taskHandOns.get('AR', 'AR-1')).toBeNull();
+      expect(h!.domain.inbox.list('AR', { kind: 'hand_on', state: 'open' })).toHaveLength(0);
+      expect(merger.push).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('preserves handovers after the pin is cleared and merges that commit', async () => {
     await setup();

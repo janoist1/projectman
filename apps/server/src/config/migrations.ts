@@ -258,6 +258,48 @@ function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
 }
 
 /**
+ * The Operator is fixed (PM-473): on every Operator the leave and the schedule go, the capacity is 1
+ * and the instructions are the built-in ones (none of its own); the `ai_operator` role override goes
+ * and the temp workers are no longer hired for that role. The name, sponsor, model, provider, effort,
+ * permission mode, approver and network stay as they are (and are fixed from now on, bar the model,
+ * provider and effort): setting them back could loosen what the owner tightened. Runs on every read,
+ * so an earlier version restored from history comes back fixed as well; a second run changes nothing.
+ */
+function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team) return raw;
+  for (const member of rawAiMembers(raw)) {
+    if (!isOperator(member as unknown as MemberConfig)) continue;
+    const fields: string[] = [];
+    for (const field of ['onLeave', 'schedule']) {
+      if (member[field] === undefined) continue;
+      delete member[field];
+      fields.push(field);
+    }
+    if (member.capacity !== undefined && member.capacity !== 1) {
+      member.capacity = 1;
+      fields.push('capacity');
+    }
+    if (member.instructions !== undefined && member.instructions !== '') {
+      member.instructions = '';
+      fields.push('instructions');
+    }
+    if (fields.length) logger.warn({ projectKey, member: member.handle, fields }, 'Fixed the Operator');
+  }
+  const overrides = asRecord(team.roleOverrides);
+  if (overrides && overrides.ai_operator !== undefined) {
+    delete overrides.ai_operator;
+    logger.warn({ projectKey, fields: ['roleOverrides.ai_operator'] }, 'Fixed the Operator');
+  }
+  const tempWorkers = asRecord(asRecord(team.limits)?.tempWorkers);
+  if (tempWorkers && tempWorkers.role === 'ai_operator') {
+    tempWorkers.role = 'developer';
+    logger.warn({ projectKey, fields: ['limits.tempWorkers.role'] }, 'Fixed the Operator');
+  }
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -271,25 +313,30 @@ function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): un
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
  *   - a project without an AI project manager gets one, on leave (above);
  *   - a missing card mover becomes worker (above);
- *   - a project without an Operator gets one, at work (above).
+ *   - a project without an Operator gets one, at work (above);
+ *   - the Operator is fixed: no leave, no schedule, capacity 1, no instructions of its own, no role
+ *     override, and temp workers are not hired for its role (above).
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addOperator(
-    addCardMover(
-      addProjectManager(
-        migrateReleaseApproval(
-          migrateLegacyConfig(
-            migrateCodexBypass(
-              migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-              context,
+  return fixOperator(
+    addOperator(
+      addCardMover(
+        addProjectManager(
+          migrateReleaseApproval(
+            migrateLegacyConfig(
+              migrateCodexBypass(
+                migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+                context,
+              ),
             ),
+            context,
           ),
           context,
         ),
-        context,
       ),
+      context,
     ),
     context,
   );

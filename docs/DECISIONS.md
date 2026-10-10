@@ -343,3 +343,9 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     as a message. Queue starts, refinement, backward moves and human moves keep their existing
     rules. Human approval gates keep going to the approver in every mode, and approval advances
     the card automatically.
+47. **Members merge, never the system.** Decided by the owner on 2026-10-10, overriding the
+    PM-448 plan in which the server merged a card when it entered Done (PM-452). Nothing is
+    merged automatically: a member does it, AI or human. For a developed card, the senior
+    developer or the developer who built the card merges it. "Done means merged" (PM-448)
+    still holds; the system may give the member a tool and check that the work is in the main
+    branch, but it does not merge on its own.

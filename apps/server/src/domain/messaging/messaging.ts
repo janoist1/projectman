@@ -2,6 +2,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
+  isOperator,
   isProjectManager,
   isRefining,
   isTheme,
@@ -31,7 +32,7 @@ import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageRecipient } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
-import { DomainError, invalid } from '../errors';
+import { DomainError, forbidden, invalid } from '../errors';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -69,6 +70,8 @@ export interface SendOptions {
    * session on a family card (`place`, step 2). Internal, not a contract.
    */
   ownCard?: boolean;
+  /** The owner's request to the Operator this message is sent during (PM-463). Internal, not a contract. */
+  operatorRequest?: string;
 }
 
 /**
@@ -185,6 +188,7 @@ export class Messaging {
         status: 404,
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
+    if (!opts.origin) this.assertMayWriteToOperator(config, from, recipients, opts.actor);
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
@@ -247,6 +251,7 @@ export class Messaging {
       origin: opts.origin,
       kind: opts.kind ?? 'action',
       subject: opts.subject,
+      operatorRequest: opts.operatorRequest,
       version: task
         ? {
             stageId: task.stageId,
@@ -297,6 +302,7 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    this.assertMayWriteToOperator(await this.projects.config(projectKey), from, [session.member], actor);
     const input = actor.via
       ? formatInjectedTeamMessage(
           from,
@@ -337,6 +343,24 @@ export class Messaging {
       this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
     else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
+  }
+
+  /**
+   * Only an owner's own login writes to the Operator directly (PM-463): another person, or the integrator
+   * key, is refused with 403 operator_owner_only. AI members and the system pass: their messages are
+   * stored and reach the Operator as information with the owner's next one, and wake nobody.
+   */
+  private assertMayWriteToOperator(
+    config: ProjectConfig,
+    from: string,
+    recipients: readonly string[],
+    actor?: Actor,
+  ): void {
+    if (!recipients.some((handle) => isOperator(memberOf(config, handle)))) return;
+    const sender = memberOf(config, from);
+    if (sender?.kind !== 'human') return;
+    if (sender.access !== 'owner' || actor?.via)
+      throw forbidden('operator_owner_only', "only the owner's own login may write to the Operator");
   }
 
   /** Labels that notify the assignee (e.g. "QA: failed") reach them as a message from whoever set them. */
@@ -481,7 +505,7 @@ export class Messaging {
     if (asker?.kind !== 'ai') return;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
-    const manager = Boolean(isProjectManager(asker));
+    const manager = Boolean(isProjectManager(asker) || isOperator(asker));
     await this.send(
       item.projectKey,
       resolution.by,
@@ -557,7 +581,7 @@ export class Messaging {
   ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | 'engine' | null {
     // The project manager runs on the engine too: no engine, no delivery, whatever its other holds are.
     if (this.heldForEngine(config.project.key, handle)) return 'engine';
-    if (isProjectManager(memberOf(config, handle))) return null;
+    if (isProjectManager(memberOf(config, handle)) || isOperator(memberOf(config, handle))) return null;
     if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
@@ -708,7 +732,8 @@ export class Messaging {
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task) return false;
     const config = await this.projects.config(session.projectKey);
-    if (isProjectManager(memberOf(config, session.member))) return false;
+    const member = memberOf(config, session.member);
+    if (isProjectManager(member) || isOperator(member)) return false;
     return (
       this.heldForHandoff(task, session.member) ||
       this.heldForTurn(config, task, session.member, {}) ||
@@ -753,6 +778,9 @@ export class Messaging {
       ...(block ? { noWake: block } : {}),
     };
     if (!running && !wakes) return notWoken;
+    const operator = isOperator(memberOf(config, handle));
+    // The Operator takes what does not wake it (an AI member's message) only with the owner's next one (PM-463).
+    if (operator && !wakes) return notWoken;
     if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
       return {
         delivery: 'after_turn',
@@ -781,7 +809,9 @@ export class Messaging {
         void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
         return { delivery: 'wake' };
       }
-      if (memberOf(config, message.from)?.kind === 'human') this.delivery.deliver(running, message);
+      // The Operator's messages go in as one batch (the owner's and the information waiting with it).
+      if (!operator && memberOf(config, message.from)?.kind === 'human')
+        this.delivery.deliver(running, message);
       else this.delivery.deliverWaiting(running);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }

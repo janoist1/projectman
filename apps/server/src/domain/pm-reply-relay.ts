@@ -1,4 +1,4 @@
-import { isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
+import { isOperator, isProjectManager, memberOf, SYSTEM_SENDER } from '@projectman/shared';
 import type { Session, TeamMessage } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { BackgroundTasks } from './background';
@@ -28,8 +28,9 @@ export class PmReplyRelay {
   finish(session: Session): void {
     const { ctx, projects, sessions, messages, background } = this.deps;
     const config = projects.cachedConfig(session.projectKey);
-    if (!config || session.workItem.type !== 'general' || !isProjectManager(memberOf(config, session.member)))
-      return;
+    if (!config || session.workItem.type !== 'general') return;
+    const manager = memberOf(config, session.member);
+    if (!isProjectManager(manager) && !isOperator(manager)) return;
     const cutoff = ctx.now().getTime() - RELAY_WINDOW_MS;
     const all = () =>
       ctx.repos.messages.list(session.projectKey, {

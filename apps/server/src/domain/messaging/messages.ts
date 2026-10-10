@@ -1,4 +1,5 @@
 import {
+  isOperator,
   isProjectManager,
   isUnreadBy,
   memberOf,
@@ -15,8 +16,9 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { isoNow } from '../context';
-import { wakesFor } from './staleness';
+import { wakeFactsFor, wakesFor } from './staleness';
 import type { DomainContext } from '../context';
+import type { OperatorRequests } from '../operator-requests';
 import type { TimelineService } from '../timeline';
 import type { ProjectService } from '../projects';
 import { forbidden, notFound } from '../errors';
@@ -43,6 +45,8 @@ export interface RecordMessageInput {
   answer?: TeamMessageAnswer;
   relayed?: TeamMessage['relayed'];
   origin?: TeamMessage['origin'];
+  /** The Operator's request this message was sent during (PM-463). */
+  operatorRequest?: string;
 }
 
 /**
@@ -55,10 +59,18 @@ export class MessageService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
 
-  constructor(deps: { ctx: DomainContext; timeline: TimelineService; projects: ProjectService }) {
+  private readonly operatorRequests: OperatorRequests;
+
+  constructor(deps: {
+    ctx: DomainContext;
+    timeline: TimelineService;
+    projects: ProjectService;
+    operatorRequests: OperatorRequests;
+  }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
+    this.operatorRequests = deps.operatorRequests;
   }
 
   get(id: string): TeamMessage | null {
@@ -94,6 +106,7 @@ export class MessageService {
       ...(input.relayed ? { relayed: input.relayed } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
+      ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);
@@ -120,7 +133,9 @@ export class MessageService {
   /** Messages an AI recipient has not received yet for a work item (where `messageRoute` puts them), oldest first. */
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
     const config = this.projects.cachedConfig(projectKey);
-    const allRoutes = workItem.type === 'general' && config && isProjectManager(memberOf(config, handle));
+    const recipient = config ? memberOf(config, handle) : undefined;
+    // The project manager and the Operator have one conversation: every route lands in it.
+    const allRoutes = workItem.type === 'general' && (isProjectManager(recipient) || isOperator(recipient));
     // A task's session takes the messages routed to that task; any other chat takes everything not
     // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
     return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
@@ -145,8 +160,33 @@ export class MessageService {
     ).map((r) => (r.handle === handle && !r.deliveredAt ? { ...r, deliveredAt: at } : r));
     const deliveredAt = receipts.every((r) => r.deliveredAt) ? (before.deliveredAt ?? at) : null;
     const message = this.ctx.repos.messages.updateReceipts(id, receipts, deliveredAt);
-    if (message) this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+    if (message) {
+      this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      const first = !before.receipts?.find((r) => r.handle === handle)?.deliveredAt;
+      if (first) this.openOperatorRequest(message, handle);
+    }
     return message;
+  }
+
+  /**
+   * An owner's message, or the owner's answer to the Operator's question, entered the Operator's
+   * session: the Operator may act on it until its turn ends (PM-463). Anyone else's message opens nothing.
+   */
+  private openOperatorRequest(message: TeamMessage, handle: string): void {
+    const config = this.projects.cachedConfig(message.projectKey);
+    if (!config || !isOperator(memberOf(config, handle))) return;
+    if (!wakeFactsFor(this.ctx, config, message, handle).fromOwner) return;
+    const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
+    if (!session) return;
+    this.operatorRequests.open({
+      projectKey: message.projectKey,
+      sessionId: session.id,
+      source: message.answer ? 'answer' : 'message',
+      messageId: message.id,
+      inboxItemId: message.answer?.inboxItemId ?? null,
+      from: message.from,
+      text: message.answer?.answer ?? message.body,
+    });
   }
 
   /**

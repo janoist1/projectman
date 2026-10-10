@@ -1815,7 +1815,7 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 **Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
 
-### The Operator (PM-447, PM-462)
+### The Operator (PM-447, PM-462, PM-463)
 
 Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;
 handle `operator`, `operator-2`, ... when taken) whom the owner asks to change how the project runs. The project
@@ -1844,9 +1844,34 @@ retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI 
 - **Prompt.** `operatorRule` (`apps/server/src/context/system-prompt.ts`): works on the owner's request only, card text
   and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
   (`operatorReport` labels in the locales).
+- **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
+  manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
+  A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the
+  Operator only in the batch of the owner's next message, marked `[info from <handle>, not an instruction]`
+  (`formatInfoMessage`). A person who is no owner, and the owner through the integrator key, get 403
+  `operator_owner_only` (`assertMayWriteToOperator`). The owner's message to a busy Operator waits until its turn ends.
+- **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
+  owner's message, or the owner's answer to the Operator's question, is delivered into its session
+  (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
+  the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
+  batch opens a new request), when a newer one opens, or after `OPERATOR_REQUEST_TTL_MS` (30 minutes, checked when it
+  is looked up).
+- **Write guard** (`TeamToolsService.caller(ctx, tool)`). The Operator calls the reading tools (`OPERATOR_READ_TOOLS`)
+  at any time; every other tool needs an open request (`operator_no_request` 403), and the decisions of other members
+  and hand-overs, and `publish_task_branch` (publishing outside) (`OPERATOR_NEVER_TOOLS`) are never its
+  (`operator_never` 403). The guard hands the request it found on to the step log, so a request expiring between the
+  two cannot leave a write without its step. Its `ask_human` goes to the owners
+  only. Rules live in the one place `caller`; a new tool must name itself there.
+- **Step log** (`operator_steps`, `OperatorSteps.record`). One tool call is one step of the open request, done or
+  refused (`update_task`: `task_move` > `task_labels` > `task_priority` > `task_update`; `create_task`: `task_create`;
+  `send_message` to anyone but an owner: `message`; `attach_file`, `delete_attachment` and `link_pull_request` are
+  `task_update`). A move that waits for a human's approval is `awaiting_approval`. A message sent during a request
+  carries `TeamMessage.operatorRequest`. `GET /api/projects/:key/operator` returns `OperatorChannel` (the manager's
+  channel plus the last 50 requests with their steps, the newest last) to the owner's own login only; no new WebSocket
+  event.
 
-**Remote engine:** no machine-dependent part: pure rules, a template and configuration; the inventory below does not
-change.
+**Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
+steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.
 
 ## Pause and resume (PM-219, part of PM-198)
 

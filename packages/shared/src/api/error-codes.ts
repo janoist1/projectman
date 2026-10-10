@@ -200,6 +200,11 @@ export const ERROR_CODES = [
   'focus_item_unknown',
   'focus_full',
   'focus_task_closed',
+  // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
+  // request of the owner; a tool it never calls.
+  'operator_owner_only',
+  'operator_no_request',
+  'operator_never',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

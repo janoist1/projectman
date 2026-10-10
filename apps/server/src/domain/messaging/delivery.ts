@@ -1,4 +1,10 @@
-import { formatInjectedTeamMessage, formatTeamMessageBatch, memberOf, stageOf } from '@projectman/shared';
+import {
+  formatInjectedTeamMessage,
+  formatTeamMessageBatch,
+  isOperator,
+  memberOf,
+  stageOf,
+} from '@projectman/shared';
 import type { Session, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../context';
@@ -194,8 +200,10 @@ export class MessageDelivery {
       !this.sessions.permissionRestartDue(current) &&
       !this.starting.has(recipientKey(current.projectKey, current.member, current.workItem))
     ) {
-      for (const message of this.messages.waiting(current.projectKey, current.member, current.workItem))
-        if (memberOf(config, message.from)?.kind === 'human') this.deliver(current, message);
+      // The Operator's messages only go in as a batch with an owner's (PM-463), never one by one.
+      if (!isOperator(memberOf(config, current.member)))
+        for (const message of this.messages.waiting(current.projectKey, current.member, current.workItem))
+          if (memberOf(config, message.from)?.kind === 'human') this.deliver(current, message);
     }
     void this.flushWaiting(session).catch((err: unknown) =>
       this.ctx.logger.warn({ err, sessionId: session.id }, 'team message batch delivery failed'),
@@ -232,6 +240,10 @@ export class MessageDelivery {
     )
       return false;
     if (!waiting.length) return false;
+    // An idle Operator is typed into only for the owner's message; an AI member's waits to ride along (PM-463).
+    const operator = !!config && isOperator(memberOf(config, current.member));
+    const wakesOperator = (m: TeamMessage) => !!config && this.messages.wakes(config, m, current.member);
+    if (operator && !waiting.some(wakesOperator)) return false;
     this.flushing.add(current.id);
     for (const message of waiting) this.claims.add(`${message.id}:${current.member}`);
     try {
@@ -248,7 +260,7 @@ export class MessageDelivery {
           batch.messages.some((m) => this.messages.wakes(config, m, current.member)))
       )
         return false;
-      if (!batch.messages.length) return false;
+      if (!batch.messages.length || (operator && !batch.messages.some(wakesOperator))) return false;
       const held = this.held.get(fresh.id) ?? [];
       let text = batch.text;
       let taken = 0;
@@ -294,6 +306,7 @@ export class MessageDelivery {
       : null;
     const messages: TeamMessage[] = [];
     let text = '';
+    const operator = isOperator(memberOf(config, handle));
     for (const message of waiting) {
       const next = [...messages, message];
       const candidate = formatTeamMessageBatch(
@@ -302,6 +315,8 @@ export class MessageDelivery {
         next.map((m) => ({
           from: m.from,
           via: m.via,
+          // What does not wake the Operator is information for it, not an instruction (PM-463).
+          ...(operator && !this.messages.wakes(config, m, handle) ? { info: true } : {}),
           taskKey: m.taskKey,
           body: m.body,
           kind: m.kind ?? 'action',

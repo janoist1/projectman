@@ -76,7 +76,7 @@ async function setup(templateId: string) {
       name: 'Fictional workshop',
       workspacePath: workspace,
       templateId,
-      repos: [{ name: 'app', path: '.', defaultBranch: 'main' }],
+      repos: [{ name: 'app', path: '.', defaultBranch: 'main', requireMerge: false }],
     },
   });
   expect(created.statusCode, created.body).toBe(201);

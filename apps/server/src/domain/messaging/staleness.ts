@@ -1,6 +1,7 @@
 import {
   hasCardRole,
   isOpenTask,
+  isOperator,
   isTheme,
   labelDefinition,
   memberOf,
@@ -87,6 +88,7 @@ export function recipientHasCardRole(
 ): boolean {
   const worked = (taskKey: string) =>
     ctx.repos.sessions.findByWorkItem(task.projectKey, recipient, { type: 'task', taskKey }) !== null;
+  if (ctx.repos.taskMerges.open(task.projectKey, task.key)?.merger === recipient) return true;
   return hasCardRole(
     config,
     task,
@@ -108,6 +110,9 @@ export function wakeFactsFor(
     fromHuman: sender?.kind === 'human',
     fromAi: sender?.kind === 'ai',
     recipientHasRole: !task || isTheme(task) || recipientHasCardRole(ctx, config, task, recipient),
+    recipientIsOperator: isOperator(memberOf(config, recipient)),
+    // An owner's own login only: the integrator key acts for the owner but does not wake the Operator.
+    fromOwner: sender?.kind === 'human' && sender.access === 'owner' && message.via !== 'integrator',
   };
 }
 

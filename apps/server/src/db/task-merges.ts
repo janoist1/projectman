@@ -1,11 +1,11 @@
 import type { TaskMerged, TaskMergeState } from '@projectman/shared';
 import type { Db } from './database';
 
-export interface MergeRecord extends Omit<TaskMergeState, 'state' | 'startedAt'> {
+export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   projectKey: string;
   taskKey: string;
   fromStageId: string;
-  state: TaskMergeState['state'] | 'merged' | 'sent_back' | 'cancelled';
+  state: TaskMergeState['state'] | 'merged' | 'cancelled';
   createdAt: string;
   updatedAt: string;
   finishedAt?: string;
@@ -23,7 +23,11 @@ const columns = {
   branch: 'branch',
   fromStageId: 'from_stage_id',
   toStageId: 'to_stage_id',
-  requestedBy: 'requested_by',
+  merger: 'merger',
+  requestedAt: 'requested_at',
+  startedBy: 'started_by',
+  startedAt: 'started_at',
+  failure: 'failure_json',
   state: 'state',
   step: 'step',
   mergeCommit: 'merge_commit',
@@ -36,7 +40,7 @@ const columns = {
   updatedAt: 'updated_at',
   finishedAt: 'finished_at',
 } as const;
-const json = new Set(['check', 'block', 'pushed', 'pullRequests']);
+const json = new Set(['check', 'block', 'failure', 'pushed', 'pullRequests']);
 function record(row: Record<string, unknown>): MergeRecord {
   return Object.fromEntries(
     Object.entries(columns).flatMap(([key, column]) => {
@@ -46,7 +50,7 @@ function record(row: Record<string, unknown>): MergeRecord {
   ) as unknown as MergeRecord;
 }
 export function mergeState(row: MergeRecord): TaskMergeState | undefined {
-  if (row.state !== 'queued' && row.state !== 'running' && row.state !== 'blocked') return undefined;
+  if (row.state === 'merged' || row.state === 'cancelled') return undefined;
   return {
     id: row.id,
     repo: row.repo,
@@ -54,10 +58,13 @@ export function mergeState(row: MergeRecord): TaskMergeState | undefined {
     commit: row.commit,
     branch: row.branch,
     toStageId: row.toStageId,
-    requestedBy: row.requestedBy,
+    merger: row.merger,
+    requestedAt: row.requestedAt,
+    startedBy: row.startedBy,
+    startedAt: row.startedAt,
+    failure: row.failure,
     state: row.state,
     step: row.step,
-    startedAt: row.createdAt,
     landed: row.landed,
     ...(row.mergeCommit ? { mergeCommit: row.mergeCommit } : {}),
     ...(row.check ? { check: row.check } : {}),
@@ -65,14 +72,15 @@ export function mergeState(row: MergeRecord): TaskMergeState | undefined {
   };
 }
 export function mergedState(row: MergeRecord): TaskMerged | undefined {
-  if (row.state !== 'merged' || !row.mergeCommit) return undefined;
+  if (row.state !== 'merged' || !row.commit) return undefined;
   return {
+    via: row.startedBy ? 'tool' : 'found',
     mergeCommit: row.mergeCommit,
     commit: row.commit,
     repo: row.repo,
     base: row.base,
     at: row.finishedAt!,
-    by: row.requestedBy,
+    by: row.startedBy,
     ...(row.check ? { check: row.check } : {}),
     ...(row.pushed ? { pushed: row.pushed } : {}),
     ...(row.pullRequests ? { pullRequests: row.pullRequests } : {}),
@@ -91,7 +99,7 @@ export function createTaskMergeRepository(db: Db) {
     open(projectKey: string, taskKey: string) {
       return (
         read(
-          "SELECT * FROM task_merges WHERE project_key = ? AND task_key = ? AND state IN ('queued','running','blocked')",
+          "SELECT * FROM task_merges WHERE project_key = ? AND task_key = ? AND state IN ('requested','queued','running','failed','blocked')",
           projectKey,
           taskKey,
         )[0] ?? null

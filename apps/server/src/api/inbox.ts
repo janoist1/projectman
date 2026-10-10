@@ -19,6 +19,11 @@ const InboxQuery = z.object({
 });
 
 export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void {
+  app.post<ItemParams>(routes.checkOutage(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key, { internal: true });
+    return domain.outages.checkNow(key, itemId, access);
+  });
   app.get<ProjectParams>(routes.inbox(':key'), async (request): Promise<InboxView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);

@@ -576,6 +576,17 @@ export class Messaging {
     return engineId === null || this.engines.get(engineId) === null;
   }
 
+  pendingTaskKeys(projectKey: string, handle: string): string[] {
+    return [
+      ...new Set(
+        this.ctx.repos.messages.pending(projectKey, handle).flatMap((message) => {
+          const route = messageRoute(message, handle);
+          return route.type === 'task' ? [route.taskKey] : [];
+        }),
+      ),
+    ];
+  }
+
   /**
    * An engine is connected again (PM-315): the messages that waited for it, and every other message
    * that is still waiting for a member that works on it, reach the member the usual way, unless its card

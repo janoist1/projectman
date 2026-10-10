@@ -844,19 +844,31 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 46,
-    name: 'merge on done and persistent handovers',
+    name: 'clear stalled fix limits',
+    sql: `UPDATE task_fix_limits
+          SET hold_phase = NULL, held_at = NULL, decider = NULL, deciders = '[]', reason = NULL, inbox_item_id = NULL
+          WHERE hold_phase IS NOT NULL
+            AND inbox_item_id IS NOT NULL
+            AND (
+              NOT EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id)
+              OR EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id AND state = 'cancelled')
+            );`,
+  },
+  {
+    version: 47,
+    name: 'member merges and persistent handovers',
     sql: `CREATE TABLE task_merges (
       id TEXT PRIMARY KEY, project_key TEXT NOT NULL, task_key TEXT NOT NULL,
-      repo TEXT NOT NULL, base TEXT NOT NULL, "commit" TEXT NOT NULL, branch TEXT NOT NULL,
-      from_stage_id TEXT NOT NULL, to_stage_id TEXT NOT NULL, requested_by TEXT NOT NULL,
-      state TEXT NOT NULL CHECK (state IN ('queued','running','blocked','merged','sent_back','cancelled')),
-      step TEXT NOT NULL, merge_commit TEXT, check_json TEXT, landed TEXT NOT NULL,
+      repo TEXT NOT NULL, base TEXT NOT NULL, "commit" TEXT, branch TEXT,
+      from_stage_id TEXT NOT NULL, to_stage_id TEXT NOT NULL, merger TEXT NOT NULL, requested_at TEXT NOT NULL, started_by TEXT, started_at TEXT,
+      state TEXT NOT NULL CHECK (state IN ('requested','queued','running','failed','blocked','merged','cancelled')),
+      step TEXT, merge_commit TEXT, check_json TEXT, landed TEXT NOT NULL, failure_json TEXT,
       block_json TEXT, pushed_json TEXT, pull_requests_json TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
     );
     CREATE INDEX task_merges_queue ON task_merges(project_key, repo, state, created_at);
     CREATE UNIQUE INDEX task_merges_open ON task_merges(project_key, task_key)
-      WHERE state IN ('queued','running','blocked');
+      WHERE state IN ('requested','queued','running','failed','blocked');
     CREATE TABLE task_handovers (
       project_key TEXT NOT NULL, task_key TEXT NOT NULL, "commit" TEXT NOT NULL,
       branch TEXT NOT NULL, stage_id TEXT NOT NULL, at TEXT NOT NULL,

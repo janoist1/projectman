@@ -15,6 +15,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  WorkOutage,
   TaskFixLimit,
   TaskLoop,
   TaskReviewPin,
@@ -53,6 +54,7 @@ export class TaskStore {
   readonly timeline: TimelineService;
   readonly projects: ProjectService;
   private readonly startWaiting: StartWaitingReader;
+  private readonly outageOf?: (task: Task) => WorkOutage | undefined;
   private readonly fixLimit: ((task: Task) => TaskFixLimit | undefined) | undefined;
 
   constructor(deps: {
@@ -60,6 +62,7 @@ export class TaskStore {
     timeline: TimelineService;
     projects: ProjectService;
     startWaiting: StartWaitingReader;
+    outageOf?: (task: Task) => WorkOutage | undefined;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
   }) {
@@ -67,12 +70,14 @@ export class TaskStore {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.startWaiting = deps.startWaiting;
+    this.outageOf = deps.outageOf;
     this.fixLimit = deps.fixLimit;
   }
 
   view(task: Task): Task {
     const {
       startWaiting: _,
+      outage: _outage,
       reviewPin: __,
       coverAttachmentId: ___,
       loop: ____,
@@ -85,6 +90,7 @@ export class TaskStore {
       ...rest
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
+    const outage = this.outageOf?.(task);
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
@@ -109,6 +115,7 @@ export class TaskStore {
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
+      ...(outage ? { outage } : {}),
       ...(reviewPin ? { reviewPin } : {}),
       ...(cover ? { coverAttachmentId: cover } : {}),
       ...(loop ? { loop } : {}),

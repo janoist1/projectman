@@ -1,6 +1,8 @@
 import {
   ProjectConfig,
   BUILT_IN_ROLE_DUTIES,
+  defaultMerger,
+  isOperator,
   isProjectManager,
   type AiBuiltInRoleId,
   type BoardColumn,
@@ -23,6 +25,7 @@ import {
 } from '../locales';
 import { defaultMemberHandle, defaultMemberName, uniqueHandle } from '../members';
 import { standardLabelsFor } from '../labels';
+import { operatorMember } from '../operator';
 import { projectManagerMember } from '../project-manager';
 import { newAiMember } from '../roles';
 import type { BuildTemplateInput, ProjectTemplate } from '../types';
@@ -162,7 +165,17 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           projectManagerMember({ language: input.language, sponsor: input.owner.handle, taken: [...taken] }),
         );
       }
-      return ProjectConfig.parse({
+      // So does it have an Operator (PM-447), next to the project manager.
+      if (!members.some(isOperator)) {
+        members.push(
+          operatorMember({
+            language: input.language,
+            sponsor: input.owner.handle,
+            taken: members.map((m) => m.handle),
+          }),
+        );
+      }
+      const config = ProjectConfig.parse({
         schemaVersion: 1,
         project: {
           key: input.key,
@@ -173,7 +186,12 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           timezone: locale.timezone,
           templateId,
         },
-        team: { members, roles: [], limits, cardMover: input.cardMover ?? { kind: 'worker' } },
+        team: {
+          members,
+          roles: [],
+          limits,
+          cardMover: input.cardMover ?? { kind: 'worker' },
+        },
         pipeline: {
           ...pipeline,
           // The standard labels the gates use, whole groups included.
@@ -183,6 +201,8 @@ function draftProject(templateId: TemplateId, input: BuildTemplateInput): Templa
           ),
         },
       });
+      // The merger the pipeline implies is written out, so that the setting is visible and editable.
+      return { ...config, team: { ...config.team, merger: input.merger ?? defaultMerger(config) } };
     },
   };
 }

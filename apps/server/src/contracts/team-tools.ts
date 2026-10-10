@@ -90,6 +90,8 @@ export type TaskSummary = Pick<
   priority?: TaskPriority;
   /** The card's place in the project's focus (PM-437); absent when it is not in it. */
   focus?: FocusPlace;
+  /** Who or what the card waits for, in a few words (PM-460); absent on a closed card and a theme. */
+  waitsFor?: string;
 };
 
 /**
@@ -282,6 +284,7 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
+  mergeTask(ctx: ToolContext, args: { taskKey: string }): Promise<{ task: Task }>;
   updateTask(
     ctx: ToolContext,
     args: {

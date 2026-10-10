@@ -2,12 +2,13 @@ import { z } from 'zod';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
-import { MergeBlockReason } from './merge';
+import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
 import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
+import { WorkOutage } from './outage';
 
 /**
  * Items waiting for a human ("Rád vár" in the UI):
@@ -27,8 +28,23 @@ export const InboxKind = z.enum([
   'boundary',
   'alert',
   'hand_on',
+  'merge_request',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+export const MergeRequestPayload = z.object({
+  taskKey: TaskKey,
+  mergeId: z.string(),
+  repo: z.string(),
+  base: z.string(),
+  failure: MergeFailure.optional(),
+});
+export type MergeRequestPayload = z.infer<typeof MergeRequestPayload>;
+export function mergeRequestOf(item: Pick<InboxItem, 'kind' | 'payload'>): MergeRequestPayload | null {
+  if (item.kind !== 'merge_request') return null;
+  const parsed = MergeRequestPayload.safeParse(item.payload.mergeRequest);
+  return parsed.success ? parsed.data : null;
+}
 
 export const HandOnPayload = z.object({
   taskKey: TaskKey,
@@ -65,6 +81,7 @@ export type InboxState = z.infer<typeof InboxState>;
  * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
  */
 export const InboxResolutionRule = z.enum([
+  'outage_ended',
   'command_policy',
   /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
   'loop_ended',
@@ -358,7 +375,17 @@ export const MergeBlockedAlert = z.object({
   message: z.string(),
 });
 export type MergeBlockedAlert = z.infer<typeof MergeBlockedAlert>;
+export const WorkOutageAlert = z.object({
+  alert: z.literal('work_outage'),
+  outage: WorkOutage,
+  members: z.array(MemberHandle),
+  tasks: z.array(TaskKey),
+  checkedAt: z.string(),
+});
+export type WorkOutageAlert = z.infer<typeof WorkOutageAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  WorkOutageAlert,
   MergeBlockedAlert,
   SessionTokensAlert,
   MessageBurstAlert,

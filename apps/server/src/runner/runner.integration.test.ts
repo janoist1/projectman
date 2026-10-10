@@ -926,6 +926,10 @@ describe('runner with the fake Claude Code CLI', { timeout: 30_000 }, () => {
       logger: silentLogger(),
       trustWorkspaces: false,
     });
+    expect(await missingCli.runner.providerStatus!('claude')).toMatchObject({
+      loggedIn: false,
+      problem: 'cli_missing',
+    });
     await expect(missingCli.runner.start(spec())).rejects.toThrow(/CLI not found/);
     await expect(runner.runner.start(spec({ cwd: path.join(cwd, 'missing') }))).rejects.toThrow(
       /does not exist/,

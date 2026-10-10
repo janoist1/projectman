@@ -15,12 +15,14 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
       key: input.key,
       name: input.name,
       workspacePath: input.workspacePath,
-      repos: [{ name: 'web', path: '.', github: 'acme/web', mergeOnDone: false }],
+      repos: [{ name: 'web', path: '.', github: 'acme/web', requireMerge: false }],
       language: input.language,
       templateId: 'test',
     },
     team: {
       cardMover: input.cardMover ?? { kind: 'worker' },
+      // Stored explicitly, as the migration writes it; the developer, so that tests may drop the review stage.
+      merger: input.merger ?? { kind: 'developer' },
       members: [
         {
           kind: 'human',
@@ -58,6 +60,15 @@ export function testConfigInput(input: BuildTemplateInput): ProjectConfigInput {
           handle: 'pm',
           displayName: 'Project Manager',
           role: 'project_manager',
+          sponsor: input.owner.handle,
+          onLeave: true,
+        },
+        // Every project has an Operator (PM-447); on leave for the same reason.
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Operator',
+          role: 'ai_operator',
           sponsor: input.owner.handle,
           onLeave: true,
         },
@@ -157,6 +168,31 @@ export function testConfig(overrides: Partial<BuildTemplateInput> = {}): Project
       ...overrides,
     }),
   );
+}
+
+/**
+ * A project whose gates do not wait for a system label (`pr-merged`): without a GitHub
+ * repository nothing sets it, and a gate nothing can pass does not save (`gate_unreachable`).
+ */
+export function dropSystemLabelGates(config: ProjectConfig): void {
+  const system = new Set(config.pipeline.labels.filter((label) => label.setBy === 'system').map((l) => l.id));
+  for (const stage of config.pipeline.stages)
+    if (stage.gate)
+      stage.gate.conditions = stage.gate.conditions.filter(
+        (condition) => !(condition.type === 'has_label' && system.has(condition.label)),
+      );
+}
+
+/** The first repository is local-only: no GitHub, and so no pull request gate. */
+export function makeLocalOnly(config: ProjectConfig): void {
+  delete config.project.repos[0]!.github;
+  dropSystemLabelGates(config);
+}
+
+/** A project without any repository, and so without a pull request gate. */
+export function makeRepoless(config: ProjectConfig): void {
+  config.project.repos = [];
+  dropSystemLabelGates(config);
 }
 
 export const testTemplate: ProjectTemplate = {

@@ -44,11 +44,12 @@ export const routes = {
 
   templates: () => '/api/templates',
   projects: () => '/api/projects',
+  projectPreview: () => '/api/projects/preview',
   project: (key: string) => `/api/projects/${key}`,
   board: (key: string) => `/api/projects/${key}/board`,
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
-  retryMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge/retry`,
+  taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>
@@ -129,6 +130,7 @@ export const routes = {
 
   inbox: (key: string) => `/api/projects/${key}/inbox`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
+  checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 
   config: (key: string) => `/api/projects/${key}/config`,
   patchConfig: (key: string) => `/api/projects/${key}/config`,

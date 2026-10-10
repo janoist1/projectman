@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
-import type { MergeBlockReason, TaskMerged } from './merge';
+import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -59,6 +59,8 @@ export const TimelineEventType = z.enum([
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
+  'task_merge_requested',
+  'task_merge_failed',
   'task_merged',
   'task_merge_blocked',
   'member_hired',
@@ -158,16 +160,6 @@ export interface TimelineEventData {
     reviewPin?: { commit: string; branch: string };
     branchMoved?: { branch: string; pinned: string; head: string };
     testsFailed?: { runId: string; branch: string; commit: string };
-    mergeFailed?: {
-      mergeId: string;
-      reason: 'conflict' | 'check_failed';
-      base: string;
-      commit: string;
-      files?: string[];
-      command?: string;
-      runId?: string;
-      outputTail?: string;
-    };
     /** The card was pulled into this stage ahead of its turn (PM-427); hidden from clients. */
     pulled?: StagePull;
   };
@@ -178,7 +170,9 @@ export interface TimelineEventData {
     reason?: 'member_removed' | 'handover';
     from?: string;
   };
-  task_merged: TaskMerged & { mergeId: string };
+  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  task_merge_failed: MergeFailure & { mergeId: string };
+  task_merged: TaskMerged & { mergeId?: string };
   task_merge_blocked: {
     mergeId: string;
     repo: string;

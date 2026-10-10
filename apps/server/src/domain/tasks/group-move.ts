@@ -1,4 +1,9 @@
-import { groupPlacement, stageHandsOverForReview, subtasksMovingAlong } from '@projectman/shared';
+import {
+  groupPlacement,
+  mergeRepoOf,
+  stageHandsOverForReview,
+  subtasksMovingAlong,
+} from '@projectman/shared';
 import type {
   Actor,
   BoardGroupItem,
@@ -56,7 +61,11 @@ export class BoardGroupMove {
       try {
         prepared.set(card.key, { handover: await this.moves.prepareHandover(config, card, target.id) });
       } catch (error) {
-        if (!(error instanceof DomainError) || error.code !== 'handover_uncommitted') throw error;
+        if (
+          !(error instanceof DomainError) ||
+          !['handover_uncommitted', 'task_not_merged'].includes(error.code)
+        )
+          throw error;
         prepared.set(card.key, { blocked: blockedItem(card.key, error) });
       }
     }
@@ -96,7 +105,11 @@ export class BoardGroupMove {
         continue;
       }
       // A subtask that came into the column since the request was read has no hand-over read for it.
-      if (!cardPrepared && handsOver && card.key !== parent.key) {
+      if (
+        !cardPrepared &&
+        (handsOver || mergeRepoOf(config, card, card.stageId, target.id)) &&
+        card.key !== parent.key
+      ) {
         items.push({ taskKey: card.key, outcome: 'skipped', reason: 'changed' });
         continue;
       }
@@ -122,11 +135,7 @@ export class BoardGroupMove {
     items.sort((a, b) => rankOf(order, a.taskKey) - rankOf(order, b.taskKey));
     return {
       task: this.store.get(parent.projectKey, parent.key),
-      outcome: parentMoved
-        ? 'moved'
-        : items.some((item) => item.taskKey === parent.key && item.outcome === 'merging')
-          ? 'merging'
-          : 'unchanged',
+      outcome: parentMoved ? 'moved' : 'unchanged',
       reranked,
       group: items,
     };
@@ -163,10 +172,6 @@ export class BoardGroupMove {
           outcome: 'approval_pending',
           inboxItemIds: result.pendingApproval.map((item) => item.id),
         };
-      if (result.merging) {
-        effects.push(...cardEffects);
-        return { taskKey: card.key, outcome: 'merging', mergeId: result.merging.id };
-      }
       return { taskKey: card.key, outcome: 'skipped', reason: 'changed' };
     } catch (error) {
       if (!(error instanceof DomainError)) throw error;
@@ -212,7 +217,12 @@ function blockedItem(taskKey: string, error: DomainError): BlockedItem {
   return {
     taskKey,
     outcome: 'blocked',
-    code: error.code === 'handover_uncommitted' ? 'handover_uncommitted' : 'gate_blocked',
+    code:
+      error.code === 'task_not_merged'
+        ? 'task_not_merged'
+        : error.code === 'handover_uncommitted'
+          ? 'handover_uncommitted'
+          : 'gate_blocked',
     message: error.message,
     unmet: details.unmet ?? [],
     approvals: details.approvals ?? [],

@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
   holdersAllow,
+  isRequiredOperator,
   isRequiredProjectManager,
   isSenior,
   MemberHandle,
@@ -28,6 +29,7 @@ import type {
   MemberStatus,
   MemberUsage,
   MemberView,
+  WorkOutage,
   ProjectConfig,
   SessionState,
   UpdateMemberRequest,
@@ -81,6 +83,7 @@ export class MemberService {
   private readonly timeline: TimelineService;
   private readonly presence: PresenceService;
   private readonly inbox: InboxService;
+  private readonly outageOf?: (projectKey: string, handle: string) => WorkOutage | undefined;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -88,16 +91,26 @@ export class MemberService {
     timeline: TimelineService;
     presence: PresenceService;
     inbox: InboxService;
+    outageOf?: (projectKey: string, handle: string) => WorkOutage | undefined;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.timeline = deps.timeline;
     this.presence = deps.presence;
     this.inbox = deps.inbox;
+    this.outageOf = deps.outageOf;
   }
 
   async roster(projectKey: string): Promise<MemberView[]> {
     return this.rosterFor(await this.projects.config(projectKey));
+  }
+
+  async publishMembers(projectKey: string, handles: string[]): Promise<void> {
+    const roster = await this.roster(projectKey);
+    for (const handle of handles) {
+      const member = roster.find((m) => m.handle === handle) ?? null;
+      this.ctx.bus.publish({ type: 'member_changed', projectKey, handle, member });
+    }
   }
 
   /** The roster as the viewer sees it: a client gets no key of a card they cannot see. */
@@ -164,6 +177,7 @@ export class MemberService {
         displayName: m.displayName,
         githubLogin: m.githubLogin,
         kind: 'ai',
+        outage: this.outageOf?.(projectKey, m.handle),
         role: m.role,
         roles: memberRoles(m),
         specialty: m.specialty ?? null,
@@ -473,6 +487,12 @@ export class MemberService {
       throw conflict(
         'project_manager_required',
         'the only AI project manager cannot be retired; hire another one first',
+      );
+    }
+    if (isRequiredOperator(config, handle)) {
+      throw conflict(
+        'operator_required',
+        'the only Operator cannot be retired; send it on leave instead, or hire another one first',
       );
     }
     const handoverTo = opts.handoverTo ?? null;

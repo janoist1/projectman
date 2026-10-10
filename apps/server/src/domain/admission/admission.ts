@@ -1,6 +1,7 @@
 import {
   aiLimitReached,
   DEFAULT_AGENT_PROVIDER,
+  OUTAGE_REFUSALS,
   pausesOnPlanUsage,
   isHandleOnLeave,
   isOpenTask,
@@ -81,6 +82,12 @@ export class Admission {
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   private readonly locks = new KeyedMutex();
+  private readonly onOutageRefusal?: (
+    projectKey: string,
+    handle: string,
+    code: string,
+    details?: Record<string, unknown>,
+  ) => void;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -89,6 +96,12 @@ export class Admission {
     tasks: TaskService;
     projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
+    onOutageRefusal?: (
+      projectKey: string,
+      handle: string,
+      code: string,
+      details?: Record<string, unknown>,
+    ) => void;
     disk?: Pick<DiskGuard, 'assertRoom'>;
     /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
@@ -101,6 +114,7 @@ export class Admission {
     this.tasks = deps.tasks;
     this.projects = deps.projects;
     this.deferred = deps.deferred;
+    this.onOutageRefusal = deps.onOutageRefusal;
   }
 
   /** Runs `fn` alone among admission decisions and the starts they allow (across projects). */
@@ -242,11 +256,26 @@ export class Admission {
         );
       return result;
     }
-    await this.check(request);
-    return this.sessions.ensureSession(projectKey, request.member.handle, requested, {
-      messages: request.messages,
-      cause: request.cause,
-    });
+    try {
+      await this.check(request);
+      return await this.sessions.ensureSession(projectKey, request.member.handle, requested, {
+        messages: request.messages,
+        cause: request.cause,
+      });
+    } catch (err) {
+      const refusal = err as { code?: unknown; details?: unknown } | null;
+      if (typeof refusal?.code === 'string' && OUTAGE_REFUSALS.some((code) => code === refusal.code)) {
+        this.onOutageRefusal?.(
+          projectKey,
+          request.member.handle,
+          refusal.code,
+          refusal.details && typeof refusal.details === 'object'
+            ? (refusal.details as Record<string, unknown>)
+            : undefined,
+        );
+      }
+      throw err;
+    }
   }
 
   /**

@@ -17,7 +17,8 @@
     opacity 120ms ease;
 }
 
-.card[data-phase='needs_you'] {
+.card[data-phase='needs_you'],
+.card[data-phase='stuck'] {
   background: var(--c-needs-bg);
   border-color: var(--c-needs);
 }

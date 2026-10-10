@@ -3,6 +3,7 @@ import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import { TEAM_TOOLS } from '../src/mcp';
+import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -337,7 +338,7 @@ describe('team tools', () => {
 
   it('list_members and get_task answer with the roster and the task detail', async () => {
     const members = await h.domain.teamTools.listMembers(dev);
-    expect(members.map((m) => m.handle)).toEqual(['owner', 'dev-1', 'dev-2', 'cr', 'pm']);
+    expect(members.map((m) => m.handle)).toEqual(['owner', 'dev-1', 'dev-2', 'cr', 'pm', 'operator']);
     const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
     expect(detail.task.key).toBe('AR-1');
     expect(detail.sessions).toHaveLength(1);
@@ -382,6 +383,57 @@ describe('team tools', () => {
     expect(detail.undeliveredMessageIds).toEqual(['msg_waiting']);
   });
 
+  it('get_task and list_tasks say why a card stands still, from the shared rule (PM-460)', async () => {
+    await h.domain.tasks.create('AR', { title: 'Second card' }, OWNER_ACTOR);
+    const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-2' });
+    expect(detail.wait).toMatchObject({ reason: 'ready', next: [] });
+    expect(formatTaskDetail(detail)).toContain('Waiting: ready in its queue');
+    const listed = await h.domain.teamTools.listTasks(dev, {});
+    expect(listed.find((card) => card.key === 'AR-2')?.waitsFor).toBe('ready to start');
+
+    // The same rule the API gives: what the board says is what the AI members read.
+    const config = await h.domain.projects.config('AR');
+    expect(h.domain.taskWaits.ofCard(config, h.domain.tasks.get('AR', 'AR-2'))).toEqual(detail.wait);
+
+    // A cancelled card waits for nothing: no line, no short part.
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-2').id, { status: 'cancelled' });
+    const closed = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-2' });
+    expect(closed).not.toHaveProperty('wait');
+    expect(formatTaskDetail(closed)).not.toContain('Waiting:');
+    const all = await h.domain.teamTools.listTasks(dev, { status: 'cancelled' });
+    expect(all[0]).not.toHaveProperty('waitsFor');
+  });
+
+  it('the wait is counted for the viewer when there is one: their own open item comes first (PM-460)', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Blocked card' }, OWNER_ACTOR);
+    h.repos.tasks.update(card.id, { status: 'blocked' });
+    h.repos.inbox.insert({
+      id: 'inb_wait',
+      projectKey: 'AR',
+      kind: 'question',
+      assignees: ['owner'],
+      source: 'dev-1',
+      sessionId: null,
+      taskKey: card.key,
+      title: 'Which colour?',
+      body: null,
+      payload: {},
+      options: [],
+      state: 'open',
+      resolution: null,
+      createdAt: '2026-09-30T10:00:00.000Z',
+    });
+    const config = await h.domain.projects.config('AR');
+    const task = h.domain.tasks.get('AR', card.key);
+    expect(h.domain.taskWaits.ofCard(config, task, 'owner')).toMatchObject({
+      reason: 'inbox',
+      next: [{ handle: 'owner', kind: 'human' }],
+      inboxItemId: 'inb_wait',
+    });
+    // Without a viewer (the AI text) the blocked status comes before an item that is somebody's.
+    expect(h.domain.taskWaits.ofCard(config, task)?.reason).toBe('blocked');
+  });
+
   it('list_tasks filters the board, sorts before limiting and uses get_task visibility', async () => {
     h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { updatedAt: '2026-09-29T09:00:00.000Z' });
     const statuses: TaskStatus[] = ['active', 'waiting', 'blocked', 'done', 'cancelled'];
@@ -403,7 +455,7 @@ describe('team tools', () => {
     expect(result.slice(0, 3).map((task) => task.status)).toEqual(['blocked', 'waiting', 'active']);
     expect(result).toHaveLength(4);
     expect(Object.keys(result[0]!).sort()).toEqual(
-      ['key', 'title', 'stageId', 'status', 'assignee', 'labels', 'updatedAt'].sort(),
+      ['key', 'title', 'stageId', 'status', 'assignee', 'labels', 'updatedAt', 'waitsFor'].sort(),
     );
     expect(await h.domain.teamTools.listTasks(dev, { assignee: 'me' })).toMatchObject([{ key: 'AR-1' }]);
     expect(

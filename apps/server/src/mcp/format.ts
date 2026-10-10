@@ -6,6 +6,7 @@ import {
   describeAttachment,
   describeLink,
   describeRepo,
+  describeTaskWait,
   describeTheme,
   focusPlaceText,
   themeCardLines,
@@ -173,6 +174,7 @@ export function formatTaskDetail(
     theme
       ? `Visibility: ${task.visibility}`
       : `Repo: ${repo} · Visibility: ${task.visibility} · Priority: ${task.priority ?? 'none'}`,
+    ...(detail.wait ? [`Waiting: ${describeTaskWait(detail.wait)}`] : []),
     ...(detail.focus ? [`Focus: ${focusPlaceText(detail.focus)}`] : []),
     ...(task.developerLevel ? [`Recommended developer: ${developerLevelText(task.developerLevel)}`] : []),
     // Links to other cards are the relations below, from both cards' sides.
@@ -373,10 +375,9 @@ export function formatTaskUpdate(
   if (task.status === 'cancelled' && change.relations?.add.some((r) => r.kind === 'duplicate_of'))
     done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
-  if (change.stageId && (task.merge || !task.handOn))
-    done.push(task.merge ? 'merge started' : `moved to ${change.stageId}`);
+  if (change.stageId && !task.handOn) done.push(`moved to ${change.stageId}`);
   const handOn =
-    change.stageId && task.handOn && !task.merge
+    change.stageId && task.handOn
       ? [
           `The move to ${task.handOn.toStageId} goes to ${change.moverName ?? task.handOn.mover} (${task.handOn.mover}), who moves cards on in this project; the card waits for them. Your work on this stage is done.`,
         ]
@@ -522,6 +523,8 @@ function recipientLine(
     case 'next_input':
       if (noWake === 'no_card_role')
         return `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+      if (noWake === 'operator_owner_only')
+        return `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
       return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;

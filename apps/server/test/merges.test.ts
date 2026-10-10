@@ -54,7 +54,7 @@ function fakeExecutor(result: FullTestResult = passed): FullTestExecutor {
   return { available: vi.fn(async () => ({ ok: true as const })), run: vi.fn(async () => result) };
 }
 
-describe('merge on Done', () => {
+describe('member initiated merge', () => {
   let h: DomainHarness | undefined;
   let merger: ReturnType<typeof fakeMerger>;
   const task = (key = 'AR-1') => h!.domain.tasks.get('AR', key);
@@ -67,15 +67,17 @@ describe('merge on Done', () => {
       executor?: FullTestExecutor;
       adjust?: (config: ProjectConfig) => void;
       persistent?: boolean;
+      unavailable?: boolean;
     } = {},
   ) {
     merger = fakeMerger(opts.remote);
     h = await createDomainHarness({
-      merger,
+      merger: opts.unavailable ? null : merger,
       fullTestExecutor: opts.executor,
       persistent: opts.persistent,
       adjust(config) {
-        config.project.repos[0]!.mergeOnDone = true;
+        config.project.repos[0]!.requireMerge = true;
+        config.team.merger = { kind: 'member', handle: 'dev-1' };
         config.pipeline.stages = config.pipeline.stages.filter(
           (stage) => stage.id !== 'merge' && stage.id !== 'release',
         );
@@ -85,10 +87,11 @@ describe('merge on Done', () => {
         opts.adjust?.(config);
       },
     });
+    vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
     await card('AR-1', 'web', 'dev-1');
   }
-  async function card(key: string, repo: string, assignee: string) {
-    await h!.domain.tasks.create('AR', { title: `Card ${key}`, repo }, OWNER_ACTOR);
+  async function card(key: string, repo: string, assignee: string, parentKey?: string) {
+    await h!.domain.tasks.create('AR', { title: `Card ${key}`, repo, parentKey }, OWNER_ACTOR);
     await h!.domain.taskStarts.start('AR', key, { assignee, actor: OWNER_ACTOR, author: OWNER });
     const tree = h!.worktrees.existing.get(`AR/${key}/${repo}`)!;
     h!.worktrees.heads.set(tree.path, {
@@ -110,579 +113,727 @@ describe('merge on Done', () => {
     h!.repos.tasks.update(task(key).id, { stageId: 'code_review', labels: ['code-review-ok'] });
   }
   const move = (key = 'AR-1') => h!.domain.tasks.moveToStage('AR', key, 'done', OWNER_ACTOR);
-  const done = async (key = 'AR-1') => vi.waitFor(() => expect(task(key).status).toBe('done'));
+  const start = (key = 'AR-1', actor = aiActor('dev-1')) => h!.domain.merges.start('AR', key, actor);
+  const merged = async (key = 'AR-1') => vi.waitFor(() => expect(task(key).merged?.via).toBe('tool'));
   const blocked = async (reason: string) => vi.waitFor(() => expect(row()?.block?.reason).toBe(reason));
   afterEach(async () => {
-    if (h) await h.cleanup();
+    await h?.cleanup();
     h = undefined;
   });
 
-  it.each([true, false])('lands the approved commit with remote=%s before entering Done', async (remote) => {
+  it('requests an AI merger without starting git, on the card with merge provenance', async () => {
+    await setup();
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(row()).toMatchObject({ state: 'requested', merger: 'dev-1' });
+    expect(events('task_merge_requested')).toHaveLength(1);
+    expect(merger.build).not.toHaveBeenCalled();
+    const msg = h!.repos.messages
+      .list('AR', { taskKey: 'AR-1' })
+      .find((m) => m.body.includes('Call merge_task'));
+    expect(msg).toMatchObject({ kind: 'action', from: 'system', origin: { kind: 'note' } });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(events('task_merge_requested')).toHaveLength(1);
+  });
+
+  it('cancels a request when the gate ceases to hold', async () => {
+    await setup();
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const id = row()!.id;
+    h!.repos.tasks.update(task().id, { labels: [] });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(row()).toBeNull();
+    expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled');
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it.each(['developer', 'member'] as const)('resolves %s merger', async (kind) => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = kind === 'developer' ? { kind } : { kind, handle: 'owner' };
+      },
+    });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(row()?.merger).toBe(kind === 'developer' ? 'dev-1' : 'owner');
+  });
+
+  it('requires the named merger even for an owner and refuses an unready card', async () => {
+    await setup();
+    await expect(start('AR-1', OWNER_ACTOR)).rejects.toMatchObject({ code: 'merge_not_merger', status: 403 });
+    h!.repos.tasks.update(task().id, { labels: [] });
+    await expect(start()).rejects.toMatchObject({ code: 'merge_not_ready', details: { reason: 'gate' } });
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('starts a human merge from the inbox and resolves its request', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'member', handle: 'owner' };
+      },
+    });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const item = h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })[0]!;
+    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build.mockReturnValueOnce(gate.promise);
+    const resolved = await h!.domain.inbox.resolve(
+      'AR',
+      item.id,
+      { optionId: 'merge' },
+      { handle: 'owner', access: 'owner' },
+    );
+    expect(resolved).toMatchObject({ state: 'resolved', resolution: { optionId: 'merge', by: 'owner' } });
+    gate.resolve({ ok: true, mergeCommit: 'human', changed: [] });
+    await merged();
+    expect(task().merged?.by).toBe('owner');
+  });
+
+  it.each([true, false])('lands with remote=%s without moving the card', async (remote) => {
     await setup({ remote });
     const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
     merger.build.mockReturnValueOnce(gate.promise);
-    const result = await move();
-    expect(result).toMatchObject({ moved: false, merging: { commit: 'approved-AR-1', state: 'queued' } });
+    const requested = await start();
+    expect(requested.merge?.state).toMatch(/queued|running/);
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalled());
+    await start();
+    expect(merger.build).toHaveBeenCalledTimes(1);
     expect(task().stageId).toBe('code_review');
     gate.resolve({ ok: true, mergeCommit: 'landed', changed: ['a.ts'] });
-    await done();
+    await merged();
+    expect(task().stageId).toBe('code_review');
     expect(merger.push).toHaveBeenCalledTimes(remote ? 1 : 0);
-    expect(merger.advance).toHaveBeenCalledWith(
-      { projectKey: 'AR', repo: 'web' },
-      { base: 'main', from: 'base', to: 'landed' },
-    );
-    expect(task().merged).toMatchObject({ mergeCommit: 'landed', commit: 'approved-AR-1' });
-    expect(task().merge).toBeUndefined();
+    expect(task().merged).toMatchObject({ mergeCommit: 'landed', commit: 'approved-AR-1', by: 'dev-1' });
     expect(events('task_merged')).toHaveLength(1);
-    if (remote) expect(task().merged?.pushed?.commitUrl).toBe('https://github.com/acme/web/commit/landed');
+    expect(merger.releaseCheck).toHaveBeenCalled();
+    await move();
+    expect(task().status).toBe('done');
   });
 
-  it('finishes without a merged record when the commit is already on the base', async () => {
+  it('records a tool success when there is nothing left to merge', async () => {
     await setup();
-    merger.base.contains.remote = true;
-    await move();
-    await done();
-    expect(task().merged).toBeUndefined();
+    merger.base.contains = { local: true, remote: true };
+    await start();
+    await merged();
     expect(merger.build).not.toHaveBeenCalled();
+    expect(task().stageId).toBe('code_review');
   });
 
-  it.each(['human', 'project_manager'] as const)(
-    'merges after the %s accepts a hand-on request',
-    async (kind) => {
-      await setup({
-        adjust: (config) => {
-          config.team.cardMover = kind === 'human' ? { kind, handle: 'owner' } : { kind };
-        },
-      });
-      const build = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
-      merger.build.mockReturnValueOnce(build.promise);
-      const requested = await h!.domain.tasks.moveToStage('AR', 'AR-1', 'done', aiActor('dev-1'));
-      expect(requested.handOn).toMatchObject({ toStageId: 'done', mover: kind === 'human' ? 'owner' : 'pm' });
-      expect(row()).toBeNull();
-      if (kind === 'human') {
-        const resolved = await h!.domain.inbox.resolve(
-          'AR',
-          requested.handOn!.inboxItemId!,
-          { optionId: 'move' },
-          { handle: 'owner', access: 'owner' },
-        );
-        expect(resolved).toMatchObject({ state: 'resolved', resolution: { by: 'owner', optionId: 'move' } });
-      } else {
-        const updated = await h!.domain.tasks.update('AR', 'AR-1', { stageId: 'done' }, aiActor('pm'));
-        expect(updated.merge).toBeDefined();
-        expect(updated.handOn).toBeUndefined();
-      }
-      expect(task().stageId).toBe('code_review');
-      expect(task().merge?.commit).toBe('approved-AR-1');
-      expect(task().handOn).toBeUndefined();
-      expect(h!.repos.taskHandOns.get('AR', 'AR-1')).toBeNull();
-      expect(h!.domain.inbox.list('AR', { kind: 'hand_on', state: 'open' })).toHaveLength(0);
-      build.resolve({ ok: true, mergeCommit: 'hand-on-merged', changed: [] });
-      await done();
-      expect(task().handOn).toBeUndefined();
-      expect(task().merged?.mergeCommit).toBe('hand-on-merged');
-      expect(h!.repos.taskHandOns.get('AR', 'AR-1')).toBeNull();
-      expect(h!.domain.inbox.list('AR', { kind: 'hand_on', state: 'open' })).toHaveLength(0);
-      expect(merger.push).toHaveBeenCalledTimes(1);
-    },
-  );
-
-  it('preserves handovers after the pin is cleared and merges that commit', async () => {
+  it('lets AutoAdvance continue an idle card after success', async () => {
     await setup();
-    const config = await h!.domain.projects.config('AR');
-    h!.repos.tasks.update(task().id, { stageId: 'development', labels: [] });
-    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
-    expect(h!.repos.taskHandovers.get('AR', 'AR-1')?.commit).toBe('approved-AR-1');
-    h!.repos.reviewPins.clear('AR-1');
-    h!.repos.tasks.update(task().id, { labels: ['code-review-ok'] });
-    const tree = h!.worktrees.existing.get('AR/AR-1/web')!;
-    h!.worktrees.heads.set(tree.path, {
-      ...h!.worktrees.heads.get(tree.path)!,
-      commit: 'new-head',
-      dirty: true,
-    });
-    await move();
-    await done();
-    expect(task().merged?.commit).toBe('approved-AR-1');
-    expect(config.project.repos[0]!.mergeOnDone).toBe(true);
+    vi.mocked(h!.domain.autoAdvance.check).mockRestore();
+    for (const session of h!.domain.sessions.list('AR')) await h!.domain.sessions.stop('AR', session.id);
+    await start();
+    await merged();
+    await vi.waitFor(() => expect(task().status).toBe('done'));
   });
 
-  it('reads the current clean head without a handover and refuses uncommitted work', async () => {
+  it('keeps conflicts on the card and can rebuild after failure', async () => {
     await setup();
-    h!.repos.db.prepare('DELETE FROM task_handovers').run();
-    const tree = h!.worktrees.existing.get('AR/AR-1/web')!;
-    const head = h!.worktrees.heads.get(tree.path)!;
-    h!.worktrees.heads.set(tree.path, { ...head, dirty: true, changes: 1 });
-    await expect(move()).rejects.toMatchObject({ code: 'handover_uncommitted' });
-    expect(row()).toBeNull();
-    h!.worktrees.heads.set(tree.path, head);
-    await move();
-    await done();
-    expect(task().merged?.commit).toBe(head.commit);
-  });
-
-  it('sends conflicts back as a fix round without changing the base', async () => {
-    await setup();
-    merger.build.mockResolvedValue({ ok: false, conflict: ['a.ts', 'b.ts'] });
-    await move();
-    await vi.waitFor(() => expect(task().stageId).toBe('development'));
-    expect(
-      events('task_stage_changed').find((event) => event.data.mergeFailed)?.data.mergeFailed,
-    ).toMatchObject({ reason: 'conflict', files: ['a.ts', 'b.ts'] });
-    expect(h!.domain.cardMeasure.withRounds(h!.domain.tasks.detail('AR', 'AR-1')).fixRounds?.rounds).toBe(1);
-    expect(merger.advance).not.toHaveBeenCalled();
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts', 'b.ts'] });
+    await start();
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    expect(row()?.failure).toMatchObject({ reason: 'conflict', base: 'base', files: ['a.ts', 'b.ts'] });
+    expect(events('task_merge_failed')).toHaveLength(1);
+    expect(task().stageId).toBe('code_review');
     expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+    await start();
+    await merged();
+    expect(merger.build).toHaveBeenCalledTimes(2);
   });
 
   it.each(['passed', 'failed', 'error'] as const)(
-    'handles check outcome %s and releases its checkout',
+    'handles check %s and releases checkout',
     async (outcome) => {
-      const executor = fakeExecutor({
-        ...passed,
-        outcome,
-        exitCode: outcome === 'passed' ? 0 : 1,
-        outputTail: Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(200)}`).join('\n'),
-      });
+      const output = Array.from({ length: 60 }, (_, i) => `line ${i} ${'x'.repeat(200)}`).join('\n');
       await setup({
-        executor,
-        adjust: (config) => {
-          config.project.repos[0]!.reviewTest = reviewTest;
+        executor: fakeExecutor({ ...passed, outcome, outputTail: output }),
+        adjust: (c) => {
+          c.project.repos[0]!.reviewTest = reviewTest;
         },
       });
-      await move();
-      if (outcome === 'passed') {
-        await done();
-        expect(task().merged?.check?.status).toBe('passed');
-      } else if (outcome === 'error') await blocked('check_error');
+      await start();
+      if (outcome === 'passed') await merged();
+      else if (outcome === 'error') await blocked('check_error');
       else {
-        await vi.waitFor(() => expect(task().stageId).toBe('development'));
-        const failed = events('task_stage_changed').find((event) => event.data.mergeFailed)?.data
-          .mergeFailed as { outputTail: string };
-        expect(failed.outputTail.length).toBeLessThanOrEqual(8000);
-        expect(failed.outputTail.split('\n').length).toBeLessThanOrEqual(40);
+        await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+        expect(row()?.failure?.outputTail?.length).toBeLessThanOrEqual(8000);
+        expect(row()?.failure?.outputTail?.split('\n').length).toBeLessThanOrEqual(40);
+        expect(task().stageId).toBe('code_review');
         expect(merger.push).not.toHaveBeenCalled();
       }
       expect(merger.releaseCheck).toHaveBeenCalled();
-      expect(executor.run).toHaveBeenCalledWith(
-        expect.objectContaining({
-          cwd: '/fake/check',
-          command: 'npm test',
-          maxWorkers: 2,
-          timeoutMs: 600000,
-        }),
-        expect.any(AbortSignal),
-      );
     },
   );
 
-  it('reuses a passed full test only when the approved commit contains the base', async () => {
-    const executor = fakeExecutor();
-    await setup({
-      executor,
-      adjust: (config) => {
-        config.project.repos[0]!.reviewTest = reviewTest;
-      },
-    });
-    h!.repos.fullTestRuns.queue({
-      id: 'passed-run',
-      projectKey: 'AR',
-      taskKey: 'AR-1',
-      repo: 'web',
-      branch: 'task/AR-1',
-      commit: 'approved-AR-1',
-      createdAt: new Date().toISOString(),
-    });
-    h!.repos.fullTestRuns.finish('passed-run', { status: 'passed', finishedAt: new Date().toISOString() });
-    merger.isAncestor.mockImplementation(async (_ref, input) => input.ancestor === 'base');
-    await move();
-    await done();
-    expect(task().merged?.check).toMatchObject({ reused: true, runId: 'passed-run' });
-    expect(executor.run).not.toHaveBeenCalled();
-  });
-
-  it.each(['local_ahead', 'diverged'] as const)('blocks an out-of-sync base (%s)', async (relation) => {
+  it.each(['local_ahead', 'diverged'] as const)('blocks base %s', async (relation) => {
     await setup();
     merger.base.relation = relation;
-    await move();
+    await start();
     await blocked('base_out_of_sync');
-    expect(task().stageId).toBe('code_review');
-    expect(merger.build).not.toHaveBeenCalled();
-  });
-  it('builds onto the remote when the local base is behind', async () => {
-    await setup();
-    merger.base.relation = 'local_behind';
-    merger.base.remote!.commit = 'remote-base';
-    await move();
-    await done();
-    expect(merger.build.mock.calls[0]![1].onto).toBe('remote-base');
-  });
-  it('blocks a dirty default checkout', async () => {
-    await setup();
-    merger.checkoutConflicts.mockResolvedValue(['a.ts']);
-    await move();
-    await blocked('local_checkout');
-    expect(merger.push).not.toHaveBeenCalled();
-  });
-  it('blocks without a check executor', async () => {
-    await setup({
-      adjust: (config) => {
-        config.project.repos[0]!.reviewTest = reviewTest;
-      },
-    });
-    await move();
-    await blocked('check_unavailable');
-  });
-  it('blocks thrown git errors', async () => {
-    await setup();
-    merger.build.mockRejectedValue(new Error('git failed'));
-    await move();
-    await blocked('merge_error');
   });
 
-  it.each(['rejected', 'unreachable', 'non_fast_forward'] as const)(
-    'blocks push failure %s',
-    async (reason) => {
-      await setup();
-      merger.push.mockResolvedValue({ ok: false, reason, message: 'push failed' });
-      await move();
-      await blocked(
-        reason === 'rejected'
-          ? 'push_rejected'
-          : reason === 'unreachable'
-            ? 'remote_unreachable'
-            : 'remote_moved',
-      );
-      expect(merger.push).toHaveBeenCalledTimes(reason === 'non_fast_forward' ? 2 : 1);
-      expect(merger.advance).not.toHaveBeenCalled();
-    },
-  );
-  it('rebuilds and rechecks after one remote race', async () => {
+  it('builds on an upstream that is ahead', async () => {
     await setup();
-    merger.push.mockResolvedValueOnce({ ok: false, reason: 'non_fast_forward', message: 'remote moved' });
-    await move();
-    await done();
-    expect(merger.prepare).toHaveBeenCalledTimes(2);
-    expect(merger.build).toHaveBeenCalledTimes(2);
+    merger.base.relation = 'local_behind';
+    merger.base.remote!.commit = 'upstream';
+    await start();
+    await merged();
+    expect(merger.build.mock.calls[0]![1].onto).toBe('upstream');
   });
-  it('cancels a retry during its second build after a non-fast-forward push', async () => {
-    await setup();
-    const build = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
-    merger.build
-      .mockResolvedValueOnce({ ok: true, mergeCommit: 'first', changed: [] })
-      .mockReturnValueOnce(build.promise);
-    merger.push.mockResolvedValueOnce({ ok: false, reason: 'non_fast_forward', message: 'remote moved' });
-    await move();
-    const id = row()!.id;
-    await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(2));
-    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    build.resolve({ ok: true, mergeCommit: 'second', changed: [] });
-    await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
-    expect(merger.push).toHaveBeenCalledTimes(1);
-    expect(merger.advance).not.toHaveBeenCalled();
-    expect(task().stageId).toBe('development');
-    expect(task().merged).toBeUndefined();
-    expect(events('task_merged')).toHaveLength(0);
+
+  it('blocks missing checks', async () => {
+    await setup({
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    await start();
+    await blocked('check_unavailable');
   });
-  it('retries a remote landed merge with the same id and only advances', async () => {
+
+  it('blocks a thrown check', async () => {
+    const executor = fakeExecutor();
+    vi.mocked(executor.run).mockRejectedValue(new Error('check broke'));
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    await start();
+    await blocked('check_error');
+  });
+
+  it('blocks overlapping local checkout changes', async () => {
     await setup();
+    merger.checkoutConflicts.mockResolvedValue(['a.ts']);
+    await start();
+    await blocked('local_checkout');
+  });
+
+  it.each([
+    ['rejected', 'push_rejected'],
+    ['unreachable', 'remote_unreachable'],
+    ['non_fast_forward', 'remote_moved'],
+  ] as const)('blocks push %s', async (reason, expected) => {
+    await setup();
+    merger.push.mockResolvedValue({ ok: false, reason, message: reason });
+    await start();
+    await blocked(expected);
+    expect(
+      h!.domain.inbox
+        .list('AR', { kind: 'alert', state: 'open' })
+        .filter((i) => i.payload.alert === 'merge_blocked'),
+    ).toHaveLength(0);
+    expect(task().stageId).toBe('code_review');
+  });
+
+  it('alerts only the human merger and retries a remote landed merge without pushing twice', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'member', handle: 'owner' };
+      },
+    });
     merger.advance.mockResolvedValueOnce({
       ok: false,
       reason: 'checkout_in_the_way',
       message: 'dirty',
       paths: ['a.ts'],
     });
-    await move();
+    await start('AR-1', OWNER_ACTOR);
     await blocked('local_checkout');
-    const id = row()!.id;
     expect(row()?.landed).toBe('remote');
-    expect(h!.domain.inbox.list('AR', { kind: 'alert', state: 'open' })).toHaveLength(1);
-    await h!.domain.merges.retry('AR', 'AR-1');
-    await done();
-    expect(events('task_merged')[0]?.data.mergeId).toBe(id);
+    const id = row()!.id;
+    const alert = h!.domain.inbox
+      .list('AR', { kind: 'alert', state: 'open' })
+      .find((i) => i.payload.alert === 'merge_blocked')!;
+    expect(alert.assignees).toEqual(['owner']);
+    await start('AR-1', OWNER_ACTOR);
+    await merged();
+    expect(h!.repos.taskMerges.get(id)?.state).toBe('merged');
     expect(merger.push).toHaveBeenCalledTimes(1);
-    expect(merger.build).toHaveBeenCalledTimes(1);
-    expect(h!.domain.inbox.list('AR', { kind: 'alert', state: 'open' })).toHaveLength(0);
-    await expect(h!.domain.merges.retry('AR', 'AR-1')).rejects.toMatchObject({ code: 'merge_not_blocked' });
+    expect(h!.domain.inbox.get('AR', alert.id).state).toBe('cancelled');
   });
 
-  it('rechecks the gate before push', async () => {
+  it('cancels at a boundary when the card is moved back', async () => {
     await setup();
-    merger.checkoutConflicts.mockImplementation(async () => {
-      h!.repos.tasks.update(task().id, { labels: [] });
-      return [];
+    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build.mockReturnValueOnce(gate.promise);
+    await start();
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalled());
+    const id = row()!.id;
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    gate.resolve({ ok: true, mergeCommit: 'cancelled', changed: [] });
+    await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(events('task_merged')).toHaveLength(0);
+  });
+
+  it('cancels the rebuilt attempt after non-fast-forward', async () => {
+    await setup();
+    merger.push.mockResolvedValueOnce({ ok: false, reason: 'non_fast_forward', message: 'moved' });
+    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build
+      .mockResolvedValueOnce({ ok: true, mergeCommit: 'first', changed: [] })
+      .mockReturnValueOnce(gate.promise);
+    await start();
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(2));
+    const id = row()!.id;
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    gate.resolve({ ok: true, mergeCommit: 'second', changed: [] });
+    await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
+    expect(merger.push).toHaveBeenCalledTimes(1);
+    expect(events('task_merged')).toHaveLength(0);
+  });
+
+  it('serializes two cards on one repository', async () => {
+    await setup();
+    await card('AR-2', 'web', 'dev-2');
+    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build.mockReturnValueOnce(gate.promise);
+    await start();
+    await start('AR-2');
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(1));
+    expect(row('AR-2')?.state).toBe('queued');
+    gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+    await merged('AR-2');
+    expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual(['approved-AR-1', 'approved-AR-2']);
+  });
+
+  it.each(['move', 'update', 'board', 'hand_on'] as const)(
+    'gates the %s path without starting a merge',
+    async (route) => {
+      await setup({
+        adjust: (c) => {
+          if (route === 'hand_on') c.team.cardMover = { kind: 'project_manager' };
+        },
+      });
+      const action =
+        route === 'update'
+          ? h!.domain.tasks.update('AR', 'AR-1', { stageId: 'done' }, OWNER_ACTOR)
+          : route === 'board'
+            ? h!.domain.tasks.moveOnBoard(
+                'AR',
+                'AR-1',
+                { columnId: 'done', fromStageId: 'code_review', placement: { at: 'top' } },
+                OWNER_ACTOR,
+              )
+            : h!.domain.tasks.moveToStage(
+                'AR',
+                'AR-1',
+                'done',
+                route === 'hand_on' ? aiActor('dev-1') : OWNER_ACTOR,
+              );
+      await expect(action).rejects.toMatchObject({
+        code: 'task_not_merged',
+        details: { reason: 'not_merged', merger: 'dev-1' },
+      });
+      expect(task().stageId).toBe('code_review');
+      expect(row()?.state).toBe('requested');
+      expect(merger.build).not.toHaveBeenCalled();
+    },
+  );
+
+  it('records a discovered manual merge only with a persistent handover', async () => {
+    await setup();
+    merger.base.contains = { local: true, remote: true };
+    await move();
+    expect(task().merged).toMatchObject({ via: 'found', commit: 'approved-AR-1' });
+    expect(task().merged?.by).toBeUndefined();
+    expect(task().merged?.mergeCommit).toBeUndefined();
+    expect(events('task_merged')[0]?.data.mergeId).toBeUndefined();
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('refuses a locally merged commit missing upstream', async () => {
+    await setup();
+    merger.base.contains.local = true;
+    await expect(move()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: 'not_on_remote' },
+    });
+  });
+
+  it('allows repositories whose integrating session merges', async () => {
+    await setup({
+      adjust: (c) => {
+        delete c.project.repos[0]!.requireMerge;
+        c.project.repos[0]!.fullTestAtMerge = true;
+      },
     });
     await move();
+    expect(task().status).toBe('done');
+    expect(merger.prepare).not.toHaveBeenCalled();
+  });
+
+  it('allows code-free cards with no head or handover', async () => {
+    await setup();
+    h!.repos.db.prepare('DELETE FROM task_handovers').run();
+    h!.worktrees.existing.clear();
+    h!.worktrees.heads.clear();
+    await move();
+    expect(task().status).toBe('done');
+    expect(merger.prepare).not.toHaveBeenCalled();
+  });
+
+  it('redirects a pending request when the configured merger changes', async () => {
+    await setup();
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const id = row()!.id;
+    const loaded = await h!.domain.projects.load('AR');
+    await h!.domain.projects.patch(
+      'AR',
+      { baseVersion: loaded.version, merger: { kind: 'member', handle: 'owner' } },
+      { actor: OWNER_ACTOR, author: OWNER },
+    );
+    expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled');
+    expect(row()).toMatchObject({ state: 'requested', merger: 'owner' });
+    expect(h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })).toHaveLength(1);
+  });
+
+  it('attributes a reviewer merge to the last label setter owning the review stage', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'code_reviewer' };
+      },
+    });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(row()?.merger).toBe('cr');
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('restores a running row from prepare after restart and releases its checkout', async () => {
+    await setup({ persistent: true });
+    await h!.domain.merges.stop();
+    await start();
+    const saved = row()!;
+    h!.repos.taskMerges.save({ ...saved, state: 'running', step: 'checking' });
+    const next = fakeMerger();
+    h = await restartDomainHarness(h!, { merger: next });
+    merger = next;
+    await merged();
+    expect(next.prepare).toHaveBeenCalled();
+    expect(next.releaseCheck).toHaveBeenCalled();
+    expect(h!.repos.taskMerges.get(saved.id)?.state).toBe('merged');
+  });
+
+  it('runs separate repositories concurrently', async () => {
+    await setup({
+      adjust: (c) => {
+        c.project.repos.push({ name: 'api', path: 'api', defaultBranch: 'main', requireMerge: true });
+      },
+    });
+    await card('AR-2', 'api', 'dev-2');
+    const first = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    const second = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    await start();
+    await start('AR-2');
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(2));
+    first.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+    second.resolve({ ok: true, mergeCommit: 'second', changed: [] });
+    await merged();
+    await merged('AR-2');
+  });
+
+  it('reuses a passed full check only when the approved commit contains the base', async () => {
+    const executor = fakeExecutor();
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    const at = new Date().toISOString();
+    h!.repos.fullTestRuns.queue({
+      id: 'passed',
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      repo: 'web',
+      branch: 'task/AR-1',
+      commit: 'approved-AR-1',
+      createdAt: at,
+    });
+    h!.repos.fullTestRuns.finish('passed', { status: 'passed', finishedAt: at });
+    merger.isAncestor.mockImplementation(
+      async (_ref, input) => input.ancestor === 'base' && input.commit === 'approved-AR-1',
+    );
+    await start();
+    await merged();
+    expect(task().merged?.check).toMatchObject({ reused: true, runId: 'passed', status: 'passed' });
+    expect(executor.run).not.toHaveBeenCalled();
+  });
+
+  it('blocks if the gate changes while the commit is built', async () => {
+    await setup();
+    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build.mockReturnValueOnce(gate.promise);
+    await start();
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalled());
+    h!.repos.tasks.update(task().id, { labels: [] });
+    gate.resolve({ ok: true, mergeCommit: 'gated', changed: [] });
     await blocked('gate_changed');
     expect(merger.push).not.toHaveBeenCalled();
   });
-  it.each(['wrong-base', 'new-head', 'unreadable'])('blocks a mismatched PR (%s)', async (scenario) => {
+
+  it('blocks unexpected git errors', async () => {
     await setup();
-    h!.repos.tasks.upsertLink(
-      task().id,
-      { kind: 'pull_request', repo: 'acme/web', ref: '7' },
-      new Date().toISOString(),
-    );
-    if (scenario !== 'unreadable')
+    merger.prepare.mockRejectedValue(new Error('git broke'));
+    await start();
+    await blocked('merge_error');
+    expect(merger.releaseCheck).toHaveBeenCalled();
+  });
+
+  it.each(['wrong_base', 'wrong_head', 'unavailable'] as const)('blocks PR %s', async (mode) => {
+    await setup();
+    h!.domain.tasks.addLink('AR', 'AR-1', { kind: 'pull_request', repo: 'acme/web', ref: '7' }, OWNER_ACTOR);
+    if (mode !== 'unavailable')
       h!.github.prs.set(
         'acme/web#7',
         pullRequest({
-          headSha: scenario === 'new-head' ? 'new' : 'approved-AR-1',
-          baseRef: scenario === 'wrong-base' ? 'other' : 'main',
+          baseRef: mode === 'wrong_base' ? 'other' : 'main',
+          headSha: mode === 'wrong_head' ? 'other' : 'approved-AR-1',
         }),
       );
-    await move();
+    await start();
     await blocked('pull_request');
     expect(merger.build).not.toHaveBeenCalled();
   });
-  it('records matching open PRs after landing', async () => {
-    await setup();
-    h!.repos.tasks.upsertLink(
-      task().id,
-      { kind: 'pull_request', repo: 'acme/web', ref: '7' },
-      new Date().toISOString(),
-    );
-    h!.github.prs.set('acme/web#7', pullRequest({ headSha: 'approved-AR-1' }));
-    await move();
-    await done();
-    expect(task().merged?.pullRequests).toEqual([{ number: 7, url: 'https://github.com/acme/web/pull/7' }]);
-  });
 
-  it('queues two cards of a repo FIFO while another repo runs concurrently', async () => {
+  it('keeps the approval label and requests the merge instead of moving after decide', async () => {
     await setup({
-      adjust: (config) => {
-        config.project.repos.push({ name: 'api', path: 'api', defaultBranch: 'main', mergeOnDone: true });
-        config.team.limits.maxConcurrentAi = 5;
-        const dev = config.team.members.find((member) => member.handle === 'dev-1');
-        if (dev?.kind === 'ai') dev.capacity = 2;
+      adjust: (c) => {
+        c.pipeline.stages
+          .find((s) => s.id === 'done')!
+          .gate!.conditions.push({ type: 'has_label', label: 'merge-ok' });
       },
     });
-    await card('AR-2', 'web', 'dev-2');
-    await card('AR-3', 'api', 'dev-1');
-    const waiting = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
-    merger.build.mockReturnValueOnce(waiting.promise);
-    await move();
-    await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(1));
-    await move('AR-2');
-    await move('AR-3');
-    await done('AR-3');
-    expect(row('AR-2')?.state).toBe('queued');
-    waiting.resolve({ ok: true, mergeCommit: 'first', changed: [] });
-    await done();
-    await done('AR-2');
-    expect(merger.build.mock.calls.map(([ref, input]) => `${ref.repo}:${input.commit}`)).toEqual([
-      'web:approved-AR-1',
-      'api:approved-AR-3',
-      'web:approved-AR-2',
-    ]);
+    // The commit is already merged when the human approval is requested, but the remote moves away before approval.
+    merger.base.contains = { local: true, remote: true };
+    h!.repos.db.prepare('DELETE FROM task_handovers').run();
+    const requested = await move();
+    expect(requested.pendingApproval).toHaveLength(1);
+    merger.base.contains = { local: false, remote: false };
+    h!.repos.taskHandovers.save({
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      commit: 'approved-AR-1',
+      branch: 'task/AR-1',
+      stageId: 'code_review',
+      at: new Date().toISOString(),
+    });
+    await h!.domain.inbox.resolve(
+      'AR',
+      requested.pendingApproval[0]!.id,
+      { optionId: 'approve' },
+      { handle: 'owner', access: 'owner' },
+    );
+    expect(task().labels).toContain('merge-ok');
+    expect(task().stageId).toBe('code_review');
+    expect(row()?.state).toBe('requested');
+    expect(merger.build).not.toHaveBeenCalled();
   });
-  it('cancels a running check when the card moves back', async () => {
-    const result = deferred<FullTestResult>();
+
+  it('preserves and repins the last handover after leaving review', async () => {
+    await setup();
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'code_review', OWNER_ACTOR);
+    const tree = h!.worktrees.existing.get('AR/AR-1/web')!;
+    h!.worktrees.heads.set(tree.path, { ...h!.worktrees.heads.get(tree.path)!, commit: 'new-approved' });
+    await h!.domain.tasks.repinReview('AR', 'AR-1', 'dev-1');
+    expect(h!.repos.taskHandovers.get('AR', 'AR-1')?.commit).toBe('new-approved');
+  });
+
+  it('reads the head at start and refuses uncommitted work without a handover', async () => {
+    await setup();
+    h!.repos.db.prepare('DELETE FROM task_handovers').run();
+    const tree = h!.worktrees.existing.get('AR/AR-1/web')!;
+    h!.worktrees.heads.set(tree.path, { ...h!.worktrees.heads.get(tree.path)!, dirty: true, changes: 1 });
+    await expect(start()).rejects.toMatchObject({ code: 'handover_uncommitted' });
+    expect(row()?.state).toBe('requested');
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('refuses the gate without a merger on the card engine and blocks an explicit start', async () => {
+    await setup({ unavailable: true });
+    await expect(move()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: 'engine_unavailable' },
+    });
+    await start();
+    await blocked('engine_unavailable');
+    expect(task().stageId).toBe('code_review');
+  });
+
+  it('reports each missing merge in a group drop without moving any card', async () => {
+    await setup();
+    await card('AR-2', 'web', 'dev-2', 'AR-1');
+    const result = await h!.domain.tasks.moveOnBoard(
+      'AR',
+      'AR-1',
+      { columnId: 'done', fromStageId: 'code_review', placement: { at: 'top' }, withSubtasks: true },
+      OWNER_ACTOR,
+    );
+    expect(result.group).toEqual([
+      expect.objectContaining({
+        taskKey: 'AR-1',
+        outcome: 'blocked',
+        code: 'task_not_merged',
+        unmet: [],
+        approvals: [],
+      }),
+      expect.objectContaining({
+        taskKey: 'AR-2',
+        outcome: 'blocked',
+        code: 'task_not_merged',
+        unmet: [],
+        approvals: [],
+      }),
+    ]);
+    expect(task().stageId).toBe('code_review');
+    expect(task('AR-2').stageId).toBe('code_review');
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('AutoAdvance requests the merge but never starts it', async () => {
+    await setup();
+    vi.mocked(h!.domain.autoAdvance.check).mockRestore();
+    for (const session of h!.domain.sessions.list('AR')) await h!.domain.sessions.stop('AR', session.id);
+    await h!.domain.autoAdvance.check(task());
+    await vi.waitFor(() => expect(row()?.state).toBe('requested'));
+    expect(task().stageId).toBe('code_review');
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('opens another human request carrying failed check details', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'member', handle: 'owner' };
+      },
+    });
+    merger.build.mockResolvedValue({ ok: false, conflict: ['a.ts'] });
+    await start('AR-1', OWNER_ACTOR);
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    const item = h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })[0]!;
+    expect(item.payload.mergeRequest).toMatchObject({
+      failure: { reason: 'conflict', base: 'base', files: ['a.ts'] },
+    });
+  });
+
+  it('aborts a running check after moving the card back', async () => {
     let signal: AbortSignal | undefined;
     const executor = fakeExecutor();
-    executor.run = vi.fn(async (_spec, input) => {
-      signal = input;
-      input.addEventListener('abort', () => result.resolve({ ...passed, outcome: 'error' }));
-      return result.promise;
+    vi.mocked(executor.run).mockImplementation(async (_spec, current) => {
+      signal = current;
+      return new Promise((resolve) =>
+        current.addEventListener('abort', () => resolve({ ...passed, outcome: 'error' }), { once: true }),
+      );
     });
     await setup({
       executor,
-      adjust: (config) => {
-        config.project.repos[0]!.reviewTest = reviewTest;
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
       },
     });
-    await move();
+    await start();
     await vi.waitFor(() => expect(signal).toBeDefined());
+    const id = row()!.id;
     await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    await vi.waitFor(() => expect(h!.repos.taskMerges.list('cancelled')).toHaveLength(1));
+    await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
     expect(signal?.aborted).toBe(true);
     expect(merger.push).not.toHaveBeenCalled();
   });
-  it('cancels queued and blocked merges on moves and closure, and clears alerts', async () => {
+
+  it('does not cancel after push starts even if the card is moved back', async () => {
     await setup();
-    await h!.domain.merges.stop();
-    await move();
+    const pushed = deferred<Awaited<ReturnType<BranchMerger['push']>>>();
+    merger.push.mockReturnValueOnce(pushed.promise);
+    await start();
+    await vi.waitFor(() => expect(merger.push).toHaveBeenCalled());
     await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    expect(h!.repos.taskMerges.list('cancelled')).toHaveLength(1);
-    expect(row()).toBeNull();
-    await h!.domain.merges.init();
-    h!.repos.tasks.update(task().id, { stageId: 'code_review', labels: ['code-review-ok'] });
-    merger.push.mockResolvedValue({ ok: false, reason: 'rejected', message: 'rejected' });
-    await move();
-    await blocked('push_rejected');
-    await h!.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
-    expect(row()).toBeNull();
-    expect(h!.domain.inbox.list('AR', { kind: 'alert', state: 'open' })).toHaveLength(0);
-  });
-  it('returns the merging task from a task update without asking for approval', async () => {
-    await setup();
-    const build = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
-    merger.build.mockReturnValueOnce(build.promise);
-    const result = await h!.domain.tasks.update('AR', 'AR-1', { stageId: 'done' }, OWNER_ACTOR);
-    expect(result.merge).toMatchObject({ commit: 'approved-AR-1' });
-    expect(result.stageId).toBe('code_review');
-    build.resolve({ ok: true, mergeCommit: 'update-merge', changed: [] });
-    await done();
-  });
-  it('keeps a successful merge successful when checkout cleanup fails', async () => {
-    await setup();
-    merger.releaseCheck.mockRejectedValue(new Error('checkout busy'));
-    await move();
-    await done();
-    expect(task().merged).toBeDefined();
-  });
-  it('recovers a push completed before its landed write without rebuilding or pushing again', async () => {
-    await setup();
-    await h!.domain.merges.stop();
-    await move();
-    const queued = row()!;
-    h!.repos.taskMerges.save({ ...queued, state: 'running', step: 'pushing', mergeCommit: 'crash-merge' });
-    merger.base.remote!.commit = 'crash-merge';
-    merger.base.contains.remote = true;
-    merger.isAncestor.mockImplementation(
-      async (_ref, input) => input.ancestor === 'crash-merge' && input.commit === 'crash-merge',
-    );
-    await h!.domain.merges.init();
-    await done();
-    expect(merger.build).not.toHaveBeenCalled();
-    expect(merger.push).not.toHaveBeenCalled();
-    expect(task().merged?.mergeCommit).toBe('crash-merge');
-  });
-  it('finishes and records a push already started even if the card moved away', async () => {
-    await setup();
-    const push = deferred<Awaited<ReturnType<BranchMerger['push']>>>();
-    merger.push.mockReturnValueOnce(push.promise);
-    await move();
-    await vi.waitFor(() => expect(merger.push).toHaveBeenCalledTimes(1));
-    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
-    push.resolve({ ok: true });
-    await vi.waitFor(() => expect(task().merged).toBeDefined());
+    pushed.resolve({ ok: true });
+    await merged();
     expect(task().stageId).toBe('development');
     expect(events('task_merged')).toHaveLength(1);
   });
 
-  it('returns merging on ordinary updates and board group moves', async () => {
-    await setup();
-    await card('AR-2', 'web', 'dev-2');
-    await h!.domain.tasks.update('AR', 'AR-2', { parentKey: 'AR-1' }, OWNER_ACTOR);
-    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
-    merger.build.mockReturnValueOnce(gate.promise);
-    const board = await h!.domain.tasks.moveOnBoard(
-      'AR',
-      'AR-1',
-      { fromStageId: 'code_review', columnId: 'done', placement: { at: 'end' }, withSubtasks: true },
-      OWNER_ACTOR,
-    );
-    expect(board.outcome).toBe('merging');
-    expect(board.group?.map((item) => item.outcome)).toEqual(['merging', 'merging']);
-    gate.resolve({ ok: true, mergeCommit: 'group', changed: [] });
-    await done();
-    await done('AR-2');
-  });
-  it('queues after a human approves the Done move', async () => {
+  it('checks the updated repository when a single update changes repo and stage', async () => {
     await setup({
-      adjust: (config) => {
-        config.pipeline.stages
-          .find((stage) => stage.id === 'done')!
-          .gate!.conditions.push({ type: 'has_label', label: 'merge-ok' });
+      adjust: (c) => {
+        c.project.repos[0]!.requireMerge = false;
+        c.project.repos.push({ name: 'api', path: 'api', defaultBranch: 'main', requireMerge: true });
       },
     });
-    const result = await move();
-    expect(result.pendingApproval).toHaveLength(1);
-    expect(row()).toBeNull();
-    await h!.domain.inbox.resolve(
-      'AR',
-      result.pendingApproval[0]!.id,
-      { optionId: 'approve' },
-      { handle: 'owner', access: 'owner' },
-    );
-    await done();
-    expect(task().merged?.commit).toBe('approved-AR-1');
+    await expect(
+      h!.domain.tasks.update('AR', 'AR-1', { repo: 'api', stageId: 'done' }, OWNER_ACTOR),
+    ).rejects.toMatchObject({ code: 'task_not_merged' });
+    expect(task().repo).toBe('web');
+    expect(task().stageId).toBe('code_review');
   });
 
-  it('resumes a persisted running row from prepare after restart', async () => {
-    await setup({ persistent: true });
-    await h!.domain.merges.stop();
-    await move();
-    const queued = row()!;
-    h!.repos.taskMerges.save({ ...queued, state: 'running', step: 'checking' });
-    h = await restartDomainHarness(h!, { merger });
-    await done();
-    expect(merger.prepare).toHaveBeenCalledTimes(1);
-    expect(task().merged?.commit).toBe(queued.commit);
-    expect(merger.releaseCheck).toHaveBeenCalledWith(
-      { projectKey: 'AR', repo: 'web' },
-      { mergeId: queued.id },
-    );
-  });
-  it('blocks an unavailable engine instead of marking Done', async () => {
-    await setup();
-    const unavailable = { ...merger };
-    h!.domain.tasks.useMerges(
-      new (await import('../src/domain/merges')).Merges({
-        ctx: h!.domain.ctx,
-        projects: h!.domain.projects,
-        tasks: h!.domain.tasks,
-        sessions: h!.domain.sessions,
-        messaging: h!.domain.messaging,
-        timeline: h!.domain.timeline,
-        inbox: h!.domain.inbox,
-        github: h!.github,
-        engines: { get: () => null, ids: () => [], engineFor: () => null, onChange: () => () => {} },
-      }),
-    );
-    await move();
-    await blocked('engine_unavailable');
-    expect(unavailable.build).not.toHaveBeenCalled();
-  });
-  it.each(['no-repo', 'integrator', 'no-source'] as const)(
-    'keeps the existing Done path for %s',
-    async (scenario) => {
-      await setup();
-      await h!.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (config) => {
-        if (scenario === 'no-repo') config.project.repos = [];
-        else if (scenario === 'integrator') {
-          delete config.project.repos[0]!.mergeOnDone;
-          config.project.repos[0]!.fullTestAtMerge = true;
-        }
-        return 'Set merge policy';
-      });
-      if (scenario === 'no-repo') h!.repos.tasks.update(task().id, { repo: null });
-      if (scenario === 'no-source') {
-        h!.repos.db.prepare('DELETE FROM task_handovers').run();
-        h!.worktrees.heads.clear();
-      }
-      expect((await move()).moved).toBe(true);
-      expect(task().status).toBe('done');
-      expect(merger.build).not.toHaveBeenCalled();
-    },
-  );
-  it('hides both merge fields and merge events from clients', async () => {
-    await setup();
-    await move();
-    await done();
-    const viewer = { access: 'client' as const, handle: 'client' };
-    const visible = withVisibleCardLinks(
-      viewer,
-      {
-        ...task(),
-        merge: {
-          id: 'm',
-          repo: 'web',
-          base: 'main',
-          commit: 'c',
-          branch: 'b',
-          toStageId: 'done',
-          requestedBy: 'owner',
-          state: 'blocked',
-          step: 'checking',
-          startedAt: 'now',
-          landed: 'nowhere',
-        },
+  it('starts a new merger session with merge as the persisted cause', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'member', handle: 'dev-2' };
       },
-      () => true,
+    });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    await vi.waitFor(() =>
+      expect(h!.domain.sessions.list('AR', { member: 'dev-2', taskKey: 'AR-1' })[0]?.startCause?.kind).toBe(
+        'merge',
+      ),
     );
+    expect(merger.build).not.toHaveBeenCalled();
+  });
+
+  it('restores a human request if its notification was interrupted', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'member', handle: 'owner' };
+      },
+    });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const id = row()!.id;
+    const item = h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })[0]!;
+    h!.domain.inbox.cancel(item.id);
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    expect(row()?.id).toBe(id);
+    expect(h!.domain.inbox.list('AR', { kind: 'merge_request', state: 'open' })).toHaveLength(1);
+  });
+
+  it('does not treat a failed head read as a code-free card', async () => {
+    await setup();
+    h!.repos.db.prepare('DELETE FROM task_handovers').run();
+    vi.spyOn(h!.worktrees, 'head').mockRejectedValue(new Error('engine disconnected during read'));
+    await expect(move()).rejects.toMatchObject({
+      code: 'task_not_merged',
+      details: { reason: 'engine_unavailable' },
+    });
+    expect(task().stageId).toBe('code_review');
+    expect(row()).toBeNull();
+    expect(await h!.domain.sessions.sourceHead(await h!.domain.projects.config('AR'), task())).toBeNull();
+  });
+
+  it('passes the current caller to the merge_task domain handler and gates MCP update_task', async () => {
+    await setup();
+    const session = h!.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-1' })[0]!;
+    const ctx = { projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1', sessionId: session.id };
+    await expect(h!.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', stageId: 'done' })).rejects.toThrow(
+      'the approved commit is not on the default branch',
+    );
+    const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build.mockReturnValueOnce(gate.promise);
+    const result = await h!.domain.teamTools.mergeTask(ctx, { taskKey: 'AR-1' });
+    expect(result.task.merge?.startedBy).toBe('dev-1');
+    gate.resolve({ ok: true, mergeCommit: 'mcp', changed: [] });
+    await merged();
+  });
+
+  it('hides merge state, records and events from clients', async () => {
+    await setup();
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    const visible = withVisibleCardLinks({ handle: 'client', access: 'client' }, task(), () => true);
     expect(visible.merge).toBeUndefined();
-    expect(visible.merged).toBeUndefined();
-    expect(clientCanSeeTimelineEvent(events('task_merged')[0]!)).toBe(false);
+    expect(clientCanSeeTimelineEvent({ type: 'task_merge_requested' } as never)).toBe(false);
+    expect(clientCanSeeTimelineEvent({ type: 'task_merge_failed' } as never)).toBe(false);
   });
 });

@@ -27,8 +27,11 @@ export function messageStaleReason(
   return null;
 }
 
-/** Why a valid action message starts no session for its recipient (PM-426). */
-export type WakeBlock = 'no_card_role';
+/**
+ * Why a valid action message starts no session for its recipient: an AI member has no role on the card
+ * (PM-426), or the recipient is the Operator and the message is not the owner's (PM-447).
+ */
+export type WakeBlock = 'no_card_role' | 'operator_owner_only';
 
 export interface WakeFacts {
   fromHuman: boolean;
@@ -36,24 +39,25 @@ export interface WakeFacts {
   fromAi: boolean;
   /** `hasCardRole` of the recipient on the message's card; true for a message about no card or about a theme. */
   recipientHasRole: boolean;
+  /** The recipient is the project's Operator, who works only on the owner's request (PM-447). */
+  recipientIsOperator: boolean;
+  /** The sender is an owner of the project, with their own login and not through the integrator key. */
+  fromOwner: boolean;
 }
 
 /**
  * The block, only when it alone keeps a valid action from waking: null for a person's, the system's, an
- * info or a stale message (PM-426).
+ * info or a stale message (PM-426). The Operator is the exception: only the owner's message wakes it,
+ * so any other action message to it is blocked (PM-447).
  */
 export function messageWakeBlock(
   message: Pick<TeamMessage, 'kind'>,
   facts: WakeFacts,
   stale: StaleReason | null,
 ): WakeBlock | null {
-  return !facts.fromHuman &&
-    facts.fromAi &&
-    !facts.recipientHasRole &&
-    (message.kind ?? 'action') === 'action' &&
-    stale === null
-    ? 'no_card_role'
-    : null;
+  if ((message.kind ?? 'action') !== 'action' || stale !== null) return null;
+  if (facts.recipientIsOperator) return facts.fromOwner ? null : 'operator_owner_only';
+  return !facts.fromHuman && facts.fromAi && !facts.recipientHasRole ? 'no_card_role' : null;
 }
 
 export function messageWakes(
@@ -61,6 +65,7 @@ export function messageWakes(
   facts: WakeFacts,
   stale: StaleReason | null,
 ): boolean {
+  if (facts.recipientIsOperator) return facts.fromOwner;
   return (
     facts.fromHuman ||
     ((message.kind ?? 'action') === 'action' &&

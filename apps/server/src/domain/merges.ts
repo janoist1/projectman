@@ -1,31 +1,32 @@
 import path from 'node:path';
-import { ALERT_SEEN_OPTION, alertPayloadOf, evaluateMove, isOpenTask, stageOf } from '@projectman/shared';
-import type {
-  Actor,
-  MergeBlockReason,
-  ProjectConfig,
-  RepoConfig,
-  Stage,
-  Task,
-  TaskMergeState,
-  TimelineEventData,
+import {
+  ALERT_SEEN_OPTION,
+  alertPayloadOf,
+  mergeRequestOf,
+  cardMerger,
+  mergeReadiness,
+  mergeRepoOf,
+  mergeTargetOf,
+  memberOf,
+  stageOwners,
+  isCodeReviewStage,
+  isOpenTask,
 } from '@projectman/shared';
+import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
 import type { BranchMerger, EngineDirectory, GithubService } from '../contracts';
-import { mergeState, mergedState } from '../db';
+import { mergedState } from '../db';
 import type { MergeRecord } from '../db';
-import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict } from './errors';
+import { conflict, DomainError, forbidden } from './errors';
 import type { InboxService } from './inbox';
 import type { Messaging } from './messaging';
 import type { ProjectService } from './projects';
 import { fullTestSandbox } from './session-policy';
 import type { SessionOrchestrator } from './sessions';
-import { stopStageReviewers, workStageBefore } from './stage-reviewers';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { actorHandle, newId, SYSTEM_ACTOR } from './util';
+import { actorHandle, newId, SYSTEM_ACTOR, KeyedMutex } from './util';
 
 type Deps = {
   ctx: DomainContext;
@@ -37,6 +38,7 @@ type Deps = {
   engines: EngineDirectory;
   github: GithubService;
   inbox: InboxService;
+  afterMerge: (task: Task) => Promise<void>;
 };
 type Active = { row: MergeRecord; controller: AbortController; pushing: boolean; promise: Promise<void> };
 
@@ -44,41 +46,241 @@ type Active = { row: MergeRecord; controller: AbortController; pushing: boolean;
 export class Merges {
   private readonly active = new Map<string, Active>();
   private stopped = false;
+  private readonly cards = new KeyedMutex();
   private readonly deps: Deps;
   constructor(deps: Deps) {
     this.deps = deps;
   }
 
-  enqueue(
+  private reviewer(config: ProjectConfig, task: Task): string | null {
+    const target = mergeTargetOf(config);
+    const stages = config.pipeline.stages.slice(
+      0,
+      config.pipeline.stages.findIndex((s) => s.id === target?.id),
+    );
+    const review = stages.reverse().find((s) => isCodeReviewStage(config, s));
+    if (!review) return null;
+    const owners = stageOwners(config, review);
+    const events = this.deps.ctx.repos.timeline.listOfTypes(
+      task.projectKey,
+      task.key,
+      ['task_labels_changed'],
+      200,
+    );
+    for (const event of [...events].reverse())
+      if (
+        event.actor.handle &&
+        owners.includes(event.actor.handle) &&
+        Array.isArray(event.data.added) &&
+        event.data.added.length
+      )
+        return event.actor.handle;
+    return null;
+  }
+
+  async source(
+    config: ProjectConfig,
     task: Task,
-    repo: RepoConfig,
-    target: Stage,
-    actor: Actor,
-    source: { commit: string; branch: string },
-  ): TaskMergeState {
-    const { ctx, tasks } = this.deps;
-    const existing = ctx.repos.taskMerges.open(task.projectKey, task.key);
-    if (existing) return mergeState(existing)!;
-    const at = isoNow(ctx);
-    const row: MergeRecord = {
-      id: newId('merge'),
-      projectKey: task.projectKey,
-      taskKey: task.key,
-      repo: repo.name,
+    allowDirty = false,
+  ): Promise<{ commit: string; branch: string } | null> {
+    const handed = this.deps.ctx.repos.taskHandovers.get(task.projectKey, task.key) ?? task.reviewPin;
+    if (handed) return { commit: handed.commit, branch: handed.branch };
+    const head = await this.deps.sessions.sourceHead(config, task, { strict: true });
+    if (head?.dirty && !allowDirty)
+      throw conflict('handover_uncommitted', 'commit the task work before merging');
+    return head ? { commit: head.commit, branch: head.branch } : null;
+  }
+
+  async reconcile(projectKey: string, taskKey: string): Promise<void> {
+    await this.cards.run(`${projectKey}:${taskKey}`, () => this.reconcileCard(projectKey, taskKey));
+  }
+  private async reconcileCard(projectKey: string, taskKey: string): Promise<void> {
+    const { ctx, tasks, projects } = this.deps;
+    const task = tasks.find(projectKey, taskKey);
+    if (!task) return;
+    const config = await projects.config(projectKey);
+    const ready = isOpenTask(task) ? mergeReadiness(config, task) : { ready: false as const };
+    const merger = cardMerger(config, task, this.reviewer(config, task));
+    const existing = ctx.repos.taskMerges.open(projectKey, taskKey);
+    if (existing) {
+      if (existing.state === 'queued' || existing.state === 'running') return;
+      const cancel =
+        existing.merger !== merger ||
+        (!ready.ready &&
+          (existing.state !== 'blocked' || task.stageId !== existing.fromStageId || !isOpenTask(task)));
+      if (!cancel) {
+        await this.notify(existing, config);
+        return;
+      }
+      ctx.unitOfWork(() => {
+        this.save(existing, { state: 'cancelled', finishedAt: isoNow(ctx) });
+        this.clearAlert(existing);
+      });
+      await this.release(existing, this.engine(task)?.merger);
+    }
+    if (!ready.ready || !merger) return;
+    let source;
+    try {
+      source = await this.source(config, task, true);
+    } catch (err) {
+      ctx.logger.warn({ err, taskKey }, 'could not read a merge request source');
+      return;
+    }
+    if (!source || (task.merged?.commit === source.commit && task.merged.repo === ready.repo.name)) return;
+    let row: MergeRecord | undefined;
+    ctx.unitOfWork(() => {
+      const current = tasks.get(projectKey, taskKey);
+      if (!mergeReadiness(config, current).ready || ctx.repos.taskMerges.open(projectKey, taskKey)) return;
+      const at = isoNow(ctx);
+      row = {
+        id: newId('merge'),
+        projectKey,
+        taskKey,
+        repo: ready.repo.name,
+        base: ready.repo.defaultBranch,
+        fromStageId: current.stageId,
+        toStageId: ready.target.id,
+        merger,
+        requestedAt: at,
+        state: 'requested',
+        landed: 'nowhere',
+        createdAt: at,
+        updatedAt: at,
+      };
+      ctx.repos.taskMerges.save(row);
+      tasks.publish(current);
+      this.deps.timeline.append({
+        projectKey,
+        taskKey,
+        actor: SYSTEM_ACTOR,
+        type: 'task_merge_requested',
+        data: { mergeId: row.id, merger, repo: row.repo, base: row.base, toStageId: row.toStageId },
+      });
+    });
+    if (row) await this.notify(row, config);
+  }
+
+  async start(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
+    return this.cards.run(`${projectKey}:${taskKey}`, async () => {
+      await this.reconcileCard(projectKey, taskKey);
+      const { ctx, tasks, projects } = this.deps;
+      const task = tasks.get(projectKey, taskKey),
+        config = await projects.config(projectKey);
+      const row = ctx.repos.taskMerges.open(projectKey, taskKey);
+      const merger = row?.merger ?? cardMerger(config, task, this.reviewer(config, task));
+      if (!merger || actorHandle(actor) !== merger)
+        throw forbidden('merge_not_merger', 'only the card merger may start the merge');
+      const readiness = mergeReadiness(config, task);
+      if (!readiness.ready)
+        throw conflict('merge_not_ready', 'the card is not ready to merge', { reason: readiness.reason });
+      if (row?.state === 'queued' || row?.state === 'running') return task;
+      if (!row) throw conflict('merge_not_ready', 'the card has no work to merge', { reason: 'no_merge' });
+      const source = await this.source(config, task);
+      if (!source) throw conflict('merge_not_ready', 'the card has no commit', { reason: 'no_merge' });
+      ctx.unitOfWork(() => {
+        const current = tasks.get(projectKey, taskKey),
+          ready = mergeReadiness(config, current);
+        if (!ready.ready)
+          throw conflict('merge_not_ready', 'the card is no longer ready', { reason: ready.reason });
+        const persisted = ctx.repos.taskMerges.open(projectKey, taskKey);
+        if (persisted?.id !== row.id || current.stageId !== row.fromStageId)
+          throw conflict('merge_not_ready', 'the merge request changed while reading the source', {
+            reason: 'not_before_target',
+          });
+        this.save(row, {
+          ...(row.landed === 'remote' ? {} : source),
+          state: 'queued',
+          step: 'queued',
+          startedBy: actorHandle(actor),
+          startedAt: isoNow(ctx),
+          block: undefined,
+          failure: undefined,
+          finishedAt: undefined,
+          ...(row.landed === 'remote'
+            ? {}
+            : { mergeCommit: undefined, check: undefined, pushed: undefined, pullRequests: undefined }),
+        });
+        this.clearAlert(row, actorHandle(actor));
+      });
+      this.pump();
+      return tasks.get(projectKey, taskKey);
+    });
+  }
+
+  private engine(task: Task) {
+    return this.deps.engines.get(this.deps.sessions.cardEngineId(task.projectKey, task));
+  }
+
+  async checkGate(config: ProjectConfig, task: Task, targetId: string): Promise<void> {
+    const repo = mergeRepoOf(config, task, task.stageId, targetId);
+    if (!repo) return;
+    let source;
+    try {
+      source = await this.source(config, task);
+    } catch (err) {
+      if (err instanceof DomainError && err.code === 'handover_uncommitted') throw err;
+      await this.reconcile(task.projectKey, task.key);
+      throw conflict('task_not_merged', 'could not read the approved source commit', {
+        reason: 'engine_unavailable',
+        merger: cardMerger(config, task, this.reviewer(config, task)),
+        base: repo.defaultBranch,
+      });
+    }
+    if (!source) return;
+    if (task.merged?.commit === source.commit && task.merged.repo === repo.name) return;
+    const merger = this.engine(task)?.merger;
+    let reason: 'not_merged' | 'not_on_remote' | 'engine_unavailable' = 'engine_unavailable';
+    if (merger) {
+      try {
+        const base = await merger.prepare(
+          { projectKey: task.projectKey, repo: repo.name },
+          { base: repo.defaultBranch, commit: source.commit },
+        );
+        if (base.contains.local && base.contains.remote !== false) {
+          if (this.deps.ctx.repos.taskHandovers.get(task.projectKey, task.key))
+            this.deps.ctx.unitOfWork(() => {
+              this.cancel(task.projectKey, task.key);
+              const at = isoNow(this.deps.ctx);
+              const row: MergeRecord = {
+                id: newId('merge'),
+                projectKey: task.projectKey,
+                taskKey: task.key,
+                ...source,
+                repo: repo.name,
+                base: repo.defaultBranch,
+                fromStageId: task.stageId,
+                toStageId: mergeTargetOf(config)!.id,
+                merger: cardMerger(config, task, this.reviewer(config, task)) ?? 'system',
+                requestedAt: at,
+                state: 'merged',
+                landed: 'nowhere',
+                createdAt: at,
+                updatedAt: at,
+                finishedAt: at,
+              };
+              this.deps.ctx.repos.taskMerges.save(row);
+              this.deps.timeline.append({
+                projectKey: task.projectKey,
+                taskKey: task.key,
+                actor: SYSTEM_ACTOR,
+                type: 'task_merged',
+                data: mergedState(row)!,
+              });
+              this.deps.tasks.publish(task);
+            });
+          return;
+        }
+        reason = base.contains.local && base.contains.remote === false ? 'not_on_remote' : 'not_merged';
+      } catch (err) {
+        this.deps.ctx.logger.warn({ err, taskKey: task.key }, 'could not check the merge target');
+      }
+    }
+    await this.reconcile(task.projectKey, task.key);
+    throw conflict('task_not_merged', 'the approved commit is not on the default branch', {
+      reason,
+      merger: cardMerger(config, task, this.reviewer(config, task)),
       base: repo.defaultBranch,
-      ...source,
-      fromStageId: task.stageId,
-      toStageId: target.id,
-      requestedBy: actorHandle(actor),
-      state: 'queued',
-      step: 'queued',
-      landed: 'nowhere',
-      createdAt: at,
-      updatedAt: at,
-    };
-    ctx.repos.taskMerges.save(row);
-    tasks.publish(task);
-    return mergeState(row)!;
+    });
   }
 
   async init(): Promise<void> {
@@ -95,6 +297,9 @@ export class Merges {
         await this.release(row, engine?.merger);
       }
     }
+    for (const project of this.deps.projects.summaries())
+      for (const task of this.deps.tasks.list(project.key))
+        if (isOpenTask(task)) await this.reconcile(project.key, task.key);
     this.pump();
   }
 
@@ -157,20 +362,6 @@ export class Merges {
       );
   }
 
-  async retry(projectKey: string, taskKey: string): Promise<Task> {
-    const { ctx, tasks } = this.deps;
-    const task = tasks.get(projectKey, taskKey);
-    ctx.unitOfWork(() => {
-      const row = ctx.repos.taskMerges.open(projectKey, taskKey);
-      if (row?.state !== 'blocked') throw conflict('merge_not_blocked', 'the task has no blocked merge');
-      this.save(row, { state: 'queued', step: 'queued', block: undefined });
-      this.clearAlert(row);
-      tasks.publish(task);
-    });
-    this.pump();
-    return tasks.get(projectKey, taskKey);
-  }
-
   private ref(row: MergeRecord) {
     return { projectKey: row.projectKey, repo: row.repo };
   }
@@ -178,7 +369,19 @@ export class Merges {
     await merger
       ?.releaseCheck(this.ref(row), { mergeId: row.id })
       .catch((err: unknown) =>
-        this.deps.ctx.logger.warn({ err, mergeId: row.id }, 'could not release a merge checkout'),
+        this.deps.ctx.logger.warn(
+          {
+            err,
+            mergeId: row.id,
+            engineId: this.deps.tasks.find(row.projectKey, row.taskKey)
+              ? this.deps.sessions.cardEngineId(
+                  row.projectKey,
+                  this.deps.tasks.get(row.projectKey, row.taskKey),
+                )
+              : undefined,
+          },
+          'could not release a merge checkout',
+        ),
       );
   }
   private save(row: MergeRecord, patch: Partial<MergeRecord>): void {
@@ -215,10 +418,13 @@ export class Merges {
     const merger = engine?.merger;
     if (!engine || !merger) return this.block(row, 'engine_unavailable', 'the card engine cannot merge');
     if (!repo) return this.block(row, 'merge_error', 'the repository no longer exists');
+    if (!row.commit || !row.branch) return this.block(row, 'merge_error', 'the merge has no source commit');
+    const commit = row.commit,
+      branch = row.branch;
     this.save(row, { state: 'running', step: 'merging', block: undefined });
     const ref = this.ref(row);
     for (let attempt = 0; attempt < 2; attempt++) {
-      const base = await merger.prepare(ref, { base: row.base, commit: row.commit });
+      const base = await merger.prepare(ref, { base: row.base, commit: commit });
       if (!this.continue(row, running)) return;
       // A crash may fall between the git push/advance and the following durable write.
       if (
@@ -241,28 +447,21 @@ export class Merges {
         !base.remote &&
         (await merger.isAncestor(ref, { ancestor: row.mergeCommit, commit: base.local }))
       ) {
-        return this.finish(row, config, true);
+        return this.finish(row, config);
       }
       if (row.landed === 'remote') {
         if (!row.mergeCommit) return this.block(row, 'merge_error', 'the landed merge has no commit');
         const advance = await merger.advance(ref, { base: row.base, from: base.local, to: row.mergeCommit });
         if (!advance.ok) return this.block(row, 'local_checkout', advance.message);
-        return this.finish(row, config, true);
+        return this.finish(row, config);
       }
-      if ((base.remote ? base.contains.remote : base.contains.local) && !row.mergeCommit) {
+      if (base.contains.local && base.contains.remote !== false && !row.mergeCommit) {
         const latest = await projects.config(row.projectKey);
         if (!this.continue(row, running)) return;
-        if (!stageOf(latest, row.toStageId))
-          return this.block(row, 'gate_changed', 'the target stage no longer exists');
-        const gate = evaluateMove(
-          tasks.get(row.projectKey, row.taskKey),
-          latest,
-          row.fromStageId,
-          row.toStageId,
-        );
-        if (gate.unmet.length || gate.approvals.length)
-          return this.block(row, 'gate_changed', 'the target gate no longer holds');
-        return this.finish(row, latest, false);
+        if (!mergeReadiness(latest, tasks.get(row.projectKey, row.taskKey)).ready)
+          return this.block(row, 'gate_changed', 'the card is no longer ready to merge');
+        this.save(row, { mergeCommit: base.remote?.commit ?? base.local });
+        return this.finish(row, latest);
       }
       if (base.relation === 'local_ahead' || base.relation === 'diverged')
         return this.block(
@@ -278,18 +477,19 @@ export class Merges {
         let pr;
         try {
           pr = await github.getPullRequest(repo.github!, Number(link.ref));
-        } catch {
-          return this.block(row, 'pull_request', 'could not read the linked pull request');
+        } catch (err) {
+          return this.block(
+            row,
+            'pull_request',
+            err instanceof Error ? err.message : 'could not read the linked pull request',
+          );
         }
         if (!this.continue(row, running)) return;
         if (pr.state !== 'open') continue;
         if (
           pr.baseRef !== row.base ||
           !pr.headSha ||
-          !(
-            pr.headSha === row.commit ||
-            (await merger.isAncestor(ref, { ancestor: pr.headSha, commit: row.commit }))
-          )
+          !(pr.headSha === commit || (await merger.isAncestor(ref, { ancestor: pr.headSha, commit: commit })))
         )
           return this.block(
             row,
@@ -301,16 +501,15 @@ export class Merges {
       if (!this.continue(row, running)) return;
       const built = await merger.build(ref, {
         onto,
-        commit: row.commit,
-        message: `Merge ${task.key}: ${task.title.replace(/[\r\n]/g, ' ').slice(0, 100)}\n\nBranch ${row.branch}, approved commit ${row.commit}.`,
+        commit: commit,
+        message: `Merge ${task.key}: ${task.title.replace(/[\r\n]/g, ' ').slice(0, 100)}\n\nBranch ${branch}, approved commit ${commit}.`,
       });
       if (!this.continue(row, running)) return;
       if (!built.ok)
-        return this.sendBack(row, config, {
-          mergeId: row.id,
+        return this.fail(row, config, {
           reason: 'conflict',
-          base: row.base,
-          commit: row.commit,
+          base: onto,
+          at: isoNow(ctx),
           files: built.conflict.slice(0, 50),
         });
       this.save(row, { mergeCommit: built.mergeCommit, pullRequests: prs, check: undefined });
@@ -321,11 +520,11 @@ export class Merges {
       if (repo.reviewTest) {
         this.save(row, { step: 'checking' });
         const passed = ctx.repos.fullTestRuns
-          .forCommit(task.key, row.commit)
+          .forCommit(task.key, commit)
           .find(
             (run) => run.status === 'passed' && run.projectKey === row.projectKey && run.repo === row.repo,
           );
-        if (passed && (await merger.isAncestor(ref, { ancestor: onto, commit: row.commit }))) {
+        if (passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
             check: { command: repo.reviewTest.command, status: 'passed', runId: passed.id, reused: true },
           });
@@ -388,11 +587,10 @@ export class Merges {
           if (!this.continue(row, running)) return;
           this.save(row, { check: { command: repo.reviewTest.command, runId, status: result.outcome } });
           if (result.outcome === 'failed')
-            return this.sendBack(row, config, {
-              mergeId: row.id,
+            return this.fail(row, config, {
               reason: 'check_failed',
-              base: row.base,
-              commit: row.commit,
+              base: onto,
+              at: isoNow(ctx),
               command: repo.reviewTest.command,
               runId,
               outputTail: result.outputTail.split('\n').slice(-40).join('\n').slice(-8000),
@@ -404,12 +602,9 @@ export class Merges {
       if (!this.continue(row, running)) return;
       const latest = await projects.config(row.projectKey);
       const current = tasks.get(row.projectKey, row.taskKey);
-      if (!stageOf(latest, row.toStageId))
-        return this.block(row, 'gate_changed', 'the target stage no longer exists');
-      const gate = evaluateMove(current, latest, row.fromStageId, row.toStageId);
       if (!this.continue(row, running)) return;
-      if (gate.unmet.length || gate.approvals.length)
-        return this.block(row, 'gate_changed', 'the target gate no longer holds');
+      if (!mergeReadiness(latest, current).ready)
+        return this.block(row, 'gate_changed', 'the card is no longer ready to merge');
       if (base.remote) {
         this.save(row, { step: 'pushing' });
         running.pushing = true;
@@ -442,30 +637,26 @@ export class Merges {
       if (!this.continue(row, running)) return;
       const advance = await merger.advance(ref, { base: row.base, from: base.local, to: built.mergeCommit });
       if (!advance.ok) return this.block(row, 'local_checkout', advance.message);
-      return this.finish(row, latest, true);
+      return this.finish(row, latest);
     }
   }
 
-  private async finish(row: MergeRecord, config: ProjectConfig, merged: boolean): Promise<void> {
-    const { ctx, tasks, timeline } = this.deps;
-    this.save(row, { step: 'finishing' });
-    const record = () => {
-      this.save(row, { state: merged ? 'merged' : 'cancelled', finishedAt: isoNow(ctx) });
+  private async finish(row: MergeRecord, config: ProjectConfig): Promise<void> {
+    const { ctx, timeline, tasks } = this.deps;
+    ctx.unitOfWork(() => {
+      this.save(row, { state: 'merged', step: 'finishing', finishedAt: isoNow(ctx) });
       this.clearAlert(row);
-      if (merged)
-        timeline.append({
-          projectKey: row.projectKey,
-          taskKey: row.taskKey,
-          actor: SYSTEM_ACTOR,
-          type: 'task_merged',
-          data: { ...mergedState(row)!, mergeId: row.id },
-        });
-    };
-    const current = tasks.find(row.projectKey, row.taskKey);
-    const target = stageOf(config, row.toStageId);
-    if (current && current.stageId === row.fromStageId && isOpenTask(current) && target)
-      await tasks.finishMerge(config, current, target, SYSTEM_ACTOR, record);
-    else ctx.unitOfWork(record);
+      timeline.append({
+        projectKey: row.projectKey,
+        taskKey: row.taskKey,
+        actor: SYSTEM_ACTOR,
+        type: 'task_merged',
+        data: { ...mergedState(row)!, mergeId: row.id },
+      });
+    });
+    await this.notify(row, config);
+    const task = tasks.find(row.projectKey, row.taskKey);
+    if (task) await this.deps.afterMerge(task);
   }
 
   private async block(
@@ -481,6 +672,7 @@ export class Merges {
     ctx.unitOfWork(() => {
       this.save(row, {
         state: 'blocked',
+        step: undefined,
         finishedAt: undefined,
         block: { reason, message, at: isoNow(ctx), ...(detail ? { detail: detail.slice(-8000) } : {}) },
       });
@@ -500,6 +692,7 @@ export class Merges {
         },
       });
       if (
+        memberOf(config, row.merger)?.kind === 'human' &&
         !inbox.list(row.projectKey, { kind: 'alert', taskKey: row.taskKey }).some((item) => {
           const alert = alertPayloadOf(item);
           return alert?.alert === 'merge_blocked' && alert.mergeId === row.id && item.state === 'open';
@@ -509,7 +702,7 @@ export class Merges {
           projectKey: row.projectKey,
           taskKey: row.taskKey,
           kind: 'alert',
-          assignees: ownerHandles(config),
+          assignees: [row.merger],
           source: 'system',
           title: message,
           payload: { alert: 'merge_blocked', taskKey: row.taskKey, mergeId: row.id, reason, message },
@@ -517,62 +710,100 @@ export class Merges {
         });
       }
     });
+    await this.notify(row, config);
   }
 
-  private clearAlert(row: MergeRecord): void {
-    for (const item of this.deps.inbox.list(row.projectKey, {
-      kind: 'alert',
-      taskKey: row.taskKey,
-      state: 'open',
-    })) {
+  private clearAlert(row: MergeRecord, by?: string): void {
+    for (const item of this.deps.inbox.list(row.projectKey, { taskKey: row.taskKey, state: 'open' })) {
       const alert = alertPayloadOf(item);
-      if (alert?.alert === 'merge_blocked' && alert.mergeId === row.id) this.deps.inbox.cancel(item.id);
+      const request = mergeRequestOf(item);
+      if (request?.mergeId === row.id && by) this.deps.inbox.resolveMergeRequest(item.id, by);
+      else if (request?.mergeId === row.id || (alert?.alert === 'merge_blocked' && alert.mergeId === row.id))
+        this.deps.inbox.cancel(item.id);
     }
   }
 
-  private async sendBack(
-    row: MergeRecord,
-    config: ProjectConfig,
-    failed: NonNullable<TimelineEventData['task_stage_changed']['mergeFailed']>,
-  ): Promise<void> {
-    const { tasks, sessions, messaging } = this.deps;
-    const task = tasks.get(row.projectKey, row.taskKey);
-    const from = stageOf(config, task.stageId);
-    const back = workStageBefore(config, task.stageId);
-    if (!from || !back)
-      return this.block(row, 'merge_error', 'there is no preceding work stage for the failed merge');
-    let result;
-    try {
-      result = await tasks.moveToStage(row.projectKey, row.taskKey, back.id, SYSTEM_ACTOR, {
-        mergeFailed: failed,
+  private async fail(row: MergeRecord, config: ProjectConfig, failure: MergeFailure): Promise<void> {
+    const { ctx, timeline } = this.deps;
+    ctx.unitOfWork(() => {
+      this.save(row, { state: 'failed', step: undefined, failure, block: undefined });
+      this.clearAlert(row);
+      timeline.append({
+        projectKey: row.projectKey,
+        taskKey: row.taskKey,
+        actor: SYSTEM_ACTOR,
+        type: 'task_merge_failed',
+        data: { ...failure, mergeId: row.id },
       });
-    } catch (err) {
-      return this.block(
-        row,
-        'gate_changed',
-        'the task could not be sent back after the failed merge',
-        err instanceof Error ? err.message : 'move failed',
-      );
-    }
-    if (!result.moved)
-      return this.block(
-        row,
-        'gate_changed',
-        'the work stage requires an approval before the task can be sent back',
-      );
-    this.save(row, { state: 'sent_back', finishedAt: isoNow(this.deps.ctx) });
-    this.clearAlert(row);
-    if (result.moved) await stopStageReviewers(sessions, config, task, from, back);
-    if (task.assignee)
-      await messaging.send(
-        row.projectKey,
-        'system',
-        {
-          to: [task.assignee],
-          taskKey: task.key,
-          text: `Merge ${task.key} into ${row.base} failed (${failed.reason}) on approved commit ${row.commit}.\n${failed.files?.join('\n') ?? failed.outputTail ?? ''}\nFix the failure, commit, and hand the card over again.`,
+    });
+    await this.notify(row, config);
+  }
+
+  private async notify(row: MergeRecord, config: ProjectConfig): Promise<void> {
+    const member = memberOf(config, row.merger);
+    if (!member) return;
+    if (member.kind === 'human' && (row.state === 'requested' || row.state === 'failed')) {
+      if (
+        this.deps.inbox
+          .list(row.projectKey, { taskKey: row.taskKey, state: 'open' })
+          .some((item) => mergeRequestOf(item)?.mergeId === row.id)
+      )
+        return;
+      this.deps.inbox.create({
+        projectKey: row.projectKey,
+        taskKey: row.taskKey,
+        kind: 'merge_request',
+        assignees: [row.merger],
+        source: 'system',
+        title: `Merge ${row.taskKey} into ${row.base}`,
+        payload: {
+          mergeRequest: {
+            taskKey: row.taskKey,
+            mergeId: row.id,
+            repo: row.repo,
+            base: row.base,
+            ...(row.failure ? { failure: row.failure } : {}),
+          },
         },
-        { actor: SYSTEM_ACTOR },
-      );
+        options: [{ id: 'merge', label: 'Merge', style: 'primary' }],
+      });
+      return;
+    }
+    if (row.state === 'blocked' && member.kind === 'human') return;
+    const type =
+      row.state === 'failed'
+        ? 'task_merge_failed'
+        : row.state === 'blocked'
+          ? 'task_merge_blocked'
+          : row.state === 'merged'
+            ? 'task_merged'
+            : 'task_merge_requested';
+    const event = this.deps.ctx.repos.timeline.latestOfType(row.projectKey, row.taskKey, type);
+    if (
+      event &&
+      this.deps.ctx.repos.messages
+        .list(row.projectKey, { taskKey: row.taskKey })
+        .some((message) => message.origin?.kind === 'note' && message.origin.eventId === event.id)
+    )
+      return;
+    const text =
+      row.state === 'merged'
+        ? `Merge ${row.taskKey} into ${row.repo}/${row.base} completed at ${row.mergeCommit}.`
+        : row.state === 'failed'
+          ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nFix only simple mechanical conflicts with the merge tool; otherwise send the card back with update_task and explain the failure. Retry with merge_task when ready.`
+          : row.state === 'blocked'
+            ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}. Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
+            : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
+    await this.deps.messaging.send(
+      row.projectKey,
+      'system',
+      { to: [row.merger], taskKey: row.taskKey, text },
+      {
+        actor: SYSTEM_ACTOR,
+        kind: row.state === 'merged' ? 'info' : 'action',
+        ownCard: true,
+        ...(event ? { origin: { kind: 'note', eventId: event.id } } : {}),
+      },
+    );
   }
 }

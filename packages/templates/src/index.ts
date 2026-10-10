@@ -21,6 +21,7 @@ export {
   uniqueHandle,
 } from './members';
 export { projectManagerMember } from './project-manager';
+export { operatorMember } from './operator';
 export { roleViews } from './role-views';
 export { DAILY_WORKER_SCHEDULE } from './templates/daily-routine';
 export { legacyCheckLabels, migrateLegacyConfig, standardLabel, standardLabelsFor } from './labels';

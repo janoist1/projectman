@@ -190,7 +190,7 @@ describe('REST API', () => {
           id: 'test',
           nameKey: 'templates.test.name',
           descriptionKey: 'templates.test.description',
-          memberCount: { human: 1, ai: 4 },
+          memberCount: { human: 1, ai: 5 },
           stageCount: 6,
         },
       ]);
@@ -254,6 +254,7 @@ describe('REST API', () => {
         ['dev-2', 'idle'],
         ['cr', 'idle'],
         ['pm', 'idle'],
+        ['operator', 'idle'],
       ]);
       expect(board).toMatchObject({ tasks: [], openInboxCount: 0, planUsage: null });
     });
@@ -423,7 +424,7 @@ describe('REST API', () => {
     it('lists the role catalogue and manages custom roles', async () => {
       const catalogue = await call<RolesView>('GET', '/api/projects/AR/roles', cookie);
       expect(catalogue.status).toBe(200);
-      expect(catalogue.body.roles).toHaveLength(21);
+      expect(catalogue.body.roles).toHaveLength(22);
       expect(catalogue.body.roles.find((r) => r.id === 'business_analyst')).toMatchObject({
         id: 'business_analyst',
         ...hu.roles.business_analyst,
@@ -690,6 +691,30 @@ describe('REST API', () => {
       const shared = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', clientCookie);
       expect(shared.body.sessions).toEqual([]);
       expect(shared.body.timeline.map((e) => e.type)).toEqual(['task_created']);
+      // Why a card stands still is the team's own news: a person at the team sees it, a client does not (PM-460).
+      expect(shared.body).not.toHaveProperty('wait');
+      const own = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
+      expect(own.body.wait?.reason).toBe('ready');
+      expect(own.body.wait?.toStageId).toEqual(expect.any(String));
+      // The requester is the viewer: an open item assigned to them is their wait (PM-460).
+      h.app.projectman.repos.inbox.insert({
+        id: 'inb_mine',
+        projectKey: 'AR',
+        kind: 'question',
+        assignees: ['owner'],
+        source: 'dev-1',
+        sessionId: null,
+        taskKey: 'AR-2',
+        title: 'Which colour?',
+        body: null,
+        payload: {},
+        options: [],
+        state: 'open',
+        resolution: null,
+        createdAt: '2026-09-30T10:00:00.000Z',
+      });
+      const asked = await call<TaskDetail>('GET', '/api/projects/AR/tasks/AR-2', cookie);
+      expect(asked.body.wait).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_mine' });
       expect((await call<ApiError>('GET', '/api/projects/AR/config', clientCookie)).status).toBe(403);
       expect((await call('POST', '/api/projects/AR/tasks', clientCookie, { title: 'x' })).status).toBe(403);
     });

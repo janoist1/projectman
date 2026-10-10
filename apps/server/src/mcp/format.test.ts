@@ -46,15 +46,42 @@ describe('formatTaskDetail', () => {
       commit: 'approved',
       branch: 'task/AR-21',
       toStageId: 'review',
-      requestedBy: 'owner',
+      merger: 'owner',
+      requestedAt: '2026-10-10T20:00:00Z',
       state: 'queued',
       step: 'queued',
       startedAt: '2026-10-10T20:01:00Z',
       landed: 'nowhere',
     };
     const merging = formatTaskUpdate(task, { stageId: 'review', note: false, moverName: 'Owner' });
-    expect(merging).toContain('merge started');
-    expect(merging).not.toContain('the card waits for them');
+    expect(merging).not.toContain('merge started');
+    expect(merging).toContain('the card waits for them');
+  });
+  it('says why the card stands still in a Waiting line, and none when the detail has no wait (PM-460)', () => {
+    const waitingLine = (detail: Parameters<typeof formatTaskDetail>[0]) =>
+      formatTaskDetail(detail)
+        .split('\n')
+        .find((line) => line.startsWith('Waiting: '));
+    const detail = sampleTaskDetail();
+    expect(waitingLine(detail)).toBeUndefined();
+
+    detail.wait = {
+      reason: 'approval',
+      next: [{ handle: 'owner', kind: 'human' }],
+      toStageId: 'done',
+      labels: ['code-review-ok'],
+      inboxItemId: null,
+      inboxKind: null,
+      startWaiting: null,
+      prerequisites: [],
+      since: '2026-10-10T20:00:00.000Z',
+    };
+    expect(waitingLine(detail)).toBe(
+      'Waiting: waits for the approval code-review-ok of owner (to enter done).',
+    );
+
+    detail.wait = { ...detail.wait, reason: 'prerequisite', next: [], labels: [], prerequisites: ['AR-3'] };
+    expect(waitingLine(detail)).toBe('Waiting: open prerequisite: AR-3.');
   });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
     const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>
@@ -586,6 +613,19 @@ describe('formatSentMessage', () => {
     });
     expect(out).toContain(
       '- dev: not started: they have no role on AR-1 (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on AR-1. If they really must act now, ask a person to bring them in.',
+    );
+    expect(out).not.toContain('it starts nothing');
+  });
+  it('says the Operator starts only on the owner’s request (PM-447)', () => {
+    const out = formatSentMessage({
+      messageId: 'msg_1',
+      requested: ['operator'],
+      deliveredTo: ['operator'],
+      taskKey: null,
+      recipients: [{ handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' }],
+    });
+    expect(out).toContain(
+      '- operator: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.',
     );
     expect(out).not.toContain('it starts nothing');
   });

@@ -16,6 +16,7 @@ import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
+import { outageHeading, outageOfItem } from './outage';
 import type { PipelineIndex } from './pipeline';
 import { relationKindLabel } from './timeline';
 
@@ -61,6 +62,7 @@ export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
     if (alert?.alert === 'merge_blocked') return t('inbox.alerts.unknown');
+    if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
@@ -238,6 +240,7 @@ export function alertText(
   const alert = alertPayloadOf(item);
   if (!alert) return null;
   if (alert.alert === 'merge_blocked') return alert.message;
+  if (alert.alert === 'work_outage') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(
       alert.until ? 'inbox.alerts.provider_rate_limited.body' : 'inbox.alerts.provider_rate_limited.unknown',
@@ -424,6 +427,8 @@ export function decisionSubject(item: InboxItem): string {
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   if (item.kind === 'question') return inboxHeading(item);
+  const outage = outageOfItem(item);
+  if (outage) return outageHeading(outage);
   return item.title;
 }
 
@@ -542,6 +547,7 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');

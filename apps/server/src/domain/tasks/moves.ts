@@ -2,6 +2,7 @@ import {
   actorMoveRefusal,
   boardColumnOf,
   evaluateMove,
+  fixLimitDecisionOf,
   gateRequestOf,
   cardMoverHandle,
   handOnDecision,
@@ -9,7 +10,6 @@ import {
   memberOf,
   isOpenTask,
   isTheme,
-  mergeRepoOf,
   noApproverReason,
   stageHandsOverForReview,
   stageIndex,
@@ -28,7 +28,6 @@ import type {
   Task,
   TaskHandOn,
   TimelineEventData,
-  TaskMergeState,
 } from '@projectman/shared';
 import type { SourceHead } from '../../contracts';
 import type { TaskPatch } from '../../db';
@@ -47,7 +46,6 @@ import type { Effect, TaskStore } from './store';
 export interface MoveResult {
   task: Task;
   moved: boolean;
-  merging?: TaskMergeState;
   /** Decision items waiting for approvers when the target stage needs a human approval. */
   pendingApproval: InboxItem[];
   /** The other cards of the target column whose rank was written (PM-118); the moved card's is on `task`. */
@@ -87,7 +85,6 @@ export interface MoveOptions {
   branchMoved?: NonNullable<TimelineEventData['task_stage_changed']['branchMoved']>;
   /** The system sends the task back because the server's full test of the pinned commit failed (PM-217). */
   testsFailed?: NonNullable<TimelineEventData['task_stage_changed']['testsFailed']>;
-  mergeFailed?: NonNullable<TimelineEventData['task_stage_changed']['mergeFailed']>;
   /** A person's move despite open prerequisites (PM-204); carried to the `task_stage_changed` event. */
   despitePrerequisites?: boolean;
   /**
@@ -98,7 +95,11 @@ export interface MoveOptions {
 }
 
 /** Reads the head of the branch a task's developer hands over, null when there is none to read. */
-export type SourceHeadReader = (config: ProjectConfig, task: Task) => Promise<SourceHead | null>;
+export type SourceHeadReader = (
+  config: ProjectConfig,
+  task: Task,
+  opts?: { strict?: boolean },
+) => Promise<SourceHead | null>;
 
 export function gateBlockedError(evaluation: GateEvaluation, block?: StartBlock) {
   return conflict('gate_blocked', 'the gate conditions of the target stage are not met', {
@@ -191,7 +192,7 @@ export class TaskMoves {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'mergeFailed'> = {},
+    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed'> = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
     const handover = await this.prepareHandover(config, this.store.get(projectKey, taskKey), stageId);
@@ -212,14 +213,8 @@ export class TaskMoves {
   async prepareHandover(config: ProjectConfig, task: Task, stageId: string): Promise<Handover | null> {
     const target = stageOf(config, stageId);
     if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task)) return null;
-    if (
-      !stageHandsOverForReview(config, target) &&
-      !(
-        mergeRepoOf(config, task, target) &&
-        !this.store.ctx.repos.taskHandovers.get(task.projectKey, task.key)
-      )
-    )
-      return null;
+    await this.merges?.checkGate(config, task, target.id);
+    if (!stageHandsOverForReview(config, target)) return null;
     const head = await this.sourceHead(config, task);
     if (!head) return null;
     if (head.dirty)
@@ -308,19 +303,13 @@ export class TaskMoves {
     if (decision.kind === 'request')
       return this.requestHandOn(config, task, target, decision.mover, actorHandle(actor), effects);
     const head = opts.handover?.head;
-    const extra: Pick<
-      TimelineEventData['task_stage_changed'],
-      'reviewPin' | 'branchMoved' | 'testsFailed' | 'mergeFailed'
-    > = {
-      ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
-      ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
-      ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
-      ...(opts.mergeFailed ? { mergeFailed: opts.mergeFailed } : {}),
-    };
+    const extra: Pick<TimelineEventData['task_stage_changed'], 'reviewPin' | 'branchMoved' | 'testsFailed'> =
+      {
+        ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
+        ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
+        ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
+      };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
-    const merging = this.mergeOrApply(config, task, target, actor, effects, head);
-    if (merging)
-      return { task: this.store.get(task.projectKey, task.key), moved: false, merging, pendingApproval: [] };
     return {
       // Only a person can accept the warning: an AI actor's flag is ignored.
       task: this.applyMove(
@@ -460,6 +449,7 @@ export class TaskMoves {
     // An approved move into a review or test stage hands the branch over like any other (PM-183).
     let handover: Handover | null = null;
     let refused = false;
+    let mergeMissing = false;
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (
       resolution.optionId === 'approve' &&
@@ -470,13 +460,19 @@ export class TaskMoves {
       try {
         handover = await this.prepareHandover(config, task, gate.toStageId);
       } catch (err) {
-        if (!(err instanceof DomainError) || err.code !== 'handover_uncommitted') throw err;
-        refused = true;
+        if (!(err instanceof DomainError)) throw err;
+        if (err.code === 'task_not_merged') mergeMissing = true;
+        else if (err.code === 'handover_uncommitted') refused = true;
+        else throw err;
       }
     }
     const effects: Effect[] = [];
     this.store.ctx.unitOfWork(() =>
-      this.decide(config, item, gate, humanActor(resolution.by), effects, { handover, refused }),
+      this.decide(config, item, gate, humanActor(resolution.by), effects, {
+        handover,
+        refused,
+        mergeMissing,
+      }),
     );
     await runEffects(effects);
   }
@@ -487,7 +483,7 @@ export class TaskMoves {
     gate: GateRequestPayload,
     actor: Actor,
     effects: Effect[],
-    handed: { handover: Handover | null; refused: boolean },
+    handed: { handover: Handover | null; refused: boolean; mergeMissing: boolean },
   ): void {
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (!task) return;
@@ -544,7 +540,13 @@ export class TaskMoves {
       });
       return;
     }
-    if (this.mergeOrApply(config, current, target, actor, effects, handed.handover?.head)) return;
+    if (handed.mergeMissing) {
+      this.settleWaiting(current, actor, { gateBlocked: { to: target.id, reason: 'task_not_merged' } });
+      effects.push(async () => {
+        await this.merges?.reconcile(current.projectKey, current.key);
+      });
+      return;
+    }
     this.applyMove(
       config,
       current,
@@ -639,7 +641,7 @@ export class TaskMoves {
     actor: Actor,
     extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed' | 'mergeFailed'
+      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed'
     >,
     effects: Effect[],
     pin?: SourceHead,
@@ -699,6 +701,7 @@ export class TaskMoves {
       state: 'open',
       taskKey: task.key,
     })) {
+      if (fixLimitDecisionOf(item)) continue;
       this.inbox.cancel(item.id);
     }
     const change: StageChange = {
@@ -711,41 +714,6 @@ export class TaskMoves {
     };
     effects.push(() => this.store.ctx.events.emit('task_stage_changed', change));
     return next;
-  }
-
-  private mergeOrApply(
-    config: ProjectConfig,
-    task: Task,
-    target: Stage,
-    actor: Actor,
-    effects: Effect[],
-    head?: SourceHead,
-  ): TaskMergeState | undefined {
-    const repo = mergeRepoOf(config, task, target);
-    const source = this.store.ctx.repos.taskHandovers.get(task.projectKey, task.key) ?? head;
-    if (!repo || !source || !this.merges) return undefined;
-    this.clearHandOn(task, target.id, actorHandle(actor));
-    const state = this.merges.enqueue(task, repo, target, actor, source);
-    effects.push(async () => {
-      this.merges?.pump();
-    });
-    return state;
-  }
-
-  /** The merger already checked the gate immediately before landing. */
-  async finishMerge(
-    config: ProjectConfig,
-    task: Task,
-    target: Stage,
-    actor: Actor,
-    record: () => void,
-  ): Promise<void> {
-    const effects: Effect[] = [];
-    this.store.ctx.unitOfWork(() => {
-      record();
-      this.applyMove(config, task, target, actor, {}, effects);
-    });
-    await runEffects(effects);
   }
 
   /** Ends the "waiting for approval" status after a rejected or dropped request. */

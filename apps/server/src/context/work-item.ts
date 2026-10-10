@@ -7,7 +7,7 @@ import {
   DUTIES,
   dutyMembers,
   effectiveRepo,
-  mergesOnDone,
+  requiresMerge,
   gateLabels,
   isHumanOnlyLabel,
   labelDefinition,
@@ -123,14 +123,14 @@ const LOCAL_ONLY_DUTY_PROMPTS: Partial<Record<DutyId, string>> = {
 export function dutyPrompt(input: ContextPackInput, duty: DutyId): string {
   if (serverMergeRepo(input) && (duty === 'implementation' || duty === 'docs'))
     return duty === 'implementation'
-      ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch. Never merge or push: the server merges the approved commit when the card enters Done."
-      : "Write documentation in the task worktree, verify examples and commit on the task's branch. Never merge or push: the server merges the approved commit when the card enters Done.";
+      ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit."
+      : "Write documentation in the task worktree, verify examples and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit.";
   return (localOnlyRepo(input) && LOCAL_ONLY_DUTY_PROMPTS[duty]) || DUTIES[duty].prompt;
 }
 
 function serverMergeRepo(input: ContextPackInput): RepoConfig | null {
   const repo = input.task ? repoOf(input.project, effectiveRepo(input.project, input.task)) : undefined;
-  return repo && mergesOnDone(repo) ? repo : null;
+  return repo && requiresMerge(repo) ? repo : null;
 }
 
 /**
@@ -249,7 +249,7 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
         localOnly
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
           : serverMergeRepo(input)
-            ? "Commit the work on the task's own branch. Never merge or push: moving the card to Done makes the server merge the approved commit and push it if the base has an upstream."
+            ? "Commit the work on the task's own branch. Never merge or push manually: before the merge target, the card merger uses merge_task to merge the approved commit and push it if the base has an upstream."
             : input.sessionPolicy?.execution?.profile === 'managed_vm'
               ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
               : 'Commit, push, open a pull request and attach it with link_pull_request.',
@@ -264,7 +264,7 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
         localOnly
           ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
           : serverMergeRepo(input)
-            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. Never merge or push; the server owns the merge on Done.`
+            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. Never merge or push manually; before the merge target, the card merger uses merge_task.`
             : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
         ...(testsAtMerge(input, c.task) ? [developerTests(input, c.task)] : []),
       ];
@@ -399,7 +399,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
     // After a review a local-only branch is merged by the owner and nobody else.
     `When the review passes, ${lowerFirst(handover(input, s.next))}${
-      localOnly && !mergesOnDone(localOnly)
+      localOnly && !requiresMerge(localOnly)
         ? ` The owner merges the branch into ${code(localOnly.defaultBranch)}.`
         : ''
     }`,

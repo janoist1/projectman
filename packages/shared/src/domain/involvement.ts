@@ -11,6 +11,7 @@ export const SessionStartCauseKind = z.enum([
   'refinement',
   'schedule',
   'message',
+  'merge',
   'mention',
   'answer',
   'conversation',

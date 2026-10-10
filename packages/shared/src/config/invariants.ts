@@ -1,12 +1,15 @@
 import { DUTIES, DUTY_IDS } from '../domain/duty';
-import { dutyMembers } from './duties';
+import { cardMoverOf } from './card-mover';
+import { dutyMembers, stageDuty, stageOwners } from './duties';
 import { gateAcceptsCondition, gateAcceptsWhen, stageIndex } from './gates';
-import { labelDefinition, labelHolders } from './labels';
+import { labelDefinition, labelExcludesAuthors, labelHolders } from './labels';
+import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
-import { projectManagersOf } from './project-manager';
+import { unresolvedMerger } from './merger';
+import { projectManagerOf, projectManagersOf } from './project-manager';
 import { developmentStage, projectRefines } from './refinement';
 import { isHumanOnlyLabel } from '../domain/label';
-import { DEFAULT_AGENT_PROVIDER } from '../domain/member';
+import { DEFAULT_AGENT_PROVIDER, hasAccess } from '../domain/member';
 import { permissionModeFitsProvider } from '../domain/provider-model';
 import { holdersAllow, isBuiltInRole, roleHolders } from '../domain/role';
 import type { ProjectConfig } from './schema';
@@ -20,7 +23,6 @@ export interface ConfigIssue {
     | 'no_owner'
     | 'no_ai_project_manager'
     | 'unknown_member'
-    | 'unknown_repo'
     | 'unknown_label'
     | 'duplicate_label'
     | 'missing_label_setter'
@@ -40,7 +42,14 @@ export interface ConfigIssue {
     | 'role_not_for_ai'
     | 'role_not_for_human'
     | 'custom_role_shadows_builtin'
-    | 'duplicate_role';
+    | 'duplicate_role'
+    | 'stage_without_owner'
+    | 'work_stage_without_worker'
+    | 'gate_unreachable'
+    | 'mover_not_member'
+    | 'mover_cannot_move'
+    | 'mover_on_leave'
+    | 'merger_unresolved';
   /** Absent in older clients means error. */
   severity?: 'error' | 'warning';
   path: string;
@@ -66,7 +75,9 @@ export interface ConfigIssue {
  *   with another label (`when`): a release approval holds for every task;
  * - the label a condition's `when` names is defined;
  * - every role a member holds (and the temp workers' role) is a built-in or custom role that
- *   the member's kind may hold; custom role ids are unique and never reuse a built-in id.
+ *   the member's kind may hold; custom role ids are unique and never reuse a built-in id;
+ * - when a repository requires a merge, the merger can be resolved (PM-448): a code review stage, a
+ *   work stage or a member of the team who may work comes before the merge target.
  * Unfilled recommended duties are warnings, never errors.
  */
 export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
@@ -152,6 +163,14 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     });
     if (stage.duty && dutyMembers(config, stage.duty).length === 0)
       issues.push({ code: 'missing_duty_holder', path: `${path}.duty`, detail: stage.duty });
+    if (
+      (stage.kind === 'step' || stage.kind === 'release') &&
+      !stage.duty &&
+      stageOwners(config, stage).length === 0
+    )
+      issues.push({ code: 'stage_without_owner', path, detail: stage.id });
+    if (stage.kind === 'work' && workStageWorkers(config, stage).length === 0)
+      issues.push({ code: 'work_stage_without_worker', path, detail: stage.id });
     let humanApproval = false;
     (stage.gate?.conditions ?? []).forEach((condition, j) => {
       const gatePath = `${path}.gate.conditions[${j}]`;
@@ -166,6 +185,8 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
         issues.push({ code: 'unknown_label', path: gatePath, detail: condition.label });
         return;
       }
+      if (condition.type === 'has_label' && i > 0 && gateLabelUnreachable(config, i, label))
+        issues.push({ code: 'gate_unreachable', path: gatePath, detail: label.id });
       if (condition.type !== 'has_label' || label.setBy === 'system') return;
       const holders = labelHolders(config, label);
       if (holders.length === 0) {
@@ -196,6 +217,8 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
       });
   });
 
+  issues.push(...cardMoverIssues(config));
+
   const stages = config.pipeline.stages;
   if (stages[0] && stages[0].kind !== 'queue')
     issues.push({ code: 'first_stage_not_queue', path: 'pipeline.stages[0]' });
@@ -207,8 +230,70 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     if (DUTIES[id].recommended && !dutyMembers(config, id).length)
       issues.push({ code: 'recommended_duty_unfilled', severity: 'warning', path: 'team', detail: id });
   }
+  const unresolved = unresolvedMerger(config);
+  if (unresolved !== null)
+    issues.push({ code: 'merger_unresolved', path: 'team.merger', detail: unresolved });
   issues.push(...manualRefinementSteps(config));
   return issues;
+}
+
+/** Who may do a work stage: its owners, or else the holders of the duty it stands for. */
+function workStageWorkers(
+  config: ProjectConfig,
+  stage: ProjectConfig['pipeline']['stages'][number],
+): string[] {
+  const owners = stageOwners(config, stage);
+  if (owners.length > 0) return owners;
+  const duty = stageDuty(stage);
+  return duty ? dutyMembers(config, duty).map((m) => m.handle) : [];
+}
+
+/**
+ * Whether no one could ever put the label a gate (not the first stage's) asks for on a card:
+ * (a) the label excludes the card's authors and the only member who may work the nearest work stage
+ * before the gate is the only holder of the label, so they are always the author; (b) the system
+ * sets the label from GitHub and no repository of the project names a GitHub repository.
+ * A label nobody may set is `missing_label_setter`, not this.
+ */
+function gateLabelUnreachable(
+  config: ProjectConfig,
+  stageIdx: number,
+  label: NonNullable<ReturnType<typeof labelDefinition>>,
+): boolean {
+  if (label.setBy === 'system') return !config.project.repos.some((repo) => repo.github);
+  if (!labelExcludesAuthors(config, label)) return false;
+  const holders = labelHolders(config, label);
+  if (holders.length === 0) return false;
+  const stages = config.pipeline.stages;
+  for (let k = stageIdx - 1; k >= 0; k--) {
+    const stage = stages[k]!;
+    if (stage.kind !== 'work') continue;
+    const workers = workStageWorkers(config, stage);
+    return workers.length === 1 && holders.every((handle) => handle === workers[0]);
+  }
+  return false;
+}
+
+/** The "who moves the cards" setting must name someone who can (PM-459). */
+function cardMoverIssues(config: ProjectConfig): ConfigIssue[] {
+  const mover = cardMoverOf(config);
+  if (mover.kind === 'human') {
+    const member = memberOf(config, mover.handle);
+    if (member?.kind !== 'human')
+      return [{ code: 'mover_not_member', path: 'team.cardMover.handle', detail: mover.handle }];
+    return hasAccess(member.access, 'developer')
+      ? []
+      : [{ code: 'mover_cannot_move', path: 'team.cardMover', detail: mover.kind }];
+  }
+  if (mover.kind === 'project_manager') {
+    if (projectManagersOf(config).length === 0)
+      return [{ code: 'mover_cannot_move', path: 'team.cardMover', detail: mover.kind }];
+    const manager = projectManagerOf(config);
+    return manager && isOnLeave(manager)
+      ? [{ code: 'mover_on_leave', severity: 'warning', path: 'team.cardMover', detail: manager.handle }]
+      : [];
+  }
+  return [];
 }
 
 /**
@@ -287,6 +372,13 @@ const TOLERATED_ON_LOAD: ReadonlySet<ConfigIssue['code']> = new Set([
   'duplicate_column',
   'release_approval_needs_duty',
   'custom_role_shadows_builtin',
+  'stage_without_owner',
+  'work_stage_without_worker',
+  'gate_unreachable',
+  'mover_not_member',
+  'mover_cannot_move',
+  'mover_on_leave',
+  'merger_unresolved',
 ]);
 
 /**

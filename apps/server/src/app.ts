@@ -540,6 +540,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
+      engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
       runtimeBoundary,
       ...(boundaryConfig
         ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }

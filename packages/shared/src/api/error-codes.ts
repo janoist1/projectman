@@ -4,7 +4,9 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
-  'merge_not_blocked',
+  'merge_not_merger',
+  'merge_not_ready',
+  'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',
   'integrator_not_allowed',
@@ -44,6 +46,7 @@ export const ERROR_CODES = [
   'duplicate_repo',
   'stage_in_use',
   'missing_duty_holder',
+  'merger_unresolved',
   // Members, roles and invitations
   'handle_taken',
   'unknown_member',
@@ -59,6 +62,7 @@ export const ERROR_CODES = [
   'duplicate_role',
   'role_in_use',
   'project_manager_required',
+  'operator_required',
   'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',
@@ -126,6 +130,7 @@ export const ERROR_CODES = [
   'cover_not_an_image',
   // Inbox and messages
   'inbox_item_closed',
+  'not_an_outage_alert',
   'not_an_assignee',
   'no_assignees',
   'unknown_option',

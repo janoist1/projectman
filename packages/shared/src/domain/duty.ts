@@ -28,6 +28,7 @@ export const DUTY_IDS = [
   'process_improvement',
   'research',
   'final_decision',
+  'project_operation',
 ] as const;
 export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
@@ -331,6 +332,17 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'team',
     holders: 'human',
     prompt: '',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
+  project_operation: {
+    id: 'project_operation',
+    group: 'direction',
+    holders: 'ai',
+    prompt:
+      "Carry out the owner's requests about how the project runs, within the Operator's rules; act only when the owner asks.",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

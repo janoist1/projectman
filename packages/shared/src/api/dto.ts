@@ -4,9 +4,12 @@ import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
+import { TaskWait } from '../config/task-wait';
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
+import { WorkOutage } from '../domain/outage';
+
 import {
   AgentProvider,
   AgentEffort,
@@ -31,6 +34,13 @@ import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
 import { Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting, Visibility } from '../domain/task';
+
+export const CheckOutageResponse = z.object({
+  item: InboxItem,
+  stillFailing: z.boolean(),
+  checkedAt: z.string(),
+});
+export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 
 export const ProjectManagerChannelState = z.enum([
   'available',
@@ -192,8 +202,25 @@ export const CreateProjectRequest = z.object({
   templateId: z.string(),
   /** Repositories of the workspace; templates start without any (they can also be added later in the config). */
   repos: z.array(RepoConfig).optional(),
+  /** Who moves the cards on; absent means `worker`. `creator` makes the creating human the mover. */
+  cardMover: z.enum(['worker', 'project_manager', 'creator']).optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
+
+/** What `POST /api/projects/preview` answers: the configuration a create would save and its issues. */
+export const ProjectPreview = z.object({
+  config: ProjectConfig,
+  /** The fields of `ConfigIssue`; an absent severity is an error. */
+  issues: z.array(
+    z.object({
+      code: z.string(),
+      severity: z.enum(['error', 'warning']).optional(),
+      path: z.string(),
+      detail: z.string().optional(),
+    }),
+  ),
+});
+export type ProjectPreview = z.infer<typeof ProjectPreview>;
 
 export const TemplateSummary = z.object({
   id: z.string(),
@@ -208,6 +235,7 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 /* ---------- members ---------- */
 
 export const MemberView = z.object({
+  outage: WorkOutage.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),
@@ -445,6 +473,8 @@ export const TaskDetail = z.object({
   fixRounds: z
     .object({ rounds: z.number().int().nonnegative(), limit: z.number().int().positive() })
     .optional(),
+  /** Why the card stands still (PM-460), for the viewer; null for a closed card; not shared with clients. */
+  wait: TaskWait.nullable().optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
@@ -560,13 +590,12 @@ export type BoardMoveRequest = z.infer<typeof BoardMoveRequest>;
  * closed) and was not touched.
  */
 export const BoardGroupItem = z.discriminatedUnion('outcome', [
-  z.object({ taskKey: TaskKey, outcome: z.literal('merging'), mergeId: z.string() }),
   z.object({ taskKey: TaskKey, outcome: z.literal('moved') }),
   z.object({
     taskKey: TaskKey,
     outcome: z.literal('blocked'),
     // `no_approver`: an approval the move needs cannot be given by anyone; `approvals` names it, no approvers.
-    code: z.enum(['gate_blocked', 'handover_uncommitted', 'no_approver']),
+    code: z.enum(['gate_blocked', 'handover_uncommitted', 'no_approver', 'task_not_merged']),
     message: z.string(),
     unmet: z.array(
       z.object({ stageId: StageId, condition: GateCondition, setters: z.array(z.string()).optional() }),
@@ -586,7 +615,7 @@ export type BoardGroupItem = z.infer<typeof BoardGroupItem>;
  */
 export const BoardMoveResult = z.object({
   task: Task,
-  outcome: z.enum(['reordered', 'moved', 'unchanged', 'merging']),
+  outcome: z.enum(['reordered', 'moved', 'unchanged']),
   reranked: z.array(TaskKey),
   /**
    * The result of every card of a group move (PM-121), the collecting card first, then its subtasks in

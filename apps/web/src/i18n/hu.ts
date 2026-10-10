@@ -45,6 +45,7 @@ export const hu = {
       refinement: 'kidolgozás, ő következik',
       schedule: 'ütemezés',
       message: 'csapatüzenet',
+      merge: 'beolvasztás',
       mention: '@említés',
       answer: 'válasz a kérdésére',
       conversation: 'beszélgetés',
@@ -850,13 +851,16 @@ export const hu = {
       handoff_not_open: 'Ezt a kártyát most nem adják át tőled, ezért nem írhatsz átadó jegyzetet.',
       handover_uncommitted:
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
-      merge_not_blocked: 'A kártyának nincs elakadt beolvasztása.',
+      merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
+      merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
+      task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
       missing_duty_holder: 'A folyamat egy szükséges feladatkörének nincs felelőse.',
       recommended_duty_unfilled: 'Egy ajánlott feladatkörnek még nincs felelőse.',
+      merger_unresolved: 'A beolvasztó nem oldható fel: a beállított tag vagy lépés nincs meg.',
       unknown_role: 'Ismeretlen szerep.',
       role_not_for_ai: 'Ezt a szerepet AI-tag nem töltheti be.',
       role_not_for_human: 'Ezt a szerepet ember nem töltheti be.',
@@ -865,6 +869,8 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
+      operator_required:
+        'Nem bocsátható el: ő a projekt egyetlen Operátora. Küldd szabadságra, vagy előbb vegyél fel egy másikat.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',
@@ -893,6 +899,7 @@ export const hu = {
       no_free_member: 'Most nincs szabad fejlesztő.',
       senior_busy: 'A kártya a Seniorra vár.',
       inbox_item_closed: 'Ezt már elintézték.',
+      not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
@@ -1111,6 +1118,7 @@ export const hu = {
         holding: 'Visszatartja: {label}',
         approval: 'Jóváhagyásra vár, utána átkerül',
         uncommitted: 'Mentetlen változás van a munkafájában',
+        notMerged: 'nincs beolvasztva a fő ágba',
         noApprover: 'Senki sem adhatja meg a jóváhagyást: {label}',
         noApproverUnnamed: 'Senki sem adhatja meg a szükséges jóváhagyást',
         skipped: 'Közben megváltozott, nem mozdult',
@@ -1244,6 +1252,14 @@ export const hu = {
         'A NanoGPT beállítása hiányos a szerveren. A Beállítások → AI-szolgáltatók NanoGPT-sora mutatja, mi hiányzik; ha ott minden rendben, egy Codex-beállítás akadályozza az indulást (a munkaterület .codex mappája, a szerver /etc/codex mappája vagy a NanoGPT saját Codex-mappájának beállításai), azt kell kivenni. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
       codex_setup_incomplete:
         'Frissítsd a Codexet legalább {minCliVersion} verzióra, vagy a hibában megnevezett konfigurációs fájlból vedd ki a homokozó-beállítást (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles). MCP-beállítási hibánál a felhasználói config.toml mcp_servers neveit kell egyértelművé tenni; a team név a projectmané. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
+    },
+    /** A card that stands on an outage (PM-468): the line on the card, and what to do as its tooltip. */
+    stuck: 'Áll: {reason}',
+    stuckTodo: {
+      login: 'Lépj be a szerveren: {command}',
+      loginOnEngine: 'Lépj be a(z) {engine} motor gépén: {command}',
+      settings: 'Add meg a Beállítások → AI-szolgáltatók alatt.',
+      engine: 'Kapcsold be a motor gépét, vagy indítsd újra rajta a projectman motort.',
     },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
@@ -2003,6 +2019,11 @@ export const hu = {
     needsYou: 'Rád vár',
     paused: 'Szünetel',
     pausing: 'Megáll…',
+    /** An outage keeps the member from working (PM-468); the reason follows (`inbox.alerts.work_outage.reasons`). */
+    cannotWork: 'Nem tud dolgozni',
+    cannotWorkWithReason: 'Nem tud dolgozni: {reason}',
+    /** The bold lead of the phone card's line; the reason follows it in the normal weight. */
+    cannotWorkLead: 'Nem tud dolgozni:',
   },
 
   sessionState: {
@@ -2409,6 +2430,7 @@ export const hu = {
     kinds: {
       permission: 'Engedély',
       hand_on: 'Továbbadási kérés',
+      merge_request: 'Beolvasztási kérés',
       boundary: 'Külső művelet',
       decision: 'Döntés',
       question: 'Kérdés',
@@ -2417,6 +2439,7 @@ export const hu = {
     },
     kindsLower: {
       hand_on: 'továbbadási kérés',
+      merge_request: 'beolvasztási kérés',
       permission: 'engedély',
       boundary: 'külső művelet',
       decision: 'döntés',
@@ -2532,6 +2555,74 @@ export const hu = {
         heading: 'Fogy a lemezhely',
         body: 'Már csak {free} szabad hely van a lemezen; a határ {threshold}. Amíg nincs elég hely, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Szabadíts fel helyet (régi munkafák, buildek), vagy állítsd a határt a Beállítások → Keretek alatt. Ha újra van elég hely, a figyelmeztetés magától megszűnik.',
       },
+      /** A provider or an engine that cannot work (PM-468): what broke, what to do, what waits for it. */
+      work_outage: {
+        headings: {
+          not_logged_in: 'A {provider} nincs bejelentkezve',
+          cli_missing: 'A {provider} CLI nincs a gépen',
+          cli_too_old: 'A {provider} CLI túl régi ({cliVersion})',
+          no_key: 'Nincs NanoGPT-kulcs',
+          setup_incomplete: 'Hiányos a {provider}-beállítás',
+          chatgpt_login: 'Hiányos a {provider}-beállítás',
+          engine: 'A(z) {engine} motor nem csatlakozik',
+          engineNone: 'Nincs csatlakozó motor',
+        },
+        /** Added to a provider heading when the problem is on a remote engine. */
+        onEngine: ' a(z) {engine} motoron',
+        body: 'Amíg nem lépsz be, a {provider}-tagok nem tudnak dolgozni: új munka nem indul, és a megválaszolt kérdések sem jutnak el hozzájuk.',
+        bodySetup:
+          'A {provider}-tagok nem tudnak dolgozni, amíg ez nincs rendben: új munka nem indul, és a megválaszolt kérdések sem jutnak el hozzájuk.',
+        bodyEngine:
+          '{since} óta nem csatlakozik. Az AI-tagok ezen a motoron dolgoznak, ezért amíg nem csatlakozik, egyikük sem tud. A tábla, a kártyák és az üzenetek addig is mennek.',
+        bodyEngineNone:
+          'Az AI-tagok motoron dolgoznak, ezért amíg nincs csatlakozó motor, egyikük sem tud. A tábla, a kártyák és az üzenetek addig is mennek.',
+        todo: {
+          label: 'Teendő',
+          login: 'Futtasd a szerveren, és lépj be előfizetéses fiókkal:',
+          loginOnEngine: 'Futtasd a(z) {engine} motor gépén, és lépj be előfizetéses fiókkal:',
+          install: 'Telepítsd vagy frissítsd a(z) {provider} CLI-t, majd lépj be:',
+          installOnEngine:
+            'Telepítsd vagy frissítsd a(z) {provider} CLI-t a(z) {engine} motor gépén, majd lépj be:',
+          settings: 'Add meg itt: Beállítások → AI-szolgáltatók.',
+          openSettings: 'AI-szolgáltatók megnyitása →',
+          engine:
+            'Kapcsold be a motor gépét, vagy indítsd újra rajta a projectman motort. Ha csatlakozik, a munka magától folytatódik.',
+          manage: 'Motorok kezelése →',
+          copy: 'Másolás',
+          copyLabel: 'Parancs másolása: {command}',
+          copied: 'Másolva',
+        },
+        affected: {
+          members: 'Nem tud dolgozni ({count})',
+          cards: 'Vár miatta ({count})',
+          noCards: 'Most egy kártya sem vár, de új munka addig nem indul.',
+          more: '+{count} további',
+          moreMembersLabel: 'Még {count} tag megjelenítése',
+          moreCardsLabel: 'Még {count} kártya megjelenítése',
+          openCard: '{key} megnyitása: {title}',
+        },
+        selfClosing: 'Ha megoldódik, ez a figyelmeztetés magától lezárul, és a várakozó munka elindul.',
+        checkNow: 'Ellenőrzés most',
+        checking: 'Ellenőrzés…',
+        stillFailing: 'Még mindig fennáll · most ellenőrizve',
+        /** The toast when the outage ends by itself; `workStarted` follows when cards waited. */
+        providerBack: 'A {provider} újra használható.',
+        engineBack: 'A(z) {engine} motor újra csatlakozik.',
+        engineBackNone: 'Újra van csatlakozó motor.',
+        workStarted: 'A várakozó munka elindult.',
+        /** Why a member or a card cannot work, in a few words (lower case: it follows a label). */
+        reasons: {
+          not_logged_in: 'a {provider} nincs bejelentkezve',
+          cli_missing: 'a {provider} CLI nincs a gépen',
+          cli_too_old: 'a {provider} CLI túl régi',
+          no_key: 'nincs NanoGPT-kulcs',
+          setup_incomplete: 'hiányos a {provider}-beállítás',
+          chatgpt_login: 'hiányos a {provider}-beállítás',
+          engine: 'a(z) {engine} motor nem csatlakozik',
+          engineNone: 'nincs csatlakozó motor',
+          onEngine: '{reason} ({engine})',
+        },
+      },
       refinement: {
         heading: 'Kidolgozás',
         manual_step:
@@ -2552,6 +2643,7 @@ export const hu = {
       },
     },
     resolutions: {
+      outage_ended: 'Magától megszűnt',
       automatic_allow: 'Szabály szerint engedélyezve',
       automatic_deny: 'Szabály szerint elutasítva',
       allow: 'Engedélyezve',
@@ -2578,6 +2670,7 @@ export const hu = {
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
+      outage_ended: 'Automatikus',
       command_policy: 'Automatikus: szabály szerint',
       loop_ended: 'Automatikus',
       fix_limit_ended: 'Automatikus',
@@ -3359,6 +3452,7 @@ export const hu = {
     process_improvement: 'Folyamatfejlesztés',
     research: 'Kutatás',
     final_decision: 'Végső döntés',
+    project_operation: 'Projekt működtetése',
   },
   profile: {
     noPlanUsage: {
@@ -3789,6 +3883,12 @@ export const hu = {
       refinement_step_manual:
         'Egy kidolgozási lépés címkéjét egyetlen AI-tag sem teheti rá, ezért azt embernek kell elvégeznie.',
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',
+      stage_without_owner: 'Egy lépésnek nincs gazdája: a kártya ott elakadna.',
+      work_stage_without_worker: 'Egy munka-lépésben senki nem dolgozna: vegyél fel fejlesztőt.',
+      gate_unreachable: 'Egy kapu olyan címkét kér, amelyet egyik tag sem tehet fel.',
+      mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
+      mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
+      mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

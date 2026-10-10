@@ -26,6 +26,17 @@ export const CardMover = z.discriminatedUnion('kind', [
 ]);
 export type CardMover = z.infer<typeof CardMover>;
 
+/** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
+export const Merger = z.discriminatedUnion('kind', [
+  /** The owner of the card's code review stage who reviewed it. */
+  z.object({ kind: z.literal('code_reviewer') }),
+  /** The card's assignee, who developed it. */
+  z.object({ kind: z.literal('developer') }),
+  /** A named member, AI or human. */
+  z.object({ kind: z.literal('member'), handle: MemberHandle }),
+]);
+export type Merger = z.infer<typeof Merger>;
+
 export const HumanMemberConfig = z.object({
   kind: z.literal('human'),
   handle: MemberHandle,
@@ -260,8 +271,11 @@ export const RepoConfig = z.object({
    * Absent or false: retain the existing hand-over policy. Does not disable `reviewTest`.
    */
   fullTestAtMerge: z.boolean().optional(),
-  /** True: merge on Done; false: skip; absent: mergesOnDone decides. */
-  mergeOnDone: z.boolean().optional(),
+  /**
+   * true: a card's work must be in `defaultBranch` before the card enters the merge target (PM-448);
+   * false: it need not be; absent: `requiresMerge` decides.
+   */
+  requireMerge: z.boolean().optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 
@@ -285,6 +299,8 @@ export const ProjectConfig = z.object({
   }),
   team: z.object({
     cardMover: CardMover.optional(),
+    /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
+    merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),

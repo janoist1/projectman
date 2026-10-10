@@ -14,6 +14,7 @@ import type {
   ProjectConfig,
   Session,
   Task,
+  WorkOutage,
   TaskPriority,
   TaskDetail,
   TaskFixLimit,
@@ -127,15 +128,6 @@ export class TaskService {
   useMerges(merges: import('../merges').Merges): void {
     this.moves.useMerges(merges);
   }
-  finishMerge(
-    config: ProjectConfig,
-    task: Task,
-    target: Stage,
-    actor: Actor,
-    record: () => void,
-  ): Promise<void> {
-    return this.moves.finishMerge(config, task, target, actor, record);
-  }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -156,6 +148,7 @@ export class TaskService {
     inbox: InboxService;
     /** Why a task's AI work waits, shown on the task. */
     startWaiting: StartWaitingReader;
+    outageOf?: (task: Task) => WorkOutage | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
     notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;
@@ -395,7 +388,14 @@ export class TaskService {
     // A move into a review or test stage hands the branch over (PM-183): read before the write.
     const handover =
       change.stageId !== undefined
-        ? await this.moves.prepareHandover(config, this.get(projectKey, taskKey), change.stageId)
+        ? await this.moves.prepareHandover(
+            config,
+            {
+              ...this.get(projectKey, taskKey),
+              ...(change.repo !== undefined ? { repo: change.repo } : {}),
+            },
+            change.stageId,
+          )
         : null;
     const result = this.ctx.unitOfWork(() =>
       this.applyUpdate(
@@ -457,7 +457,7 @@ export class TaskService {
       });
       if (!moved.moved)
         return {
-          board: { task: moved.task, outcome: moved.merging ? 'merging' : 'unchanged', reranked: [] },
+          board: { task: moved.task, outcome: 'unchanged', reranked: [] },
           pending: moved.pendingApproval,
         };
       return { board: { task: moved.task, outcome: 'moved', reranked: moved.reranked ?? [] } };
@@ -932,7 +932,7 @@ export class TaskService {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'mergeFailed'>,
+    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed'>,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }

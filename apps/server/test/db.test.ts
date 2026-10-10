@@ -9,11 +9,11 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
-describe('merge migration 46', () => {
+describe('merge migration 47', () => {
   it('backfills persistent handovers from review pins and allows only one open merge per card', () => {
     const db = new Database(':memory:');
     try {
-      const prior = migrations.filter((item) => item.version < 46);
+      const prior = migrations.filter((item) => item.version < 47);
       for (const migration of prior) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
       const old = createRepositories(db);
@@ -35,7 +35,7 @@ describe('merge migration 46', () => {
         now,
         'dev-1',
       );
-      expect(migrate(db)).toBe(46);
+      expect(migrate(db)).toBe(47);
       const repos = createRepositories(db);
       expect(repos.taskHandovers.get('AR', 'AR-1')).toEqual({ commit: 'approved', branch: 'task/AR-1' });
       repos.reviewPins.clear('AR-1');
@@ -50,7 +50,8 @@ describe('merge migration 46', () => {
         branch: 'task/AR-1',
         fromStageId: 'review',
         toStageId: 'done',
-        requestedBy: 'owner',
+        merger: 'owner',
+        requestedAt: now,
         state: 'queued' as const,
         step: 'queued' as const,
         landed: 'nowhere' as const,
@@ -61,7 +62,7 @@ describe('merge migration 46', () => {
       expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
       repos.taskMerges.save({ ...row, state: 'blocked' });
       expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
-      repos.taskMerges.save({ ...row, state: 'sent_back' });
+      repos.taskMerges.save({ ...row, state: 'cancelled' });
       expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).not.toThrow();
     } finally {
       db.close();

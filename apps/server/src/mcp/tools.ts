@@ -62,6 +62,7 @@ export const TEAM_TOOL_NAMES = [
   'list_members',
   'get_task',
   'list_tasks',
+  'merge_task',
   'update_task',
   'create_task',
   'link_pull_request',
@@ -454,6 +455,19 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       return formatTaskDetail(await handler.getTask(ctx, { taskKey: args.task_key, ...event }), {
         descriptionOffset: args.description_offset ?? 0,
       });
+    },
+  }),
+
+  defineTool({
+    name: 'merge_task',
+    title: 'Merge a task',
+    readOnly: false,
+    description:
+      "Start merging the card's approved commit into its repository's default branch. Only the card's merger may call this. The result arrives as a team message. Call again to retry a failed or blocked merge.",
+    input: { task_key: TaskKey },
+    async run({ ctx, args, handler }) {
+      const { task } = await handler.mergeTask(ctx, { taskKey: args.task_key });
+      return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
     },
   }),
 

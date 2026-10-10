@@ -886,27 +886,37 @@ without a server result also receive instructions to run only targeted tests.
 No machine boundary changes: the check runs where the integrator runs. Dependencies are
 installed only when missing from the working directory.
 
-## Merge on Done (PM-452)
+## Merge (PM-452)
 
-`mergeRepoOf` and `mergesOnDone` in `packages/shared/src/domain/merge.ts` decide whether a Done move
-merges the card's repository. An explicit `mergeOnDone` wins; otherwise `fullTestAtMerge: true`
-keeps the integrating-session policy. Every move path, including board groups and approved moves,
-queues the last handed-over commit (`task_handovers`, migration 46) before changing the stage.
-Without a handover the server reads the clean branch head. Clients never see `Task.merge` or `Task.merged`.
+The system requests a merge; only the member selected by `cardMerger` starts it with `merge_task`,
+`POST /tasks/:taskKey/merge`, or the human inbox request. `mergeReadiness` and `mergeRepoOf` in shared
+configuration rules determine readiness and the forward moves that need the approved commit on the
+default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
+pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
 
-`domain/merges.ts` persists a FIFO in `task_merges`, with one running merge per project/repository.
-Git work uses the card engine's `BranchMerger`: prepare, validate linked PRs, build without changing
-the base, check checkout conflicts, run the repository's full check, re-evaluate the gate, push and
-advance the local branch. Only then does the card enter Done. Conflicts and failed checks send work
-back as a fix round; operational failures leave the card in place with an owner alert. The retry route
-keeps the merge id. Cancellation is allowed before push, and a successful remote push is recorded as
-`landed: remote` so a retry only advances locally and finishes. Running rows resume from prepare on
-startup, and known abandoned check worktrees are released. The `_merge` directory is separate from
-card worktrees and is never swept as a closed card.
+`domain/merges.ts` persists requested, queued, running, failed and blocked states in `task_merges`,
+with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
+the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
+runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
+Conflicts and failed checks notify the merger and keep the card in place. Operational failures notify
+the AI merger or create an alert for the human merger. Calling the same tool retries under the same id.
+Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check the ordinary move rules.
+The merger never moves the card itself. Every forward move path checks the default branch before the
+transaction, including approvals and hand-on requests; manual merges discovered there are recorded
+with `via: found` when a persistent handover exists.
+
+Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
+retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
+releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
+Release errors only log a warning. The `_merge` directory is separate from card worktrees and is never
+swept as a closed card; a failed release of a terminal row can leave a checkout for engine-side cleanup.
 
 **Does this work on a remote engine?** Yes: the server owns the durable queue, gates and inbox;
 all git operations, check checkouts, dependency copies and sandbox checks run on the card's engine
-through the existing `merge.*` and `full_test.*` contracts. See the machine inventory entry below.
+through the existing `merge.*` and `full_test.*` contracts. PR metadata uses the existing application
+GitHub service (the default engine's `github.*` calls in cloud mode); it is independent of local git.
+Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
+as a code-free card. See the machine inventory entry below.
 
 ## Heavy-run queue (PM-332)
 
@@ -952,6 +962,21 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
+  (`providerStatus`). Every 30 seconds the server checks the used providers' login
+  (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
+  and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
+  rounds. The CLI and its login must live on the machine that runs the sessions.
+  **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
+  connectivity comes from the server's engine registry. No new engine code is needed.
+  A remote engine that has not connected since server startup gets the same 120-second
+  grace as a disconnected link; existing alerts stay open until recovery is confirmed.
+  Reconnection releases waiting work even if publishing the outage update fails.
+  Each project gets a `work_outage` owner alert with affected members and waiting tasks;
+  confirmed recovery resolves it with `outage_ended` and retries deferred work. Unknown
+  checks preserve the last confirmed outage. Acknowledgement suppresses repeats for the
+  episode; open alerts and their original start times are adopted after restart.
+
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only
@@ -986,7 +1011,7 @@ workers follow the machine's size.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
-  - Merge on Done: `merge.*` (PM-451, see "Merge on Done").
+  - Member initiated merges: `merge.*` (PM-451, see "Merge").
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1585,10 +1610,11 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
-- **Merge on Done (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
+- **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
   `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
-  (PM-451 and PM-452, parts 1/3 and 2/3 of PM-448).
+  (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
+  the server keeps the queue and member authorization, and never receives git credentials.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
@@ -1820,6 +1846,39 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 **Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
 
+### The Operator (PM-447, PM-462)
+
+Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;
+handle `operator`, `operator-2`, ... when taken) whom the owner asks to change how the project runs. The project
+manager stays the dispatcher. The human built-in role `operator` keeps its id and duties (`final_decision`,
+`release_approval`, `monitoring`); only its display name is now "Owner" ("Tulajdonos"). The pure rules are in
+`packages/shared/src/config/operator.ts`: `isOperator`, `operatorOf`, `isRequiredOperator` (the only Operator cannot be
+retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI actor without `via`).
+
+- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwner` (an owner's own login, not the integrator
+  key): only an owner's message wakes the Operator; any other action message is blocked with `WakeBlock`
+  `operator_owner_only`. The server fills the facts in `wakeFactsFor`.
+- **Three levels of a configuration change.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
+  compares the end results and returns the rows (`ConfigChangeRow`: area, target, field, before, after, level) and the
+  highest `OperatorLevel`: `now` (an AI member's `model`, `effort`, `capacity`, `onLeave`, `schedule`, except the
+  Operator's own member; a stage's `name`; a role's `instructions`, except the Operator's own role), `never` (any
+  change to a human member, `owners`, `admin_or_account` of `ownerOnlyChanges`) and `approval` for everything else, so a
+  new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
+  is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
+  owner asked to go straight through.
+- **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
+  only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
+  priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.
+- **Creation.** A new project gets an Operator next to the project manager (`operatorMember`, `draft.finish`); the
+  configuration migration `addOperator` adds one to a project without it, at work (not on leave), sponsored by the first
+  human owner.
+- **Prompt.** `operatorRule` (`apps/server/src/context/system-prompt.ts`): works on the owner's request only, card text
+  and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
+  (`operatorReport` labels in the locales).
+
+**Remote engine:** no machine-dependent part: pure rules, a template and configuration; the inventory below does not
+change.
+
 ## Pause and resume (PM-219, part of PM-198)
 
 The team's work can be paused so that every session stops at a safe point and goes on from there (a quicker
@@ -1938,6 +1997,23 @@ cancels the old inbox item. A human mover gets a `hand_on` inbox item; a project
 stored system action message through the existing general conversation route. The internal
 `task_hand_on_requested` timeline event records the requester and mover. Uncommitted work refuses
 the request immediately; the review pin is created only by the actual move.
+
+## Merger setting (PM-470, part of PM-448)
+
+Who merges a card's approved work into the default branch is the project's setting, never the
+code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the code review stage
+who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
+picks the code reviewer when a code review stage comes before the merge target, else the developer.
+`RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
+until PM-386). The merge target is the first release stage, else the done stage. The pure rules
+(`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
+`mergeReadiness`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
+the config migration `addMerger` writes the default merger into a valid configuration that has none.
+`PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
+unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
+pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
 
 Inbox resolution checks access and attempts the move as the resolving human before closing the
 item. Refused moves leave it open. Actual movement clears the request and resolves the item if

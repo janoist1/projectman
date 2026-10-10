@@ -20,10 +20,8 @@ afterEach(async () => {
   app = undefined;
 });
 
-/** The Operator at work (the test template sends it on leave) and a second human who is no owner. */
-function atWork(config: ProjectConfig): void {
-  const operator = config.team.members.find((m) => m.handle === 'operator');
-  if (operator?.kind === 'ai') operator.onLeave = false;
+/** A second human who is no owner (the Operator is always at work, PM-473). */
+function withDana(config: ProjectConfig): void {
   config.team.members.push({
     kind: 'human',
     handle: 'dana',
@@ -36,7 +34,7 @@ function atWork(config: ProjectConfig): void {
 
 async function setup(): Promise<void> {
   now = new Date('2026-10-11T10:00:00Z');
-  h = await createDomainHarness({ now: () => now, adjust: atWork });
+  h = await createDomainHarness({ now: () => now, adjust: withDana });
   await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
 }
 

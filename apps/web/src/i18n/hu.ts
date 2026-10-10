@@ -865,8 +865,9 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
-      operator_required:
-        'Nem bocsátható el: ő a projekt egyetlen Operátora. Küldd szabadságra, vagy előbb vegyél fel egy másikat.',
+      operator_required: 'Nem bocsátható el: az Operátor a projekt állandó tagja.',
+      operator_fixed:
+        'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
       operator_owner_only:
         'Az Operátornak csak a projekt tulajdonosa írhat, a saját bejelentkezésével; más tagok üzenete csak tájékoztatás.',
       operator_no_request:

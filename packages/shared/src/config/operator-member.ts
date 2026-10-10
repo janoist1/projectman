@@ -27,7 +27,7 @@ export function operatorOf(config: Pick<ProjectConfig, 'team'>): AiMemberConfig 
   return operators.find((m) => !isOnLeave(m)) ?? operators[0] ?? null;
 }
 
-/** Whether `handle` is the team's only Operator: it cannot be retired (it may go on leave). */
+/** Whether `handle` is the team's only Operator: it cannot be retired (nor sent on leave, PM-473). */
 export function isRequiredOperator(config: Pick<ProjectConfig, 'team'>, handle: MemberHandle): boolean {
   const operators = operatorsOf(config);
   return operators.length === 1 && operators[0]!.handle === handle;

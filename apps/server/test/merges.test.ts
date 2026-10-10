@@ -322,6 +322,25 @@ describe('merge on Done', () => {
     expect(merger.prepare).toHaveBeenCalledTimes(2);
     expect(merger.build).toHaveBeenCalledTimes(2);
   });
+  it('cancels a retry during its second build after a non-fast-forward push', async () => {
+    await setup();
+    const build = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+    merger.build
+      .mockResolvedValueOnce({ ok: true, mergeCommit: 'first', changed: [] })
+      .mockReturnValueOnce(build.promise);
+    merger.push.mockResolvedValueOnce({ ok: false, reason: 'non_fast_forward', message: 'remote moved' });
+    await move();
+    const id = row()!.id;
+    await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(2));
+    await h!.domain.tasks.moveToStage('AR', 'AR-1', 'development', OWNER_ACTOR);
+    build.resolve({ ok: true, mergeCommit: 'second', changed: [] });
+    await vi.waitFor(() => expect(h!.repos.taskMerges.get(id)?.state).toBe('cancelled'));
+    expect(merger.push).toHaveBeenCalledTimes(1);
+    expect(merger.advance).not.toHaveBeenCalled();
+    expect(task().stageId).toBe('development');
+    expect(task().merged).toBeUndefined();
+    expect(events('task_merged')).toHaveLength(0);
+  });
   it('retries a remote landed merge with the same id and only advances', async () => {
     await setup();
     merger.advance.mockResolvedValueOnce({

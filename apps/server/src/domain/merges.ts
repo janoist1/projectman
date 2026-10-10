@@ -417,6 +417,7 @@ export class Merges {
         if (!pushed.ok) {
           if (pushed.reason === 'non_fast_forward') {
             if (attempt === 0) {
+              running.pushing = false;
               this.save(row, { mergeCommit: undefined, check: undefined, step: 'merging' });
               continue;
             }

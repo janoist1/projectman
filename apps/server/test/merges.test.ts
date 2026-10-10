@@ -160,18 +160,23 @@ describe('merge on Done', () => {
       expect(requested.handOn).toMatchObject({ toStageId: 'done', mover: kind === 'human' ? 'owner' : 'pm' });
       expect(row()).toBeNull();
       if (kind === 'human') {
-        await h!.domain.inbox.resolve(
+        const resolved = await h!.domain.inbox.resolve(
           'AR',
           requested.handOn!.inboxItemId!,
           { optionId: 'move' },
           { handle: 'owner', access: 'owner' },
         );
+        expect(resolved).toMatchObject({ state: 'resolved', resolution: { by: 'owner', optionId: 'move' } });
       } else {
         const updated = await h!.domain.tasks.update('AR', 'AR-1', { stageId: 'done' }, aiActor('pm'));
         expect(updated.merge).toBeDefined();
+        expect(updated.handOn).toBeUndefined();
       }
       expect(task().stageId).toBe('code_review');
       expect(task().merge?.commit).toBe('approved-AR-1');
+      expect(task().handOn).toBeUndefined();
+      expect(h!.repos.taskHandOns.get('AR', 'AR-1')).toBeNull();
+      expect(h!.domain.inbox.list('AR', { kind: 'hand_on', state: 'open' })).toHaveLength(0);
       build.resolve({ ok: true, mergeCommit: 'hand-on-merged', changed: [] });
       await done();
       expect(task().handOn).toBeUndefined();

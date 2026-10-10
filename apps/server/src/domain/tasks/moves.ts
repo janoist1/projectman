@@ -724,6 +724,7 @@ export class TaskMoves {
     const repo = mergeRepoOf(config, task, target);
     const source = this.store.ctx.repos.taskHandovers.get(task.projectKey, task.key) ?? head;
     if (!repo || !source || !this.merges) return undefined;
+    this.clearHandOn(task, target.id, actorHandle(actor));
     const state = this.merges.enqueue(task, repo, target, actor, source);
     effects.push(async () => {
       this.merges?.pump();

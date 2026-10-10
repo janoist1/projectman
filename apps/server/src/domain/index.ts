@@ -517,7 +517,7 @@ export function createDomain(opts: DomainOptions) {
     engines,
   });
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
-  const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects });
+  const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
   events.on('session_ended', (session) => pmReplyRelay.finish(session));
   providerKeys?.onChange(() => {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '@projectman/shared';
 import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
+import { flush } from './helpers/fakes';
 
 let h: DomainHarness;
 let now = new Date('2026-10-10T20:00:00Z');
@@ -38,10 +39,66 @@ async function setup(member = 'pm', from = 'owner') {
   return { session: h.domain.sessions.get('AR', session.id), message, task };
 }
 const relays = () => h.domain.messages.list('AR').filter((m) => m.relayed);
-const finish = (session: Session, event: 'session_idle' | 'session_ended' = 'session_idle') =>
-  h.domain.ctx.events.emit(event, session);
+const finish = async (session: Session, event: 'session_idle' | 'session_ended' = 'session_idle') => {
+  await h.domain.ctx.events.emit(event, session);
+  await flush();
+};
 
 describe('project manager reply relay', () => {
+  it.each(['session_idle', 'session_ended'] as const)(
+    'does not defer later %s listeners for a non-manager session',
+    async (event) => {
+      const { session } = await setup('dev-1');
+      const listener = vi.fn();
+      h.domain.ctx.events.on(event, listener);
+      const emitted = h.domain.ctx.events.emit(event, session);
+      expect(listener).toHaveBeenCalledWith(session);
+      await emitted;
+    },
+  );
+  it('captures candidates before subsequent listeners deliver another question', async () => {
+    const { session, message } = await setup();
+    const listener = vi.fn(() => {
+      h.domain.messages.record({
+        projectKey: 'AR',
+        from: 'owner',
+        to: ['pm'],
+        taskKey: null,
+        body: 'Next turn',
+        actor: OWNER_ACTOR,
+        delivered: true,
+      });
+    });
+    h.domain.ctx.events.on('session_idle', listener);
+    const emitted = h.domain.ctx.events.emit('session_idle', session);
+    expect(listener).toHaveBeenCalled();
+    await emitted;
+    await flush();
+    expect(relays()).toHaveLength(1);
+    expect(relays()[0]!.relayed?.inReplyTo).toBe(message.id);
+  });
+  it('does not defer later listeners while the transcript read is pending', async () => {
+    const { session } = await setup();
+    const detail = h.domain.sessions.detail.bind(h.domain.sessions);
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(h.domain.sessions, 'detail').mockImplementation(async (project, id) => {
+      await pending;
+      return detail(project, id);
+    });
+    const listener = vi.fn();
+    h.domain.ctx.events.on('session_idle', listener);
+    const emitted = h.domain.ctx.events.emit('session_idle', session);
+    expect(listener).toHaveBeenCalled();
+    await emitted;
+    await flush();
+    expect(relays()).toHaveLength(0);
+    release();
+    await flush();
+    expect(relays()).toHaveLength(1);
+  });
   it.each(['session_idle', 'session_ended'] as const)(
     'relays the final reply on %s with receipts and a card event',
     async (event) => {

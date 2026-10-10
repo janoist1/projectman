@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { alertPayloadOf } from '@projectman/shared';
 import type { AgentProvider, ProjectConfig } from '@projectman/shared';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
@@ -97,11 +98,26 @@ describe('a start while the provider is not logged in', () => {
     });
     expect(h.runner.started).toEqual([]);
 
+    await h.domain.outages.check();
+    const item = h.domain.inbox
+      .list('AR', { kind: 'alert', state: 'open' })
+      .find((item) => alertPayloadOf(item)?.alert === 'work_outage');
+    expect(item).toMatchObject({ payload: { tasks: [task.key], members: ['dev-1'] } });
+    expect(h.domain.tasks.get('AR', task.key).outage).toMatchObject({ kind: 'provider', provider: 'codex' });
+    expect(
+      (await h.domain.members.roster('AR')).find((member) => member.handle === 'dev-1')?.outage,
+    ).toMatchObject({ provider: 'codex' });
+
     state.loggedIn = true;
-    await h.domain.admission.retryDeferred();
+    await h.domain.outages.check();
     await waitFor(() => h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key }));
     expect(h.runner.started).toHaveLength(1);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+    expect(h.domain.tasks.get('AR', task.key).outage).toBeUndefined();
+    expect(h.domain.inbox.get('AR', item!.id)).toMatchObject({
+      state: 'resolved',
+      resolution: { rule: 'outage_ended' },
+    });
   });
 
   it("gives a person's start the refusal instead of waiting", async () => {
@@ -110,6 +126,24 @@ describe('a start while the provider is not logged in', () => {
     const err = await rejection(h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' }));
     expect(err).toMatchObject({ code: 'provider_not_logged_in', details: { provider: 'codex' } });
     expect(h.runner.started).toEqual([]);
+  });
+
+  it('observes a session auth error without waiting for the periodic check', async () => {
+    h = await createDomainHarness({ adjust: codexDev1 });
+    const state = { loggedIn: true as boolean | null | 'throws' };
+    loginOf(h, state);
+    const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+    state.loggedIn = false;
+    h.runner.emit({ type: 'auth_error', sessionId: session.id, provider: 'codex', message: 'Login expired' });
+    const item = await waitFor(() =>
+      h.domain.inbox
+        .list('AR', { kind: 'alert', state: 'open' })
+        .find((item) => alertPayloadOf(item)?.alert === 'work_outage'),
+    );
+    expect(item.payload).toMatchObject({
+      outage: { kind: 'provider', provider: 'codex' },
+      members: ['dev-1'],
+    });
   });
 
   it.each([null, 'throws'] as const)(

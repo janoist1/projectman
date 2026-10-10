@@ -7,6 +7,8 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
+import { WorkOutage } from '../domain/outage';
+
 import {
   AgentProvider,
   AgentEffort,
@@ -31,6 +33,13 @@ import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
 import { Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting, Visibility } from '../domain/task';
+
+export const CheckOutageResponse = z.object({
+  item: InboxItem,
+  stillFailing: z.boolean(),
+  checkedAt: z.string(),
+});
+export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 
 export const ProjectManagerChannelState = z.enum([
   'available',
@@ -208,6 +217,7 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 /* ---------- members ---------- */
 
 export const MemberView = z.object({
+  outage: WorkOutage.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),

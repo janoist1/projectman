@@ -7,6 +7,7 @@ export * from './domain/board-order';
 export * from './domain/relations';
 export * from './domain/theme';
 export * from './domain/engine';
+export * from './domain/outage';
 export * from './domain/session';
 export * from './domain/involvement';
 export * from './domain/pause';

@@ -128,6 +128,7 @@ export const routes = {
 
   inbox: (key: string) => `/api/projects/${key}/inbox`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
+  checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 
   config: (key: string) => `/api/projects/${key}/config`,
   patchConfig: (key: string) => `/api/projects/${key}/config`,

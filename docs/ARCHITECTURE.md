@@ -930,6 +930,21 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
+  (`providerStatus`). Every 30 seconds the server checks the used providers' login
+  (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
+  and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
+  rounds. The CLI and its login must live on the machine that runs the sessions.
+  **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
+  connectivity comes from the server's engine registry. No new engine code is needed.
+  A remote engine that has not connected since server startup gets the same 120-second
+  grace as a disconnected link; existing alerts stay open until recovery is confirmed.
+  Reconnection releases waiting work even if publishing the outage update fails.
+  Each project gets a `work_outage` owner alert with affected members and waiting tasks;
+  confirmed recovery resolves it with `outage_ended` and retries deferred work. Unknown
+  checks preserve the last confirmed outage. Acknowledgement suppresses repeats for the
+  episode; open alerts and their original start times are adopted after restart.
+
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
   Engines connect outward to `/engine/link` with a bearer machine key; the cloud stores only

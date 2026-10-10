@@ -201,6 +201,14 @@ export class InboxService {
     return item;
   }
 
+  updateOpenPayload(id: string, payload: Record<string, unknown>): InboxItem | null {
+    const item = this.ctx.repos.inbox.get(id);
+    if (!item || item.state !== 'open') return null;
+    const updated = this.ctx.repos.inbox.updateOpen(id, payload, item.assignees, isoNow(this.ctx));
+    if (updated) this.publish(updated);
+    return updated;
+  }
+
   list(
     projectKey: string,
     filter: { state?: InboxState; kind?: InboxKind; taskKey?: string; limit?: number } = {},

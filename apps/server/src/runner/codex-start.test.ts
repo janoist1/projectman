@@ -42,6 +42,26 @@ async function fixture(version = '0.159.1') {
 }
 
 describe('fail-closed Codex start', () => {
+  it.each(['claude', 'codex'] as const)(
+    'reports a missing %s CLI as unusable with an empty PATH',
+    async (provider) => {
+      const { options } = await fixture();
+      const runner = createRunnerModule({
+        ...options,
+        claudeBin: 'missing-claude',
+        codexBin: 'missing-codex',
+        env: { PATH: '' },
+      }).runner;
+      try {
+        expect(await runner.providerStatus!(provider)).toMatchObject({
+          loggedIn: false,
+          problem: 'cli_missing',
+        });
+      } finally {
+        await runner.shutdown();
+      }
+    },
+  );
   it('refuses an unknown CLI installation inside the denied Codex home', async () => {
     const { options, spec, home } = await fixture();
     const adapter = createCodexAdapter({ ...options, bin: FAKE_CODEX });

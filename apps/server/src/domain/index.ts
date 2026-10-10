@@ -101,6 +101,7 @@ import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
 import { DiskGuard } from './disk-guard';
+import { WorkOutages } from './outages';
 import { WorktreeSweep } from './worktree-sweep';
 import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
@@ -296,6 +297,10 @@ export interface DomainOptions {
   doneTurnLimitMs?: number;
   /** How often refused automatic session starts are retried (default 30 s). */
   handOffRetryMs?: number;
+  /** How often used providers and engines are checked for outages (default 30 s). */
+  outageCheckMs?: number;
+  /** The registered engine's display name; absent in single-machine mode. */
+  engineName?: (id: EngineId) => string | null;
   /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
   reviewWatchMs?: number;
   /**
@@ -444,6 +449,7 @@ export function createDomain(opts: DomainOptions) {
     projects,
     inbox,
     startWaiting: deferredStarts,
+    outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
     sourceHead: (config, task) => sessions.sourceHead(config, task),
     notifyHandOn: async (config, task, request) => {
@@ -473,10 +479,20 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     storage: opts.attachmentStorage,
   });
-  const members = new MemberService({ ctx, projects, timeline, presence, inbox });
+  const members = new MemberService({
+    ctx,
+    projects,
+    timeline,
+    presence,
+    inbox,
+    outageOf: (key, handle) => outages.forMember(key, handle),
+  });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
   const sessions = new SessionOrchestrator({
+    onAuthError: (key, handle, provider, engineId) => {
+      void outages.observeAuthError(key, handle, provider, engineId).catch(() => {});
+    },
     inbox,
     ctx,
     projects,
@@ -528,6 +544,9 @@ export function createDomain(opts: DomainOptions) {
     keepMs: opts.closedWorktreeKeepMs,
   });
   const admission = new Admission({
+    onOutageRefusal: (key, handle, code, details) => {
+      void outages.observeRefusal(key, handle, code, details).catch(() => {});
+    },
     ctx,
     sessions,
     planUsage,
@@ -820,8 +839,33 @@ export function createDomain(opts: DomainOptions) {
       () => admission.retryDeferred(),
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
+  const outages = new WorkOutages({
+    ctx,
+    projects,
+    inbox,
+    engines,
+    runner: runnerModule.runner,
+    deferred: deferredStarts,
+    messaging,
+    members,
+    tasks,
+    retry: retryDeferredStarts,
+    engineName: opts.engineName,
+  });
+  const unsubscribeOutageKeys = providerKeys?.onChange(() => {
+    if (opts.standby) return;
+    background.run(
+      () => outages.recheckProvider('nanogpt'),
+      (err) => opts.logger.warn({ err }, 'outage key check failed'),
+    );
+  });
   // A start that waits for an engine (`engine_offline`) goes on when the engine connects (PM-311).
   const unsubscribeEngines = engines.onChange((id, online) => {
+    if (opts.standby) return;
+    background.run(
+      () => outages.engineChanged(id, online),
+      (err) => opts.logger.warn({ err }, 'outage engine check failed'),
+    );
     if (!online) return;
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
     if (!opts.standby)
@@ -830,12 +874,6 @@ export function createDomain(opts: DomainOptions) {
         (err) =>
           opts.logger.warn({ err, engineId: id }, 'could not check the full test sandbox of an engine'),
       );
-    // The messages that waited for the engine reach their members.
-    background.run(
-      () => messaging.releaseForEngine(id),
-      (err) => opts.logger.warn({ err, engineId: id }, 'could not release the messages held for an engine'),
-    );
-    retryDeferredStarts();
   });
   /** A deferred start as it was stored, made again by the module that made it. */
   const rebuildDeferredStart = (spec: StartSpec) => {
@@ -1157,6 +1195,7 @@ export function createDomain(opts: DomainOptions) {
   });
 
   let retryTimer: ReturnType<typeof setInterval> | undefined;
+  let outageTimer: ReturnType<typeof setInterval> | undefined;
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
@@ -1219,6 +1258,7 @@ export function createDomain(opts: DomainOptions) {
     fixLimit,
     autoAdvance,
     disk,
+    outages,
     worktreeSweep,
     teamTools,
     cardQuestions,
@@ -1279,6 +1319,14 @@ export function createDomain(opts: DomainOptions) {
       handoffTimer.unref();
       // ... and refused hand-overs and message wake-ups retry once admission allows them.
       retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
+      const checkOutages = () =>
+        background.run(
+          () => outages.check(),
+          (err) => opts.logger.warn({ err }, 'outage check failed'),
+        );
+      checkOutages();
+      outageTimer = setInterval(checkOutages, opts.outageCheckMs ?? 30_000);
+      outageTimer.unref();
       retryTimer.unref();
       boundaryTimer = setInterval(
         () =>
@@ -1359,6 +1407,8 @@ export function createDomain(opts: DomainOptions) {
     },
 
     async stop(): Promise<void> {
+      if (outageTimer) clearInterval(outageTimer);
+      unsubscribeOutageKeys?.();
       unsubscribeEngines();
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
@@ -1374,6 +1424,7 @@ export function createDomain(opts: DomainOptions) {
       githubSync.stop();
       await fullTests.stop();
       await screenshotRuns?.stop();
+      await outages.stop();
       await background.stop();
       pauses.dispose();
       sessions.dispose();

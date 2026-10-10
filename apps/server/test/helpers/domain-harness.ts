@@ -123,6 +123,7 @@ export async function createDomainHarness(
     heavyLockDir?: string;
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
+    engineName?: (id: string) => string | null;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
   } = {},
@@ -166,6 +167,8 @@ export async function createDomainHarness(
 
   const domain: Domain = createDomain({
     ...(opts.engines ? { engines: opts.engines } : {}),
+    engineName: opts.engineName,
+    outageCheckMs: 3_600_000,
     ...(opts.engineAttachments ? { engineAttachments: opts.engineAttachments } : {}),
     sessionFoldersDir,
     sessionTmpDir,

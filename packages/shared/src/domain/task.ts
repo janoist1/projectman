@@ -10,6 +10,7 @@ import { LabelId } from './label';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
+import { WorkOutage } from './outage';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
 export const TaskKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}-\d+$/);
@@ -218,6 +219,7 @@ export const Task = z.object({
   /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
   developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
+  outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
   loop: TaskLoop.optional(),

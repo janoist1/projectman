@@ -230,6 +230,7 @@ function newConversationInput(brief: string | null, messages: string[]): string 
 }
 
 export interface SessionOrchestratorDeps {
+  onAuthError?: (projectKey: string, handle: string, provider: AgentProvider, engineId: EngineId) => void;
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
@@ -2841,6 +2842,7 @@ export class SessionOrchestrator {
           return;
         }
         case 'auth_error': {
+          this.deps.onAuthError?.(session.projectKey, session.member, event.provider, engineIdOf(session));
           // The runner stops the session; its final state carries the message.
           this.ctx.logger.warn(
             { sessionId: session.id, provider: event.provider, message: event.message },

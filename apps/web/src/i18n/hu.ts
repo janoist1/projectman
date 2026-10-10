@@ -892,6 +892,7 @@ export const hu = {
       no_free_member: 'Most nincs szabad fejlesztő.',
       senior_busy: 'A kártya a Seniorra vár.',
       inbox_item_closed: 'Ezt már elintézték.',
+      not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
       member_on_leave: 'Ez a tag szabadságon van; amíg vissza nem hívod, nem kap munkát.',
@@ -2548,6 +2549,7 @@ export const hu = {
       },
     },
     resolutions: {
+      outage_ended: 'Magától megszűnt',
       automatic_allow: 'Szabály szerint engedélyezve',
       automatic_deny: 'Szabály szerint elutasítva',
       allow: 'Engedélyezve',
@@ -2574,6 +2576,7 @@ export const hu = {
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
+      outage_ended: 'Automatikus',
       command_policy: 'Automatikus: szabály szerint',
       loop_ended: 'Automatikus',
       fix_limit_ended: 'Automatikus',

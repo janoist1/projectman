@@ -7,6 +7,14 @@ import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } fr
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
+import { WorkOutage } from '../domain/outage';
+
+export const CheckOutageResponse = z.object({
+  item: InboxItem,
+  stillFailing: z.boolean(),
+  checkedAt: z.string(),
+});
+export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 import {
   AgentProvider,
   AgentEffort,
@@ -208,6 +216,7 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 /* ---------- members ---------- */
 
 export const MemberView = z.object({
+  outage: WorkOutage.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),

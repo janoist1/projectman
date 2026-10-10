@@ -14,6 +14,7 @@ import type {
   ProjectConfig,
   Session,
   Task,
+  WorkOutage,
   TaskPriority,
   TaskDetail,
   TaskFixLimit,
@@ -144,6 +145,7 @@ export class TaskService {
     inbox: InboxService;
     /** Why a task's AI work waits, shown on the task. */
     startWaiting: StartWaitingReader;
+    outageOf?: (task: Task) => WorkOutage | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
     /** The fix round limit hold on a card (PM-262), shown on it. */

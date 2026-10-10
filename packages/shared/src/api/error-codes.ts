@@ -125,6 +125,7 @@ export const ERROR_CODES = [
   'cover_not_an_image',
   // Inbox and messages
   'inbox_item_closed',
+  'not_an_outage_alert',
   'not_an_assignee',
   'no_assignees',
   'unknown_option',

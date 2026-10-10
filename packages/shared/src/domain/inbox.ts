@@ -7,6 +7,7 @@ import { StageId } from './pipeline';
 import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
+import { WorkOutage } from './outage';
 
 /**
  * Items waiting for a human ("Rád vár" in the UI):
@@ -42,6 +43,7 @@ export type InboxState = z.infer<typeof InboxState>;
  * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
  */
 export const InboxResolutionRule = z.enum([
+  'outage_ended',
   'command_policy',
   /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
   'loop_ended',
@@ -327,7 +329,17 @@ export const ProviderRateLimitAlert = z.object({
 });
 export type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
 
+export const WorkOutageAlert = z.object({
+  alert: z.literal('work_outage'),
+  outage: WorkOutage,
+  members: z.array(MemberHandle),
+  tasks: z.array(TaskKey),
+  checkedAt: z.string(),
+});
+export type WorkOutageAlert = z.infer<typeof WorkOutageAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  WorkOutageAlert,
   SessionTokensAlert,
   MessageBurstAlert,
   SessionInputAlert,

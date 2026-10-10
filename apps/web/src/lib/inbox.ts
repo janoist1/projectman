@@ -60,7 +60,9 @@ export function inboxHeading(item: InboxItem): string {
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
-    return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
+    return alert && alert.alert !== 'work_outage'
+      ? t(`inbox.alerts.${alert.alert}.heading`)
+      : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
     const tool = permissionTool(item);
@@ -236,6 +238,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'work_outage') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(
       alert.until ? 'inbox.alerts.provider_rate_limited.body' : 'inbox.alerts.provider_rate_limited.unknown',

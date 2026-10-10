@@ -8,13 +8,17 @@ import type { DeferredStartRecord } from '../../db';
  * as JSON next to why the start waits. The kind says which module rebuilds it.
  */
 export const StartSpec = z.discriminatedUnion('kind', [
-  /** Resume the same member's task after a provider quota hold (PM-377). */
+  /**
+   * Resume the same member's task after a provider quota hold (PM-377) or a lost provider login
+   * (PM-467). `after` is missing in rows stored before PM-467: those are quota resumes.
+   */
   z.object({
     kind: z.literal('provider_resume'),
     projectKey: z.string(),
     taskKey: TaskKey,
     handle: MemberHandle,
     stageId: z.string(),
+    after: z.enum(['quota', 'login']).optional(),
   }),
   /** A stage hand-over: the move into stage `to`, and who made it. */
   z.object({

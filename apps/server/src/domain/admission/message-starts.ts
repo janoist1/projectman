@@ -67,7 +67,8 @@ export class MessageStarts {
     return this.startFor(spec.projectKey, spec.handle, spec.workItem, spec.stageId ?? undefined);
   }
 
-  async resumeAfterQuota(session: Session, stageId: string): Promise<void> {
+  /** The task of an interrupted session continues once its provider allows it again (quota, or login). */
+  async resumeAfter(session: Session, stageId: string, after: 'quota' | 'login'): Promise<void> {
     if (session.workItem.type !== 'task') return;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task || task.status !== 'active' || task.stageId !== stageId || task.assignee !== session.member)
@@ -79,6 +80,7 @@ export class MessageStarts {
         taskKey: task.key,
         handle: session.member,
         stageId,
+        after,
       }),
     );
   }
@@ -89,6 +91,7 @@ export class MessageStarts {
 
   private quotaStartFor(spec: Extract<StartSpec, { kind: 'provider_resume' }>): AutomaticStart {
     const { projectKey, taskKey, handle, stageId } = spec;
+    const after = spec.after ?? 'quota';
     const valid = (task: Task | null): boolean =>
       task?.status === 'active' && task.stageId === stageId && task.assignee === handle;
     const start: AutomaticStart = {
@@ -100,8 +103,8 @@ export class MessageStarts {
       waitsFor: () => handle,
       retry: () => this.admission.attempt(start),
       log: {
-        deferred: 'provider quota task resume deferred',
-        retryFailed: 'provider quota task resume failed',
+        deferred: `provider ${after} task resume deferred`,
+        retryFailed: `provider ${after} task resume failed`,
         fields: () => ({ projectKey, taskKey, member: handle }),
       },
       run: async () => {
@@ -114,7 +117,9 @@ export class MessageStarts {
           member,
           workItem: { type: 'task', taskKey },
           messages: [
-            'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
+            after === 'login'
+              ? 'Your previous turn stopped because the provider login was lost. The login is back; continue your task from where you stopped.'
+              : 'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
           ],
           cause: { kind: 'provider_resume' },
         });

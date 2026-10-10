@@ -1747,7 +1747,9 @@ open card once after the start. It does not move a card a session works on (an i
 act on closed, blocked or theme cards, and does not ask again after the approvers rejected the request in the same
 stay in the stage until the card's labels change. A person's drop on the board that
 names a place replaces the system's open request, so that the place is kept with the request. It touches no
-machine-dependent part: it is server state only.
+machine-dependent part: it is server state only. Automatic moves carry their source stage and its entry
+time into the write transaction (PM-477); an asynchronous preparation that finishes after the card has
+left that stay is discarded, so it cannot undo a human's move or reopen a finished card.
 
 ### Assignee handoff (PM-342)
 

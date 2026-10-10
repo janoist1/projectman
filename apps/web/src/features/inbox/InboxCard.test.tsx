@@ -16,11 +16,15 @@ function item(id: string): InboxItem {
   return found;
 }
 
-function renderCard(entry: InboxItem, props: { mobile?: boolean; myHandle?: string } = {}) {
+function renderCard(
+  entry: InboxItem,
+  props: { mobile?: boolean; myHandle?: string; taskTitle?: string } = {},
+) {
   const onResolve = vi.fn();
   renderUi(
     <InboxCard
       item={entry}
+      taskTitle={props.taskTitle}
       members={members}
       myHandle={props.myHandle ?? 'owner'}
       pipeline={pipeline}
@@ -525,5 +529,77 @@ describe('InboxCard: a question that explains itself', () => {
     // One row, as before: the options sit beside each other, not in separate list entries.
     expect(new Set(buttons.map((button) => button.parentElement)).size).toBe(1);
     expect(buttons.every((button) => !button.hasAttribute('aria-describedby'))).toBe(true);
+  });
+});
+
+describe('InboxCard "Vidd tovább" (PM-461)', () => {
+  const handOn: InboxItem = {
+    id: 'inb_hand_on',
+    projectKey: 'AC',
+    kind: 'hand_on',
+    assignees: ['owner'],
+    source: 'be-1',
+    sessionId: null,
+    taskKey: 'AC-24',
+    title: 'Hibariasztás a fizetési hibákról',
+    body: null,
+    payload: {
+      handOn: { taskKey: 'AC-24', fromStageId: 'dev', toStageId: 'code_review', requestedBy: 'be-1' },
+    },
+    options: [{ id: 'move', label: 'move', style: 'primary' }],
+    state: 'open',
+    resolution: null,
+    createdAt: '2026-10-01T10:00:00.000Z',
+  };
+  const next = pipeline.stageById.get('code_review')!.name;
+  const from = pipeline.stageById.get('dev')!.name;
+
+  it('says who finished, which step and the next column, and offers "Tovább" and "Megnyitom"', () => {
+    const { card, onResolve } = renderCard(handOn);
+    expect(within(card).getByText(t('inbox.kinds.hand_on'))).toBeTruthy();
+    expect(card.textContent).toContain(`végzett ebben a lépésben: ${from}. A következő oszlop: ${next}.`);
+    expect(within(card).getByText(next).tagName).toBe('STRONG');
+    const buttons = within(card).getAllByRole('button');
+    expect(buttons.map((button) => button.textContent)).toEqual([t('inbox.handOn.move', { stage: next })]);
+    expect(within(card).getByRole('link', { name: t('inbox.handOn.open') })).toBeTruthy();
+    fireEvent.click(buttons[0]!);
+    expect(onResolve).toHaveBeenCalledWith(handOn, { optionId: 'move' });
+  });
+
+  it('leaves out the small card title line: the heading already names the card', () => {
+    const { card } = renderCard(handOn, { taskTitle: 'A kártya saját címe' });
+    expect(within(card).queryByText('A kártya saját címe')).toBeNull();
+  });
+
+  it('keeps that line on the other kinds of items', () => {
+    const { card } = renderCard(item('inb_q_ga4'), { taskTitle: 'A kártya saját címe' });
+    expect(within(card).getByText('A kártya saját címe')).toBeTruthy();
+  });
+
+  it('does not offer the details link twice on the phone', () => {
+    const { card } = renderCard(handOn, { mobile: true });
+    expect(within(card).getAllByRole('link')).toHaveLength(1);
+  });
+
+  it('shows why the move was refused on the card, as an alert', () => {
+    const onResolve = vi.fn();
+    renderUi(
+      <InboxCard
+        item={handOn}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        onResolve={onResolve}
+        error="A kártya még nem léphet tovább: hiányzik a Code review rendben."
+        detailsHref="/p/AC/tasks/AC-24"
+      />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe('A kártya még nem léphet tovább: hiányzik a Code review rendben.');
+    // The item stays and the button works again.
+    expect(screen.getByRole('button', { name: t('inbox.handOn.move', { stage: next }) })).toHaveProperty(
+      'disabled',
+      false,
+    );
   });
 });

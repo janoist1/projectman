@@ -94,6 +94,15 @@ describe('the drawer of a stuck card', () => {
     expect(box.textContent).toContain(t('inbox.alerts.work_outage.todo.login'));
   });
 
+  it('shows the outage box and no "Miért áll?" box beside it', async () => {
+    const project = mockProject();
+    project.backend.startOutage(claude, ['be-1'], ['AC-20']);
+    project.render(drawer, '/p/AC/tasks/AC-20');
+
+    await screen.findByTestId('drawer-outage');
+    expect(screen.queryByRole('region', { name: t('task.whyBox.title') })).toBeNull();
+  });
+
   it('sends the person to the machine of a remote engine', async () => {
     const project = mockProject();
     project.backend.startOutage({ ...claude, engine: ENGINE }, ['be-1'], ['AC-20']);

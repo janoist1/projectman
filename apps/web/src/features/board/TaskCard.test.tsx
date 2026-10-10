@@ -92,7 +92,12 @@ describe('TaskCard', () => {
       t('stageRows.line', { name: 'Integration', state: t('stageRows.done') }),
       t('stageRows.line', { name: 'QA', state: t('stageRows.active') }),
     ]);
-    expect(within(card).getByText(permissionFor('git push'))).toBeTruthy();
+    // The row names who acts and what is awaited ("Rád vár · …"); the title and the accessible name say all three.
+    const next = deriveTaskState(taskByKey('AC-21'), ctx).next!;
+    expect(next.head).toBe(t('taskStatus.next.you'));
+    expect(next.title).toMatch(/^Ki: Rád vár · Mire vár: .+ · Teendő: .+/);
+    expect(within(card).getByText(next.title)).toBeTruthy();
+    expect(card.querySelector(`[title="${next.title}"]`)).toBeTruthy();
     expect(card.getAttribute('data-phase')).toBe('needs_you');
     expect(
       within(card).getByRole('img', {
@@ -433,8 +438,11 @@ describe('the prerequisite on the card (PM-203)', () => {
   it('says it in the status line of a card that waits in a queue stage, once', () => {
     const { task, state } = on('AC-24', { links: links('AC-17'), status: 'active' });
     expect(state).toMatchObject({ phase: 'waiting', label: label('AC-17') });
+    // The row says who acts and what is awaited (PM-461), once.
+    expect(state.next).toMatchObject({ head: t('taskStatus.next.heads.prerequisite'), waiting: 'AC-17' });
     const card = draw(task, state);
-    expect(within(card).getAllByText(label('AC-17'))).toHaveLength(1);
+    expect(within(card).getAllByText(state.next!.title)).toHaveLength(1);
+    expect(card.textContent).toContain(`${t('taskStatus.next.heads.prerequisite')} · AC-17`);
   });
 
   it.each(['claude', 'codex'] as const)(
@@ -452,7 +460,13 @@ describe('the prerequisite on the card (PM-203)', () => {
         provider: t(`providers.${provider}`),
       });
       expect(state).toMatchObject({ phase: 'waiting', label: text });
-      expect(within(draw(task, state)).getByText(text)).toBeTruthy();
+      expect(state.next).toMatchObject({
+        head: t('taskStatus.next.heads.start'),
+        waiting: t('taskStatus.next.startReasons.provider_not_logged_in', {
+          provider: t(`providers.${provider}`),
+        }),
+      });
+      expect(within(draw(task, state)).getByText(state.next!.title)).toBeTruthy();
     },
   );
 
@@ -466,17 +480,17 @@ describe('the prerequisite on the card (PM-203)', () => {
       },
     });
     expect(state).toMatchObject({ phase: 'waiting', label: label('AC-17') });
-    expect(within(draw(task, state)).getAllByText(label('AC-17'))).toHaveLength(1);
+    expect(state.next).toMatchObject({ head: t('taskStatus.next.heads.prerequisite'), waiting: 'AC-17' });
+    expect(within(draw(task, state)).getAllByText(state.next!.title)).toHaveLength(1);
   });
 
-  it('names the first open prerequisite and counts the rest, with all of them in the tooltip', () => {
+  it('names the open prerequisites in the row, by key, and says in the title what is awaited', () => {
     const { task, state } = on('AC-24', { links: links('AC-19', 'AC-17'), status: 'active' });
     // By key, not by the order the links were set in.
     expect(state.label).toBe(t('taskStatus.prerequisiteOnMore', { key: 'AC-17', more: 1 }));
-    const text = within(draw(task, state)).getByText(state.label);
-    expect(text.getAttribute('title')).toBe(
-      [taskByKey('AC-17'), taskByKey('AC-19')].map((card) => `${card.key} – ${card.title}`).join('\n'),
-    );
+    expect(state.next).toMatchObject({ waiting: 'AC-17, AC-19' });
+    const text = within(draw(task, state)).getByText(state.next!.title);
+    expect(text.parentElement?.getAttribute('title')).toBe(state.next!.title);
   });
 
   it.each([

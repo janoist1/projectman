@@ -67,7 +67,12 @@ describe('the Senior mark on a card (PM-349)', () => {
       startWaiting: { reason: 'senior_busy', seniors: ['be-1'], since: new Date().toISOString() },
     });
     project.render(<BoardPage />);
-    await screen.findByText(t('taskStatus.startWaiting.senior_busy'));
+    // The row names the Senior as the one it waits for (PM-461).
+    await screen.findByText(
+      new RegExp(
+        `Ki: ${t('taskStatus.next.senior')} · Mire vár: ${t('taskStatus.next.startReasons.senior_busy')}`,
+      ),
+    );
     expect(screen.queryByText(t('task.level.mark'))).toBeNull();
   });
 });
@@ -197,7 +202,9 @@ describe('the hint of a card that waits for the Senior (PM-349)', () => {
 
   it("names the person who decided, and says 'you' when it is the viewer", async () => {
     waiting('kata').render(drawer, '/p/AC/tasks/AC-24');
-    expect(await screen.findByText(/döntése: a kártya megvárja a Seniort/)).toBeTruthy();
+    // The hint is the box's last row, and the header row carries it in its title too.
+    const box = await screen.findByRole('region', { name: t('task.whyBox.title') });
+    expect(within(box).getByText(/döntése: a kártya megvárja a Seniort/)).toBeTruthy();
   });
 
   it("says 'Úgy döntöttél' when the viewer decided", async () => {

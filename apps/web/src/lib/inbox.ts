@@ -2,6 +2,7 @@ import {
   alertPayloadOf,
   BoundaryRequest,
   fixLimitDecisionOf,
+  handOnRequestOf,
   loopDecisionOf,
   permissionDelegationOf,
   questionPayloadOf,
@@ -38,6 +39,7 @@ const BUILT_IN_OPTIONS = [
   'another_round',
   'wait_for_senior',
   'any_developer',
+  'move',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -557,6 +559,28 @@ export function resolutionLabel(item: InboxItem): string {
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
+}
+
+/** A taken-on card in the list of decisions (PM-461): "Továbbvitted: Átnézés" / "Kata továbbvitte: Átnézés". */
+export function handOnResolvedText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+  pipeline: PipelineIndex | null | undefined,
+): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  const by = item.resolution?.by;
+  return by && by !== myHandle
+    ? t('inbox.handOn.resolvedBy', { name: nameOf(by, members, myHandle), stage })
+    : t('inbox.handOn.resolvedMe', { stage });
+}
+
+/** The notice after the viewer took a finished card on (PM-461): "Továbbvitted: Átnézés". */
+export function handOnToast(item: InboxItem, pipeline: PipelineIndex | null | undefined): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  return t('inbox.handOn.resolvedMe', { stage });
 }
 
 /** The short notice after the viewer's own decision went through: "Engedélyezve", "Válasz: B". */

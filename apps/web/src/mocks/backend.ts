@@ -82,6 +82,8 @@ import {
   evaluateStart,
   expiredLabels,
   gateRequestOf,
+  handOnDecision,
+  handOnRequestOf,
   holdersAllow,
   isBuiltInRole,
   isHandleOnLeave,
@@ -3299,8 +3301,84 @@ export class MockBackend {
     if (evaluation.unmet.length) return gateBlockedError(evaluation);
     if (evaluation.approvals.length)
       return this.requestApproval(task, target, evaluation.approvals, actor, placement);
+    // An AI member finishing a step in front of a human-owned stage asks the card mover to take the card on.
+    const decision = handOnDecision(this.config, actor, task.stageId, target.id);
+    if (decision.kind === 'request') return this.requestHandOn(task, target, decision.mover, actor);
     this.applyMove(task, target, actor, {}, placement);
     return ok(clone(task));
+  }
+
+  /** Moves a card in the name of a member (a test or a scenario seeds an AI member's move this way). */
+  moveAs(taskKey: string, stageId: string, handle: string): MockResponse {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    const member = memberOf(this.config, handle);
+    return this.move(task, stageId, { kind: member?.kind ?? 'human', handle });
+  }
+
+  /** The card mover is asked to take the card on: a "Vidd tovább" item for a person, a note for the card. */
+  private requestHandOn(task: Task, target: Stage, mover: string, actor: Actor): MockResponse {
+    const requestedBy = actor.handle ?? 'system';
+    const previous = task.handOn;
+    if (
+      previous?.fromStageId === task.stageId &&
+      previous.toStageId === target.id &&
+      previous.mover === mover
+    )
+      return ok(clone(task));
+    this.clearHandOn(task);
+    let inboxItemId: string | null = null;
+    if (memberOf(this.config, mover)?.kind === 'human') {
+      const item: InboxItem = {
+        id: mockId('inb'),
+        projectKey: task.projectKey,
+        kind: 'hand_on',
+        assignees: [mover],
+        source: requestedBy,
+        sessionId: null,
+        taskKey: task.key,
+        title: task.title,
+        body: null,
+        payload: {
+          handOn: { taskKey: task.key, fromStageId: task.stageId, toStageId: target.id, requestedBy },
+        },
+        options: [{ id: 'move', label: 'move', style: 'primary' }],
+        state: 'open',
+        resolution: null,
+        createdAt: nowIso(),
+      };
+      this.upsertInbox(item);
+      inboxItemId = item.id;
+    }
+    this.updateTask(task.key, {
+      handOn: {
+        fromStageId: task.stageId,
+        toStageId: target.id,
+        mover,
+        requestedBy,
+        requestedAt: nowIso(),
+        inboxItemId,
+      },
+    });
+    this.addTimeline(task.key, null, 'task_hand_on_requested', {
+      fromStageId: task.stageId,
+      toStageId: target.id,
+      mover,
+      requestedBy,
+    });
+    return ok(clone(task));
+  }
+
+  /** The request ends: an item still open (the card moved another way) is cancelled. */
+  private clearHandOn(task: Task): void {
+    const request = task.handOn;
+    if (!request) return;
+    const item = request.inboxItemId
+      ? this.inbox.find((entry) => entry.id === request.inboxItemId)
+      : undefined;
+    if (item?.state === 'open') this.upsertInbox({ ...item, state: 'cancelled' });
+    delete task.handOn;
+    this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
   }
 
   /** The open cards of a board column (themes and closed cards stand outside the order). */
@@ -3572,6 +3650,7 @@ export class MockBackend {
       this.expireLabels(task, 'moved_back');
     // Requests made from the previous stage are stale now.
     for (const item of this.openDecisions(task)) this.upsertInbox({ ...item, state: 'cancelled' });
+    this.clearHandOn(task);
   }
 
   /** Ends the "waiting for approval" status after a rejected or dropped request. */
@@ -4804,6 +4883,14 @@ export class MockBackend {
     if (item.kind === 'question' && input.optionId === 'answer' && !note) {
       return error(400, 'answer_required', 'A free-text answer needs a note');
     }
+    if (item.kind === 'hand_on') {
+      // Taking the card on is a move under the gates: refused, the item stays open.
+      const request = handOnRequestOf(item);
+      const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+      if (!request || !task) return error(404, 'not_found', 'Unknown task');
+      const evaluation = evaluateMove(task, this.config, task.stageId, request.toStageId);
+      if (evaluation.unmet.length || evaluation.approvals.length) return gateBlockedError(evaluation);
+    }
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
@@ -4990,6 +5077,14 @@ export class MockBackend {
         question,
         answer,
       });
+      return;
+    }
+    if (item.kind === 'hand_on') {
+      const request = handOnRequestOf(item);
+      const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+      const target = request ? stageOf(this.config, request.toStageId) : undefined;
+      if (task && target && task.stageId !== target.id)
+        this.applyMove(task, target, { kind: 'human', handle: resolution.by }, {});
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

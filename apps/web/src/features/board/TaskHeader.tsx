@@ -17,6 +17,7 @@ import { prChip } from './cardModel';
 import { CardSizeToggle, useCardLink } from './cardSize';
 import { useDrawerBase } from './drawerBase';
 import type { CardSize } from './cardSize';
+import { NextLine } from './NextLine';
 import { TaskTitle } from './TaskEdit';
 import { RefinementRow } from './RefinementRow';
 import { TaskLifecycleMenu } from './TaskLifecycle';
@@ -161,6 +162,9 @@ export function TaskHeader({
           <StatusDot phase={state.phase} pulse={state.phase === 'working'} size={9} />
           {state.workers[0]?.doing ? (
             <WorkerText worker={state.workers[0]} />
+          ) : state.next ? (
+            // The same "{ki} · {mire vár}" row as on the card; the box under the header says the rest.
+            <NextLine next={state.next} className={styles.nowText} wrap />
           ) : (
             <span className={styles.nowText}>{state.label}</span>
           )}

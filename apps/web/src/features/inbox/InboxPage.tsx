@@ -19,6 +19,8 @@ import {
   decisionToast,
   boundaryOf,
   detailsHrefFor,
+  handOnResolvedText,
+  handOnToast,
   isAssignedTo,
   isAutomaticDecision,
   isPositiveResolution,
@@ -27,6 +29,8 @@ import {
   resolverName,
 } from '../../lib/inbox';
 import type { MemberIndex } from '../../lib/members';
+import type { PipelineIndex } from '../../lib/pipeline';
+import { moveErrorText } from '../board/moveTask';
 import { InboxCard } from './InboxCard';
 import { FoldedCommand } from './PermissionParts';
 import styles from './InboxPage.module.css';
@@ -40,17 +44,22 @@ function RecentRow({
   item,
   members,
   myHandle,
+  pipeline,
   onRevoke,
 }: {
   item: InboxItem;
   members: MemberIndex;
   myHandle: string | null;
+  pipeline?: PipelineIndex | null | undefined;
   onRevoke?: ((id: string) => void) | undefined;
 }) {
   const positive = isPositiveResolution(item);
   const note = resolutionNote(item);
   const boundary = boundaryOf(item);
-  const subject = decisionSubject(item);
+  const subject =
+    item.kind === 'hand_on' && item.state === 'resolved'
+      ? handOnResolvedText(item, members, myHandle, pipeline)
+      : decisionSubject(item);
   return (
     <li className={styles.recentItem}>
       <span
@@ -100,12 +109,14 @@ function RecentDecisions({
   automatic,
   members,
   myHandle,
+  pipeline,
   onRevoke,
 }: {
   items: InboxItem[];
   automatic: InboxItem[];
   members: MemberIndex;
   myHandle: string | null;
+  pipeline?: PipelineIndex | null | undefined;
   onRevoke?: (id: string) => void;
 }) {
   // Nothing decided yet: no empty box.
@@ -117,7 +128,14 @@ function RecentDecisions({
       </h2>
       <ul className={styles.recentList}>
         {items.map((item) => (
-          <RecentRow key={item.id} item={item} members={members} myHandle={myHandle} onRevoke={onRevoke} />
+          <RecentRow
+            key={item.id}
+            item={item}
+            members={members}
+            myHandle={myHandle}
+            pipeline={pipeline}
+            onRevoke={onRevoke}
+          />
         ))}
       </ul>
       {automatic.length > 0 ? (
@@ -224,12 +242,26 @@ export function InboxPage() {
               taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? item.taskKey) : null}
               detailsHref={detailsHrefFor(item, key)}
               pending={resolve.isPending && resolve.variables?.item.id === item.id}
+              error={
+                // A refused "Tovább" says why on its card (the gate), not in a toast.
+                item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
+                  ? moveErrorText(resolve.error, board.data?.labels ?? [])
+                  : null
+              }
               onResolve={(target, body) =>
                 resolve.mutate(
                   { item: target, body },
                   {
-                    onSuccess: () => toast.show(decisionToast(target, body.optionId, myHandle), 'ok'),
-                    onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
+                    onSuccess: () =>
+                      toast.show(
+                        target.kind === 'hand_on'
+                          ? handOnToast(target, pipeline)
+                          : decisionToast(target, body.optionId, myHandle),
+                        'ok',
+                      ),
+                    onError: () => {
+                      if (target.kind !== 'hand_on') toast.show(t('inbox.resolveFailed'), 'error');
+                    },
                   },
                 )
               }
@@ -249,6 +281,7 @@ export function InboxPage() {
             automatic={automatic}
             members={members}
             myHandle={myHandle}
+            pipeline={pipeline}
             onRevoke={onRevoke}
           />
         ) : null}
@@ -260,6 +293,7 @@ export function InboxPage() {
             automatic={automatic}
             members={members}
             myHandle={myHandle}
+            pipeline={pipeline}
             onRevoke={onRevoke}
           />
         </aside>

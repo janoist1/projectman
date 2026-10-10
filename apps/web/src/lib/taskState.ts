@@ -31,6 +31,8 @@ import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
 import { outageStuckLabel, outageStuckTitle } from './outage';
 import type { PipelineIndex } from './pipeline';
+import { deriveNext } from './taskNext';
+import type { TaskNext } from './taskNext';
 
 /**
  * Where a task stands from the viewer's point of view. The board, the phone list and
@@ -72,6 +74,13 @@ export interface TaskState {
    * can be started, and when the context has no configuration (a client, or the configuration still loads).
    */
   startBlock?: StartBlock;
+  /** Why the card stands still, from the shared rule (PM-460); absent for a done or cancelled card. */
+  wait?: TaskWait;
+  /**
+   * Who acts next and what it waits for (PM-461), for the card row and the drawer's "Miért áll?" box;
+   * absent while somebody works on the card, when it is ready to start, and when it is closed.
+   */
+  next?: TaskNext;
 }
 
 export interface TaskStateContext {
@@ -470,7 +479,17 @@ function deriveOpenState(
     };
   }
   if (!wait) return queuedFor(task, ctx);
-  return stateOfWait(task, wait, { ctx, workers, prerequisites, block });
+  const state = stateOfWait(task, wait, { ctx, workers, prerequisites, block });
+  const next = deriveNext(task, wait, {
+    members,
+    pipeline,
+    labels: ctx.labels ?? [],
+    myHandle,
+    item: open.find((entry) => entry.id === wait.inboxItemId) ?? null,
+    startText: task.startWaiting ? startWaitingText(task.startWaiting, ctx) : null,
+    startHint: startWaitingHint(task, members, myHandle),
+  });
+  return { ...state, wait, ...(next ? { next } : {}) };
 }
 
 function queuedFor(task: Task, ctx: Pick<TaskStateContext, 'pipeline'>): Omit<TaskState, 'workers'> {

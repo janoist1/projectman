@@ -1,4 +1,4 @@
-import { gateRequestOf, isOpenTask, isTheme, stageAdvance } from '@projectman/shared';
+import { gateRequestOf, isOpenTask, isSessionAtWork, isTheme, stageAdvance } from '@projectman/shared';
 import type { InboxItem, Task } from '@projectman/shared';
 import type { DomainContext } from '../context';
 import { DomainError } from '../errors';
@@ -6,6 +6,11 @@ import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
 import { KeyedMutex, SYSTEM_ACTOR } from '../util';
 import type { TaskService } from './service';
+
+type AdvanceSessions = Pick<
+  SessionOrchestrator,
+  'cardWorkers' | 'awaitsFirstTurn' | 'hasPendingInput' | 'messageWaiting'
+>;
 
 /**
  * A card whose stage is done and whose next gate lacks nothing but humans' approvals (PM-445) must not
@@ -23,7 +28,7 @@ export class AutoAdvance {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
-  private readonly sessions: Pick<SessionOrchestrator, 'cardWorkers'>;
+  private readonly sessions: AdvanceSessions;
   /** One look at a card at a time. */
   private readonly cards = new KeyedMutex();
 
@@ -31,7 +36,7 @@ export class AutoAdvance {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    sessions: Pick<SessionOrchestrator, 'cardWorkers'>;
+    sessions: AdvanceSessions;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -64,7 +69,13 @@ export class AutoAdvance {
     // session that sits idle (a reviewer who is done) does not work on it.
     if (
       advance.kind === 'move' &&
-      this.sessions.cardWorkers(projectKey, task, config).some((s) => s.state !== 'idle')
+      this.sessions.cardWorkers(projectKey, task, config).some((s) =>
+        isSessionAtWork(s, {
+          awaitsFirstTurn: this.sessions.awaitsFirstTurn(s.id),
+          pendingInput: this.sessions.hasPendingInput(s.id),
+          messageOnItsWay: this.sessions.messageWaiting(s),
+        }),
+      )
     )
       return;
     if (this.rejected(task, advance.to.id)) return;

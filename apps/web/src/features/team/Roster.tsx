@@ -224,6 +224,7 @@ export function RosterTable({ members, inbox, roles, titles, actions, providers 
                       <StatusDot status={view.status} pulse={view.status === 'working'} />
                       <span className={styles.statusText}>{view.label}</span>
                     </span>
+                    {view.reason ? <span className={styles.statusReason}>{view.reason}</span> : null}
                   </span>
                 </td>
                 <td className={styles.nowCell}>
@@ -270,7 +271,9 @@ export function RosterCards({ members, inbox, roles, titles, actions, providers 
             <div className={styles.cardState}>
               <span className={styles.statusLine} data-status={view.status}>
                 <StatusDot status={view.status} pulse={view.status === 'working'} />
-                <span className={styles.statusText}>{view.label}</span>
+                <span className={view.reason ? styles.statusTextWrap : styles.statusText}>
+                  {view.reason ? t('memberStatus.cannotWorkWithReason', { reason: view.reason }) : view.label}
+                </span>
               </span>
               <span aria-hidden="true" className={styles.muted}>
                 ·

@@ -24,6 +24,7 @@ import {
   PublicInviteView,
   RolesView,
   BoardView,
+  CheckOutageResponse,
   ConfigView,
   InboxView,
   InstancePauseView,
@@ -248,6 +249,9 @@ export const api = {
   inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
+  /** "Check now" on an outage alert (PM-466): the server looks again at once; no body. */
+  checkOutage: (key: string, itemId: string) =>
+    apiRequest(routes.checkOutage(key, itemId), { method: 'POST', schema: CheckOutageResponse }),
 
   schedules: (key: string) => apiRequest(routes.schedules(key), { schema: SchedulesView }),
   runSchedule: (key: string, handle: string) =>

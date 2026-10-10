@@ -16,6 +16,7 @@ import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
+import { outageHeading, outageOfItem } from './outage';
 import type { PipelineIndex } from './pipeline';
 import { relationKindLabel } from './timeline';
 
@@ -60,9 +61,8 @@ export function inboxHeading(item: InboxItem): string {
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
-    return alert && alert.alert !== 'work_outage'
-      ? t(`inbox.alerts.${alert.alert}.heading`)
-      : t('inbox.alerts.unknown');
+    if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
+    return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
     const tool = permissionTool(item);
@@ -425,6 +425,8 @@ export function decisionSubject(item: InboxItem): string {
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   if (item.kind === 'question') return inboxHeading(item);
+  const outage = outageOfItem(item);
+  if (outage) return outageHeading(outage);
   return item.title;
 }
 
@@ -543,6 +545,7 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');

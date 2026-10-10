@@ -2,6 +2,7 @@ import { isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { Actor, InboxItem, MemberStatus, MemberView, PausedSession, RoleView } from '@projectman/shared';
 import type { IconName } from '../components/Icon';
 import { t } from '../i18n/t';
+import { outageReason } from './outage';
 import { aiRoleView, humanRoleName } from './roles';
 import type { RoleTone } from './roles';
 
@@ -103,16 +104,26 @@ const PAUSABLE_STATUSES: readonly MemberStatus[] = ['idle', 'working', 'waiting_
  * Status key for data-status plus its label; "waiting for a human" becomes "Rád vár" when it is you.
  * With `pausedRows` (the rows of the pause the page shows; an empty list: nobody was working) an AI
  * member that is not on leave reads "Szünetel", or "Megáll…" while one of its sessions has not stopped.
+ * An outage that keeps a member from working (PM-468) reads "Nem tud dolgozni", with its reason; the
+ * order is a pause, then leave, then an outage, then "Rád vár", then the member's own state, and a
+ * running session does not change it.
  */
 export function memberStatusView(
   member: MemberView,
   inbox: readonly InboxItem[] | undefined,
   myHandle: string | null,
   pausedRows?: readonly Pick<PausedSession, 'member' | 'point'>[],
-): { status: MemberStatus | 'needs_you' | 'paused'; label: string } {
+): { status: MemberStatus | 'needs_you' | 'paused' | 'cannot_work'; label: string; reason?: string } {
   if (pausedRows && member.kind === 'ai' && !isOnLeave(member) && PAUSABLE_STATUSES.includes(member.status)) {
     const stopping = pausedRows.some((row) => row.member === member.handle && row.point === null);
     return { status: 'paused', label: t(stopping ? 'memberStatus.pausing' : 'memberStatus.paused') };
+  }
+  if (member.kind === 'ai' && member.outage && !isOnLeave(member)) {
+    return {
+      status: 'cannot_work',
+      label: t('memberStatus.cannotWork'),
+      reason: outageReason(member.outage),
+    };
   }
   if (member.status === 'waiting_for_human' && isWaitingForMe(member, inbox, myHandle)) {
     return { status: 'needs_you', label: t('memberStatus.needsYou') };

@@ -2,7 +2,8 @@ import { StageKind } from './pipeline';
 import { Task, isOpenTask, taskSeq } from './task';
 
 /** Moved here from apps/web/src/lib/taskState.ts, which re-exports it (one definition). */
-export type TaskPhase = 'needs_you' | 'working' | 'waiting' | 'blocked' | 'ready' | 'done' | 'cancelled';
+export type TaskPhase =
+  'needs_you' | 'stuck' | 'working' | 'waiting' | 'blocked' | 'ready' | 'done' | 'cancelled';
 export type MapState = 'needs_you' | 'working' | 'waiting' | 'blocked' | 'done';
 
 /** Urgency order: signals, cells, legend. */
@@ -40,6 +41,8 @@ export function staleDays(task: MapTask, now: number): number {
 
 export function mapStateOf(phase: TaskPhase, stale: boolean): MapState | null {
   if (phase === 'cancelled') return null;
+  // A card that stands on an outage (PM-468) waits; it is no "needs you" and no stale-blocked card.
+  if (phase === 'stuck') return 'waiting';
   if (phase === 'waiting' || phase === 'ready') return stale ? 'blocked' : 'waiting';
   return phase;
 }

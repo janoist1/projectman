@@ -93,6 +93,21 @@
   white-space: nowrap;
 }
 
+/* "Nem tud dolgozni" (PM-468): the reason sits under the status, in the same tone. */
+.statusReason {
+  padding-left: 15px;
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  color: var(--status-text);
+  max-width: 220px;
+}
+
+/* On a phone card the status and its reason are one line that may wrap. */
+.statusTextWrap {
+  font-weight: 800;
+  color: var(--status-text);
+}
+
 .nowCell {
   max-width: 240px;
 }

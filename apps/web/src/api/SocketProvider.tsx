@@ -3,8 +3,11 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useToast } from '../components/toastContext';
 import { t } from '../i18n/t';
+import type { Me } from '@projectman/shared';
 import { codeMessage } from '../lib/errors';
+import { outageEndedToast } from '../lib/outage';
 import { applyServerEvent } from './cache';
+import { queryKeys } from './queryKeys';
 import { createSocketClient } from './socket';
 import type { SocketClient } from './socket';
 import { SocketContext } from './socketHooks';
@@ -26,6 +29,12 @@ export function SocketProvider({
       applyServerEvent(queryClient, event);
       // Error events carry a code; show it translated, never raw.
       if (event.type === 'error') toast.show(codeMessage(event.message) ?? t('errors.generic'), 'error');
+      // An outage that ended by itself (PM-468) is told to whom the alert was for.
+      if (event.type === 'inbox_upserted') {
+        const me = queryClient.getQueryData<Me>(queryKeys.me);
+        const text = outageEndedToast(event.item, me?.handles[event.projectKey] ?? null);
+        if (text) toast.show(text, 'ok');
+      }
     });
     // Events may have been missed while disconnected: refetch everything project-scoped.
     const offReconnect = client.onReconnect(() => {

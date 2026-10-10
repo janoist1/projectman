@@ -127,6 +127,7 @@ import {
   introducedErrors,
   mergeTokenUsage,
   ALERT_SEEN_OPTION,
+  WorkOutageAlert,
   limitTokens,
   LOOP_LET_RUN_OPTION,
   LOOP_STOP_OPTION,
@@ -227,6 +228,7 @@ import type {
   TimelineEvent,
   TimelineEventData,
   TimelineEventType,
+  WorkOutage,
 } from '@projectman/shared';
 import {
   aiMemberDefaults,
@@ -1268,6 +1270,91 @@ export class MockBackend {
   }
 
   /**
+   * An outage (PM-468): the open `work_outage` alert for the owners, `outage` on the AI members and
+   * on the cards that stand on it. Returns the alert. `endOutage` / a check that finds it healed
+   * (`outageRecovers`) closes it the way the server does.
+   */
+  startOutage(outage: WorkOutage, members: readonly string[], tasks: readonly string[]): InboxItem {
+    for (const handle of members) {
+      const member = this.findMember(handle);
+      if (member) member.outage = clone(outage);
+      this.memberChanged(handle);
+    }
+    for (const key of tasks) this.updateTask(key, { outage: clone(outage) });
+    const payload: WorkOutageAlert = {
+      alert: 'work_outage',
+      outage,
+      members: [...members],
+      tasks: [...tasks],
+      checkedAt: nowIso(),
+    };
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: 'system',
+      sessionId: null,
+      taskKey: null,
+      title: 'Work is stopped by an outage',
+      body: null,
+      payload,
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /** The outage ends by itself: the markers go, the alert is resolved with the rule `outage_ended`. */
+  endOutage(itemId: string): InboxItem | undefined {
+    const item = this.inbox.find((entry) => entry.id === itemId);
+    if (!item || item.state !== 'open') return undefined;
+    const alert = WorkOutageAlert.safeParse(item.payload);
+    if (alert.success) {
+      for (const handle of alert.data.members) {
+        const member = this.findMember(handle);
+        if (member) delete member.outage;
+        this.memberChanged(handle);
+      }
+      for (const key of alert.data.tasks) this.updateTask(key, { outage: undefined });
+    }
+    const resolved: InboxItem = {
+      ...item,
+      state: 'resolved',
+      resolution: {
+        optionId: ALERT_SEEN_OPTION.id,
+        by: 'system',
+        at: nowIso(),
+        note: null,
+        rule: 'outage_ended',
+      },
+    };
+    this.upsertInbox(resolved);
+    return resolved;
+  }
+
+  /** Whether the next "check now" finds the outage gone; off until a test or a scenario turns it on. */
+  outageRecovers = false;
+
+  private checkOutage(itemId: string): MockResponse {
+    const item = this.inbox.find((entry) => entry.id === itemId);
+    if (!item || WorkOutageAlert.safeParse(item.payload).success === false)
+      return error(404, 'not_found', 'Unknown outage item');
+    if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already closed');
+    const checkedAt = nowIso();
+    if (this.outageRecovers) {
+      const resolved = this.endOutage(itemId)!;
+      return ok(clone({ item: resolved, stillFailing: false, checkedAt }));
+    }
+    const refreshed: InboxItem = { ...item, payload: { ...item.payload, checkedAt } };
+    this.upsertInbox(refreshed);
+    return ok(clone({ item: refreshed, stillFailing: true, checkedAt }));
+  }
+
+  /**
    * The roster's permission fields follow the configuration (a level, the delegation settings, the
    * deciders). Every commit does it; a test that edits `config` directly calls it itself.
    */
@@ -2065,6 +2152,7 @@ export class MockBackend {
       return this.decideBoundary(m[1]!, body, m[2] === 'revoke');
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
+    if ((m = /^\/inbox\/([\w-]+)\/check$/.exec(rest)) && method === 'POST') return this.checkOutage(m[1]!);
 
     if (rest === '/config') {
       if (method === 'PATCH') return this.patchConfig(body);

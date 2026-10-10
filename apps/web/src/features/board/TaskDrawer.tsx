@@ -46,6 +46,8 @@ import { canStartRefinement } from '../../lib/refinement';
 import { isDeveloperRole } from '../../lib/roles';
 import type { MemberIndex } from '../../lib/members';
 import { InboxCard } from '../inbox/InboxCard';
+import { Todo as OutageTodoBox } from '../inbox/OutageAlert';
+import { outageStuckLabel } from '../../lib/outage';
 import { openPrerequisiteKeys, PrerequisiteWarning, refusedPrerequisites } from './PrerequisiteWarning';
 import { SeniorWarning } from './SeniorWarning';
 import { CardSizeProvider, SIZE_PARAM, withCardSize } from './cardSize';
@@ -433,7 +435,13 @@ export function TaskDrawer() {
     );
     const side = (
       <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
-        {task.startWaiting ? (
+        {task.outage ? (
+          // The card stands on an outage (PM-468), a start or a continuation: its line, then what to do.
+          <div className={drawer.section} data-testid="drawer-outage">
+            <strong>{outageStuckLabel(task.outage)}</strong>
+            <OutageTodoBox outage={task.outage} projectKey={key} />
+          </div>
+        ) : task.startWaiting ? (
           <p className={drawer.section}>
             {startWaitingHint(task, members, myHandle)}
             {task.startWaiting.reason === 'provider_not_logged_in' &&

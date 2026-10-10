@@ -335,3 +335,11 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     the AI work runs on an engine on the Mac (PM-286, PM-311 to PM-318). Critical bugs still come
     first; the architect checks the October 4 plans against the current code before development
     starts.
+46. **Each project chooses who moves cards on.** Decided by the owner on 2026-10-10
+    (PM-439, implemented by PM-457). The worker is the default and retains the existing behaviour;
+    alternatively the project manager or a named human moves cards forward. An AI worker's or
+    the system's forward move from work, step or release becomes a hand-on request for that
+    mover: the card stays put and appears in the human's inbox or reaches the project manager
+    as a message. Queue starts, refinement, backward moves and human moves keep their existing
+    rules. Human approval gates keep going to the approver in every mode, and approval advances
+    the card automatically.

@@ -3,6 +3,10 @@ import {
   boardColumnOf,
   evaluateMove,
   gateRequestOf,
+  cardMoverHandle,
+  handOnDecision,
+  handOnRequestOf,
+  memberOf,
   isOpenTask,
   isTheme,
   noApproverReason,
@@ -21,11 +25,13 @@ import type {
   Stage,
   StartBlock,
   Task,
+  TaskHandOn,
   TimelineEventData,
 } from '@projectman/shared';
 import type { SourceHead } from '../../contracts';
 import type { TaskPatch } from '../../db';
 import { isoNow } from '../context';
+import { requireHuman } from '../access';
 import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
@@ -42,6 +48,7 @@ export interface MoveResult {
   pendingApproval: InboxItem[];
   /** The other cards of the target column whose rank was written (PM-118); the moved card's is on `task`. */
   reranked?: string[];
+  handOn?: TaskHandOn;
 }
 
 /** Where a moved card goes in its new column, and (filled in) which other cards had to be renumbered. */
@@ -118,6 +125,7 @@ export class TaskMoves {
   private readonly inbox: InboxService;
   private readonly sourceHead: SourceHeadReader;
   private readonly order: BoardOrder;
+  private readonly notifyHandOn: (config: ProjectConfig, task: Task, handOn: TaskHandOn) => Promise<void>;
 
   constructor(deps: {
     store: TaskStore;
@@ -125,12 +133,39 @@ export class TaskMoves {
     inbox: InboxService;
     sourceHead: SourceHeadReader;
     order: BoardOrder;
+    notifyHandOn: (config: ProjectConfig, task: Task, handOn: TaskHandOn) => Promise<void>;
   }) {
     this.order = deps.order;
+    this.notifyHandOn = deps.notifyHandOn;
     this.store = deps.store;
     this.labels = deps.labels;
     this.inbox = deps.inbox;
     this.sourceHead = deps.sourceHead;
+    this.inbox.useHandOnMove(async (item, by) => {
+      const request = handOnRequestOf(item)!;
+      const config = await this.store.projects.config(item.projectKey);
+      const actor = humanActor(by.handle);
+      requireHuman(config, actor, 'developer');
+      const handover = await this.prepareHandover(
+        config,
+        this.store.get(item.projectKey, request.taskKey),
+        request.toStageId,
+      );
+      const effects: Effect[] = [];
+      this.store.ctx.unitOfWork(() => {
+        const task = this.store.get(item.projectKey, request.taskKey);
+        if (
+          task.handOn?.inboxItemId !== item.id ||
+          task.stageId !== request.fromStageId ||
+          this.inbox.get(item.projectKey, item.id).state !== 'open'
+        )
+          throw conflict('inbox_item_closed', 'the hand-on request is no longer current');
+        const evaluation = evaluateMove(task, config, task.stageId, request.toStageId);
+        if (evaluation.unmet.length || evaluation.approvals.length) throw gateBlockedError(evaluation);
+        this.move(config, task, request.toStageId, actor, effects, { handover });
+      });
+      await runEffects(effects);
+    });
   }
 
   /**
@@ -235,7 +270,7 @@ export class TaskMoves {
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
     const target = requireStage(config, stageId);
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
-    // The guard of every move path (PM-433): the project manager only starts cards.
+    // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
     const evaluation = evaluateMove(task, config, task.stageId, target.id);
     if (evaluation.unmet.length > 0) throw gateBlockedError(evaluation);
@@ -250,6 +285,9 @@ export class TaskMoves {
       );
       return { task: requested.task, moved: false, pendingApproval: requested.items };
     }
+    const decision = handOnDecision(config, actor, task.stageId, target.id);
+    if (decision.kind === 'request')
+      return this.requestHandOn(config, task, target, decision.mover, actorHandle(actor), effects);
     const head = opts.handover?.head;
     const extra: Pick<TimelineEventData['task_stage_changed'], 'reviewPin' | 'branchMoved' | 'testsFailed'> =
       {
@@ -275,6 +313,117 @@ export class TaskMoves {
       pendingApproval: [],
       reranked: board.reranked,
     };
+  }
+
+  private requestHandOn(
+    config: ProjectConfig,
+    task: Task,
+    target: Stage,
+    mover: string,
+    requestedBy: string,
+    effects: Effect[],
+  ): MoveResult {
+    const previous = this.store.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+    if (
+      previous?.fromStageId === task.stageId &&
+      previous.toStageId === target.id &&
+      previous.mover === mover
+    ) {
+      const current = this.store.view(task);
+      return { task: current, moved: false, pendingApproval: [], handOn: current.handOn };
+    }
+    this.clearHandOn(task);
+    const handOn: TaskHandOn = {
+      fromStageId: task.stageId,
+      toStageId: target.id,
+      mover,
+      requestedBy,
+      requestedAt: isoNow(this.store.ctx),
+      inboxItemId: null,
+    };
+    if (memberOf(config, mover)?.kind === 'human') {
+      const item = this.inbox.create({
+        projectKey: task.projectKey,
+        kind: 'hand_on',
+        assignees: [mover],
+        source: requestedBy,
+        taskKey: task.key,
+        title: task.title,
+        payload: {
+          handOn: { taskKey: task.key, fromStageId: task.stageId, toStageId: target.id, requestedBy },
+        },
+        options: [{ id: 'move', label: 'move', style: 'primary' }],
+      });
+      handOn.inboxItemId = item.id;
+    } else {
+      effects.push(() => this.notifyHandOn(config, task, handOn));
+    }
+    this.store.ctx.repos.taskHandOns.save({ ...handOn, projectKey: task.projectKey, taskKey: task.key });
+    this.store.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      actor: SYSTEM_ACTOR,
+      type: 'task_hand_on_requested',
+      data: { fromStageId: task.stageId, toStageId: target.id, mover, requestedBy },
+    });
+    const next = this.store.view(task);
+    this.store.publish(next);
+    return { task: next, moved: false, pendingApproval: [], handOn };
+  }
+
+  clearHandOn(task: Pick<Task, 'projectKey' | 'key'>, toStageId?: string, by?: string): void {
+    const request = this.store.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+    if (!request) return;
+    if (request.inboxItemId) {
+      if (toStageId === request.toStageId && by) this.inbox.resolveHandOn(request.inboxItemId, by);
+      else this.inbox.cancel(request.inboxItemId);
+    }
+    this.store.ctx.repos.taskHandOns.clear(task.projectKey, task.key);
+  }
+
+  async reconcileHandOns(config: ProjectConfig): Promise<void> {
+    for (const request of this.store.ctx.repos.taskHandOns.list(config.project.key)) {
+      const task = this.store.find(request.projectKey, request.taskKey);
+      if (!task || !isOpenTask(task) || task.stageId !== request.fromStageId) {
+        this.store.ctx.unitOfWork(() =>
+          this.clearHandOn(task ?? { projectKey: request.projectKey, key: request.taskKey }),
+        );
+        continue;
+      }
+      const mover = cardMoverHandle(config);
+      if (mover === request.mover) continue;
+      try {
+        if (!mover) {
+          const result = await this.moveToStage(task.projectKey, task.key, request.toStageId, SYSTEM_ACTOR);
+          if (!result.moved)
+            this.store.ctx.unitOfWork(() => {
+              this.clearHandOn(task);
+              this.store.publish(this.store.get(task.projectKey, task.key));
+            });
+        } else {
+          const effects: Effect[] = [];
+          this.store.ctx.unitOfWork(() => {
+            const current = this.store.get(task.projectKey, task.key);
+            this.requestHandOn(
+              config,
+              current,
+              requireStage(config, request.toStageId),
+              mover,
+              request.requestedBy,
+              effects,
+            );
+          });
+          await runEffects(effects);
+        }
+      } catch (err) {
+        if (!mover)
+          this.store.ctx.unitOfWork(() => {
+            this.clearHandOn(task);
+            this.store.publish(this.store.get(task.projectKey, task.key));
+          });
+        this.store.ctx.logger.warn({ err, taskKey: task.key }, 'could not redirect the hand-on request');
+      }
+    }
   }
 
   /** Handler for resolved `decision` items: completes (or drops) the requested stage move. */
@@ -473,6 +622,7 @@ export class TaskMoves {
   ): Task {
     const at = isoNow(this.store.ctx);
     // The commit handed over with the stage the task leaves is no longer its pin.
+    this.clearHandOn(task, target.id, actorHandle(actor));
     this.store.ctx.repos.reviewPins.clear(task.key);
     if (pin)
       this.store.ctx.repos.reviewPins.save({
@@ -502,7 +652,7 @@ export class TaskMoves {
       if (entered.rank !== undefined) patch.boardRank = entered.rank;
       placed = entered.reranked;
     }
-    let next = this.store.write(task, patch);
+    let next = this.store.view(this.store.write(task, patch));
     const event = this.store.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,

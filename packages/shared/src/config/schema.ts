@@ -19,6 +19,13 @@ import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
  * the project's language.
  */
 
+export const CardMover = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('worker') }),
+  z.object({ kind: z.literal('project_manager') }),
+  z.object({ kind: z.literal('human'), handle: MemberHandle }),
+]);
+export type CardMover = z.infer<typeof CardMover>;
+
 export const HumanMemberConfig = z.object({
   kind: z.literal('human'),
   handle: MemberHandle,
@@ -275,6 +282,7 @@ export const ProjectConfig = z.object({
     templateId: z.string().optional(),
   }),
   team: z.object({
+    cardMover: CardMover.optional(),
     members: z.array(MemberConfig).min(1),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),

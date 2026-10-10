@@ -2406,6 +2406,7 @@ export const hu = {
     },
     kinds: {
       permission: 'Engedély',
+      hand_on: 'Továbbadási kérés',
       boundary: 'Külső művelet',
       decision: 'Döntés',
       question: 'Kérdés',
@@ -2413,6 +2414,7 @@ export const hu = {
       alert: 'Figyelmeztetés',
     },
     kindsLower: {
+      hand_on: 'továbbadási kérés',
       permission: 'engedély',
       boundary: 'külső művelet',
       decision: 'döntés',
@@ -2993,6 +2995,7 @@ export const hu = {
       task_created: 'Létrehozta a feladatot',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
+      task_hand_on_requested: 'Továbbadásra vár: {fromStageId} → {toStageId}; mozgató: {mover}',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
       task_stage_changed_branch_moved:
         'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',

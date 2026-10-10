@@ -49,6 +49,15 @@ function build(id: string, language = 'hu', ownerHandle = 'owner') {
   return template.build(input(language, ownerHandle));
 }
 
+it('all templates default to worker and preserve an explicitly selected mover', () => {
+  for (const template of templates) {
+    expect(template.build(input('en')).team.cardMover).toEqual({ kind: 'worker' });
+    expect(
+      template.build({ ...input('en'), cardMover: { kind: 'human', handle: 'owner' } }).team.cardMover,
+    ).toEqual({ kind: 'human', handle: 'owner' });
+  }
+});
+
 /** [id, kind, owners, gate conditions, column] per stage. */
 function shape(stages: Stage[]) {
   return stages.map((s) => [s.id, s.kind, s.owners, s.gate?.conditions ?? [], s.columnId]);

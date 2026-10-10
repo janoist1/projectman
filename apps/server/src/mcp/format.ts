@@ -337,6 +337,7 @@ export function formatTaskUpdate(
   task: Task,
   change: {
     stageId?: string;
+    moverName?: string;
     labels?: { added: string[]; removed: string[] };
     note: boolean;
     title?: boolean;
@@ -372,10 +373,21 @@ export function formatTaskUpdate(
   if (task.status === 'cancelled' && change.relations?.add.some((r) => r.kind === 'duplicate_of'))
     done.push('the card is closed (cancelled) as a duplicate');
   if (change.note) done.push('note added');
-  if (change.stageId) done.push(`moved to ${change.stageId}`);
+  if (change.stageId && !task.handOn) done.push(`moved to ${change.stageId}`);
+  const handOn =
+    change.stageId && task.handOn
+      ? [
+          `The move to ${task.handOn.toStageId} goes to ${change.moverName ?? task.handOn.mover} (${task.handOn.mover}), who moves cards on in this project; the card waits for them. Your work on this stage is done.`,
+        ]
+      : [];
   if (change.developerLevel) done.push('recommended developer set');
   const level = change.developerLevel ? [recommendedDeveloperLine(task)] : [];
-  return [`Updated ${task.key}: ${done.join('; ')}.`, ...level, `Now: ${taskStatusLine(task)}`].join('\n');
+  return [
+    `Updated ${task.key}: ${done.join('; ')}.`,
+    ...level,
+    ...handOn,
+    `Now: ${taskStatusLine(task)}`,
+  ].join('\n');
 }
 
 /** The assignee handoff of a card (PM-342): the open one, else the latest that ended while the card is with its receiver. */

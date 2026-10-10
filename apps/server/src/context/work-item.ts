@@ -1,6 +1,9 @@
 import path from 'node:path';
 import {
   DESIGN_REVIEW_CHANGES_LABEL,
+  cardMoverHandle,
+  cardMoverOf,
+  isHandOnMove,
   DUTIES,
   dutyMembers,
   effectiveRepo,
@@ -781,6 +784,13 @@ export function handover(
     ];
     return `Request the move to ${stageLabel(target)} with update_task: it needs a human approval (${approvals.map((id) => labelRef(id, labels)).join(', ')}), so the system opens a decision for ${codeList(approvers)} and the task waits until they approve. Do not message them separately and never set that label yourself.`;
   }
+  const mover = cardMoverHandle(input.project);
+  const from = input.stage?.id ?? input.task?.stageId;
+  const handsOn = from !== undefined && isHandOnMove(input.project, from, target.id);
+  if (handsOn && cardMoverOf(input.project).kind === 'project_manager' && mover === input.member.handle)
+    return `You move cards on in this project when the system tells you the stage is finished: check the card with get_task and move it to ${stageLabel(target)} with update_task, or tell the worker what is missing.`;
+  if (handsOn && mover && mover !== input.member.handle)
+    return `Request the move to ${stageLabel(target)} with update_task: ${mover} moves cards on in this project, so the card waits for them and your work on this stage is done.`;
   // A done task's sessions stop (PM-190): what comes after the move may never be sent.
   if (target.kind === 'done') {
     return `Move the task to ${stageLabel(target)} with update_task as your very last step, after your messages and notes: once the task is done, its sessions stop.`;

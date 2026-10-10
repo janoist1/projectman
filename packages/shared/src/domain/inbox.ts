@@ -18,8 +18,30 @@ import { TaskKey } from './task';
  * - alert:      something the owners should notice, with nothing to decide ("Láttam"); see
  *               `AlertPayload`
  */
-export const InboxKind = z.enum(['permission', 'decision', 'question', 'approval', 'boundary', 'alert']);
+export const InboxKind = z.enum([
+  'permission',
+  'decision',
+  'question',
+  'approval',
+  'boundary',
+  'alert',
+  'hand_on',
+]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+export const HandOnPayload = z.object({
+  taskKey: TaskKey,
+  fromStageId: StageId,
+  toStageId: StageId,
+  requestedBy: MemberHandle,
+});
+export type HandOnPayload = z.infer<typeof HandOnPayload>;
+
+export function handOnRequestOf(item: Pick<InboxItem, 'kind' | 'payload'>): HandOnPayload | null {
+  if (item.kind !== 'hand_on') return null;
+  const parsed = HandOnPayload.safeParse(item.payload.handOn);
+  return parsed.success ? parsed.data : null;
+}
 
 export const InboxOption = z.object({
   id: z.string(),

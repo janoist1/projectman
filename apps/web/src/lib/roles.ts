@@ -36,6 +36,7 @@ const visuals: Record<BuiltInRoleId, { tone: RoleTone; icon: IconName }> = {
   project_manager: { tone: 'pm', icon: 'calendar' },
   docs: { tone: 'docs', icon: 'doc' },
   operator: { tone: 'human', icon: 'user' },
+  ai_operator: { tone: 'owner', icon: 'sparkle' },
   product_owner: { tone: 'human', icon: 'team' },
   business_analyst: { tone: 'pm', icon: 'doc' },
   architect: { tone: 'developer', icon: 'branch' },

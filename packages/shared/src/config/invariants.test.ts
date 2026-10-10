@@ -135,7 +135,7 @@ describe('introduced configuration errors', () => {
 
 describe('role catalogue', () => {
   it('lets AI members hold every built-in role except the human-only ones', () => {
-    expect(BUILT_IN_ROLE_IDS).toHaveLength(21);
+    expect(BUILT_IN_ROLE_IDS).toHaveLength(22);
     const aiRoles: readonly string[] = AI_BUILT_IN_ROLE_IDS;
     expect(BUILT_IN_ROLE_IDS.filter((id) => !aiRoles.includes(id))).toEqual(['operator', 'product_owner']);
     expect(roleHolders('watchdog')).toBe('both');

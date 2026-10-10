@@ -509,6 +509,8 @@ function recipientLine(
     case 'next_input':
       if (noWake === 'no_card_role')
         return `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+      if (noWake === 'operator_owner_only')
+        return `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
       return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;

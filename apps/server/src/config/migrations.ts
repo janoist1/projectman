@@ -6,6 +6,7 @@ import {
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_PROJECT_LANGUAGE,
   FALLBACK_PERMISSION_MODE,
+  isOperator,
   isProjectManager,
   LabelDefinition,
   type MemberConfig,
@@ -16,7 +17,12 @@ import {
   releaseApprovers,
   releaseGateAccepts,
 } from '@projectman/shared';
-import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig, projectManagerMember } from '@projectman/templates';
+import {
+  DAILY_WORKER_SCHEDULE,
+  migrateLegacyConfig,
+  operatorMember,
+  projectManagerMember,
+} from '@projectman/templates';
 
 export interface MigrationContext {
   projectKey: string;
@@ -221,6 +227,30 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
 }
 
 /**
+ * A project without an Operator (PM-447) gets one, sponsored by the first human owner. Not on leave: it
+ * works only on the owner's message, so it costs nothing while idle. Without a human owner nothing is
+ * added, as for the project manager.
+ */
+function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const config = asRecord(raw);
+  const team = asRecord(config?.team);
+  if (!config || !team || !Array.isArray(team.members)) return raw;
+  const members = team.members.map(asRecord).filter((m): m is Record<string, unknown> => m !== undefined);
+  if (members.some((m) => isOperator(m as unknown as MemberConfig))) return raw;
+  const owner = members.find((m) => m.kind === 'human' && m.access === 'owner');
+  if (typeof owner?.handle !== 'string') return raw;
+  const language = asRecord(config.project)?.language;
+  const member = operatorMember({
+    language: typeof language === 'string' ? language : DEFAULT_PROJECT_LANGUAGE,
+    sponsor: owner.handle,
+    taken: members.flatMap((m) => (typeof m.handle === 'string' ? [m.handle] : [])),
+  });
+  team.members.push(member);
+  logger.warn({ projectKey, member: member.handle }, 'Added the Operator');
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -232,18 +262,22 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
- *   - a project without an AI project manager gets one, on leave (above).
+ *   - a project without an AI project manager gets one, on leave (above);
+ *   - a project without an Operator gets one, at work (above).
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addProjectManager(
-    migrateReleaseApproval(
-      migrateLegacyConfig(
-        migrateCodexBypass(
-          migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
-          context,
+  return addOperator(
+    addProjectManager(
+      migrateReleaseApproval(
+        migrateLegacyConfig(
+          migrateCodexBypass(
+            migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+            context,
+          ),
         ),
+        context,
       ),
       context,
     ),

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   BUILT_IN_ROLE_DUTIES,
+  isOperator,
   isToleratedOnLoad,
   ProjectConfig,
   projectManagersOf,
@@ -318,6 +319,96 @@ describe('release approval migration (decision 19)', () => {
 
     it('is done once', () => {
       const { migrated } = migrate(withoutProjectManager());
+      const again = vi.fn();
+      expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn: again } })).toBe(migrated);
+      expect(again).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the Operator every project has (PM-447)', () => {
+    const operators = (config: ProjectConfig) => config.team.members.filter((m) => isOperator(m));
+    const withoutOperator = () => {
+      const legacy = raw();
+      legacy.team.members = legacy.team.members.filter((m) => m.role !== 'ai_operator');
+      return legacy;
+    };
+
+    it('adds an Operator at work, sponsored by the first human owner, to a project without one', () => {
+      const { config, warn } = migrate(withoutOperator());
+      expect(operators(config)).toHaveLength(1);
+      expect(config.team.members.at(-1)).toMatchObject({
+        kind: 'ai',
+        handle: 'operator',
+        role: 'ai_operator',
+        displayName: 'Operator',
+        sponsor: 'owner',
+        temp: false,
+      });
+      expect(config.team.members.at(-1)).not.toHaveProperty('onLeave', true);
+      expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+      expect(warn).toHaveBeenCalledWith({ projectKey: 'AR', member: 'operator' }, 'Added the Operator');
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('adds it to a configuration written before the Operator, with the project manager and all', () => {
+      const legacy = withoutOperator();
+      (legacy as unknown as { project: Record<string, unknown> }).project.language = 'hu';
+      const { config } = migrate(legacy);
+      expect(config.team.members.at(-1)).toMatchObject({ role: 'ai_operator', displayName: 'Operátor' });
+      expect(projectManagersOf(config)).toHaveLength(1);
+    });
+
+    it('takes the next free handle when operator is taken', () => {
+      const legacy = withoutOperator();
+      legacy.team.members.push({
+        kind: 'ai',
+        handle: 'operator',
+        displayName: 'Someone',
+        role: 'developer',
+        sponsor: 'owner',
+      });
+      const { config } = migrate(legacy);
+      expect(config.team.members.at(-1)).toMatchObject({ handle: 'operator-2', role: 'ai_operator' });
+      expect(operators(config)).toHaveLength(1);
+    });
+
+    it('adds one when the only Operator is a temp worker', () => {
+      const legacy = withoutOperator();
+      legacy.team.members.push({
+        kind: 'ai',
+        handle: 'operator',
+        displayName: 'Op',
+        role: 'ai_operator',
+        sponsor: 'owner',
+        temp: true,
+      });
+      const { config } = migrate(legacy);
+      expect(operators(config)).toHaveLength(1);
+      expect(operators(config)[0]!.handle).toBe('operator-2');
+    });
+
+    it('changes nothing where an Operator exists, on leave or not', () => {
+      for (const onLeave of [true, false]) {
+        const current = raw();
+        current.team.members.find((m) => m.role === 'ai_operator')!.onLeave = onLeave;
+        const before = JSON.parse(JSON.stringify(current));
+        const { migrated, warn } = migrate(current);
+        expect(migrated).toBe(current);
+        expect(migrated).toEqual(before);
+        expect(warn).not.toHaveBeenCalled();
+      }
+    });
+
+    it('adds nothing without a human owner', () => {
+      const legacy = withoutOperator();
+      for (const member of legacy.team.members) if (member.kind === 'human') member.access = 'admin';
+      const { migrated, warn } = migrate(legacy);
+      expect(operators(ProjectConfig.parse(migrated))).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('is done once', () => {
+      const { migrated } = migrate(withoutOperator());
       const again = vi.fn();
       expect(migrateProjectConfig(migrated, { projectKey: 'AR', logger: { warn: again } })).toBe(migrated);
       expect(again).not.toHaveBeenCalled();

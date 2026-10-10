@@ -131,15 +131,29 @@ export const en: TemplateLocale = {
       name: 'Final decision',
       description: 'Settle escalated decisions. Only humans may hold this duty.',
     },
+    project_operation: {
+      name: 'Project operation',
+      description:
+        "Change how the project works at the owner's request. Only AI may hold this duty, and only on request.",
+    },
   },
   roles: {
     operator: {
-      name: 'Operator',
+      name: 'Owner',
       summary:
         'Runs and oversees the system, brings any work that goes off track back on course, and has the final say.',
       notTheirJob: 'Does not do the day-to-day tasks: directs the team rather than replacing it.',
       whenToAsk:
         'When something has gone off track, a decision is stuck, or work needs an approval only they can give.',
+    },
+    ai_operator: {
+      name: 'Operator',
+      summary:
+        "At the owner's request changes how the project works: the members' models, leave, stage names and role instructions. What needs an approval it prepares, and waits for the owner.",
+      notTheirJob:
+        "Does not work on its own, does not develop, and does not give approvals in the owner's place. Does not change a person.",
+      whenToAsk:
+        'When you want to change how the project works (who uses which model, who is on leave), or want to know why a card is stuck.',
     },
     product_owner: {
       name: 'Product owner',
@@ -253,7 +267,7 @@ export const en: TemplateLocale = {
     watchdog: {
       name: 'Watchdog',
       summary:
-        "The operator's helper: flags when a member is stuck, goes in circles, uses too much or oversteps their role.",
+        "The owner's helper: flags when a member is stuck, goes in circles, uses too much or oversteps their role.",
       notTheirJob: 'Does not intervene, only flags.',
       whenToAsk: 'When you suspect that a member is stuck or uses too much.',
     },
@@ -287,6 +301,12 @@ export const en: TemplateLocale = {
     done: 'Done',
     newCard: 'New card',
     forwarded: 'Forwarded',
+    waiting: 'Waiting for you',
+    nothing: 'Nothing.',
+  },
+  operatorReport: {
+    done: 'Done',
+    approval: 'Needs your approval',
     waiting: 'Waiting for you',
     nothing: 'Nothing.',
   },

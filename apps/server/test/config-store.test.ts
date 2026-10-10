@@ -240,6 +240,11 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     displayName: Project manager
     role: project_manager
     sponsor: owner
+  - kind: ai
+    handle: operator
+    displayName: Operator
+    role: ai_operator
+    sponsor: owner
 `;
     writeFileSync(path, legacy);
 

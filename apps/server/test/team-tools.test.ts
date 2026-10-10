@@ -337,7 +337,7 @@ describe('team tools', () => {
 
   it('list_members and get_task answer with the roster and the task detail', async () => {
     const members = await h.domain.teamTools.listMembers(dev);
-    expect(members.map((m) => m.handle)).toEqual(['owner', 'dev-1', 'dev-2', 'cr', 'pm']);
+    expect(members.map((m) => m.handle)).toEqual(['owner', 'dev-1', 'dev-2', 'cr', 'pm', 'operator']);
     const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
     expect(detail.task.key).toBe('AR-1');
     expect(detail.sessions).toHaveLength(1);

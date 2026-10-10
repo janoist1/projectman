@@ -13,8 +13,9 @@ describe('merge migration 46', () => {
   it('backfills persistent handovers from review pins and allows only one open merge per card', () => {
     const db = new Database(':memory:');
     try {
-      for (const migration of migrations.filter((item) => item.version <= 43)) db.exec(migration.sql);
-      db.pragma('user_version = 43');
+      const prior = migrations.filter((item) => item.version < 46);
+      for (const migration of prior) db.exec(migration.sql);
+      db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
       const old = createRepositories(db);
       old.projects.insert({
         key: 'AR',

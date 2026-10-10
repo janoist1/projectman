@@ -2020,6 +2020,7 @@ export const hu = {
 
   /** The project manager's panel in the header (PM-429). */
   pm: {
+    relayed: 'a beszélgetéséből',
     name: 'Projektmenedzser',
     short: 'PM',
     button: {

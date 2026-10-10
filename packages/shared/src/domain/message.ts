@@ -36,6 +36,14 @@ export const TeamMessageAnswer = z.object({
 });
 export type TeamMessageAnswer = z.infer<typeof TeamMessageAnswer>;
 
+export const RelayedReply = z.object({
+  /** The project manager's session the text was read from. */
+  sessionId: z.string(),
+  /** The person's message it answers. */
+  inReplyTo: z.string(),
+});
+export type RelayedReply = z.infer<typeof RelayedReply>;
+
 export const MessageKind = z.enum(['action', 'info']);
 export type MessageKind = z.infer<typeof MessageKind>;
 export const CardVersion = z.object({
@@ -74,6 +82,7 @@ export const TeamMessage = z.object({
   receipts: z.array(MessageReceipt).optional(),
   /** Set on the message that carries a person's answer to an AI member's question (PM-249); older answers have none. The asker is `to[0]`, the one who answered is `from`. */
   answer: TeamMessageAnswer.optional(),
+  relayed: RelayedReply.optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
 

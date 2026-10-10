@@ -823,6 +823,11 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   CREATE INDEX project_focus_items_order ON project_focus_items(project_key, position);`,
   },
   {
+    version: 44,
+    name: 'relayed project manager replies',
+    sql: `ALTER TABLE team_messages ADD COLUMN relayed TEXT;`,
+  },
+  {
     version: 46,
     name: 'merge on done and persistent handovers',
     sql: `CREATE TABLE task_merges (

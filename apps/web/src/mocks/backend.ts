@@ -1187,6 +1187,7 @@ export class MockBackend {
     sessionId?: string,
     /** What the message answers: the card thread shows it as a question and its answer (PM-249). */
     answer?: TeamMessageAnswer,
+    relayed?: TeamMessage['relayed'],
   ): TeamMessage {
     const refusal = this.teamMessageRefusal(from, recipients, text);
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
@@ -1208,6 +1209,7 @@ export class MockBackend {
         readAt: null,
       })),
       ...(answer ? { answer } : {}),
+      ...(relayed ? { relayed } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });

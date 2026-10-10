@@ -21,6 +21,7 @@ import type {
   WorkOutage,
 } from '@projectman/shared';
 import type { EngineDirectory, ProviderStatus, SessionRunner } from '../contracts';
+import { ENGINE_OFFLINE_AFTER_MS } from '../engine-link';
 import type { ProjectAccess } from './access';
 import type { DeferredStarts } from './admission';
 import { isoNow } from './context';
@@ -68,11 +69,14 @@ export class WorkOutages {
   private queued = 0;
   private checking = false;
   private stopped = false;
+  private readonly startedAt: number;
+  private readonly connectedEngines = new Set<EngineId>();
 
   private readonly deps: OutageDependencies;
 
   constructor(deps: OutageDependencies) {
     this.deps = deps;
+    this.startedAt = deps.ctx.now().getTime();
   }
 
   /** Ticks are skipped while a previous round is queued or running. Targeted checks are serialized. */
@@ -101,12 +105,20 @@ export class WorkOutages {
   }
 
   engineChanged(id: EngineId, online: boolean): Promise<void> {
+    if (online) this.connectedEngines.add(id);
     return this.enqueue(async () => {
-      const ended = await this.run({ kind: 'engine', engineId: id });
-      // A reconnect also releases work when no outage was observed before the connection returned.
-      if (online && this.deps.engines.get(id) && !ended) {
-        await this.deps.messaging.releaseForEngine(id);
-        this.deps.retry();
+      let ended = false;
+      try {
+        ended = await this.run({ kind: 'engine', engineId: id });
+      } finally {
+        // Reconnect releases work even when publishing an outage update fails.
+        if (online && this.deps.engines.get(id) && !ended) {
+          try {
+            await this.deps.messaging.releaseForEngine(id);
+          } finally {
+            this.deps.retry();
+          }
+        }
       }
     });
   }
@@ -217,14 +229,15 @@ export class WorkOutages {
       return config.team.members.flatMap((member): MemberTarget[] => {
         if (member.kind !== 'ai' || isOnLeave(member)) return [];
         const engineId = this.deps.engines.engineFor(key, member.handle);
-        const target: Target =
-          engineId === null || !this.deps.engines.get(engineId)
-            ? { kind: 'engine', engineId }
-            : {
-                kind: 'provider',
-                provider: member.provider ?? DEFAULT_AGENT_PROVIDER,
-                engineId: engineId === LOCAL_ENGINE_ID ? null : engineId,
-              };
+        const connected = engineId !== null && !!this.deps.engines.get(engineId);
+        if (connected && engineId !== null) this.connectedEngines.add(engineId);
+        const target: Target = !connected
+          ? { kind: 'engine', engineId }
+          : {
+              kind: 'provider',
+              provider: member.provider ?? DEFAULT_AGENT_PROVIDER,
+              engineId: engineId === LOCAL_ENGINE_ID ? null : engineId,
+            };
         return [{ projectKey: key, member, target }];
       });
     });
@@ -291,6 +304,15 @@ export class WorkOutages {
       selected.map(async (entry) => {
         const key = memberKey(entry.projectKey, entry.member.handle);
         if (entry.target.kind === 'engine') {
+          const id = entry.target.engineId;
+          // A remote link needs time to reconnect after the server starts. Unknown keeps adopted alerts.
+          if (
+            id !== null &&
+            id !== LOCAL_ENGINE_ID &&
+            !this.connectedEngines.has(id) &&
+            this.deps.ctx.now().getTime() - this.startedAt < ENGINE_OFFLINE_AFTER_MS
+          )
+            return;
           this.engineFailures.set(key, { outage: this.makeOutage(entry.target), setup: null });
           return;
         }
@@ -605,6 +627,14 @@ export class WorkOutages {
     if (outage.kind === 'engine')
       return outage.engine ? `Engine "${outage.engine.name}" is not connected` : 'No engine is connected';
     const label = { claude: 'Claude', codex: 'Codex', gemini: 'Gemini', nanogpt: 'NanoGPT' }[outage.provider];
-    return `${label} cannot work: ${outage.problem}`;
+    const problem = {
+      not_logged_in: 'is not logged in',
+      no_key: 'has no API key',
+      cli_too_old: 'CLI needs an update',
+      cli_missing: 'CLI is not installed',
+      chatgpt_login: 'needs a ChatGPT login',
+      setup_incomplete: 'setup is incomplete',
+    }[outage.problem];
+    return `${label} ${problem}`;
   }
 }

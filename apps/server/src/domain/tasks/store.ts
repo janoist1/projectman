@@ -86,6 +86,7 @@ export class TaskStore {
       ...rest
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
+    const outage = this.outageOf?.(task);
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
@@ -94,7 +95,7 @@ export class TaskStore {
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
-      ...(this.outageOf?.(task) ? { outage: this.outageOf(task) } : {}),
+      ...(outage ? { outage } : {}),
       ...(reviewPin ? { reviewPin } : {}),
       ...(cover ? { coverAttachmentId: cover } : {}),
       ...(loop ? { loop } : {}),

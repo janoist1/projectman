@@ -11,6 +11,7 @@ import type { ProviderStatus, EngineDirectory } from '../src/contracts';
 import type { AutomaticStart } from '../src/domain/admission';
 import { DeferredStarts } from '../src/domain/admission';
 import { WorkOutages } from '../src/domain/outages';
+import { ENGINE_OFFLINE_AFTER_MS } from '../src/engine-link';
 import { createLocalEngine } from '../src/domain/engines';
 import type { ProjectAccess } from '../src/domain';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -35,6 +36,7 @@ describe('work outage watch', () => {
   let engineId: EngineId | null;
   let directory: EngineDirectory;
   let engineListeners: Array<(id: EngineId, online: boolean) => void>;
+  let startedAt: Date;
   const remote = 'eng_abcdefghijkl';
 
   beforeEach(async () => {
@@ -74,6 +76,8 @@ describe('work outage watch', () => {
       retry,
       engineName: () => 'Mac mini',
     });
+    startedAt = h.domain.ctx.now();
+    vi.spyOn(h.domain.ctx, 'now').mockReturnValue(new Date(startedAt.getTime() + ENGINE_OFFLINE_AFTER_MS));
   });
   afterEach(async () => {
     vi.useRealTimers();
@@ -239,6 +243,67 @@ describe('work outage watch', () => {
     expect(alerts()[0]).toMatchObject({ state: 'resolved', resolution: { rule: 'outage_ended' } });
     expect(release).toHaveBeenCalledWith(remote);
     expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('allows a remote engine to reconnect after startup before opening an alert', async () => {
+    engineId = remote;
+    online = false;
+    vi.mocked(h.domain.ctx.now).mockReturnValue(startedAt);
+    await h.domain.outages.check();
+    await h.domain.outages.observeRefusal('AR', 'dev-1', 'engine_offline');
+    expect(alerts()).toEqual([]);
+    expect(probe).not.toHaveBeenCalled();
+    vi.mocked(h.domain.ctx.now).mockReturnValue(new Date(startedAt.getTime() + ENGINE_OFFLINE_AFTER_MS));
+    await h.domain.outages.check();
+    expect(alerts()).toHaveLength(1);
+    expect(alerts()[0]!.payload.outage).toMatchObject({ kind: 'engine', engine: { id: remote } });
+  });
+
+  it('preserves adopted engine alerts during startup grace and manual checks', async () => {
+    engineId = remote;
+    online = false;
+    await watch.check();
+    const item = alerts()[0]!;
+    vi.mocked(h.domain.ctx.now).mockReturnValue(startedAt);
+    await watch.stop();
+    watch = new WorkOutages({
+      ctx: h.domain.ctx,
+      projects: h.domain.projects,
+      inbox: h.domain.inbox,
+      engines: directory,
+      runner: h.runner,
+      deferred,
+      messaging: h.domain.messaging,
+      members: h.domain.members,
+      tasks: h.domain.tasks,
+      retry,
+    });
+    const result = await watch.checkNow('AR', item.id, access());
+    expect(result).toMatchObject({ stillFailing: true, item: { state: 'open' } });
+    expect(result.item.payload.outage).toEqual(item.payload.outage);
+  });
+
+  it('releases waiting work on reconnect even when outage publication fails', async () => {
+    engineId = remote;
+    online = false;
+    await watch.check();
+    online = true;
+    const release = vi.spyOn(h.domain.messaging, 'releaseForEngine').mockResolvedValue(undefined);
+    vi.spyOn(h.domain.members, 'publishMembers').mockRejectedValueOnce(new Error('Publication failed'));
+    await expect(watch.engineChanged(remote, true)).rejects.toThrow('Publication failed');
+    expect(release).toHaveBeenCalledWith(remote);
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
+  it('detects disconnection during startup grace once the engine has connected', async () => {
+    engineId = remote;
+    vi.mocked(h.domain.ctx.now).mockReturnValue(startedAt);
+    probe.mockImplementation(async (provider) => status(provider, true));
+    await watch.check();
+    online = false;
+    await watch.check();
+    expect(alerts()).toHaveLength(1);
+    expect(alerts()[0]!.payload.outage).toMatchObject({ kind: 'engine' });
   });
 
   it('carries remote provider identity and preserves its failure during an engine disconnect', async () => {

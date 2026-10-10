@@ -9,12 +9,6 @@ import { HandoffStart } from '../domain/handoff';
 import { InboxItem } from '../domain/inbox';
 import { WorkOutage } from '../domain/outage';
 
-export const CheckOutageResponse = z.object({
-  item: InboxItem,
-  stillFailing: z.boolean(),
-  checkedAt: z.string(),
-});
-export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 import {
   AgentProvider,
   AgentEffort,
@@ -39,6 +33,13 @@ import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
 import { Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting, Visibility } from '../domain/task';
+
+export const CheckOutageResponse = z.object({
+  item: InboxItem,
+  stillFailing: z.boolean(),
+  checkedAt: z.string(),
+});
+export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 
 export const ProjectManagerChannelState = z.enum([
   'available',

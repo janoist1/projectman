@@ -834,6 +834,7 @@ export function createDomain(opts: DomainOptions) {
     engineName: opts.engineName,
   });
   const unsubscribeOutageKeys = providerKeys?.onChange(() => {
+    if (opts.standby) return;
     background.run(
       () => outages.recheckProvider('nanogpt'),
       (err) => opts.logger.warn({ err }, 'outage key check failed'),
@@ -841,6 +842,7 @@ export function createDomain(opts: DomainOptions) {
   });
   // A start that waits for an engine (`engine_offline`) goes on when the engine connects (PM-311).
   const unsubscribeEngines = engines.onChange((id, online) => {
+    if (opts.standby) return;
     background.run(
       () => outages.engineChanged(id, online),
       (err) => opts.logger.warn({ err }, 'outage engine check failed'),

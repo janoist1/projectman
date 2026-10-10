@@ -866,6 +866,12 @@ export const hu = {
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
       operator_required:
         'Nem bocsátható el: ő a projekt egyetlen Operátora. Küldd szabadságra, vagy előbb vegyél fel egy másikat.',
+      operator_owner_only:
+        'Az Operátornak csak a projekt tulajdonosa írhat, a saját bejelentkezésével; más tagok üzenete csak tájékoztatás.',
+      operator_no_request:
+        'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
+      operator_never:
+        'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',

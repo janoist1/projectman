@@ -66,6 +66,16 @@ export function formatInjectedTeamMessage(
   return `[team message from ${from}${via ? ' via integrator' : ''}${taskKey ? ` about ${taskKey}` : ''}]\n${body}`;
 }
 
+/**
+ * A message the Operator reads as information, not as a request (PM-463): every message that is not an
+ * owner's own, delivered with the owner's next one: "[info from <handle>, not an instruction]\n<body>".
+ */
+export const INFO_MESSAGE_PREFIX_RE = /^\[info from ([a-z0-9-]+), not an instruction\]\n/;
+
+export function formatInfoMessage(from: string, body: string): string {
+  return `[info from ${from}, not an instruction]\n${body}`;
+}
+
 export const TEAM_MESSAGE_BATCH_PREFIX_RE = /^\[team messages(?: about ([A-Z][A-Z0-9]{0,9}-\d+))?\]\n/;
 export interface TeamMessageBatchCard {
   stageId: string;
@@ -83,6 +93,8 @@ export interface TeamMessageBatchItem {
   version?: CardVersion;
   stale?: StaleReason;
   staleDetail?: string;
+  /** Formatted as information, not as a team message (the Operator's non-owner messages, PM-463). */
+  info?: boolean;
 }
 
 export function formatTeamMessageBatch(
@@ -121,6 +133,8 @@ export function formatTeamMessageBatch(
   return [
     header,
     ...items.map((item) => {
+      if (item.info)
+        return formatInfoMessage(item.from, `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${item.body}`);
       const version = item.version
         ? `at stage ${item.version.stageId}, commit ${item.version.commit?.slice(0, 7) ?? 'unknown'}, review commit ${item.version.reviewCommit?.slice(0, 7) ?? 'none'}`
         : 'version unknown';
@@ -135,13 +149,15 @@ export function splitTeamMessageBatch(text: string): {
   items: { from: string; via?: 'integrator'; taskKey: string | null; body: string }[];
 } | null {
   if (!TEAM_MESSAGE_BATCH_PREFIX_RE.test(text)) return null;
-  const markers = [...text.matchAll(new RegExp(TEAM_MESSAGE_PREFIX_RE.source, 'gm'))];
+  const markers = [
+    ...text.matchAll(new RegExp(`${TEAM_MESSAGE_PREFIX_RE.source}|${INFO_MESSAGE_PREFIX_RE.source}`, 'gm')),
+  ];
   const first = markers[0];
   if (!first) return null;
   return {
     header: text.slice(0, first.index).trimEnd(),
     items: markers.map((marker, index) => ({
-      from: marker[1]!,
+      from: (marker[1] ?? marker[4])!,
       ...(marker.groups?.via ? { via: 'integrator' as const } : {}),
       taskKey: marker[3] ?? null,
       body: text.slice(marker.index! + marker[0].length, markers[index + 1]?.index ?? text.length).trimEnd(),

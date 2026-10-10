@@ -21,6 +21,14 @@ export function registerProjectRoutes(
     return domain.projectManagerChannels.view(request.params.key);
   });
 
+  /** The Operator's conversation and the log of its steps: the owner's own login only (PM-463). */
+  app.get<ProjectParams>(routes.operator(':key'), async (request) => {
+    const access = await requireAccess(domain, request, request.params.key, { internal: true });
+    if (access.access !== 'owner' || access.via)
+      throw forbidden('operator_owner_only', "only the owner's own login may see the Operator's conversation");
+    return domain.projectManagerChannels.operatorView(request.params.key);
+  });
+
   app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>
     domain.templates.list().map(summarizeTemplate),
   );

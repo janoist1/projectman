@@ -59,6 +59,7 @@ import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
+import { OperatorRequests, OperatorSteps } from './operator-requests';
 import { ProjectManagerChannels } from './project-manager';
 import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
@@ -442,7 +443,9 @@ export function createDomain(opts: DomainOptions) {
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
-  const messages = new MessageService({ ctx, timeline, projects });
+  const operatorRequests = new OperatorRequests({ ctx });
+  const operatorSteps = new OperatorSteps({ ctx });
+  const messages = new MessageService({ ctx, timeline, projects, operatorRequests });
   const tasks = new TaskService({
     ctx,
     timeline,
@@ -556,6 +559,10 @@ export function createDomain(opts: DomainOptions) {
     disk,
     engines,
   });
+  // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
+  // the owner's next message opens a new request after this one closed, not before.
+  events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
+  events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
@@ -794,6 +801,8 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const teamTools = new TeamToolsService({
+    operatorRequests,
+    operatorSteps,
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
@@ -1217,7 +1226,13 @@ export function createDomain(opts: DomainOptions) {
   return {
     engineCounters,
     ctx,
-    projectManagerChannels: new ProjectManagerChannels({ ctx, projects, deferred: deferredStarts, pauses }),
+    projectManagerChannels: new ProjectManagerChannels({
+      ctx,
+      projects,
+      deferred: deferredStarts,
+      pauses,
+      operatorRequests,
+    }),
     bus,
     templates,
     timeline,

@@ -83,6 +83,8 @@ export const TeamMessage = z.object({
   /** Set on the message that carries a person's answer to an AI member's question (PM-249); older answers have none. The asker is `to[0]`, the one who answered is `from`. */
   answer: TeamMessageAnswer.optional(),
   relayed: RelayedReply.optional(),
+  /** Set on a message the Operator sent during an owner's request (PM-463): the request's id. */
+  operatorRequest: z.string().optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
 

@@ -82,17 +82,23 @@ describe('the Operator works only on the owner’s request (PM-447)', () => {
     expect(h.runner.started.length).toBeGreaterThan(0);
   });
 
-  it.each([
-    ['another AI member', 'dev-1', undefined],
-    ['the owner through the integrator key', 'owner', 'integrator' as const],
-  ])('does not start it for a message from %s, and says why', async (_who, from, via) => {
+  it('does not start it for a message from another AI member, and says why', async () => {
     h = await createDomainHarness({ adjust: atWork });
     const before = h.runner.started.length;
-    expect(await noWake(from, via)).toEqual([
+    expect(await noWake('dev-1')).toEqual([
       { handle: 'operator', delivery: 'next_input', noWake: 'operator_owner_only' },
     ]);
     expect(h.runner.started).toHaveLength(before);
     // Not lost: it waits for the next time the owner talks to the Operator.
     expect(h.repos.messages.pending('AR', 'operator')).toHaveLength(1);
+  });
+
+  it('refuses the owner’s integrator key (PM-463)', async () => {
+    h = await createDomainHarness({ adjust: atWork });
+    await expect(noWake('owner', 'integrator')).rejects.toMatchObject({
+      code: 'operator_owner_only',
+      status: 403,
+    });
+    expect(h.runner.started).toHaveLength(0);
   });
 });

@@ -13,6 +13,7 @@ import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createCounterRepository, createProjectRepository } from './projects';
+import { createOperatorRequestRepository } from './operator-requests';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
 import { createReviewPinRepository } from './review-pins';
@@ -35,6 +36,7 @@ export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
+export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
 export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskCoverRecord } from './task-covers';
@@ -72,6 +74,7 @@ export function createRepositories(db: Db) {
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
     projectFocus: createProjectFocusRepository(db),
+    operatorRequests: createOperatorRequestRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

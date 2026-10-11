@@ -9,6 +9,7 @@ import type {
   RelationsChange,
   TaskRelation,
   MemberView,
+  QuestionAttachment,
   QuestionOptionInput,
   Task,
   TaskDetail,
@@ -393,8 +394,10 @@ export interface TeamToolsHandler {
       recommended?: string;
       recommendationReason?: string;
       details?: string;
+      /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
+      attachmentIds?: string[];
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string }>;
+  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.

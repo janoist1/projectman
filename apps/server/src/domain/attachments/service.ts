@@ -96,6 +96,7 @@ export class AttachmentService implements AttachmentOperations {
   private readonly tasks: TaskService;
   private readonly timeline: TimelineService;
   private readonly storage: AttachmentStorage;
+  private readonly onDeleted: ((attachment: { projectKey: string; id: string }) => void) | undefined;
   private readonly deletions = new KeyedMutex();
   private readonly thumbnails: ThumbnailMaker;
 
@@ -105,7 +106,10 @@ export class AttachmentService implements AttachmentOperations {
     tasks: TaskService;
     timeline: TimelineService;
     storage: AttachmentStorage;
+    /** Told inside the deletion's unit of work, once the row is gone (PM-498: questions naming the file). */
+    onDeleted?: (attachment: { projectKey: string; id: string }) => void;
   }) {
+    this.onDeleted = deps.onDeleted;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -455,6 +459,7 @@ export class AttachmentService implements AttachmentOperations {
       // Gone already: another call or a recovery finished it, with its own event.
       if (!this.ctx.repos.attachments.remove(record.id)) return;
       this.ctx.repos.taskCovers.clearPinned(record.taskKey, record.id);
+      this.onDeleted?.({ projectKey: record.projectKey, id: record.id });
       this.timeline.append({
         projectKey: record.projectKey,
         taskKey: record.taskKey,

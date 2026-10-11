@@ -70,7 +70,7 @@ export { ProjectState } from './project-state';
 import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
-import { createDomainContext, defaultTemplateRegistry } from './context';
+import { createDomainContext, defaultTemplateRegistry, isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
@@ -492,6 +492,7 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     timeline,
     storage: opts.attachmentStorage,
+    onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
   });
   const members = new MemberService({
     ctx,

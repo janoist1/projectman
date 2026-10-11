@@ -71,6 +71,12 @@ export function createInboxRepository(db: Db) {
          AND json_extract(payload, '$.gate.fromStageId') = ? AND json_extract(payload, '$.gate.toStageId') = ?
        ORDER BY seq`,
     ),
+    questionsWithAttachment: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'question'
+         AND EXISTS (SELECT 1 FROM json_each(payload, '$.attachments') WHERE json_extract(value, '$.id') = ?)
+       ORDER BY seq`,
+    ),
+    updatePayload: db.prepare('UPDATE inbox_items SET payload = ?, updated_at = ? WHERE id = ?'),
     countOpenFor: db.prepare(
       `SELECT COUNT(*) AS n FROM inbox_items
        WHERE project_key = ? AND state = 'open' AND EXISTS (SELECT 1 FROM json_each(assignees) WHERE value = ?)`,
@@ -189,6 +195,15 @@ export function createInboxRepository(db: Db) {
       return (statements.openGateRequests.all(projectKey, taskKey, fromStageId, toStageId) as InboxRow[]).map(
         toItem,
       );
+    },
+    /** The questions, whatever their state, that name this file (PM-498), oldest first. */
+    listQuestionsWithAttachment(projectKey: string, attachmentId: string): InboxItem[] {
+      return (statements.questionsWithAttachment.all(projectKey, attachmentId) as InboxRow[]).map(toItem);
+    },
+    /** Replaces the payload of an item in any state (PM-498: a file of a question was deleted). */
+    updatePayload(id: string, payload: Record<string, unknown>, at: string): InboxItem | null {
+      const changes = statements.updatePayload.run(toJson(payload), at, id).changes;
+      return changes > 0 ? get(id) : null;
     },
     countOpenFor(projectKey: string, handle: string): number {
       return (statements.countOpenFor.get(projectKey, handle) as { n: number }).n;

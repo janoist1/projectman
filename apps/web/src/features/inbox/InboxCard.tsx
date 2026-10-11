@@ -73,6 +73,41 @@ export interface InboxCardProps {
   approvalHint?: ApprovalHint | null;
   /** The card's drawer, where the approval item of a question stands. */
   cardHref?: string | null;
+  /**
+   * The card row of an item that has a card (PM-501): `string` makes it a link to the card's drawer, `null`
+   * a plain line (the card is not on the board). Left out, the row stays the card's title (the drawer's cards).
+   */
+  taskHref?: string | null;
+}
+
+/** The card row: the key (mono, bold) and the title, two lines at most; a link when the card can be opened. */
+function TaskRow({ taskKey, title, href }: { taskKey: string; title: string | null; href: string | null }) {
+  const text = (
+    <span className={styles.taskText}>
+      <span className={styles.taskKey}>{taskKey}</span>
+      {title ? ` ${title}` : null}
+    </span>
+  );
+  return (
+    <p className={styles.task}>
+      {href ? (
+        <Link
+          to={href}
+          className={styles.taskLink}
+          data-inbox-card-link=""
+          aria-label={
+            title
+              ? t('inbox.card.openLabel', { key: taskKey, title })
+              : t('inbox.card.openLabelKey', { key: taskKey })
+          }
+        >
+          {text}
+        </Link>
+      ) : (
+        text
+      )}
+    </p>
+  );
 }
 
 /** The "Vidd tovább" sentence with the next column in bold (PM-461). */
@@ -124,6 +159,7 @@ export function InboxCard({
   stale = false,
   approvalHint = null,
   cardHref = null,
+  taskHref,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
   const handOn = handOnRequestOf(item);
@@ -151,6 +187,13 @@ export function InboxCard({
   // The task the request is about: the most useful background of the decision, under the header row.
   // A "Vidd tovább" item names the card in its own heading.
   const contextTitle = handOn ? null : taskTitle || (gateMove && item.title ? item.title : null);
+  // The card row names the card by its key; it is a link where the page gives an address (never in the drawer).
+  const taskRow =
+    !handOn && item.taskKey && taskHref !== undefined ? (
+      <TaskRow taskKey={item.taskKey} title={contextTitle} href={compact ? null : taskHref} />
+    ) : contextTitle ? (
+      <p className={styles.task}>{contextTitle}</p>
+    ) : null;
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
@@ -193,6 +236,7 @@ export function InboxCard({
     const isStale = operatorApproval.stale !== null || stale;
     return (
       <article
+        id={inboxItemDomId(item.id)}
         className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
         data-kind={item.kind}
         data-operator-approval=""
@@ -207,7 +251,7 @@ export function InboxCard({
             {formatAgo(item.createdAt)}
           </time>
         </div>
-        {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
+        {taskRow}
         <Heading className={styles.title}>{item.title}</Heading>
         <OperatorApprovalBody payload={operatorApproval} stale={stale} />
         {assignedToOthers ? (
@@ -269,7 +313,7 @@ export function InboxCard({
           {formatAgo(item.createdAt)}
         </time>
       </div>
-      {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
+      {taskRow}
       <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
         {heading}
       </Heading>

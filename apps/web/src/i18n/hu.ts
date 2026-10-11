@@ -3327,6 +3327,12 @@ export const hu = {
       },
     },
     details: 'Megnyitás',
+    /** The card row of an item (PM-501): a link that opens the card's drawer over the inbox. */
+    card: {
+      openLabel: '{key} kártya megnyitása: {title}',
+      /** While the board loads (or fails), the title is not known: no dangling ": ". */
+      openLabelKey: '{key} kártya megnyitása',
+    },
     tool: 'Eszköz: {tool}',
     /** A long command of a permission request is folded after four lines. */
     commandFull: 'Teljes parancs',

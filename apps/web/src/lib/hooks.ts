@@ -24,11 +24,29 @@ export function useIsMobile(): boolean {
   return useMediaQuery(MOBILE_QUERY);
 }
 
+/** The titles the mounted views want; the newest (a card's drawer over a page) shows, and gives way when it closes. */
+const titleStack: Array<{ title: string }> = [];
+
+function showTopTitle(): void {
+  const top = titleStack.at(-1);
+  if (top?.title) document.title = top.title;
+}
+
 /** "Folyamat · Acme webshop · projectman" */
 export function useDocumentTitle(...parts: Array<string | null | undefined>): void {
   const title = [...parts.filter(Boolean), t('app.name')].join(' · ');
+  const entry = useRef({ title: '' });
   useEffect(() => {
-    document.title = title;
+    const mine = entry.current;
+    titleStack.push(mine);
+    return () => {
+      titleStack.splice(titleStack.indexOf(mine), 1);
+      showTopTitle();
+    };
+  }, []);
+  useEffect(() => {
+    entry.current.title = title;
+    showTopTitle();
   }, [title]);
 }
 

@@ -1,11 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { Route, Routes, useLocation } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem } from '@projectman/shared';
 import { setFetchImplementation } from '../../api/client';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { plainLanguageQuestion } from '../../mocks/fixtures';
-import { mockProject } from '../../test/mockProject';
+import { inboxItemDomId } from '../../lib/inbox';
+import { createMockFetch, mockProject } from '../../test/mockProject';
+import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from './InboxPage';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -327,5 +330,140 @@ describe('plain-language questions in the inbox', () => {
     expect(within(card).getByRole('list').className).toMatch(/mobile/);
     expect(within(card).getByText(t('inbox.question.recommended'))).toBeTruthy();
     expect(card.querySelector('details')!.open).toBe(false);
+  });
+});
+
+function Where() {
+  const { pathname } = useLocation();
+  return <output data-testid="where">{pathname}</output>;
+}
+
+const withDrawer = (
+  <>
+    <Routes>
+      <Route path="/p/:projectKey/inbox" element={<InboxPage />}>
+        <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+      </Route>
+    </Routes>
+    <Where />
+  </>
+);
+const where = () => screen.getByTestId('where').textContent;
+const drawer = () => screen.findByRole('complementary', { name: t('task.drawerLabel') });
+
+describe('the card row of an inbox item (PM-501)', () => {
+  /** The first question: AC-22's, a free answer, so a started answer can be typed. */
+  function ownAnswer(project: ReturnType<typeof mockProject>) {
+    const base = project.backend.inbox.find((item) => item.id === 'inb_q_ga4')!;
+    project.backend.inbox = project.backend.inbox.filter((item) => item.id !== 'inb_q_ga4');
+    project.backend.inbox.push({ ...base, id: 'inb_q_own', options: [] });
+    return project.backend.findTask('AC-22')!.title;
+  }
+
+  it('is a link `KEY title` to the card, whose drawer opens over the inbox', async () => {
+    const project = mockProject();
+    const title = ownAnswer(project);
+    project.render(withDrawer, '/p/AC/inbox');
+
+    const link = await screen.findByRole('link', {
+      name: t('inbox.card.openLabel', { key: 'AC-22', title }),
+    });
+    expect(link.textContent).toBe(`AC-22 ${title}`);
+    expect(link.getAttribute('href')).toBe('/p/AC/inbox/tasks/AC-22');
+
+    fireEvent.click(link);
+    await drawer();
+    expect(where()).toBe('/p/AC/inbox/tasks/AC-22');
+    // The inbox stays under the drawer, and the drawer's title is the document's.
+    expect(document.getElementById(inboxItemDomId('inb_q_own'))).toBeTruthy();
+    expect(document.title).toContain('AC-22');
+  });
+
+  it('closes back to the inbox on ✕ and on Esc, with the focus on the link and the started answer kept', async () => {
+    const project = mockProject();
+    const title = ownAnswer(project);
+    project.render(withDrawer, '/p/AC/inbox');
+    const link = await screen.findByRole('link', {
+      name: t('inbox.card.openLabel', { key: 'AC-22', title }),
+    });
+    const answer = screen.getByRole('textbox', { name: t('inbox.answerLabel') });
+    fireEvent.change(answer, { target: { value: 'Elég a süti nélküli' } });
+    const inboxTitle = document.title;
+
+    for (const close of [
+      async () => fireEvent.click(within(await drawer()).getByRole('button', { name: t('common.close') })),
+      async () => {
+        await drawer();
+        fireEvent.keyDown(document, { key: 'Escape' });
+      },
+    ]) {
+      fireEvent.click(link);
+      await drawer();
+      await close();
+      await waitFor(() => expect(where()).toBe('/p/AC/inbox'));
+      expect(screen.queryByRole('complementary', { name: t('task.drawerLabel') })).toBeNull();
+      await waitFor(() => expect(document.activeElement).toBe(link));
+      expect(
+        (screen.getByRole('textbox', { name: t('inbox.answerLabel') }) as HTMLTextAreaElement).value,
+      ).toBe('Elég a süti nélküli');
+      expect(document.title).toBe(inboxTitle);
+    }
+  });
+
+  it('has no link on the compact cards of the drawer', async () => {
+    const project = mockProject();
+    ownAnswer(project);
+    project.render(withDrawer, '/p/AC/inbox/tasks/AC-22');
+    const panel = await drawer();
+    // The card's open question stands in the drawer as a compact card.
+    await within(panel).findByText(project.backend.inbox.find((item) => item.id === 'inb_q_own')!.title);
+    expect(panel.querySelector('[data-inbox-card-link]')).toBeNull();
+    expect(within(panel).queryByRole('link', { name: /kártya megnyitása/ })).toBeNull();
+  });
+
+  it('is no link on a "Vidd tovább" item, and no row on an item without a card', async () => {
+    const project = mockProject();
+    project.backend.inbox = project.backend.inbox.filter((item) => item.state !== 'open');
+    project.backend.config.team.cardMover = { kind: 'human', handle: 'owner' };
+    project.backend.moveAs('AC-20', 'code_review', 'be-1');
+    project.backend.inbox.push({
+      ...project.backend.inbox[0]!,
+      id: 'inb_nocard',
+      kind: 'approval',
+      taskKey: null,
+      state: 'open',
+      resolution: null,
+      title: 'Levél Katának',
+      assignees: ['owner'],
+    });
+    project.render(withDrawer, '/p/AC/inbox');
+    await screen.findByRole('button', { name: t('inbox.handOn.move', { stage: 'Code review' }) });
+    expect(document.querySelector('[data-inbox-card-link]')).toBeNull();
+    const plain = (await screen.findByRole('heading', { name: 'Levél Katának' })).closest('article')!;
+    expect(plain.querySelector('p[class*="task"]')).toBeNull();
+  });
+
+  it('is plain text for a card the board does not have, and only the key while the board loads', async () => {
+    const project = mockProject();
+    ownAnswer(project);
+    project.backend.inbox.find((item) => item.id === 'inb_q_own')!.taskKey = 'AC-999';
+    project.render(withDrawer, '/p/AC/inbox');
+    await screen.findByRole('textbox', { name: t('inbox.answerLabel') });
+    const row = document.getElementById(inboxItemDomId('inb_q_own'))!.querySelector('p[class*="task"]')!;
+    expect(row.textContent).toBe('AC-999');
+    expect(row.querySelector('a')).toBeNull();
+  });
+
+  it('shows only the key, as a link, while the board has not come yet', async () => {
+    const project = mockProject();
+    ownAnswer(project);
+    const answer = createMockFetch(project.backend, project.requests);
+    setFetchImplementation((path, init) =>
+      path.endsWith('/board') ? new Promise<Response>(() => {}) : answer(path, init),
+    );
+    project.render(withDrawer, '/p/AC/inbox');
+    const link = await screen.findByRole('link', { name: t('inbox.card.openLabelKey', { key: 'AC-22' }) });
+    expect(link.textContent).toBe('AC-22');
+    expect(link.getAttribute('href')).toBe('/p/AC/inbox/tasks/AC-22');
   });
 });

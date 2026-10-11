@@ -686,7 +686,7 @@ export class MemberProfiles {
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
   private readonly sessions: Pick<SessionOrchestrator, 'list'>;
-  private readonly admission: Pick<Admission, 'memberLoad'>;
+  private readonly admission: Pick<Admission, 'holders'>;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -695,7 +695,7 @@ export class MemberProfiles {
     tasks: TaskService;
     inbox: InboxService;
     sessions: Pick<SessionOrchestrator, 'list'>;
-    admission: Pick<Admission, 'memberLoad'>;
+    admission: Pick<Admission, 'holders'>;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;

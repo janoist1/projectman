@@ -129,6 +129,20 @@ export const routes = {
   /** POST `{ ids }`: marks the viewer's unread messages among them read in one request (PM-78). */
   readTeamMessages: (key: string) => `/api/projects/${key}/messages/read`,
 
+  /** POST uploads one file for a message (multipart/form-data, field "file"); the answer is `UploadMessageAttachmentResponse`. */
+  messageAttachments: (key: string) => `/api/projects/${key}/message-attachments`,
+  /** DELETE removes the file (`DeleteMessageAttachmentResponse`). */
+  messageAttachment: (key: string, id: string) => `/api/projects/${key}/message-attachments/${id}`,
+  /** GET/HEAD: inline when the content is a supported image or PDF, otherwise as a download. */
+  messageAttachmentContent: (key: string, id: string) =>
+    `/api/projects/${key}/message-attachments/${id}/content`,
+  /** GET/HEAD: always as a download. */
+  messageAttachmentDownload: (key: string, id: string) =>
+    `/api/projects/${key}/message-attachments/${id}/download`,
+  /** GET/HEAD: a small WebP preview (at most 640 px) of an image; 404 for anything else. */
+  messageAttachmentThumbnail: (key: string, id: string) =>
+    `/api/projects/${key}/message-attachments/${id}/thumbnail`,
+
   /** GET (internal members; query `days`): the cards closed lately with their rounds and tokens (PM-222). */
   closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,
 

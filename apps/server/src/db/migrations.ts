@@ -1005,5 +1005,20 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     INSERT INTO decision_candidate_state (project_key, since, listed_at)
       SELECT DISTINCT project_key, strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL FROM inbox_items;`,
   },
+  {
+    version: 54,
+    name: 'message attachments',
+    sql: `CREATE TABLE message_attachments (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT,
+      id TEXT NOT NULL UNIQUE, project_key TEXT NOT NULL, message_id TEXT,
+      file_name TEXT NOT NULL, size INTEGER NOT NULL, media_type TEXT NOT NULL, preview TEXT NOT NULL,
+      uploaded_by_kind TEXT NOT NULL, uploaded_by_handle TEXT NOT NULL, created_at TEXT NOT NULL,
+      bound_at TEXT, state TEXT NOT NULL CHECK (state IN ('pending','ready','deleting')),
+      deleted_by_kind TEXT, deleted_by_handle TEXT, delete_requested_at TEXT
+    );
+    CREATE INDEX message_attachments_message ON message_attachments(project_key, message_id);
+    CREATE INDEX message_attachments_unsent ON message_attachments(state, message_id, created_at);
+    ALTER TABLE team_messages ADD COLUMN attachments TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

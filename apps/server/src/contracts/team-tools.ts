@@ -5,6 +5,7 @@ import type {
   DeveloperLevelRequest,
   FocusPlace,
   MemberHandle,
+  MessageAttachmentRef,
   MessageKind,
   RelationsChange,
   TaskRelation,
@@ -205,6 +206,29 @@ export interface LocatedAttachmentForTool {
   path: string;
   /** The file is in the attachment directory of the session's own task, which it reads without asking. */
   readableWithoutAsking: boolean;
+}
+
+/** The longest side, in pixels, of an image `read_message_attachment` hands over (larger ones are shrunk). */
+export const MESSAGE_IMAGE_MAX_SIDE = 1568;
+
+/**
+ * The most bytes of that image (WebP). It travels in one MCP result, and over the engine link in one
+ * `mcp.relay` frame (4 MiB at most, base64 included), hence the shrinking.
+ */
+export const MESSAGE_IMAGE_MAX_BYTES = 1_500_000;
+
+/**
+ * read_message_attachment (PM-516): a file of a team message the caller can see, opened for the
+ * model. An image comes as a WebP of at most 1568 px a side, a small text file as text, anything
+ * else (or an image too large to send) only as the entry.
+ */
+export interface MessageAttachmentReading {
+  attachment: MessageAttachmentRef;
+  message: { id: string; from: string; createdAt: string };
+  content:
+    | { kind: 'image'; data: Buffer; mimeType: 'image/webp' }
+    | { kind: 'text'; text: string }
+    | { kind: 'none'; reason: 'type' | 'too_large' };
 }
 
 /** A refused destination the session may ask for with submit_boundary_request. */
@@ -519,6 +543,12 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; attachmentId: string },
   ): Promise<LocatedAttachmentForTool>;
+  /**
+   * read_message_attachment: the content of a file attached to a team message, judged through the
+   * calling member's eyes (in a guest conversation of the Operator, through the guest's): a file of
+   * a message they cannot see is not found, whoever uploaded it.
+   */
+  readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
   /**
    * attach_file: attaches a regular file from the calling session's working directory (as the
    * server recorded it; never a directory the caller names) in the caller's name. The path is

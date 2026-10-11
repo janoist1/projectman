@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TEAM_TOOLS } from './tools';
+import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
@@ -26,7 +26,7 @@ describe('Operator MCP tools', () => {
       title: '  Change the writer  ',
       operation: { op: 'member_update', handle: 'dev-1', changes: { model: 'sonnet', capacity: 2 } },
     });
-    const result = JSON.parse(await tool.run({ ctx: devContext, args, handler }));
+    const result = JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })));
     expect(result).toEqual({ status: 'done', step_id: 'ops_fake', changes: [] });
     expect(handler.calls[0]).toMatchObject({
       method: 'operate',
@@ -45,7 +45,7 @@ describe('Operator MCP tools', () => {
     expect(tool.annotations.readOnlyHint).toBe(true);
     const handler = createFakeTeamToolsHandler();
     const args = tool.inputSchema.parse({ doc: 'decisions', from_line: 5, line_count: 10 });
-    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toMatchObject({
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toMatchObject({
       doc: 'decisions',
       from_line: 5,
     });
@@ -65,7 +65,7 @@ describe('Operator MCP tools', () => {
     const edit = { doc: 'decisions', old_text: '', new_text: '3. Third' };
     const input = { base_commit: 'a'.repeat(40), message: '  Add decision 3  ', edits: [edit] };
     const args = tool.inputSchema.parse(input);
-    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toMatchObject({
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toMatchObject({
       write_id: 'dw_fake',
     });
     expect(handler.calls[0]).toMatchObject({
@@ -92,7 +92,7 @@ describe('Operator MCP tools', () => {
     expect(tool.annotations.readOnlyHint).toBe(true);
     const handler = createFakeTeamToolsHandler();
     const args = tool.inputSchema.parse({ limit: 5 });
-    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toEqual({
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
       candidates: [],
       more: false,
     });
@@ -111,7 +111,9 @@ describe('Operator MCP tools', () => {
       { item_id: 'inb_2', verdict: 'declined' },
     ];
     const args = tool.inputSchema.parse({ items });
-    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toEqual({ marked: 2 });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      marked: 2,
+    });
     expect(handler.calls[0]).toMatchObject({ method: 'markDecisionCandidates', args: { items } });
     const refused = (list: unknown[]) => tool.inputSchema.safeParse({ items: list }).success;
     expect(refused([])).toBe(false);
@@ -125,7 +127,7 @@ describe('Operator MCP tools', () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'start_task')!;
     const handler = createFakeTeamToolsHandler();
     const args = tool.inputSchema.parse({ task_key: 'AR-1', assignee: 'dev-1', despite_prerequisites: true });
-    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toEqual({
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
       task_key: 'AR-1',
       session_id: null,
       hired: null,

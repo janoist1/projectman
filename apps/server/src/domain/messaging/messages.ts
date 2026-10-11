@@ -10,6 +10,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  MessageAttachmentRef,
   ProjectConfig,
   TeamMessage,
   TeamMessageAnswer,
@@ -49,6 +50,8 @@ export interface RecordMessageInput {
   /** The Operator's request this message was sent during (PM-463). */
   operatorRequest?: string;
   operatorSignal?: string;
+  /** The files the message carries (PM-516), already bound to it by `MessageAttachmentService.bindForSend`. */
+  attachments?: MessageAttachmentRef[];
 }
 
 /**
@@ -110,6 +113,7 @@ export class MessageService {
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
       ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);
@@ -124,7 +128,8 @@ export class MessageService {
           messageId: message.id,
           from: message.from,
           to: message.to,
-          excerpt: excerpt(message.body),
+          // A message of files alone is told by their names.
+          excerpt: excerpt(message.body || (message.attachments ?? []).map((a) => a.fileName).join(', ')),
           kind: message.kind,
           version: message.version,
         },

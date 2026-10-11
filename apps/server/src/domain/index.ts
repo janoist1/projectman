@@ -30,6 +30,7 @@ import type {
   EngineDirectory,
   EventBus,
   FullTestExecutor,
+  MessageAttachmentStorage,
   ScreenshotExecutor,
   GithubPublisher,
   GithubService,
@@ -60,6 +61,7 @@ import {
 } from './admission';
 import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
+import { MessageAttachmentService } from './message-attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { OperatorRequests, OperatorSteps } from './operator-requests';
@@ -149,6 +151,7 @@ export type {
   StartTaskResult,
 } from './admission';
 export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
+export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
@@ -247,6 +250,8 @@ export interface DomainOptions {
   engineAttachments?: EngineAttachments;
   /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
   attachmentStorage: AttachmentStorage;
+  /** Where the files of team message attachments live (PROJECTMAN_HOME/message-attachments, PM-516). */
+  messageAttachmentStorage: MessageAttachmentStorage;
   /** Creates the accounts of accepted invitations. */
   accounts: Pick<AuthService, 'prepareUser'>;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
@@ -508,6 +513,11 @@ export function createDomain(opts: DomainOptions) {
     storage: opts.attachmentStorage,
     onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
   });
+  const messageAttachments = new MessageAttachmentService({
+    ctx,
+    projects,
+    storage: opts.messageAttachmentStorage,
+  });
   const members = new MemberService({
     ctx,
     projects,
@@ -621,6 +631,7 @@ export function createDomain(opts: DomainOptions) {
     delivery,
     refinement,
     engines,
+    messageAttachments,
   });
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
@@ -1013,6 +1024,7 @@ export function createDomain(opts: DomainOptions) {
     github: opts.github,
     githubSync,
     attachments,
+    messageAttachments,
     attachmentDirectory,
     materializeAttachment: opts.engineAttachments?.materialize,
     // The files and the folder of a session are on its engine.
@@ -1445,6 +1457,7 @@ export function createDomain(opts: DomainOptions) {
   let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  let stopMessageSweep: (() => void) | undefined;
   let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
   let handoffTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -1490,6 +1503,7 @@ export function createDomain(opts: DomainOptions) {
     operatorSignals,
     tasks,
     attachments,
+    messageAttachments,
     members,
     roles,
     sessions,
@@ -1536,6 +1550,7 @@ export function createDomain(opts: DomainOptions) {
       await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
+      await messageAttachments.recover();
       // A standby copy only shows its data: nothing below acts on the outside world or starts a session.
       if (opts.standby) {
         opts.logger.warn(
@@ -1543,6 +1558,8 @@ export function createDomain(opts: DomainOptions) {
         );
         return;
       }
+      // Uploads no message took within a day are deleted (now, and hourly).
+      stopMessageSweep = messageAttachments.startSweeping();
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
@@ -1692,6 +1709,7 @@ export function createDomain(opts: DomainOptions) {
       if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
+      stopMessageSweep?.();
       if (idleCloseTimer) clearInterval(idleCloseTimer);
       if (handoffTimer) clearInterval(handoffTimer);
       const drained = schedules.stop();

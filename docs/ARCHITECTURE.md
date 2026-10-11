@@ -162,6 +162,25 @@ Documentation map:
   **Files on a question** (PM-498): an `ask_human` question names at most 6 files
   (`MAX_QUESTION_ATTACHMENTS`) of its card or its parent; the inbox item keeps a snapshot of them
   (`QuestionAttachment`) and marks each with `goneAt` when the file is deleted (`InboxService.attachmentGone`).
+- **Message attachment** (PM-515, PM-516) — a file (at most 25 MB, the same type sniffing and
+  upload limits as the card attachment) a member sends with a team message, kept in
+  `PROJECTMAN_HOME/message-attachments` and reached only through `routes.messageAttachments*`
+  (upload, `content`/`download`/`thumbnail`, delete) and the team tool `read_message_attachment`.
+  It belongs to a project, not to a card. Upload is open to every project member (a viewer too) and
+  starts **unsent**: only its uploader sees it, at most 20 at a time (`message_attachment_limit`), and
+  the hourly sweep removes the ones older than 24 hours. `send` takes `attachmentIds` (at most 10; the
+  text may be empty with at least one): every file must be ready, unsent, of the project and the
+  sender's own, else `message_attachment_unavailable` and nothing is sent; the binding to the message
+  and the message happen in one transaction. A **sent** file is visible to exactly those who may see
+  the message (`canSeeTeamMessage`); anyone else gets `not_found`. Deleting a sent file
+  (`canDeleteMessageAttachment`) removes file and row, marks the entry in `team_messages.attachments`
+  with `goneAt`/`goneBy` (`TeamMessage.attachments`, a JSON column; old rows have none), and
+  publishes `team_message_updated`; it adds no timeline entry. The recipient's text carries the
+  block `messageAttachmentLines` under the message (name quoted with `JSON.stringify`, SI sizes) in
+  single, batch and Operator info delivery. `read_message_attachment` judges visibility through the
+  calling AI member's eyes (a guest Operator conversation through the guest's) and answers an image
+  as an image (first frame, EXIF rotation applied, WebP of at most 1568 px, 1 500 000 bytes), a
+  valid UTF-8 text of at most 100 000 bytes as text, and anything else by name, type and size.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
@@ -574,6 +593,7 @@ attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 060
                           a file still being written is <id>.part; an image or PDF
                           an agent asked for also has <id>.<ext> (a hard link);
                           an image's thumbnail is <id>.thumb (<id>.thumb.part while written)
+message-attachments/<KEY>/<id>  files of team messages (PM-516): the same modes and names
 ```
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
@@ -1452,6 +1472,21 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the folders on the engine (`folders.*`, `host.*`) and keeps the paths in the hub's mirror, so
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
+- **Message attachments (PM-516)** — `domain/message-attachments/{storage,service,image}.ts`,
+  `domain/attachments/{files,upload,thumbnail}.ts`, `api/message-attachments.ts`, `mcp/tools.ts`
+  (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
+  `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
+  `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
+  reached only through the protected REST routes and the team tool. A session never gets a path:
+  `read_message_attachment` returns the content itself, so nothing is copied to a remote engine.
+  The unsent uploads older than 24 hours are removed by an hourly sweep and at startup.
+  **Remote engine:** the server (cloud) keeps the files and the database; an engine needs no new
+  code. The tool call reaches the server as `mcp.relay`, and an image travels back in the MCP result
+  as base64 inside that frame. A frame is at most `ENGINE_MAX_FRAME_BYTES` (4 MiB), hence the
+  downscale: the image is a WebP of at most 1568 px a side and 1 500 000 bytes (about 2 MB as
+  base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
+  at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
+  card attachments.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).

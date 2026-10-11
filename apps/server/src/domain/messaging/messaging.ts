@@ -36,6 +36,7 @@ import type { EngineDirectory, SentMessageRecipient } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
 import { DomainError, forbidden, invalid, conflict } from '../errors';
+import type { MessageAttachmentService } from '../message-attachments';
 import type { OperatorSignals } from '../operator-signals';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
@@ -121,6 +122,7 @@ export class Messaging {
   private readonly messages: MessageService;
   private readonly delivery: MessageDelivery;
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
+  private readonly messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
   private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests:
@@ -140,7 +142,10 @@ export class Messaging {
     refinement: Pick<RefinementSteps, 'turnMember'>;
     /** The engines (PM-315): a message to a member whose engine is not connected waits for it. */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
+    /** The files a message carries (PM-516): checked before the message is sent, bound to it as it is recorded. */
+    messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
   }) {
+    this.messageAttachments = deps.messageAttachments;
     this.engines = deps.engines;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -173,7 +178,7 @@ export class Messaging {
   async send(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null },
+    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<TeamMessage> {
     return (await this.sendReporting(projectKey, from, input, opts)).message;
@@ -183,12 +188,15 @@ export class Messaging {
   async sendReporting(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null },
+    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
     const config = await this.projects.config(projectKey);
     const text = input.text.trim();
-    if (!text) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    const attachmentIds = input.attachmentIds ?? [];
+    // Empty text is a message of files alone (PM-516).
+    if (!text && attachmentIds.length === 0)
+      throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const recipients = unique(input.to).filter((handle) => handle !== from);
     if (recipients.length === 0)
       throw invalid('invalid_request', 'the message names no recipient but its sender', { field: 'to' });
@@ -216,6 +224,10 @@ export class Messaging {
       }
     }
     if (!opts.origin) this.assertMayWriteToOperator(config, from, recipients, opts.actor);
+    const sender = opts.actor ?? humanActor(from);
+    // The files are checked before anything else is done for the message (a refusal leaves nothing behind)
+    // and bound to it in its own unit of work below.
+    if (attachmentIds.length > 0) this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
@@ -277,13 +289,20 @@ export class Messaging {
     const message = this.ctx.unitOfWork(() => {
       if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
         this.operatorSignals!.decision(projectKey, opts.operatorSignal, from, true);
+      const id = newId('msg');
+      const attachments =
+        attachmentIds.length > 0
+          ? this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
+          : undefined;
       const recorded = this.messages.record({
+        id,
         projectKey,
         from,
         to: recipients,
         taskKey,
         body: text,
-        actor: opts.actor ?? humanActor(from),
+        attachments,
+        actor: sender,
         sessionId: opts.sessionId ?? null,
         humanRecipients: humans,
         delivered: recipients.every((handle) => humans.includes(handle)),

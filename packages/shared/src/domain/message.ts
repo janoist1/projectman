@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MessageOrigin } from './involvement';
 import { MemberHandle } from './member';
+import { MessageAttachmentRef } from './message-attachment';
 import { StageId } from './pipeline';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -73,7 +74,10 @@ export const TeamMessage = z.object({
   from: MemberHandle,
   to: z.array(MemberHandle).min(1),
   taskKey: TaskKey.nullable(),
-  body: z.string().min(1),
+  /** The text; empty only for a message that carries files alone. */
+  body: z.string(),
+  /** Files the message carries (PM-515); absent: none. */
+  attachments: z.array(MessageAttachmentRef).optional(),
   createdAt: z.string(),
   deliveredAt: z.string().nullable(),
   kind: MessageKind.optional(),

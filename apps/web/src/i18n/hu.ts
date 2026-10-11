@@ -890,6 +890,17 @@ export const hu = {
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
+      docs_not_configured:
+        'A döntésnapló vagy a roadmap nincs beállítva: add meg a fájl helyét a tároló beállításaiban.',
+      docs_edit_not_found: 'A cserélendő szöveg nincs a fájlban; olvasd újra a fájlt, és pontosan másold ki.',
+      docs_edit_ambiguous:
+        'A cserélendő szöveg többször szerepel a fájlban; adj hozzá több környező szöveget.',
+      docs_not_append_only:
+        'A döntésnaplóba csak új sor kerülhet: meglévő sor nem módosulhat és nem tűnhet el.',
+      docs_unchanged: 'A cserék után egyik fájl sem változna.',
+      docs_stale: 'A fájl közben megváltozott; olvasd újra, és mutasd meg a tulajdonosnak az új szöveget.',
+      docs_write_pending: 'A projektben már van sorban álló vagy futó dokumentumírás.',
+      docs_write_failed: 'A dokumentumok írása nem ment fel; az üzenet megnevezi az okot.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',
@@ -2565,10 +2576,12 @@ export const hu = {
     steps: {
       label: 'Lépések',
       done: 'Megtettem',
+      queued: 'Sorban áll',
       awaiting: 'Jóváhagyásodra vár',
       refused: 'Nem tettem meg',
       iconDone: 'Megtörtént',
       iconAwaiting: 'Jóváhagyásra vár',
+      iconQueued: 'Sorban áll',
       iconRefused: 'Nem tettem meg',
       approved: 'Jóváhagytad',
       rejected: 'Elvetetted',
@@ -2593,6 +2606,7 @@ export const hu = {
         session_stop: 'Munkamenet leállítása',
         project_pause: 'A projekt szüneteltetése',
         project_resume: 'A projekt szünetének feloldása',
+        docs_write: 'Döntésnapló vagy roadmap írása',
       },
     },
     change: {

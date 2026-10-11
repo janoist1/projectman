@@ -60,6 +60,7 @@
   color: var(--c-ok-text);
 }
 
+.step[data-group='queued'] .icon,
 .step[data-group='awaiting'] .icon {
   background: var(--c-needs-bg);
   color: var(--c-needs-text);

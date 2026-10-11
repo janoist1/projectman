@@ -946,5 +946,29 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
   ALTER TABLE team_messages ADD COLUMN operator_signal TEXT;`,
   },
+  {
+    version: 51,
+    name: 'doc writes',
+    sql: `CREATE TABLE doc_writes (
+    id TEXT PRIMARY KEY,
+    project_key TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    base TEXT NOT NULL,
+    base_commit TEXT NOT NULL,
+    edits TEXT NOT NULL,
+    message TEXT NOT NULL,
+    author TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    engine_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('queued','running','published','stale','failed')),
+    commit_sha TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX doc_writes_open ON doc_writes(project_key) WHERE state IN ('queued','running');`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -26,6 +26,7 @@ import type { MergeRecord } from '../db';
 import type { BackgroundTasks } from './background';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
+import type { DocWrites } from './doc-writes';
 import { conflict, DomainError, forbidden } from './errors';
 import type { InboxService } from './inbox';
 import type { Messaging } from './messaging';
@@ -57,6 +58,7 @@ type Active = { row: MergeRecord; controller: AbortController; pushing: boolean;
 export class Merges {
   private readonly active = new Map<string, Active>();
   private stopped = false;
+  private docWrites: Pick<DocWrites, 'busy' | 'pump'> | null = null;
   private readonly cards: MergeCardLock;
   private readonly deps: Deps;
   constructor(deps: Deps) {
@@ -514,11 +516,26 @@ export class Merges {
     await Promise.all([...this.active.values()].map((running) => running.promise));
   }
 
+  /** The Operator's document writes share the repository's slot (PM-495): a merge waits while one runs, and it goes first when the slot frees. */
+  useDocWrites(docWrites: Pick<DocWrites, 'busy' | 'pump'>): void {
+    this.docWrites = docWrites;
+  }
+
+  /** Whether a merge runs in the repository's slot. */
+  busy(projectKey: string, repo: string): boolean {
+    return this.active.has(`${projectKey}:${repo}`);
+  }
+
+  /** The card whose merge runs in the repository's slot; null: none. */
+  holder(projectKey: string, repo: string): string | null {
+    return this.active.get(`${projectKey}:${repo}`)?.row.taskKey ?? null;
+  }
+
   pump(): void {
     if (this.stopped) return;
     for (const row of this.deps.ctx.repos.taskMerges.list('queued')) {
       const key = `${row.projectKey}:${row.repo}`;
-      if (this.active.has(key)) continue;
+      if (this.active.has(key) || this.docWrites?.busy(row.projectKey, row.repo)) continue;
       const running: Active = {
         row,
         controller: new AbortController(),
@@ -538,6 +555,8 @@ export class Merges {
             : null;
           await this.release(row, engine?.merger);
           this.active.delete(key);
+          // A waiting document write takes the free slot before the next merge.
+          this.docWrites?.pump();
           this.pump();
         });
     }

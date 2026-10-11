@@ -202,6 +202,7 @@ describe('a conflict the merger fixes (PM-471)', () => {
     project.render(drawer, route);
     const box = await mergeBox();
     expect(box.getAttribute('data-merge-state')).toBe('fixing');
+    expect(box.getAttribute('aria-live')).toBe('polite');
     expect(within(box).getByRole('heading', { name: t('task.merge.fixing.title') })).toBeTruthy();
     expect(box.textContent).toContain('main');
     expect(within(box).queryByRole('button')).toBeNull();
@@ -214,6 +215,7 @@ describe('a conflict the merger fixes (PM-471)', () => {
     project.render(drawer, route);
     const box = await mergeBox();
     expect(box.textContent).toContain(t('task.merge.fixing.you', { base: 'main' }));
+    expect(box.getAttribute('aria-live')).toBeNull();
     expect(screen.queryByRole('button', { name: t('task.merge.again') })).toBeNull();
     expect(screen.getByRole('button', { name: t('task.merge.button') })).toBeTruthy();
     expect(screen.getByLabelText(t('task.merge.fixNote.label'))).toBeTruthy();

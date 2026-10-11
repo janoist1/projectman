@@ -278,7 +278,7 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         ) : (
           <p className={styles.text}>{t('task.merge.fixing.others', { merger: who, base: merge.base })}</p>
         ),
-        true,
+        !isMergeFixer(merge, myHandle ?? ''),
       );
     case 'failed': {
       const conflict = failureKind(merge) === 'conflict';

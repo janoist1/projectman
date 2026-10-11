@@ -192,6 +192,49 @@ describe('member initiated merge', () => {
     vi.spyOn(h!.domain.sessions, 'cardEngineId').mockReturnValue('another');
     await expect(fix({ fixConflict: true })).rejects.toMatchObject({ code: 'merge_fix_engine_mismatch' });
   });
+  it('rechecks open fix state after delayed sweep discovery', async () => {
+    await conflictFailure();
+    await fix({ fixConflict: true });
+    const current = row()!;
+    h!.repos.taskMerges.save({ ...current, state: 'cancelled' });
+    const listed = await h!.worktrees.listMergeFixes({
+      project: await h!.domain.projects.config('AR'),
+      repoName: 'web',
+    });
+    const discovery = deferred<typeof listed>();
+    const list = vi.spyOn(h!.worktrees, 'listMergeFixes').mockReturnValueOnce(discovery.promise);
+    const remove = vi.spyOn(h!.worktrees, 'removeMergeFix');
+    const sweep = h!.domain.worktreeSweep.run();
+    await vi.waitFor(() => expect(list).toHaveBeenCalled());
+    h!.repos.taskMerges.save({ ...current, state: 'fixing' });
+    discovery.resolve(listed);
+    await sweep;
+    expect(remove).not.toHaveBeenCalled();
+    expect(h!.worktrees.fixes.size).toBe(1);
+  });
+  it('serializes fix creation behind an in-flight sweep removal', async () => {
+    await conflictFailure();
+    await fix({ fixConflict: true });
+    const current = row()!;
+    h!.repos.taskMerges.save({ ...current, state: 'cancelled' });
+    const gate = deferred<void>();
+    const originalRemove = h!.worktrees.removeMergeFix.bind(h!.worktrees);
+    const remove = vi.spyOn(h!.worktrees, 'removeMergeFix').mockImplementationOnce(async (args) => {
+      await gate.promise;
+      await originalRemove(args);
+    });
+    const sweep = h!.domain.worktreeSweep.run();
+    await vi.waitFor(() => expect(remove).toHaveBeenCalled());
+    h!.repos.taskMerges.save({ ...current, state: 'failed' });
+    const ensure = vi.spyOn(h!.worktrees, 'ensureMergeFix');
+    const pendingFix = fix({ fixConflict: true });
+    expect(ensure).not.toHaveBeenCalled();
+    gate.resolve();
+    await Promise.all([sweep, pendingFix]);
+    expect(ensure).toHaveBeenCalledOnce();
+    expect(row()?.state).toBe('fixing');
+    expect(h!.worktrees.fixes.size).toBe(1);
+  });
   it.each(['requested', 'queued', 'running', 'blocked', 'failed'] as const)(
     'refuses fixing an unrelated state or check failure: %s',
     async (state) => {
@@ -288,6 +331,7 @@ describe('member initiated merge', () => {
     });
     expect(spec.policy!.filesystem.writableRoots).toContain(spec.cwd);
     expect(spec.cwd).toContain('_merge-fix');
+    const labels = task().labels;
     h!.repos.tasks.update(task().id, { labels: [] });
     await h!.domain.merges.reconcile('AR', 'AR-1');
     await h!.domain.worktreeSweep.run();
@@ -295,6 +339,25 @@ describe('member initiated merge', () => {
     await h!.domain.sessions.stop('AR', session.id);
     await h!.domain.worktreeSweep.run();
     expect(h!.worktrees.fixes.size).toBe(0);
+    await h!.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' });
+    const reader = h!.runner.lastStarted();
+    expect(reader.cwd).not.toContain('_merge-fix');
+    expect(reader.policy!.placement.kind).toBe('read_only');
+    h!.runner.setState(session.id, 'idle');
+    expect(h!.domain.sessions.isRunning(session.id)).toBe(true);
+    h!.repos.tasks.update(task().id, { labels });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await start('AR-1', aiActor('cr'));
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    h!.runner.setState(session.id, 'working');
+    const restarted = h!.runner.started.length;
+    await fix({ fixConflict: true }, aiActor('cr'));
+    h!.runner.setState(session.id, 'idle');
+    await vi.waitFor(() => expect(h!.runner.started.length).toBe(restarted + 1));
+    expect(h!.runner.lastStarted().policy).toMatchObject({
+      placement: { kind: 'task_worktree', mergeFix: { branch: 'merge-fix/AR-1' } },
+    });
   });
   afterEach(async () => {
     await h?.cleanup();

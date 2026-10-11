@@ -120,6 +120,7 @@ import { ProviderQuotaHolds } from './provider-quota-hold';
 import type { PlanUsageCache } from './plan-usage';
 import type { InboxService } from './inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
+import { MergeCardLock } from './merge-card-lock';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
@@ -231,6 +232,7 @@ function newConversationInput(brief: string | null, messages: string[]): string 
 }
 
 export interface SessionOrchestratorDeps {
+  mergeCards?: MergeCardLock;
   onAuthError?: (projectKey: string, handle: string, provider: AgentProvider, engineId: EngineId) => void;
   ctx: DomainContext;
   projects: ProjectService;
@@ -400,6 +402,7 @@ export class SessionOrchestrator {
 
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
+  private readonly mergeCards: MergeCardLock;
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
   /** Egress proxy credentials of live sessions (managed VM): token -> session. */
@@ -429,6 +432,8 @@ export class SessionOrchestrator {
   private readonly awaitingFirstTurn = new Set<string>();
   /** The permission mode each session's current process runs in (PM-170): another one restarts it. */
   private readonly processModes = new Map<string, string | undefined>();
+  /** The dedicated merge-fix placement granted to each current process. */
+  private readonly processMergeFixes = new Map<string, { branch: string; cwd: string }>();
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
   private readonly processGrants = new Map<string, number>();
   /**
@@ -464,6 +469,7 @@ export class SessionOrchestrator {
   >();
 
   constructor(deps: SessionOrchestratorDeps) {
+    this.mergeCards = deps.mergeCards ?? new MergeCardLock();
     this.deps = deps;
     this.ctx = deps.ctx;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
@@ -1660,11 +1666,16 @@ export class SessionOrchestrator {
         });
       if (engineId !== this.cardEngineId(projectKey, task))
         throw conflict('merge_fix_engine_mismatch', 'merge fix must run on the card engine');
-      placed = await engine.worktrees.ensureMergeFix({
-        project: config,
-        repoName,
-        taskKey: task.key,
-        commit: task.merge!.commit!,
+      placed = await this.mergeCards.run(projectKey, task.key, async () => {
+        const current = this.deps.tasks.get(projectKey, task.key);
+        if (!isMergeFixer(current.merge, member.handle))
+          throw conflict('merge_fix_not_allowed', 'the merge fix ended before placement');
+        return engine.worktrees.ensureMergeFix({
+          project: config,
+          repoName,
+          taskKey: task.key,
+          commit: current.merge!.commit!,
+        });
       });
       cwd = placed.path;
       branch = placed.branch;
@@ -1763,6 +1774,7 @@ export class SessionOrchestrator {
       existing &&
       (profileChanged ||
         engineChanged ||
+        Boolean(existing.branch?.startsWith('merge-fix/')) !== mergeFix ||
         // The managed VM (and anything behind the VM boundary) always places the session itself: it
         // never goes back to where it ran.
         ((vm || this.managed) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
@@ -2088,6 +2100,9 @@ export class SessionOrchestrator {
     if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 
     try {
+      if (mergeFix && placed)
+        this.processMergeFixes.set(session.id, { branch: placed.branch, cwd: placed.path });
+      else this.processMergeFixes.delete(session.id);
       const info = await this.deps.runner.start({
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
@@ -2155,6 +2170,7 @@ export class SessionOrchestrator {
       this.processProviders.delete(session.id);
       this.resumingProcesses.delete(session.id);
       this.processModes.delete(session.id);
+      this.processMergeFixes.delete(session.id);
       this.processGrants.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
         state: 'failed',
@@ -2723,6 +2739,7 @@ export class SessionOrchestrator {
     this.removeSessionFolderOf(sessionId);
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
+    this.processMergeFixes.delete(sessionId);
     this.processGrants.delete(sessionId);
     this.turnEnded(sessionId);
     const wait = this.inputWaits.get(sessionId);
@@ -3048,17 +3065,48 @@ export class SessionOrchestrator {
   /** A conflict-fix request changes placement only after the tool's turn has ended. */
   private restartForMergeFix(session: Session): void {
     if (session.workItem.type !== 'task' || this.isPaused(session)) return;
-    const task = this.deps.tasks.find(session.projectKey, session.workItem.taskKey);
-    if (!task) return;
-    if (isMergeFixer(task.merge, session.member) && session.branch !== task.merge?.fix?.branch)
-      void this.restartWithMessages(session.projectKey, session.id, [
-        `Continue in the dedicated merge-fix worktree. Run git merge ${task.merge!.fix!.base}, resolve only mechanical conflicts, commit and call merge_task with resolution. Send behavioral conflicts back with update_task and a reason.`,
-      ]).catch((err: unknown) =>
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not restart for merge fix'),
-      );
-    else if (session.branch?.startsWith('merge-fix/') && !isMergeFixer(task.merge, session.member))
-      void this.stop(session.projectKey, session.id).catch((err: unknown) =>
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not stop ended merge-fix session'),
+    void this.locks
+      .run(sessionLockKey(session.projectKey, session.member, session.workItem), async () => {
+        const current = this.find(session.id);
+        if (
+          !current ||
+          current.workItem.type !== 'task' ||
+          current.state !== 'idle' ||
+          !this.isRunning(current.id) ||
+          this.isPaused(current)
+        )
+          return;
+        const task = this.deps.tasks.find(current.projectKey, current.workItem.taskKey);
+        if (!task) return;
+        const placement = this.processMergeFixes.get(current.id);
+        if (!isMergeFixer(task.merge, current.member)) {
+          if (placement) await this.stop(current.projectKey, current.id);
+          return;
+        }
+        if (placement?.branch === task.merge!.fix!.branch && placement.cwd === current.cwd) return;
+        const config = await this.deps.projects.config(current.projectKey);
+        const member = memberOf(config, current.member);
+        if (!this.mayWorkNow(config, member)) return;
+        this.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
+        await this.deps.runner.stop(current.id);
+        this.markEnded(current.id, null);
+        await this.start(
+          config,
+          member,
+          current.workItem,
+          task,
+          this.find(current.id),
+          messagesForFirstInput([
+            `Continue in the dedicated merge-fix worktree. Run git merge ${task.merge!.fix!.base}, resolve only mechanical conflicts, commit and call merge_task with resolution. Send behavioral conflicts back with update_task and a reason.`,
+          ]),
+          false,
+          null,
+          null,
+          null,
+        );
+      })
+      .catch((err: unknown) =>
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not update merge-fix placement'),
       );
   }
 

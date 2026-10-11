@@ -1624,8 +1624,12 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   server stores the fix state and resolution attribution; it never edits conflict files.
   This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
   with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
-  `MemberWorkspaces` retains its existing work/review choices. Orphaned fix branches and
-  clean checkouts are swept at startup and periodically, after any fix session has stopped.
+  `MemberWorkspaces` retains its existing work/review choices. The server's shared
+  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
+  Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
+  at startup and periodically. The engine revalidates the canonical fix path under its
+  repository mutex, refuses symlinks and leaves unregistered directories in place.
 
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,

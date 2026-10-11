@@ -273,6 +273,23 @@ relative file/key names to the server.
 
 ## Automatic command decisions
 
+### Merge-fix worktrees (PM-471)
+
+The nominated merger can receive a writable `merge-fix/<KEY>` worktree without a
+file-changing duty (`files: []` and `DEVELOPMENT_SHELL_TOOLS`). This exception applies
+only while the card's merge is `fixing`, on the card's engine, in `task_worktree` mode.
+The placement and current member must match the recorded fixer and branch.
+
+`git merge <fix.base>` is automatically allowed only with the exact recorded commit
+SHA. For Codex, this executes outside its sandbox like the other routine developer
+steps, with the server user's rights and the repository's hooks and configuration.
+
+The owner decided that mechanical conflict fixes may enter the default branch without
+a separate code review of the fix commit. The resolution note and ancestry checks
+record the explanation and require the approved commit and conflict base to be present;
+they do not restrict the contents of the fix commit. Behavioral conflicts must be sent
+back to the developer with a reason.
+
 PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)
 separates shell isolation, built-in file-tool permissions and trusted runner hooks/MCP. The
 earlier sibling-directory probe does not prove an exact worktree exception under the app home.

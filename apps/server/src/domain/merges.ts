@@ -22,14 +22,16 @@ import type { DomainContext } from './context';
 import { conflict, DomainError, forbidden } from './errors';
 import type { InboxService } from './inbox';
 import type { Messaging } from './messaging';
+import { MergeCardLock } from './merge-card-lock';
 import type { ProjectService } from './projects';
 import { fullTestSandbox } from './session-policy';
 import type { SessionOrchestrator } from './sessions';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
-import { actorHandle, newId, SYSTEM_ACTOR, KeyedMutex } from './util';
+import { actorHandle, newId, SYSTEM_ACTOR } from './util';
 
 type Deps = {
+  cards?: MergeCardLock;
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
@@ -48,10 +50,11 @@ type Active = { row: MergeRecord; controller: AbortController; pushing: boolean;
 export class Merges {
   private readonly active = new Map<string, Active>();
   private stopped = false;
-  private readonly cards = new KeyedMutex();
+  private readonly cards: MergeCardLock;
   private readonly deps: Deps;
   constructor(deps: Deps) {
     this.deps = deps;
+    this.cards = deps.cards ?? new MergeCardLock();
   }
 
   private reviewer(config: ProjectConfig, task: Task): string | null {
@@ -94,7 +97,7 @@ export class Merges {
   }
 
   async reconcile(projectKey: string, taskKey: string): Promise<void> {
-    await this.cards.run(`${projectKey}:${taskKey}`, () => this.reconcileCard(projectKey, taskKey));
+    await this.cards.run(projectKey, taskKey, () => this.reconcileCard(projectKey, taskKey));
   }
   private async reconcileCard(projectKey: string, taskKey: string): Promise<void> {
     const { ctx, tasks, projects } = this.deps;
@@ -168,7 +171,7 @@ export class Merges {
     actor: Actor,
     options: { fixConflict?: boolean; resolution?: string } = {},
   ): Promise<Task> {
-    return this.cards.run(`${projectKey}:${taskKey}`, async () => {
+    return this.cards.run(projectKey, taskKey, async () => {
       if (options.fixConflict || options.resolution !== undefined)
         return this.fix(projectKey, taskKey, actor, options);
       await this.reconcileCard(projectKey, taskKey);
@@ -305,9 +308,7 @@ export class Merges {
     }
     const note = options.resolution!;
     if (note.length < 1 || note.length > 2000)
-      throw conflict('merge_fix_invalid', 'resolution must contain 1 to 2000 characters', {
-        reason: 'missing_commit',
-      });
+      throw conflict('merge_fix_invalid', 'resolution must contain 1 to 2000 characters');
     const info = await engine.worktrees.findMergeFix(key);
     const head = info ? await engine.worktrees.head(info.path) : null;
     if (head?.dirty || (info && (await engine.worktrees.status(info.path)).dirty))
@@ -566,25 +567,31 @@ export class Merges {
       ),
     );
     if (row.fix && (row.state === 'merged' || row.state === 'cancelled')) {
-      const task = this.deps.tasks.find(row.projectKey, row.taskKey);
-      if (
-        !task ||
-        this.deps.sessions
-          .list(row.projectKey, { taskKey: row.taskKey })
-          .some((s) => s.branch === row.fix!.branch && this.deps.sessions.isRunning(s.id))
-      )
-        return;
-      try {
-        const config = await this.deps.projects.config(row.projectKey);
-        await this.engine(task)?.worktrees.removeMergeFix({
-          project: config,
-          repoName: row.repo,
-          taskKey: row.taskKey,
-        });
-      } catch (err) {
-        this.deps.ctx.logger.warn({ err, mergeId: row.id }, 'could not remove merge-fix checkout');
-      }
+      // release may itself run under this card's lock. Schedule rather than re-enter it.
+      void this.cards
+        .run(row.projectKey, row.taskKey, () => this.removeFix(row))
+        .catch((err: unknown) =>
+          this.deps.ctx.logger.warn({ err, mergeId: row.id }, 'could not remove merge-fix checkout'),
+        );
     }
+  }
+
+  private async removeFix(row: MergeRecord): Promise<void> {
+    const config = await this.deps.projects.config(row.projectKey);
+    const task = this.deps.tasks.find(row.projectKey, row.taskKey);
+    if (
+      !task ||
+      this.deps.ctx.repos.taskMerges.open(row.projectKey, row.taskKey) ||
+      this.deps.sessions
+        .list(row.projectKey, { taskKey: row.taskKey })
+        .some((s) => s.branch === row.fix!.branch && this.deps.sessions.isRunning(s.id))
+    )
+      return;
+    await this.engine(task)?.worktrees.removeMergeFix({
+      project: config,
+      repoName: row.repo,
+      taskKey: row.taskKey,
+    });
   }
   private save(row: MergeRecord, patch: Partial<MergeRecord>): void {
     Object.assign(row, patch, { updatedAt: isoNow(this.deps.ctx) });
@@ -993,7 +1000,7 @@ export class Merges {
       row.state === 'merged'
         ? `Merge ${row.taskKey} into ${row.repo}/${row.base} completed at ${row.mergeCommit}.`
         : row.state === 'failed'
-          ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nFix only simple mechanical conflicts with the merge tool; otherwise send the card back with update_task and explain the failure. Retry with merge_task when ready.`
+          ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
           : row.state === 'blocked'
             ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}. Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
             : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;

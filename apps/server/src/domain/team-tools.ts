@@ -11,6 +11,7 @@ import {
   memberOf,
   needsRepoChoice,
   questionChoices,
+  questionApprovalLabel,
   TaskStatus as TaskStatusSchema,
   TaskKey,
 } from '@projectman/shared';
@@ -1128,7 +1129,7 @@ export class TeamToolsService implements TeamToolsHandler {
       recommendationReason?: string;
       details?: string;
     },
-  ): Promise<{ inboxItemId: string }> {
+  ): Promise<{ inboxItemId: string; approvalLabel?: string }> {
     return this.guard(async () => {
       const config = await this.caller(ctx, 'ask_human');
       const question = args.question.trim();
@@ -1182,6 +1183,15 @@ export class TeamToolsService implements TeamToolsHandler {
       ];
       // A question about a card holds it back while it is open: the label goes on first, so the
       // question records that the system put it there.
+      const task = taskKey ? this.tasks.find(ctx.projectKey, taskKey) : null;
+      const approvalLabel = task
+        ? questionApprovalLabel(config, task, {
+            text: [question, ...choices.flatMap((choice) => [choice.label, choice.consequence]), details]
+              .filter(Boolean)
+              .join('\n'),
+            assignees,
+          })
+        : null;
       const autoLabel = await this.openQuestionLabel.claim(ctx.projectKey, taskKey, ctx.member, question);
       const item = this.inbox.create({
         projectKey: ctx.projectKey,
@@ -1194,6 +1204,7 @@ export class TeamToolsService implements TeamToolsHandler {
         payload: {
           question,
           options: choices.map((choice) => choice.label),
+          ...(approvalLabel ? { approvalLabel } : {}),
           ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
           ...(reason ? { recommendationReason: reason } : {}),
           ...(details ? { details } : {}),
@@ -1209,7 +1220,7 @@ export class TeamToolsService implements TeamToolsHandler {
         type: 'question_asked',
         data: { inboxItemId: item.id, question },
       });
-      return { inboxItemId: item.id };
+      return { inboxItemId: item.id, ...(approvalLabel ? { approvalLabel } : {}) };
     });
   }
 

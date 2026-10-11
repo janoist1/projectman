@@ -91,6 +91,8 @@ export const InboxResolutionRule = z.enum([
   'senior_took',
   /** The card a decision asked about went on another way (PM-348): nothing is left to decide. */
   'senior_wait_ended',
+  /** The label a question asked approval for was put on its card (PM-484): nothing is left to answer. */
+  'approval_given',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -423,6 +425,8 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
  */
 export const QuestionPayload = z.object({
   question: z.string(),
+  /** The approval this question appears to request. An answer never sets it; setting it closes the question (approval_given). */
+  approvalLabel: LabelId.optional(),
   /** The suggested answers as plain labels; the item's options (`option_1`, ...) repeat them. */
   options: z.array(z.string()).optional(),
   /** Id of the option (in the item's `options`) the asking member recommends. */

@@ -394,7 +394,7 @@ export interface TeamToolsHandler {
       recommendationReason?: string;
       details?: string;
     },
-  ): Promise<{ inboxItemId: string }>;
+  ): Promise<{ inboxItemId: string; approvalLabel?: string }>;
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.

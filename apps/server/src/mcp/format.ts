@@ -701,8 +701,12 @@ export function formatQuestionAsked(
   inboxItemId: string,
   to: string[] | undefined,
   asked: { question: string; recommended?: string | undefined },
+  approvalLabel?: string,
 ): string {
   const whose = to && to.length > 0 ? ` of ${to.join(', ')}` : '';
   const hint = questionHint(asked);
-  return `Question ${inboxItemId} is waiting in the inbox${whose}.${hint ? `\nTip for your next question: ${hint}` : ''}`;
+  const approvalNote = approvalLabel
+    ? `\nNote: an answer to this question does not put the label \`${approvalLabel}\` on the card. The app asks the label's holders for the approval in their inbox (a gate request); this question closes by itself once the label is on.`
+    : '';
+  return `Question ${inboxItemId} is waiting in the inbox${whose}.${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
 }

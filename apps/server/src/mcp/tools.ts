@@ -1009,7 +1009,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const taskKey = args.task_key ?? ctx.taskKey;
       const to = args.to ? unique(args.to) : undefined;
-      const { inboxItemId } = await handler.askHuman(ctx, {
+      const { inboxItemId, approvalLabel } = await handler.askHuman(ctx, {
         question: args.question,
         ...(args.options ? { options: args.options } : {}),
         ...(args.recommended ? { recommended: args.recommended } : {}),
@@ -1018,10 +1018,15 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(taskKey ? { taskKey } : {}),
         ...(to ? { to } : {}),
       });
-      return formatQuestionAsked(inboxItemId, to, {
-        question: args.question,
-        recommended: args.recommended,
-      });
+      return formatQuestionAsked(
+        inboxItemId,
+        to,
+        {
+          question: args.question,
+          recommended: args.recommended,
+        },
+        approvalLabel,
+      );
     },
   }),
 

@@ -1127,6 +1127,8 @@ export function createDomain(opts: DomainOptions) {
 
   // The handoff follows what happens to the old member, the receiver and the card meanwhile.
   events.on('config_changed', (change) => handoffs.configChanged(change.projectKey, change.next));
+  // A member who may no longer mark, or a surface that is gone, ends the tool's sessions for good (PM-509).
+  events.on('config_changed', (change) => feedbackWidget.configChanged(change));
   events.on('task_cancelled', (task) => handoffs.taskClosed(task));
   events.on('task_stage_changed', (change) => {
     if (change.task.status === 'done') handoffs.taskClosed(change.task, change.actor);

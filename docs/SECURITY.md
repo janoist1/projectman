@@ -660,7 +660,12 @@ do not apply: nothing here uses a cookie).
   once when the person signs it out (`DELETE /sessions/current`), an owner or admin signs the
   person out of the tool (`Kiléptetem`) or switches the person's "may mark" off, the person is
   removed or becomes a viewer, or the surface is changed or deleted. It expires after 30 days
-  without use and 90 days in any case. Every failure is `401 feedback_session_invalid`.
+  without use and 90 days in any case. Every failure is `401 feedback_session_invalid`. These
+  endings are for good: every change of the project's configuration revokes the sessions whose
+  person may no longer mark or whose surface is gone or has another address (and the first request
+  after a missed change does too), so a handle that is given to someone else later, or a switch that
+  is turned on again, does not bring an old token back; the person needs a new code. A configuration
+  that cannot be read only refuses that request.
 - **Limits.** Per session and hour: 30 marks, 120 comments (in memory, so a server restart
   resets them); per project and day: 500 marks (counted from the database). Over a limit: `429`
   with `Retry-After`. Request bodies: 3 MiB for a mark (screenshot), 64 KiB for everything else.

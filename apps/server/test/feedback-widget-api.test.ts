@@ -263,6 +263,18 @@ describe('feedback widget API (PM-509)', () => {
       expect(session.markId).toBe(made.id);
     });
 
+    it('does not name a mark of another surface', async () => {
+      const elsewhere = await feedback().createMark({
+        projectKey: 'AR',
+        author: 'cleo',
+        surfaceId: 'blog',
+        request: await markRequest({ pageUrl: `${BLOG}/post` }),
+      });
+      const code = await launchCode(cookies.client!, { surfaceId: 'shop', markId: elsewhere.id });
+      const session = (await api('POST', '/sessions', { payload: { code } })).json() as SessionResponse;
+      expect(session.markId).toBeNull();
+    });
+
     it('refuses an expired code, a foreign page and a made-up one, all the same way', async () => {
       const expired = await launchCode(cookies.client!);
       clock = new Date(clock.getTime() + 121_000);
@@ -501,10 +513,13 @@ describe('feedback widget API (PM-509)', () => {
         draft.project.feedback!.blockedMarkers = ['cleo'];
       });
       await lost(tokens.client!);
+      // The session is gone for good: allowing the person again needs a new code.
       await editFeedback((draft) => {
         draft.project.feedback!.blockedMarkers = [];
       });
-      expect((await list(tokens.client!)).marks).toEqual([]);
+      await lost(tokens.client!);
+      expect(repo().sessionByTokenHash(sha256(tokens.client!))).toMatchObject({ revokedBy: 'system' });
+      expect((await startSession(cookies.client!)).token).not.toBe(tokens.client);
     });
 
     it('ends when the person is removed from the team or made a viewer', async () => {
@@ -517,6 +532,35 @@ describe('feedback widget API (PM-509)', () => {
         if (robin?.kind === 'human') robin.access = 'viewer';
       });
       await lost(tokens.developer!);
+    });
+
+    it('stays ended when the handle of a removed member is given to someone else', async () => {
+      // The token is not used between the removal and the new member: the removal itself ends it.
+      await editFeedback((draft) => {
+        draft.team.members = draft.team.members.filter((m) => m.handle !== 'cleo');
+      });
+      expect(repo().sessionByTokenHash(sha256(tokens.client!))!.revokedAt).not.toBeNull();
+      await editFeedback((draft) => {
+        draft.team.members.push({
+          kind: 'human',
+          handle: 'cleo',
+          displayName: 'Another Cleo',
+          email: 'another@example.test',
+          access: 'client',
+          roles: [],
+        });
+      });
+      await lost(tokens.client!);
+    });
+
+    it('stays ended when a switched-off marker is back before the token is used again', async () => {
+      await editFeedback((draft) => {
+        draft.project.feedback!.blockedMarkers = ['cleo'];
+      });
+      await editFeedback((draft) => {
+        draft.project.feedback!.blockedMarkers = [];
+      });
+      await lost(tokens.client!);
     });
 
     it('ends when the surface is replaced or deleted', async () => {
@@ -597,6 +641,20 @@ describe('feedback widget API (PM-509)', () => {
       expect((await postMark(tokens.client!)).statusCode).toBe(201);
     });
 
+    it('counts marks that are being made against the day of the project', async () => {
+      const request = await markRequest();
+      for (let i = 0; i < 498; i++)
+        await feedback().createMark({ projectKey: 'AR', author: 'robin', surfaceId: 'shop', request });
+      // A screenshot makes each request wait, so all three pass the check before any is stored.
+      const results = await Promise.all(
+        [tokens.client!, tokens.developer!, tokens.owner!].map((token) =>
+          postMark(token, { screenshot: true }),
+        ),
+      );
+      expect(results.map((r) => r.statusCode).sort()).toEqual([201, 201, 429]);
+      expect(repo().marksSince('AR', new Date(clock.getTime() - DAY_MS).toISOString()).count).toBe(500);
+    });
+
     it('reads no body before the session is known, and caps it after', async () => {
       const big = { body: 'x'.repeat(4 * 1024 * 1024) };
       // Refused as unauthorised, not as too large: the body was not read.
@@ -613,6 +671,11 @@ describe('feedback widget API (PM-509)', () => {
       expect(comment.statusCode).toBe(413);
       const exchange = await api('POST', '/sessions', { payload: { code: 'x'.repeat(70 * 1024) } });
       expect(exchange.statusCode).toBe(413);
+      const signOut = await api('DELETE', '/sessions/current', {
+        token: tokens.developer!,
+        payload: { junk: 'x'.repeat(70 * 1024) },
+      });
+      expect(signOut.statusCode).toBe(413);
     });
   });
 });

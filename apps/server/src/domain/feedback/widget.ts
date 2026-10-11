@@ -5,11 +5,12 @@ import type {
   FeedbackMarkDetail,
   FeedbackSessionResponse,
   FeedbackWidgetListResponse,
+  ProjectConfig,
 } from '@projectman/shared';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { DomainError } from '../errors';
-import type { ProjectService } from '../projects';
+import type { ConfigChange, ProjectService } from '../projects';
 import { humanActor, newId } from '../util';
 import type { FeedbackService } from './service';
 
@@ -82,6 +83,8 @@ export class FeedbackWidgetService {
   private readonly feedback: FeedbackService;
   /** Request times per session and kind within the last hour; in memory, a restart empties it. */
   private readonly hits = new Map<string, number[]>();
+  /** Marks being made right now per project: they are not in the database yet, but count to its day. */
+  private readonly pendingMarks = new Map<string, number>();
 
   constructor(deps: { ctx: DomainContext; projects: ProjectService; feedback: FeedbackService }) {
     this.ctx = deps.ctx;
@@ -109,14 +112,33 @@ export class FeedbackWidgetService {
   }
 
   /** The person may still mark on this surface, and the surface has this address; null if not. */
-  private async markerCheck(projectKey: string, handle: string, surfaceId: string, origin: string) {
-    const config = await this.projects.config(projectKey).catch(() => null);
-    if (!config) return null;
+  private markerAllowed(config: ProjectConfig, handle: string, surfaceId: string, origin: string) {
     const member = memberOf(config, handle);
     if (!member || feedbackMarkRefusal(config, member) !== null) return null;
     const surface = config.project.feedback?.surfaces.find((s) => s.id === surfaceId);
     if (!surface || normalizeFeedbackOrigin(surface.origin) !== origin) return null;
     return { config, surface };
+  }
+
+  /** `unavailable`: the configuration could not be read, which says nothing about the person. */
+  private async markerCheck(projectKey: string, handle: string, surfaceId: string, origin: string) {
+    const config = await this.projects.config(projectKey).catch(() => null);
+    if (!config) return 'unavailable' as const;
+    return this.markerAllowed(config, handle, surfaceId, origin);
+  }
+
+  /**
+   * A session ends for good when its person may no longer mark or its surface is gone or has another
+   * address: the handle of a removed member can be given to someone else, and the old token must not
+   * work for them. Every change of the configuration is looked at, so a session that is never used
+   * again ends too.
+   */
+  configChanged(change: ConfigChange): void {
+    const { feedback: repo } = this.ctx.repos;
+    const at = isoNow(this.ctx);
+    for (const session of repo.liveSessions(change.projectKey, at))
+      if (!this.markerAllowed(change.next, session.member, session.surfaceId, session.origin))
+        repo.revokeSession(session.id, 'system', at);
   }
 
   // ---- the session ----
@@ -143,7 +165,7 @@ export class FeedbackWidgetService {
     const code = repo.consumeLaunchCode(sha256(input.code), at);
     if (!code || code.origin !== input.origin) throw codeInvalid();
     const checked = await this.markerCheck(code.projectKey, code.member, code.surfaceId, code.origin);
-    if (!checked) throw codeInvalid();
+    if (!checked || checked === 'unavailable') throw codeInvalid();
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = this.sessionEnd(now, at);
@@ -162,13 +184,16 @@ export class FeedbackWidgetService {
     });
     const me = await this.feedback.me(code.projectKey, humanActor(code.member));
     const mark = code.markId ? repo.getMark(code.markId) : null;
+    // Only a mark of the surface the session is for: the tool shows no other.
+    const markId =
+      mark && mark.projectKey === code.projectKey && mark.surfaceId === code.surfaceId ? mark.id : null;
     return {
       token,
       expiresAt,
       me,
       project: { key: code.projectKey, name: checked.config.project.name },
       surface: { id: checked.surface.id, name: checked.surface.name, origin: code.origin },
-      markId: mark && mark.projectKey === code.projectKey ? mark.id : null,
+      markId,
       // The app's page of the project's marks, for a link from the tool.
       appUrl: `${code.appOrigin}/p/${code.projectKey}/feedback`,
     };
@@ -185,10 +210,14 @@ export class FeedbackWidgetService {
       record.revokedAt !== null ||
       Date.parse(record.expiresAt) <= now.getTime() ||
       Date.parse(record.createdAt) + FEEDBACK_SESSION_MAX_MS <= now.getTime() ||
-      record.origin !== origin ||
-      !(await this.markerCheck(record.projectKey, record.member, record.surfaceId, record.origin))
+      record.origin !== origin
     )
       throw sessionInvalid();
+    const checked = await this.markerCheck(record.projectKey, record.member, record.surfaceId, record.origin);
+    // A person who may not mark any more loses the session for good, also if this is the first request
+    // since the change; an unreadable configuration only refuses this request.
+    if (!checked) repo.revokeSession(record.id, 'system', now.toISOString());
+    if (!checked || checked === 'unavailable') throw sessionInvalid();
     if (now.getTime() - Date.parse(record.lastUsedAt) >= TOUCH_INTERVAL_MS)
       repo.touchSession(record.id, now.toISOString(), this.sessionEnd(now, record.createdAt));
     return {
@@ -226,7 +255,7 @@ export class FeedbackWidgetService {
       projectKey,
       new Date(at - DAY_MS).toISOString(),
     );
-    if (count >= FEEDBACK_LIMITS.marksPerProjectDay)
+    if (count + (this.pendingMarks.get(projectKey) ?? 0) >= FEEDBACK_LIMITS.marksPerProjectDay)
       throw rateLimited((oldest ? Date.parse(oldest) : at) + DAY_MS - at);
   }
 
@@ -250,14 +279,23 @@ export class FeedbackWidgetService {
   ): Promise<FeedbackMarkDetail> {
     this.charge(session, 'marks', FEEDBACK_LIMITS.marksPerSessionHour);
     this.checkProjectDay(session.projectKey);
-    return widgetDetail(
-      await this.feedback.createMark({
-        projectKey: session.projectKey,
-        author: session.handle,
-        surfaceId: session.surfaceId,
-        request,
-      }),
-    );
+    // Counted from the check to the insert, so parallel requests cannot all pass the same check.
+    const key = session.projectKey;
+    this.pendingMarks.set(key, (this.pendingMarks.get(key) ?? 0) + 1);
+    try {
+      return widgetDetail(
+        await this.feedback.createMark({
+          projectKey: key,
+          author: session.handle,
+          surfaceId: session.surfaceId,
+          request,
+        }),
+      );
+    } finally {
+      const left = (this.pendingMarks.get(key) ?? 1) - 1;
+      if (left > 0) this.pendingMarks.set(key, left);
+      else this.pendingMarks.delete(key);
+    }
   }
 
   async comment(session: FeedbackWidgetSession, markId: string, body: string): Promise<FeedbackMarkDetail> {

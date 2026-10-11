@@ -152,7 +152,7 @@ export function registerFeedbackWidgetRoutes(
         return reply.code(201).send(session satisfies FeedbackSessionResponse);
       });
 
-      scope.delete('/sessions/current', async (request, reply) => {
+      scope.delete('/sessions/current', { bodyLimit: SMALL_BODY_LIMIT }, async (request, reply) => {
         widget.endSession(sessionOf(request));
         return reply.code(204).send();
       });

@@ -359,6 +359,9 @@ export function createFeedbackRepository(db: Db) {
       `SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM feedback_marks
        WHERE project_key = ? AND created_at > ?`,
     ),
+    unrevokedSessions: db.prepare(
+      'SELECT * FROM feedback_sessions WHERE project_key = ? AND revoked_at IS NULL AND expires_at > ?',
+    ),
     activeSessions: db.prepare(
       `SELECT member AS k, COUNT(*) AS n FROM feedback_sessions
        WHERE project_key = ? AND revoked_at IS NULL AND expires_at > ? GROUP BY member`,
@@ -549,6 +552,10 @@ export function createFeedbackRepository(db: Db) {
     /** Revokes all of the member's sessions; how many were still valid. */
     revokeSessions(projectKey: string, member: string, by: string, at: string): number {
       return statements.revokeSessions.run(at, by, projectKey, member).changes;
+    },
+    /** The project's sessions that are neither revoked nor expired at `at`. */
+    liveSessions(projectKey: string, at: string): FeedbackSessionRecord[] {
+      return (statements.unrevokedSessions.all(projectKey, at) as SessionRow[]).map(toSession);
     },
     activeSessionCounts(projectKey: string, at: string): Map<string, number> {
       const rows = statements.activeSessions.all(projectKey, at) as Array<{ k: string; n: number }>;

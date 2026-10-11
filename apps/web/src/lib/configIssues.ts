@@ -7,6 +7,8 @@ import { codeMessage } from './errors';
 export interface IssueRef {
   code: string;
   path: string;
+  /** What the invariant adds (the kind or the handle that cannot merge); the schema issues have none. */
+  detail?: string;
 }
 
 /**
@@ -55,6 +57,14 @@ function isInvariantCode(code: string): code is ConfigIssue['code'] {
 
 /** Readable text of an issue: invariants by their code, schema issues by the zod issue code. */
 export function issueMessage(issue: IssueRef): string {
+  // Who merges cannot be found: the detail is the kind of merger, or the handle of the named member.
+  if (issue.code === 'merger_unresolved' && issue.detail) {
+    const ok =
+      issue.detail === 'code_reviewer' || issue.detail === 'developer'
+        ? t(`settings.issues.mergerReason.${issue.detail}`)
+        : t('settings.issues.mergerReason.member', { handle: issue.detail });
+    return t('settings.issues.merger_unresolved', { ok });
+  }
   if (isInvariantCode(issue.code)) return t(CONFIG_ISSUE_MESSAGES[issue.code]);
   return (
     codeMessage(issue.code) ?? tDynamic(`settings.issues.${issue.code}`, t('settings.issues.invalid_value'))

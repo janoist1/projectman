@@ -15,6 +15,19 @@ function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
 }
 
+/** The card's work is on the main branch already: a move to the release is not refused for want of the merge. */
+function markMerged(backend: MockBackend, taskKey: string) {
+  const task = backend.findTask(taskKey)!;
+  task.merged = {
+    via: 'tool',
+    mergeCommit: 'c'.repeat(40),
+    commit: 'a'.repeat(40),
+    repo: task.repo ?? 'webshop',
+    base: 'main',
+    at: new Date().toISOString(),
+  };
+}
+
 describe('mock merger setting', () => {
   it('stores the merger and the per-repository merge setting like the server', () => {
     const backend = new MockBackend();
@@ -234,6 +247,7 @@ describe('mock task updates', () => {
         (item) => item.taskKey === 'AC-28' && item.kind === 'decision' && item.state === 'open',
       );
     backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
+    markMerged(backend, 'AC-28');
     for (const title of ['Fictional shipping fee', 'Fictional shipping fee v2'])
       expect(backend.handle('PATCH', `${base}/tasks/AC-28`, { title, stageId: 'release' })).toMatchObject({
         status: 409,
@@ -253,6 +267,7 @@ describe('mock task updates', () => {
   ] as const)('changes nothing when nobody may give the approval: %s', (_case, code) => {
     const backend = new MockBackend();
     backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
+    markMerged(backend, 'AC-28');
     backend.findTask('AC-28')!.links[0]!.author = 'owner';
     const approval = backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!;
     if (code === 'release_four_eyes') backend.config.team.releaseFourEyes = true;

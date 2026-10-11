@@ -1,0 +1,80 @@
+/* The merge box (PM-453) builds on the signal boxes' look: the same frame, tones from the shared tokens. */
+.blocked {
+  background: var(--c-blocked-bg);
+  color: var(--c-blocked-text);
+  box-shadow: inset 0 0 0 1px var(--c-blocked-border);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.step[data-state='todo'] {
+  color: var(--c-ink-3);
+}
+
+.step[data-state='failed'] {
+  color: var(--c-blocked-text);
+  font-weight: 700;
+}
+
+.mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-height: 20px;
+}
+
+.output {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--c-surface);
+  color: var(--c-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.faint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* On a phone the buttons are touch targets and take the width. */
+@media (max-width: 767px) {
+  .actions {
+    flex-direction: column;
+  }
+
+  .action {
+    width: 100%;
+    min-height: 44px;
+  }
+}

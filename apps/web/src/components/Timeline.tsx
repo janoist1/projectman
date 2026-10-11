@@ -13,6 +13,7 @@ import { describeEvent } from '../lib/timeline';
 import type { TimelineContext } from '../lib/timeline';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
+import { Markdown } from './Markdown';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
@@ -90,7 +91,7 @@ export function Timeline({
             ),
         )
         .map((event) => {
-          const { text, emphasis, detail } = describeEvent(event, ctx);
+          const { text, emphasis, detail, resolution } = describeEvent(event, ctx);
           const comment = event.type === 'task_note';
           const imported =
             comment &&
@@ -194,6 +195,12 @@ export function Timeline({
                   <Link to={fullMessage} className={styles.fullMessage}>
                     {t('timeline.fullMessage')}
                   </Link>
+                ) : null}
+                {resolution ? (
+                  <details className={styles.detail}>
+                    <summary>{t('timeline.events.merged_resolution')}</summary>
+                    <Markdown text={resolution} />
+                  </details>
                 ) : null}
                 {detail ? (
                   <details className={styles.detail}>

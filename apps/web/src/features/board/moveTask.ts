@@ -5,6 +5,8 @@ import { isApiError } from '../../api/client';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
+import { mergeRefusal } from '../../lib/merge';
+import type { RefusalFacts } from '../../lib/merge';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { isTaskClosed } from '../../lib/taskState';
 import { openPrerequisiteKeys } from './PrerequisiteWarning';
@@ -41,7 +43,14 @@ export function prerequisitesToWarnAbout(
   return openPrerequisiteKeys(task, tasks);
 }
 
-export function moveErrorText(error: unknown, labels: readonly LabelView[]): string {
+export function moveErrorText(
+  error: unknown,
+  labels: readonly LabelView[],
+  /** What the refusal "not merged yet" needs to name who merges what; without it the generic sentence reads. */
+  merge?: RefusalFacts,
+): string {
+  const refusal = merge ? mergeRefusal(error, merge) : null;
+  if (refusal) return refusal.text;
   const unmet = isGateBlocked(error) && isApiError(error) ? unmetGateTexts(error.details, labels) : [];
   return [errorMessage(error), unmet.length ? t('errors.gateUnmet', { conditions: joinNames(unmet) }) : '']
     .filter(Boolean)

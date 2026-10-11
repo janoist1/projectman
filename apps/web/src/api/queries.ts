@@ -173,6 +173,22 @@ export function useStartTask(key: string) {
   });
 }
 
+/** The merger starts the merge (or tries a failed or stuck one again); the card, the board and the inbox read again. */
+export function useStartMerge(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (taskKey: string) => api.startMerge(key, taskKey),
+    onSuccess: async ({ task }) => {
+      writeTask(client, key, task);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.task(key, task.key) }),
+        client.invalidateQueries({ queryKey: queryKeys.inbox(key) }),
+      ]);
+    },
+  });
+}
+
 /* ---------- attachments ---------- */
 
 /** A refusal (task gone, access lost) is final: asking again changes nothing. */
@@ -467,9 +483,12 @@ export function useResolveInbox(key: string, myHandle: string | null) {
     onError: (_error, _variables, context) => {
       if (context?.previous) client.setQueryData(queryKeys.inbox(key), context.previous);
     },
-    onSettled: async () => {
+    onSettled: async (_data, _error, { item }) => {
       await client.invalidateQueries({ queryKey: queryKeys.inbox(key) });
       await client.invalidateQueries({ queryKey: queryKeys.board(key) });
+      // A merge request starts the merge: the open card shows it at once.
+      if (item.kind === 'merge_request' && item.taskKey)
+        await client.invalidateQueries({ queryKey: queryKeys.task(key, item.taskKey) });
     },
   });
 }

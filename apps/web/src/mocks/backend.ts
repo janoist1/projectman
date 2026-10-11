@@ -129,6 +129,12 @@ import {
   taskWorkOf,
   introducedErrors,
   mergeTokenUsage,
+  alertPayloadOf,
+  cardMerger,
+  hasAccess,
+  mergeReadiness,
+  mergeRepoOf,
+  mergeRequestOf,
   ALERT_SEEN_OPTION,
   WorkOutageAlert,
   limitTokens,
@@ -215,6 +221,10 @@ import type {
   RelationsChange,
   MemberUsage,
   MemberView,
+  MergeBlockReason,
+  MergeFailure,
+  TaskMergeState,
+  TaskMerged,
   PlanUsage,
   ProjectConfig,
   ScheduleRun,
@@ -368,6 +378,18 @@ function parseBody<T>(
   return result.success ? result.data : null;
 }
 
+/** How a merge the fake runs ends: it lands, hits a conflict, fails its check, or is blocked at the push. */
+export type MockMergeOutcome = 'merged' | 'conflict' | 'check_failed' | 'blocked';
+
+/** The steps a running merge goes through, one `advanceMerge` each. */
+const MERGE_STEPS = ['merging', 'checking', 'pushing', 'finishing'] as const;
+
+/** A stable, commit-looking id for a card's mock work. */
+function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
+  const digits = task.key.replace(/\D/g, '').padStart(4, '0');
+  return `${salt}${digits}c0ffee1234567890abcdef1234567890ab`.slice(0, 40);
+}
+
 /**
  * In-memory stand-in for the projectman server, the fake behind the UI tests. It implements
  * the REST routes from the shared route table and publishes the same websocket events the
@@ -392,6 +414,12 @@ export class MockBackend {
   }
   /** Where each card's fix rounds are counted from and the rounds people let it have (PM-262). */
   private fixLimitState = new Map<string, { countedFrom: string | null; extraRounds: number }>();
+  /** The stage a card stood in when its merge was requested (the server keeps it on the merge row). */
+  private mergeFrom = new Map<string, string>();
+  /** How a card's merge ends once `advanceMerge` has run it through its steps; absent: it merges. */
+  private mergeOutcomes = new Map<string, MockMergeOutcome>();
+  /** Why a move into the target is refused while the work is not merged; absent: `not_merged`. */
+  private mergeRefusals = new Map<string, 'not_merged' | 'not_on_remote' | 'engine_unavailable'>();
   /** The cards that wait for a Senior (PM-348): since when, the question asked and the answer given. */
   private seniorWaits = new Map<
     string,
@@ -680,6 +708,9 @@ export class MockBackend {
     Object.assign(task, patch, { updatedAt: nowIso() });
     if (patch.links) Object.assign(task, withPrMergedLabel(task, this.config));
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
+    // What decides whether a card is ready to merge, and by whom, changed: the request follows.
+    if ('stageId' in patch || 'labels' in patch || 'assignee' in patch || 'repo' in patch)
+      this.reconcileMerge(task);
     return task;
   }
 
@@ -1407,7 +1438,7 @@ export class MockBackend {
         ...clone(label),
         holders: labelHolders(this.config, label),
       })),
-      tasks: clone(this.tasks.filter((task) => this.canSee(task))),
+      tasks: this.tasks.filter((task) => this.canSee(task)).map((task) => this.forViewer(task)),
       members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
@@ -1875,6 +1906,9 @@ export class MockBackend {
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/board-move$/.exec(rest)) && method === 'POST') {
       return this.boardMove(m[1]!, body);
     }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge$/.exec(rest)) && method === 'POST') {
+      return this.startMerge(m[1]!);
+    }
 
     if (
       (m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/(cancel|reopen|close-theme)$/.exec(rest)) &&
@@ -2139,7 +2173,11 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.refreshBoundaryInbox();
-      return ok({ items: clone(this.inbox) });
+      // A client sees only the items addressed to them (like the server).
+      const client = this.findMember(this.viewerHandle)?.role === 'client';
+      return ok({
+        items: clone(this.inbox.filter((item) => !client || item.assignees.includes(this.viewerHandle))),
+      });
     }
     if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
       this.refreshBoundaryInbox();
@@ -2227,6 +2265,8 @@ export class MockBackend {
         (input.pipeline ? 'Update pipeline' : input.limits ? 'Update limits' : 'Update project');
       this.commitConfig(message);
       this.addTimeline(null, this.viewerHandle, 'config_changed', { version: this.configVersion, message });
+      // Who merges, and which repositories need a merge, decide the cards' merge requests.
+      if (input.merger || input.repoMerge) this.reconcileMerges();
     }
     return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
   }
@@ -2804,15 +2844,29 @@ export class MockBackend {
     });
   }
 
+  /** A task as the viewer sees it: the merge is the team's, a client never gets it (like the server). */
+  private forViewer(task: Task): Task {
+    if (this.findMember(this.viewerHandle)?.role !== 'client') return clone(task);
+    const { merge: _merge, merged: _merged, ...visible } = task;
+    return clone(visible);
+  }
+
   private taskDetail(task: Task) {
-    const wait = this.findMember(this.viewerHandle)?.role === 'client' ? null : this.taskWaitOf(task);
+    const client = this.findMember(this.viewerHandle)?.role === 'client';
+    const wait = client ? null : this.taskWaitOf(task);
     return {
       ...(wait ? { wait } : {}),
-      task: clone(task),
+      task: this.forViewer(task),
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
+      timeline: clone(
+        this.timeline.filter(
+          (event) =>
+            event.taskKey === task.key &&
+            !(client && (event.type.startsWith('task_merge_') || event.type === 'task_merged')),
+        ),
+      ),
       sessions: clone(this.taskSessions(task.key)),
       ...(this.findMember(this.viewerHandle)?.role === 'client'
         ? {}
@@ -2974,6 +3028,8 @@ export class MockBackend {
       if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
       const target = stageOf(this.config, input.stageId!);
       if (!target) return error(400, 'unknown_stage', 'Unknown stage');
+      const unmerged = this.mergeGate(task, target.id);
+      if (unmerged) return unmerged;
       const evaluation = evaluateMove(
         { ...task, ...patch, labels: labels.labels },
         this.config,
@@ -3297,6 +3353,8 @@ export class MockBackend {
     const target = stageOf(this.config, stageId);
     if (!target) return error(400, 'unknown_stage', 'Unknown stage');
     if (task.stageId === target.id) return ok(clone(task));
+    const unmerged = this.mergeGate(task, target.id);
+    if (unmerged) return unmerged;
     const evaluation = evaluateMove(task, this.config, task.stageId, target.id);
     if (evaluation.unmet.length) return gateBlockedError(evaluation);
     if (evaluation.approvals.length)
@@ -3306,6 +3364,295 @@ export class MockBackend {
     if (decision.kind === 'request') return this.requestHandOn(task, target, decision.mover, actor);
     this.applyMove(task, target, actor, {}, placement);
     return ok(clone(task));
+  }
+
+  /** Writes a card's merge state and its merged result, and announces the card. */
+  private writeMerge(task: Task, merge: TaskMergeState | undefined, merged?: TaskMerged): void {
+    if (merge) task.merge = merge;
+    else delete task.merge;
+    if (merged) task.merged = merged;
+    task.updatedAt = nowIso();
+    this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
+  }
+
+  /** The open request items of a merge end: resolved by the one who started it, else cancelled. */
+  private closeMergeItems(task: Task, mergeId: string, by?: string): void {
+    for (const item of this.inbox) {
+      if (item.state !== 'open' || item.taskKey !== task.key) continue;
+      const request = mergeRequestOf(item);
+      const alert = alertPayloadOf(item);
+      if (request?.mergeId === mergeId && by)
+        this.upsertInbox({
+          ...item,
+          state: 'resolved',
+          resolution: { optionId: 'merge', by, at: nowIso(), note: null },
+        });
+      else if (
+        request?.mergeId === mergeId ||
+        (alert?.alert === 'merge_blocked' && alert.mergeId === mergeId)
+      )
+        this.upsertInbox({ ...item, state: 'cancelled' });
+    }
+  }
+
+  /** A human merger gets a "merge" item for a requested or failed merge; an AI merger reads the card. */
+  private notifyMerge(task: Task): void {
+    const merge = task.merge;
+    if (!merge || (merge.state !== 'requested' && merge.state !== 'failed')) return;
+    if (memberOf(this.config, merge.merger)?.kind !== 'human') return;
+    if (this.inbox.some((item) => item.state === 'open' && mergeRequestOf(item)?.mergeId === merge.id))
+      return;
+    this.upsertInbox({
+      id: mockId('inb'),
+      projectKey: task.projectKey,
+      kind: 'merge_request',
+      assignees: [merge.merger],
+      source: 'system',
+      sessionId: null,
+      taskKey: task.key,
+      title: `Merge ${task.key} into ${merge.base}`,
+      body: null,
+      payload: {
+        mergeRequest: {
+          taskKey: task.key,
+          mergeId: merge.id,
+          repo: merge.repo,
+          base: merge.base,
+          ...(merge.failure ? { failure: merge.failure } : {}),
+        },
+      },
+      options: [{ id: 'merge', label: 'Merge', style: 'primary' }],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    });
+  }
+
+  /**
+   * Opens, keeps or cancels the card's merge request the way the server's reconcile does: a request
+   * stands while the card is ready to merge and its merger is the one the configuration names.
+   */
+  private reconcileMerge(task: Task): void {
+    const open = task.status !== 'done' && task.status !== 'cancelled';
+    const ready = open ? mergeReadiness(this.config, task) : null;
+    const merger = cardMerger(this.config, task, null);
+    const existing = task.merge;
+    if (existing) {
+      if (existing.state === 'queued' || existing.state === 'running') return;
+      const stays =
+        existing.state === 'blocked' &&
+        open &&
+        task.stageId === this.mergeFrom.get(task.key) &&
+        !ready?.ready;
+      if (existing.merger === merger && (ready?.ready || stays)) {
+        this.notifyMerge(task);
+        return;
+      }
+      this.closeMergeItems(task, existing.id);
+      this.writeMerge(task, undefined);
+    }
+    if (!ready?.ready || !merger || task.merged?.repo === ready.repo.name) return;
+    const merge: TaskMergeState = {
+      id: mockId('merge'),
+      repo: ready.repo.name,
+      base: ready.repo.defaultBranch,
+      toStageId: ready.target.id,
+      merger,
+      requestedAt: nowIso(),
+      state: 'requested',
+      landed: 'nowhere',
+      commit: mockCommit(task, 'a1'),
+      branch: `${task.key}-work`,
+    };
+    this.mergeFrom.set(task.key, task.stageId);
+    this.writeMerge(task, merge);
+    this.addTimeline(task.key, null, 'task_merge_requested', {
+      mergeId: merge.id,
+      merger,
+      repo: merge.repo,
+      base: merge.base,
+      toStageId: merge.toStageId,
+    });
+    this.notifyMerge(task);
+  }
+
+  /** Reconciles every card (a test or a scenario seeds the requests this way, once the cards are in place). */
+  reconcileMerges(): void {
+    for (const task of this.tasks) this.reconcileMerge(task);
+  }
+
+  /** Chooses how the card's merge ends once it has run its steps (`advanceMerge`). */
+  setMergeOutcome(taskKey: string, outcome: MockMergeOutcome): void {
+    this.mergeOutcomes.set(taskKey, outcome);
+  }
+
+  /** Chooses why a move into the target is refused while the card's work is not merged. */
+  setMergeRefusal(taskKey: string, reason: 'not_merged' | 'not_on_remote' | 'engine_unavailable'): void {
+    this.mergeRefusals.set(taskKey, reason);
+  }
+
+  /** The merge route: only the card's merger starts it; a started merge waits in the queue. */
+  private startMerge(taskKey: string): MockResponse {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    const viewer = memberOf(this.config, this.viewerHandle);
+    if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
+      return error(403, 'insufficient_access', 'Requires developer access');
+    this.reconcileMerge(task);
+    const merge = task.merge;
+    // The fix of a conflict is the merger's tool, not the button (PM-471): the server refuses a start meanwhile.
+    if (merge?.state === 'fixing')
+      return error(409, 'merge_fix_not_allowed', 'Submit the committed fix with resolution', {
+        reason: 'not_conflict',
+      });
+    const merger = merge?.merger ?? cardMerger(this.config, task, null);
+    if (!merger || merger !== this.viewerHandle)
+      return error(403, 'merge_not_merger', 'Only the card merger may start the merge');
+    const ready = mergeReadiness(this.config, task);
+    if (!ready.ready)
+      return error(409, 'merge_not_ready', 'The card is not ready to merge', { reason: ready.reason });
+    if (merge?.state === 'queued' || merge?.state === 'running') return ok({ task: clone(task) });
+    if (!merge) return error(409, 'merge_not_ready', 'The card has no work to merge', { reason: 'no_merge' });
+    const { block: _block, failure: _failure, ...kept } = merge;
+    this.writeMerge(task, {
+      ...kept,
+      state: 'queued',
+      step: 'queued',
+      startedBy: this.viewerHandle,
+      startedAt: nowIso(),
+    });
+    this.closeMergeItems(task, merge.id, this.viewerHandle);
+    return ok({ task: clone(task) });
+  }
+
+  /**
+   * Moves a card's merge one step on: queued to running, each step of the run, then its end (merged by
+   * default; `setMergeOutcome` chooses a conflict, a failed check or a block). Returns the new state.
+   */
+  advanceMerge(taskKey: string): TaskMergeState | undefined {
+    const task = this.findTask(taskKey);
+    const merge = task?.merge;
+    if (!task || !merge || (merge.state !== 'queued' && merge.state !== 'running')) return merge;
+    const outcome = this.mergeOutcomes.get(taskKey) ?? 'merged';
+    const repo = this.config.project.repos.find((entry) => entry.name === merge.repo);
+    if (merge.state === 'queued') {
+      this.writeMerge(task, { ...merge, state: 'running', step: 'merging' });
+      return task.merge;
+    }
+    const step = merge.step === 'queued' || !merge.step ? 'merging' : merge.step;
+    if (outcome === 'conflict' && step === 'merging')
+      return this.failMerge(task, merge, {
+        reason: 'conflict',
+        at: nowIso(),
+        base: mockCommit(task, 'b2'),
+        files: ['src/checkout/cart.ts', 'src/checkout/cart.test.ts'],
+      });
+    if (outcome === 'check_failed' && step === 'checking')
+      return this.failMerge(task, merge, {
+        reason: 'check_failed',
+        at: nowIso(),
+        base: mockCommit(task, 'b2'),
+        command: repo?.reviewTest?.command ?? 'npm test',
+        outputTail: 'FAIL src/checkout/cart.test.ts\n  expected 3 items, got 2',
+      });
+    if (outcome === 'blocked' && step === 'pushing') return this.blockMerge(task, merge, 'push_rejected');
+    const next = MERGE_STEPS[MERGE_STEPS.indexOf(step) + 1];
+    if (next) {
+      this.writeMerge(task, {
+        ...merge,
+        step: next,
+        ...(next === 'pushing' && repo?.reviewTest
+          ? { check: { command: repo.reviewTest.command, status: 'passed' as const } }
+          : {}),
+      });
+      return task.merge;
+    }
+    const merged: TaskMerged = {
+      via: 'tool',
+      mergeCommit: mockCommit(task, 'c3'),
+      commit: merge.commit ?? mockCommit(task, 'a1'),
+      repo: merge.repo,
+      base: merge.base,
+      at: nowIso(),
+      ...(merge.startedBy ? { by: merge.startedBy } : {}),
+      ...(merge.check ? { check: merge.check } : {}),
+      ...(repo?.github ? { pushed: { remote: 'origin' } } : {}),
+    };
+    this.closeMergeItems(task, merge.id);
+    this.writeMerge(task, undefined, merged);
+    this.addTimeline(task.key, null, 'task_merged', { ...merged, mergeId: merge.id });
+    return undefined;
+  }
+
+  /** Runs a queued or running merge to its end. */
+  runMerge(taskKey: string): void {
+    for (let step = 0; step < MERGE_STEPS.length + 3; step += 1) {
+      const state = this.findTask(taskKey)?.merge?.state;
+      if (state !== 'queued' && state !== 'running') return;
+      this.advanceMerge(taskKey);
+    }
+  }
+
+  /** A merge that failed: the conflict or the check, kept on the card, the merger asked again. */
+  private failMerge(task: Task, merge: TaskMergeState, failure: MergeFailure): TaskMergeState {
+    const { block: _block, ...kept } = merge;
+    this.writeMerge(task, { ...kept, state: 'failed', step: undefined, failure });
+    this.addTimeline(task.key, null, 'task_merge_failed', { ...failure, mergeId: merge.id });
+    this.notifyMerge(task);
+    return task.merge!;
+  }
+
+  /** A merge that could not go on: a human merger gets an alert with a retry. */
+  private blockMerge(task: Task, merge: TaskMergeState, reason: MergeBlockReason): TaskMergeState {
+    const message = 'The push to the remote was rejected.';
+    const { failure: _failure, ...kept } = merge;
+    this.writeMerge(task, {
+      ...kept,
+      state: 'blocked',
+      step: undefined,
+      block: { reason, message, at: nowIso() },
+    });
+    this.addTimeline(task.key, null, 'task_merge_blocked', {
+      mergeId: merge.id,
+      repo: merge.repo,
+      base: merge.base,
+      reason,
+      message,
+      landed: merge.landed,
+    });
+    if (memberOf(this.config, merge.merger)?.kind === 'human')
+      this.upsertInbox({
+        id: mockId('inb'),
+        projectKey: task.projectKey,
+        kind: 'alert',
+        assignees: [merge.merger],
+        source: 'system',
+        sessionId: null,
+        taskKey: task.key,
+        title: message,
+        body: null,
+        payload: { alert: 'merge_blocked', taskKey: task.key, mergeId: merge.id, reason, message },
+        options: [ALERT_SEEN_OPTION],
+        state: 'open',
+        resolution: null,
+        createdAt: nowIso(),
+      });
+    return task.merge!;
+  }
+
+  /**
+   * The gate of a move into the merge target: the work has to be merged first. The refusal names the
+   * merger and the branch, and opens the card's merge request as the server's gate does.
+   */
+  private mergeGate(task: Task, stageId: string): MockResponse | null {
+    const repo = mergeRepoOf(this.config, task, task.stageId, stageId);
+    if (!repo || task.merged?.repo === repo.name) return null;
+    this.reconcileMerge(task);
+    return error(409, 'task_not_merged', 'The approved commit is not on the default branch', {
+      reason: this.mergeRefusals.get(task.key) ?? 'not_merged',
+      merger: cardMerger(this.config, task, null),
+      base: repo.defaultBranch,
+    });
   }
 
   /** Moves a card in the name of a member (a test or a scenario seeds an AI member's move this way). */
@@ -3518,6 +3865,15 @@ export class MockBackend {
           outcome: 'approval_pending',
           inboxItemIds: failure.details?.inboxItemIds ?? [],
         });
+      else if (failure.code === 'task_not_merged')
+        items.push({
+          taskKey: card.key,
+          outcome: 'blocked',
+          code: 'task_not_merged',
+          message: 'The approved commit is not on the default branch',
+          unmet: [],
+          approvals: [],
+        });
       else if (failure.code === 'task_closed')
         items.push({ taskKey: card.key, outcome: 'skipped', reason: 'closed' });
       else if (NO_APPROVER_CODES.has(failure.code))
@@ -3709,6 +4065,10 @@ export class MockBackend {
       this.settleWaiting(task, by, {
         gateBlocked: { to: target.id, unmet: evaluation.unmet, approvals: evaluation.approvals },
       });
+      return;
+    }
+    if (this.mergeGate(task, target.id)) {
+      this.settleWaiting(task, by, { gateBlocked: { to: target.id, reason: 'task_not_merged' } });
       return;
     }
     this.applyMove(
@@ -4888,8 +5248,17 @@ export class MockBackend {
       const request = handOnRequestOf(item);
       const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
       if (!request || !task) return error(404, 'not_found', 'Unknown task');
+      const unmerged = this.mergeGate(task, request.toStageId);
+      if (unmerged) return unmerged;
       const evaluation = evaluateMove(task, this.config, task.stageId, request.toStageId);
       if (evaluation.unmet.length || evaluation.approvals.length) return gateBlockedError(evaluation);
+    }
+    if (item.kind === 'merge_request') {
+      // Resolving the request starts the merge: the same route, the same rules.
+      const request = mergeRequestOf(item);
+      if (!request) return error(404, 'not_found', 'Unknown merge request');
+      const started = this.startMerge(request.taskKey);
+      if (started.status >= 400) return started;
     }
     const resolved: InboxItem = {
       ...item,

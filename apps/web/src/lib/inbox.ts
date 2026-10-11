@@ -8,6 +8,7 @@ import {
   mergeRequestOf,
   permissionDelegationOf,
   questionPayloadOf,
+  releaseApprovalOf,
   seniorWaitDecisionOf,
 } from '@projectman/shared';
 import type { InboxItem, InboxOption, LabelView, Task, WorkItemRef } from '@projectman/shared';
@@ -21,6 +22,7 @@ import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
 import { outageHeading, outageOfItem } from './outage';
 import type { PipelineIndex } from './pipeline';
+import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
@@ -67,6 +69,7 @@ export function inboxHeading(item: InboxItem): string {
     return t(merge.failure ? 'inbox.mergeRequest.failedTitle' : 'inbox.mergeRequest.title', {
       key: merge.taskKey,
     });
+  if (releaseApprovalOf(item)) return t('inbox.release.title');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
@@ -74,6 +77,8 @@ export function inboxHeading(item: InboxItem): string {
     const alert = alertPayloadOf(item);
     if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
+    if (alert?.alert === 'release_failed')
+      return releaseFailedWords(alert.step, alert.rolledBack, alert.taskKey).title;
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
@@ -253,6 +258,8 @@ export function alertText(
   // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
   if (alert.alert === 'merge_blocked') return null;
   if (alert.alert === 'work_outage') return null;
+  // The release alert tells the step and what became of the old version in its own body (ReleaseAlertBody).
+  if (alert.alert === 'release_failed') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(
       alert.until ? 'inbox.alerts.provider_rate_limited.body' : 'inbox.alerts.provider_rate_limited.unknown',
@@ -298,18 +305,6 @@ export function alertText(
       key: alert.taskKey,
       member: nameOf(alert.member, members, myHandle),
       parts: alert.parts.join(', '),
-    });
-  if (alert.alert === 'release_failed')
-    return t('inbox.alerts.release_failed.body', {
-      key: alert.taskKey,
-      commit: alert.commit.slice(0, 8),
-      step: alert.step,
-      message: alert.message,
-      rollback: t(
-        alert.rolledBack
-          ? 'inbox.alerts.release_failed.rolledBack'
-          : 'inbox.alerts.release_failed.notRolledBack',
-      ),
     });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {

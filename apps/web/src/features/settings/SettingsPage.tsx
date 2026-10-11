@@ -27,6 +27,7 @@ import { ProjectSection } from './sections/ProjectSection';
 import { ReposSection } from './sections/ReposSection';
 import { TeamSection } from './sections/TeamSection';
 import { EnginesSection } from './sections/EnginesSection';
+import { FeedbackSection } from './sections/FeedbackSection';
 import { ProvidersSection } from './sections/ProvidersSection';
 import { IntegratorSection } from './sections/IntegratorSection';
 
@@ -76,6 +77,10 @@ function summary(
       return config.project.repos.length
         ? t('settings.summary.repos', { count: config.project.repos.length })
         : t('settings.summary.reposEmpty');
+    case 'feedback':
+      return config.project.feedback?.surfaces.length
+        ? t('settings.summary.feedback', { count: config.project.feedback.surfaces.length })
+        : t('settings.summary.feedbackEmpty');
     case 'history':
       return history[0]
         ? t('settings.summary.history', {
@@ -90,7 +95,7 @@ function summary(
 }
 
 export function SettingsPage() {
-  const { key, isOwner, me } = useProject();
+  const { key, isOwner, me, can } = useProject();
   const config = useConfig(key);
   // Engines exist in cloud mode only, and only the host owner manages them (PM-316).
   const engineStatus = useEngineStatus();
@@ -140,6 +145,8 @@ export function SettingsPage() {
   // The engines section is not there for a member who cannot manage them, or on a one-machine installation.
   if (section === 'engines' && !enginesShown && !(me.hostOwner && engineStatus.isPending))
     return <Navigate replace to={base} />;
+  // The feedback tool's settings are for owners and admins.
+  if (section === 'feedback' && !can.manageTeam) return <Navigate replace to={base} />;
   if (!section && wide)
     return <Navigate replace to={{ pathname: `${base}/pipeline`, search: location.search }} />;
 
@@ -151,7 +158,10 @@ export function SettingsPage() {
       if (target) counts[target.section] = (counts[target.section] ?? 0) + 1;
     }
   const shownSections = SETTINGS_SECTIONS.filter(
-    (id) => (id !== 'integrator' || me.hostOwner) && (id !== 'engines' || enginesShown),
+    (id) =>
+      (id !== 'integrator' || me.hostOwner) &&
+      (id !== 'engines' || enginesShown) &&
+      (id !== 'feedback' || can.manageTeam),
   );
   // The divider before the sections that are not the project's: the first of engines and providers.
   const accountStart = shownSections.find((id) => id === 'engines' || id === 'providers');
@@ -223,6 +233,9 @@ export function SettingsPage() {
         break;
       case 'repos':
         content = <ReposSection config={view.config} />;
+        break;
+      case 'feedback':
+        content = <FeedbackSection config={view.config} version={view.version} />;
         break;
       case 'history':
         content = <HistorySection history={view.history} current={view.version} canRevert={isOwner} />;

@@ -1,6 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
+  CloseFeedbackRequest,
+  CreateTaskFromFeedbackRequest,
+  CreateTaskFromFeedbackResponse,
+  FeedbackCommentRequest,
+  FeedbackLaunchRequest,
+  FeedbackMarkDetail,
+  LinkFeedbackRequest,
   StartMergeRequest,
   StopOrphansRequest,
   AttachmentListResponse,
@@ -448,6 +455,110 @@ export function useUpdateSession(key: string) {
 
 export function useTeamMessages(key: string) {
   return useQuery({ queryKey: queryKeys.messages(key), queryFn: () => api.teamMessages(key) });
+}
+
+/* ---------- feedback marks (PM-511) ---------- */
+
+export function useFeedbackList(key: string) {
+  return useQuery({ queryKey: queryKeys.feedbackList(key), queryFn: () => api.feedback(key) });
+}
+
+/** The badge numbers of the menu item; `enabled` is false for a viewer who has nothing to do with marks. */
+export function useFeedbackSummary(key: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.feedbackSummary(key),
+    queryFn: () => api.feedbackSummary(key),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useFeedbackSettings(key: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.feedbackSettings(key),
+    queryFn: () => api.feedbackSettings(key),
+    enabled,
+    retry: false,
+  });
+}
+
+/** The marks that led to one card, as the viewer may see them. */
+export function useFeedbackOfTask(key: string, taskKey: string, enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.feedbackOfTask(key, taskKey),
+    queryFn: () => api.feedback(key, taskKey),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useFeedbackMark(key: string, markId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.feedbackMark(key, markId ?? ''),
+    queryFn: () => api.feedbackMark(key, markId ?? ''),
+    enabled: Boolean(markId),
+    retry: (count, error) => !(isApiError(error) && error.status >= 400 && error.status < 500) && count < 2,
+  });
+}
+
+/** A mutation of a mark: its answer is the mark as it is now, and every feedback list reads again. */
+function useFeedbackMutation<
+  T,
+  R extends FeedbackMarkDetail | CreateTaskFromFeedbackResponse = FeedbackMarkDetail,
+>(key: string, mutationFn: (variables: T) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn,
+    onSuccess: async (result) => {
+      const mark: FeedbackMarkDetail = 'mark' in result ? result.mark : result;
+      client.setQueryData(queryKeys.feedbackMark(key, mark.id), mark);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.feedback(key) }),
+        // A new card or a link shows on the board and on the card's own drawer.
+        client.invalidateQueries({ queryKey: queryKeys.board(key) }),
+        client.invalidateQueries({ queryKey: queryKeys.taskDetails(key) }),
+      ]);
+    },
+  });
+}
+
+export function useCommentFeedback(key: string, markId: string) {
+  return useFeedbackMutation(key, (body: FeedbackCommentRequest) => api.feedbackComment(key, markId, body));
+}
+export function useCreateTaskFromFeedback(key: string, markId: string) {
+  return useFeedbackMutation(key, (body: CreateTaskFromFeedbackRequest) =>
+    api.feedbackCreateTask(key, markId, body),
+  );
+}
+export function useLinkFeedback(key: string, markId: string) {
+  return useFeedbackMutation(key, (body: LinkFeedbackRequest) => api.feedbackLink(key, markId, body));
+}
+export function useCloseFeedback(key: string, markId: string) {
+  return useFeedbackMutation(key, (body: CloseFeedbackRequest) => api.feedbackClose(key, markId, body));
+}
+export function useReopenFeedback(key: string, markId: string) {
+  return useFeedbackMutation<void>(key, () => api.feedbackReopen(key, markId));
+}
+
+/** The viewer has read the thread of a mark: the unread dot and the badge come off. */
+export function useReadFeedback(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (markId: string) => api.feedbackRead(key, markId),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.feedback(key) }),
+  });
+}
+
+export function useLaunchFeedback(key: string) {
+  return useMutation({ mutationFn: (body: FeedbackLaunchRequest) => api.feedbackLaunch(key, body) });
+}
+
+export function useLogoutFeedbackMarker(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (handle: string) => api.feedbackMarkerLogout(key, handle),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.feedbackSettings(key) }),
+  });
 }
 
 /* ---------- inbox ---------- */

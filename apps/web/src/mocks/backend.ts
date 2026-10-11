@@ -271,6 +271,7 @@ import {
   roleViews,
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
+import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { mockId, mockUuid, nowIso } from './time';
 
@@ -504,6 +505,15 @@ export class MockBackend {
   inbox: InboxItem[] = clone(fixtures.inbox);
   boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
+  /** The feedback marks (PM-511); a project starts without surfaces and marks, a test or scenario fills it. */
+  readonly feedback: MockFeedback = new MockFeedback({
+    config: () => this.config,
+    viewerHandle: () => this.viewerHandle,
+    findTask: (key) => this.findTask(key),
+    createCard: (input) => this.createTask(input),
+    addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
+    emit: (event) => this.emit(event),
+  });
   /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
   operatorRequests: OperatorRequestView[] = [];
   /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
@@ -2012,6 +2022,11 @@ export class MockBackend {
         return error(403, 'insufficient_access', 'Developer access required');
     }
     if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
+    if (rest === '/feedback' || rest.startsWith('/feedback/'))
+      return (
+        this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
+        error(404, 'not_found', 'Unknown route')
+      );
     if (rest === '' && method === 'GET')
       return ok({
         ...fixtures.projectSummary,

@@ -41,6 +41,7 @@ const mapGroupView = lazyPage(() => import('../features/map/MapGroupView'), 'Map
 const teamPage = lazyPage(() => import('../features/team/TeamPage'), 'TeamPage');
 const involvementsPage = lazyPage(() => import('../features/team/InvolvementsPage'), 'InvolvementsPage');
 const messagesPage = lazyPage(() => import('../features/messages/MessagesPage'), 'MessagesPage');
+const feedbackPage = lazyPage(() => import('../features/feedback/FeedbackPage'), 'FeedbackPage');
 const howWeWorkPage = lazyPage(() => import('../features/how-we-work/HowWeWorkPage'), 'HowWeWorkPage');
 const settingsPage = lazyPage(() => import('../features/settings/SettingsPage'), 'SettingsPage');
 
@@ -93,6 +94,8 @@ export function AppRoutes() {
           <Route path="messages" element={messagesPage} />
           <Route path="messages/with/:handle" element={messagesPage} />
           <Route path="messages/all" element={messagesPage} />
+          <Route path="feedback" element={feedbackPage} />
+          <Route path="feedback/:markId" element={feedbackPage} />
           <Route path="how-we-work" element={howWeWorkPage} />
           <Route path="settings" element={settingsPage} />
           <Route path="settings/:section" element={settingsPage} />

@@ -82,12 +82,15 @@ export function ProjectSwitcher({
 export function AccountMenu({
   settingsPath,
   howWeWorkPath = null,
+  feedback = null,
   placement = 'right',
   onPause,
 }: {
   settingsPath: string | null;
   /** The "how we work" page, above the settings: only the phone's menu has it (the rail has an item). */
   howWeWorkPath?: string | null;
+  /** The feedback marks (PM-511): like the "how we work" page, only the phone's menu has it; `badge` is what is owed. */
+  feedback?: { to: string; badge: number } | null;
   placement?: 'right' | 'below';
   /** Pause the team (PM-220): in this menu at every width; the top bar has the button on wide windows too. */
   onPause?: (() => void) | undefined;
@@ -161,6 +164,20 @@ export function AccountMenu({
               </button>
               <div className={styles.separator} />
             </>
+          ) : null}
+          {feedback ? (
+            <Link to={feedback.to} className={styles.item} onClick={() => setOpen(false)}>
+              <Icon name="pin" size={16} />
+              <span className={styles.itemText}>{t('nav.feedback')}</span>
+              {feedback.badge > 0 ? (
+                <span className={styles.itemBadge}>
+                  <span aria-hidden="true">{feedback.badge}</span>
+                  <span className="visually-hidden">
+                    , {t('nav.feedbackCount', { count: feedback.badge })}
+                  </span>
+                </span>
+              ) : null}
+            </Link>
           ) : null}
           {howWeWorkPath ? (
             <Link to={howWeWorkPath} className={styles.item} onClick={() => setOpen(false)}>

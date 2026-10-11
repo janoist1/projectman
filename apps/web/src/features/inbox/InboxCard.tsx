@@ -515,19 +515,30 @@ export function InboxCard({
               onPick={(option) => onResolve(item, { optionId: option.id })}
             />
           ) : describesChoices ? null : (
-            choices.map((option) => (
-              <Button
-                key={option.id}
-                variant={answering ? 'secondary' : variantFor[option.style]}
-                size={buttonSize}
-                disabled={pending}
-                onClick={() =>
-                  onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
-                }
-              >
-                {optionLabel(option)}
-              </Button>
-            ))
+            <>
+              {alertPayload?.alert === 'feedback_forwarded' ? (
+                <ButtonLink
+                  to={`/p/${item.projectKey}/feedback/${alertPayload.markId}`}
+                  variant="primary"
+                  size={buttonSize}
+                >
+                  {t('inbox.alerts.feedback_forwarded.open')}
+                </ButtonLink>
+              ) : null}
+              {choices.map((option) => (
+                <Button
+                  key={option.id}
+                  variant={answering ? 'secondary' : variantFor[option.style]}
+                  size={buttonSize}
+                  disabled={pending}
+                  onClick={() =>
+                    onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
+                  }
+                >
+                  {optionLabel(option)}
+                </Button>
+              ))}
+            </>
           )}
           {outageAlert && item.state === 'open' ? (
             <OutageCheck item={item} size={buttonSize === 'xl' ? 'xl' : 'lg'} />

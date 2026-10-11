@@ -1,5 +1,13 @@
 import { servicePathEnv } from '../engine/service';
-import { DEFAULT_SHUTDOWN_PAUSE_MS, LiveError, SERVER_LABEL, WATCHER_LABEL } from './paths';
+import {
+  DEFAULT_SHUTDOWN_PAUSE_MS,
+  launcherFile,
+  LiveError,
+  SERVER_LABEL,
+  SERVER_LAUNCHER,
+  WATCHER_LABEL,
+  WATCHER_LAUNCHER,
+} from './paths';
 
 /**
  * The two LaunchAgent files of the live instance (PM-493), written from code with every value escaped:
@@ -32,6 +40,23 @@ export const PASSED_VARIABLES = [
 
 export const xmlEscape = (value: string): string =>
   value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+export const unescapeXml = (value: string): string =>
+  value
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+
+/**
+ * The first strings of an installed file's `ProgramArguments`, unescaped. Since PM-514 the first is the
+ * launcher and the second node; a file from PM-493 starts with node itself.
+ */
+export function installedProgramArguments(plist: string): string[] | null {
+  const block = /<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(plist);
+  if (!block) return null;
+  return [...block[1]!.matchAll(/<string>([^<]*)<\/string>/g)].map((match) => unescapeXml(match[1]!));
+}
 
 type PlistValue = string | number | boolean | PlistValue[] | { [key: string]: PlistValue };
 
@@ -133,7 +158,11 @@ export function buildServerPlist(input: ServerPlistInput): BuiltPlist {
   const environment = serverEnvironment(input);
   const text = renderPlistFile({
     Label: SERVER_LABEL,
-    ProgramArguments: [input.nodePath, `${input.root}/apps/server/dist/index.js`],
+    ProgramArguments: [
+      launcherFile(input.root, SERVER_LAUNCHER),
+      input.nodePath,
+      `${input.root}/apps/server/dist/index.js`,
+    ],
     WorkingDirectory: `${input.root}/apps/server`,
     EnvironmentVariables: environment,
     RunAtLoad: true,
@@ -167,6 +196,7 @@ export function buildWatcherPlist(input: WatcherPlistInput): BuiltPlist {
   const text = renderPlistFile({
     Label: WATCHER_LABEL,
     ProgramArguments: [
+      launcherFile(input.root, WATCHER_LAUNCHER),
       input.nodePath,
       '--import',
       'tsx',

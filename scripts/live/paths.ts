@@ -4,6 +4,14 @@ import path from 'node:path';
 export const SERVER_LABEL = 'com.projectman.live';
 export const WATCHER_LABEL = 'com.projectman.live-watcher';
 
+/**
+ * The two launchers the plists start instead of `node` (PM-514): macOS names a background item after the
+ * first element of `ProgramArguments`. They are files of the checkout, so they come with every release.
+ */
+export const SERVER_LAUNCHER = 'projectman-live';
+export const WATCHER_LAUNCHER = 'projectman-release-watcher';
+export const launcherFile = (root: string, name: string) => path.join(root, 'scripts', 'live', 'bin', name);
+
 /** The port, the release target and the shutdown pause the install falls back to. */
 export const DEFAULT_PORT = 4800;
 export const DEFAULT_TARGET = 'PM/projectman';

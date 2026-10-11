@@ -6,6 +6,7 @@ import {
   buildWatcherPlist,
   exitTimeoutSeconds,
   installedExitTimeout,
+  installedProgramArguments,
   PASSED_VARIABLES,
   xmlEscape,
 } from '../../../scripts/live/plist';
@@ -45,6 +46,16 @@ describe('the server plist', () => {
     expect(text).toMatch(/<key>ExitTimeOut<\/key>\s*<integer>90<\/integer>/);
     expect(text).toContain('<string>PM/projectman</string>');
     expect(text).not.toContain('npm');
+  });
+
+  it('is named after its launcher, which runs node on the server (the name macOS shows)', () => {
+    const program = installedProgramArguments(buildServerPlist(server()).text);
+    expect(program).toEqual([
+      '/Users/me/projectman-live/scripts/live/bin/projectman-live',
+      '/opt/homebrew/bin/node',
+      '/Users/me/projectman-live/apps/server/dist/index.js',
+    ]);
+    expect(installedProgramArguments('<plist/>')).toBeNull();
   });
 
   it('carries the allowlist from the installing shell and nothing else', () => {
@@ -120,8 +131,9 @@ describe('the watcher plist', () => {
     expect(text).toMatch(/<key>StartInterval<\/key>\s*<integer>60<\/integer>/);
     expect(text).not.toContain('KeepAlive');
     const args = [...text.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
-    expect(args.slice(0, 12)).toEqual([
+    expect(args.slice(0, 13)).toEqual([
       'com.projectman.live-watcher',
+      '/Users/me/projectman-live/scripts/live/bin/projectman-release-watcher',
       '/opt/homebrew/bin/node',
       '--import',
       'tsx',
@@ -142,6 +154,14 @@ describe('the watcher plist', () => {
     const { text, variables } = buildWatcherPlist(watcher({ PROJECTMAN_HEAVY_LOCK_DIR: '/var/heavy' }));
     expect(variables).toContain('PROJECTMAN_HEAVY_LOCK_DIR');
     expect(text).toContain('/var/heavy');
+  });
+
+  it('is named after its launcher, which runs node', () => {
+    const program = installedProgramArguments(buildWatcherPlist(watcher()).text);
+    expect(program?.slice(0, 2)).toEqual([
+      '/Users/me/projectman-live/scripts/live/bin/projectman-release-watcher',
+      '/opt/homebrew/bin/node',
+    ]);
   });
 
   it('carries no credential of the installing shell', () => {

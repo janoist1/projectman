@@ -1011,6 +1011,13 @@ workers follow the machine's size.
   server's machine, not to an engine: it switches the one live server and its database, which never run on
   an engine. An engine needs nothing from it; a hybrid installation (`PROJECTMAN_MODE=hybrid`) is refused
   by the install, as another process supervisor and release path would be needed.
+  **What the plists start (PM-514):** `ProgramArguments` begins with a launcher of the live checkout
+  (`scripts/live/bin/projectman-live`, `projectman-release-watcher`; `exec "$@"`), because macOS names a
+  background item (System Settings → Login Items & Extensions) after that first element, then the stable
+  `node` path (`scripts/live/node-path.ts`: the `PATH` entry that is the running binary, not the versioned
+  Homebrew `Cellar` path, which a `brew upgrade node` removes). `live status` checks both files exist. Machine
+  assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
+  has no such plist.
 
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports

@@ -145,6 +145,10 @@ export const GateRequestPayload = z.object({
    * wish survives a restart: checked again on approval, the top of the column when the anchor is gone.
    */
   placement: BoardPlacement.optional(),
+  /** The merge that follows the approval (PM-484): the move needs the work merged into `base` by `merger`
+   *  before the card enters the target. Absent when moveMerge was not `after_gates` with an approval, when
+   *  nobody can merge, and on requests from before. */
+  merge: z.object({ merger: MemberHandle, base: z.string().min(1) }).optional(),
 });
 export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
 

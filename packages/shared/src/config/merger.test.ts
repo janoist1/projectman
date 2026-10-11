@@ -6,6 +6,7 @@ import {
   mergeRepoOf,
   mergerOf,
   mergeTargetOf,
+  moveMerge,
   requiresMerge,
   unresolvedMerger,
 } from './merger';
@@ -233,6 +234,34 @@ describe('editing the merger', () => {
     );
     const many = Array.from({ length: 21 }, (_, i) => ({ repo: `r${i}`, requireMerge: true }));
     expect(PatchConfigRequest.safeParse({ baseVersion: 'v1', repoMerge: many }).success).toBe(false);
+  });
+});
+
+describe('moveMerge', () => {
+  const task = { repo: 'web', labels: [] as string[], assignee: null, links: [] };
+
+  it('is none where mergeRepoOf is null', () => {
+    const c = config();
+    expect(moveMerge(c, task, 'dev', 'code_review')).toEqual({ kind: 'none' });
+    expect(moveMerge(c, task, 'release', 'code_review')).toEqual({ kind: 'none' });
+    expect(moveMerge(config({ stages: [queue, work] }), task, 'ready', 'dev')).toEqual({ kind: 'none' });
+  });
+
+  it('is due when the target has no gate, or a release target has only its own', () => {
+    expect(moveMerge(config({ stages: [queue, work, done] }), task, 'dev', 'done')).toMatchObject({
+      kind: 'due',
+      repo: { name: 'web' },
+    });
+    // The release approval comes after the merge: its has_label condition is left out.
+    expect(moveMerge(config(), task, 'code_review', 'release')).toMatchObject({ kind: 'due' });
+  });
+
+  it('is after the gates while a condition of the move is missing', () => {
+    const gated = { ...done, gate: { conditions: [{ type: 'has_label', label: 'code-review-ok' }] } };
+    const c = config({ stages: [queue, work, codeReview, gated] });
+    const missing = moveMerge(c, task, 'code_review', 'done');
+    expect(missing).toMatchObject({ kind: 'after_gates', repo: { name: 'web' } });
+    expect(moveMerge(c, { ...task, labels: ['code-review-ok'] }, 'code_review', 'done').kind).toBe('due');
   });
 });
 

@@ -149,13 +149,55 @@ export function mergeReadiness(
   const targetIndex = stageIndex(config.pipeline, target.id);
   if (targetIndex < 1 || stageIndex(config.pipeline, task.stageId) !== targetIndex - 1)
     return { ready: false, reason: 'not_before_target' };
-  const evaluation = evaluateMove(task, config, task.stageId, target.id);
-  const leftOut = (stageId: string) => target.kind === 'release' && stageId === target.id;
-  const unmet = evaluation.unmet.filter(
-    (u: UnmetCondition) => !(leftOut(u.stageId) && u.condition.type === 'has_label'),
-  );
-  const approvals = evaluation.approvals.filter((a: ApprovalRequirement) => !leftOut(a.stageId));
+  const { unmet, approvals } = gatesBeforeMerge(config, task, task.stageId, target);
   return unmet.length === 0 && approvals.length === 0
     ? { ready: true, repo, target }
     : { ready: false, reason: 'gate' };
+}
+
+/**
+ * What a move into the merge target still waits for besides the merge: `evaluateMove`'s unmet conditions and
+ * approvals. For a release target its own has_label conditions and approvals are left out: the release
+ * approval comes after the merge.
+ */
+function gatesBeforeMerge(
+  config: ProjectConfig,
+  task: GateTask,
+  fromStageId: string,
+  target: Stage,
+): { unmet: UnmetCondition[]; approvals: ApprovalRequirement[] } {
+  const evaluation = evaluateMove(task, config, fromStageId, target.id);
+  const leftOut = (stageId: string) => target.kind === 'release' && stageId === target.id;
+  return {
+    unmet: evaluation.unmet.filter(
+      (u: UnmetCondition) => !(leftOut(u.stageId) && u.condition.type === 'has_label'),
+    ),
+    approvals: evaluation.approvals.filter((a: ApprovalRequirement) => !leftOut(a.stageId)),
+  };
+}
+
+export type MoveMerge =
+  | { kind: 'none' }
+  | { kind: 'due'; repo: RepoConfig }
+  | { kind: 'after_gates'; repo: RepoConfig; unmet: UnmetCondition[]; approvals: ApprovalRequirement[] };
+
+/**
+ * How a move relates to the merge (PM-484): `none` when it needs no merge (mergeRepoOf); `due` when the
+ * move's own gates hold, so the merge is checked now; `after_gates` when the move still waits for a gate
+ * the merge itself waits for (a missing approval, a blocking label): the gates speak first and the merge is
+ * checked after them, otherwise the two wait for each other. The gates are read like `mergeReadiness` does.
+ */
+export function moveMerge(
+  config: ProjectConfig,
+  task: Pick<Task, 'labels' | 'assignee' | 'links' | 'repo'>,
+  fromStageId: string,
+  toStageId: string,
+): MoveMerge {
+  const repo = mergeRepoOf(config, task, fromStageId, toStageId);
+  const target = mergeTargetOf(config);
+  if (!repo || !target) return { kind: 'none' };
+  const { unmet, approvals } = gatesBeforeMerge(config, task, fromStageId, target);
+  return unmet.length === 0 && approvals.length === 0
+    ? { kind: 'due', repo }
+    : { kind: 'after_gates', repo, unmet, approvals };
 }

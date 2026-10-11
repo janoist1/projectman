@@ -809,7 +809,7 @@ the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
 
 A task that enters a step or release stage a reviewing or testing duty belongs to
 (`stageHandsOverForReview`, the set that gets the `review_copy` placement) is **handed over**: before the move,
-`TaskMoves.prepareHandover` reads the head of the developer's branch through `SessionOrchestrator.sourceHead`
+`TaskMoves.prepareMove` (which also decides whether the merge is checked, see "Merger setting") reads the head of the developer's branch through `SessionOrchestrator.sourceHead`
 (the member workspace's `sourceHead`, or the task worktree's `head`, both in `apps/server/src/worktree`). A
 working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
 commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
@@ -2124,7 +2124,16 @@ picks the code reviewer when a code review stage comes before the merge target, 
 target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
 until PM-386). The merge target is the first release stage, else the done stage. The pure rules
 (`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
-`mergeReadiness`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+`mergeReadiness`, `moveMerge`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+The order of a move (PM-484): the merge waits for the same approval the move waits for (`mergeReadiness`
+needs the gate to hold), so the move's gates speak first. `moveMerge` says, for a move, `none` (no merge
+due), `due` (the gates hold: `TaskMoves.prepareMove` runs `Merges.checkGate`, and `PreparedMove.mergeChecked`
+records that it passed) or `after_gates` (an approval or condition is missing: `gate_blocked` or the
+approval request comes first, carrying `GateRequestPayload.merge`, the merger and base the approval is
+followed by). `move()` refuses a merge-requiring move that was not checked (`task_not_merged`), which
+closes the race where the approval is put on between the preparation and the write; `decide` asks for the
+merge instead of moving in that case. Every path (moves, hand-on, approval decision, `update`, board drop,
+group drop, AutoAdvance through `moveToStage`) goes through `prepareMove`.
 The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
 the config migration `addMerger` writes the default merger into a valid configuration that has none.
 `PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an

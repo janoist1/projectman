@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { gateRequestOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
+import type { TaskMoves } from '../src/domain/tasks/moves';
 import type { BranchMerger, FullTestExecutor, FullTestResult, MergeBaseState } from '../src/contracts';
 import { withVisibleCardLinks, clientCanSeeTimelineEvent } from '../src/domain/visibility';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { pullRequest } from './helpers/fakes';
+import { makeLocalOnly } from './helpers/test-template';
 import { aiActor } from '../src/domain';
 
 function deferred<T>() {
@@ -68,6 +71,8 @@ describe('member initiated merge', () => {
       adjust?: (config: ProjectConfig) => void;
       persistent?: boolean;
       unavailable?: boolean;
+      /** Keeps the merge and release stages of the test template (a web client project). */
+      fullPipeline?: boolean;
     } = {},
   ) {
     merger = fakeMerger(opts.remote);
@@ -78,12 +83,15 @@ describe('member initiated merge', () => {
       adjust(config) {
         config.project.repos[0]!.requireMerge = true;
         config.team.merger = { kind: 'member', handle: 'dev-1' };
-        config.pipeline.stages = config.pipeline.stages.filter(
-          (stage) => stage.id !== 'merge' && stage.id !== 'release',
-        );
-        config.pipeline.stages.find((stage) => stage.id === 'done')!.gate = {
-          conditions: [{ type: 'has_label', label: 'code-review-ok' }],
-        };
+        if (opts.fullPipeline) makeLocalOnly(config);
+        else {
+          config.pipeline.stages = config.pipeline.stages.filter(
+            (stage) => stage.id !== 'merge' && stage.id !== 'release',
+          );
+          config.pipeline.stages.find((stage) => stage.id === 'done')!.gate = {
+            conditions: [{ type: 'has_label', label: 'code-review-ok' }],
+          };
+        }
         opts.adjust?.(config);
       },
     });
@@ -1148,5 +1156,134 @@ describe('member initiated merge', () => {
     expect(visible.merge).toBeUndefined();
     expect(clientCanSeeTimelineEvent({ type: 'task_merge_requested' } as never)).toBe(false);
     expect(clientCanSeeTimelineEvent({ type: 'task_merge_failed' } as never)).toBe(false);
+  });
+
+  describe('the missing approval is asked before the merge is checked (PM-484)', () => {
+    // The done gate asks for the merge approval (an owner's label) next to the code review, like the small team.
+    const needsApproval = (c: ProjectConfig) => {
+      c.team.merger = { kind: 'code_reviewer' };
+      c.pipeline.stages
+        .find((s) => s.id === 'done')!
+        .gate!.conditions.push({ type: 'has_label', label: 'merge-ok' });
+    };
+    const withApproval = ['code-review-ok', 'merge-ok'];
+    const openDecisions = () => h!.domain.inbox.list('AR', { kind: 'decision', state: 'open' });
+    const approve = async (itemId: string) =>
+      h!.domain.inbox.resolve('AR', itemId, { optionId: 'approve' }, { handle: 'owner', access: 'owner' });
+    const movesOf = () => (h!.domain.tasks as unknown as { moves: TaskMoves }).moves;
+
+    it('opens the approval request, with the merge that follows, and checks no merge', async () => {
+      await setup({ adjust: needsApproval });
+      const config = await h!.domain.projects.config('AR');
+      for (const session of h!.domain.sessions.list('AR')) await h!.domain.sessions.stop('AR', session.id);
+      const requested = await move();
+      expect(requested.moved).toBe(false);
+      expect(requested.pendingApproval).toHaveLength(1);
+      expect(gateRequestOf(requested.pendingApproval[0]!)).toMatchObject({
+        label: 'merge-ok',
+        merge: { merger: 'cr', base: config.project.repos[0]!.defaultBranch },
+      });
+      expect(task().status).toBe('waiting');
+      expect(row()).toBeNull();
+      expect(merger.prepare).not.toHaveBeenCalled();
+      expect(h!.domain.taskWaits.ofCard(config, task())?.reason).toBe('approval');
+    });
+
+    it('asks for the merge once the approval is given, and moves after the merge', async () => {
+      await setup({ adjust: needsApproval });
+      const requested = await move();
+      await approve(requested.pendingApproval[0]!.id);
+      expect(task().labels).toContain('merge-ok');
+      expect(task().stageId).toBe('code_review');
+      expect(row()).toMatchObject({ state: 'requested', merger: 'cr' });
+      expect(events('task_merge_requested')).toHaveLength(1);
+      await start('AR-1', aiActor('cr'));
+      await merged();
+      await move();
+      expect(task().status).toBe('done');
+    });
+
+    it('requests the approval for an AI member, a drop on the board and a group drop', async () => {
+      await setup({ adjust: needsApproval });
+      const session = h!.domain.sessions.list('AR', { member: 'dev-1', taskKey: 'AR-1' })[0]!;
+      const ctx = { projectKey: 'AR', member: 'dev-1', taskKey: 'AR-1', sessionId: session.id };
+      // The team tool words the request for the member: not `task_not_merged`.
+      await expect(h!.domain.teamTools.updateTask(ctx, { taskKey: 'AR-1', stageId: 'done' })).rejects.toThrow(
+        'needs a human approval',
+      );
+      expect(openDecisions()).toHaveLength(1);
+      const drop = { columnId: 'done', fromStageId: 'code_review', placement: { at: 'top' } } as const;
+      await expect(h!.domain.tasks.moveOnBoard('AR', 'AR-1', drop, OWNER_ACTOR)).rejects.toMatchObject({
+        code: 'approval_requested',
+      });
+      await card('AR-2', 'web', 'dev-2', 'AR-1');
+      const group = await h!.domain.tasks.moveOnBoard(
+        'AR',
+        'AR-1',
+        { ...drop, withSubtasks: true },
+        OWNER_ACTOR,
+      );
+      expect(group.group).toEqual([
+        expect.objectContaining({ taskKey: 'AR-1', outcome: 'approval_pending' }),
+        expect.objectContaining({ taskKey: 'AR-2', outcome: 'approval_pending' }),
+      ]);
+      expect(merger.prepare).not.toHaveBeenCalled();
+    });
+
+    it('still refuses a card with every label but no merge', async () => {
+      await setup({ adjust: needsApproval });
+      h!.repos.tasks.update(task().id, { labels: withApproval });
+      await expect(move()).rejects.toMatchObject({ code: 'task_not_merged', details: { merger: 'cr' } });
+      expect(openDecisions()).toHaveLength(0);
+    });
+
+    it('writes nothing when one update puts the approval on and moves without the merge', async () => {
+      await setup({ adjust: needsApproval });
+      await expect(
+        h!.domain.tasks.update('AR', 'AR-1', { addLabels: ['merge-ok'], stageId: 'done' }, OWNER_ACTOR),
+      ).rejects.toMatchObject({ code: 'task_not_merged' });
+      expect(task().labels).toEqual(['code-review-ok']);
+      expect(task().stageId).toBe('code_review');
+      expect(openDecisions()).toHaveLength(0);
+    });
+
+    it('refuses a move whose approval came after it was prepared', async () => {
+      await setup({ adjust: needsApproval });
+      const prepare = movesOf().prepareMove.bind(movesOf());
+      vi.spyOn(movesOf(), 'prepareMove').mockImplementation(async (...args) => {
+        const prepared = await prepare(...args);
+        h!.repos.tasks.update(task().id, { labels: withApproval });
+        return prepared;
+      });
+      await expect(move()).rejects.toMatchObject({ code: 'task_not_merged' });
+      expect(task().stageId).toBe('code_review');
+    });
+
+    it('does not move on an approval whose merge was not checked, but asks for the merge', async () => {
+      await setup({ adjust: needsApproval });
+      const requested = await move();
+      vi.spyOn(movesOf(), 'prepareMove').mockResolvedValue({ handover: null, mergeChecked: false });
+      await approve(requested.pendingApproval[0]!.id);
+      expect(task().stageId).toBe('code_review');
+      expect(task().status).toBe('active');
+      expect(row()).toMatchObject({ state: 'requested' });
+    });
+
+    it('asks for the merge before the release approval of a web client project', async () => {
+      await setup({ fullPipeline: true });
+      h!.repos.tasks.update(task().id, { stageId: 'merge', labels: withApproval });
+      await expect(h!.domain.tasks.moveToStage('AR', 'AR-1', 'release', OWNER_ACTOR)).rejects.toMatchObject({
+        code: 'task_not_merged',
+      });
+      expect(openDecisions()).toHaveLength(0);
+      expect(row()).toMatchObject({ state: 'requested' });
+      await start();
+      await merged();
+      const requested = await h!.domain.tasks.moveToStage('AR', 'AR-1', 'release', OWNER_ACTOR);
+      expect(requested.pendingApproval).toHaveLength(1);
+      const gate = gateRequestOf(requested.pendingApproval[0]!);
+      expect(gate).toMatchObject({ label: 'release-ok' });
+      expect(gate?.merge).toBeUndefined();
+    });
   });
 });

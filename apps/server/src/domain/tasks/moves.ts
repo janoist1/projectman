@@ -8,6 +8,8 @@ import {
   handOnDecision,
   handOnRequestOf,
   memberOf,
+  mergeRepoOf,
+  moveMerge,
   isOpenTask,
   isTheme,
   noApproverReason,
@@ -77,12 +79,21 @@ export interface Handover {
   head: SourceHead;
 }
 
+/** What `prepareMove` read before the unit of work. */
+export interface PreparedMove {
+  handover: Handover | null;
+  /** The merge check ran and let the move through (PM-484). */
+  mergeChecked: boolean;
+}
+
 /** What a move may carry besides its target (PM-183). */
 export interface MoveOptions {
   /** An automatic move is valid only during the stage stay that selected its target. */
   expectedFrom?: Pick<Task, 'stageId' | 'stageEnteredAt'>;
-  /** Read by `prepareHandover` before the unit of work; the move records the pin. */
+  /** Read by `prepareMove` before the unit of work; the move records the pin. */
   handover?: Handover | null;
+  /** `prepareMove` checked the merge and let the move through; without it a move that needs a merge is refused. */
+  mergeChecked?: boolean;
   /** The system sends the task back because its branch moved after the hand-over. */
   branchMoved?: NonNullable<TimelineEventData['task_stage_changed']['branchMoved']>;
   /** The system sends the task back because the server's full test of the pinned commit failed (PM-217). */
@@ -161,7 +172,7 @@ export class TaskMoves {
       const config = await this.store.projects.config(item.projectKey);
       const actor = humanActor(by.handle);
       requireHuman(config, actor, 'developer');
-      const handover = await this.prepareHandover(
+      const { handover, mergeChecked } = await this.prepareMove(
         config,
         this.store.get(item.projectKey, request.taskKey),
         request.toStageId,
@@ -177,7 +188,7 @@ export class TaskMoves {
           throw conflict('inbox_item_closed', 'the hand-on request is no longer current');
         const evaluation = evaluateMove(task, config, task.stageId, request.toStageId);
         if (evaluation.unmet.length || evaluation.approvals.length) throw gateBlockedError(evaluation);
-        this.move(config, task, request.toStageId, actor, effects, { handover });
+        this.move(config, task, request.toStageId, actor, effects, { handover, mergeChecked });
       });
       await runEffects(effects);
     });
@@ -187,7 +198,7 @@ export class TaskMoves {
    * Moves a task to a stage if the gates allow it. Unmet conditions throw `gate_blocked`;
    * human approvals create `decision` inbox items for the approvers and the task moves only
    * once they approve (an AI member can never resolve inbox items). Entering a review or test
-   * stage hands the branch over: see `prepareHandover`.
+   * stage hands the branch over: see `prepareMove`.
    */
   async moveToStage(
     projectKey: string,
@@ -197,25 +208,42 @@ export class TaskMoves {
     opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom'> = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
-    const handover = await this.prepareHandover(config, this.store.get(projectKey, taskKey), stageId);
+    const prepared = await this.prepareMove(config, this.store.get(projectKey, taskKey), stageId);
     const effects: Effect[] = [];
     const result = this.store.ctx.unitOfWork(() =>
-      this.move(config, this.store.get(projectKey, taskKey), stageId, actor, effects, { ...opts, handover }),
+      this.move(config, this.store.get(projectKey, taskKey), stageId, actor, effects, {
+        ...opts,
+        ...prepared,
+      }),
     );
     await runEffects(effects);
     return result;
   }
 
   /**
-   * The hand-over of a move into a review or test stage (PM-183), read before the unit of work:
-   * the head of the developer's branch. Uncommitted work in the developer's working directory
-   * refuses the move (`handover_uncommitted`), whoever moves it, because reviewers only ever see
-   * committed work. Null for any other move, and for a task without a repository or a branch.
+   * What a move needs read before the unit of work. The merge check (`task_not_merged`, PM-452) runs
+   * only when `moveMerge` says it is due, i.e. the move's gates hold; `mergeChecked` then says it passed,
+   * and `move` refuses a merge-requiring move that was not checked. The hand-over of a move into a
+   * review or test stage (PM-183) is the head of the developer's branch: uncommitted work in the
+   * developer's working directory refuses the move (`handover_uncommitted`), whoever moves it, because
+   * reviewers only ever see committed work. The hand-over is null for any other move, and for a task
+   * without a repository or a branch.
    */
-  async prepareHandover(config: ProjectConfig, task: Task, stageId: string): Promise<Handover | null> {
+  async prepareMove(config: ProjectConfig, task: Task, stageId: string): Promise<PreparedMove> {
     const target = stageOf(config, stageId);
-    if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task)) return null;
-    await this.merges?.checkGate(config, task, target.id);
+    if (!target || task.stageId === target.id || task.status === 'cancelled' || isTheme(task))
+      return { handover: null, mergeChecked: false };
+    // The merge is checked only when the move's own gates hold (PM-484): a merge that waits for a gate
+    // of the move (a missing approval) would otherwise keep the gate from ever being asked.
+    let mergeChecked = false;
+    if (this.merges && moveMerge(config, task, task.stageId, target.id).kind === 'due') {
+      await this.merges.checkGate(config, task, target.id);
+      mergeChecked = true;
+    }
+    return { handover: await this.readHandover(config, task, target), mergeChecked };
+  }
+
+  private async readHandover(config: ProjectConfig, task: Task, target: Stage): Promise<Handover | null> {
     if (!stageHandsOverForReview(config, target)) return null;
     const head = await this.sourceHead(config, task);
     if (!head) return null;
@@ -310,6 +338,12 @@ export class TaskMoves {
         opts.placement,
       );
       return { task: requested.task, moved: false, pendingApproval: requested.items };
+    }
+    // The gates hold; the work must be merged too. `prepareMove` checks it before the unit of work, and
+    // an approval may have come between that and now (PM-484): such a move is not let through unchecked.
+    if (this.merges && !opts.mergeChecked) {
+      const repo = mergeRepoOf(config, task, task.stageId, target.id);
+      if (repo) throw this.merges.notMergedError(config, task, repo, 'not_merged');
     }
     const decision = handOnDecision(config, actor, task.stageId, target.id);
     if (decision.kind === 'request')
@@ -459,7 +493,7 @@ export class TaskMoves {
     if (!gate || !resolution) return;
     const config = await this.store.projects.config(item.projectKey);
     // An approved move into a review or test stage hands the branch over like any other (PM-183).
-    let handover: Handover | null = null;
+    let prepared: PreparedMove = { handover: null, mergeChecked: false };
     let refused = false;
     let mergeMissing = false;
     const task = this.store.find(item.projectKey, gate.taskKey);
@@ -470,7 +504,15 @@ export class TaskMoves {
       task.status !== 'cancelled'
     ) {
       try {
-        handover = await this.prepareHandover(config, task, gate.toStageId);
+        // The merge is checked as the card will be once every approval of the request is on it.
+        const approvedLabels = this.inbox
+          .gateRequestItems(item.projectKey, task.key, gate.requestId)
+          .flatMap((sibling) => gateRequestOf(sibling)?.label ?? []);
+        prepared = await this.prepareMove(
+          config,
+          { ...task, labels: unique([...task.labels, ...approvedLabels]) },
+          gate.toStageId,
+        );
       } catch (err) {
         if (!(err instanceof DomainError)) throw err;
         if (err.code === 'task_not_merged') mergeMissing = true;
@@ -481,7 +523,7 @@ export class TaskMoves {
     const effects: Effect[] = [];
     this.store.ctx.unitOfWork(() =>
       this.decide(config, item, gate, humanActor(resolution.by), effects, {
-        handover,
+        ...prepared,
         refused,
         mergeMissing,
       }),
@@ -495,7 +537,7 @@ export class TaskMoves {
     gate: GateRequestPayload,
     actor: Actor,
     effects: Effect[],
-    handed: { handover: Handover | null; refused: boolean; mergeMissing: boolean },
+    handed: PreparedMove & { refused: boolean; mergeMissing: boolean },
   ): void {
     const task = this.store.find(item.projectKey, gate.taskKey);
     if (!task) return;
@@ -552,7 +594,10 @@ export class TaskMoves {
       });
       return;
     }
-    if (handed.mergeMissing) {
+    // Not checked (the approval came after `prepareMove` read the card): the work counts as not merged.
+    const unchecked =
+      this.merges && !handed.mergeChecked && mergeRepoOf(config, current, current.stageId, target.id);
+    if (handed.mergeMissing || unchecked) {
       this.settleWaiting(current, actor, { gateBlocked: { to: target.id, reason: 'task_not_merged' } });
       effects.push(async () => {
         await this.merges?.reconcile(current.projectKey, current.key);
@@ -606,6 +651,11 @@ export class TaskMoves {
       });
     }
     const requestId = newId('gat');
+    // The merge that follows the approval (PM-484), so that the request can say who merges and into what.
+    const afterGates = moveMerge(config, task, task.stageId, target.id);
+    const merger = afterGates.kind === 'after_gates' ? this.merges?.mergerOf(config, task) : null;
+    const merge =
+      afterGates.kind === 'after_gates' && merger ? { merger, base: afterGates.repo.defaultBranch } : null;
     const items = approvals.map((req) => {
       const payload: GateRequestPayload = {
         requestId,
@@ -616,6 +666,7 @@ export class TaskMoves {
         label: req.label,
         requestedBy: actor,
         ...(placement ? { placement } : {}),
+        ...(merge ? { merge } : {}),
       };
       return this.inbox.create({
         projectKey: task.projectKey,

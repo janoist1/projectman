@@ -712,6 +712,40 @@ describe('engine local limit', () => {
       );
     });
 
+    it('puts a message file only into the folder of a session this engine made one for, by a plain name (PM-518)', async () => {
+      const limit = make();
+      const params = (name: string, extra: Record<string, unknown> = {}) => ({
+        sessionId: 's1',
+        name,
+        downloadToken: TOKEN,
+        sha256: 'a'.repeat(64),
+        size: 10,
+        ...extra,
+      });
+      await refused(limit, 'files.materialize_into_session', params('msa_1-a.pdf'), 'invalid_params');
+      await limit.check('folders.make', {
+        sessionId: 's1',
+        dir: path.join(home, 'session-folders', 's1'),
+      } as never);
+      await expect(
+        limit.check('files.materialize_into_session', params('msa_1-a.pdf') as never),
+      ).resolves.toBeDefined();
+      for (const name of ['../x', 'a/b', '..', '.', '', 'a\\b', 'x\0y', 'x'.repeat(256)])
+        await refused(limit, 'files.materialize_into_session', params(name), 'invalid_params');
+      await refused(
+        limit,
+        'files.materialize_into_session',
+        params('a.pdf', { sessionId: 's2' }),
+        'invalid_params',
+      );
+      await refused(
+        limit,
+        'files.materialize_into_session',
+        params('a.pdf', { downloadToken: 'short' }),
+        'invalid_params',
+      );
+    });
+
     it('checks the branch export upload token', async () => {
       await refused(
         make(),

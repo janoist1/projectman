@@ -229,6 +229,12 @@ export interface MessageAttachmentReading {
     | { kind: 'image'; data: Buffer; mimeType: 'image/webp' }
     | { kind: 'text'; text: string }
     | { kind: 'none'; reason: 'type' | 'too_large' };
+  /**
+   * The file in the caller's own session folder (PM-518), on the machine the session runs on:
+   * given for what the content cannot show (`none`, or an image the provider's CLI does not pass on).
+   * Absent: the content is all there is.
+   */
+  file?: { path: string };
 }
 
 /** A refused destination the session may ask for with submit_boundary_request. */
@@ -406,6 +412,11 @@ export interface TeamToolsHandler {
       kind: MessageKind;
       signalId?: string;
       signalActionable?: boolean;
+      /**
+       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
+       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
+       */
+      attachments?: string[];
     },
   ): Promise<{
     messageId: string;

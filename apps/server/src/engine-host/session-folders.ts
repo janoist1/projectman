@@ -1,7 +1,17 @@
-import { randomBytes } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
-import { lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  chmodSync,
+  constants,
+  createReadStream,
+  createWriteStream,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+} from 'node:fs';
+import { link, lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { EngineSessionFolders } from '../contracts';
 
 /**
@@ -17,7 +27,51 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A session's temporary directory name (`allocateTmp`); not a `.trash-*` name. */
 const TMP_NAME = /^[0-9a-f]{12}$/;
 
+/** The subfolder of a session's folder that holds the message attachments it was given (PM-518). */
+export const SESSION_FILES_DIR = 'message-attachments';
+
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
+
+async function sha256Of(file: string): Promise<string> {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
+  return hash.digest('hex');
+}
+
+/**
+ * Copies a regular file (a link is refused) to `dest`, which must not exist, with mode 0600, and checks
+ * that it has exactly the size and checksum the caller named; a copy that fails the check is removed.
+ */
+async function copyChecked(
+  source: { path: string; size: number; sha256: string },
+  dest: string,
+): Promise<void> {
+  const handle = await open(source.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('The file is not a regular file');
+    if (stat.size !== source.size) throw new Error('The file does not have the size it was given with');
+    const hash = createHash('sha256');
+    let bytes = 0;
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        hash.update(chunk);
+        bytes += chunk.length;
+        done(null, chunk);
+      },
+    });
+    try {
+      await pipeline(handle.createReadStream(), meter, createWriteStream(dest, { flags: 'wx', mode: 0o600 }));
+      if (bytes !== source.size || hash.digest('hex') !== source.sha256)
+        throw new Error('The file does not match its size and checksum');
+    } catch (err) {
+      await rm(dest, { force: true });
+      throw err;
+    }
+  } finally {
+    await handle.close();
+  }
+}
 
 function assertOwnDirectorySync(dir: string, mustExist = false): void {
   const stat = lstatSync(dir, { throwIfNoEntry: false });
@@ -277,6 +331,49 @@ export class SessionFolders implements EngineSessionFolders {
     }
     await this.sweepTmp(keptTmps);
     return removed;
+  }
+
+  /**
+   * A file of the server's storage into the session's folder, `<folder>/message-attachments/<name>`
+   * (PM-518). Only the folder this registry recorded for the session is written, never a path the
+   * caller names: a session the registry does not know (not started here, already ended) is refused.
+   * The content is copied to a name in the root, which no session reaches, checked against the size and
+   * checksum, and then linked into place, so the file the agent sees is complete and made exclusively
+   * (0600, never through a link). The subfolder is made 0700 and must be a real directory; a file
+   * already there with the same checksum stays as the answer, anything else of that name is replaced.
+   */
+  async materializeFile(
+    sessionId: string,
+    input: { name: string; source: { path: string; size: number; sha256: string } },
+  ): Promise<{ path: string }> {
+    const { name, source } = input;
+    if (!name || name.length > 255 || name === '.' || name === '..' || /[/\\\0]/.test(name))
+      throw new Error(`Not a plain file name: ${JSON.stringify(name)}`);
+    const folder = this.folders.get(sessionId);
+    if (!folder) throw new Error(`Session ${sessionId} has no folder on this engine`);
+    const staged = path.join(this.root, `.part-${randomBytes(8).toString('hex')}`);
+    try {
+      await copyChecked(source, staged);
+      await assertOwnDirectory(folder, true);
+      const dir = path.join(folder, SESSION_FILES_DIR);
+      await mkdir(dir, { mode: 0o700 }).catch((err: unknown) => {
+        if (code(err) !== 'EEXIST') throw err;
+      });
+      await assertOwnDirectory(dir, true);
+      const dest = path.join(dir, name);
+      const there = await lstat(dest).catch((err: unknown) => {
+        if (code(err) === 'ENOENT') return undefined;
+        throw err;
+      });
+      if (there) {
+        if (there.isFile() && (await sha256Of(dest)) === source.sha256) return { path: dest };
+        await rm(dest, { recursive: true, force: true });
+      }
+      await link(staged, dest);
+      return { path: dest };
+    } finally {
+      await rm(staged, { force: true });
+    }
   }
 
   /**

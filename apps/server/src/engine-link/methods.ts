@@ -502,6 +502,17 @@ export const methods = {
     }),
     z.strictObject({ path: text }),
   ),
+  // A message attachment into the session's own folder on the engine (PM-518).
+  'files.materialize_into_session': method(
+    z.strictObject({
+      downloadToken: text,
+      sessionId: text,
+      name: text,
+      sha256: text.regex(/^[a-f0-9]{64}$/),
+      size: int.max(ENGINE_UPLOAD_MAX_BYTES.file),
+    }),
+    z.strictObject({ path: text }),
+  ),
   'files.resolve_scenario': method(
     z.strictObject({ roots: z.strictObject({ cwd: text, sessionDir: text }), requested: text }),
     z.union([

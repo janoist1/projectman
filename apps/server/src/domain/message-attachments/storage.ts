@@ -107,6 +107,14 @@ export class FileMessageAttachmentStorage implements MessageAttachmentStorage {
     return handle.createReadStream();
   }
 
+  async locate(ref: MessageAttachmentFileRef, size: number): Promise<string> {
+    const file = join(await this.projectDir(ref, false), ref.id);
+    const stat = await lstat(file);
+    if (!stat.isFile()) throw new Error('message attachment is not a regular file');
+    if (stat.size !== size) throw new Error('message attachment size does not match the stored metadata');
+    return file;
+  }
+
   async openThumbnail(ref: MessageAttachmentFileRef): Promise<AttachmentThumbnail | null> {
     const dir = await this.projectDir(ref, false).catch((err: unknown) => {
       if (isMissing(err)) return null;

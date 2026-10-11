@@ -38,6 +38,10 @@ describe('NanoGPT adapter', () => {
     };
     return { adapter, input, codexHome };
   }
+  it('takes the capabilities of Codex, except that an image in a tool result is not promised (PM-518)', async () => {
+    const { adapter } = await harness();
+    expect(adapter.capabilities).toMatchObject({ toolGate: 'permission_request', mcpImageResults: false });
+  });
   it('uses custom provider arguments and private home and hides keys from shells', async () => {
     const h = await harness();
     const launch = await h.adapter.launch(h.input);

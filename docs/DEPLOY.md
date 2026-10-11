@@ -429,12 +429,33 @@ it. Only the pause of the stop itself ends with the start.
 The owner's live instance (`~/projectman-live`, data in `~/.projectman`, port 4800) runs under two
 LaunchAgents in `~/Library/LaunchAgents`, written by `npm run live`:
 
-- `com.projectman.live` runs `node apps/server/dist/index.js` (not `npm start`, so launchd's SIGTERM
+- `com.projectman.live` runs `node apps/server/dist/index.js` through a launcher (see "What macOS shows"; not `npm start`, so launchd's SIGTERM
   reaches the server and the stop pauses the team first). `KeepAlive`, `ThrottleInterval 10`, and an
   `ExitTimeOut` of the shutdown pause plus 30 s (90 s by default; it follows `PROJECTMAN_SHUTDOWN_PAUSE_MS`
   of the installing shell). Logs: `~/.projectman/logs/live-server.log`.
 - `com.projectman.live-watcher` runs one watcher round every 60 s (`StartInterval`, no `KeepAlive`, so
   never two at once). Logs: `~/.projectman/logs/live-watcher.log`.
+
+**What macOS shows (PM-514).** System Settings → General → Login Items & Extensions → "Allow in the
+Background" names a LaunchAgent after the first element of its `ProgramArguments`. The files therefore do
+not start `node` but a launcher of the checkout, which runs the command it is given:
+`~/projectman-live/scripts/live/bin/projectman-live` (the server) and
+`~/projectman-live/scripts/live/bin/projectman-release-watcher` (the watcher; each is `exec "$@"` and
+nothing else). The list shows two items, "projectman-live" and "projectman-release-watcher", next to any other
+node-based item. The items carry no developer signature, so macOS may still label them "Item from unidentified
+developer": that is the label of an unsigned file, not a sign of another program. To check which item is which,
+press the (i) button of an item: it shows the plist in Finder (`~/Library/LaunchAgents/com.projectman.live.plist`
+or `…live-watcher.plist`); its `ProgramArguments` starts with the launcher and then names node. The launchers
+are files of the checkout, so a release brings them along; `npm run live -- status` lists the launcher and
+node of each file and exits 1 when one does not exist.
+
+**The node path.** The install writes the stable path of `node`, not `process.execPath`: under Homebrew
+that is `/opt/homebrew/Cellar/node/<version>/bin/node`, which a `brew upgrade node` removes, after which the
+server would not start (`KeepAlive` does not help). The install takes the first `node` on the installing
+shell's `PATH` that is the running binary and has no `Cellar` directory in its name (`/opt/homebrew/bin/node`),
+and prints it (`node: …`, with a warning when only a versioned path exists). A file from before this change
+starts node itself (it appears as "node" in macOS), and `status` says so: run `npm run live -- install` once
+more. After an upgrade that moves node, `status` shows `node: … (MISSING …)` and exits 1; install again.
 
 launchd gives a job no shell environment. The server file therefore carries an allowlist taken from the
 shell that runs the install (`PATH`, `HOME`, `PORT`, `PROJECTMAN_HOME`, `PROJECTMAN_RELEASE_TARGET` and, when

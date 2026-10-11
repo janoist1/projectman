@@ -42,7 +42,7 @@ function LiveEvents({ backend }: { backend: Project['backend'] }) {
 const drawerFor = (project: Project) => (
   <Routes>
     <Route
-      path="/p/:key/tasks/:taskKey"
+      path="/p/:key/tasks/:taskKey/*"
       element={
         <>
           <LiveEvents backend={project.backend} />
@@ -100,7 +100,7 @@ describe('attachments: list', () => {
       size: 800,
       type: 'image/svg+xml',
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const list = within(await screen.findByRole('list', { name: t('attachments.listLabel') }));
     expect(list.getAllByRole('listitem')).toHaveLength(2);
     expect(list.getByText('page.html')).toBeTruthy();
@@ -126,7 +126,7 @@ describe('attachments: list', () => {
     const project = mockProject();
     const name = '<img src=x onerror=alert(1)>.txt';
     project.backend.addAttachment('AC-20', { name, size: 10, type: 'text/plain' });
-    const { container } = project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    const { container } = project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const list = within(await screen.findByRole('list', { name: t('attachments.listLabel') }));
     expect(list.getByText(name)).toBeTruthy();
     expect(container.querySelector('img[src="x"]')).toBeNull();
@@ -136,7 +136,7 @@ describe('attachments: list', () => {
 
   it('says so when a task has none', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     expect(await screen.findByText(t('attachments.none'))).toBeTruthy();
   });
 });
@@ -145,7 +145,7 @@ describe('attachments: preview', () => {
   it('shows a small lazy thumbnail and opens the image large, closing with the dialog', async () => {
     const project = mockProject();
     const image = project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const open = await (
       await fromList()
     ).findByRole('button', {
@@ -169,7 +169,7 @@ describe('attachments: preview', () => {
   it('closes an open view when the file is deleted by someone else', async () => {
     const project = mockProject();
     const image = project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     fireEvent.click(
       (await fromList()).getByRole('button', {
         name: t('attachments.previewLabel', { fileName: 'shot.png' }),
@@ -188,7 +188,7 @@ describe('attachments: preview', () => {
       size: 90_000,
       type: 'application/pdf',
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const list = await fromList();
     const link = await list.findByRole('link', {
       name: t('attachments.openPdfLabel', { fileName: 'spec.pdf' }),
@@ -208,7 +208,7 @@ describe('attachments: timeline links', () => {
   it('opens an image from its timeline row in the same large view as the list', async () => {
     const project = mockProject();
     const image = project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
     const row = await findAddedRow('shot.png');
     const open = within(row).getByRole('button', {
       name: t('attachments.previewLabel', { fileName: 'shot.png' }),
@@ -229,7 +229,7 @@ describe('attachments: timeline links', () => {
       size: 900,
       type: 'application/pdf',
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
     const link = within(await findAddedRow('spec.pdf')).getByRole('link', {
       name: t('attachments.openPdfLabel', { fileName: 'spec.pdf' }),
     });
@@ -241,7 +241,7 @@ describe('attachments: timeline links', () => {
   it('offers any other file, an HTML page too, as a download', async () => {
     const project = mockProject();
     const page = project.backend.addAttachment('AC-20', { name: 'page.html', size: 90, type: 'text/html' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
     const link = within(await findAddedRow('page.html')).getByRole('link', {
       name: t('attachments.downloadLabel', { fileName: 'page.html' }),
     });
@@ -253,7 +253,7 @@ describe('attachments: timeline links', () => {
   it('leaves the row of a deleted file as plain text', async () => {
     const project = mockProject();
     const gone = project.backend.addAttachment('AC-20', { name: 'gone.png', size: 5000, type: 'image/png' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
     const row = await findAddedRow('gone.png');
     expect(
       within(row).getByRole('button', { name: t('attachments.previewLabel', { fileName: 'gone.png' }) }),
@@ -276,7 +276,7 @@ describe('attachments: upload', () => {
         headers.push(Object.keys(init.headers ?? {}).map((n) => n.toLowerCase()));
       return base(path, init);
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     const a = makeFile('a.txt');
     const b = makeFile('b.png', 'image/png');
@@ -300,7 +300,7 @@ describe('attachments: upload', () => {
 
   it('takes a file of exactly 25 MB and refuses one byte more before any request', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     choose(makeFile('limit.bin', 'application/octet-stream', MAX_ATTACHMENT_BYTES));
     await screen.findByText('limit.bin');
@@ -337,7 +337,7 @@ describe('attachments: upload', () => {
           )
         : base(path, init),
     );
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     choose(makeFile('big.txt'));
     const alert = await screen.findByRole('alert');
@@ -367,7 +367,7 @@ describe('attachments: upload', () => {
       }
       return base(path, init);
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     choose(makeFile('good.txt'), makeFile('bad.txt'));
     const alert = await screen.findByRole('alert');
@@ -398,7 +398,7 @@ describe('attachments: upload', () => {
       if (init?.body instanceof FormData && offline) throw new TypeError('Failed to fetch');
       return base(path, init);
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     choose(makeFile('later.txt'));
     expect((await screen.findByRole('alert')).textContent).toBe(
@@ -424,7 +424,7 @@ describe('attachments: upload', () => {
       }
       return base(path, init);
     });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     choose(...['1', '2', '3', '4', '5'].map((n) => makeFile(`f${n}.txt`)));
     await waitFor(() => expect(held).toHaveLength(3));
@@ -446,7 +446,7 @@ describe('attachments: upload', () => {
 
   it('takes files dropped on the section, but not dragged text', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const region = await section();
     await screen.findByText(t('attachments.none'));
     // Text is not a file: the drop is left to the browser and to the field it lands on.
@@ -478,7 +478,7 @@ describe('attachments: paste', () => {
 
   it('uploads an image pasted from the clipboard', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     const image = makeFile('image.png', 'image/png');
     expect(fireEvent.paste(document.body, { clipboardData: clipboard([image]) })).toBe(false);
@@ -486,9 +486,22 @@ describe('attachments: paste', () => {
     expect(((uploads(project)[0]!.body as FormData).get('file') as File).name).toBe('image.png');
   });
 
+  it('switches to the attachments view when an image is pasted on another view', async () => {
+    const project = mockProject();
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
+    await screen.findByRole('textbox', { name: t('task.comments.label') });
+    // The attachments are in the tree but hidden: the role query finds them only once their view is shown.
+    expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
+    expect(
+      fireEvent.paste(document.body, { clipboardData: clipboard([makeFile('image.png', 'image/png')]) }),
+    ).toBe(false);
+    expect(await screen.findByRole('region', { name: t('attachments.title') })).toBeTruthy();
+    await findAddedRow('image.png');
+  });
+
   it('leaves text and non-image files to the page', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     expect(fireEvent.paste(document.body, { clipboardData: clipboard([], 'just text') })).toBe(true);
     expect(
@@ -499,8 +512,8 @@ describe('attachments: paste', () => {
 
   it('does not take a paste that carries text into a field being edited', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText(t('attachments.none'));
+    // The comment field is on the timeline: the paste there must still land in the list of attachments.
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
     const field = (await screen.findAllByRole('textbox')).find((node) => node.tagName === 'TEXTAREA')!;
     const image = makeFile('image.png', 'image/png');
     // A page copied with its pictures: the text is for the field.
@@ -509,12 +522,19 @@ describe('attachments: paste', () => {
     // A screenshot has no text: a text field cannot take it, so it is attached.
     expect(fireEvent.paste(field, { clipboardData: clipboard([image]) })).toBe(false);
     await findAddedRow('image.png');
+    // The drawer shows the Attachments view then, so the upload is in sight (PM-487).
+    expect(
+      await screen.findByRole('button', {
+        name: new RegExp(`^${t('task.view.attachments')}`),
+        pressed: true,
+      }),
+    ).toBeTruthy();
   });
 
   it('ignores a paste while a dialog is open', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', { name: 'shot.png', size: 5000, type: 'image/png' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     fireEvent.click(
       (await fromList()).getByRole('button', {
         name: t('attachments.previewLabel', { fileName: 'shot.png' }),
@@ -532,8 +552,8 @@ describe('attachments: delete', () => {
   it('asks first, then deletes, and the timeline keeps the name and the actor', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', { name: 'old.txt', size: 100, type: 'text/plain' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('old.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'old.txt' }) }),
     );
@@ -551,8 +571,8 @@ describe('attachments: delete', () => {
   it('can be cancelled', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', { name: 'keep.txt', size: 100, type: 'text/plain' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('keep.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'keep.txt' }) }),
     );
@@ -575,8 +595,8 @@ describe('attachments: delete', () => {
           })
         : base(path, init),
     );
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('kept.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     fireEvent.click(
       screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'kept.txt' }) }),
     );
@@ -590,7 +610,7 @@ describe('attachments: delete', () => {
   it('reads the list again when the file is already gone', async () => {
     const project = mockProject();
     const att = project.backend.addAttachment('AC-20', { name: 'gone.txt', size: 100, type: 'text/plain' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await listed('gone.txt');
     // Someone else removes it just before the click: the list on screen is stale until it is read again.
     project.backend.attachments = project.backend.attachments.filter((entry) => entry.id !== att.id);
@@ -611,8 +631,8 @@ describe('attachments: who may do what', () => {
       { kind: 'human', handle: 'bence' },
     );
     const overrides = actAs(project, 'bence', 'viewer');
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20', overrides);
-    await screen.findByText('mine.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', overrides);
+    await fromList();
     // Not even an older upload of their own can be deleted.
     expect(screen.queryByRole('button', { name: t('attachments.chooseFiles') })).toBeNull();
     expect(screen.queryByLabelText(t('attachments.inputLabel'))).toBeNull();
@@ -651,8 +671,8 @@ describe('attachments: who may do what', () => {
       { kind: 'human', handle: 'bence' },
     );
     project.backend.addAttachment('AC-20', { name: 'owners.txt', size: 10, type: 'text/plain' }, OWNER_ACTOR);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20', actAs(project, 'bence', 'developer'));
-    await screen.findByText('owners.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', actAs(project, 'bence', 'developer'));
+    await fromList();
     expect(
       screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'theirs.txt' }) }),
     ).toBeTruthy();
@@ -671,8 +691,8 @@ describe('attachments: who may do what', () => {
         { kind: 'human', handle: 'bence' },
       );
       const overrides = access === 'owner' ? {} : actAs(project, 'kata', 'admin');
-      const { unmount } = project.render(drawerFor(project), '/p/AC/tasks/AC-20', overrides);
-      await screen.findByText('theirs.txt');
+      const { unmount } = project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', overrides);
+      await fromList();
       expect(
         screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'theirs.txt' }) }),
       ).toBeTruthy();
@@ -688,8 +708,8 @@ describe('attachments: who may do what', () => {
       { name: 'bence.txt', size: 10, type: 'text/plain' },
       { kind: 'human', handle: 'bence' },
     );
-    project.render(drawerFor(project), '/p/AC/tasks/AC-19', actAs(project, 'bence', 'client'));
-    await screen.findByText('ours.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-19/attachments', actAs(project, 'bence', 'client'));
+    await fromList();
     expect(
       screen.getByRole('button', { name: t('attachments.deleteLabel', { fileName: 'bence.txt' }) }),
     ).toBeTruthy();
@@ -720,7 +740,7 @@ describe('attachments: cover choice', () => {
     project.backend.addAttachment('AC-20', png);
     project.backend.addAttachment('AC-20', jpg);
     project.backend.addAttachment('AC-20', { name: 'plan.pdf', size: 10, type: 'application/pdf' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const first = (await listed('one.png')).closest('li')!;
     expect(within(first).getByText(t('attachments.cover'))).toBeTruthy();
     expect(hideButton('one.png')).toBeTruthy();
@@ -735,12 +755,12 @@ describe('attachments: cover choice', () => {
   it('tells that the first image becomes the cover only while the card has no image', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', { name: 'plan.pdf', size: 10, type: 'application/pdf' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('plan.pdf');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     const firstCover = t('attachments.hintFirstCover');
     expect(screen.getByText((text) => text.includes(firstCover))).toBeTruthy();
     choose(makeFile('one.png', 'image/png'));
-    await screen.findByText('one.png');
+    await fromList();
     expect(screen.queryByText((text) => text.includes(firstCover))).toBeNull();
   });
 
@@ -748,7 +768,7 @@ describe('attachments: cover choice', () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', png);
     project.backend.addAttachment('AC-20', jpg);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     const row = (await listed('two.jpg')).closest('li')!;
     const controls = Array.from(row.querySelectorAll('a, button')).map((element) =>
       element.getAttribute('aria-label'),
@@ -766,7 +786,7 @@ describe('attachments: cover choice', () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', png);
     const second = project.backend.addAttachment('AC-20', jpg);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await listed('two.jpg');
     fireEvent.click(makeButton('two.jpg')!);
     await waitFor(() => expect(hideButton('two.jpg')).toBeTruthy());
@@ -782,8 +802,8 @@ describe('attachments: cover choice', () => {
   it('hides the cover and says so, and keeps it hidden after another upload', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', png);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('one.png');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     fireEvent.click(hideButton('one.png')!);
     const note = await screen.findByText(t('attachments.coverHidden'));
     // Not the upload hint's class: its flex basis would be a 200 px height in the section's column.
@@ -809,7 +829,7 @@ describe('attachments: cover choice', () => {
     const project = mockProject();
     const first = project.backend.addAttachment('AC-20', png);
     const second = project.backend.addAttachment('AC-20', jpg);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await listed('two.jpg');
     fireEvent.click(makeButton('two.jpg')!);
     await waitFor(() => expect(project.backend.findTask('AC-20')!.coverAttachmentId).toBe(second.id));
@@ -826,8 +846,8 @@ describe('attachments: cover choice', () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', png);
     project.backend.addAttachment('AC-20', jpg);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('two.jpg');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     project.backend.attachments = project.backend.attachments.filter((entry) => entry.fileName !== 'two.jpg');
     fireEvent.click(makeButton('two.jpg')!);
     const alert = await screen.findByRole('alert');
@@ -839,8 +859,8 @@ describe('attachments: cover choice', () => {
     project.backend.addAttachment('AC-20', png);
     const second = project.backend.addAttachment('AC-20', jpg);
     project.backend.covers.set('AC-20', { mode: 'hidden' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20', actAs(project, 'bence', 'viewer'));
-    await screen.findByText('one.png');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments', actAs(project, 'bence', 'viewer'));
+    await fromList();
     expect(makeButton('one.png')).toBeNull();
     expect(makeButton('two.jpg')).toBeNull();
     expect(hideButton('one.png')).toBeNull();
@@ -857,8 +877,8 @@ describe('attachments: cover choice', () => {
     const project = mockProject();
     project.backend.addAttachment('AC-19', png);
     project.backend.addAttachment('AC-19', jpg);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-19', actAs(project, 'bence', 'client'));
-    await screen.findByText('two.jpg');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-19/attachments', actAs(project, 'bence', 'client'));
+    await fromList();
     expect(makeButton('two.jpg')).toBeTruthy();
     expect(hideButton('one.png')).toBeTruthy();
     // An internal card is not even visible to a client.
@@ -871,7 +891,7 @@ describe('attachments: cover choice', () => {
 describe('attachments: live and lost access', () => {
   it('reads the list and the timeline again when the files change elsewhere', async () => {
     const project = mockProject();
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
     await screen.findByText(t('attachments.none'));
     const att = project.backend.addAttachment('AC-20', { name: 'remote.txt', size: 10, type: 'text/plain' });
     await listed('remote.txt');
@@ -886,7 +906,7 @@ describe('attachments: live and lost access', () => {
     const project = mockProject();
     project.backend.addAttachment('AC-19', { name: 'secret.txt', size: 10, type: 'text/plain' }, OWNER_ACTOR);
     project.backend.addAttachment('AC-19', { name: 'secret.png', size: 10, type: 'image/png' }, OWNER_ACTOR);
-    project.render(drawerFor(project), '/p/AC/tasks/AC-19', actAs(project, 'bence', 'client'));
+    project.render(drawerFor(project), '/p/AC/tasks/AC-19/attachments', actAs(project, 'bence', 'client'));
     await listed('secret.txt');
     const preview = (await fromList()).getByRole('button', {
       name: t('attachments.previewLabel', { fileName: 'secret.png' }),
@@ -905,8 +925,8 @@ describe('attachments: live and lost access', () => {
   it('clears the section when another task is opened', async () => {
     const project = mockProject();
     project.backend.addAttachment('AC-20', { name: 'first.txt', size: 10, type: 'text/plain' });
-    project.render(drawerFor(project), '/p/AC/tasks/AC-20');
-    await screen.findByText('first.txt');
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');
+    await fromList();
     choose(makeFile('pending-a.txt', 'text/plain', MAX_ATTACHMENT_BYTES + 1));
     await screen.findByText('pending-a.txt');
     fireEvent.click(screen.getByRole('link', { name: 'other task' }));

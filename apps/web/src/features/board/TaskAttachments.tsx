@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { MAX_ATTACHMENT_BYTES, canDeleteAttachment, canUploadAttachment, routes } from '@projectman/shared';
@@ -262,7 +263,16 @@ function AttachmentRow({
  * the shared rules, the same the server judges by. The section remounts for each task, so nothing of
  * another task, or of a task that is no longer visible, stays on screen.
  */
-export function TaskAttachments({ task, members }: { task: Task; members: MemberIndex }) {
+export function TaskAttachments({
+  task,
+  members,
+  onPasted,
+}: {
+  task: Task;
+  members: MemberIndex;
+  /** Images were pasted from the clipboard: the drawer shows this section then (PM-487). */
+  onPasted?: () => void;
+}) {
   const { key, me, myHandle } = useProject();
   const access = me.projects.find((project) => project.key === key)?.access;
   const viewer: AttachmentViewer | null = access && myHandle ? { access, handle: myHandle } : null;
@@ -286,6 +296,8 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
   const inputRef = useRef<HTMLInputElement>(null);
   const addRef = useRef(uploads.add);
   addRef.current = uploads.add;
+  const pastedRef = useRef(onPasted);
+  pastedRef.current = onPasted;
 
   // Images pasted from the clipboard. Text, and anything typed or pasted as text, is left alone.
   useEffect(() => {
@@ -298,6 +310,7 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
       if (isEditableTarget(event.target) && pasteHasText(event.clipboardData)) return;
       event.preventDefault();
       addRef.current(images);
+      pastedRef.current?.();
     };
     document.addEventListener('paste', onPaste);
     return () => document.removeEventListener('paste', onPaste);
@@ -313,7 +326,8 @@ export function TaskAttachments({ task, members }: { task: Task; members: Member
   return (
     // Files dropped anywhere on the open card are taken by the drawer around this section.
     <section className={drawer.section} aria-labelledby="task-attachments-title">
-      <h3 id="task-attachments-title" className={drawer.sectionTitle}>
+      {/* The tab names the section: the title stays for the screen readers. */}
+      <h3 id="task-attachments-title" className={clsx(drawer.sectionTitle, 'visually-hidden')}>
         {t('attachments.title')}
       </h3>
 

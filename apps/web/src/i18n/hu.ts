@@ -1630,6 +1630,8 @@ export const hu = {
       label: 'A kártya nézetei',
       card: 'Kártya',
       thread: 'Beszélgetés',
+      attachments: 'Csatolmányok',
+      timeline: 'Idővonal',
     },
     /** The card's conversation: every team message written about the card (PM-273). */
     thread: {

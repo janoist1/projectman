@@ -126,7 +126,7 @@ export function TeamStrip({ members, titles, tasks = [] }: TeamStripProps) {
                 {cardTitle ? <span className={styles.cardTitle}>{cardTitle}</span> : null}
                 {mark ? (
                   <span className={styles.pauseTag}>
-                    <Icon name="wait" size={12} strokeWidth={2.4} />
+                    <Icon name="clock" size={12} strokeWidth={2.4} />
                     {mark}
                   </span>
                 ) : null}

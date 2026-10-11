@@ -1,0 +1,250 @@
+/* The release items of the inbox (PM-492) use the card's frame; these are the parts only they have. */
+.cardLine {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--c-ink-3);
+  min-width: 0;
+}
+
+.cardLine a {
+  color: inherit;
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.version {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+}
+
+.version code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--c-muted);
+  color: var(--c-ink);
+}
+
+/* Read by a screen reader instead of the arrow between the two versions. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.external {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-accent-text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.external:hover {
+  text-decoration: underline;
+}
+
+.sectionLabel {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--c-ink-2);
+}
+
+.sectionLabel span {
+  font-weight: 600;
+  color: var(--c-ink-4);
+}
+
+/* Six lines of the summary; the rest folds away behind the toggle, fading out at the bottom. */
+.summary {
+  position: relative;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-subtle);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--c-ink-2);
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.summaryClosed {
+  max-height: calc(6 * 1.5em + 16px);
+}
+
+.summaryClosed.cut::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2.2em;
+  background: linear-gradient(to bottom, transparent, var(--c-subtle));
+  pointer-events: none;
+}
+
+.more {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--c-accent-text);
+  cursor: pointer;
+}
+
+.more:hover {
+  text-decoration: underline;
+}
+
+.more:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.cards li a {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 36px;
+  box-sizing: border-box;
+  padding: 6px 0;
+  font-size: var(--text-sm);
+  color: var(--c-ink-2);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.cards li a:hover .title {
+  text-decoration: underline;
+}
+
+.cards .key {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-3);
+}
+
+.cards .title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The reason for a rejection: a pale orange box where the buttons were. */
+.reject {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--c-needs-bg);
+}
+
+.rejectLabel {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--c-needs-text);
+}
+
+.rejectLabel span {
+  font-weight: 600;
+}
+
+.rejectInput {
+  resize: vertical;
+  min-height: 64px;
+  box-sizing: border-box;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  font: inherit;
+  font-size: var(--text-md);
+  line-height: 1.45;
+  color: var(--c-ink);
+  background: var(--c-surface);
+}
+
+.rejectInput:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 0;
+  border-color: var(--c-accent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.spacer {
+  flex-grow: 1;
+}
+
+.output {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* On a phone the buttons are touch targets and take the width, one under the other. */
+@media (max-width: 767px) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .actions > button {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .cards li a {
+    min-height: 44px;
+  }
+
+  .more {
+    min-height: 44px;
+  }
+}

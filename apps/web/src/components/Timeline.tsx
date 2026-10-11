@@ -91,7 +91,7 @@ export function Timeline({
             ),
         )
         .map((event) => {
-          const { text, emphasis, detail, resolution } = describeEvent(event, ctx);
+          const { text, emphasis, detail, resolution, note, link } = describeEvent(event, ctx);
           const comment = event.type === 'task_note';
           const imported =
             comment &&
@@ -190,7 +190,22 @@ export function Timeline({
                   ) : (
                     (renderText?.(event) ?? text)
                   )}
+                  {link ? (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.external}
+                        aria-label={`${link.label} ${t('inbox.release.newTab')}`}
+                      >
+                        {link.label}
+                      </a>
+                    </>
+                  ) : null}
                 </span>
+                {note ? <p className={styles.note}>{note}</p> : null}
                 {fullMessage ? (
                   <Link to={fullMessage} className={styles.fullMessage}>
                     {t('timeline.fullMessage')}

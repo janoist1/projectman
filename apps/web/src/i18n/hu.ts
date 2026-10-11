@@ -3145,10 +3145,19 @@ export const hu = {
       unknown: 'Figyelmeztetés',
       /** The release watcher reported a failure (PM-491). */
       release_failed: {
-        heading: 'Elbukott a kiadás',
-        body: 'A(z) {key} kiadás ({commit}) elbukott ebben a lépésben: {step}. {rollback} A hiba: {message}',
-        rolledBack: 'Az előző változat fut tovább.',
-        notRolledBack: 'Nézd meg, melyik változat fut.',
+        heading: 'Nem sikerült élesíteni a kiadást',
+        title: 'Nem sikerült élesíteni: {key}',
+        titleDown: 'Élesítés közben leállt az élő rendszer: {key}',
+        titlePublish: 'Élesben fut, de a GitHub release elmaradt: {key}',
+        early: 'Itt akadt el: {step}. Az élő rendszer nem változott, a régi verzió fut tovább.',
+        rolledBack: 'Itt akadt el: {step}. A rendszer visszaállt a régi verzióra, az élő rendszer fut.',
+        down: 'Itt akadt el: {step}. A régi verzió nem állt vissza, az élő rendszer most állhat.',
+        publish: 'Az új verzió élesben fut. Csak a tag vagy a GitHub release nem készült el.',
+        nextNew: 'Ha a hiba javítva van, a Devops új kiadást javasolhat.',
+        nextDown: 'Beavatkozás kell: nézd meg a gépen a kiadásfigyelő állapotát.',
+        nextPublish:
+          'A rendszer magától újrapróbálja; ha sokáig nem sikerül, nézd meg a GitHub-hozzáférést.',
+        details: 'Részletek',
       },
       session_tokens: {
         heading: 'Sok tokent használ egy munkamenet',
@@ -3271,6 +3280,27 @@ export const hu = {
     },
     mergeBlocked: {
       title: 'A beolvasztás elakadt: {key}',
+    },
+    /** The approval of a release of the instance itself (PM-387, PM-492). */
+    release: {
+      title: 'Élesre mehet ez a kiadás?',
+      lead: 'Jóváhagyás után a rendszer pár percen belül élesíti ezt a verziót. Ha közben elakad, visszaáll a régire, és itt szól.',
+      version: 'Verzió:',
+      versionRange: '{base} helyett {commit}',
+      firstVersion: 'az előző élő verzió nem ismert',
+      compare: 'Változások a GitHubon',
+      commitLink: 'Commit a GitHubon',
+      newTab: '(új lapon nyílik)',
+      summary: 'Összefoglaló',
+      summaryHint: '· angolul, így kerül a GitHub release-be',
+      summaryMore: 'Teljes összefoglaló',
+      less: 'Kevesebb',
+      cards: 'Kártyák ({count})',
+      cardsMore: 'Még {count} kártya',
+      rejectLabel: 'Miért utasítod el?',
+      rejectOptional: '(nem kötelező)',
+      rejectPlaceholder: 'Pl. várjuk meg vele a PM-490-et.',
+      rejectCancel: 'Mégse',
     },
     handOn: {
       text: '{owner} végzett ebben a lépésben: {step}. A következő oszlop: {stage}.',
@@ -3659,6 +3689,24 @@ export const hu = {
     },
   },
 
+  /** The release of the instance (PM-387, PM-492). */
+  release: {
+    /** The step of a deploy a release stopped in, as a noun phrase: "Itt akadt el: {step}". */
+    steps: {
+      fetch: 'letöltés a GitHubról',
+      build: 'fordítás (build)',
+      test: 'kiadási teszt',
+      config_check: 'a konfiguráció ellenőrzése',
+      pause: 'a futó munka szüneteltetése',
+      stop: 'a régi verzió leállítása',
+      backup: 'adatbázis-mentés',
+      switch: 'átváltás az új verzióra',
+      verify: 'az új verzió ellenőrzése',
+      rollback: 'visszaállítás a régi verzióra',
+      publish: 'tag és GitHub release',
+    },
+  },
+
   timeline: {
     details: 'Részletek',
     /** The link of a message row to the whole text in the card's conversation (PM-273). */
@@ -3763,15 +3811,23 @@ export const hu = {
       merge_failed_check: 'elbukott az ellenőrzés ({check})',
       merge_failed_check_unnamed: 'elbukott az ellenőrzés',
       task_merge_blocked: 'A beolvasztás elakadt: {reason}',
-      release_changed: 'A kiadás állapota: {state} ({commit})',
-      release_state: {
-        proposed: 'javasolva',
-        approved: 'jóváhagyva',
-        rejected: 'elutasítva',
-        deploying: 'telepítés folyamatban',
-        failed: 'elbukott',
-        live: 'él',
-        published: 'közzétéve',
+      /** The release of the instance (PM-387, PM-492): one row per state, on the release card. */
+      release_changed: {
+        proposed: 'Kiadást javasolt élesítésre: {commit}.',
+        approved: 'Jóváhagyta a kiadást.',
+        rejected: 'Elutasította a kiadást.',
+        deploying: 'Elindult az élesítés: {commit}.',
+        failed: 'Nem sikerült élesíteni, itt akadt el: {step}. {outcome}',
+        failedEarly: 'Az élő rendszer nem változott.',
+        failedRolledBack: 'Visszaállt a régi verzió.',
+        failedDown: 'A régi verzió sem fut: beavatkozás kell.',
+        live: 'Élesben fut: {commit}.',
+        livePublishError:
+          'Élesben fut, de a tag és a GitHub release nem készült el; a rendszer újrapróbálja.',
+        published: 'Kiadva: {tag}',
+        githubRelease: 'GitHub release ↗',
+        /** An unknown state (an older or a newer build wrote it). */
+        unknown: 'A kiadás állapota megváltozott: {commit}.',
       },
       merge_target_unknown: 'a következő lépés',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',

@@ -143,6 +143,7 @@ import {
   mergeReadiness,
   moveMerge,
   mergeRequestOf,
+  releaseApprovalOf,
   ALERT_SEEN_OPTION,
   WorkOutageAlert,
   limitTokens,
@@ -237,6 +238,7 @@ import type {
   TaskMergeState,
   TaskMerged,
   PlanUsage,
+  ReleaseStep,
   ScheduleRun,
   ServerEvent,
   Session,
@@ -411,6 +413,8 @@ export class MockBackend {
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
+  /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
+  refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
   configVersion = fixtures.projectSummary.configVersion;
@@ -1355,6 +1359,110 @@ export class MockBackend {
       title: 'Work is stopped by an outage',
       body: null,
       payload,
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /**
+   * The Devops proposes a release (PM-491, PM-492): the release card (a theme), the approval item for
+   * the owners and the first `release_changed` row. Returns the item. The cards of the release are
+   * listed with their titles from the board; a key the board does not know keeps its key as title.
+   */
+  proposeRelease(input: {
+    commit: string;
+    baseCommit?: string | null;
+    summary: string;
+    taskKeys: readonly string[];
+    title?: string;
+    proposedBy?: string;
+  }): InboxItem {
+    const title = input.title ?? `Release ${input.commit.slice(0, 8)}`;
+    const card = this.createTask({ title, kind: 'theme' }).body as Task;
+    const proposedBy = input.proposedBy ?? 'fe-1';
+    const releaseId = mockId('rel');
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'release',
+      assignees: boundaryOwners(this.config),
+      source: proposedBy,
+      sessionId: null,
+      taskKey: card.key,
+      title,
+      body: input.summary,
+      payload: {
+        release: {
+          releaseId,
+          commit: input.commit,
+          baseCommit: input.baseCommit ?? null,
+          tasks: input.taskKeys.map((key) => ({ key, title: this.findTask(key)?.title ?? key })),
+          summary: input.summary,
+        },
+      },
+      options: [
+        { id: 'approve', label: 'approve', style: 'primary' },
+        { id: 'reject', label: 'reject', style: 'danger' },
+      ],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.addTimeline(card.key, proposedBy, 'release_changed', {
+      releaseId,
+      state: 'proposed',
+      previousState: null,
+      commit: input.commit,
+    });
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /** The release watcher reports a state of the release on its card (a deploy step, `live`, `published`). */
+  releaseChanged(
+    taskKey: string,
+    data: { state: string; commit: string } & Record<string, unknown>,
+  ): TimelineEvent {
+    return this.addTimeline(taskKey, null, 'release_changed', {
+      releaseId: 'rel_mock',
+      previousState: null,
+      ...data,
+    });
+  }
+
+  /** A deploy failed (PM-491): the `release_failed` alert for the owners and the `failed` row on the card. */
+  failRelease(input: {
+    taskKey: string;
+    commit: string;
+    step: ReleaseStep;
+    message: string;
+    rolledBack: boolean;
+  }): InboxItem {
+    const failure = { step: input.step, message: input.message, rolledBack: input.rolledBack };
+    this.releaseChanged(input.taskKey, { state: 'failed', commit: input.commit, failure });
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: 'system',
+      sessionId: null,
+      taskKey: input.taskKey,
+      title: `Release ${input.commit.slice(0, 8)} failed in ${input.step}`,
+      body: input.message,
+      payload: {
+        alert: 'release_failed',
+        releaseId: 'rel_mock',
+        taskKey: input.taskKey,
+        commit: input.commit,
+        step: input.step,
+        message: input.message,
+        rolledBack: input.rolledBack,
+      },
       options: [ALERT_SEEN_OPTION],
       state: 'open',
       resolution: null,
@@ -5527,12 +5635,29 @@ export class MockBackend {
       const started = this.startMerge(request.taskKey);
       if (started.status >= 400) return started;
     }
+    const release = releaseApprovalOf(item);
+    if (item.kind === 'release') {
+      if (!release || !item.taskKey) return error(404, 'not_found', 'Unknown release');
+      // The integrator's key is no approval: the server refuses it the same way.
+      if (this.refuseReleaseApproval)
+        return error(403, 'owner_approval_required', 'Only an owner decides a release');
+    }
     const resolved: InboxItem = {
       ...item,
       state: 'resolved',
       resolution: { optionId: input.optionId, by: viewer.handle, at: nowIso(), note },
     };
     this.upsertInbox(resolved);
+    if (release && item.taskKey) {
+      const approved = input.optionId === 'approve';
+      this.addTimeline(item.taskKey, viewer.handle, 'release_changed', {
+        releaseId: release.releaseId,
+        state: approved ? 'approved' : 'rejected',
+        previousState: 'proposed',
+        commit: release.commit,
+        ...(!approved && note ? { note } : {}),
+      });
+    }
     this.afterResolve(resolved);
     return ok(clone(resolved));
   }

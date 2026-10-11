@@ -16,6 +16,11 @@
   box-shadow: inset 3px 0 0 var(--c-needs);
 }
 
+/* A deploy that stopped with the old version not running either (PM-492): the same stripe. */
+.card[data-alert='release_failed'][data-severity='down'] {
+  box-shadow: inset 3px 0 0 var(--c-needs);
+}
+
 /* The card a "Ugrás a jóváhagyáshoz" link led to: the frame lights once (a still frame with reduced motion). */
 .card[data-flash='on'] {
   animation: flash 1.4s ease-out;

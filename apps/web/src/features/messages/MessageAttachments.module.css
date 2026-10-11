@@ -1,0 +1,251 @@
+.attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.grid {
+  display: grid;
+  gap: 4px;
+  max-width: 100%;
+}
+.one {
+  grid-template-columns: minmax(0, 240px);
+}
+.many {
+  grid-template-columns: repeat(2, minmax(0, 118px));
+}
+.thumbnail {
+  position: relative;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  padding: 0;
+  overflow: hidden;
+  background: var(--c-sunken);
+  cursor: zoom-in;
+  height: 88px;
+}
+.one .thumbnail {
+  height: 160px;
+}
+.thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.more {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--c-backdrop);
+  color: var(--c-on-accent);
+  font-weight: 700;
+}
+.imageFailed {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  box-sizing: border-box;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+.loading {
+  background: linear-gradient(90deg, var(--c-sunken), var(--c-line-soft), var(--c-sunken));
+  background-size: 200% 100%;
+  animation: shimmer 1.2s linear infinite;
+}
+.tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-md);
+  background: var(--c-surface);
+  font-size: var(--text-sm);
+  color: var(--c-ink);
+  text-decoration: none;
+  min-width: 0;
+  max-width: 260px;
+}
+.tile:hover {
+  border-color: var(--c-accent);
+}
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.fileName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.size {
+  color: var(--c-ink-4);
+  flex-shrink: 0;
+}
+.gone {
+  border-style: dashed;
+  color: var(--c-ink-4);
+  background: transparent;
+}
+.gone .tile {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.gone .fileName {
+  text-decoration: line-through;
+}
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--text-sm);
+}
+.confirm > span {
+  flex-basis: 100%;
+}
+.tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 6px 0;
+  margin: 0;
+}
+.draft {
+  position: relative;
+  flex-shrink: 0;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--c-sunken);
+  animation: draft-in 160ms ease-out;
+  margin: 4px;
+}
+.draftImage {
+  width: 64px;
+  height: 64px;
+}
+.draftImage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.draftFile {
+  width: 168px;
+  height: 64px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  font-size: var(--text-xs);
+}
+.draftFile > svg {
+  flex-shrink: 0;
+}
+.draft[aria-busy='true'] img {
+  opacity: 0.5;
+}
+.remove {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--c-ink);
+}
+.remove svg {
+  width: 24px;
+  height: 24px;
+  box-sizing: border-box;
+  padding: 5px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-line-strong);
+  border-radius: 50%;
+}
+.progress {
+  position: absolute;
+  bottom: 0;
+  height: 3px;
+  left: 0;
+  width: 50%;
+  background: var(--c-accent);
+  animation: progress 1s ease-in-out infinite alternate;
+}
+.failed {
+  border-color: var(--c-blocked);
+}
+.uploadError {
+  color: var(--c-blocked-text);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .tray {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+}
+.uploadError button {
+  border: 0;
+  background: transparent;
+  color: var(--c-accent-text);
+  cursor: pointer;
+  font: inherit;
+}
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes progress {
+  to {
+    left: 50%;
+  }
+}
+@keyframes draft-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (max-width: 767px) {
+  .one {
+    grid-template-columns: minmax(0, 220px);
+  }
+  .many {
+    grid-template-columns: repeat(2, minmax(0, 108px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .draft,
+  .loading,
+  .progress {
+    animation: none;
+  }
+}

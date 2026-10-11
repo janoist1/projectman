@@ -12,6 +12,8 @@ import {
   DeleteAttachmentResponse,
   TaskCoverResponse,
   UploadAttachmentResponse,
+  UploadMessageAttachmentResponse,
+  DeleteMessageAttachmentResponse,
   ClosedCardsMeasure,
   MemberProfile,
   MemberMemories,
@@ -229,6 +231,21 @@ export const api = {
     apiRequest(routes.startConversation(key, handle), { method: 'POST', schema: Session }),
   removeHuman: (key: string, handle: string) =>
     apiRequest<unknown>(routes.removeHuman(key, handle), { method: 'DELETE' }),
+  uploadMessageAttachment: (key: string, file: File, signal?: AbortSignal) => {
+    const body = new FormData();
+    body.append('file', file);
+    return apiRequest(routes.messageAttachments(key), {
+      method: 'POST',
+      body,
+      signal,
+      schema: UploadMessageAttachmentResponse,
+    });
+  },
+  deleteMessageAttachment: (key: string, id: string) =>
+    apiRequest(routes.messageAttachment(key, id), {
+      method: 'DELETE',
+      schema: DeleteMessageAttachmentResponse,
+    }),
   sendTeamMessage: (key: string, body: SendTeamMessageRequest) =>
     apiRequest(routes.sendTeamMessage(key), { method: 'POST', body, schema: TeamMessage }),
   readTeamMessage: (key: string, id: string) =>

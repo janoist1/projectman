@@ -4,6 +4,9 @@ import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
 import { useIsMobile, useMediaQuery } from '../../lib/hooks';
 import { PauseNote } from '../pause/PauseNote';
+import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
+import type { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { pasteHasText, pastedImages } from '../../lib/attachmentInput';
 import styles from './Composer.module.css';
 
 interface ComposerProps {
@@ -22,6 +25,8 @@ interface ComposerProps {
   closedNote?: string;
   /** Text to put into the box and focus it (an example to edit and send); a new `id` puts it again. */
   prefill?: { text: string; id: number } | null;
+  /** Only message composers opt in; session input keeps its text-only behavior. */
+  attachments?: ReturnType<typeof useMessageAttachmentUploads>;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -43,9 +48,11 @@ export function Composer({
   blocked = false,
   closedNote,
   prefill,
+  attachments,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const id = useId();
   const isMobile = useIsMobile();
   // The touch screen decides about Enter, not the width: a tablet has no Enter key to send with.
@@ -74,16 +81,20 @@ export function Composer({
 
   const submit = () => {
     const value = text.trim();
-    if (!value || disabled || blocked) return;
+    if ((!value && !attachments?.items.length) || disabled || blocked || attachments?.blockedReason) return;
     const sent = onSend(value);
     if (sent instanceof Promise) {
       // The caller shows the failure; the text stays so it can be sent again.
       void sent.then(
-        () => setText(''),
+        () => {
+          setText('');
+          attachments?.clear();
+        },
         () => undefined,
       );
     } else {
       setText('');
+      attachments?.clear();
     }
   };
 
@@ -113,7 +124,43 @@ export function Composer({
           {closedNote}
         </PauseNote>
       ) : null}
+      {attachments ? (
+        <MessageAttachmentTray
+          items={attachments.items}
+          onRemove={attachments.remove}
+          onRetry={attachments.retry}
+          focusInput={() => ref.current?.focus()}
+          disabled={disabled}
+        />
+      ) : null}
       <div className={styles.row}>
+        {attachments ? (
+          <>
+            <input
+              type="file"
+              multiple
+              hidden
+              ref={picker}
+              aria-label={t('messageAttachments.add')}
+              onChange={(event) => {
+                if (!disabled) attachments.add(Array.from(event.target.files ?? []));
+                event.target.value = '';
+              }}
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              iconOnly
+              icon="paperclip"
+              className={styles.attach}
+              disabled={disabled}
+              aria-label={t('messageAttachments.add')}
+              title={t('messageAttachments.addTitle')}
+              onClick={() => picker.current?.click()}
+            />
+          </>
+        ) : null}
         <textarea
           ref={ref}
           id={id}
@@ -123,8 +170,19 @@ export function Composer({
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={(event) => {
+            if (!attachments || pasteHasText(event.clipboardData)) return;
+            const images = pastedImages(event.clipboardData);
+            if (!images.length) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (!disabled) attachments.add(images);
+          }}
           aria-describedby={
-            [pauseNote || closedNote ? `${id}-pause` : null, touch ? null : `${id}-hint`]
+            [
+              pauseNote || closedNote ? `${id}-pause` : null,
+              !touch || attachments?.error || attachments?.blockedReason ? `${id}-hint` : null,
+            ]
               .filter(Boolean)
               .join(' ') || undefined
           }
@@ -137,12 +195,25 @@ export function Composer({
           icon="send"
           className={styles.send}
           aria-label={t('common.send')}
-          disabled={disabled || blocked || !text.trim()}
+          disabled={
+            disabled ||
+            blocked ||
+            Boolean(attachments?.blockedReason) ||
+            (!text.trim() && !attachments?.items.length)
+          }
+          title={attachments?.blockedReason ?? undefined}
         />
       </div>
-      {touch ? null : (
-        <span id={`${id}-hint`} className={styles.hint}>
-          {t('session.composer.hint')}
+      {touch && !attachments?.error && !attachments?.blockedReason ? null : (
+        <span id={`${id}-hint`} className={styles.hint} aria-live="polite">
+          {attachments?.error ? (
+            <span role="alert" className={styles.error}>
+              {attachments.error}
+            </span>
+          ) : (
+            (attachments?.blockedReason ??
+            t(attachments ? 'messageAttachments.hint' : 'session.composer.hint'))
+          )}
         </span>
       )}
     </form>

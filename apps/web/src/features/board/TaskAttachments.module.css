@@ -228,3 +228,10 @@
   font-size: var(--text-sm);
   color: var(--c-ink-3);
 }
+.imageNavigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding-bottom: 12px;
+}

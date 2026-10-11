@@ -190,7 +190,7 @@ export function InboxCard({
   // The card row names the card by its key; it is a link where the page gives an address (never in the drawer).
   const taskRow =
     !handOn && item.taskKey && taskHref !== undefined ? (
-      <TaskRow taskKey={item.taskKey} title={contextTitle} href={compact ? null : taskHref} />
+      <TaskRow taskKey={item.taskKey} title={taskTitle || null} href={compact ? null : taskHref} />
     ) : contextTitle ? (
       <p className={styles.task}>{contextTitle}</p>
     ) : null;

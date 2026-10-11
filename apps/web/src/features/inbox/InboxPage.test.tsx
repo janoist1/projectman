@@ -466,4 +466,15 @@ describe('the card row of an inbox item (PM-501)', () => {
     expect(link.textContent).toBe('AC-22');
     expect(link.getAttribute('href')).toBe('/p/AC/inbox/tasks/AC-22');
   });
+
+  it('shows only the key on a gate decision while the board loads, not the decision title', async () => {
+    const project = mockProject();
+    const answer = createMockFetch(project.backend, project.requests);
+    setFetchImplementation((path, init) =>
+      path.endsWith('/board') ? new Promise<Response>(() => {}) : answer(path, init),
+    );
+    project.render(withDrawer, '/p/AC/inbox');
+    const link = await screen.findByRole('link', { name: t('inbox.card.openLabelKey', { key: 'AC-17' }) });
+    expect(link.textContent).toBe('AC-17');
+  });
 });

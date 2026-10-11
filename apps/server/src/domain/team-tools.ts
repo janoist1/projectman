@@ -10,9 +10,11 @@ import {
   isTheme,
   MAX_ATTACHMENT_BYTES,
   memberOf,
+  messageRoute,
   needsRepoChoice,
   questionChoices,
   questionApprovalLabel,
+  sessionWorkItemOf,
   TaskStatus as TaskStatusSchema,
   TaskKey,
 } from '@projectman/shared';
@@ -568,7 +570,8 @@ export class TeamToolsService implements TeamToolsHandler {
             );
           }
           const taskKey =
-            this.taskKeyFor(ctx, args.taskKey) ?? (who.request || guest ? null : this.repliedCardOf(ctx));
+            this.taskKeyFor(ctx, args.taskKey) ??
+            (who.request || guest ? null : this.repliedCardOf(ctx, config));
           // Humans have it in their messages now; AI recipients get it typed into their session
           // for the work item as soon as that session is idle (queued, never awaited here).
           const { message, recipients } = await this.messaging
@@ -1797,19 +1800,26 @@ export class TeamToolsService implements TeamToolsHandler {
   /**
    * The card a message with no card of its own is the reply to (PM-504): a member working in a general
    * session (no card) is often answering or forwarding a card's message that was typed into that session.
-   * That is the latest message delivered to the member, when it is about a card and recent. The reply then
-   * shows in the card's conversation, not only among the messages.
+   * That is the latest recent message delivered to the member in a general session (its route for the
+   * member is general: the project manager's and the Operator's card messages always are), when it is
+   * about a card. A message that went to the member's own card session says nothing about this one.
    */
-  private repliedCardOf(ctx: ToolContext): string | null {
+  private repliedCardOf(ctx: ToolContext, config: ProjectConfig): string | null {
     if (ctx.taskKey) return null;
     const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
     if (workItem?.type !== 'general') return null;
+    const member = memberOf(config, ctx.member);
     const cutoff = this.ctx.now().getTime() - RELAY_WINDOW_MS;
     const latest = this.ctx.repos.messages
       .list(ctx.projectKey, { member: ctx.member, limit: 20 })
       .findLast((message) => {
         const at = message.receipts?.find((r) => r.handle === ctx.member)?.deliveredAt;
-        return message.to.includes(ctx.member) && at && Date.parse(at) >= cutoff;
+        return (
+          message.to.includes(ctx.member) &&
+          at &&
+          Date.parse(at) >= cutoff &&
+          sessionWorkItemOf(member, messageRoute(message, ctx.member)).type === 'general'
+        );
       });
     return latest?.taskKey ?? null;
   }

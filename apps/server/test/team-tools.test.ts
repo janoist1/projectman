@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
-import type { TaskStatus } from '@projectman/shared';
+import type { TaskStatus, WorkItemRef } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import { TEAM_TOOLS } from '../src/mcp';
 import { formatTaskDetail } from '../src/mcp/format';
@@ -96,20 +96,22 @@ describe('team tools', () => {
       const { session } = await h.domain.sessions.ensureSession('AR', member, { type: 'general' });
       return { sessionId: session.id, projectKey: 'AR', member, taskKey: null } satisfies ToolContext;
     };
-    const cardMessageTo = (member: string, taskKey: string | null = 'AR-1') =>
-      h.domain.messages.record({
-        projectKey: 'AR',
-        from: 'owner',
-        to: [member],
-        taskKey,
-        body: 'What is next?',
-        actor: OWNER_ACTOR,
-        delivered: true,
-      });
+    // The real way: the owner writes in the conversation of the card, with no recipient but the manager.
+    const cardMessageTo = async (member: string, taskKey: string | null = 'AR-1', workItem?: WorkItemRef) => {
+      const sent = await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: [member], text: 'What is next?', taskKey },
+        { actor: OWNER_ACTOR, ...(workItem ? { workItem } : {}) },
+      );
+      await flush();
+      return h.repos.messages.get(sent.id)!;
+    };
 
     it('shows the manager reply to the owner in the conversation of the card', async () => {
+      const sent = await cardMessageTo('pm');
+      expect(sent.receipts?.[0]).toMatchObject({ handle: 'pm', route: { type: 'general' } });
       const pm = await generalSession('pm');
-      cardMessageTo('pm');
       const result = await h.domain.teamTools.sendMessage(pm, {
         kind: 'info',
         to: ['owner'],
@@ -119,8 +121,8 @@ describe('team tools', () => {
     });
 
     it('keeps an explicit card, and adds none for a message without a card', async () => {
+      await cardMessageTo('pm');
       const pm = await generalSession('pm');
-      cardMessageTo('pm');
       await h.domain.tasks.create('AR', { title: 'Other' }, OWNER_ACTOR);
       const other = await h.domain.teamTools.sendMessage(pm, {
         kind: 'info',
@@ -129,16 +131,31 @@ describe('team tools', () => {
         taskKey: 'AR-2',
       });
       expect(h.repos.messages.get(other.messageId)?.taskKey).toBe('AR-2');
-      cardMessageTo('pm', null);
+      await cardMessageTo('pm', null);
       const plain = await h.domain.teamTools.sendMessage(pm, { kind: 'info', to: ['owner'], text: 'Hello' });
       expect(h.repos.messages.get(plain.messageId)?.taskKey).toBeNull();
     });
 
-    it('does the same for any member answering in a general session', async () => {
+    it('does the same for any member whose card message was delivered to its general session', async () => {
+      const sent = await cardMessageTo('cr', 'AR-1', { type: 'general' });
+      expect(sent.receipts?.[0]).toMatchObject({ handle: 'cr', route: { type: 'general' } });
       const cr = await generalSession('cr');
-      cardMessageTo('cr');
       const result = await h.domain.teamTools.sendMessage(cr, { kind: 'info', to: ['owner'], text: 'Done' });
       expect(h.repos.messages.get(result.messageId)?.taskKey).toBe('AR-1');
+    });
+
+    it('adds no card when the card message went to the member’s own card session', async () => {
+      const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+      const sent = await cardMessageTo('dev-1');
+      expect(sent.receipts?.[0]?.route).toBeUndefined();
+      const general = await generalSession('dev-1');
+      expect(general.sessionId).not.toBe(started.session!.id);
+      const result = await h.domain.teamTools.sendMessage(general, {
+        kind: 'info',
+        to: ['owner'],
+        text: 'Unrelated chat',
+      });
+      expect(h.repos.messages.get(result.messageId)?.taskKey).toBeNull();
     });
   });
 

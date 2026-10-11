@@ -525,7 +525,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
             'changed, findings) and what you expect next and from whom.',
         ),
       task_key: TaskKey.optional().describe(
-        'Task the message is about, e.g. "AR-21". Defaults to the task of your current session.',
+        'Task the message is about, e.g. "AR-21". Defaults to the task of your current session. In a general ' +
+          '(no card) session it defaults to the card of the latest card message delivered to you there ' +
+          '(within 2 hours), so a reply stays on that card; give task_key for any other card.',
       ),
       signal_id: z
         .string()

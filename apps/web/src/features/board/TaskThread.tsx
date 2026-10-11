@@ -1,7 +1,13 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { canSeeAllTeamMessages, cardThreadRecipients, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  cardThreadRecipients,
+  isUnreadBy,
+  projectManagerAmong,
+  SYSTEM_SENDER,
+} from '@projectman/shared';
 import type {
   InboxItem,
   LabelView,
@@ -48,6 +54,7 @@ const BASIS_KEY = {
   workers: 'workers',
   assignee: 'assignee',
   stage_owners: 'stageOwners',
+  project_manager: 'projectManager',
   none: 'none',
 } as const;
 
@@ -216,6 +223,7 @@ export function TaskThread({
     workers,
     assignee: task.assignee,
     stageOwners,
+    projectManager: projectManagerAmong(members.values())?.handle ?? null,
     writer: myHandle ?? '',
     canReceive,
   });

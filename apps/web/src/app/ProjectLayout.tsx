@@ -9,7 +9,7 @@ import { noBoardFilters } from '../features/board/boardFilters';
 import type { BoardFilters } from '../features/board/boardFilters';
 import { NewTaskDialog } from '../features/board/NewTaskDialog';
 import { ProjectPauseBar } from '../features/pause/PauseBanner';
-import { PmPanel } from '../features/pm/PmPanel';
+import { OperatorPanel } from '../features/operator/OperatorPanel';
 import { PauseConfirmDialog } from '../features/pause/PauseConfirmDialog';
 import { t } from '../i18n/t';
 import { useIsMobile, writeStorage } from '../lib/hooks';
@@ -46,9 +46,9 @@ export function ProjectLayout() {
   const [pauseOpen, setPauseOpen] = useState(false);
   // Counts the requests to open the pause bar's details (the project manager's "Folytatás…").
   const [pauseDetailsSignal, setPauseDetailsSignal] = useState(0);
-  // The project manager's conversation (PM-429): one panel for the whole project, opened from the header.
-  const [pmOpen, setPmOpen] = useState(false);
-  const pmTrigger = useRef<HTMLElement | null>(null);
+  // The Operator's conversation (PM-429, PM-447): one panel for the whole project, opened from the header.
+  const [operatorOpen, setOperatorOpen] = useState(false);
+  const operatorTrigger = useRef<HTMLElement | null>(null);
   // The pause this viewer asked for: its details open by themselves.
   const [requestedPauseId, setRequestedPauseId] = useState<string | null>(null);
   const [themeFilter, setThemeFilter] = useState<string | null>(null);
@@ -76,7 +76,7 @@ export function ProjectLayout() {
     setThemeFilter(null);
     setBoardFilters(noBoardFilters);
     setRequestedPauseId(null);
-    setPmOpen(false);
+    setOperatorOpen(false);
   }, [projectKey]);
 
   const value = useMemo<ProjectContextValue>(
@@ -90,19 +90,19 @@ export function ProjectLayout() {
       setSearch,
       openPause: () => setPauseOpen(true),
       openPauseDetails: () => setPauseDetailsSignal((count) => count + 1),
-      pmOpen,
-      openPm: (trigger) => {
-        pmTrigger.current = trigger ?? null;
-        setPmOpen(true);
+      operatorOpen,
+      openOperator: (trigger) => {
+        operatorTrigger.current = trigger ?? null;
+        setOperatorOpen(true);
       },
-      closePm: () => setPmOpen(false),
+      closeOperator: () => setOperatorOpen(false),
       openNewTask: (options) => setNewTask({ kind: options?.kind ?? 'task' }),
       themeFilter,
       setThemeFilter,
       boardFilters,
       setBoardFilters,
     }),
-    [projectKey, me, myHandle, isOwner, can, search, pmOpen, themeFilter, boardFilters],
+    [projectKey, me, myHandle, isOwner, can, search, operatorOpen, themeFilter, boardFilters],
   );
 
   if (board.isError && isApiError(board.error) && board.error.status === 404) {
@@ -146,7 +146,7 @@ export function ProjectLayout() {
           </div>
           {isMobile && !phoneSession ? <TabBar inboxCount={inboxCount} /> : null}
         </div>
-        {can.createTasks && pmOpen ? <PmPanel returnFocusTo={pmTrigger} /> : null}
+        {myHandle && operatorOpen ? <OperatorPanel returnFocusTo={operatorTrigger} /> : null}
         <NewTaskDialog
           open={newTask !== null}
           initialKind={newTask?.kind ?? 'task'}

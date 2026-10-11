@@ -101,6 +101,9 @@ import {
   memberRoles,
   modelForProvider,
   nextCronRun,
+  OPERATOR_DISMISS_OPTION,
+  operatorApprovalOf,
+  operatorOf,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -213,6 +216,9 @@ import type {
   HumanAccess,
   GateRequestPayload,
   InboxItem,
+  OperatorApprovalPayload,
+  OperatorRequestView,
+  OperatorSignal,
   InvitationView as Invitation,
   LabelChangeReason,
   LabelChangeRefusal,
@@ -474,6 +480,10 @@ export class MockBackend {
   inbox: InboxItem[] = clone(fixtures.inbox);
   boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
+  /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
+  operatorRequests: OperatorRequestView[] = [];
+  /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
+  operatorSignals: OperatorSignal[] = [];
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
@@ -1845,6 +1855,9 @@ export class MockBackend {
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
+    if (rest === '/operator' && method === 'GET') return this.operatorChannel();
+    const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
+    if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
     if (rest === '/measure/closed-cards' && method === 'GET') {
       if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
@@ -2173,10 +2186,17 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.refreshBoundaryInbox();
-      // A client sees only the items addressed to them (like the server).
+      // A client sees only the items addressed to them, and an Operator proposal is its assignees' to see
+      // (the server lists it for no one else).
       const client = this.findMember(this.viewerHandle)?.role === 'client';
       return ok({
-        items: clone(this.inbox.filter((item) => !client || item.assignees.includes(this.viewerHandle))),
+        items: clone(
+          this.inbox.filter(
+            (item) =>
+              (!client || item.assignees.includes(this.viewerHandle)) &&
+              (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
+          ),
+        ),
       });
     }
     if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
@@ -4912,7 +4932,21 @@ export class MockBackend {
     }
     const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text);
     if (refusal) return refusal;
+    // "Igen, intézd" accepts the Operator's open signal with the message itself (PM-476).
+    const signal = input.operatorSignal
+      ? this.operatorSignals.find((entry) => entry.id === input.operatorSignal)
+      : undefined;
+    if (input.operatorSignal) {
+      if (!signal) return error(404, 'not_found', 'Unknown signal');
+      if (signal.state !== 'open')
+        return error(409, 'operator_signal_closed', 'The signal is no longer open');
+    }
     const message = this.sendTeamMessage(this.viewerHandle, input.to, input.taskKey ?? null, input.text);
+    if (signal) {
+      signal.state = 'accepted';
+      signal.decidedBy = this.viewerHandle;
+      signal.decidedAt = nowIso();
+    }
     return { status: 202, body: clone(message) };
   }
 
@@ -4958,6 +4992,97 @@ export class MockBackend {
     if (session?.state === 'working' || session?.state === 'waiting_permission')
       return ok({ member, state: 'working', sessionId });
     return ok({ member, state: 'available', sessionId });
+  }
+
+  /**
+   * The viewer's Operator channel (PM-447): every human member has one; a viewer who is not an owner reads and
+   * answers only (`readOnly`, no signals). The state follows the project manager's rules.
+   */
+  private operatorChannel(): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (!viewer || viewer.kind !== 'human') return error(403, 'insufficient_access', 'A member is required');
+    const operator = operatorOf(this.config);
+    const session = operator
+      ? this.sessions.find((s) => s.member === operator.handle && s.workItem.type === 'general')
+      : undefined;
+    const sessionId = session?.id ?? null;
+    const readOnly = viewer.role !== 'owner';
+    const rest = {
+      requests: clone(this.operatorRequests),
+      readOnly,
+      signals: readOnly ? [] : clone(this.operatorSignals),
+      openSignals: readOnly ? 0 : this.operatorSignals.filter((s) => s.state === 'open').length,
+    };
+    if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
+    const member = {
+      handle: operator.handle,
+      displayName: operator.displayName,
+      onLeave: isOnLeave(operator),
+    };
+    if (this.pauses.isPaused())
+      return ok({
+        member,
+        state: 'waiting',
+        waiting: { reason: 'team_paused', since: nowIso() },
+        sessionId,
+        ...rest,
+      });
+    if (session?.state === 'starting') return ok({ member, state: 'starting', sessionId, ...rest });
+    if (session?.state === 'working' || session?.state === 'waiting_permission')
+      return ok({ member, state: 'working', sessionId, ...rest });
+    return ok({ member, state: 'available', sessionId, ...rest });
+  }
+
+  /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */
+  private dismissOperatorSignal(id: string): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (viewer?.role !== 'owner') return error(403, 'operator_owner_only', 'Only the owner may decide');
+    const signal = this.operatorSignals.find((entry) => entry.id === id);
+    if (!signal) return error(404, 'not_found', 'Unknown signal');
+    if (signal.state !== 'open') return error(409, 'operator_signal_closed', 'The signal is no longer open');
+    signal.state = 'dismissed';
+    signal.decidedBy = viewer.handle;
+    signal.decidedAt = nowIso();
+    return ok(clone(signal));
+  }
+
+  /**
+   * An Operator proposal decided in the inbox. Approving after the configuration moved on makes the item stale
+   * (the server's 409 `operator_approval_stale`, the card then offers only "Rendben"); "dismiss" closes a stale one.
+   */
+  private resolveOperatorApproval(
+    item: InboxItem,
+    payload: OperatorApprovalPayload,
+    optionId: string,
+    by: string,
+  ): MockResponse {
+    const step = this.operatorRequests
+      .flatMap((request) => request.steps)
+      .find((candidate) => candidate.id === payload.stepId);
+    if (
+      optionId === 'approve' &&
+      (payload.stale || (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
+    ) {
+      this.upsertInbox({
+        ...item,
+        options: [OPERATOR_DISMISS_OPTION],
+        payload: {
+          ...item.payload,
+          operator: { ...payload, stale: payload.stale ?? { reason: 'config_changed', at: nowIso() } },
+        },
+      });
+      if (step) step.status = 'stale';
+      return error(409, 'operator_approval_stale', 'The proposal is out of date');
+    }
+    if (step)
+      step.status = optionId === 'approve' ? 'approved' : optionId === 'reject' ? 'rejected' : 'stale';
+    const resolved: InboxItem = {
+      ...item,
+      state: 'resolved',
+      resolution: { optionId, by, at: nowIso(), note: null },
+    };
+    this.upsertInbox(resolved);
+    return ok(clone(resolved));
   }
 
   private startConversation(handle: string): MockResponse {
@@ -5230,6 +5355,12 @@ export class MockBackend {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
     if (item.kind === 'boundary') return error(403, 'insufficient_access', 'Use the boundary endpoint');
+    const operatorApproval = operatorApprovalOf(item);
+    if (operatorApproval) {
+      if (!item.assignees.includes(viewer.handle) && viewer.access !== 'owner')
+        return error(403, 'not_an_assignee', 'Only assignees may decide');
+      return this.resolveOperatorApproval(item, operatorApproval, input.optionId, viewer.handle);
+    }
     const gate = item.kind === 'decision' && input.optionId === 'approve' ? gateRequestOf(item) : null;
     if (gate?.label) {
       // Approving puts the label on in the approver's name: the label rules apply up front.

@@ -78,7 +78,13 @@ function summary(
         : t('settings.summary.reposEmpty');
     case 'history':
       return history[0]
-        ? t('settings.summary.history', { time: formatAgo(history[0].at), author: history[0].author })
+        ? t('settings.summary.history', {
+            time: formatAgo(history[0].at),
+            author: history[0].operator
+              ? (config.team.members.find((member) => member.handle === history[0]!.operator)?.displayName ??
+                history[0].operator)
+              : history[0].author,
+          })
         : t('settings.summary.historyEmpty');
   }
 }

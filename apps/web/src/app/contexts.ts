@@ -37,11 +37,11 @@ export interface ProjectContextValue {
   openPause: () => void;
   /** Opens the details of the open pause in its bar, where it can be resumed (PM-429). */
   openPauseDetails: () => void;
-  /** Whether the project manager's conversation panel is open (PM-429). */
-  pmOpen: boolean;
+  /** Whether the Operator's conversation panel is open (PM-429, PM-447). */
+  operatorOpen: boolean;
   /** Opens the panel; `trigger` is the control the focus returns to when it closes. */
-  openPm: (trigger?: HTMLElement | null) => void;
-  closePm: () => void;
+  openOperator: (trigger?: HTMLElement | null) => void;
+  closeOperator: () => void;
   /** Opens the new-card dialog; `kind: 'theme'` opens it for a theme (PM-192). */
   openNewTask: (options?: { kind?: 'theme' }) => void;
   /** The theme the board is filtered to (PM-192), kept here so the board, a theme's card and the new-card dialog agree. */

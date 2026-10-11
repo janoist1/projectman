@@ -1,9 +1,10 @@
 import { useId } from 'react';
+import { isOperator } from '@projectman/shared';
 import type { MemberView } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import { MoreMenu } from '../../components/MoreMenu';
 import { t } from '../../i18n/t';
-import { useIsRequiredPm } from '../pm/useRequiredPm';
+import { useIsRequiredPm } from '../operator/useRequiredMember';
 import { LeaveButton } from './LeaveButton';
 import styles from './MemberMenu.module.css';
 
@@ -28,6 +29,26 @@ export function MemberMenu({
 }) {
   const required = useIsRequiredPm(member.handle);
   const noteId = useId();
+  // The Operator is built in (PM-447): it can only be given another model and effort, never leave or be retired.
+  if (isOperator(member)) {
+    return (
+      <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
+        {(close) => (
+          <Button
+            variant="ghost"
+            disabled={editDisabled}
+            onClick={() => {
+              onEdit();
+              close();
+            }}
+            aria-label={t('operator.builtIn.editMember')}
+          >
+            {t('operator.builtIn.edit')}
+          </Button>
+        )}
+      </MoreMenu>
+    );
+  }
   return (
     <MoreMenu label={t('team.moreFor', { name: member.displayName })}>
       {(close) => (

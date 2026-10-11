@@ -137,6 +137,17 @@
   padding: 0 12px calc(12px + env(safe-area-inset-bottom));
 }
 
+/* What a person who is not an owner is told: who else can read their conversation. */
+.observers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 16px calc(10px + env(safe-area-inset-bottom));
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}
+
 @keyframes pm-panel-in {
   from {
     transform: translateX(24px);

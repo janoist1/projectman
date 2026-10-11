@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
+import { isOperator } from '@projectman/shared';
 import type { InboxItem, MemberView, RoleView, ProviderLoginStatus } from '@projectman/shared';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -10,7 +11,7 @@ import { t } from '../../i18n/t';
 import { aiSponsors, memberStatusView, nameOf } from '../../lib/members';
 import { aiRoleView, humanRoleName } from '../../lib/roles';
 import { usePausedRows } from '../pause/usePause';
-import { useIsRequiredPm } from '../pm/useRequiredPm';
+import { useIsRequiredPm } from '../operator/useRequiredMember';
 import { MemberScheduleControl } from './ScheduledRuns';
 import styles from './Roster.module.css';
 
@@ -81,6 +82,7 @@ function MemberIdentity({
   const { key, myHandle } = useProject();
   const { members } = useProjectIndexes(key);
   const required = useIsRequiredPm(member.handle);
+  const builtIn = isOperator(member);
   return (
     <div className={styles.memberCell}>
       <Avatar member={member} isMe={member.handle === myHandle} size="lg" status={status} />
@@ -109,12 +111,28 @@ function MemberIdentity({
               {t('pm.required.chip')}
             </Chip>
           ) : null}
+          {builtIn ? (
+            <Chip tone="operator" title={t('operator.builtIn.title')}>
+              {t('operator.builtIn.chip')}
+            </Chip>
+          ) : null}
           <LeaveChip member={member} />
         </span>
         <span className={styles.handle}>
           <span className={styles.mono}>{member.handle}</span> ·{' '}
           <RoleChips member={member} roles={roles} compact={compact} />
         </span>
+        {builtIn ? (
+          <span className={styles.handle}>
+            {[
+              t('operator.builtIn.subline'),
+              member.model,
+              member.effort ? t(`providerSettings.efforts.${member.effort}`) : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        ) : null}
       </span>
     </div>
   );

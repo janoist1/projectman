@@ -867,6 +867,27 @@ export function useProjectManagerChannel(key: string, enabled: boolean) {
   });
 }
 
+/**
+ * The viewer's own conversation with the Operator (PM-447): who it is, whether it can answer, the latest
+ * requests with their steps and, for an owner, the system signals. Every person of the project reads it.
+ */
+export function useOperatorChannel(key: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.operator(key),
+    queryFn: () => api.operator(key),
+    enabled,
+  });
+}
+
+/** "Most ne": sets one signal aside; the channel is read again for its new state. */
+export function useDismissOperatorSignal(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (signalId: string) => api.dismissOperatorSignal(key, signalId),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.operator(key) }),
+  });
+}
+
 /** The team messages written about one card, as the viewer may see them (PM-273). */
 export function useTaskMessages(key: string, taskKey: string, enabled = true) {
   return useQuery({

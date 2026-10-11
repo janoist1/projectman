@@ -199,6 +199,18 @@ out (`fakeEnv`) and a message wakes a developer; the scenario waits for the serv
 shoots "Rád vár" (the outage card), the roster ("Nem tud dolgozni" with the reason), the board card
 ("Áll: …", orange) and the card's drawer (the login box), each at 1512 and 390.
 
+### PM-447: the Operator in the corner
+
+`npm run shots -- scripts/scenarios/operator.mjs --widths 1512,390`. A real Operator turn needs a running
+Operator session, so the scenario adds the Operator's answers in the browser (`page.route`, as
+`work-outage.mjs` does): the channel (`/operator`: steps, signals), its thread, the inbox, the
+configuration history and the two 409 answers (`operator_approval_stale`, `operator_signal_closed`).
+Everything else is the real UI on the real demo project. It shoots the corner (closed, first use, steps
+with "Mi változik", the four signal kinds with the count on the button and the 409), Rád vár (the
+proposal, a stale one, the 409 after approving), Beállítások › Előzmények, the Team page (the built-in
+card, its menu and editor), Üzenetek (the pm as "elosztó"), the paused team, a failed send, and a
+non-owner (invited developer) in the corner.
+
 ### PM-287: card priority
 
 Run `npm run shots -- scripts/scenarios/priority.mjs --timeout 300` on the final PM-287 branch.

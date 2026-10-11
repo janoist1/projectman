@@ -223,13 +223,14 @@ describe('a conversation', () => {
     expect(await within(thread).findByText('No card')).toBeTruthy();
   });
 
-  it('does not send the project manager to a task session in the empty thread text', async () => {
+  it('says in the empty project manager thread that the Operator handles the daily requests, and marks the distributor', async () => {
     const p = mockProject();
     p.backend.messages = [];
     p.render(<Pages />, '/p/AC/messages/with/pm');
     const thread = await screen.findByRole('region', { name: /Beszélgetés:/ });
-    expect(await within(thread).findByText(t('messages.thread.emptyMarkBody'))).toBeTruthy();
+    expect(await within(thread).findByText(t('pm.emptyThread'))).toBeTruthy();
     expect(within(thread).queryByText(t('messages.thread.emptyBody'))).toBeNull();
+    expect(within(thread).getByText(t('pm.distributor'))).toBeTruthy();
   });
 
   it('shows an open question of the member in the thread and answers it there', async () => {

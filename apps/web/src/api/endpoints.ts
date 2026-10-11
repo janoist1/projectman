@@ -17,6 +17,8 @@ import {
   MemberMemories,
   Session,
   TeamMessage,
+  OperatorChannel,
+  OperatorSignal,
   ProjectManagerChannel,
   ProvidersView,
   CreatedInvitation,
@@ -231,6 +233,11 @@ export const api = {
   teamThreads: (key: string) => apiRequest(routes.teamThreads(key), { schema: TeamThreadsView }),
   /** The state of the project manager's channel: who it is and whether it can answer now (PM-434). */
   projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
+  /** The viewer's own conversation with the Operator: its state, requests with steps and signals (PM-463, PM-475). */
+  operator: (key: string) => apiRequest(routes.operator(key), { schema: OperatorChannel }),
+  /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
+  dismissOperatorSignal: (key: string, signalId: string) =>
+    apiRequest(routes.dismissOperatorSignal(key, signalId), { method: 'POST', schema: OperatorSignal }),
   /** One conversation with `peer` (the server's page limit) or the project's messages under the filters. */
   teamMessageList: (
     key: string,

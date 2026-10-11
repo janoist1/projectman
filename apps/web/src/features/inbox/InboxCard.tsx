@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
-import { BoundaryReason, alertPayloadOf, handOnRequestOf } from '@projectman/shared';
+import { BoundaryReason, alertPayloadOf, handOnRequestOf, operatorApprovalOf } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
@@ -31,6 +31,7 @@ import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
 import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
@@ -62,6 +63,8 @@ export interface InboxCardProps {
   headingLevel?: 2 | 3;
   /** Why the last answer was refused (a closed gate on "Tovább"); shown under the buttons. */
   error?: string | null;
+  /** An Operator approval the server just refused as out of date (409); the card says so and offers "Rendben". */
+  stale?: boolean;
 }
 
 /** The "Vidd tovább" sentence with the next column in bold (PM-461). */
@@ -110,7 +113,9 @@ export function InboxCard({
   compact = false,
   headingLevel = 2,
   error = null,
+  stale = false,
 }: InboxCardProps) {
+  const operatorApproval = operatorApprovalOf(item);
   const handOn = handOnRequestOf(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const choices = withConsequences(
@@ -170,6 +175,63 @@ export function InboxCard({
     setAnswerError(null);
     onResolve(item, { optionId: FREE_ANSWER_OPTION_ID, note: answer.trim() });
   };
+
+  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
+  if (operatorApproval) {
+    const isStale = operatorApproval.stale !== null || stale;
+    return (
+      <article
+        className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
+        data-kind={item.kind}
+        data-operator-approval=""
+      >
+        <div className={styles.head}>
+          <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
+          {isStale ? <Chip tone="needs">{t('operator.approval.stale')}</Chip> : null}
+          <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
+          <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
+          <span className={styles.spacer} />
+          <time className={styles.time} dateTime={item.createdAt}>
+            {formatAgo(item.createdAt)}
+          </time>
+        </div>
+        {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
+        <Heading className={styles.title}>{item.title}</Heading>
+        <OperatorApprovalBody payload={operatorApproval} stale={stale} />
+        {assignedToOthers ? (
+          <p className={styles.others}>
+            <Icon name="user" size={14} />
+            {t('inbox.assignedTo', { names: joinNames(namesOf(item.assignees, members, myHandle)) })}
+          </p>
+        ) : (
+          <div className={styles.actions}>
+            <OperatorApprovalActions
+              item={item}
+              payload={operatorApproval}
+              size={buttonSize}
+              pending={pending}
+              stale={stale}
+              onDecide={onResolve}
+            />
+            {detailsHref && !mobile ? (
+              <>
+                <span className={styles.spacer} />
+                <Link to={detailsHref} className={styles.details}>
+                  <span>{t('inbox.details')}</span>
+                  <Icon name="arrowRight" size={14} strokeWidth={2.2} />
+                </Link>
+              </>
+            ) : null}
+          </div>
+        )}
+        {error ? (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        ) : null}
+      </article>
+    );
+  }
 
   return (
     <article

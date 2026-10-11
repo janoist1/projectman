@@ -148,6 +148,21 @@ describe('the views of the open card (PM-487)', () => {
     expect(screen.queryByRole('textbox', { name: t('task.comments.label') })).toBeNull();
   });
 
+  it('scrolls to the event a link points at on the timeline view, not to its end', async () => {
+    const project = mockProject();
+    const note = project.backend.timeline.find(
+      (event) => event.taskKey === 'AC-21' && event.type === 'task_note',
+    )!;
+    const reached: string[] = [];
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      reached.push(this.id);
+    });
+    project.render(card, `/p/AC/tasks/AC-21/timeline#timeline-${note.id}`);
+    await views();
+    expect(pressed()).toEqual([t('task.view.timeline')]);
+    await waitFor(() => expect(reached).toContain(`timeline-${note.id}`));
+  });
+
   it('gives a theme three views, without the conversation, and the card for its /thread', async () => {
     const project = mockProject();
     const theme = Task.parse(

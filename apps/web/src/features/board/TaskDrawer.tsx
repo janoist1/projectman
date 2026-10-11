@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   alertPayloadOf,
   canSeeTeamMessage,
@@ -227,6 +227,8 @@ export function TaskDrawer() {
   const { taskKey = '', '*': subPath } = useParams();
   const { key, myHandle, can, me } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
+  // A link to one event of the timeline (#timeline-<id>) scrolls the timeline to that row itself.
+  const eventLink = useLocation().hash.startsWith('#timeline-');
   const mobile = useIsMobile();
   const size: CardSize = !mobile && searchParams.get(SIZE_PARAM) === 'large' ? 'large' : 'quick';
   const twoColumns = useMediaQuery(WIDE_QUERY) && size === 'large';
@@ -339,15 +341,16 @@ export function TaskDrawer() {
 
   // Hiding the card's sections shortens the scroll box and so moves it: the card is put back where it was, the
   // attachments open at their start, and the timeline at its end (the latest event, the next step, the comment box).
-  const timelineEnd = view === 'timeline' && !detail.isPending;
+  const timelineEnd = view === 'timeline' && !detail.isPending && !eventLink;
   const timelineStick = useRef(true);
   useLayoutEffect(() => {
     const box = scrollRef.current;
     if (!box || thread) return;
+    if (view === 'timeline' && eventLink) return;
     if (timelineEnd) timelineStick.current = true;
     box.scrollTop =
       view === 'card' ? cardScroll.current : view === 'attachments' ? 0 : timelineEnd ? box.scrollHeight : 0;
-  }, [view, thread, timelineEnd]);
+  }, [view, thread, timelineEnd, eventLink]);
 
   // The timeline stays at its end while its content still grows (the comment box, the next step, a resize of the
   // window), until the reader scrolls away from the end.

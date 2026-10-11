@@ -16,6 +16,7 @@ export { focusPlaceText } from './focus';
 export { describeLink, linkTarget, numberedRef } from './links';
 export { describeRelatedCard, relationLines, relationPhrase } from './relations';
 export { relationNoticeText, type RelationNoticeRelation } from './relation-notice';
+export { partsLeftText, type PartsLeftText } from './parts-left';
 export { roleLabel } from './role';
 export { describeTaskWait, taskWaitShort } from './task-wait';
 export { describeRepo, type TaskRepoInfo } from './repo';

@@ -283,6 +283,12 @@ export function alertText(
         alert.relations.map((relation) => `${relationKindLabel(relation.kind)} ${relation.key}`),
       ),
     });
+  if (alert.alert === 'parts_left')
+    return t('inbox.alerts.parts_left.body', {
+      key: alert.taskKey,
+      member: nameOf(alert.member, members, myHandle),
+      parts: alert.parts.join(', '),
+    });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
       member: nameOf(item.source, members, myHandle),

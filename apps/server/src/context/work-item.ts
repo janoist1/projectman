@@ -13,6 +13,9 @@ import {
   labelDefinition,
   labelHolders,
   labelSetters,
+  partReadyStage,
+  projectRefines,
+  REFINE_LABEL,
   refinementTurn,
   repoOf,
   resolvedStages,
@@ -431,11 +434,40 @@ function requirementsWork(): string[] {
 }
 
 /** The work of the technical direction: the same in the queue and in refinement. */
-function technicalWork({ localOnly }: StepContext): string[] {
+function technicalWork(c: StepContext): string[] {
   return [
     'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
     'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
-    `If the work is bigger than one ${localOnly ? 'branch' : 'pull request'}, create the parts with create_task and note the order and dependencies on this task.`,
+    ...partSteps(c),
+  ];
+}
+
+/**
+ * Breaking the work into parts (PM-480). The member who breaks a card down also takes its parts on: in
+ * the same turn they link, order, label and move them, so none stays where nobody starts it. Only a
+ * member who may put `refine` on a card gets the long version (a part that cannot start needs it), in a
+ * project that has refinement and a stage to take the parts to; the others get the short one.
+ */
+function partSteps({ input, task, localOnly }: StepContext): string[] {
+  const unit = localOnly ? 'branch' : 'pull request';
+  const config = input.project;
+  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text.`;
+  const target = partReadyStage(config);
+  const refine = labelDefinition(config, REFINE_LABEL);
+  const first = config.pipeline.stages[0];
+  if (
+    !projectRefines(config) ||
+    !target ||
+    !first ||
+    !refine ||
+    !labelSetters(config, refine, task).includes(input.member.handle)
+  )
+    return [split];
+  const labels = config.pipeline.labels;
+  return [
+    split,
+    `In the same turn, take every part out of ${stageLabel(first)}, where nobody starts it. A part that can start: add with update_task the labels the gates up to ${stageLabel(target)} ask for, with their reasons in the note (the plan on this task counts: "plan on ${task.key}"), and move it to ${stageLabel(target)} (${code('stage_id')}). A part that cannot start yet (it needs a requirement, a UI/UX design or a person's decision): add the labels you can set now with their reasons, add ${labelRef(REFINE_LABEL, labels)} and write in its description what it lacks; the refinement hands out the rest.`,
+    'Then note on this task where each part went and why.',
   ];
 }
 

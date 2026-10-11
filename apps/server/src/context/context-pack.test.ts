@@ -2077,6 +2077,61 @@ describe('refinement steps (PM-256)', () => {
     expect(brief).toContain('- On turn: nobody who could set it, for');
   });
 
+  describe('breaking the work into parts (PM-480)', () => {
+    const planTurn = () => cardWith('scope-ok', 'needs-plan');
+    // The template starts at Ready; the parts need a first stage before it to be left in.
+    const withIncoming = (project: ProjectConfig) => {
+      const ready = project.pipeline.stages.find((s) => s.id === 'ready')!;
+      project.pipeline.stages.unshift({ ...ready, id: 'incoming', name: 'Incoming', gate: undefined });
+      return project;
+    };
+    const refiningWithIncoming = () => withIncoming(refiningProject());
+
+    it('has the member who may refine take the parts on in the same turn', () => {
+      const steps = stepsOf('arch', planTurn(), refiningWithIncoming());
+      expect(steps).toContain(
+        'split it into parts with create_task, each with `parent_key` set to this task, and give their order as `prerequisite` relations (add_relations), not as text.',
+      );
+      expect(steps).toContain('In the same turn, take every part out of Incoming (`incoming`)');
+      expect(steps).toContain(
+        'add with update_task the labels the gates up to Ready (`ready`) ask for, with their reasons in the note (the plan on this task counts: "plan on AR-21")',
+      );
+      expect(steps).toContain('move it to Ready (`ready`) (`stage_id`)');
+      expect(steps).toContain('add `refine` (Refine) and write in its description what it lacks');
+      expect(steps).toContain('Then note on this task where each part went and why.');
+    });
+
+    it('gives the same steps in the queue, outside a refinement turn', () => {
+      const task = makeTask({ stageId: 'ready', assignee: null });
+      expect(stepsOf('arch', task, refiningWithIncoming())).toContain(
+        'In the same turn, take every part out of',
+      );
+    });
+
+    it('gives the short version where there is no stage before Ready to take the parts out of', () => {
+      const steps = stepsOf('arch', planTurn());
+      expect(steps).toContain('split it into parts with create_task');
+      expect(steps).not.toContain('In the same turn, take every part out of');
+    });
+
+    it('gives a member who may not put refine on a card the short version', () => {
+      const project = refiningWithIncoming();
+      project.pipeline.labels.find((l) => l.id === 'refine')!.setBy = { members: ['owner'] };
+      const steps = stepsOf('arch', planTurn(), project);
+      expect(steps).toContain('each with `parent_key` set to this task');
+      expect(steps).toContain('`prerequisite` relations (add_relations), not as text.');
+      expect(steps).not.toContain('In the same turn, take every part out of');
+    });
+
+    it('gives the short version in a project without refinement', () => {
+      const project = buildProject();
+      addMember(project, 'arch', 'architect');
+      const steps = stepsOf('arch', makeTask({ stageId: 'ready', assignee: null }), project);
+      expect(steps).toContain('split it into parts with create_task, each with `parent_key`');
+      expect(steps).not.toContain('In the same turn, take every part out of');
+    });
+  });
+
   it('gives the analyst the requirements steps, even though the analyst also holds task breakdown', () => {
     const steps = stepsOf('analyst', cardWith('needs-analysis', 'scope-ok'));
     expect(steps).toContain('Rewrite the description with update_task');
@@ -2550,10 +2605,10 @@ describe('repositories without GitHub', () => {
         });
       };
       expect(plan(buildLocalOnlyProject())).toContain(
-        'If the work is bigger than one branch, create the parts with create_task',
+        'If the work is bigger than one branch, split it into parts with create_task',
       );
       expect(plan(buildProject())).toContain(
-        'If the work is bigger than one pull request, create the parts with create_task',
+        'If the work is bigger than one pull request, split it into parts with create_task',
       );
     });
   });

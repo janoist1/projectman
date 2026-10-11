@@ -107,6 +107,10 @@ export function describeEvent(
         (remaining.length > 0 ? `still waiting for ${remaining.join(', ')}` : 'no prerequisite is open now')
       );
     }
+    case 'task_parts_left':
+      return text('phase') === 'alerted'
+        ? `told the owners that ${list('parts').join(', ')} stayed in the first stage after ${text('member') ?? '?'}'s reminder`
+        : `reminded ${text('member') ?? '?'} that ${list('parts').join(', ')} are left in the first stage`;
     case 'task_note':
       return `note: ${text('text') ?? ''}`.trimEnd();
     case 'attachment_added':

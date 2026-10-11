@@ -205,6 +205,21 @@ describe('themes on the timeline (PM-192)', () => {
   });
 });
 
+describe('parts left after a breakdown on the timeline (PM-480)', () => {
+  const left = (phase: string) =>
+    describeEvent(
+      { ...creation, type: 'task_parts_left', data: { phase, member: 'dev-1', parts: ['AC-2', 'AC-3'] } },
+      context,
+    ).text;
+
+  it('says the member was reminded, and later that the owner was told', () => {
+    expect(left('told')).toBe(t('timeline.events.parts_left_told', { name: 'dev-1', parts: 'AC-2, AC-3' }));
+    expect(left('alerted')).toBe(
+      t('timeline.events.parts_left_alerted', { name: 'dev-1', parts: 'AC-2, AC-3' }),
+    );
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;

@@ -109,6 +109,9 @@
   color: var(--c-ink-4);
   background: transparent;
 }
+.gone:hover {
+  border-color: var(--c-line);
+}
 .gone .tile {
   padding: 0;
   border: 0;

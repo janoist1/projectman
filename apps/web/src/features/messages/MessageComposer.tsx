@@ -174,6 +174,7 @@ export function MessageComposer({
         variant="secondary"
         size="sm"
         icon="paperclip"
+        className={styles.attach}
         disabled={send.isPending}
         title={t('messageAttachments.addTitle')}
         onClick={() => picker.current?.click()}
@@ -191,7 +192,7 @@ export function MessageComposer({
         {uploads.error ? (
           <span role="alert">{uploads.error}</span>
         ) : (
-          (uploads.blockedReason ?? t('messageAttachments.hint'))
+          (uploads.blockedReason ?? t('messageAttachments.hintForm'))
         )}
       </span>
       {teamPaused && selected.some((handle) => recipients.find((m) => m.handle === handle)?.kind === 'ai') ? (

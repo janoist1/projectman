@@ -2883,6 +2883,7 @@ export const hu = {
     next: 'Következő',
     position: '{index} / {count}',
     previewOne: '{fileName}',
+    hintForm: 'Képet a szövegmezőbe is beilleszthetsz.',
     cardHint: 'A fájl csak ennél az üzenetnél lesz, a kártya mellékletei közé nem kerül.',
     timelineExcerpt: 'csatolmány',
     previewMany: '{count} csatolmány',

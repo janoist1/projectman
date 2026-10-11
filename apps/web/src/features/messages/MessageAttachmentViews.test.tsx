@@ -48,6 +48,15 @@ async function sendReady() {
 }
 
 describe('message attachment destinations', () => {
+  it('describes form paste without promising Enter to send and keeps Enter as a newline', () => {
+    mockProject().render(<MessageComposer />);
+    expect(screen.getByText(t('messageAttachments.hintForm'))).toBeTruthy();
+    expect(screen.queryByText(t('messageAttachments.hint'))).toBeNull();
+    const input = screen.getByRole('textbox');
+    fireEvent.change(input, { target: { value: 'Draft' } });
+    expect(fireEvent.keyDown(input, { key: 'Enter' })).toBe(true);
+    expect((input as HTMLTextAreaElement).value).toBe('Draft');
+  });
   it('allows dialog paste before choosing a recipient and enables sending once chosen', async () => {
     const p = mockProject();
     p.render(<MessageComposer />);

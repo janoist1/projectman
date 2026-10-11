@@ -165,8 +165,18 @@ describe('team MCP endpoint', () => {
     expect(schema('ask_human').required).toEqual(['question']);
     // The plain-language fields are all optional; an option is a label or a label with its consequence.
     expect(Object.keys(schema('ask_human').properties).sort()).toEqual(
-      ['details', 'options', 'question', 'recommendation_reason', 'recommended', 'task_key', 'to'].sort(),
+      [
+        'attachments',
+        'details',
+        'options',
+        'question',
+        'recommendation_reason',
+        'recommended',
+        'task_key',
+        'to',
+      ].sort(),
     );
+    expect(schema('ask_human').properties.attachments).toMatchObject({ minItems: 1, maxItems: 6 });
     expect(schema('ask_human').properties.options.items.anyOf).toEqual([
       { type: 'string', minLength: 1, maxLength: 200 },
       expect.objectContaining({

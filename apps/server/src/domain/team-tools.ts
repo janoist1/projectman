@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   AttachmentId,
+  canReadAttachments,
   effectiveRepo,
   ERROR_CODES,
   ownerHandles,
@@ -23,6 +24,7 @@ import type {
   OperatorAction,
   OperatorStepStatus,
   ProjectConfig,
+  QuestionAttachment,
   QuestionOptionInput,
   Session,
   Task,
@@ -1128,8 +1130,9 @@ export class TeamToolsService implements TeamToolsHandler {
       recommended?: string;
       recommendationReason?: string;
       details?: string;
+      attachmentIds?: string[];
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string }> {
+  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }> {
     return this.guard(async () => {
       const config = await this.caller(ctx, 'ask_human');
       const question = args.question.trim();
@@ -1192,6 +1195,14 @@ export class TeamToolsService implements TeamToolsHandler {
             assignees,
           })
         : null;
+      // The files are checked before the label is claimed: a refusal leaves no waiting label behind.
+      const attachments = this.questionAttachments(
+        config,
+        ctx.projectKey,
+        task,
+        assignees,
+        args.attachmentIds,
+      );
       const autoLabel = await this.openQuestionLabel.claim(ctx.projectKey, taskKey, ctx.member, question);
       const item = this.inbox.create({
         projectKey: ctx.projectKey,
@@ -1209,6 +1220,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(reason ? { recommendationReason: reason } : {}),
           ...(details ? { details } : {}),
           ...(autoLabel ? { autoLabel } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
         },
         options,
       });
@@ -1220,8 +1232,72 @@ export class TeamToolsService implements TeamToolsHandler {
         type: 'question_asked',
         data: { inboxItemId: item.id, question },
       });
-      return { inboxItemId: item.id, ...(approvalLabel ? { approvalLabel } : {}) };
+      return {
+        inboxItemId: item.id,
+        ...(approvalLabel ? { approvalLabel } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
     });
+  }
+
+  /**
+   * The files a question names (PM-498), as snapshots in the order given and without repeats. Only
+   * ready files of the question's card or its parent qualify, and every asked person must be able
+   * to open each of them. Throws before anything is written.
+   */
+  private questionAttachments(
+    config: ProjectConfig,
+    projectKey: string,
+    task: Task | null,
+    assignees: string[],
+    ids: string[] | undefined,
+  ): QuestionAttachment[] {
+    const wanted = unique(ids ?? []);
+    if (wanted.length === 0) return [];
+    if (!task)
+      throw new TeamToolError(
+        'invalid',
+        'attachments_need_card: files can be named only on a question about a card; give task_key or ask without attachments.',
+      );
+    const parent = task.parentKey ? this.tasks.find(projectKey, task.parentKey) : null;
+    const allowed = [task, ...(parent ? [parent] : [])];
+    const scope = parent ? `${task.key} or its parent ${parent.key}` : task.key;
+    const found: QuestionAttachment[] = [];
+    for (const id of wanted) {
+      const row = this.ctx.repos.attachments.get(id);
+      if (!row || row.projectKey !== projectKey || row.state !== 'ready')
+        throw new TeamToolError(
+          'not_found',
+          `attachment_unknown: ${id} is not a file of ${scope}; list_attachments gives the ids.`,
+        );
+      if (!allowed.some((card) => card.key === row.taskKey))
+        throw new TeamToolError(
+          'invalid',
+          `attachment_other_card: ${id} is on ${row.taskKey}; a question can name only the files of ${scope}.`,
+        );
+      found.push({
+        id: row.id,
+        taskKey: row.taskKey,
+        fileName: row.fileName,
+        size: row.size,
+        mediaType: row.mediaType,
+        preview: row.preview,
+      });
+    }
+    // Everyone asked must be able to open every file; only a client asked about an internal card can fail.
+    for (const handle of assignees) {
+      const person = memberOf(config, handle);
+      const viewer = { access: person?.kind === 'human' ? person.access : ('client' as const), handle };
+      for (const card of allowed) {
+        if (!found.some((file) => file.taskKey === card.key)) continue;
+        if (!canReadAttachments(viewer, card))
+          throw new TeamToolError(
+            'invalid',
+            `attachment_not_visible: ${handle} cannot open the files of ${card.key}; ask without them or ask someone who sees the card.`,
+          );
+      }
+    }
+    return found;
   }
 
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {

@@ -822,6 +822,22 @@ describe('formatQuestionAsked', () => {
   });
 });
 
+describe('formatQuestionAsked with files', () => {
+  it('lists the files by name and card on their own line, and not at all without files', () => {
+    const asked = { question: 'Ship it?', recommended: 'Yes' };
+    const files = [
+      { fileName: 'shot.png', taskKey: 'AR-1' },
+      { fileName: 'spec.pdf', taskKey: 'AR-2' },
+    ];
+    expect(formatQuestionAsked('inb_1', undefined, asked, undefined, files)).toBe(
+      'Question inb_1 is waiting in the inbox.\nFiles on the question: shot.png (AR-1), spec.pdf (AR-2)',
+    );
+    expect(formatQuestionAsked('inb_1', undefined, asked, undefined, [])).toBe(
+      'Question inb_1 is waiting in the inbox.',
+    );
+  });
+});
+
 describe('related task formatting', () => {
   it('includes parent and subtasks with key, title, stage and status', () => {
     const detail = sampleTaskDetail();

@@ -12,6 +12,7 @@ import {
   permissionDelegationOf,
   permissionDelegationState,
   routePermissionRequest,
+  withQuestionAttachmentGone,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -240,6 +241,19 @@ export class InboxService {
     const updated = this.ctx.repos.inbox.updateOpen(id, payload, item.assignees, isoNow(this.ctx));
     if (updated) this.publish(updated);
     return updated;
+  }
+
+  /**
+   * A file was deleted (PM-498): every question that names it, open or answered, marks it gone and is
+   * published again. Items that do not name it are not touched.
+   */
+  attachmentGone(projectKey: string, attachmentId: string, at: string): void {
+    for (const item of this.ctx.repos.inbox.listQuestionsWithAttachment(projectKey, attachmentId)) {
+      const payload = withQuestionAttachmentGone(item.payload, attachmentId, at);
+      if (!payload) continue;
+      const updated = this.ctx.repos.inbox.updatePayload(item.id, payload, at);
+      if (updated) this.publish(updated);
+    }
   }
 
   list(

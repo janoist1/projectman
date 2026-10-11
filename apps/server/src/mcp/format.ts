@@ -2,6 +2,7 @@ import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
 import type {
   Attachment,
   MemberView,
+  QuestionAttachment,
   Task,
   TimelineEvent,
   WorkItemRef,
@@ -702,11 +703,16 @@ export function formatQuestionAsked(
   to: string[] | undefined,
   asked: { question: string; recommended?: string | undefined },
   approvalLabel?: string,
+  attachments?: ReadonlyArray<Pick<QuestionAttachment, 'fileName' | 'taskKey'>>,
 ): string {
   const whose = to && to.length > 0 ? ` of ${to.join(', ')}` : '';
+  const files =
+    attachments && attachments.length > 0
+      ? `\nFiles on the question: ${attachments.map((a) => `${a.fileName} (${a.taskKey})`).join(', ')}`
+      : '';
   const hint = questionHint(asked);
   const approvalNote = approvalLabel
     ? `\nNote: an answer to this question does not put the label \`${approvalLabel}\` on the card. The app asks the label's holders for the approval in their inbox (a gate request); this question closes by itself once the label is on.`
     : '';
-  return `Question ${inboxItemId} is waiting in the inbox${whose}.${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
+  return `Question ${inboxItemId} is waiting in the inbox${whose}.${files}${hint ? `\nTip for your next question: ${hint}` : ''}${approvalNote}`;
 }

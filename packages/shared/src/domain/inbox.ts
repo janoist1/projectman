@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
@@ -421,6 +422,23 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
   return parsed.success ? parsed.data : null;
 }
 
+/** At most this many files on one question (PM-498). */
+export const MAX_QUESTION_ATTACHMENTS = 6;
+
+/** A file a question names (PM-498): a snapshot taken when it was asked, so it still shows after a deletion. */
+export const QuestionAttachment = z.object({
+  id: AttachmentId,
+  /** The card the file is on: the question's card or its parent. */
+  taskKey: TaskKey,
+  fileName: z.string(),
+  size: z.number().int().nonnegative(),
+  mediaType: z.string(),
+  preview: AttachmentPreview,
+  /** When the file was deleted from its card after the question was asked; absent while it is there. */
+  goneAt: z.string().optional(),
+});
+export type QuestionAttachment = z.infer<typeof QuestionAttachment>;
+
 /**
  * `payload` of a `question` item, written by the `ask_human` team tool. The question is also the
  * item's title; what each option leads to is `consequence` on the item's options. Questions from
@@ -444,6 +462,8 @@ export const QuestionPayload = z.object({
    * off when the last such question closes; absent when a person had put it on, or it was not set.
    */
   autoLabel: z.boolean().optional(),
+  /** The files the question names (PM-498); absent on older questions and on questions without files. */
+  attachments: z.array(QuestionAttachment).optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -451,6 +471,41 @@ export type QuestionPayload = z.infer<typeof QuestionPayload>;
 export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {
   const parsed = QuestionPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The files a question names, or an empty list when the item is not a question, has none, or the
+ * field is unreadable. The field is parsed on its own so one bad entry does not make the whole
+ * question unreadable.
+ */
+export function questionAttachmentsOf(item: Pick<InboxItem, 'kind' | 'payload'>): QuestionAttachment[] {
+  if (item.kind !== 'question') return [];
+  const raw = (item.payload as Record<string, unknown> | null | undefined)?.attachments;
+  const parsed = z.array(QuestionAttachment).safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
+/**
+ * A copy of a question payload in which the named file is marked deleted at `at`. Null when the
+ * payload has no such file or it is already marked. The server and the web's test backend both
+ * call this.
+ */
+export function withQuestionAttachmentGone(
+  payload: Record<string, unknown>,
+  attachmentId: string,
+  at: string,
+): Record<string, unknown> | null {
+  const list = payload.attachments;
+  if (!Array.isArray(list)) return null;
+  let changed = false;
+  const next = list.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const record = entry as Record<string, unknown>;
+    if (record.id !== attachmentId || record.goneAt !== undefined) return entry;
+    changed = true;
+    return { ...record, goneAt: at };
+  });
+  return changed ? { ...payload, attachments: next } : null;
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   DEVELOPER_LEVEL_REASON_MAX,
   DeveloperLevel,
   HANDOFF_NOTE_MAX,
+  MAX_QUESTION_ATTACHMENTS,
   MemberHandle,
   questionChoices,
   StageId,
@@ -912,7 +913,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'one plain sentence that names the decision in everyday words, and keep it short. Describe each ' +
       'option by what happens if it is picked, not by technical names, and always recommend one option ' +
       'with a one-sentence reason. Put code, file names and technical reasoning into details; the inbox ' +
-      'shows it folded.',
+      'shows it folded. When the answer needs a look at a file of the card or its parent, name it in ' +
+      'attachments instead of describing where to find it.',
     input: {
       question: z
         .string()
@@ -988,6 +990,15 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .describe(
           'Handles of the humans to ask. Omit to ask the humans responsible for the task or project.',
         ),
+      attachments: z
+        .array(AttachmentId)
+        .min(1)
+        .max(MAX_QUESTION_ATTACHMENTS)
+        .optional()
+        .describe(
+          "Ids (att_…) of the files the human needs to look at to answer, on the question's card or its " +
+            'parent (list_attachments gives them). They show on the question as files to open. At most 6.',
+        ),
     },
     check(args, issue) {
       const labels = questionChoices(args.options).map((choice) => choice.label);
@@ -1009,7 +1020,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const taskKey = args.task_key ?? ctx.taskKey;
       const to = args.to ? unique(args.to) : undefined;
-      const { inboxItemId, approvalLabel } = await handler.askHuman(ctx, {
+      const { inboxItemId, approvalLabel, attachments } = await handler.askHuman(ctx, {
         question: args.question,
         ...(args.options ? { options: args.options } : {}),
         ...(args.recommended ? { recommended: args.recommended } : {}),
@@ -1017,6 +1028,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(args.details ? { details: args.details } : {}),
         ...(taskKey ? { taskKey } : {}),
         ...(to ? { to } : {}),
+        ...(args.attachments ? { attachmentIds: unique(args.attachments) } : {}),
       });
       return formatQuestionAsked(
         inboxItemId,
@@ -1026,6 +1038,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           recommended: args.recommended,
         },
         approvalLabel,
+        attachments,
       );
     },
   }),

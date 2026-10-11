@@ -159,6 +159,9 @@ Documentation map:
   `task_covers`; `coverAttachmentId(attachments, choice)` applies it: hidden → none, even after a
   new upload, until an image is pinned; a pinned image that is gone falls back to the first image,
   and deleting the pinned file removes the row with it. No timeline event, no team tool.
+  **Files on a question** (PM-498): an `ask_human` question names at most 6 files
+  (`MAX_QUESTION_ATTACHMENTS`) of its card or its parent; the inbox item keeps a snapshot of them
+  (`QuestionAttachment`) and marks each with `goneAt` when the file is deleted (`InboxService.attachmentGone`).
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity

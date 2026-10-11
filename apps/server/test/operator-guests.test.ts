@@ -1,4 +1,7 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OperatorChannel, routes } from '@projectman/shared';
 import type { ProjectConfig, Session } from '@projectman/shared';
@@ -8,6 +11,7 @@ import { OPERATOR_GUEST_TOOLS } from '../src/domain/operator-requests';
 import { humanActor } from '../src/domain/util';
 import { buildClaudeArgs, buildSettings } from '../src/runner/providers/claude/args';
 import { canSeeProjectEvent } from '../src/domain/visibility';
+import { pdfBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
@@ -40,8 +44,8 @@ function withGuests(config: ProjectConfig): void {
     });
 }
 
-async function setup(): Promise<void> {
-  h = await createDomainHarness({ adjust: withGuests });
+async function setup(opts: { appHome?: string; sessionFolders?: boolean } = {}): Promise<void> {
+  h = await createDomainHarness({ adjust: withGuests, ...opts });
   await h.domain.tasks.create('AR', { title: 'Internal plan' }, OWNER_ACTOR);
   await h.domain.tasks.create('AR', { title: 'Shared page', visibility: 'shared' }, OWNER_ACTOR);
 }
@@ -214,8 +218,75 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       'list_members',
       'list_tasks',
       'read_attachment',
+      'read_message_attachment',
       'send_message',
     ]);
+  });
+
+  it('opens a message file for a guest only as that person, never one of someone else’s message', async () => {
+    await setup();
+    const sendFile = async (to: string, fileName: string) => {
+      const file = await h.domain.messageAttachments.upload({
+        projectKey: 'AR',
+        actor: OWNER_ACTOR,
+        fileName,
+        content: Readable.from([Buffer.from(`content of ${fileName}`)]),
+      });
+      await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: [to], text: 'A file', taskKey: null, attachmentIds: [file.id] },
+        { actor: OWNER_ACTOR },
+      );
+      return file;
+    };
+    const forCleo = await sendFile('cleo', 'for-cleo.txt');
+    const forDana = await sendFile('dana', 'for-dana.txt');
+    await say('cleo', 'What did you send me?');
+    const tool = toolOf(conversationWith('cleo'));
+    const own = await h.domain.teamTools.readMessageAttachment(tool, { attachmentId: forCleo.id });
+    expect(own.content).toEqual({ kind: 'text', text: 'content of for-cleo.txt' });
+    // The Operator itself could see the other message, but the guest's conversation answers as the guest.
+    const refused = await rejection(
+      h.domain.teamTools.readMessageAttachment(tool, { attachmentId: forDana.id }),
+      TeamToolError,
+    );
+    expect(refused.code).toBe('not_found');
+    expect(refused.message).not.toContain('for-dana');
+  });
+
+  it('puts a message file into the session folder of the owner’s conversation, never a guest’s (PM-518)', async () => {
+    await setup({ sessionFolders: true });
+    const sendPdf = async (to: string) => {
+      const file = await h.domain.messageAttachments.upload({
+        projectKey: 'AR',
+        actor: OWNER_ACTOR,
+        fileName: 'plan.pdf',
+        content: Readable.from([pdfBytes()]),
+      });
+      await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: [to], text: 'A file', taskKey: null, attachmentIds: [file.id] },
+        { actor: OWNER_ACTOR },
+      );
+      return file;
+    };
+    const forCleo = await sendPdf('cleo');
+    const forOperator = await sendPdf('operator');
+    await say('cleo', 'What did you send me?');
+    const guest = await h.domain.teamTools.readMessageAttachment(toolOf(conversationWith('cleo')), {
+      attachmentId: forCleo.id,
+    });
+    expect(guest.content).toEqual({ kind: 'none', reason: 'type' });
+    expect(guest.file).toBeUndefined();
+
+    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'And this?' });
+    await settle();
+    const own = await h.domain.teamTools.readMessageAttachment(toolOf(ownerConversation()), {
+      attachmentId: forOperator.id,
+    });
+    expect(own.file?.path).toContain(`${forOperator.id}-plan.pdf`);
   });
 
   it('answers only the person it talks with', async () => {
@@ -235,6 +306,32 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       ['message', 'refused'],
       ['message', 'refused'],
     ]);
+  });
+
+  it('attaches a file of its directory to the answer, to the guest alone (PM-520)', async () => {
+    // The conversation's own directory is below the app home: a temporary one, never the real home.
+    const appHome = mkdtempSync(path.join(tmpdir(), 'pm-guest-home-'));
+    try {
+      await setup({ appHome });
+      await say('cleo');
+      const session = conversationWith('cleo');
+      mkdirSync(session!.cwd, { recursive: true });
+      writeFileSync(path.join(session!.cwd, 'answer.txt'), 'the answer');
+      const send = (to: string[], attachments = ['answer.txt']) =>
+        h.domain.teamTools.sendMessage(toolOf(session), { to, text: 'See this', kind: 'info', attachments });
+      const sent = await send(['cleo']);
+      expect(h.repos.messages.get(sent.messageId)?.attachments).toEqual([
+        expect.objectContaining({ fileName: 'answer.txt', size: 10 }),
+      ]);
+      // The rule of the conversation stays: nobody else, and no file stored for a refused message.
+      expect(await refusal(send(['owner']))).toMatch(/^operator_owner_only:/);
+      const stored = () => readdirSync(path.join(h.messageAttachmentsDir, 'AR')).length;
+      const before = stored();
+      expect(await refusal(send(['cleo'], ['missing.txt']))).toContain('missing.txt');
+      expect(stored()).toBe(before);
+    } finally {
+      rmSync(appHome, { recursive: true, force: true });
+    }
   });
 
   it('shows a client only the cards shared with them', async () => {

@@ -14,6 +14,7 @@ import path from 'node:path';
 import type { ControlRequest, ControlResponse, PauseStatus, Release } from '@projectman/shared';
 import { ControlUnreachable } from '../../../../scripts/control/client';
 import type { LiveDeps, RunOptions, RunResult } from '../../../../scripts/live/deps';
+import { launcherFile, SERVER_LAUNCHER, WATCHER_LAUNCHER } from '../../../../scripts/live/paths';
 
 /**
  * A fake machine for the live scripts (PM-493): a temporary root, home and user home; a virtual clock; a
@@ -72,6 +73,8 @@ export class LiveWorld {
   readonly home = path.join(this.base, 'data', '.projectman');
   readonly userHome = path.join(this.base, 'user');
   readonly port = 4800;
+  /** The `node` of the installing shell (a file of `setupLive`). */
+  readonly nodePath = path.join(this.base, 'node-bin', 'node');
 
   time = Date.parse('2026-10-11T12:00:00.000Z');
   release: Release | null = null;
@@ -121,6 +124,15 @@ export class LiveWorld {
     writeFileSync(path.join(this.root, 'apps', 'server', 'dist', 'index.js'), '// built\n');
     writeFileSync(path.join(this.root, 'VERSION'), OLD);
     writeFileSync(path.join(this.home, 'db.sqlite'), 'old-data');
+    // The launchers the plists start, and the node they run (PM-514).
+    mkdirSync(path.dirname(launcherFile(this.root, SERVER_LAUNCHER)), { recursive: true });
+    for (const name of [SERVER_LAUNCHER, WATCHER_LAUNCHER]) {
+      writeFileSync(launcherFile(this.root, name), '#!/bin/sh\nexec "$@"\n', { mode: 0o755 });
+      chmodSync(launcherFile(this.root, name), 0o755);
+    }
+    mkdirSync(path.dirname(this.nodePath), { recursive: true });
+    writeFileSync(this.nodePath, '#!/bin/sh\n', { mode: 0o755 });
+    chmodSync(this.nodePath, 0o755);
     this.remotes.set(this.root, REMOTE);
     if (options.running !== false) {
       this.loaded.add(SERVER_LABEL);
@@ -422,7 +434,7 @@ export class LiveWorld {
       platform: this.platform,
       uid: 501,
       pid: 4242,
-      nodePath: '/opt/node/bin/node',
+      nodePath: this.nodePath,
       env: this.env,
       homeDir: this.userHome,
     };

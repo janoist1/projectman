@@ -18,6 +18,7 @@ export * from './domain/card-measure';
 export * from './domain/event';
 export * from './domain/attachment';
 export * from './domain/message';
+export * from './domain/message-attachment';
 export * from './domain/message-wake';
 export * from './domain/inbox';
 export * from './domain/loop-watch';

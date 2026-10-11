@@ -1,14 +1,17 @@
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   readdirSync,
   realpathSync,
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -402,6 +405,101 @@ describe('session folders (PM-268)', () => {
       const tmp = join(root, 'abcdef012345');
       expect(Buffer.byteLength(tmp)).toBeLessThanOrEqual(56);
       expect(Buffer.byteLength(join(tmp, 'claude-501', 'tsx-501', '12345.pipe'))).toBeLessThan(104);
+    });
+  });
+
+  describe('a message file put into a session folder (PM-518)', () => {
+    const content = Buffer.from('%PDF-1.4 a stored message file');
+    const sha = createHash('sha256').update(content).digest('hex');
+    let source: { path: string; size: number; sha256: string };
+    let folders: SessionFolders;
+    let dir: string;
+    beforeEach(async () => {
+      const file = join(base, 'stored');
+      writeFileSync(file, content);
+      source = { path: file, size: content.length, sha256: sha };
+      folders = prepared();
+      dir = folders.allocate('ses_one');
+      await folders.make('ses_one', dir);
+    });
+    const put = (name = 'msa_1-plan.pdf', sessionId = 'ses_one', from = source) =>
+      folders.materializeFile(sessionId, { name, source: from });
+
+    it('copies the file to `message-attachments/<name>`, the folder 0700 and the file 0600', async () => {
+      const { path } = await put();
+      expect(path).toBe(join(dir, 'message-attachments', 'msa_1-plan.pdf'));
+      expect(readFileSync(path).equals(content)).toBe(true);
+      expect(mode(path)).toBe(0o600);
+      expect(mode(join(dir, 'message-attachments'))).toBe(0o700);
+      // The source stays, and no staging name is left beside the folders.
+      expect(existsSync(source.path)).toBe(true);
+      expect(readdirSync(folders.root).filter((entry) => entry.startsWith('.part-'))).toEqual([]);
+    });
+
+    it('returns the same path for the same file and keeps what is there', async () => {
+      const first = await put();
+      const inode = statSync(first.path).ino;
+      expect(await put()).toEqual(first);
+      expect(statSync(first.path).ino).toBe(inode);
+    });
+
+    it('replaces a file or a link of that name that holds other bytes, and writes nothing through a link', async () => {
+      const first = await put();
+      writeFileSync(first.path, 'tampered');
+      expect(await put()).toEqual(first);
+      expect(readFileSync(first.path).equals(content)).toBe(true);
+
+      const outside = join(base, 'outside');
+      writeFileSync(outside, 'outside');
+      rmSync(first.path);
+      symlinkSync(outside, first.path);
+      await put();
+      expect(lstatSync(first.path).isSymbolicLink()).toBe(false);
+      expect(readFileSync(outside, 'utf8')).toBe('outside');
+    });
+
+    it('refuses a source that is not the file it was told of, and leaves nothing behind', async () => {
+      await expect(put('a.pdf', 'ses_one', { ...source, size: source.size + 1 })).rejects.toThrow();
+      await expect(put('a.pdf', 'ses_one', { ...source, sha256: 'f'.repeat(64) })).rejects.toThrow();
+      const link = join(base, 'link');
+      symlinkSync(source.path, link);
+      await expect(put('a.pdf', 'ses_one', { ...source, path: link })).rejects.toThrow();
+      await expect(put('a.pdf', 'ses_one', { ...source, path: base })).rejects.toThrow();
+      expect(existsSync(join(dir, 'message-attachments', 'a.pdf'))).toBe(false);
+      expect(readdirSync(folders.root).filter((entry) => entry.startsWith('.part-'))).toEqual([]);
+    });
+
+    it('takes only a plain name', async () => {
+      for (const name of ['', '.', '..', '../x', 'a/b', 'a\\b', 'x\0y', 'x'.repeat(256)])
+        await expect(put(name), JSON.stringify(name)).rejects.toThrow(/plain file name/);
+      expect(existsSync(join(dir, 'message-attachments'))).toBe(false);
+    });
+
+    it('writes into the session’s own folder only, and refuses a session without one', async () => {
+      await expect(put('a.pdf', 'ses_two')).rejects.toThrow(/no folder/);
+      const other = folders.allocate('ses_two');
+      await folders.make('ses_two', other);
+      const { path } = await put('a.pdf', 'ses_two');
+      expect(path).toBe(join(other, 'message-attachments', 'a.pdf'));
+      expect(existsSync(join(dir, 'message-attachments'))).toBe(false);
+    });
+
+    it('refuses a `message-attachments` that is a link or a file, and a folder that became a link', async () => {
+      const outside = join(base, 'outside');
+      mkdirSync(outside);
+      symlinkSync(outside, join(dir, 'message-attachments'));
+      await expect(put()).rejects.toThrow();
+      expect(readdirSync(outside)).toEqual([]);
+      unlinkSync(join(dir, 'message-attachments'));
+      writeFileSync(join(dir, 'message-attachments'), 'a file');
+      await expect(put()).rejects.toThrow();
+
+      const swapped = folders.allocate('ses_three');
+      await folders.make('ses_three', swapped);
+      rmSync(swapped, { recursive: true, force: true });
+      symlinkSync(outside, swapped);
+      await expect(put('a.pdf', 'ses_three')).rejects.toThrow();
+      expect(readdirSync(outside)).toEqual([]);
     });
   });
 });

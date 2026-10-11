@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   AttachmentId,
   canReadAttachments,
+  DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   ERROR_CODES,
   ownerHandles,
@@ -10,6 +11,7 @@ import {
   isTheme,
   MAX_ATTACHMENT_BYTES,
   memberOf,
+  MessageAttachmentId,
   messageRoute,
   needsRepoChoice,
   questionChoices,
@@ -42,20 +44,23 @@ import type {
   DecideBoundaryRequest,
 } from '@projectman/shared';
 import { taskWaitShort } from '../agent-text';
-import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
+import { PROVIDER_MCP_IMAGE_RESULTS, TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
   AttachmentPage,
   EngineAttachments,
   EngineHost,
+  EngineSessionFolders,
   GithubService,
   ListTasksInput,
   LocatedAttachmentForTool,
+  MessageAttachmentReading,
   MemberMemoryStore,
   NetworkDenial,
   ProposedRelease,
   ScreenshotRun,
   SentMessageRecipient,
+  WorkspaceFile,
   TakeScreenshotsInput,
   TaskSummary,
   TaskToolDetail,
@@ -86,6 +91,8 @@ import {
 } from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
 import { canSeeTask, clientCanSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from './visibility';
+import { sessionFileName } from './message-attachments';
+import type { MessageAttachmentService } from './message-attachments';
 import type { Viewer } from './visibility';
 import type { OperatorActions } from './operator-actions';
 import type { OperatorSignals } from './operator-signals';
@@ -166,16 +173,17 @@ function toAttachmentToolError(err: unknown, taskKey: string, id: string): unkno
 }
 
 /** attach_file refusals: the file's own (path, kind, size, change), and the size limit hit while reading. */
-function toFileToolError(err: unknown, requested: string): unknown {
+function toFileToolError(err: unknown, requested: string, done: 'attached' | 'sent' = 'attached'): unknown {
   if (err instanceof WorkspaceFileRefusal)
     return new TeamToolError(
       err.reason === 'outside' ? 'forbidden' : 'invalid',
-      `${err.message} Nothing was attached.`,
+      // The refusal may not name the file; with several files the caller must know which one.
+      `${err.message.includes(requested) ? '' : `${requested}: `}${err.message} Nothing was ${done}.`,
     );
   if (err instanceof DomainError && err.code === 'attachment_too_large')
     return new TeamToolError(
       'invalid',
-      `${requested} grew past ${MAX_ATTACHMENT_BYTES} bytes while it was read; nothing was attached.`,
+      `${requested} grew past ${MAX_ATTACHMENT_BYTES} bytes while it was read; nothing was ${done}.`,
     );
   return err;
 }
@@ -406,6 +414,10 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly github: GithubService;
   private readonly githubSync: GithubSync;
   private readonly attachments: AttachmentOperations;
+  private readonly messageAttachments: Pick<
+    MessageAttachmentService,
+    'reading' | 'source' | 'assertCanUpload' | 'upload' | 'delete'
+  >;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly materializeAttachment: EngineAttachments['materialize'] | undefined;
   private readonly sessionEngine:
@@ -448,6 +460,11 @@ export class TeamToolsService implements TeamToolsHandler {
     github: GithubService;
     githubSync: GithubSync;
     attachments: AttachmentOperations;
+    /** The files of team messages (PM-516): `read_message_attachment`. */
+    messageAttachments: Pick<
+      MessageAttachmentService,
+      'reading' | 'source' | 'assertCanUpload' | 'upload' | 'delete'
+    >;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
     /**
@@ -509,6 +526,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.github = deps.github;
     this.githubSync = deps.githubSync;
     this.attachments = deps.attachments;
+    this.messageAttachments = deps.messageAttachments;
     this.attachmentDirectory = deps.attachmentDirectory;
     this.materializeAttachment = deps.materializeAttachment;
   }
@@ -522,6 +540,8 @@ export class TeamToolsService implements TeamToolsHandler {
       kind: 'action' | 'info';
       signalId?: string;
       signalActionable?: boolean;
+      /** Paths of files of the caller's session folder or working directory (PM-520). */
+      attachments?: string[];
     },
   ): Promise<{
     messageId: string;
@@ -572,13 +592,24 @@ export class TeamToolsService implements TeamToolsHandler {
           const taskKey =
             this.taskKeyFor(ctx, args.taskKey) ??
             (who.request || guest ? null : this.repliedCardOf(ctx, config));
+          // The files are stored first and bound in the same send: a file that cannot be read stops the
+          // message, and the ones stored for it are removed (PM-520).
+          const attachmentIds =
+            args.attachments && args.attachments.length > 0
+              ? await this.uploadMessageFiles(ctx, args.attachments)
+              : [];
           // Humans have it in their messages now; AI recipients get it typed into their session
           // for the work item as soon as that session is idle (queued, never awaited here).
           const { message, recipients } = await this.messaging
             .sendReporting(
               ctx.projectKey,
               ctx.member,
-              { to: args.to, text: args.text, taskKey },
+              {
+                to: args.to,
+                text: args.text,
+                taskKey,
+                ...(attachmentIds.length > 0 ? { attachmentIds } : {}),
+              },
               {
                 actor: aiActor(ctx.member),
                 sessionId: ctx.sessionId,
@@ -588,7 +619,8 @@ export class TeamToolsService implements TeamToolsHandler {
                 signalActionable: args.signalActionable ?? false,
               },
             )
-            .catch((err: unknown) => {
+            .catch(async (err: unknown) => {
+              await this.discardMessageFiles(ctx, attachmentIds);
               throw toMessageToolError(err);
             });
           const routed = (message.receipts ?? []).flatMap((r) =>
@@ -851,6 +883,75 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
+  async readMessageAttachment(
+    ctx: ToolContext,
+    args: { attachmentId: string },
+  ): Promise<MessageAttachmentReading> {
+    return this.guard(async () => {
+      const { guest } = await this.callerWithRequest(ctx, 'read_message_attachment');
+      const id = args.attachmentId;
+      if (!MessageAttachmentId.safeParse(id).success)
+        throw new TeamToolError(
+          'invalid',
+          `Invalid message attachment id "${id}"; they look like "msa_…" (in the Attachments block of a message).`,
+        );
+      // The file is judged through the eyes of whoever the session talks for: the AI member, or the
+      // guest of an Operator conversation, so a file of a message they cannot see is not found.
+      const viewer = guest ? guest.viewer : { access: 'ai' as const, handle: ctx.member };
+      // A session with file tools of its own gets what the content cannot show as a file in its
+      // session folder (PM-518). A guest conversation reads no file at all: it has no folder.
+      const target = guest ? null : this.sessionFileTarget(ctx);
+      const notFound = (err: unknown): never => {
+        if (err instanceof DomainError && err.code === 'not_found')
+          throw new TeamToolError(
+            'not_found',
+            `There is no message attachment ${id} that you can see (or it was deleted).`,
+          );
+        throw err;
+      };
+      const reading = await this.messageAttachments
+        .reading(ctx.projectKey, id, viewer, { images: !target || target.mcpImageResults })
+        .catch(notFound);
+      if (!target || reading.content.kind !== 'none') return reading;
+      try {
+        const source = await this.messageAttachments.source(ctx.projectKey, id, viewer);
+        const file = await target.folders.materializeFile(target.sessionId, {
+          name: sessionFileName(id, reading.attachment.fileName),
+          source,
+        });
+        return { ...reading, file: { path: file.path } };
+      } catch (err) {
+        // The file is an addition: an engine that cannot take it (offline, older, no folder for
+        // the session) leaves the reading as it is, with the entry only.
+        this.ctx.logger.warn(
+          { err, attachment: id, session: target.sessionId },
+          'message attachment could not be put into the session folder',
+        );
+        return reading;
+      }
+    });
+  }
+
+  /**
+   * Where the calling session's files go (PM-518): its engine's session folders when the session has
+   * a folder of its own there, and whether its CLI shows an image in a tool result. Null: the session
+   * has no folder (a provider without session folders, the managed VM, an unknown session), so it
+   * gets the content only.
+   */
+  private sessionFileTarget(
+    ctx: ToolContext,
+  ): { sessionId: string; folders: EngineSessionFolders; mcpImageResults: boolean } | null {
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    if (!session || session.projectKey !== ctx.projectKey || session.member !== ctx.member) return null;
+    const folders = this.sessionEngine?.(session.id)?.sessionFolders;
+    if (!folders?.of(session.id)) return null;
+    return {
+      sessionId: session.id,
+      folders,
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS[session.provider ?? DEFAULT_AGENT_PROVIDER],
+    };
+  }
+
   async attachFile(
     ctx: ToolContext,
     args: { taskKey: string; path: string },
@@ -870,33 +971,7 @@ export class TeamToolsService implements TeamToolsHandler {
     const taskKey = this.validTaskKey(ctx, args.taskKey);
     const actor = aiActor(ctx.member);
     await this.attachments.assertCanUpload(ctx.projectKey, taskKey, actor);
-    // The directories are the ones the server started the session with; the caller never names
-    // them. The session folder is the one the server made for this process (it remembers it; the
-    // path is never derived from the id) and counts only while it exists.
-    const session = this.callerSession(ctx);
-    const engine = this.sessionEngine?.(session.id);
-    if (!engine) throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
-    const recorded = engine.sessionFolders?.of(session.id);
-    const folder = recorded && (await engine.isRealDirectory(recorded)) ? recorded : null;
-    const inFolder =
-      folder !== null && path.isAbsolute(args.path) && isWithin(folder, path.resolve(args.path));
-    const place = inFolder
-      ? { name: 'your session folder' }
-      : {
-          name: 'your working directory',
-          ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
-        };
-    const file = await engine
-      .openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
-        maxBytes: MAX_ATTACHMENT_BYTES,
-        place,
-        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
-        exactRoot: inFolder,
-        sessionId: session.id,
-      })
-      .catch((err: unknown) => {
-        throw toFileToolError(err, args.path);
-      });
+    const file = await this.openSessionFile(ctx, args.path, 'attached');
     try {
       const attachment = await this.attachments.upload({
         projectKey: ctx.projectKey,
@@ -912,6 +987,84 @@ export class TeamToolsService implements TeamToolsHandler {
     } finally {
       await file.close();
     }
+  }
+
+  /**
+   * Opens a file of the caller's session for reading: a path inside its session folder or relative to
+   * its working directory (`attach_file`, and the files of `send_message`). The directories are the ones
+   * the server started the session with; the caller never names them. The session folder is the one the
+   * server made for this process (it remembers it; the path is never derived from the id) and counts
+   * only while it exists.
+   */
+  private async openSessionFile(
+    ctx: ToolContext,
+    requested: string,
+    done: 'attached' | 'sent',
+  ): Promise<WorkspaceFile> {
+    const session = this.callerSession(ctx);
+    const engine = this.sessionEngine?.(session.id);
+    if (!engine) throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
+    const recorded = engine.sessionFolders?.of(session.id);
+    const folder = recorded && (await engine.isRealDirectory(recorded)) ? recorded : null;
+    const inFolder =
+      folder !== null && path.isAbsolute(requested) && isWithin(folder, path.resolve(requested));
+    const place = inFolder
+      ? { name: 'your session folder' }
+      : {
+          name: 'your working directory',
+          ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
+        };
+    return engine
+      .openWorkspaceFile(inFolder ? folder : session.cwd, requested, {
+        maxBytes: MAX_ATTACHMENT_BYTES,
+        place,
+        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
+        exactRoot: inFolder,
+        sessionId: session.id,
+      })
+      .catch((err: unknown) => {
+        throw toFileToolError(err, requested, done);
+      });
+  }
+
+  /**
+   * Stores the files of a `send_message` as the caller's unsent message attachments (PM-520). All or
+   * nothing: when one cannot be stored, the ones stored so far are deleted and the error names the file.
+   */
+  private async uploadMessageFiles(ctx: ToolContext, paths: readonly string[]): Promise<string[]> {
+    const actor = aiActor(ctx.member);
+    await this.messageAttachments.assertCanUpload(ctx.projectKey, actor);
+    const ids: string[] = [];
+    try {
+      for (const requested of paths) {
+        const file = await this.openSessionFile(ctx, requested, 'sent');
+        try {
+          const stored = await this.messageAttachments.upload({
+            projectKey: ctx.projectKey,
+            actor,
+            fileName: file.name,
+            content: file.stream(),
+            beforeCommit: () => file.verifyUnchanged(),
+          });
+          ids.push(stored.id);
+        } catch (err) {
+          throw toFileToolError(err, requested, 'sent');
+        } finally {
+          await file.close();
+        }
+      }
+      return ids;
+    } catch (err) {
+      await this.discardMessageFiles(ctx, ids);
+      throw err;
+    }
+  }
+
+  /** Removes unsent message files after a refused send; a failure is left to the 24 h sweep. */
+  private async discardMessageFiles(ctx: ToolContext, ids: readonly string[]): Promise<void> {
+    const actor = aiActor(ctx.member);
+    for (const id of ids)
+      await this.messageAttachments.delete(ctx.projectKey, id, actor).catch(() => undefined);
   }
 
   async takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {

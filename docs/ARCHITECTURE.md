@@ -162,6 +162,25 @@ Documentation map:
   **Files on a question** (PM-498): an `ask_human` question names at most 6 files
   (`MAX_QUESTION_ATTACHMENTS`) of its card or its parent; the inbox item keeps a snapshot of them
   (`QuestionAttachment`) and marks each with `goneAt` when the file is deleted (`InboxService.attachmentGone`).
+- **Message attachment** (PM-515, PM-516) — a file (at most 25 MB, the same type sniffing and
+  upload limits as the card attachment) a member sends with a team message, kept in
+  `PROJECTMAN_HOME/message-attachments` and reached only through `routes.messageAttachments*`
+  (upload, `content`/`download`/`thumbnail`, delete) and the team tool `read_message_attachment`.
+  It belongs to a project, not to a card. Upload is open to every project member (a viewer too) and
+  starts **unsent**: only its uploader sees it, at most 20 at a time (`message_attachment_limit`), and
+  the hourly sweep removes the ones older than 24 hours. `send` takes `attachmentIds` (at most 10; the
+  text may be empty with at least one): every file must be ready, unsent, of the project and the
+  sender's own, else `message_attachment_unavailable` and nothing is sent; the binding to the message
+  and the message happen in one transaction. A **sent** file is visible to exactly those who may see
+  the message (`canSeeTeamMessage`); anyone else gets `not_found`. Deleting a sent file
+  (`canDeleteMessageAttachment`) removes file and row, marks the entry in `team_messages.attachments`
+  with `goneAt`/`goneBy` (`TeamMessage.attachments`, a JSON column; old rows have none), and
+  publishes `team_message_updated`; it adds no timeline entry. The recipient's text carries the
+  block `messageAttachmentLines` under the message (name quoted with `JSON.stringify`, SI sizes) in
+  single, batch and Operator info delivery. `read_message_attachment` judges visibility through the
+  calling AI member's eyes (a guest Operator conversation through the guest's) and answers an image
+  as an image (first frame, EXIF rotation applied, WebP of at most 1568 px, 1 500 000 bytes), a
+  valid UTF-8 text of at most 100 000 bytes as text, and anything else by name, type and size.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
@@ -579,6 +598,7 @@ feedback/<KEY>/<markId>.<ext>   screenshots of feedback marks (PM-506): private 
                           0600 files), named by the generated mark id; the WebP thumbnail is
                           <markId>.thumb (<name>.part while written); at most 2 MB, proven an image
                           by its content; served to processors only
+message-attachments/<KEY>/<id>  files of team messages (PM-516): the same modes and names
 ```
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
@@ -586,7 +606,7 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
 a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
-test stage); the feedback tables (PM-506, migration 54): `feedback_marks`, `feedback_events` (the
+test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the
 thread of a mark), `feedback_reads`, `feedback_marker_colors`, `feedback_launch_codes` (single use,
 two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on customer pages, kept as
 hashes); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
@@ -1033,6 +1053,13 @@ workers follow the machine's size.
   server's machine, not to an engine: it switches the one live server and its database, which never run on
   an engine. An engine needs nothing from it; a hybrid installation (`PROJECTMAN_MODE=hybrid`) is refused
   by the install, as another process supervisor and release path would be needed.
+  **What the plists start (PM-514):** `ProgramArguments` begins with a launcher of the live checkout
+  (`scripts/live/bin/projectman-live`, `projectman-release-watcher`; `exec "$@"`), because macOS names a
+  background item (System Settings → Login Items & Extensions) after that first element, then the stable
+  `node` path (`scripts/live/node-path.ts`: the `PATH` entry that is the running binary, not the versioned
+  Homebrew `Cellar` path, which a `brew upgrade node` removes). `live status` checks both files exist. Machine
+  assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
+  has no such plist.
 
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
@@ -1467,6 +1494,46 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the folders on the engine (`folders.*`, `host.*`) and keeps the paths in the hub's mirror, so
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
+- **Message attachments (PM-516)** — `domain/message-attachments/{storage,service,image}.ts`,
+  `domain/attachments/{files,upload,thumbnail}.ts`, `api/message-attachments.ts`, `mcp/tools.ts`
+  (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
+  `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
+  `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
+  reached only through the protected REST routes and the team tool. A session never gets a path into
+  that store: `read_message_attachment` returns the content itself (an image, a small text), and for
+  what the content cannot show (PM-518) a copy in the caller's own session folder (below).
+  The unsent uploads older than 24 hours are removed by an hourly sweep and at startup.
+  **Remote engine:** the server (cloud) keeps the files and the database. The tool call reaches the
+  server as `mcp.relay`, and an image travels back in the MCP result
+  as base64 inside that frame. A frame is at most `ENGINE_MAX_FRAME_BYTES` (4 MiB), hence the
+  downscale: the image is a WebP of at most 1568 px a side and 1 500 000 bytes (about 2 MB as
+  base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
+  at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
+  card attachments.
+- **Message file in the session folder (PM-518)** — `domain/team-tools.ts` (`readMessageAttachment`,
+  `sessionFileTarget`), `domain/message-attachments/{service,storage}.ts` (`source`, `locate`,
+  `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
+  `engine-link/{methods,engine-handlers,engine-limit}.ts` (`files.materialize_into_session`),
+  `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the
+  content of a message file is `none` (a PDF, a binary, a text too big), or an image for a provider
+  whose CLI shows no image in an MCP tool result, the server has the caller's engine put a copy at
+  `<session folder>/message-attachments/<id>-<name>` (0600 in a 0700 directory, the same path for the
+  same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
+  target is its own folder only, and a guest conversation of the Operator (no folder, `teamToolsOnly`)
+  gets none. A failure (engine offline or older, no folder, a disk error) is logged and the tool
+  answers as before, without a path. `mcpImageResults` per provider: claude and codex true (Claude Code
+  and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
+  one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
+  an image gives them the file. **Gemini and NanoGPT sessions have no session folder today**
+  (`ownFolders` in `domain/sessions.ts`: Claude, and Codex with a writing sandbox), so they get the
+  entry, and the image only where the CLI shows it.
+  **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
+  size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
+  the file with a single-use download token (`transfers.issueDownload`, the same way as
+  `files.materialize`), `files.materialize_into_session` fetches it into a scratch directory of its
+  own, checks size and checksum, and `SessionFolders.materializeFile` puts it in. The engine's limit
+  allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
+  valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).

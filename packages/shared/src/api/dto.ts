@@ -34,6 +34,7 @@ import {
   SelectablePermissionMode,
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
+import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
 import { LabelDefinition, LabelId } from '../domain/label';
 import { ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
@@ -876,12 +877,24 @@ export type UpdateSessionRequest = z.infer<typeof UpdateSessionRequest>;
 export const SendMessageRequest = z.object({ text: z.string().min(1) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
-export const SendTeamMessageRequest = z.object({
-  operatorSignal: z.string().optional(),
-  to: z.array(MemberHandle).min(1).max(100),
-  text: z.string().trim().min(1).max(20000),
-  taskKey: TaskKey.optional(),
-});
+export const SendTeamMessageRequest = z
+  .object({
+    operatorSignal: z.string().optional(),
+    to: z.array(MemberHandle).min(1).max(100),
+    /** Empty only when `attachmentIds` names a file (PM-515). */
+    text: z.string().trim().max(20000),
+    taskKey: TaskKey.optional(),
+    /** Uploaded files the message takes (`routes.messageAttachments`), each of the sender's and not sent yet. */
+    attachmentIds: z.array(MessageAttachmentId).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+  })
+  .refine((request) => request.text !== '' || (request.attachmentIds?.length ?? 0) > 0, {
+    path: ['text'],
+    message: 'text or attachmentIds is required',
+  })
+  .refine((request) => new Set(request.attachmentIds).size === (request.attachmentIds?.length ?? 0), {
+    path: ['attachmentIds'],
+    message: 'attachmentIds must be unique',
+  });
 export type SendTeamMessageRequest = z.infer<typeof SendTeamMessageRequest>;
 
 export const TeamMessagesView = z.object({

@@ -1,8 +1,9 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { install, status, uninstall } from '../../../scripts/live/install';
 import type { InstallArgs } from '../../../scripts/live/install';
+import { installedProgramArguments } from '../../../scripts/live/plist';
 import { plistFile, SERVER_LABEL, WATCHER_LABEL } from '../../../scripts/live/paths';
 import { LiveWorld, OLD, REMOTE } from './helpers/live-world';
 
@@ -70,6 +71,31 @@ describe('install', () => {
     expect(world.output).not.toContain('/secret/path/claude');
     for (const text of [server, watcher, world.output]) expect(text).not.toContain('sk-not-for-the-file');
     for (const text of [server, watcher]) expect(text).not.toContain('ANTHROPIC_API_KEY');
+  });
+
+  it('starts both jobs through their launchers, which run the stable node', async () => {
+    const args = machine();
+    expect(await install(world.deps(), args)).toBe(0);
+    expect(installedProgramArguments(readFileSync(serverPlist(), 'utf8'))?.slice(0, 2)).toEqual([
+      `${world.root}/scripts/live/bin/projectman-live`,
+      world.nodePath,
+    ]);
+    expect(installedProgramArguments(readFileSync(watcherPlist(), 'utf8'))?.slice(0, 2)).toEqual([
+      `${world.root}/scripts/live/bin/projectman-release-watcher`,
+      world.nodePath,
+    ]);
+    expect(world.output).toContain(`node: ${world.nodePath}`);
+    expect(world.output).not.toContain('warning');
+  });
+
+  it('warns about a node with a version in its path when there is no other name for it', async () => {
+    const args = machine();
+    const versioned = path.join(world.base, 'Cellar', 'node', '23.11.0', 'bin', 'node');
+    mkdirSync(path.dirname(versioned), { recursive: true });
+    writeFileSync(versioned, '#!/bin/sh\n', { mode: 0o755 });
+    const deps = { ...world.deps(), nodePath: versioned };
+    expect(await install(deps, args)).toBe(0);
+    expect(world.output).toContain('warning');
   });
 
   it('installs on a machine where nothing runs yet, without a pause', async () => {
@@ -172,6 +198,18 @@ describe('install', () => {
       await expectRefused({ ...args, root: world.root, home: world.home }, /built server/);
     });
 
+    it('a checkout without its launchers', async () => {
+      const args = machine();
+      rmSync(path.join(world.root, 'scripts', 'live', 'bin', 'projectman-live'));
+      await expectRefused(args, /projectman-live is missing or not executable/);
+    });
+
+    it('a node that does not exist', async () => {
+      const args = machine();
+      rmSync(world.nodePath);
+      await expectRefused(args, /not an executable node/);
+    });
+
     it('a checkout with no commit', async () => {
       const args = machine();
       world.fail('rev-parse', 128, 'fatal');
@@ -259,6 +297,47 @@ describe('status', () => {
     expect(world.output).toContain('git ls-remote: ok');
     expect(world.output).toContain('gh auth status: ok');
     expect(world.output).not.toContain('PATH');
+  });
+
+  it('names the launcher and the node of each plist', async () => {
+    const args = machine();
+    await install(world.deps(), args);
+    world.outLines.length = 0;
+    expect(await status(world.deps(), { home: world.home })).toBe(0);
+    expect(world.output).toContain(`launcher: ${world.root}/scripts/live/bin/projectman-live\n`);
+    expect(world.output).toContain(`launcher: ${world.root}/scripts/live/bin/projectman-release-watcher\n`);
+    expect(world.output).toContain(`node: ${world.nodePath}\n`);
+  });
+
+  it('exits 1 when the node of a plist is gone', async () => {
+    const args = machine();
+    await install(world.deps(), args);
+    world.outLines.length = 0;
+    rmSync(world.nodePath);
+    expect(await status(world.deps(), { home: world.home })).toBe(1);
+    expect(world.output).toContain(`node: ${world.nodePath} (MISSING`);
+  });
+
+  it('exits 1 when a launcher is gone', async () => {
+    const args = machine();
+    await install(world.deps(), args);
+    world.outLines.length = 0;
+    rmSync(path.join(world.root, 'scripts', 'live', 'bin', 'projectman-release-watcher'));
+    expect(await status(world.deps(), { home: world.home })).toBe(1);
+    expect(world.output).toContain('projectman-release-watcher (MISSING');
+  });
+
+  it('tells a plist from before the launchers to install again', async () => {
+    const args = machine();
+    await install(world.deps(), args);
+    const old = readFileSync(serverPlist(), 'utf8').replace(
+      `<string>${world.root}/scripts/live/bin/projectman-live</string>`,
+      '',
+    );
+    writeFileSync(serverPlist(), old);
+    world.outLines.length = 0;
+    expect(await status(world.deps(), { home: world.home })).toBe(0);
+    expect(world.output).toContain('launcher: none');
   });
 
   it('exits 1 when an agent is not loaded, and says what does not answer', async () => {

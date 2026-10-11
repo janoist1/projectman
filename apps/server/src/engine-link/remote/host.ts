@@ -177,6 +177,17 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           if (!linkDown(err)) throw err;
         });
       },
+      async materializeFile(sessionId, { name, source }) {
+        // The engine fetches the stored file with a single-use token and checks its size and checksum.
+        const downloadToken = transfers.issueDownload(id, source);
+        return call('files.materialize_into_session', {
+          downloadToken,
+          sessionId,
+          name,
+          sha256: source.sha256,
+          size: source.size,
+        });
+      },
     };
 
     const fullTestExecutor: FullTestExecutor = {

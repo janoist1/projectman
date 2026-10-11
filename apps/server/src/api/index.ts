@@ -4,6 +4,7 @@ import type { Domain } from '../domain';
 import type { EngineRegistry } from '../domain';
 import { registerEngineRoutes } from './engines';
 import { registerAttachmentRoutes } from './attachments';
+import { registerMessageAttachmentRoutes } from './message-attachments';
 import { registerProviderRoutes } from './providers';
 import { registerConfigRoutes } from './config';
 import { registerInboxRoutes } from './inbox';
@@ -42,6 +43,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerProjectRoutes(app, services);
   registerTaskRoutes(app, domain);
   registerAttachmentRoutes(app, services);
+  registerMessageAttachmentRoutes(app, services);
   registerMemberRoutes(app, domain);
   registerRoleRoutes(app, domain);
   registerSessionRoutes(app, domain);

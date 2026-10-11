@@ -409,6 +409,18 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       await transfers.download(limit.token(downloadToken), dest, { size, sha256 });
       return { path: dest };
     },
+    async 'files.materialize_into_session'({ downloadToken, sessionId, name, sha256, size }) {
+      // Fetched into a folder of the engine's own that no session reaches, then put into the session's
+      // folder by the registry, which checks the file again and writes nowhere else.
+      const scratch = await mkdtemp(path.join(deps.exportDir, 'session-file-'));
+      try {
+        const staged = path.join(scratch, 'file');
+        await transfers.download(limit.token(downloadToken), staged, { size, sha256 });
+        return await folders().materializeFile(sessionId, { name, source: { path: staged, size, sha256 } });
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    },
     async 'files.resolve_scenario'({ roots, requested }) {
       return engine.resolveScenario(roots, requested);
     },

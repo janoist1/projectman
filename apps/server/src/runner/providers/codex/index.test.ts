@@ -209,6 +209,7 @@ describe('Codex adapter', () => {
       sessionPermissionRules: false,
       readiness: 'screen',
       toolGate: 'permission_request',
+      mcpImageResults: true,
     });
     expect(adapter.inputTools.has('request_user_input')).toBe(true);
     expect(adapter.timing.enterDelayMs).toBeGreaterThan(120);

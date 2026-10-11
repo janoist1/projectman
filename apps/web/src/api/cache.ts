@@ -125,6 +125,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       'config_changed',
       'plan_usage',
       'team_message',
+      'team_message_updated',
     ].includes(event.type)
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
@@ -258,8 +259,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       patchOpenInboxCount(client, key, inbox);
       return;
     }
-    case 'team_message': {
+    case 'team_message':
+    case 'team_message_updated': {
       // The feed, its unread count, the threads and the unread list all change: refetch them.
+      // An updated message (a file of it deleted, PM-516) shows in the same places.
       void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
       return;
     }

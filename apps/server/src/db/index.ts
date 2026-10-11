@@ -1,4 +1,10 @@
 import { createAttachmentRepository } from './attachments';
+import { createMessageAttachmentRepository } from './message-attachments';
+export type {
+  MessageAttachmentRecord,
+  MessageAttachmentState,
+  StoredMessageAttachment,
+} from './message-attachments';
 import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
@@ -86,6 +92,7 @@ export function createRepositories(db: Db) {
     taskHandOns: createTaskHandOnRepository(db),
     timeline: createTimelineRepository(db),
     attachments: createAttachmentRepository(db),
+    messageAttachments: createMessageAttachmentRepository(db),
     sessions: createSessionRepository(db),
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),

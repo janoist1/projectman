@@ -1,15 +1,21 @@
 import { finished } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
 import sharp from 'sharp';
-import type { AttachmentRef, AttachmentStorage } from '../../contracts';
+import type { AttachmentWriter } from '../../contracts';
 
 /** The longest side of a thumbnail, in pixels. */
 export const THUMBNAIL_MAX_SIDE = 640;
 
 /** An uploaded image above this many pixels (width x height) is not decoded. */
-const MAX_INPUT_PIXELS = 100_000_000;
+export const MAX_INPUT_PIXELS = 100_000_000;
 const MAX_CONCURRENT = 2;
-const TIMEOUT_SECONDS = 15;
+export const TIMEOUT_SECONDS = 15;
+
+/** Where a thumbnail is read from and written to: the card attachments' and the message files' storage both fit. */
+export interface ThumbnailStorage<Ref extends { id: string }> {
+  openRead(ref: Ref, size: number): Promise<Readable>;
+  createThumbnail(ref: Ref): Promise<AttachmentWriter>;
+}
 
 // Thumbnails are made once and kept on disk: libvips' operation cache would only hold memory.
 sharp.cache(false);
@@ -21,15 +27,15 @@ sharp.cache(false);
  * per attachment (callers share it) and at most two runs at a time. An image that cannot be
  * made into a thumbnail is remembered until the server restarts, so that it is not decoded again.
  */
-export class ThumbnailMaker {
-  private readonly storage: AttachmentStorage;
+export class ThumbnailMaker<Ref extends { id: string }> {
+  private readonly storage: ThumbnailStorage<Ref>;
   private readonly running = new Map<string, Promise<boolean>>();
   private readonly failed = new Set<string>();
   private readonly waiting: Array<() => void> = [];
   private readonly onFailure: (err: unknown, id: string) => void;
   private active = 0;
 
-  constructor(storage: AttachmentStorage, onFailure: (err: unknown, id: string) => void) {
+  constructor(storage: ThumbnailStorage<Ref>, onFailure: (err: unknown, id: string) => void) {
     this.storage = storage;
     this.onFailure = onFailure;
   }
@@ -38,7 +44,7 @@ export class ThumbnailMaker {
    * Makes and stores the thumbnail of `ref`, whose file is `size` bytes. Resolves true when it is
    * stored, false when the image cannot be decoded (now or in an earlier attempt).
    */
-  make(ref: AttachmentRef, size: number): Promise<boolean> {
+  make(ref: Ref, size: number): Promise<boolean> {
     if (this.failed.has(ref.id)) return Promise.resolve(false);
     let run = this.running.get(ref.id);
     if (!run) {
@@ -64,7 +70,7 @@ export class ThumbnailMaker {
     }
   }
 
-  private async render(ref: AttachmentRef, size: number): Promise<boolean> {
+  private async render(ref: Ref, size: number): Promise<boolean> {
     let source: Readable | undefined;
     try {
       source = await this.storage.openRead(ref, size);

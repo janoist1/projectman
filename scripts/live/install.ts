@@ -1,4 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import type { LiveDeps, RunResult } from './deps';
 import { readJournal } from './journal';
@@ -19,16 +29,26 @@ import {
   backupsDir,
   domainTarget,
   GITHUB_REMOTE_PATTERN,
+  launcherFile,
   LiveError,
   plistFile,
   releaseDir,
   serverLog,
   SERVER_LABEL,
+  SERVER_LAUNCHER,
   SHA40,
   watcherLog,
   WATCHER_LABEL,
+  WATCHER_LAUNCHER,
 } from './paths';
-import { buildServerPlist, buildWatcherPlist, exitTimeoutSeconds } from './plist';
+import { isVersionedNodePath, stableNodePath } from './node-path';
+import {
+  buildServerPlist,
+  buildWatcherPlist,
+  exitTimeoutSeconds,
+  installedProgramArguments,
+  unescapeXml,
+} from './plist';
 
 /**
  * `npm run live -- install | uninstall | status` (PM-493): the live instance under launchd, and the
@@ -84,6 +104,15 @@ async function resolveRemote(deps: LiveDeps, args: InstallArgs): Promise<string>
   return remote;
 }
 
+function isExecutable(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function writePlist(file: string, text: string): void {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, text, { mode: 0o644 });
@@ -117,6 +146,14 @@ export async function install(deps: LiveDeps, args: InstallArgs): Promise<number
       `${args.root} has no built server (apps/server/dist/index.js): run npm run build there`,
       2,
     );
+  for (const name of [SERVER_LAUNCHER, WATCHER_LAUNCHER])
+    if (!isExecutable(launcherFile(args.root, name)))
+      throw new LiveError(
+        `${launcherFile(args.root, name)} is missing or not executable: the LaunchAgents start the launchers, not node itself`,
+        2,
+      );
+  const nodePath = stableNodePath(deps.nodePath, deps.env.PATH);
+  if (!isExecutable(nodePath)) throw new LiveError(`${nodePath} is not an executable node`, 2);
   const head = await git(deps, args.root, ['rev-parse', 'HEAD']);
   if (head.status !== 0 || !SHA40.test(head.stdout.trim()))
     throw new LiveError(`${args.root} is not a git checkout with a commit`, 2);
@@ -124,7 +161,7 @@ export async function install(deps: LiveDeps, args: InstallArgs): Promise<number
   const remote = await resolveRemote(deps, args);
 
   const common = {
-    nodePath: deps.nodePath,
+    nodePath,
     root: args.root,
     home: args.home,
     userHome: deps.homeDir,
@@ -195,6 +232,11 @@ export async function install(deps: LiveDeps, args: InstallArgs): Promise<number
 
   deps.out(`live server installed: ${serverPlist}\n`);
   deps.out(`release watcher installed: ${watcherPlist}\n`);
+  deps.out(`node: ${nodePath}\n`);
+  if (isVersionedNodePath(nodePath))
+    deps.out(
+      `warning: ${nodePath} has a version in its path and disappears with the next upgrade of node: install again after it, or run the install with a node that has a stable path on the PATH\n`,
+    );
   deps.out(`the server runs ${commit.slice(0, 12)} on port ${args.port}; remote: ${remote}\n`);
   deps.out(`variables of the server (names only): ${server.variables.join(', ')}\n`);
   deps.out(`logs: ${serverLog(args.home)}, ${watcherLog(args.home)}\n`);
@@ -221,13 +263,6 @@ export async function uninstall(deps: LiveDeps, args: { home: string }): Promise
   return 0;
 }
 
-const unescapeXml = (value: string): string =>
-  value
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
-
 /** What `launchctl print` says about a job: loaded, and its state, pid and last exit code. */
 async function agentState(deps: LiveDeps, label: string): Promise<{ loaded: boolean; text: string }> {
   const printed = await launchctl(deps, ['print', domainTarget(deps.uid, label)]);
@@ -241,12 +276,46 @@ async function agentState(deps: LiveDeps, label: string): Promise<{ loaded: bool
   };
 }
 
+/**
+ * What an installed plist starts: the launcher and node must exist (PM-514), or the job cannot start and
+ * launchd, with `KeepAlive`, tries in vain. Returns whether both do.
+ */
+function reportProgram(deps: LiveDeps, label: string): boolean {
+  const file = plistFile(deps.homeDir, label);
+  if (!existsSync(file)) return true;
+  const program = installedProgramArguments(readFileSync(file, 'utf8'));
+  if (!program || program.length === 0) {
+    deps.out(`  ${label}: the file has no ProgramArguments\n`);
+    return false;
+  }
+  // A PM-493 file starts node itself (and shows up as "node" in macOS); install again for the launcher.
+  const legacy = path.basename(program[0]!) === 'node';
+  const launcher = legacy ? null : program[0]!;
+  const nodePath = legacy ? program[0]! : (program[1] ?? '');
+  let ok = true;
+  if (launcher !== null) {
+    const good = isExecutable(launcher);
+    ok &&= good;
+    deps.out(`  launcher: ${launcher}${good ? '' : ' (MISSING or not executable)'}\n`);
+  } else {
+    deps.out('  launcher: none (the file is from before PM-514: install again so that macOS names it)\n');
+  }
+  const goodNode = isExecutable(nodePath);
+  ok &&= goodNode;
+  deps.out(`  node: ${nodePath}${goodNode ? '' : ' (MISSING: node moved or was upgraded; install again)'}\n`);
+  if (goodNode && isVersionedNodePath(nodePath))
+    deps.out('  node: its path has a version in it and will not survive an upgrade; install again\n');
+  return ok;
+}
+
 export async function status(deps: LiveDeps, args: { home: string }): Promise<number> {
   requireMac(deps);
   const server = await agentState(deps, SERVER_LABEL);
   const watcher = await agentState(deps, WATCHER_LABEL);
   deps.out(`${SERVER_LABEL}: ${server.text}\n`);
+  const serverProgram = reportProgram(deps, SERVER_LABEL);
   deps.out(`${WATCHER_LABEL}: ${watcher.text}\n`);
+  const watcherProgram = reportProgram(deps, WATCHER_LABEL);
 
   const answer = await tryControl(deps, { op: 'status' });
   if (!answer) deps.out('server: does not answer on its control socket\n');
@@ -287,5 +356,5 @@ export async function status(deps: LiveDeps, args: { home: string }): Promise<nu
   const auth = await deps.run('gh', ['auth', 'status'], { cwd: args.home, timeoutMs: 60_000 });
   deps.out(`gh auth status: ${auth.status === 0 ? 'ok' : `failed (${auth.status})`}\n`);
   deps.out(`LaunchAgents: ${agentsDir(deps.homeDir)}\n`);
-  return server.loaded && watcher.loaded ? 0 : 1;
+  return server.loaded && watcher.loaded && serverProgram && watcherProgram ? 0 : 1;
 }

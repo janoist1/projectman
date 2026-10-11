@@ -32,6 +32,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'list_members',
   'list_attachments',
   'read_attachment',
+  'read_message_attachment',
   'get_remote_state',
   'get_boundary_request',
   'get_screenshot_run',
@@ -67,6 +68,7 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'list_members',
   'list_attachments',
   'read_attachment',
+  'read_message_attachment',
   'send_message',
 ]);
 

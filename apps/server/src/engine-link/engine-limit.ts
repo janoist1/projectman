@@ -595,6 +595,21 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       limit.token(params.uploadToken);
       return params;
     },
+    'files.materialize_into_session': (params) => {
+      limit.token(params.downloadToken);
+      // The session's own folder is the only place: the engine knows it from `folders.make`.
+      if (!sessions.get(params.sessionId)?.folder)
+        refuse('invalid_params', 'The session has no folder on this engine');
+      if (
+        !params.name ||
+        params.name.length > 255 ||
+        params.name === '.' ||
+        params.name === '..' ||
+        /[/\\\0]/.test(params.name)
+      )
+        refuse('invalid_params', 'Invalid file name');
+      return params;
+    },
     'files.materialize': (params) => {
       limit.token(params.downloadToken);
       limit.cachePath(params.projectKey, params.taskKey, params.name);

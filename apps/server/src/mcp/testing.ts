@@ -550,6 +550,21 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       };
     },
 
+    async readMessageAttachment(ctx, args) {
+      await enter('readMessageAttachment', ctx, args);
+      return {
+        attachment: {
+          id: args.attachmentId,
+          fileName: 'screenshot.png',
+          mediaType: 'image/png',
+          size: 2048,
+          preview: 'image',
+        },
+        message: { id: 'msg_fake00000001', from: 'owner', createdAt: '2026-10-11T08:00:00.000Z' },
+        content: { kind: 'image', data: Buffer.from('fake-webp'), mimeType: 'image/webp' },
+      };
+    },
+
     async attachFile(ctx, args) {
       await enter('attachFile', ctx, args);
       findTask(args.taskKey);

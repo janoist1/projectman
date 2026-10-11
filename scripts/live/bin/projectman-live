@@ -1,0 +1,5 @@
+#!/bin/sh
+# The live server's LaunchAgent starts this file, so that macOS (System Settings > General > Login Items &
+# Extensions) lists the job as "projectman-live" and not as "node" (PM-514). It runs the command it is given:
+# the plist passes the absolute path of node and the server's arguments. Nothing else belongs here.
+exec "$@"

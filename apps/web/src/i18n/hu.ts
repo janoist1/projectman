@@ -865,6 +865,9 @@ export const hu = {
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
+      message_attachment_unavailable:
+        'Az üzenet egyik csatolmánya már nem küldhető el (törölték, elküldték, vagy nem a tiéd).',
+      message_attachment_limit: 'Egyszerre legfeljebb 20 el nem küldött csatolmányod lehet.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
       missing_duty_holder: 'A folyamat egy szükséges feladatkörének nincs felelőse.',

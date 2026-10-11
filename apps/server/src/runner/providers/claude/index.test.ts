@@ -120,6 +120,7 @@ describe('Claude Code login failures', () => {
       sessionPermissionRules: true,
       readiness: 'session_start',
       toolGate: 'permission_request',
+      mcpImageResults: true,
     });
   });
 });

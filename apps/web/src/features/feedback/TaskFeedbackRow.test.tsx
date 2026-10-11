@@ -3,7 +3,7 @@ import { Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
 import { t } from '../../i18n/t';
-import { mockProject } from '../../test/mockProject';
+import { createMockFetch, mockProject } from '../../test/mockProject';
 import { TaskDrawer } from '../board/TaskDrawer';
 
 afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
@@ -24,6 +24,27 @@ describe('the "Jelölésekből" row of a card', () => {
     const link = row.querySelector('a')!;
     expect(link.textContent).toContain('A termékoldalon a méretválasztó');
     expect(link.getAttribute('href')).toMatch(/^\/p\/AC\/feedback\/fbm_/);
+  });
+
+  it('links three marks and counts the rest', async () => {
+    const project = mockProject();
+    project.backend.feedback.seedSample();
+    const mock = createMockFetch(project.backend, project.requests);
+    setFetchImplementation(async (input, init) => {
+      const response = await mock(input, init);
+      if (!input.includes('/feedback?task=')) return response;
+      const view = (await response.json()) as { marks: { id: string }[] };
+      const marks = Array.from({ length: 5 }, (_, n) => ({ ...view.marks[0]!, id: `fbm_extra${n}` }));
+      return new Response(JSON.stringify({ ...view, marks }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    project.render(drawer, '/p/AC/tasks/AC-21');
+    const row = await screen.findByRole('region', { name: t('task.feedback.title') });
+    expect(row.textContent).toContain(t('task.feedback.count', { count: 5 }));
+    expect(row.querySelectorAll('a')).toHaveLength(3);
+    expect(row.textContent).toContain(t('task.feedback.more', { count: 2 }));
   });
 
   it('is absent from a card without marks', async () => {

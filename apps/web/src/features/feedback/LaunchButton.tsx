@@ -6,7 +6,6 @@ import type { ButtonSize, ButtonVariant } from '../../components/Button';
 import { Popover } from '../../components/Popover';
 import { useToast } from '../../components/toastContext';
 import { t } from '../../i18n/t';
-import { errorMessage } from '../../lib/errors';
 import { originHost } from './feedbackModel';
 import styles from './LaunchButton.module.css';
 
@@ -22,18 +21,18 @@ export function useLaunchSurface() {
   const toast = useToast();
   const open = (surfaceId: string, markId?: string) => {
     const tab = window.open('', '_blank');
+    if (!tab) {
+      toast.show(t('feedback.launch.popupBlocked'), 'error');
+      return;
+    }
     launch.mutate(markId ? { surfaceId, markId } : { surfaceId }, {
       onSuccess: ({ url }) => {
-        if (tab) {
-          tab.opener = null;
-          tab.location.href = url;
-        } else {
-          window.open(url, '_blank', 'noopener');
-        }
+        tab.opener = null;
+        tab.location.href = url;
       },
-      onError: (error) => {
-        tab?.close();
-        toast.show(errorMessage(error), 'error');
+      onError: () => {
+        tab.close();
+        toast.show(t('feedback.launch.failed'), 'error');
       },
     });
   };

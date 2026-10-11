@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Route, Routes, useLocation } from 'react-router';
 import { setFetchImplementation } from '../../api/client';
+import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { createMockFetch, mockProject } from '../../test/mockProject';
 import { FeedbackPage } from './FeedbackPage';
@@ -276,6 +277,65 @@ describe('opening the page of the product', () => {
     await waitFor(() => expect(tab.location.href).not.toBe(''));
     expect(tab.opener).toBeNull();
     expect(POSTS(p, '/launch')[0]!.body).toEqual({ surfaceId: 'a1b2c3d4' });
+  });
+
+  it('says so when the browser refuses the new tab, and asks the server for nothing', async () => {
+    const p = seeded();
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    p.render(
+      <ToastProvider>
+        <Pages />
+      </ToastProvider>,
+      '/p/AC/feedback',
+    );
+    fireEvent.click(await screen.findByRole('button', { name: t('feedback.launch.button') }));
+    expect(await screen.findByText(t('feedback.launch.popupBlocked'))).toBeTruthy();
+    expect(POSTS(p, '/launch')).toHaveLength(0);
+  });
+
+  it('closes the empty tab and says so when the server refuses', async () => {
+    const p = seeded();
+    const tab = { opener: {} as unknown, location: { href: '' }, close: vi.fn() };
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+    const mock = createMockFetch(p.backend, p.requests);
+    setFetchImplementation((input, init) =>
+      input.endsWith('/launch') ? Promise.resolve(new Response('{}', { status: 500 })) : mock(input, init),
+    );
+    p.render(
+      <ToastProvider>
+        <Pages />
+      </ToastProvider>,
+      '/p/AC/feedback',
+    );
+    fireEvent.click(await screen.findByRole('button', { name: t('feedback.launch.button') }));
+    expect(await screen.findByText(t('feedback.launch.failed'))).toBeTruthy();
+    expect(tab.close).toHaveBeenCalled();
+    expect(tab.location.href).toBe('');
+  });
+});
+
+describe('a viewer of the project', () => {
+  it('reads the thread but gets no box to write in', async () => {
+    const p = seeded();
+    const kata = p.backend.config.team.members.find((member) => member.handle === 'kata');
+    if (kata?.kind === 'human') kata.access = 'viewer';
+    const client = asClient(p);
+    p.render(<Pages />, '/p/AC/feedback?f=all', client);
+    fireEvent.click(await screen.findByText(/A kupon mező kitakarja/));
+    const detail = await screen.findByRole('region', { name: t('feedback.detail.label') });
+    expect(await within(detail).findByText(t('feedback.composer.viewer'))).toBeTruthy();
+    expect(within(detail).queryByRole('button', { name: t('feedback.composer.send') })).toBeNull();
+  });
+});
+
+describe('a mark that does not exist', () => {
+  it('offers the way back to the list', async () => {
+    const p = seeded();
+    p.render(<Pages />, '/p/AC/feedback/fbm_nonexistent');
+    expect(await screen.findByText(t('feedback.detail.notFound'))).toBeTruthy();
+    expect(
+      screen.getByRole('link', { name: t('feedback.detail.backToList') }).getAttribute('href'),
+    ).toContain('/p/AC/feedback');
   });
 });
 

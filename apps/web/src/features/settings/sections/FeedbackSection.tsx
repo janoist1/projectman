@@ -1,7 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { dutyMembers, feedbackOriginRefusal, MAX_FEEDBACK_SURFACES } from '@projectman/shared';
+import {
+  dutyMembers,
+  feedbackOriginRefusal,
+  MAX_FEEDBACK_SURFACES,
+  normalizeFeedbackOrigin,
+} from '@projectman/shared';
 import type { FeedbackSettingsView, FeedbackSurface, ProjectConfig } from '@projectman/shared';
 import { isApiError } from '../../../api/client';
 import { useFeedbackSettings, useLogoutFeedbackMarker, usePatchConfig } from '../../../api/queries';
@@ -22,68 +27,84 @@ import shared from '../settings.module.css';
 import styles from './FeedbackSection.module.css';
 import { SettingsSection } from './SettingsSection';
 
-/** A surface's identifier from its name: lower case ASCII words joined with dashes, unique among the others. */
-export function surfaceIdFor(name: string, taken: readonly string[]): string {
-  const base =
-    name
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 28)
-      .replace(/-+$/g, '') || 'surface';
-  let id = base;
-  for (let n = 2; taken.includes(id); n += 1) id = `${base}-${n}`;
-  return id;
+const MAX_SURFACE_NAME = 40;
+
+/** A new surface's identifier: eight random lower case hex digits, different from the existing ones. */
+export function newSurfaceId(taken: readonly string[]): string {
+  for (;;) {
+    const bytes = crypto.getRandomValues(new Uint8Array(4));
+    const id = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    if (!taken.includes(id)) return id;
+  }
 }
 
 /** The refusal of an address the owner typed, as text; null when it is fine. */
-function originError(value: string): string | null {
+function originError(value: string, existing: readonly FeedbackSurface[]): string | null {
   const refusal = feedbackOriginRefusal(value);
-  if (refusal === null) return null;
-  return refusal === 'has_path'
-    ? t('settings.feedback.surfaces.pathError')
-    : t('settings.feedback.surfaces.urlError');
+  if (refusal === 'has_path') return t('settings.feedback.surfaces.pathError');
+  if (refusal === 'bad_scheme') return t('settings.feedback.surfaces.schemeError');
+  if (refusal !== null) return t('settings.feedback.surfaces.urlError');
+  const origin = normalizeFeedbackOrigin(value);
+  return existing.some((surface) => normalizeFeedbackOrigin(surface.origin) === origin)
+    ? t('settings.feedback.surfaces.duplicate')
+    : null;
 }
 
 /** Saves a change of the feedback configuration; the lists present in the patch replace the stored ones. */
-function useSaveFeedback(version: string) {
+type FeedbackPatch = { surfaces?: FeedbackSurface[]; blockedMarkers?: string[] };
+
+function useSaveFeedback(version: string, options: { toastOnError?: boolean } = {}) {
   const { key } = useProject();
   const client = useQueryClient();
   const patch = usePatchConfig(key);
   const toast = useToast();
+  const last = useRef<{ feedback: FeedbackPatch; onDone?: () => void } | null>(null);
+  const save = (feedback: FeedbackPatch, onDone?: () => void): void => {
+    last.current = { feedback, onDone };
+    patch.mutate(
+      { baseVersion: version, feedback },
+      {
+        onSuccess: async () => {
+          await client.invalidateQueries({ queryKey: queryKeys.feedback(key) });
+          toast.show(t('settings.edit.saved'));
+          onDone?.();
+        },
+        onError: async (error) => {
+          if (isApiError(error) && error.code === 'config_conflict') {
+            await client.invalidateQueries({ queryKey: queryKeys.config(key) });
+          }
+          if (options.toastOnError) toast.show(t('settings.feedback.saveFailed'), 'error');
+        },
+      },
+    );
+  };
   return {
     pending: patch.isPending,
     error: patch.error,
     reset: patch.reset,
-    save: (
-      feedback: { surfaces?: FeedbackSurface[]; blockedMarkers?: string[] },
-      onDone?: () => void,
-    ): void => {
-      patch.mutate(
-        { baseVersion: version, feedback },
-        {
-          onSuccess: async () => {
-            await client.invalidateQueries({ queryKey: queryKeys.feedback(key) });
-            toast.show(t('settings.edit.saved'));
-            onDone?.();
-          },
-          onError: async (error) => {
-            if (isApiError(error) && error.code === 'config_conflict') {
-              await client.invalidateQueries({ queryKey: queryKeys.config(key) });
-            }
-          },
-        },
-      );
+    save,
+    /** Tries the last change again, on the configuration as it is now. */
+    retry: (): void => {
+      if (last.current) save(last.current.feedback, last.current.onDone);
     },
   };
 }
 
-function saveErrorText(error: unknown): string {
-  return isApiError(error) && error.code === 'config_conflict'
-    ? t('settings.limits.conflict')
-    : errorMessage(error);
+/** The failure of saving the surfaces, with a button to try again. */
+function SaveFailure({ feedback }: { feedback: ReturnType<typeof useSaveFeedback> }) {
+  if (!feedback.error) return null;
+  return (
+    <div className={styles.failure}>
+      <ErrorBanner>
+        {isApiError(feedback.error) && feedback.error.code === 'config_conflict'
+          ? t('settings.limits.conflict')
+          : t('settings.feedback.surfaces.saveFailed')}
+      </ErrorBanner>
+      <Button variant="secondary" size="md" loading={feedback.pending} onClick={feedback.retry}>
+        {t('app.retry')}
+      </Button>
+    </div>
+  );
 }
 
 function EmbedBlock({ view }: { view: FeedbackSettingsView }) {
@@ -118,6 +139,7 @@ function EmbedBlock({ view }: { view: FeedbackSettingsView }) {
           {t('settings.feedback.embed.copyFailed')}
         </p>
       ) : null}
+      <p className={shared.help}>{t('settings.feedback.embed.csp', { address: base })}</p>
     </>
   );
 }
@@ -133,8 +155,13 @@ function SurfaceForm({ surfaces, version }: { surfaces: readonly FeedbackSurface
   const submit = () => {
     const trimmedName = name.trim();
     const trimmedOrigin = origin.trim();
-    const nameProblem = trimmedName === '' ? t('settings.feedback.surfaces.nameError') : null;
-    const addressProblem = originError(trimmedOrigin);
+    const nameProblem =
+      trimmedName === ''
+        ? t('settings.feedback.surfaces.nameError')
+        : trimmedName.length > MAX_SURFACE_NAME
+          ? t('settings.feedback.surfaces.nameTooLong', { max: MAX_SURFACE_NAME })
+          : null;
+    const addressProblem = originError(trimmedOrigin, surfaces);
     setNameError(nameProblem);
     setOriginProblem(addressProblem);
     if (nameProblem || addressProblem || feedback.pending) return;
@@ -143,12 +170,9 @@ function SurfaceForm({ surfaces, version }: { surfaces: readonly FeedbackSurface
         surfaces: [
           ...surfaces,
           {
-            id: surfaceIdFor(
-              trimmedName,
-              surfaces.map((surface) => surface.id),
-            ),
+            id: newSurfaceId(surfaces.map((surface) => surface.id)),
             name: trimmedName,
-            origin: trimmedOrigin,
+            origin: normalizeFeedbackOrigin(trimmedOrigin) ?? trimmedOrigin,
           },
         ],
       },
@@ -171,7 +195,6 @@ function SurfaceForm({ surfaces, version }: { surfaces: readonly FeedbackSurface
       <TextField
         label={t('settings.feedback.surfaces.nameLabel')}
         placeholder={t('settings.feedback.surfaces.namePlaceholder')}
-        maxLength={40}
         value={name}
         error={nameError}
         disabled={full}
@@ -192,11 +215,7 @@ function SurfaceForm({ surfaces, version }: { surfaces: readonly FeedbackSurface
       {full ? (
         <p className={shared.help}>{t('settings.feedback.surfaces.full', { max: MAX_FEEDBACK_SURFACES })}</p>
       ) : null}
-      {feedback.error ? (
-        <p role="alert" className={shared.validation}>
-          {saveErrorText(feedback.error)}
-        </p>
-      ) : null}
+      <SaveFailure feedback={feedback} />
     </form>
   );
 }
@@ -211,6 +230,7 @@ function SurfacesBlock({
   version: string;
 }) {
   const feedback = useSaveFeedback(version);
+  const [removing, setRemoving] = useState<FeedbackSettingsView['surfaces'][number] | null>(null);
   return (
     <>
       <p className={shared.help}>{t('settings.feedback.surfaces.intro')}</p>
@@ -232,9 +252,7 @@ function SurfacesBlock({
                 size="md"
                 disabled={feedback.pending}
                 aria-label={t('settings.feedback.surfaces.removeOf', { name: surface.name ?? surface.id })}
-                onClick={() =>
-                  feedback.save({ surfaces: surfaces.filter((entry) => entry.id !== surface.id) })
-                }
+                onClick={() => setRemoving(surface)}
               >
                 {t('settings.feedback.surfaces.remove')}
               </Button>
@@ -242,11 +260,36 @@ function SurfacesBlock({
           ))}
         </ul>
       )}
-      {feedback.error ? (
-        <p role="alert" className={shared.validation}>
-          {saveErrorText(feedback.error)}
-        </p>
-      ) : null}
+      <Dialog
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        title={t('settings.feedback.surfaces.removeTitle')}
+        size="sm"
+      >
+        {removing ? (
+          <>
+            <p>{t('settings.feedback.surfaces.removeConfirm', { name: removing.name ?? removing.origin })}</p>
+            <DialogActions>
+              <Button type="button" variant="secondary" size="md" onClick={() => setRemoving(null)}>
+                {t('common.cancel')}
+              </Button>
+              <Button
+                type="button"
+                size="md"
+                loading={feedback.pending}
+                onClick={() =>
+                  feedback.save({ surfaces: surfaces.filter((entry) => entry.id !== removing.id) }, () =>
+                    setRemoving(null),
+                  )
+                }
+              >
+                {t('settings.feedback.surfaces.remove')}
+              </Button>
+            </DialogActions>
+          </>
+        ) : null}
+      </Dialog>
+      <SaveFailure feedback={feedback} />
       <SurfaceForm surfaces={surfaces} version={version} />
     </>
   );
@@ -305,7 +348,7 @@ function MarkersBlock({
   blocked: readonly string[];
   version: string;
 }) {
-  const feedback = useSaveFeedback(version);
+  const feedback = useSaveFeedback(version, { toastOnError: true });
   const [logoutOf, setLogoutOf] = useState<MarkerRow | null>(null);
   return (
     <>
@@ -362,8 +405,8 @@ function MarkersBlock({
                   role="switch"
                   className={styles.switch}
                   aria-label={t('settings.feedback.markers.canMarkOf', { name: marker.name })}
-                  checked={!marker.blocked}
-                  disabled={feedback.pending}
+                  checked={!marker.blocked && marker.access !== 'viewer'}
+                  disabled={feedback.pending || marker.access === 'viewer'}
                   onChange={(event) =>
                     feedback.save({
                       blockedMarkers: event.target.checked
@@ -372,16 +415,14 @@ function MarkersBlock({
                     })
                   }
                 />
+                {marker.access === 'viewer' ? (
+                  <span className={shared.muted}> {t('settings.feedback.markers.viewer')}</span>
+                ) : null}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {feedback.error ? (
-        <p role="alert" className={shared.validation}>
-          {saveErrorText(feedback.error)}
-        </p>
-      ) : null}
       <LogoutDialog marker={logoutOf} onClose={() => setLogoutOf(null)} />
     </>
   );
@@ -417,7 +458,11 @@ export function FeedbackSection({ config, version }: { config: ProjectConfig; ve
   if (settings.isError) {
     return (
       <SettingsSection id="settings-feedback" title={t('settings.sections.feedback')}>
-        <ErrorState error={settings.error} onRetry={() => void settings.refetch()} />
+        <ErrorState
+          error={settings.error}
+          message={t('settings.feedback.loadFailed')}
+          onRetry={() => void settings.refetch()}
+        />
       </SettingsSection>
     );
   }

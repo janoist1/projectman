@@ -7,6 +7,9 @@ import drawer from '../board/drawer.module.css';
 import { titleFromBody } from './feedbackModel';
 import styles from './TaskFeedbackRow.module.css';
 
+/** How many marks the row links before it says how many more there are. */
+const MAX_LINKS = 3;
+
 /**
  * "Jelölésekből": the feedback marks that led to the card, with a link to each in the Jelölések page. The
  * server returns only what the viewer may see (a client sees only the marks they or their colleagues made),
@@ -23,7 +26,7 @@ export function TaskFeedbackRow({ taskKey }: { taskKey: string }) {
       <span>{t('task.feedback.count', { count: list.length })}</span>
       <span />
       <ul className={clsx(styles.list, drawer.propWide)}>
-        {list.map((mark) => (
+        {list.slice(0, MAX_LINKS).map((mark) => (
           <li key={mark.id}>
             <Link className={styles.link} to={`/p/${key}/feedback/${mark.id}`}>
               <span className={styles.text}>{titleFromBody(mark.body) || mark.pageTitle}</span>
@@ -31,6 +34,9 @@ export function TaskFeedbackRow({ taskKey }: { taskKey: string }) {
             </Link>
           </li>
         ))}
+        {list.length > MAX_LINKS ? (
+          <li className={styles.more}>{t('task.feedback.more', { count: list.length - MAX_LINKS })}</li>
+        ) : null}
       </ul>
     </section>
   );

@@ -1757,6 +1757,7 @@ export const hu = {
     feedback: {
       title: 'Jelölésekből',
       count: '{count} jelölés',
+      more: '+ még {count}',
     },
     /** The drawer's "Kapcsolatok" section (PM-203): the cards this card relates to, by kind. */
     relations: {
@@ -4398,6 +4399,9 @@ export const hu = {
       button: 'Jelölés az oldalon ↗',
       menuTitle: 'Melyik felületet nyissuk meg?',
       menuHint: 'Új lapon nyílik, és a jelölő a te neveddel bekapcsol.',
+      popupBlocked:
+        'A böngésző nem engedte megnyitni az új lapot. Engedélyezd a felugró ablakokat ennél az oldalnál.',
+      failed: 'Nem sikerült megnyitni az oldalt. Próbáld újra.',
     },
     filters: {
       label: 'Jelölések szűrése',
@@ -4456,6 +4460,8 @@ export const hu = {
       shotName: 'Képernyőkép a jelölésről',
       noShot: 'Képernyőkép nélkül küldték.',
       notFound: 'Ez a jelölés nem található.',
+      backToList: 'Vissza a listához',
+      deletedSurface: '(törölt felület)',
     },
     details: {
       title: 'Részletek',
@@ -4510,6 +4516,7 @@ export const hu = {
       memberHint: 'A hozzászólásod az oldalon is megjelenik, és a projektmenedzser válaszol rá.',
       send: 'Küldés',
       closed: 'Lezárva. Ha mégis kell, írj új jelölést.',
+      viewer: 'Megtekintőként csak olvashatod a szálat.',
     },
     reply: {
       label: 'Válasz a jelölőnek (nem kötelező)',
@@ -4761,6 +4768,8 @@ export const hu = {
       project: 'Projekt',
     },
     feedback: {
+      saveFailed: 'Nem sikerült menteni.',
+      loadFailed: 'Nem sikerült betölteni a beállításokat.',
       embed: {
         title: 'Beépítés',
         intro:
@@ -4768,6 +4777,7 @@ export const hu = {
         copy: 'Másolás',
         copied: 'Kimásolva',
         copyFailed: 'A vágólapra másolás nem sikerült. Jelöld ki a sort, és másold ki kézzel.',
+        csp: 'Ha az oldal korlátozza a külső szkripteket (CSP), a script-src és a connect-src engedje ezt a címet: {address}.',
       },
       surfaces: {
         title: 'Felületek',
@@ -4787,6 +4797,13 @@ export const hu = {
         urlError: 'Teljes cím kell, például https://pelda.hu.',
         pathError: 'Csak a cím kell, útvonal nélkül: például https://pelda.hu.',
         nameError: 'Adj nevet a felületnek, ez lesz a gombon.',
+        schemeError: 'https:// kezdetű cím kell (http csak a saját gépen, localhostra).',
+        duplicate: 'Ez a cím már szerepel.',
+        nameTooLong: 'Legfeljebb {max} karakter lehet.',
+        saveFailed: 'Nem sikerült menteni a felületeket.',
+        removeTitle: 'Felület törlése',
+        removeConfirm:
+          'Törlöd: {name}? A korábbi jelölések megmaradnak, de erről a címről több jelölés nem jön.',
       },
       markers: {
         title: 'Ki jelölhet?',
@@ -4804,6 +4821,7 @@ export const hu = {
         loggedOut: '{name} ki lett léptetve',
         lastMark: 'utoljára jelölt: {time}',
         never: 'Még nem jelölt',
+        viewer: 'Megtekintő, nem jelölhet',
       },
       processor: {
         title: 'Feldolgozó',

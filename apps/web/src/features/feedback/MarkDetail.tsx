@@ -241,6 +241,8 @@ function Opened({
         <Composer mark={mark} />
       ) : closed && !canProcess ? (
         <p className={styles.closedNote}>{t('feedback.composer.closed')}</p>
+      ) : !closed ? (
+        <p className={styles.closedNote}>{t('feedback.composer.viewer')}</p>
       ) : null}
       <CreateCardDialog
         open={dialog === 'create'}
@@ -303,9 +305,9 @@ export function MarkDetail({
         ) : (
           <ErrorState error={detail.error} onRetry={() => void detail.refetch()} />
         )}
-        {isMobile ? (
+        {missing || isMobile ? (
           <ButtonLink to={{ pathname: `/p/${key}/feedback`, search }} variant="secondary" size="md">
-            {t('feedback.detail.back')}
+            {missing ? t('feedback.detail.backToList') : t('feedback.detail.back')}
           </ButtonLink>
         ) : null}
       </div>

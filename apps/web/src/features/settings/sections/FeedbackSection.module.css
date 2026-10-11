@@ -61,6 +61,18 @@
   margin: 0;
 }
 
+.failure {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.failure > p {
+  margin: 0;
+}
+
 .markers {
   width: 100%;
   border-collapse: collapse;

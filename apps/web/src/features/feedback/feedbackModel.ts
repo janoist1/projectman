@@ -85,7 +85,9 @@ export function matchesSource(mark: Pick<FeedbackMarkView, 'surface' | 'pagePath
 /** Where a mark was made, short: "pelda.hu/admin/users". */
 export function sourceLabel(mark: Pick<FeedbackMarkView, 'surface' | 'pagePath'>): string {
   const path = mark.pagePath === '/' ? '' : mark.pagePath;
-  return `${originHost(mark.surface.origin)}${path}`;
+  const label = `${originHost(mark.surface.origin)}${path}`;
+  // A surface that was taken out of the settings: its marks stay, and say so.
+  return mark.surface.name === null ? `${label} ${t('feedback.detail.deletedSurface')}` : label;
 }
 
 /** The letters in a marker's badge: "KA" for "Kiss Anna". */

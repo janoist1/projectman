@@ -27,6 +27,12 @@
   white-space: nowrap;
 }
 
+.more {
+  padding: 3px 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-4);
+}
+
 .who {
   flex-shrink: 0;
   font-size: var(--text-xs);

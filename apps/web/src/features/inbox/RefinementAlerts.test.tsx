@@ -46,7 +46,8 @@ describe('the refinement alerts in the inbox', () => {
     );
     // The label is named, not its id.
     if (label) expect(card.textContent).not.toContain(label);
-    const link = card.querySelector('a')!;
-    expect(link.getAttribute('href')).toBe('/p/AC/tasks/AC-21');
+    // The card row opens the drawer over the inbox (PM-501); the alert's own link leads to the card.
+    const links = Array.from(card.querySelectorAll('a'), (link) => link.getAttribute('href'));
+    expect(links).toContain('/p/AC/tasks/AC-21');
   });
 });

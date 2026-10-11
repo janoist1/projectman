@@ -673,6 +673,7 @@ export function BoardPage() {
         <TeamStrip
           members={board.data.members}
           titles={new Map(board.data.tasks.map((task) => [task.key, task.title]))}
+          tasks={board.data.tasks}
         />
       )}
       <PageHeader

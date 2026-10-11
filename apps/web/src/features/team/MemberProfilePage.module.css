@@ -44,6 +44,31 @@
   color: var(--c-needs-text);
   font-size: var(--text-sm);
 }
+/* A card waits for this member's place (PM-297): quiet, the way the leave note is, in the neutral tone. */
+.capacityNote {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--c-muted);
+  color: var(--c-ink-2);
+  font-size: var(--text-sm);
+}
+
+.capacityNote p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.capacityNote strong {
+  color: var(--c-ink);
+}
+
+.capacityKey {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
 /* Everything inside a panel is spaced by the one gap; the parts carry no margins of their own. */
 .panel {
   display: grid;

@@ -69,6 +69,26 @@ export type TaskLink = z.infer<typeof TaskLink>;
 export const Visibility = z.enum(['internal', 'shared']);
 export type Visibility = z.infer<typeof Visibility>;
 
+/**
+ * What takes one of an AI member's places (PM-297): one task (however many sessions work on it) or
+ * one other running session. The set is exactly what the server counts as the member's load.
+ */
+export const CapacityHolder = z.object({
+  /** The kind of work of the session. */
+  kind: z.enum(['task', 'general', 'schedule', 'meeting']),
+  /** `task` only; left out for a viewer who cannot see the card. */
+  taskKey: TaskKey.optional(),
+  /** The latest active session; it points to the session's page. Left out for a client viewer. */
+  sessionId: z.string().optional(),
+  /** Works now: an engaged session state, or its first turn has not begun yet. */
+  working: z.boolean(),
+  /** ISO; for a task, the earliest start of its sessions. */
+  startedAt: z.string(),
+  /** ISO; the latest. When it does not work, this plus `closeAfterMinutes` is when it closes. */
+  lastActivityAt: z.string(),
+});
+export type CapacityHolder = z.infer<typeof CapacityHolder>;
+
 export const TaskStartWaiting = z.object({
   /**
    * The admission refusals a retry can overcome (the start waits for them), and `repo_required`:
@@ -132,6 +152,12 @@ export const TaskStartWaiting = z.object({
   until: z.string().optional(),
   /** Admission threshold, rather than current usage. */
   threshold: z.number().optional(),
+  /** `member_at_capacity`, filled in when read (never stored): what holds the member's places. */
+  holders: z.array(CapacityHolder).optional(),
+  /** `member_at_capacity`: the member's capacity. */
+  capacity: z.number().int().positive().optional(),
+  /** `member_at_capacity`: `SESSION_IDLE_CLOSE_MINUTES`, after which a silent session closes. */
+  closeAfterMinutes: z.number().int().positive().optional(),
   since: z.string(),
 });
 export type TaskStartWaiting = z.infer<typeof TaskStartWaiting>;

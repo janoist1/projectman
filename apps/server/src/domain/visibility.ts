@@ -112,14 +112,33 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
     lastHandoff: _lastHandoff,
     merge: _merge,
     merged: _merged,
-    ...visible
+    ...rest
   } = task;
+  const visible = withVisibleHolders(rest, canSeeKey);
   const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
   if (!hideTheme && !visible.links.some(isCardLink)) return visible;
   const { themeKey: _theme, ...shown } = visible;
   return {
     ...(hideTheme ? shown : visible),
     links: visible.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)),
+  };
+}
+
+/**
+ * What holds the places of the member a card waits for (PM-297), as a client sees it: no session
+ * id, and no key of a card they cannot see. The element stays, so that the card says "still working".
+ */
+function withVisibleHolders<T extends Task>(task: T, canSeeKey: (key: string) => boolean): T {
+  const holders = task.startWaiting?.holders;
+  if (!task.startWaiting || !holders) return task;
+  return {
+    ...task,
+    startWaiting: {
+      ...task.startWaiting,
+      holders: holders.map(({ sessionId: _session, taskKey, ...holder }) =>
+        taskKey && canSeeKey(taskKey) ? { ...holder, taskKey } : holder,
+      ),
+    },
   };
 }
 

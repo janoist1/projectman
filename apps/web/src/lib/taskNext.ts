@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_PROVIDER, handOnRequestOf } from '@projectman/shared';
 import type { InboxItem, LabelView, Task, TaskWait } from '@projectman/shared';
 import { joinNames, t } from '../i18n/t';
+import { capacityHint, capacityIntro, capacityOf, capacityReason } from './capacity';
 import { labelName } from './labels';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
@@ -145,20 +146,26 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
       const memberHead = wait.next.length > 0 ? names : null;
       switch (reason) {
         case 'member_at_capacity':
-        case 'senior_busy':
+        case 'senior_busy': {
+          // What holds the member's places (PM-297): the row names the only holder, the box lists them all.
+          const capacity = reason === 'member_at_capacity' ? capacityOf(waiting) : null;
+          const owner = waiting.member ? nameOf(waiting.member, members, myHandle) : '';
           return build({
             head: memberHead ?? t('taskStatus.next.senior'),
-            waiting: short,
-            long: t('taskStatus.next.long.capacity'),
+            waiting: (capacity && capacityReason(capacity)) ?? short,
+            long: capacity ? capacityIntro(capacity) : t('taskStatus.next.long.capacity'),
             // A Senior wait says who decided to keep waiting, and that the card can be given out by hand.
             todo:
               reason === 'senior_busy'
                 ? hint || t('taskStatus.next.todo.auto')
-                : t('taskStatus.next.todo.auto'),
+                : capacity
+                  ? t('taskStatus.next.todo.capacity', { hint: hint || capacityHint(capacity, owner) })
+                  : t('taskStatus.next.todo.auto'),
             // Nobody is named yet, but the Senior who is free first takes the card.
             noWho: t('task.whyBox.nobodySenior'),
             noWhoKind: 'ai',
           });
+        }
         case 'no_free_member':
           return build({
             head: t('taskStatus.next.heads.freeMember'),

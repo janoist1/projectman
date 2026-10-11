@@ -47,6 +47,7 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { formatStamp } from '../../i18n/format';
 import { errorMessage } from '../../lib/errors';
+import { capacityFrom } from '../../lib/capacity';
 import { inboxHeading } from '../../lib/inbox';
 import { memberStatusView } from '../../lib/members';
 import { closureTexts, isLiveSession, sessionClosure } from '../../lib/sessions';
@@ -61,6 +62,7 @@ import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { ProviderWarning } from './ProviderWarning';
 import { LeaveButton } from './LeaveButton';
+import { CapacityNote } from './CapacityNote';
 import { MemberMenu } from './MemberMenu';
 import { RetireDialog } from './RetireDialog';
 import { PermissionLevelControl } from './PermissionLevelControl';
@@ -155,6 +157,11 @@ export function MemberProfilePage() {
   const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
   const status = memberStatusView(member, data.inbox, myHandle, pausedRows);
+  // What holds the member's places, and the cards that wait for one of them (PM-297).
+  const capacity = capacityFrom(data.capacityHolders, data.capacity ?? undefined);
+  const waitingCards = (board.data?.tasks ?? []).filter(
+    (task) => task.startWaiting?.reason === 'member_at_capacity' && task.startWaiting.member === handle,
+  );
   const live = data.sessions.filter(isLiveSession);
   const pastSessions = data.sessions.filter((s) => !live.includes(s)).slice(0, 10);
   const schedule = schedules.data?.members.find((entry) => entry.member === handle);
@@ -279,6 +286,9 @@ export function MemberProfilePage() {
         <p role="status" className={styles.leaveNote}>
           {t('leave.status')}
         </p>
+      ) : null}
+      {capacity && waitingCards.length > 0 ? (
+        <CapacityNote member={member} capacity={capacity} cards={waitingCards} />
       ) : null}
       {start.error ? <ErrorBanner>{errorMessage(start.error)}</ErrorBanner> : null}
       <section className={styles.panel}>

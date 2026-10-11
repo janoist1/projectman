@@ -6,6 +6,7 @@ import {
   isHandleOnLeave,
   isOpenTask,
   isOperator,
+  isSessionAtWork,
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
@@ -17,6 +18,7 @@ import {
 } from '@projectman/shared';
 import type {
   AiMemberConfig,
+  CapacityHolder,
   EngineId,
   ProjectConfig,
   Task,
@@ -132,26 +134,64 @@ export class Admission {
    * session, does not count.
    */
   memberLoad(config: ProjectConfig, handle: string, excludeTaskKey?: string): number {
-    const taskKeys = new Set<string>();
-    let chats = 0;
+    return this.holders(config, handle, excludeTaskKey).length;
+  }
+
+  /**
+   * What takes the member's places (PM-297): exactly the set `memberLoad` counts, one element per
+   * task (its sessions together) and one per other running session.
+   */
+  holders(config: ProjectConfig, handle: string, excludeTaskKey?: string): CapacityHolder[] {
+    const holders: CapacityHolder[] = [];
+    const ofTask = new Map<string, CapacityHolder>();
     // The Operator's capacity is for the people who are not owners: the owners' conversation never counts (PM-475).
     const operator = isOperator(memberOf(config, handle));
     for (const s of this.sessions.list(config.project.key, { member: handle })) {
       if (!this.sessions.isRunning(s.id)) continue;
+      const awaitsFirstTurn = this.sessions.awaitsFirstTurn(s.id);
+      const working = isSessionAtWork(s, { awaitsFirstTurn, pendingInput: false, messageOnItsWay: false });
       if (s.workItem.type !== 'task') {
-        if (!operator || (s.workItem.type === 'general' && s.workItem.with)) chats++;
-      } else if (s.workItem.taskKey !== excludeTaskKey) {
-        const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
-        if (
-          task &&
-          isOpenTask(task) &&
-          !isTheme(task) &&
-          (isWorkingOnTask(config, task, handle, s.state) || this.sessions.awaitsFirstTurn(s.id))
-        )
-          taskKeys.add(task.key);
+        if (operator && !(s.workItem.type === 'general' && s.workItem.with)) continue;
+        holders.push({
+          kind: s.workItem.type,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        });
+        continue;
+      }
+      if (s.workItem.taskKey === excludeTaskKey) continue;
+      const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
+      if (
+        !task ||
+        !isOpenTask(task) ||
+        isTheme(task) ||
+        !(isWorkingOnTask(config, task, handle, s.state) || awaitsFirstTurn)
+      )
+        continue;
+      const held = ofTask.get(task.key);
+      if (!held) {
+        const holder: CapacityHolder = {
+          kind: 'task',
+          taskKey: task.key,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        };
+        ofTask.set(task.key, holder);
+        holders.push(holder);
+        continue;
+      }
+      held.working ||= working;
+      if (s.startedAt < held.startedAt) held.startedAt = s.startedAt;
+      if (s.lastActivityAt > held.lastActivityAt) {
+        held.lastActivityAt = s.lastActivityAt;
+        held.sessionId = s.id;
       }
     }
-    return chats + taskKeys.size;
+    return holders;
   }
 
   /** Whether an open task is assigned to the member; a temp worker carries one task at a time. */

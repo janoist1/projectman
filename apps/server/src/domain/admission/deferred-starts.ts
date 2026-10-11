@@ -1,6 +1,13 @@
 import { z } from 'zod';
-import { Actor, MemberHandle, TaskKey, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
-import type { ProjectConfig, Task } from '@projectman/shared';
+import {
+  Actor,
+  MemberHandle,
+  SESSION_IDLE_CLOSE_MINUTES,
+  TaskKey,
+  TaskStartWaiting,
+  WorkItemRef,
+} from '@projectman/shared';
+import type { CapacityHolder, ProjectConfig, Task } from '@projectman/shared';
 import type { DeferredStartRecord } from '../../db';
 
 /**
@@ -131,6 +138,12 @@ export interface DeferredStart {
   waiting: TaskStartWaiting;
 }
 
+/** A member's capacity and what holds its places now; none for a member that has no capacity (not AI). */
+export type CapacityReader = (
+  projectKey: string,
+  handle: string,
+) => { holders: CapacityHolder[]; capacity: number } | undefined;
+
 /** Where the deferrals are kept besides memory (the `deferred_starts` table). */
 export interface DeferredStartStore {
   save(record: DeferredStartRecord): void;
@@ -148,6 +161,7 @@ export interface DeferredStartStore {
 export class DeferredStarts {
   private readonly entries = new Map<string, DeferredStart>();
   private readonly store: DeferredStartStore | undefined;
+  private capacityOf: CapacityReader | undefined;
 
   /** `store`: where the deferrals are kept besides memory (none: only in memory). */
   constructor(store?: DeferredStartStore) {
@@ -187,10 +201,19 @@ export class DeferredStarts {
 
   /** Why AI work on the task waits: its earliest deferral that still applies, if any. */
   waitingFor(task: Task): TaskStartWaiting | undefined {
-    return this.forTask(task)
+    const waiting = this.forTask(task)
       .filter((entry) => entry.start.stillValid(task))
       .map((entry) => entry.waiting)
       .sort((a, b) => a.since.localeCompare(b.since))[0];
+    if (waiting?.reason !== 'member_at_capacity' || !waiting.member) return waiting;
+    // What holds the member's places is read now, never stored: it shows the present situation (PM-297).
+    const capacity = this.capacityOf?.(task.projectKey, waiting.member);
+    return capacity ? { ...waiting, ...capacity, closeAfterMinutes: SESSION_IDLE_CLOSE_MINUTES } : waiting;
+  }
+
+  /** Binds the reader of a member's capacity and what holds it (built after this store). */
+  useCapacity(capacityOf: CapacityReader): void {
+    this.capacityOf = capacityOf;
   }
 
   /** Drops the task's deferrals it made obsolete (it moved on or closed), even if it later returns. */

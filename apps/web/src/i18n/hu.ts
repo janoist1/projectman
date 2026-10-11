@@ -865,8 +865,7 @@ export const hu = {
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
-      message_attachment_unavailable:
-        'Az üzenet egyik csatolmánya már nem küldhető el (törölték, elküldték, vagy nem a tiéd).',
+      message_attachment_unavailable: 'Egy fájl már nem érhető el: vedd ki, és csatold újra.',
       message_attachment_limit: 'Egyszerre legfeljebb 20 el nem küldött csatolmányod lehet.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
@@ -3534,7 +3533,7 @@ export const hu = {
       /** The end of a tile's label when the file is on the parent card. */
       fromCard: ', a {key} kártyáról',
     },
-    answerRequired: 'Írj választ, vagy válassz egy lehetőséget.',
+    answerRequired: 'Írj választ, csatolj fájlt, vagy válassz egy lehetőséget.',
     recent: 'Mostanában döntöttél',
     resolveFailed: 'Nem ment át a döntés. Próbáld újra.',
     assignedTo: 'Neki szól: {names}',

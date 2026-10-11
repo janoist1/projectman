@@ -927,7 +927,11 @@ export type ReadTeamMessagesRequest = z.infer<typeof ReadTeamMessagesRequest>;
 export const InboxView = z.object({ items: z.array(InboxItem) });
 export type InboxView = z.infer<typeof InboxView>;
 
-export const ResolveInboxRequest = z.object({ optionId: z.string(), note: z.string().optional() });
+export const ResolveInboxRequest = z.object({
+  optionId: z.string(),
+  note: z.string().optional(),
+  attachmentIds: z.array(MessageAttachmentId).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+});
 export type ResolveInboxRequest = z.infer<typeof ResolveInboxRequest>;
 
 /* ---------- configuration ---------- */

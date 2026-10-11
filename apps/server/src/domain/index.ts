@@ -1238,7 +1238,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
-  events.on('inbox_resolved', (item) => (item.kind === 'question' ? messaging.answer(item) : undefined));
+  inbox.useQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   // The card's other workers learn what was answered, so they do not ask it again (PM-249).
   events.on('inbox_resolved', (item) =>
     item.kind === 'question' ? messaging.answeredNotice(item) : undefined,

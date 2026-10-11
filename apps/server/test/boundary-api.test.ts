@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { BoundaryRequester, ToolContext } from '../src/contracts';
-import { TEAM_TOOLS } from '../src/mcp';
+import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
 import { humanActor } from '../src/domain';
 import {
   createAppHarness,
@@ -71,7 +71,7 @@ describe('boundary REST and MCP access', () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'decide_boundary_request')!;
     const args = tool.inputSchema.parse({ request_id: second.id, ...allow });
     const result = JSON.parse(
-      await tool.run({ ctx: ctx(), args, handler: h.app.projectman.domain.teamTools }),
+      toolOutputText(await tool.run({ ctx: ctx(), args, handler: h.app.projectman.domain.teamTools })),
     );
     expect(result).toMatchObject({ state: 'allowed', decidedBy: { kind: 'ai', handle: 'cr' } });
     const inbox = await inject(h.app, 'GET', `${routes.inbox('AR')}?state=all`, owner);
@@ -132,11 +132,13 @@ describe('boundary REST and MCP access', () => {
     ).toBe(false);
     const get = TEAM_TOOLS.find((t) => t.name === 'get_boundary_request')!;
     const response = JSON.parse(
-      await get.run({
-        ctx: ctx('dev-1'),
-        args: { request_id: request.id },
-        handler: h.app.projectman.domain.teamTools,
-      }),
+      toolOutputText(
+        await get.run({
+          ctx: ctx('dev-1'),
+          args: { request_id: request.id },
+          handler: h.app.projectman.domain.teamTools,
+        }),
+      ),
     );
     expect(response.request.id).toBe(request.id);
     expect((await inject(h.app, 'GET', routes.boundaryRequest('AR', request.id), outsider)).statusCode).toBe(

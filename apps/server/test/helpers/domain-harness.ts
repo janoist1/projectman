@@ -23,6 +23,7 @@ import {
   attachmentToolRules,
   createAttachmentStorage,
   createDomain,
+  createMessageAttachmentStorage,
   createTemplateRegistry,
   humanActor,
 } from '../../src/domain';
@@ -155,6 +156,7 @@ export async function createDomainHarness(
   const attachmentStorage = (opts.attachmentStorage ?? ((inner) => inner))(
     createAttachmentStorage(join(dir, 'attachments')),
   );
+  const messageAttachmentStorage = createMessageAttachmentStorage(join(dir, 'message-attachments'));
   const liveProcesses = opts.liveProcesses ?? new Set<number>();
   const workspacesDir = join(dir, 'workspaces');
   const sessionFoldersDir =
@@ -232,6 +234,7 @@ export async function createDomainHarness(
     memory,
     worktrees,
     attachmentStorage,
+    messageAttachmentStorage,
     accounts: new AuthService({ repos, now: opts.now }),
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
@@ -299,6 +302,8 @@ export async function createDomainHarness(
     sessionTmpDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
+    messageAttachmentsDir: join(dir, 'message-attachments'),
+    messageAttachmentStorage,
     /** The commit the server runs, from now on (what a restart on a newer build changes). */
     setAppVersion(version: string) {
       runningVersion.value = version;

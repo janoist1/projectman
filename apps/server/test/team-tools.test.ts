@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
 import type { TaskStatus, WorkItemRef } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
-import { TEAM_TOOLS } from '../src/mcp';
+import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
 import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -429,8 +429,10 @@ describe('team tools', () => {
     await h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', note });
 
     const getTask = TEAM_TOOLS.find((t) => t.name === 'get_task')!;
-    const read = (args: Record<string, unknown>) =>
-      getTask.run({ ctx: dev, args: { task_key: 'AR-1', ...args }, handler: h.domain.teamTools });
+    const read = async (args: Record<string, unknown>) =>
+      toolOutputText(
+        await getTask.run({ ctx: dev, args: { task_key: 'AR-1', ...args }, handler: h.domain.teamTools }),
+      );
     const line = (await read({})).split('\n').find((l) => l.includes('note: Measured'))!;
     const id = /event_id (\S+)\)/.exec(line)![1]!;
     expect(line).toContain('(cut, 2017 chars; read it whole: get_task task_key AR-1, event_id ');

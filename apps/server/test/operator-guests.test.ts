@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OperatorChannel, routes } from '@projectman/shared';
 import type { ProjectConfig, Session } from '@projectman/shared';
@@ -214,8 +215,41 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       'list_members',
       'list_tasks',
       'read_attachment',
+      'read_message_attachment',
       'send_message',
     ]);
+  });
+
+  it('opens a message file for a guest only as that person, never one of someone else’s message', async () => {
+    await setup();
+    const sendFile = async (to: string, fileName: string) => {
+      const file = await h.domain.messageAttachments.upload({
+        projectKey: 'AR',
+        actor: OWNER_ACTOR,
+        fileName,
+        content: Readable.from([Buffer.from(`content of ${fileName}`)]),
+      });
+      await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: [to], text: 'A file', taskKey: null, attachmentIds: [file.id] },
+        { actor: OWNER_ACTOR },
+      );
+      return file;
+    };
+    const forCleo = await sendFile('cleo', 'for-cleo.txt');
+    const forDana = await sendFile('dana', 'for-dana.txt');
+    await say('cleo', 'What did you send me?');
+    const tool = toolOf(conversationWith('cleo'));
+    const own = await h.domain.teamTools.readMessageAttachment(tool, { attachmentId: forCleo.id });
+    expect(own.content).toEqual({ kind: 'text', text: 'content of for-cleo.txt' });
+    // The Operator itself could see the other message, but the guest's conversation answers as the guest.
+    const refused = await rejection(
+      h.domain.teamTools.readMessageAttachment(tool, { attachmentId: forDana.id }),
+      TeamToolError,
+    );
+    expect(refused.code).toBe('not_found');
+    expect(refused.message).not.toContain('for-dana');
   });
 
   it('answers only the person it talks with', async () => {

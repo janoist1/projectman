@@ -94,6 +94,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     // A read-only member talks to the Operator alone (PM-475); the team's other members are not theirs to write to.
     const access = await requireAccess(domain, request, key);
     const body = parseBody(SendTeamMessageRequest, request.body);
+    // `attachmentIds` ride along in `body`: the messaging service checks and binds them.
     if (access.access === 'viewer') {
       const operator = operatorOf(await domain.projects.config(key));
       if (!operator || body.to.some((handle) => handle !== operator.handle))

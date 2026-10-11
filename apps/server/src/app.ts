@@ -24,6 +24,7 @@ import type { ControlPause, ControlRelease, ControlSocket } from './control';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
+  MessageAttachmentStorage,
   BoundaryOperationAdapter,
   ContextPackBuilder,
   FullTestExecutor,
@@ -44,7 +45,12 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import { createAttachmentStorage, createDomain, createEventBus } from './domain';
+import {
+  createAttachmentStorage,
+  createDomain,
+  createEventBus,
+  createMessageAttachmentStorage,
+} from './domain';
 import { freeBytesOf } from './engine-host';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
@@ -153,6 +159,8 @@ export interface AppModules {
   templates?: TemplateRegistry;
   /** The files of task attachments (default: PROJECTMAN_HOME/attachments). */
   attachmentStorage?: AttachmentStorage;
+  /** The files of team message attachments (default: PROJECTMAN_HOME/message-attachments). */
+  messageAttachmentStorage?: MessageAttachmentStorage;
   /** The VM boundary (default: from `runtimeBoundary` in the options, else none). Tests pass a fake. */
   runtimeBoundary?: RuntimeBoundary;
   /** The worker accounts of the boundary (default: /etc/passwd). */
@@ -381,7 +389,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // in the home is created or opened.
   const standby = assertHomeMayStart(home, options.engineMode ?? 'single') === 'standby';
   const attachmentsDir = join(home, 'attachments');
-  for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
+  const messageAttachmentsDir = join(home, 'message-attachments');
+  for (const dir of [
+    home,
+    join(home, 'memory'),
+    join(home, 'worktrees'),
+    attachmentsDir,
+    messageAttachmentsDir,
+  ]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   // The mark every session of this instance carries in its environment (PM-320): the first 16 hex digits
@@ -611,6 +626,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       memory,
       worktrees,
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
+      messageAttachmentStorage:
+        modules.messageAttachmentStorage ?? createMessageAttachmentStorage(messageAttachmentsDir),
       accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
       appHome: home,

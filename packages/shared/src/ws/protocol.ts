@@ -43,6 +43,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('inbox_upserted'), projectKey: z.string(), item: InboxItem }),
   z.object({ type: z.literal('team_message'), projectKey: z.string(), message: TeamMessage }),
+  /** A stored message changed without being a new one (a file of it was deleted, PM-515): no timeline entry goes with it. */
+  z.object({ type: z.literal('team_message_updated'), projectKey: z.string(), message: TeamMessage }),
   z.object({
     type: z.literal('chat_appended'),
     projectKey: z.string(),

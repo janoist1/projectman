@@ -70,9 +70,19 @@ async function runTool(
   const startedAt = Date.now();
   const call = tool.run({ ctx, args, handler: deps.handler });
   try {
-    const text = await withTimeout(call, deps.toolTimeoutMs);
+    const output = await withTimeout(call, deps.toolTimeoutMs);
     deps.logger.debug({ ...log, ms: Date.now() - startedAt }, 'team tool call');
-    return { content: [{ type: 'text', text }] };
+    if (typeof output === 'string') return { content: [{ type: 'text', text: output }] };
+    return {
+      content: [
+        { type: 'text', text: output.text },
+        ...output.images.map((image) => ({
+          type: 'image' as const,
+          data: image.data.toString('base64'),
+          mimeType: image.mimeType,
+        })),
+      ],
+    };
   } catch (err) {
     if (err instanceof TeamToolError) {
       deps.logger.debug({ ...log, code: err.code, detail: err.message }, 'team tool refused');

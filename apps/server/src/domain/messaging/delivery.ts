@@ -1,6 +1,7 @@
 import {
   formatInjectedTeamMessage,
   formatTeamMessageBatch,
+  messageTextWithAttachments,
   isOperator,
   memberOf,
   stageOf,
@@ -80,8 +81,13 @@ export class MessageDelivery {
           session,
           text ??
             (plain && !message.via
-              ? message.body
-              : formatInjectedTeamMessage(message.from, message.body, message.taskKey, message.via)),
+              ? messageTextWithAttachments(message)
+              : formatInjectedTeamMessage(
+                  message.from,
+                  messageTextWithAttachments(message),
+                  message.taskKey,
+                  message.via,
+                )),
         );
         await this.sessions.typeInto(session, typed);
         for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
@@ -323,6 +329,7 @@ export class MessageDelivery {
           ...(operator && !this.messages.wakes(config, m, handle) ? { info: true } : {}),
           taskKey: m.taskKey,
           body: m.body,
+          attachments: m.attachments,
           kind: m.kind ?? 'action',
           sentAt: m.createdAt,
           version: m.version,
@@ -381,7 +388,7 @@ export class MessageDelivery {
    */
   holdUntilInput(session: Session, message: TeamMessage): void {
     this.keep(session, {
-      text: formatInjectedTeamMessage(message.from, message.body, message.taskKey),
+      text: formatInjectedTeamMessage(message.from, messageTextWithAttachments(message), message.taskKey),
       messageId: message.id,
     });
   }

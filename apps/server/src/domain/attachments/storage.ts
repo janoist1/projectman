@@ -1,8 +1,7 @@
 import { constants } from 'node:fs';
-import { chmod, link, lstat, mkdir, open, readdir, realpath, rename, unlink } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, readdir, realpath, unlink } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Writable } from 'node:stream';
 import type { Readable } from 'node:stream';
 import { AttachmentId, TaskKey } from '@projectman/shared';
 import type {
@@ -12,12 +11,16 @@ import type {
   AttachmentWriter,
   StoredFile,
 } from '../../contracts';
+import {
+  createWritableFile,
+  isMissing,
+  O_NOFOLLOW,
+  TEMPORARY_SUFFIX,
+  THUMBNAIL_SUFFIX,
+  unlinkIfThere,
+} from './files';
 
-/** Suffix of a file still being written; recovery removes every one it finds. */
-export const TEMPORARY_SUFFIX = '.part';
-
-/** Suffix of an attachment's thumbnail (`<id>.thumb`); it is written as `<id>.thumb.part` first. */
-export const THUMBNAIL_SUFFIX = '.thumb';
+export { TEMPORARY_SUFFIX, THUMBNAIL_SUFFIX };
 
 /**
  * The attachment id of the name of a thumbnail (`<id>.thumb`) or of its temporary file
@@ -52,8 +55,7 @@ export function viewOwner(name: string): string | null {
   return AttachmentId.safeParse(id).success ? id : null;
 }
 
-const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
-const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0;
+export const PROJECT_KEY = /^[A-Z][A-Z0-9]{0,9}$/;
 
 /** A path component that is not what storage creates itself: a bug, never a user's input. */
 function checkRef(ref: AttachmentRef): void {
@@ -64,25 +66,6 @@ function checkRef(ref: AttachmentRef): void {
 function checkTask(projectKey: string, taskKey: string): void {
   if (!PROJECT_KEY.test(projectKey) || !TaskKey.safeParse(taskKey).success) {
     throw new Error('unsafe attachment storage reference');
-  }
-}
-
-const isMissing = (err: unknown): boolean => (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
-
-/** `FileHandle.write` may write less than asked. */
-async function writeAll(handle: FileHandle, chunk: Buffer): Promise<void> {
-  let offset = 0;
-  while (offset < chunk.length) {
-    const { bytesWritten } = await handle.write(chunk, offset, chunk.length - offset);
-    offset += bytesWritten;
-  }
-}
-
-async function unlinkIfThere(path: string): Promise<void> {
-  try {
-    await unlink(path);
-  } catch (err) {
-    if (!isMissing(err)) throw err;
   }
 }
 
@@ -146,43 +129,7 @@ export class FileAttachmentStorage implements AttachmentStorage {
 
   /** A file under `name` in the task's directory, written as `name.part` and renamed into place. */
   private async createFile(ref: AttachmentRef, name: string): Promise<AttachmentWriter> {
-    const dir = await this.taskDir(ref, true);
-    const temporary = join(dir, `${name}${TEMPORARY_SUFFIX}`);
-    const published = join(dir, name);
-    // O_EXCL: never an existing file, and never through a link.
-    const handle = await open(temporary, 'wx', 0o600);
-    // Flushed to disk when the stream ends, closed whenever it ends or fails.
-    const stream = new Writable({
-      write(chunk: Buffer, _encoding, done) {
-        writeAll(handle, chunk).then(() => done(), done);
-      },
-      final(done) {
-        handle.sync().then(() => done(), done);
-      },
-      destroy(err, done) {
-        handle.close().then(
-          () => done(err),
-          () => done(err),
-        );
-      },
-    });
-    const discard = async () => {
-      stream.destroy();
-      await unlinkIfThere(temporary).catch(() => undefined);
-    };
-    return {
-      stream,
-      async publish() {
-        try {
-          // The stream has finished, and with it flushed and closed the file.
-          await rename(temporary, published);
-        } catch (err) {
-          await discard();
-          throw err;
-        }
-      },
-      discard,
-    };
+    return createWritableFile(await this.taskDir(ref, true), name);
   }
 
   async openRead(ref: AttachmentRef, size: number): Promise<Readable> {

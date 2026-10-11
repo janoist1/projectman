@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MemberHandle } from '../domain/member';
 import type { CardVersion, MessageKind, StaleReason } from '../domain/message';
+import type { MessageAttachmentRef } from '../domain/message-attachment';
 
 /**
  * Normalised conversation items parsed from Claude Code transcripts (JSONL).
@@ -67,6 +68,45 @@ export function neutralizeMessageHeaders(body: string): string {
   return body.replace(/^(?=\[(?:team message|info from))/gm, '> ');
 }
 
+/** "812 B", "245.1 kB", "1.2 MB": decimal units, one decimal above a kilobyte. */
+function messageAttachmentSize(bytes: number): string {
+  if (bytes < 1000) return `${bytes} B`;
+  const units = ['kB', 'MB', 'GB'];
+  let value = bytes / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value.toFixed(1)} ${units[unit]}`;
+}
+
+/**
+ * The block under a delivered message's text that names its files (PM-515), empty for none:
+ * `- <id> "<name>" <type>, <size>[, deleted]` per file. The name is quoted with JSON rules, so a line
+ * break or a quote in it cannot forge a header or a line of the block.
+ */
+export function messageAttachmentLines(list: readonly MessageAttachmentRef[]): string {
+  if (list.length === 0) return '';
+  return [
+    'Attachments (open with read_message_attachment):',
+    ...list.map(
+      (file) =>
+        `- ${file.id} ${JSON.stringify(file.fileName)} ${file.mediaType}, ${messageAttachmentSize(file.size)}${file.goneAt ? ', deleted' : ''}`,
+    ),
+  ].join('\n');
+}
+
+/** What a recipient reads of a message: its text, and the block of its files under it (alone for a message without text). */
+export function messageTextWithAttachments(message: {
+  body: string;
+  attachments?: readonly MessageAttachmentRef[];
+}): string {
+  const lines = messageAttachmentLines(message.attachments ?? []);
+  if (!lines) return message.body;
+  return message.body ? `${message.body}\n\n${lines}` : lines;
+}
+
 export function formatInjectedTeamMessage(
   from: string,
   body: string,
@@ -98,6 +138,8 @@ export interface TeamMessageBatchItem {
   via?: 'integrator';
   taskKey: string | null;
   body: string;
+  /** The message's files (PM-515): their block goes under the text. */
+  attachments?: readonly MessageAttachmentRef[];
   kind: MessageKind;
   sentAt: string;
   version?: CardVersion;
@@ -122,6 +164,8 @@ export function formatTeamMessageBatch(
       : []),
     `${items.length} ${items.length === 1 ? 'message' : 'messages'} waited for you.${staleCount > 0 ? ` ${staleCount} ${staleCount === 1 ? 'is' : 'are'} out of date: read the out-of-date messages, but do not act on or answer those messages.` : ''}`,
   ].join('\n');
+  const textOf = (item: TeamMessageBatchItem): string =>
+    messageTextWithAttachments({ body: item.body, attachments: item.attachments ?? [] });
   const reasons = (item: TeamMessageBatchItem): string => {
     switch (item.stale) {
       case 'card_closed':
@@ -146,13 +190,13 @@ export function formatTeamMessageBatch(
       if (item.info)
         return formatInfoMessage(
           item.from,
-          `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${item.body}`,
+          `sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC\n${textOf(item)}`,
         );
       const version = item.version
         ? `at stage ${item.version.stageId}, commit ${item.version.commit?.slice(0, 7) ?? 'unknown'}, review commit ${item.version.reviewCommit?.slice(0, 7) ?? 'none'}`
         : 'version unknown';
       const meta = `${item.kind} · sent ${item.sentAt.slice(0, 16).replace('T', ' ')} UTC ${version}${item.stale ? ` · OUT OF DATE: ${reasons(item)}` : ''}`;
-      return formatInjectedTeamMessage(item.from, `${meta}\n${item.body}`, item.taskKey, item.via);
+      return formatInjectedTeamMessage(item.from, `${meta}\n${textOf(item)}`, item.taskKey, item.via);
     }),
   ].join('\n\n');
 }

@@ -10,6 +10,7 @@ import {
   isTheme,
   MAX_ATTACHMENT_BYTES,
   memberOf,
+  MessageAttachmentId,
   messageRoute,
   needsRepoChoice,
   questionChoices,
@@ -51,6 +52,7 @@ import type {
   GithubService,
   ListTasksInput,
   LocatedAttachmentForTool,
+  MessageAttachmentReading,
   MemberMemoryStore,
   NetworkDenial,
   ProposedRelease,
@@ -86,6 +88,7 @@ import {
 } from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
 import { canSeeTask, clientCanSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from './visibility';
+import type { MessageAttachmentService } from './message-attachments';
 import type { Viewer } from './visibility';
 import type { OperatorActions } from './operator-actions';
 import type { OperatorSignals } from './operator-signals';
@@ -406,6 +409,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly github: GithubService;
   private readonly githubSync: GithubSync;
   private readonly attachments: AttachmentOperations;
+  private readonly messageAttachments: Pick<MessageAttachmentService, 'reading'>;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly materializeAttachment: EngineAttachments['materialize'] | undefined;
   private readonly sessionEngine:
@@ -448,6 +452,8 @@ export class TeamToolsService implements TeamToolsHandler {
     github: GithubService;
     githubSync: GithubSync;
     attachments: AttachmentOperations;
+    /** The files of team messages (PM-516): `read_message_attachment`. */
+    messageAttachments: Pick<MessageAttachmentService, 'reading'>;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
     /**
@@ -509,6 +515,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.github = deps.github;
     this.githubSync = deps.githubSync;
     this.attachments = deps.attachments;
+    this.messageAttachments = deps.messageAttachments;
     this.attachmentDirectory = deps.attachmentDirectory;
     this.materializeAttachment = deps.materializeAttachment;
   }
@@ -848,6 +855,32 @@ export class TeamToolsService implements TeamToolsHandler {
           })
         : located.path;
       return { ...located, path, readableWithoutAsking: own };
+    });
+  }
+
+  async readMessageAttachment(
+    ctx: ToolContext,
+    args: { attachmentId: string },
+  ): Promise<MessageAttachmentReading> {
+    return this.guard(async () => {
+      const { guest } = await this.callerWithRequest(ctx, 'read_message_attachment');
+      const id = args.attachmentId;
+      if (!MessageAttachmentId.safeParse(id).success)
+        throw new TeamToolError(
+          'invalid',
+          `Invalid message attachment id "${id}"; they look like "msa_…" (in the Attachments block of a message).`,
+        );
+      // The file is judged through the eyes of whoever the session talks for: the AI member, or the
+      // guest of an Operator conversation, so a file of a message they cannot see is not found.
+      const viewer = guest ? guest.viewer : { access: 'ai' as const, handle: ctx.member };
+      return this.messageAttachments.reading(ctx.projectKey, id, viewer).catch((err: unknown) => {
+        if (err instanceof DomainError && err.code === 'not_found')
+          throw new TeamToolError(
+            'not_found',
+            `There is no message attachment ${id} that you can see (or it was deleted).`,
+          );
+        throw err;
+      });
     });
   }
 

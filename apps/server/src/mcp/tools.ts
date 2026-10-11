@@ -58,6 +58,8 @@ export const TEAM_TOOL_NAMES = [
   'operate',
   'read_project_doc',
   'write_project_docs',
+  'list_decision_candidates',
+  'mark_decision_candidates',
   'start_task',
   'submit_boundary_request',
   'get_boundary_request',
@@ -313,6 +315,51 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           edits: args.edits,
         }),
       );
+    },
+  }),
+  defineTool({
+    name: 'list_decision_candidates',
+    title: 'List the owners’ answers that may be decisions',
+    readOnly: true,
+    description:
+      'Only the Operator, not in guest conversations; needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.',
+    input: {
+      limit: z.number().int().min(1).max(50).optional().describe('How many to return, 1–50 (default 20).'),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.listDecisionCandidates(ctx, { limit: args.limit }));
+    },
+  }),
+  defineTool({
+    name: 'mark_decision_candidates',
+    title: 'Mark the offered decision candidates',
+    readOnly: false,
+    description:
+      "Only the Operator, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
+    input: {
+      items: z
+        .array(
+          z
+            .strictObject({
+              item_id: z.string().min(1).max(100),
+              verdict: z.enum(['recorded', 'declined', 'skipped']),
+              decision: z
+                .string()
+                .trim()
+                .min(1)
+                .max(10)
+                .optional()
+                .describe('The decision log entry number; only with recorded.'),
+            })
+            .refine((item) => item.decision === undefined || item.verdict === 'recorded', {
+              message: 'decision goes only with the verdict recorded.',
+            }),
+        )
+        .min(1)
+        .max(50),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.markDecisionCandidates(ctx, { items: args.items }));
     },
   }),
   defineTool({

@@ -176,6 +176,21 @@ export function createInboxRepository(db: Db) {
       if (filter.taskKey) params.taskKey = filter.taskKey;
       return (statement.all(params) as InboxRow[]).reverse().map(toItem);
     },
+    /**
+     * Questions answered after `after` and by no rule (PM-496), the earliest answer first. Unless
+     * `includeOffered`, the ones the owner already gave a verdict on (`decision_offers`) are left out.
+     */
+    listAnsweredQuestions(projectKey: string, after: string, includeOffered = false): InboxItem[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM inbox_items i WHERE i.project_key = ? AND i.kind = 'question' AND i.state = 'resolved'
+             AND json_extract(i.resolution, '$.at') > ? AND json_extract(i.resolution, '$.rule') IS NULL
+             AND (? OR NOT EXISTS (SELECT 1 FROM decision_offers o WHERE o.project_key = i.project_key AND o.item_id = i.id))
+           ORDER BY json_extract(i.resolution, '$.at'), i.seq`,
+        )
+        .all(projectKey, after, includeOffered ? 1 : 0) as InboxRow[];
+      return rows.map(toItem);
+    },
     /** Open items across all projects, optionally of one kind. */
     listOpen(kind?: InboxKind): InboxItem[] {
       const rows = (kind ? statements.listOpenOfKind.all(kind) : statements.listOpen.all()) as InboxRow[];

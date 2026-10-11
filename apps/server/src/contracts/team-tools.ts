@@ -48,6 +48,35 @@ export interface ProjectDocRead {
   text: string;
 }
 
+/** An owner's answer on a card that may be a decision (PM-496). */
+export interface DecisionCandidate {
+  item_id: string;
+  task_key: string | null;
+  task_title: string | null;
+  asked_by: string | null;
+  asked_at: string;
+  /** Title and body of the question, at most 2000 characters. */
+  question: string;
+  /** `option` is the text of the option that was chosen. */
+  answer: { option: string | null; note: string | null };
+  answered_by: string;
+  answered_at: string;
+  via_integrator: boolean;
+}
+
+/** The owner's verdict on one candidate; `decision` (the entry number) goes with `recorded` only. */
+export interface DecisionMark {
+  item_id: string;
+  verdict: 'recorded' | 'declined' | 'skipped';
+  decision?: string;
+}
+
+/** What list_decision_candidates answers (PM-496). */
+export interface DecisionCandidatesList {
+  candidates: DecisionCandidate[];
+  more: boolean;
+}
+
 /** What write_project_docs answers. */
 export type ProjectDocWrite =
   | { write_id: string; state: 'published'; commit: string; paths: string[]; warning?: string }
@@ -290,6 +319,16 @@ export interface TeamToolsHandler {
       edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
     },
   ): Promise<ProjectDocWrite>;
+  /**
+   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
+   * Operator, not in guest conversations; needs no open request. Counts as a look.
+   */
+  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
+  /**
+   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
+   * Operator, in the owner's own conversation, during an open owner request.
+   */
+  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again

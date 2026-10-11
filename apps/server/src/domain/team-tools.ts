@@ -91,6 +91,7 @@ import type { TaskStarts } from './admission';
 import type { OperatorOperation, ProjectDoc } from '@projectman/shared';
 import type { ProjectDocRead, ProjectDocWrite } from '../contracts';
 import { docLines } from './doc-edits';
+import type { DecisionCandidates } from './decision-candidates';
 import type { DocWrites } from './doc-writes';
 import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
@@ -248,6 +249,7 @@ const OWNER_ONLY = 'operator_owner_only';
 export class TeamToolsService implements TeamToolsHandler {
   private readonly projectState: ProjectState;
   private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
+  private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
   async getProjectState(ctx: ToolContext, args: { taskKey?: string }) {
     return this.guard(async () => {
@@ -468,9 +470,12 @@ export class TeamToolsService implements TeamToolsHandler {
     taskStarts: TaskStarts;
     /** The Operator's project documents (PM-495): `read_project_doc` and `write_project_docs`. */
     docWrites: Pick<DocWrites, 'read' | 'request'>;
+    /** The owners' answers that may be decisions (PM-496). */
+    decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {
     this.projectState = deps.projectState;
     this.docWrites = deps.docWrites;
+    this.decisionCandidates = deps.decisionCandidates;
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
     this.operatorActions = deps.operatorActions;
@@ -1460,16 +1465,7 @@ export class TeamToolsService implements TeamToolsHandler {
         'operator_only: only the Operator may write the project documents.',
       );
     const caller = await this.callerWithRequest(ctx, 'write_project_docs');
-    const request = caller.request!;
-    // The documents are the owners' business: only in the owner's own conversation (no `with`, no card).
-    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
-    if (workItem?.type !== 'general' || workItem.with !== undefined || !isOwner(config, request.fromHandle)) {
-      this.recordRefusedWrite(caller, 'write_project_docs');
-      throw new TeamToolError(
-        'forbidden',
-        `${OWNER_ONLY}: write_project_docs is for the owner's own conversation with you.`,
-      );
-    }
+    const request = this.inOwnerConversation(ctx, caller, 'write_project_docs');
     let outcome: Awaited<ReturnType<DocWrites['request']>>;
     try {
       outcome = await this.docWrites.request({
@@ -1519,6 +1515,65 @@ export class TeamToolsService implements TeamToolsHandler {
       case 'failed':
         throw new TeamToolError('invalid', `docs_write_failed: ${outcome.failure}: ${outcome.message}`);
     }
+  }
+
+  /**
+   * The documents are the owners' business: the request the call runs for, when it is in the owner's own
+   * conversation (no `with`, no card); otherwise the call is refused and logged as a refused step.
+   */
+  private inOwnerConversation(
+    ctx: ToolContext,
+    caller: CallerWithRequest,
+    tool: string,
+  ): NonNullable<CallerWithRequest['request']> {
+    const request = caller.request!;
+    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
+    if (
+      workItem?.type !== 'general' ||
+      workItem.with !== undefined ||
+      !isOwner(caller.config, request.fromHandle)
+    ) {
+      this.recordRefusedWrite(caller, tool);
+      throw new TeamToolError(
+        'forbidden',
+        `${OWNER_ONLY}: ${tool} is for the owner's own conversation with you.`,
+      );
+    }
+    return request;
+  }
+
+  async listDecisionCandidates(ctx: ToolContext, args: { limit?: number }) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may list the decision candidates.',
+      );
+    await this.callerWithRequest(ctx, 'list_decision_candidates');
+    try {
+      return this.decisionCandidates.list(ctx.projectKey, config, args.limit);
+    } catch (err) {
+      throw docToolError(err);
+    }
+  }
+
+  async markDecisionCandidates(
+    ctx: ToolContext,
+    args: { items: { item_id: string; verdict: 'recorded' | 'declined' | 'skipped'; decision?: string }[] },
+  ) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may mark the decision candidates.',
+      );
+    const caller = await this.callerWithRequest(ctx, 'mark_decision_candidates');
+    const request = this.inOwnerConversation(ctx, caller, 'mark_decision_candidates');
+    return this.recorded<{ marked: number }>(caller, { action: 'decision_offer' }, async () => ({
+      marked: this.decisionCandidates.mark(ctx.projectKey, config, request.id, args.items),
+    })).catch((err: unknown) => {
+      throw toToolError(err);
+    });
   }
 
   async startTask(

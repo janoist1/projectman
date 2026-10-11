@@ -1141,6 +1141,30 @@ describe('system prompt', () => {
       expect(promptOf(project)).toContain(line);
     });
 
+    it('gives the rules of the decision log and the roadmap only to a project with docs (PM-496)', () => {
+      const withDocs = buildProject();
+      withDocs.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' };
+      const rules = roleOf(
+        builder.build(input({ project: withDocs, handle: 'operator' })).appendSystemPrompt,
+      );
+      for (const line of [
+        "Record a decision only when the owner states it as a decision in the owners' conversation, says to note it down, or says yes to an offered candidate; never in a guest conversation, never on your own.",
+        'Before writing, show the owner the entry exactly as it will be written; then write it with write_project_docs on the commit you read.',
+        "An entry has the next number after the last one in the file, the owner's own words (quote, do not paraphrase), the date, the card key, and a reference to the earlier decision it refines or replaces; the earlier entry keeps its text and gets a note.",
+        'When a recorded decision changes the plan, update the roadmap in the same write. Compare the roadmap with the board and update it when the owner asks.',
+        "When there are candidates, offer them in your answer to the owner's message; record the ones the owner says yes to, and mark them with mark_decision_candidates (declined: never offer again; skipped: not a decision).",
+        'On docs_stale, read the file again and show the owner the new text before writing.',
+      ])
+        expect(rules).toContain(line);
+      // The rules come before the report line, and nobody but the Operator gets them.
+      expect(rules.indexOf('mark_decision_candidates')).toBeLessThan(rules.indexOf('After every request'));
+      expect(
+        roleOf(builder.build(input({ project: withDocs, handle: 'fe-1' })).appendSystemPrompt),
+      ).not.toContain('mark_decision_candidates');
+      expect(operatorPrompt('en')).not.toContain('write_project_docs');
+      expect(operatorPrompt('en')).not.toContain('mark_decision_candidates');
+    });
+
     it('writes the labels of the report in the language of the project', () => {
       expect(operatorPrompt('en')).toContain('each opening with its bold label: **Done**');
       expect(operatorPrompt('hu')).not.toContain('**Done**');

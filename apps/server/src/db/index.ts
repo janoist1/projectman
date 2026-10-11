@@ -8,6 +8,8 @@ import { createFullTestRunRepository } from './full-test-runs';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
+import { createDecisionOfferRepository } from './decision-offers';
+export type { DecisionCandidateState, DecisionOfferRecord, DecisionVerdict } from './decision-offers';
 import { createDocWriteRepository } from './doc-writes';
 export type { DocWriteEdit, DocWritePatch, DocWriteRecord, DocWriteState } from './doc-writes';
 import { createMemberWorkspaceRepository } from './member-workspaces';
@@ -91,6 +93,7 @@ export function createRepositories(db: Db) {
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
     docWrites: createDocWriteRepository(db),
+    decisionOffers: createDecisionOfferRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),

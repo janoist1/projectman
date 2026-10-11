@@ -78,6 +78,7 @@ import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { DecisionCandidates } from './decision-candidates';
 import { DocWrites } from './doc-writes';
 import { Merges } from './merges';
 import { ReleaseRoadmapNotices } from './release-roadmap-notices';
@@ -591,7 +592,8 @@ export function createDomain(opts: DomainOptions) {
   // the owner's next message opens a new request after this one closed, not before.
   events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
   events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
-  const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
+  const decisionCandidates = new DecisionCandidates({ ctx });
+  const delivery = new MessageDelivery({ ctx, sessions, messages, projects, decisionCandidates });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
   events.on('session_ended', (session) => pmReplyRelay.finish(session));
@@ -973,6 +975,7 @@ export function createDomain(opts: DomainOptions) {
   const teamTools = new TeamToolsService({
     projectState,
     docWrites,
+    decisionCandidates,
     merges,
     releases,
     operatorRequests,
@@ -1498,6 +1501,7 @@ export function createDomain(opts: DomainOptions) {
     fullTests,
     merges,
     docWrites,
+    decisionCandidates,
     releases,
     loopWatch,
     seniorWaits,

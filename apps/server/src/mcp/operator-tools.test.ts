@@ -87,6 +87,40 @@ describe('Operator MCP tools', () => {
     expect(refused({ edits: [{ ...edit, extra: 1 }] })).toBe(false);
   });
 
+  it('list_decision_candidates is a read tool that forwards the limit (1..50)', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'list_decision_candidates')!;
+    expect(tool.annotations.readOnlyHint).toBe(true);
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({ limit: 5 });
+    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toEqual({
+      candidates: [],
+      more: false,
+    });
+    expect(handler.calls[0]).toMatchObject({ method: 'listDecisionCandidates', args: { limit: 5 } });
+    expect(tool.inputSchema.safeParse({}).success).toBe(true);
+    expect(tool.inputSchema.safeParse({ limit: 0 }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ limit: 51 }).success).toBe(false);
+  });
+
+  it('mark_decision_candidates takes 1..50 verdicts and the entry number only with recorded', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'mark_decision_candidates')!;
+    expect(tool.annotations.readOnlyHint).toBe(false);
+    const handler = createFakeTeamToolsHandler();
+    const items = [
+      { item_id: 'inb_1', verdict: 'recorded', decision: '52' },
+      { item_id: 'inb_2', verdict: 'declined' },
+    ];
+    const args = tool.inputSchema.parse({ items });
+    expect(JSON.parse(await tool.run({ ctx: devContext, args, handler }))).toEqual({ marked: 2 });
+    expect(handler.calls[0]).toMatchObject({ method: 'markDecisionCandidates', args: { items } });
+    const refused = (list: unknown[]) => tool.inputSchema.safeParse({ items: list }).success;
+    expect(refused([])).toBe(false);
+    expect(refused(Array.from({ length: 51 }, () => items[1]))).toBe(false);
+    expect(refused([{ item_id: 'inb_1', verdict: 'declined', decision: '52' }])).toBe(false);
+    expect(refused([{ item_id: 'inb_1', verdict: 'recorded', decision: 'x'.repeat(11) }])).toBe(false);
+    expect(refused([{ item_id: 'inb_1', verdict: 'maybe' }])).toBe(false);
+  });
+
   it('maps start_task arguments to the shared start handler', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'start_task')!;
     const handler = createFakeTeamToolsHandler();

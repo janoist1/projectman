@@ -245,6 +245,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('writeProjectDocs', ctx, args);
       return { write_id: 'dw_fake', state: 'running' };
     },
+    async listDecisionCandidates(ctx, args) {
+      await enter('listDecisionCandidates', ctx, args);
+      return { candidates: [], more: false };
+    },
+    async markDecisionCandidates(ctx, args) {
+      await enter('markDecisionCandidates', ctx, args);
+      return { marked: args.items.length };
+    },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'Unknown boundary request.');

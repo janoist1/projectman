@@ -207,7 +207,9 @@ export function Composer({
       {touch && !attachments?.error && !attachments?.blockedReason ? null : (
         <span id={`${id}-hint`} className={styles.hint} aria-live="polite">
           {attachments?.error ? (
-            <span role="alert">{attachments.error}</span>
+            <span role="alert" className={styles.error}>
+              {attachments.error}
+            </span>
           ) : (
             (attachments?.blockedReason ??
             t(attachments ? 'messageAttachments.hint' : 'session.composer.hint'))

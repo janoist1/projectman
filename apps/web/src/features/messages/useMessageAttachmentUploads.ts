@@ -3,7 +3,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_MESSAGE_ATTACHMENTS, attachmentPreviewOf } fr
 import type { MessageAttachment } from '@projectman/shared';
 import { api } from '../../api/endpoints';
 import { t } from '../../i18n/t';
-import { formatBytes } from '../../i18n/format';
+import { formatBytes, LOCALE } from '../../i18n/format';
 
 export interface MessageUpload {
   id: number;
@@ -79,11 +79,22 @@ export function useMessageAttachmentUploads(projectKey: string) {
     setError(null);
     for (const original of files) {
       if (original.size > MAX_ATTACHMENT_BYTES) {
+        const max = formatBytes(MAX_ATTACHMENT_BYTES);
+        const roundedSize = formatBytes(original.size);
+        // Preserve enough precision to distinguish a file just above the limit.
+        const size =
+          roundedSize === max
+            ? t('attachments.size.megabytes', {
+                value: new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 6 }).format(
+                  original.size / 1_000_000,
+                ),
+              })
+            : roundedSize;
         setError(
           t('messageAttachments.tooLarge', {
             fileName: original.name,
-            size: formatBytes(original.size),
-            max: formatBytes(MAX_ATTACHMENT_BYTES),
+            size,
+            max,
           }),
         );
         continue;

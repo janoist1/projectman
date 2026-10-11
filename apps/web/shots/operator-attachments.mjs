@@ -135,7 +135,7 @@ export default async ({ instance, open, shoot, step }) => {
     await page.locator('#operator-panel textarea').evaluate((target) => {
       const data = new DataTransfer();
       const file = new File(['x'], 'huge.png', { type: 'image/png' });
-      Object.defineProperty(file, 'size', { value: 25000001 });
+      Object.defineProperty(file, 'size', { value: 31000000 });
       data.items.add(file);
       target.dispatchEvent(
         new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }),
@@ -146,8 +146,8 @@ export default async ({ instance, open, shoot, step }) => {
     await shoot(page, 'too-many', { widths: WIDTHS });
   });
   await step('Drop overlay', async () => {
-    await reset();
     await page.setViewportSize({ width: 1512, height: 982 });
+    await reset();
     await page.locator('#operator-panel').evaluate((target) => {
       const data = new DataTransfer();
       data.items.add(new File(['x'], 'screen.png', { type: 'image/png' }));
@@ -155,6 +155,7 @@ export default async ({ instance, open, shoot, step }) => {
         new DragEvent('dragenter', { dataTransfer: data, bubbles: true, cancelable: true }),
       );
     });
+    await page.getByText('Engedd el a csatoláshoz').waitFor({ state: 'visible' });
     await shoot(page, 'drop', { widths: [1512] });
   });
   await step('History and gallery', async () => {
@@ -163,6 +164,9 @@ export default async ({ instance, open, shoot, step }) => {
     state.messages = [message([attachment('single.png')])];
     await reset();
     await bothThemes('history-single');
+    state.messages = [message([attachment('screen.png')], 'A képen látható hibát szeretném megmutatni.')];
+    await reset();
+    await shoot(page, 'history-text', { widths: WIDTHS });
     state.messages = [
       message(images),
       message([attachment('report.pdf', 'pdf'), attachment('notes.txt', 'none'), gone]),

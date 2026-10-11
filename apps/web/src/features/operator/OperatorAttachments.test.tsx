@@ -134,9 +134,11 @@ describe('Operator message attachments', () => {
     expect(await screen.findByText(t('messageAttachments.fixFailed'))).toBeTruthy();
     expect(send().disabled).toBe(true);
     setFetchImplementation(original);
-    fireEvent.click(within(tray()).getByRole('button', { name: t('attachments.retry') }));
+    const failure = screen.getByRole('alert');
+    expect(tray().contains(failure)).toBe(false);
+    fireEvent.click(within(failure).getByRole('button', { name: t('attachments.retry') }));
     await ready();
-    expect(within(tray()).queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('rejects oversized and eleventh files before upload and restores focus after removal', async () => {
@@ -146,6 +148,7 @@ describe('Operator message attachments', () => {
     Object.defineProperty(oversized, 'size', { value: MAX_ATTACHMENT_BYTES + 1 });
     choose([oversized]);
     expect(screen.getByRole('alert').textContent).toContain('huge.png');
+    expect(screen.getByRole('alert').textContent).toContain('25,000001');
     expect(project.requests.some((request) => request.path === routes.messageAttachments('AC'))).toBe(false);
     choose(Array.from({ length: 11 }, (_, index) => file(`screen-${index}.png`)));
     await ready();

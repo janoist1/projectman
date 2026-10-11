@@ -118,11 +118,11 @@
 }
 .tray {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   list-style: none;
   padding: 6px 0;
   margin: 0;
-  overflow-x: auto;
 }
 .draft {
   position: relative;
@@ -192,19 +192,17 @@
 }
 .failed {
   border-color: var(--c-blocked);
-  margin-bottom: 56px;
-}
-.draftImage.failed {
-  margin-right: 90px;
 }
 .uploadError {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 150px;
   color: var(--c-blocked-text);
   font-size: var(--text-xs);
   overflow-wrap: anywhere;
+}
+@media (max-width: 639px) {
+  .tray {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
 }
 .uploadError button {
   border: 0;

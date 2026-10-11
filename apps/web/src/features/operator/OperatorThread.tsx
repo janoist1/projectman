@@ -238,11 +238,12 @@ export function OperatorThread({
               <p className={styles.introBody}>{t('operator.intro.approval')}</p>
             </>
           )}
-          <p className={styles.introBody}>
+          <p className={clsx(styles.introBody, styles.introAttachment)}>
             {isMobile ? (
               <>
                 {t('operator.intro.attachPhone', { icon: '|' }).split('|')[0]}
                 <Icon name="paperclip" size={14} />
+                <span className="visually-hidden">{t('messageAttachments.add')}</span>
                 {t('operator.intro.attachPhone', { icon: '|' }).split('|')[1]}
               </>
             ) : (

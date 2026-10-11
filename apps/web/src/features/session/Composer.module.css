@@ -61,6 +61,10 @@
   color: var(--c-ink-4);
 }
 
+.error {
+  color: var(--c-blocked-text);
+}
+
 @media (max-width: 767px) {
   .composer {
     /* The tab bar is hidden on this page, so the home indicator's inset is the composer's to keep. */

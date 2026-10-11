@@ -603,6 +603,14 @@ export function createDomain(opts: DomainOptions) {
       .then(() => admission.retryDeferred())
       .catch(() => ctx.logger.warn('could not refresh NanoGPT readiness'));
   });
+  // A card waiting for a member's capacity shows what holds the places (PM-297); it is read when the card is.
+  deferredStarts.useCapacity((projectKey, handle) => {
+    const config = projects.cachedConfig(projectKey);
+    const member = config && memberOf(config, handle);
+    return config && member?.kind === 'ai'
+      ? { holders: admission.holders(config, handle), capacity: member.capacity }
+      : undefined;
+  });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({
     ctx,

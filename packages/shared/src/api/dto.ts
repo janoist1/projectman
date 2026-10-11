@@ -43,7 +43,15 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import { Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting, Visibility } from '../domain/task';
+import {
+  CapacityHolder,
+  Task,
+  TaskKey,
+  TaskKind,
+  TaskPriority,
+  TaskStartWaiting,
+  Visibility,
+} from '../domain/task';
 
 export const CheckOutageResponse = z.object({
   item: InboxItem,
@@ -526,6 +534,8 @@ export const MemberProfile = z.object({
   sessions: z.array(Session),
   capacity: z.number().nullable(),
   capacityUsed: z.number(),
+  /** What takes the member's places (PM-297); filled in where `capacityUsed` is. */
+  capacityHolders: z.array(CapacityHolder).optional(),
   email: z.string().optional(),
   /** AI members: the tokens their sessions used lately (PM-178); omitted for humans and by older servers. */
   usage: MemberUsage.optional(),

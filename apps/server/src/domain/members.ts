@@ -730,6 +730,8 @@ export class MemberProfiles {
       .filter((i) => i.state === 'open' && i.assignees.includes(handle));
     const awaitingKeys = new Set(openInbox.map((i) => i.taskKey));
     const visibleTasks = visibleTasksOf(viewer, this.tasks.list(projectKey));
+    const capacityHolders =
+      original.kind === 'ai' && internal ? this.admission.holders(config, handle) : undefined;
     return {
       member,
       duties: memberDuties(config, original),
@@ -758,7 +760,8 @@ export class MemberProfiles {
               .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
           : [],
       capacity: original.kind === 'ai' ? original.capacity : null,
-      capacityUsed: original.kind === 'ai' && internal ? this.admission.memberLoad(config, handle) : 0,
+      capacityUsed: capacityHolders ? capacityHolders.length : 0,
+      ...(capacityHolders ? { capacityHolders } : {}),
       ...(original.kind === 'ai' && internal ? { usage: this.recentUsage(projectKey, handle) } : {}),
       ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.access) && original.email
         ? { email: original.email }

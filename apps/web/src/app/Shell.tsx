@@ -44,6 +44,8 @@ interface NavItem {
   label: string;
   active: boolean;
   badge?: number;
+  /** What the badge counts, for the screen reader; the inbox's wording when absent. */
+  badgeText?: 'feedback';
 }
 
 function useNavItems(inboxCount: number): {
@@ -90,6 +92,7 @@ function useNavItems(inboxCount: number): {
           label: t('nav.feedback'),
           active: under(`${base}/feedback`),
           badge: feedbackNav.badge,
+          badgeText: 'feedback' as const,
         }
       : null,
     howWeWork: can.readConfig
@@ -109,8 +112,12 @@ function useNavItems(inboxCount: number): {
   };
 }
 
-function BadgeText({ count }: { count: number }) {
-  return <span className="visually-hidden">, {t('nav.inboxCount', { count })}</span>;
+function BadgeText({ count, kind }: { count: number; kind?: NavItem['badgeText'] }) {
+  return (
+    <span className="visually-hidden">
+      , {kind === 'feedback' ? t('nav.feedbackCount', { count }) : t('nav.inboxCount', { count })}
+    </span>
+  );
 }
 
 /** Left navigation rail (desktop and tablet). */
@@ -138,7 +145,7 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
               <span className={styles.railBadge} aria-hidden="true">
                 {item.badge}
               </span>
-              <BadgeText count={item.badge} />
+              <BadgeText count={item.badge} kind={item.badgeText} />
             </>
           ) : null}
         </Link>

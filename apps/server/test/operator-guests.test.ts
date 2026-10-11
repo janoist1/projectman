@@ -6,6 +6,7 @@ import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { OPERATOR_GUEST_TOOLS } from '../src/domain/operator-requests';
 import { humanActor } from '../src/domain/util';
+import { buildClaudeArgs, buildSettings } from '../src/runner/providers/claude/args';
 import { canSeeProjectEvent } from '../src/domain/visibility';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -277,6 +278,64 @@ describe('a guest conversation has the team tools alone (PM-475)', () => {
     expect(guest.cwd).toContain(path.join('operator-guests', 'AR', 'cleo'));
     expect(guest.cwd).not.toBe(owner.cwd);
     expect(guest.cwd).not.toBe(h.workspace);
+  });
+
+  it('renders settings and arguments that leave the CLI the team tools alone, however the sandbox is set', async () => {
+    await setup();
+    await say('cleo', 'What is stuck?');
+    await say('owner', 'Hello');
+    const guest = startOf(conversationWith('cleo'));
+    const owner = startOf(ownerConversation());
+    const render = (spec: typeof guest) => {
+      const settings = buildSettings({
+        hookUrl: 'http://127.0.0.1:1/hook',
+        allowedTools: spec.allowedTools,
+        deniedTools: spec.deniedTools,
+        policy: spec.policy,
+        permissionTimeoutMs: 1000,
+        sandbox: spec.sandbox,
+      });
+      return { settings, args: buildClaudeArgs(spec, settings) };
+    };
+    const { settings, args } = render(guest);
+    expect(guest.policy).toMatchObject({ teamToolsOnly: true });
+    // The one built-in tool left is ToolSearch, which reaches the deferred team tools.
+    expect(args[args.indexOf('--tools') + 1]).toBe('ToolSearch');
+    expect(args).not.toContain('--add-dir');
+    expect(settings.permissions.allow.length).toBeGreaterThan(0);
+    expect(settings.permissions.allow.every((rule) => rule.startsWith('mcp__team__'))).toBe(true);
+    expect(settings.permissions.deny).toEqual(
+      expect.arrayContaining(['Bash', 'Read', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'Agent']),
+    );
+    // No rule opens a session folder (the others' included), the workspace or a command.
+    expect(guest.policy!.filesystem.sessionFolder).toBeUndefined();
+    expect(guest.policy!.filesystem.sessionFoldersRoot).toBeUndefined();
+    expect(JSON.stringify(settings.permissions.allow)).not.toMatch(/Read\(|Edit\(|Bash\(/);
+    // Nothing runs in the sandbox without asking either.
+    expect(settings.sandbox?.autoAllowBashIfSandboxed ?? false).toBe(false);
+
+    // The owner's conversation keeps its tools.
+    const ownerRendered = render(owner);
+    expect(owner.policy!.teamToolsOnly).toBeUndefined();
+    expect(ownerRendered.args[ownerRendered.args.indexOf('--tools') + 1]).toContain('Bash');
+  });
+
+  it('refuses to start where the CLI cannot be limited to the team tools', async () => {
+    h = await createDomainHarness({
+      adjust: (config) => {
+        withGuests(config);
+        for (const member of config.team.members)
+          if (member.kind === 'ai' && member.role === 'ai_operator') member.provider = 'codex';
+      },
+    });
+    const error = await rejection(
+      h.domain.messageStarts.startConversation('AR', 'operator', humanActor('dana')),
+    );
+    expect(error).toMatchObject({ code: 'provider_unsupported' });
+    // The owners' conversation is not limited.
+    await expect(
+      h.domain.messageStarts.startConversation('AR', 'operator', OWNER_ACTOR),
+    ).resolves.toMatchObject({ workItem: { type: 'general' } });
   });
 
   it('refuses a permission request at once, with no item for the owner, and notes it on the timeline', async () => {

@@ -835,6 +835,7 @@ export function buildSessionPolicy(input: {
     ...(placement.kind === 'review_copy' ? { reviewCopyMode } : {}),
     placement,
     tools: sessionToolsOf(input),
+    ...(input.teamToolsOnly ? { teamToolsOnly: true } : {}),
     filesystem: {
       readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
       writableRoots: permissions.sandbox === 'workspace-write' ? [...new Set(ownRoots)] : [],
@@ -891,6 +892,7 @@ function buildManagedVmPolicy(input: {
     access: 'member_workspace',
     placement,
     tools: sessionToolsOf(input),
+    ...(input.teamToolsOnly ? { teamToolsOnly: true } : {}),
     filesystem: {
       readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
       writableRoots: permissions.sandbox === 'read-only' ? [] : ownRoots,

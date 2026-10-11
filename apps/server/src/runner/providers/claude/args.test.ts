@@ -711,6 +711,59 @@ describe('the session folder rules (PM-333)', () => {
     });
     expect(settings.autoMode?.hard_deny.join('\n')).toContain("another session's folder");
   });
+
+  it('opens no folder, directory or command to a team-tools-only session, whatever the policy carries (PM-475)', () => {
+    const policy = {
+      ...policyWith({
+        sessionFolder: dir,
+        sessionFoldersRoot: root,
+        readOnlyPaths: ['/attachments'],
+        readableRoots: ['/work', '/elsewhere'],
+      }),
+      tools: {
+        team: { all: true, names: [] },
+        files: ['read', 'grep', 'glob'] as Array<'read' | 'grep' | 'glob'>,
+        shell: [{ command: 'git status', arguments: 'prefix' as const }],
+      },
+      teamToolsOnly: true,
+    };
+    const settings = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: ['Read', 'Bash'],
+      permissionTimeoutMs: 1000,
+      policy,
+      sandbox: { allowWrite: ['/work'], allowedDomains: [], allowLocalBinding: false },
+    });
+    expect(settings.permissions.allow).toEqual(['mcp__team__*']);
+    expect(settings.permissions.deny).toEqual(
+      expect.arrayContaining(['Bash', 'Read', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'Agent']),
+    );
+    expect(settings.sandbox?.autoAllowBashIfSandboxed).toBe(false);
+    const args = buildClaudeArgs({ ...spec, policy, cwd: '/work' }, settings);
+    expect(args[args.indexOf('--tools') + 1]).toBe('ToolSearch');
+    expect(args).not.toContain('--add-dir');
+  });
+
+  it('does the same inside the managed VM profile', () => {
+    const policy = {
+      ...policyWith({}),
+      execution: { profile: 'managed_vm' as const, boundary: { name: 'vm', version: 1 } },
+      permissions: {
+        claude: 'bypassPermissions' as const,
+        sandbox: 'workspace-write' as const,
+        approval: 'never' as const,
+      },
+      teamToolsOnly: true,
+    };
+    const settings = buildSettings({
+      hookUrl: 'http://h/hooks/t',
+      allowedTools: [],
+      permissionTimeoutMs: 1000,
+      policy,
+    });
+    expect(settings.permissions.allow).toEqual(['mcp__team__*']);
+    expect(settings.permissions.deny).toEqual(expect.arrayContaining(['Bash', 'Read']));
+  });
 });
 
 describe('buildMcpConfig', () => {

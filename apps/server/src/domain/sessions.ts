@@ -1625,6 +1625,14 @@ export class SessionOrchestrator {
     // The Operator's conversation with someone who is not an owner (PM-475) runs on the team tools
     // alone: no file or shell tools, an empty directory of its own, and every other tool refused.
     const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+    // Only the Claude Code adapter can leave a CLI with the team tools alone (`--tools` and deny rules);
+    // the others keep their own shell and file tools, so a guest conversation fails closed on them.
+    if (guestOf !== undefined && provider !== 'claude')
+      throw conflict(
+        'provider_unsupported',
+        `the Operator's conversation with others needs Claude Code; ${provider} cannot be limited to the team tools`,
+        { provider },
+      );
     const permissionMode =
       guestOf !== undefined ? 'default' : (permissions.permissionMode ?? member.permissionMode);
     const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
@@ -1910,9 +1918,12 @@ export class SessionOrchestrator {
     // The folder the sandbox kept and its root go into the policy: the adapter renders the file-tool
     // rules from it, and drops the legacy allow list beside a policy (PM-333).
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
+    // A team-tools-only guest conversation gets no session folder rules: it reads no file at all.
     const startPolicy = withSessionFolders(
       policy,
-      sessionFolder && folders ? { own: sessionFolder, root: folders.root } : undefined,
+      sessionFolder && folders && guestOf === undefined
+        ? { own: sessionFolder, root: folders.root }
+        : undefined,
     );
     const pack = this.deps.contextBuilder.build({
       ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),

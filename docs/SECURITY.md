@@ -312,12 +312,19 @@ answers, nothing more:
   among them until it filters by viewer (PM-465).
 - **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
   `canSeeTask` / `visibleTaskDetail` / `humanActor`, so a client sees only what is shared with them.
-- **No other way to data.** The session starts with the team tools alone (`teamToolsOnly`): no file,
-  shell or web tool, no extra readable directory, `default` permission mode, and its working
-  directory is an empty directory of its own (`guestSessionDir`), so it neither reads the
-  workspace, the worktrees, the attachments or the git history, nor shares a transcript with the
-  owners' conversation. A permission request from it is refused at once and never reaches the owner's
-  inbox. It has no memory section, and an AI member's message does not wake it.
+- **No other way to data.** The session starts with the team tools alone (`SessionPolicy.teamToolsOnly`).
+  The Claude Code adapter then renders: `--tools ToolSearch` (the one built-in tool that reaches the
+  deferred team tools), the deny rules `Bash`, `Read`, `Edit`, `Write`, `WebFetch`, `WebSearch` and `Agent`,
+  the allow rule `mcp__team__*` and nothing else (no session-folder rule, no read-only path, no command),
+  no `--add-dir`, and the sandbox (kept as a second wall) with `autoAllowBashIfSandboxed: false`. The
+  working directory is an empty directory of its own (`guestSessionDir`), the permission mode is `default`,
+  so it neither reads the workspace, the worktrees, the attachments, the git history or the owner's
+  transcripts, nor shares a transcript with the owners' conversation. A permission request from it is
+  refused at once and never reaches the owner's inbox. It has no memory section, and an AI member's
+  message does not wake it. The other CLIs (Codex, Gemini, NanoGPT) cannot be limited this way, so a
+  guest conversation with an Operator on one of them is refused (`provider_unsupported`); the owners'
+  conversation is unaffected. `apps/server/test/operator-guests.test.ts` and `claude/args.test.ts` pin
+  the rendered settings and arguments.
 - **Who sees the sessions.** The Operator's sessions (REST, the websocket, the terminal, the member
   profile) are visible to owners and admins only (`canSeeOperatorSessions`). Raw terminal input into
   the Operator's session is the owner's alone: an admin may watch, not type.

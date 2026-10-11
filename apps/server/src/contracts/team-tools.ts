@@ -31,6 +31,7 @@ import type {
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
+import type { ProjectStateReport, TaskStateReport } from './project-state';
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -218,6 +219,10 @@ export interface ScreenshotRun {
 }
 
 export interface TeamToolsHandler {
+  getProjectState(
+    ctx: ToolContext,
+    args: { taskKey?: string },
+  ): Promise<TaskStateReport | ProjectStateReport>;
   operate(
     ctx: ToolContext,
     args: { title: string; operation: OperatorOperation },

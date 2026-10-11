@@ -124,6 +124,18 @@ export class OperatorSignals {
     return OperatorSignal.parse(updated);
   }
 
+  /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
+  active(projectKey: string): OperatorSignal[] {
+    return this.deps.ctx.repos.operatorSignals
+      .list(projectKey)
+      .filter(
+        (s) =>
+          s.deliveredAt !== null && s.resolvedAt === null && (s.state === 'pending' || s.state === 'open'),
+      )
+      .sort((a, b) => a.raisedAt.localeCompare(b.raisedAt))
+      .map((s) => OperatorSignal.parse(s));
+  }
+
   channel(projectKey: string): { signals: OperatorSignal[]; openSignals: number } {
     const all = this.deps.ctx.repos.operatorSignals.list(projectKey);
     const since = this.deps.ctx.now().getTime() - 7 * 24 * 60 * 60_000;

@@ -87,6 +87,7 @@ import type { TaskStarts } from './admission';
 import type { OperatorOperation } from '@projectman/shared';
 import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
+import type { ProjectState } from './project-state';
 import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
@@ -224,6 +225,19 @@ const OWNER_ONLY = 'operator_owner_only';
  * to the calling AI member.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  private readonly projectState: ProjectState;
+
+  async getProjectState(ctx: ToolContext, args: { taskKey?: string }) {
+    return this.guard(async () => {
+      const config = await this.caller(ctx, 'get_project_state');
+      const member = memberOf(config, ctx.member);
+      if (!member || !isOperator(member))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.');
+      return args.taskKey
+        ? this.projectState.task(ctx.projectKey, this.validTaskKey(ctx, args.taskKey))
+        : this.projectState.overview(ctx.projectKey);
+    });
+  }
   async submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest) {
     try {
       await this.caller(ctx, 'submit_boundary_request');
@@ -374,6 +388,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 
   constructor(deps: {
+    projectState: ProjectState;
     boundary: BoundaryService;
     /** The network gate (its refused destinations); absent in older test setups. */
     egress?: EgressService;
@@ -427,6 +442,7 @@ export class TeamToolsService implements TeamToolsHandler {
     operatorSignals: OperatorSignals;
     taskStarts: TaskStarts;
   }) {
+    this.projectState = deps.projectState;
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
     this.operatorActions = deps.operatorActions;

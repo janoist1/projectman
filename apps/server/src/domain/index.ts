@@ -65,6 +65,8 @@ import { BoardService } from './board';
 import { OperatorRequests, OperatorSteps } from './operator-requests';
 import { OperatorSignals } from './operator-signals';
 import { ProjectManagerChannels } from './project-manager';
+import { ProjectState } from './project-state';
+export { ProjectState } from './project-state';
 import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
@@ -923,7 +925,17 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', recheckOperatorApprovals);
   events.on('session_ended', recheckOperatorApprovals);
   events.on('pause_changed', recheckOperatorApprovals);
+  const projectState = new ProjectState({
+    ctx,
+    projects,
+    tasks,
+    pauses,
+    deferred: deferredStarts,
+    taskWaits,
+    operatorSignals,
+  });
   const teamTools = new TeamToolsService({
+    projectState,
     merges,
     operatorRequests,
     operatorSteps,
@@ -1398,6 +1410,7 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    projectState,
     ctx,
     projectManagerChannels: new ProjectManagerChannels({
       ctx,

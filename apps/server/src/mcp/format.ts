@@ -1,5 +1,12 @@
 import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
-import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
+import type {
+  Attachment,
+  MemberView,
+  Task,
+  TimelineEvent,
+  WorkItemRef,
+  OperatorSignal,
+} from '@projectman/shared';
 import {
   cardQuestionLines,
   stateText,
@@ -31,6 +38,8 @@ import type {
   ScreenshotRun,
   SentMessageRecipient,
   TaskToolDetail,
+  TaskStateReport,
+  ProjectStateReport,
 } from '../contracts';
 
 /**
@@ -48,6 +57,114 @@ import type {
 export const MAX_DESCRIPTION_CHARS = 20_000;
 const MAX_TIMELINE_EVENTS = 20;
 const MAX_EVENT_TEXT_CHARS = 300;
+
+const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['reason'], string> = {
+  ai_limit_reached: 'The AI concurrency limit is reached.',
+  plan_usage_paused: 'Provider plan usage exceeds the admission threshold.',
+  provider_rate_limited: 'The provider quota cooldown has not ended.',
+  disk_low: 'There is too little free disk space.',
+  ai_disabled: 'AI work is disabled.',
+  team_paused: 'The team is paused.',
+  member_at_capacity: 'The member has no free capacity.',
+  member_on_leave: 'The member is on leave.',
+  repo_required: 'A repository must be chosen.',
+  workspace_busy: 'Another session holds the workspace.',
+  workspace_dirty: 'The workspace has unfinished changes.',
+  workspace_fetch_failed: 'The workspace could not fetch the default branch.',
+  prerequisite_open: 'A prerequisite is still open.',
+  no_free_member: 'No eligible member is free.',
+  label_missing: 'The start waits for labels.',
+  full_test_pending: 'The pinned commit full test has not finished.',
+  provider_not_logged_in: 'The provider is not logged in.',
+  nanogpt_key_missing: 'The managed NanoGPT key is missing.',
+  nanogpt_setup_incomplete: 'NanoGPT setup is incomplete.',
+  codex_setup_incomplete: 'Codex setup is incomplete.',
+  workspace_codex_config: 'Workspace Codex configuration prevents the start.',
+  senior_busy: 'No Senior is currently available.',
+  handoff_open: 'The assignee handoff has not finished.',
+  engine_offline: 'The execution engine is offline.',
+};
+
+/** State codes stay English; the Operator explains them in the project's language. */
+export function formatProjectState(report: TaskStateReport | ProjectStateReport): string {
+  if ('taskKey' in report) {
+    const lines = [
+      `${report.taskKey}: ${oneLine(report.title, 200)} · stage ${report.stageId} (${report.stageKind}) · assignee ${report.assignee ?? 'none'} · labels ${report.labels.join(', ') || 'none'}`,
+    ];
+    if (report.wait) lines.push(`- ${report.wait.reason}: ${describeTaskWait(report.wait)}`);
+    for (const signal of report.signals) lines.push(signalLine(signal));
+    const waiting = report.startWaiting;
+    if (waiting)
+      lines.push(
+        `- ${waiting.reason}: ${waitingExplanations[waiting.reason]} Since ${waiting.since}${waiting.member ? `; member ${waiting.member}` : ''}${waiting.prerequisites?.length ? `; prerequisites ${waiting.prerequisites.join(', ')}` : ''}${waiting.labels?.length ? `; labels ${waiting.labels.join(', ')}` : ''}${waiting.until ? `; until ${waiting.until}` : ''}.`,
+      );
+    const block = report.startBlock;
+    if (block) {
+      const explanations = {
+        refining: 'Refinement has not finished.',
+        held: 'Blocking labels prevent starting.',
+        approval: 'A human approval is required.',
+        unmet: 'Start gates are not met.',
+      };
+      const details =
+        block.kind === 'held' || block.kind === 'unmet'
+          ? block.labels.join(', ')
+          : block.kind === 'approval'
+            ? `${block.label}; approvers ${block.approvers.join(', ')}`
+            : block.refinement.steps
+                .filter((s) => !s.done)
+                .map((s) => s.label)
+                .join(', ');
+      lines.push(`- ${block.kind}: ${explanations[block.kind]} ${details}`);
+    }
+    if (report.missingGateLabels.length)
+      lines.push(`- missing_gate_labels: The next stage requires ${report.missingGateLabels.join(', ')}.`);
+    for (const q of report.openQuestions)
+      lines.push(`- open_question: ${q.id}, from ${q.from}, since ${q.at}: ${oneLine(q.title, 200)}`);
+    if (report.session)
+      lines.push(
+        `- session_${report.session.state}: ${report.session.member}, ${report.session.id}, since ${report.session.since}${report.session.state === 'idle' ? '; the session is idle.' : '.'}`,
+      );
+    const holds = {
+      fix_limit: 'The fix round limit requires a decision.',
+      senior_wait: 'The card waits for a Senior.',
+      loop: 'An open conversation loop is being watched.',
+      paused: 'Work is paused.',
+    };
+    for (const hold of report.holds) lines.push(`- ${hold}: ${holds[hold]}`);
+    if (lines.length === 1) lines.push('No recorded waiting reason.');
+    return lines.join('\n');
+  }
+  return [
+    `Pause: project ${report.paused.project}; instance ${report.paused.instance}.`,
+    'Cards by stage:',
+    ...report.stages.map((s) => `- ${s.stageId}: ${s.count}`),
+    'Live and idle sessions:',
+    ...report.sessions.map(
+      (s) => `- ${s.id}: ${s.member}, task ${s.taskKey ?? 'none'}, ${s.state}, since ${s.since}`,
+    ),
+    'Waiting starts:',
+    ...report.waitingStarts.map(
+      (s) => `- ${s.taskKey}, ${s.member ?? 'none'}: ${s.reason} — ${waitingExplanations[s.reason]}`,
+    ),
+    'Open owner inbox items:',
+    ...report.openOwnerItems.map(
+      (i) => `- ${i.id} (${i.kind}), task ${i.taskKey ?? 'none'}: ${oneLine(i.title, 200)}`,
+    ),
+    'Signals:',
+    ...report.signals.map(signalLine),
+  ].join('\n');
+}
+
+function signalLine(signal: OperatorSignal): string {
+  const explanations = {
+    outage: 'A provider or engine outage needs attention.',
+    nobody: 'Nobody can take the card on.',
+    stalled: 'The session is stalled.',
+    silent: 'The working session has been silent too long.',
+  };
+  return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
+}
 
 /* ---------- members ---------- */
 

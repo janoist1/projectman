@@ -5,10 +5,9 @@
  *
  *   a. the question in "Rád vár": an image, a long-named HTML, a PDF, the parent card's PDF and the deleted file
  *   b. the same in the dark theme
- *   c. the card's drawer, where the same question shows as the compact card
+ *   c. the card's drawer over "Rád vár" (PM-501), where the same question shows as the compact card, light and dark
  *   d. the image in the large view, and e. the large view when the image does not load
  *
- * The drawer over "Rád vár" (PM-501) is not on every checkout; the card's own drawer shows the same compact card.
  *
  *   npm run shots -- scripts/scenarios/inbox-attachments.mjs [--widths 1512,390]
  */
@@ -125,11 +124,25 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.emulateMedia({ colorScheme: 'light' });
   });
 
-  await step('c. the compact card in the drawer', async () => {
-    await page.goto(new URL(`/p/AC/tasks/${child}`, page.url()).href);
-    await group(page).waitFor();
-    await shoot(page, 'c-drawer', { widths: WIDTHS, highlight: `[role=group][aria-labelledby]` });
-  });
+  // The card's drawer over "Rád vár" (PM-501): the question shows again as the compact card, with its tiles.
+  const question = (await instance.api('/api/projects/AC/inbox')).items.find(
+    (item) => item.taskKey === child && item.kind === 'question',
+  );
+  if (!question) throw new Error('The scenario needs the open question of the card.');
+  for (const theme of ['light', 'dark']) {
+    await step(`c. the compact card in the drawer over Rád vár (${theme})`, async () => {
+      await page.goto(new URL('/p/AC/inbox', page.url()).href);
+      await page.emulateMedia({ colorScheme: theme });
+      await page.locator(`#inbox-item-${question.id} [data-inbox-card-link]`).click();
+      const drawer = page.getByRole('complementary', { name: 'Feladat részletei' });
+      await group(drawer).waitFor();
+      await shoot(page, `c-drawer-${theme}`, {
+        widths: WIDTHS,
+        highlight: `[role=complementary] [role=group][aria-labelledby]`,
+      });
+    });
+  }
+  await page.emulateMedia({ colorScheme: 'light' });
 
   await step('d. the image in the large view', async () => {
     await page.goto(new URL('/p/AC/inbox', page.url()).href);

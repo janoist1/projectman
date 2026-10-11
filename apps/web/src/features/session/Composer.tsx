@@ -27,6 +27,7 @@ interface ComposerProps {
   prefill?: { text: string; id: number } | null;
   /** Only message composers opt in; session input keeps its text-only behavior. */
   attachments?: ReturnType<typeof useMessageAttachmentUploads>;
+  attachmentHint?: string;
 }
 
 /** The field stops growing here (about five lines on a phone, so the chat keeps room beside the keyboard). */
@@ -49,6 +50,7 @@ export function Composer({
   closedNote,
   prefill,
   attachments,
+  attachmentHint,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -132,6 +134,9 @@ export function Composer({
           focusInput={() => ref.current?.focus()}
           disabled={disabled}
         />
+      ) : null}
+      {attachments?.items.length && attachmentHint ? (
+        <span className={styles.hint}>{attachmentHint}</span>
       ) : null}
       <div className={styles.row}>
         {attachments ? (

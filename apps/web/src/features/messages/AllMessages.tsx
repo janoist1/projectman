@@ -13,7 +13,9 @@ import { EmptyState, ErrorState, LoadingState } from '../../components/States';
 import { formatDayHeading, formatStamp } from '../../i18n/format';
 import { joinNames, t } from '../../i18n/t';
 import { nameOf, namesOf } from '../../lib/members';
-import { plainText } from './conversations';
+import { attachmentPreview, plainText } from './conversations';
+import { Icon } from '../../components/Icon';
+import { MessageAttachments } from './MessageAttachments';
 import { deliveryState, receiptsOf } from './receipts';
 import { TaskChip } from './TaskChip';
 import type { ThreadComposeRequest } from './ConversationThread';
@@ -210,7 +212,17 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       <time className={styles.time} dateTime={message.createdAt}>
                         {formatStamp(message.createdAt)}
                       </time>
-                      {expanded ? null : <span className={styles.preview}>{plainText(message.body)}</span>}
+                      {expanded ? null : (
+                        <span className={styles.preview}>
+                          {message.body.trim() ? (
+                            plainText(message.body)
+                          ) : (
+                            <>
+                              <Icon name="paperclip" size={12} /> {attachmentPreview(message)}
+                            </>
+                          )}
+                        </span>
+                      )}
                     </button>
                     <div className={styles.detail}>
                       {message.taskKey ? (
@@ -222,7 +234,10 @@ export function AllMessages({ onCompose }: { onCompose: (request: ThreadComposeR
                       ) : null}
                       {expanded ? (
                         <>
-                          <Markdown text={message.body} className={styles.body} />
+                          {message.body.trim() ? (
+                            <Markdown text={message.body} className={styles.body} />
+                          ) : null}
+                          <MessageAttachments files={message.attachments ?? []} from={message.from} />
                           <div className={styles.more}>
                             <span>
                               {receipts

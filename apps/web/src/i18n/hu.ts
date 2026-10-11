@@ -2883,6 +2883,8 @@ export const hu = {
     next: 'Következő',
     position: '{index} / {count}',
     previewOne: '{fileName}',
+    cardHint: 'A fájl csak ennél az üzenetnél lesz, a kártya mellékletei közé nem kerül.',
+    timelineExcerpt: 'csatolmány',
     previewMany: '{count} csatolmány',
     pastedName: 'kepernyokep-{stamp}.png',
     hint: 'Enter: küldés · Shift+Enter: új sor · képet be is illeszthetsz',

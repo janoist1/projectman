@@ -4,6 +4,18 @@
   gap: 6px;
   margin-top: 6px;
 }
+.drop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-content: center;
+  border: 2px dashed var(--c-accent);
+  background: var(--c-surface);
+  opacity: 0.92;
+  pointer-events: none;
+  transition: opacity 120ms;
+}
 .grid {
   display: grid;
   gap: 4px;

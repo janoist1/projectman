@@ -1,10 +1,18 @@
 .form {
+  position: relative;
   display: grid;
   gap: 16px;
   padding: 20px;
   background: var(--c-surface);
   border: 1px solid var(--c-line);
   border-radius: var(--radius-lg);
+}
+.hint {
+  font-size: 12px;
+  color: var(--c-ink-4);
+}
+.hint [role='alert'] {
+  color: var(--c-danger);
 }
 .recipients {
   display: flex;

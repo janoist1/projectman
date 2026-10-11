@@ -771,7 +771,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(
         t('timeline.events.team_message', {
           to: joinNames(namesOf(strings(d.to), ctx.members, ctx.myHandle)),
-          excerpt: str(d.excerpt),
+          excerpt: str(d.excerpt) || t('messageAttachments.timelineExcerpt'),
         }),
       );
     case 'permission_requested':

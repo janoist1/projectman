@@ -30,6 +30,11 @@ export function MessageAttachments({
   const [error, setError] = useState<string | null>(null);
   const [restoreInput, setRestoreInput] = useState(false);
   const trigger = useRef<HTMLElement | null>(null);
+  const container = useRef<HTMLDivElement>(null);
+  const fallbackInput = () =>
+    container.current
+      ?.closest('[data-message-composer], #operator-panel')
+      ?.querySelector<HTMLTextAreaElement>('textarea') ?? null;
   const images = files.filter((file) => file.preview === 'image' && !file.goneAt);
   const open = images.find((file) => file.id === openId) ?? null;
   const index = images.findIndex((file) => file.id === openId);
@@ -51,7 +56,7 @@ export function MessageAttachments({
   }, [openId, open]);
   useEffect(() => {
     if (!restoreInput) return;
-    document.querySelector<HTMLTextAreaElement>('#operator-panel textarea')?.focus();
+    fallbackInput()?.focus();
     setRestoreInput(false);
   }, [restoreInput]);
   const deleteFile = (id: string) => {
@@ -81,7 +86,12 @@ export function MessageAttachments({
   );
   if (!files.length) return null;
   return (
-    <div className={styles.attachments} role="group" aria-label={t('messageAttachments.groupLabel')}>
+    <div
+      ref={container}
+      className={styles.attachments}
+      role="group"
+      aria-label={t('messageAttachments.groupLabel')}
+    >
       {images.length ? (
         <div className={`${styles.grid} ${images.length === 1 ? styles.one : styles.many}`}>
           {images.slice(0, 4).map((file, position) => (
@@ -170,7 +180,7 @@ export function MessageAttachments({
           image={open ? { ...open, src: routes.messageAttachmentContent(key, open.id) } : null}
           messageAttachment
           returnFocusRef={trigger}
-          returnFocusFallback={() => document.querySelector<HTMLTextAreaElement>('#operator-panel textarea')}
+          returnFocusFallback={fallbackInput}
           onClose={() => {
             setOpenId(null);
             setConfirmId(null);

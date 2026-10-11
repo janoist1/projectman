@@ -10,6 +10,7 @@ import { joinNames, t } from '../../i18n/t';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import styles from './MessageList.module.css';
+import { attachmentPreview } from './conversations';
 
 interface MessageListProps {
   messages: readonly TeamMessage[];
@@ -89,7 +90,12 @@ export function MessageList({
                   {formatStamp(message.createdAt)}
                 </time>
               </div>
-              <p className={styles.body}>{message.body}</p>
+              {message.body.trim() ? <p className={styles.body}>{message.body}</p> : null}
+              {message.attachments?.length ? (
+                <p className={styles.body}>
+                  <Icon name="paperclip" size={12} /> {attachmentPreview(message)}
+                </p>
+              ) : null}
               <div className={styles.foot}>
                 {message.taskKey ? (
                   <Link to={`/p/${projectKey}/tasks/${message.taskKey}`} className={styles.task}>

@@ -135,6 +135,10 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     profile (decision 26): members there may publish their own task branches through a
     restricted gate and a separate GitHub identity, never `main` (PM-142); everywhere else
     agents do not push._
+    **Addition, 2026-10-11 (PM-386):** in PM, the merger member (`team.merger`, here
+    `claude`) merges reviewed work and pushes `main` through `merge_task`. Code review is
+    sufficient: no per-card owner approval or `merge-approved` label is required. The safeguards
+    are the full test at merge and the owner's approval of the live update.
 22. **One word per thing in the Hungarian UI.** Decided by the owner on 2026-10-01, answering
     the reviewer's question on PM-96. A session is a "munkamenet" (not "session") and a
     pipeline stage is a "lépés" (not "szakasz"). Developer words stay out of plain UI text:
@@ -297,6 +301,11 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     check of a card is the integrating session's merge test before `main` moves (the whole suite
     when shared code or configuration changed). The owner's first idea, a full test only when a
     collecting card is finished, was set aside because its parts reach `main` one by one.
+    **Addition, 2026-10-11 (PM-386):** the server runs the card's single full check at merge,
+    in its full test sandbox (`npm run merge-test`), before `main` moves. Tests that cannot run
+    there are skipped with `describe.skipIf` when `PROJECTMAN_FULL_TEST_SANDBOX=1` and run
+    outside the sandbox before every live deployment. A failure prevents the live instance
+    from being updated. PM-387 implements that deployment check.
 41. **Outbound network is a per-member setting, on by default.** Decided by the owner on
     2026-10-05 (PM-355), in three answers: the scope is „Csak a kimenő hálózat, ki/be” (one
     on/off switch, no address list); the default is „Mindenkinek be” (every role, the read-only

@@ -1182,6 +1182,18 @@ export const hu = {
   },
 
   taskStatus: {
+    /** The card's line while a merge into the main branch is open (PM-453), where there is no "Miért áll?" row. */
+    merge: {
+      running: 'Beolvasztás · {step}',
+      queued: 'Beolvasztás: sorra vár',
+      steps: {
+        queued: 'sorra vár',
+        merging: 'összefésülés',
+        checking: 'ellenőrzés fut',
+        pushing: 'felküldés',
+        finishing: 'lezárás',
+      },
+    },
     startWaiting: {
       ai_limit_reached: 'Indulásra vár: túl sok AI dolgozik',
       plan_usage_paused: 'Indulásra vár: a {provider}-keret {percent}% fölött szünetel',
@@ -1341,9 +1353,14 @@ export const hu = {
         },
         handOn: '{mover} viszi tovább',
         handOnYou: 'kész a munka, vidd tovább',
-        merge: 'beolvasztás a fő ágba',
-        mergeYou: 'olvaszd be a fő ágba',
-        mergeRunning: 'beolvasztás folyamatban',
+        merge: 'beolvasztásra vár',
+        mergeYou: 'beolvasztás',
+        mergeConflict: 'nem olvasztható be',
+        mergeConflictYou: 'ütközés',
+        mergeCheckFailed: 'nem olvasztható be',
+        mergeCheckFailedYou: 'elbukott az ellenőrzés',
+        mergeBlocked: 'a beolvasztás elakadt',
+        mergeBlockedYou: 'beolvasztás elakadt',
         approval: 'jóváhagyás: {from} → {to}',
         fixLimit: 'dönt {rounds} javítási kör után',
         fixLimitYou: 'döntés {rounds} javítási kör után',
@@ -1363,7 +1380,8 @@ export const hu = {
         handOn: '{owner} végzett ebben a lépésben: {step}.',
         handOnNoOwner: 'A munka ebben a lépésben kész: {step}.',
         merge: 'A kártya jóváhagyott munkáját a fő ágba kell beolvasztani.',
-        mergeRunning: 'A jóváhagyott munka beolvasztása folyamatban van.',
+        mergeFailed: 'A beolvasztás nem sikerült. A fő ág nem változott.',
+        mergeBlocked: 'A beolvasztás elakadt. A kártya dobozában áll, miért.',
         approval: 'A következő lépéshez jóváhagyás kell: {labels}.',
         fixLimit: '{rounds} javítási kör után a kártya áll, és döntés kell.',
         held: 'A kártya áll, amíg rajta van: {labels}.',
@@ -1383,7 +1401,10 @@ export const hu = {
         handOnYou: 'Nézd meg, és vidd tovább.',
         merge: 'Semmit: {merger} olvasztja be a jóváhagyott munkát a fő ágba.',
         mergeYou: 'Olvaszd be a kártya jóváhagyott munkáját a fő ágba.',
-        mergeRunning: 'Semmit: a beolvasztás magától halad.',
+        mergeFailed: 'Semmit: {merger} javítja, vagy okkal visszaküldi a fejlesztőnek.',
+        mergeFailedYou: 'Javítsd az ütközést, és olvaszd be újra, vagy küldd vissza a fejlesztőnek.',
+        mergeBlocked: 'Semmit: {merger} próbálja újra.',
+        mergeBlockedYou: 'Hárítsd el az okát, és próbáld újra.',
         approval: 'Döntsd el: jóváhagyod vagy elutasítod.',
         approvalOther: 'Semmit: {who} jóváhagyására vár.',
         fixLimit: 'Döntsd el, hogyan menjen tovább.',
@@ -1625,6 +1646,135 @@ export const hu = {
       success: 'A feladatot áthelyeztük.',
       pending: 'Áthelyezés folyamatban…',
       dropTarget: 'Ide helyezhető: {stage}',
+      /** The condition row "the approved work is in the main branch" and where it stands (PM-453). */
+      merge: {
+        condition: 'a jóváhagyott munka bent van a {base} ágban',
+        met: 'beolvasztva',
+        waiting: 'beolvasztásra vár',
+        running: 'beolvasztás folyamatban',
+        failed: 'a beolvasztás nem sikerült',
+        blocked: 'a beolvasztás elakadt',
+        none: 'még nincs',
+      },
+    },
+    /** The merge into the main branch (PM-453): the card's boxes, buttons and the refusal of a move. */
+    merge: {
+      button: 'Beolvasztás',
+      starting: 'Beolvasztás…',
+      again: 'Újra beolvasztás',
+      retry: 'Újrapróbálás',
+      retrying: 'Újrapróbálás…',
+      sendBack: 'Vissza a fejlesztőnek',
+      openCard: 'Kártya megnyitása',
+      details: 'Részletek',
+      /** The work the merge is about: the commit when it is known, else "the approved work". */
+      what: 'A {commit} commit',
+      whatUnknown: 'A jóváhagyott munka',
+      whatLower: 'a {commit} commit',
+      whatLowerUnknown: 'a jóváhagyott munka',
+      requested: {
+        title: 'Beolvasztható',
+        pushCheck: '{what} a {base} ágba kerül, és felkerül a GitHubra; előtte lefut a(z) {check}.',
+        check: '{what} a {base} ágba kerül; előtte lefut a(z) {check}.',
+        push: '{what} a {base} ágba kerül, és felkerül a GitHubra. Ellenőrzés nincs beállítva.',
+        plain: '{what} a {base} ágba kerül. Ellenőrzés nincs beállítva.',
+      },
+      queued: {
+        title: 'Beolvasztás: sorra vár',
+        text: 'Egy másik beolvasztás fut ebben a tárhelyben.',
+      },
+      running: {
+        title: 'Beolvasztás a {base} ágba',
+        you: 'Te indítottad.',
+        by: '{who} indította.',
+        merge: 'Összefésülés: {commit} → {base}',
+        check: 'Ellenőrzés: {check}',
+        push: 'Felküldés a GitHubra',
+        done: 'kész',
+        active: 'folyamatban',
+        todo: 'még nem kezdődött el',
+        failed: 'nem sikerült',
+      },
+      failed: {
+        conflictTitle: 'Nem sikerült beolvasztani: ütközés',
+        checkTitle: 'Nem sikerült beolvasztani: elbukott az ellenőrzés',
+        unchanged: 'A {base} nem változott.',
+        files: 'Ütköző fájlok ({count})',
+        output: 'A teszt kimenete (vége)',
+        guidance:
+          'Egyszerű ütközés? Javítsd a kártya ágán, és olvaszd be újra. Ha a működést érinti, okkal küldd vissza a fejlesztőnek.',
+        others: '{merger} javítja, vagy okkal visszaküldi a fejlesztőnek. A {base} nem változott.',
+      },
+      blocked: {
+        title: 'A beolvasztás elakadt',
+        nowhere: 'A {base} sehol nem változott.',
+        remote: 'A GitHubra felkerült, a gépen még nem.',
+        remoteOther: 'A távoli tárhelyre felkerült, a gépen még nem.',
+        stepMerge: 'Összefésülés és ellenőrzés',
+        stepPush: 'Felküldés',
+        stepOk: 'sikerült',
+        stepFailed: 'elakadt',
+        others: '{merger} próbálja újra; ha nem tudja elhárítani, a tulajdonoshoz fordul.',
+        /** Why it stopped: the sentence for each reason; the `Remote` form is for a repo with no GitHub. */
+        reasons: {
+          push_rejected:
+            'A GitHub nem fogadta el a feltöltést: nincs írási jog a(z) {repo} tárhelyhez, vagy a {base} ág védett.',
+          remote_unreachable: 'A GitHub nem érhető el. Ellenőrizd a hálózatot, és próbáld újra.',
+          remote_moved:
+            'A GitHubon közben új commit került a {base} ágba, újrafésülés után is. Próbáld újra: a rendszer a friss {base} ágra fésüli.',
+          base_out_of_sync:
+            'A gépen a {base} ágban olyan commit van, ami a GitHubon nincs. Hozd össze a kettőt, és próbáld újra.',
+          pull_request:
+            'A kártya pull requestje nem egyezik a jóváhagyott munkával: más az alapága, vagy jóvá nem hagyott commit van rajta. Rendezd, és próbáld újra.',
+          local_checkout:
+            'A gépen a {base} ágban el nem mentett változás van, amit a beolvasztás felülírna. Mentsd el vagy dobd el, és próbáld újra.',
+          local_checkout_remote:
+            'A GitHubra felkerült, de a gépen a {base} ágat nem lehetett előreléptetni: el nem mentett változás van benne. Mentsd el vagy dobd el, és próbáld újra.',
+          check_error:
+            'Az ellenőrzés ({check}) nem futott végig: hibával leállt, nem bukott el. Nézd meg a részleteket, és próbáld újra.',
+          check_unavailable:
+            'A kártya gépén nem futtatható az ellenőrzés ({check}), ellenőrzés nélkül pedig nem olvaszt be a rendszer.',
+          engine_unavailable:
+            'A gép, amelyen a kártya dolgozik, most nem érhető el. Ha újra elérhető, próbáld újra.',
+          gate_changed:
+            'Közben megváltozott a kártya, és a {target} feltételei már nem teljesülnek. Pótold, ami hiányzik, és próbáld újra.',
+          merge_error: 'Váratlan hiba történt a beolvasztás közben. A részletekben látszik, mi.',
+        },
+        reasonsRemote: {
+          push_rejected:
+            'A távoli tárhely nem fogadta el a feltöltést: nincs írási jog a(z) {repo} tárhelyhez, vagy a {base} ág védett.',
+          remote_unreachable: 'A távoli tárhely nem érhető el. Ellenőrizd a hálózatot, és próbáld újra.',
+          remote_moved:
+            'A távoli tárhelyen közben új commit került a {base} ágba, újrafésülés után is. Próbáld újra: a rendszer a friss {base} ágra fésüli.',
+          base_out_of_sync:
+            'A gépen a {base} ágban olyan commit van, ami a távoli tárhelyen nincs. Hozd össze a kettőt, és próbáld újra.',
+          local_checkout_remote:
+            'A távoli tárhelyre felkerült, de a gépen a {base} ágat nem lehetett előreléptetni: el nem mentett változás van benne. Mentsd el vagy dobd el, és próbáld újra.',
+        },
+      },
+      /** The refusal of a move into a step that wants the approved work merged (`task_not_merged`). */
+      refused: {
+        notMerged: 'Még nincs beolvasztva: {merger} olvasztja be a {base} ágba. Utána léphet ide: {target}.',
+        notMergedMerger: 'Előbb olvaszd be: {what} még nincs a {base} ágban.',
+        notOnRemote: 'A gépen a {base} ágban bent van, a GitHubon még nincs. {merger} küldi fel.',
+        notOnRemoteMerger: 'Előbb küldd fel: a gépen a {base} ágban bent van, a GitHubon még nincs.',
+        notOnRemoteRemote:
+          'A gépen a {base} ágban bent van, a távoli tárhelyen még nincs. {merger} küldi fel.',
+        notOnRemoteMergerRemote:
+          'Előbb küldd fel: a gépen a {base} ágban bent van, a távoli tárhelyen még nincs.',
+        engine: 'Most nem látom, bent van-e a munka: a kártya gépe nem érhető el. Próbáld újra később.',
+        group: 'beolvasztásra vár ({merger})',
+      },
+      /** The row of the properties list once the work is in the main branch. */
+      merged: {
+        label: 'Beolvasztva',
+        /** What follows the merge commit, which links to GitHub when it was pushed. */
+        value: '{base} · {by} · {ago}',
+        valueNoBy: '{base} · {ago}',
+        found: '{commit} · {base} · kézzel beolvasztva',
+        checked: 'ellenőrzés: {check}, sikeres',
+        unchecked: 'ellenőrzés nélkül',
+      },
     },
     drawerLabel: 'Feladat részletei',
     size: {
@@ -2630,6 +2780,7 @@ export const hu = {
       wait_for_senior: 'Várjon tovább',
       any_developer: 'Kapja meg egy szabad fejlesztő',
       move: 'Tovább',
+      merge: 'Beolvasztás',
     },
     /** A Senior card that has waited too long for a Senior (PM-348/PM-349): wait on, or any free developer. */
     seniorWait: {
@@ -2811,6 +2962,15 @@ export const hu = {
       },
     },
     /** "Vidd tovább" (PM-461): the work of a step is done and the viewer is the card mover. */
+    /** The request to the merger (PM-453); the texts of what merging does and why it failed are the card's. */
+    mergeRequest: {
+      title: 'Beolvasztás: {key}',
+      failedTitle: 'Nem sikerült beolvasztani: {key}',
+      open: 'Kártya megnyitása',
+    },
+    mergeBlocked: {
+      title: 'A beolvasztás elakadt: {key}',
+    },
     handOn: {
       text: '{owner} végzett ebben a lépésben: {step}. A következő oszlop: {stage}.',
       move: 'Tovább: {stage}',
@@ -2829,6 +2989,7 @@ export const hu = {
       reject: 'Elutasítva',
       answer: 'Megválaszolva',
       move: 'Továbbment',
+      merge: 'Beolvasztva',
       seen: 'Láttam',
       option: 'Válasz: {label}',
       expired: 'Lejárt',
@@ -3268,6 +3429,21 @@ export const hu = {
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
+      task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
+      task_merged_found: 'Bent van a {base} ágban: {commit} (kézzel beolvasztva).',
+      merged_checked: 'ellenőrzés: {check}, sikeres',
+      merged_unchecked: 'ellenőrzés nélkül',
+      merged_pushed_github: 'felküldve a GitHubra',
+      merged_pushed: 'felküldve a távoli tárhelyre',
+      merged_pull: 'PR #{number} merge-elve',
+      task_merge_failed: 'Nem sikerült beolvasztani: {what}. A fő ág nem változott.',
+      merge_failed_conflict: 'ütközés ({count} fájl)',
+      merge_failed_conflict_unnamed: 'ütközés',
+      merge_failed_check: 'elbukott az ellenőrzés ({check})',
+      merge_failed_check_unnamed: 'elbukott az ellenőrzés',
+      task_merge_blocked: 'A beolvasztás elakadt: {reason}',
+      merge_target_unknown: 'a következő lépés',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
       task_stage_changed_branch_moved:
         'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',
@@ -3926,6 +4102,21 @@ export const hu = {
     team: {
       role: 'Szerep',
       manage: 'Tagok kezelése a Csapat oldalon',
+      merger: {
+        label: 'Beolvasztó',
+        help: 'Ő olvasztja be a jóváhagyott munkát a fő ágba. A rendszer magától nem olvaszt be.',
+        kindLabel: 'Ki olvasztja be',
+        codeReviewer: 'A kódátnéző ({name})',
+        codeReviewerUnknown: 'A kódátnéző',
+        developer: 'A kártya fejlesztője',
+        member: 'Megnevezett tag',
+        memberLabel: 'Tag',
+        value: {
+          codeReviewer: 'A kódátnéző',
+          developer: 'A kártya fejlesztője',
+          member: '{name}',
+        },
+      },
     },
     limits: {
       boundaryEnabled: 'Külső műveletek delegálása',
@@ -3995,6 +4186,23 @@ export const hu = {
       github: 'GitHub',
       defaultBranch: 'Alapág',
       none: 'Nincs repó beállítva; a munka a munkaterület gyökerében folyik.',
+      merge: {
+        label: 'Beolvasztás',
+        labelOf: 'Beolvasztás · {repo}',
+        required: 'Kell: csak beolvasztva léphet ide: {target}',
+        notRequired: 'Nem kell',
+        defaultRequired: 'Alapérték (kell)',
+        defaultNotRequired: 'Alapérték (nem kell)',
+        helpRequired:
+          'A kártya csak akkor léphet ide: {target}, ha a munkáját beolvasztották ebbe az ágba: {base}.',
+        helpNotRequired:
+          'A kártya beolvasztás nélkül is léphet ide: {target}; a munkát nem a beolvasztó viszi be a(z) {base} ágba.',
+        helpDefault: 'Az alapérték szerint {state}.',
+        stateRequired: 'a beolvasztás kell',
+        stateNotRequired: 'a beolvasztás nem kell',
+        check: 'Ellenőrzés: {command}',
+        noCheck: 'Ellenőrzés: nincs',
+      },
     },
     history: {
       intro: 'A csapat, a folyamat és a keretek mentett változásai. A kód előzménye a repóban van.',
@@ -4035,6 +4243,12 @@ export const hu = {
       saved: 'A beállítások mentve.',
     },
     issues: {
+      merger_unresolved: 'Nincs, aki beolvasszon: {ok}.',
+      mergerReason: {
+        code_reviewer: 'nincs kódátnézési lépés a beolvasztás célja előtt',
+        developer: 'nincs fejlesztési lépés a beolvasztás célja előtt',
+        member: '{handle} nem tagja a csapatnak, vagy nem olvaszthat be',
+      },
       invalid_value: 'Érvénytelen érték.',
       invalid_type: 'Nem megfelelő értéktípus.',
       too_small: 'Az érték túl kicsi vagy kötelező mező hiányzik.',

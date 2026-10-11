@@ -45,20 +45,20 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
     expect(next).toMatchObject({
       head: 'Rád vár',
       you: true,
-      waiting: 'olvaszd be a fő ágba',
+      waiting: 'beolvasztás',
       long: 'A kártya jóváhagyott munkáját a fő ágba kell beolvasztani.',
       todo: 'Olvaszd be a kártya jóváhagyott munkáját a fő ágba.',
       who: [{ handle: 'owner', kind: 'human', you: true }],
       toStageId: 'done',
       tone: 'needs',
     });
-    expect(next.line).toBe('Rád vár · olvaszd be a fő ágba');
+    expect(next.line).toBe('Rád vár · beolvasztás');
   });
 
   it('names an AI merger without asking another viewer to merge the card', () => {
     const next = deriveNext(task, wait({ reason: 'merge', next: [ai('be-1')], toStageId: 'done' }), ctx())!;
     expect(next.you).toBe(false);
-    expect(next.waiting).toBe('beolvasztás a fő ágba');
+    expect(next.waiting).toBe('beolvasztásra vár');
     expect(next.who).toEqual([{ handle: 'be-1', kind: 'ai', you: false }]);
     expect(next.todo).toBe(t('taskStatus.next.todo.merge', { merger: next.head }));
     expect(next.toStageId).toBe('done');
@@ -71,36 +71,80 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
     expect(t('inbox.kindsLower.merge_request')).toBe('beolvasztás');
   });
 
-  it.each(['queued', 'running'] as const)('does not request another start for a %s merge', (state) => {
-    const merging: Task = {
-      ...task,
-      merge: {
-        id: 'merge-1',
-        repo: 'app',
-        base: 'main',
-        toStageId: 'done',
-        merger: 'owner',
-        requestedAt: '2026-10-01T10:00:00.000Z',
-        state,
-        landed: 'nowhere',
+  const withMerge = (
+    merge: Partial<NonNullable<Task['merge']>> & Pick<NonNullable<Task['merge']>, 'state'>,
+  ): Task => ({
+    ...task,
+    merge: {
+      id: 'merge-1',
+      repo: 'app',
+      base: 'main',
+      toStageId: 'done',
+      merger: 'owner',
+      requestedAt: '2026-10-01T10:00:00.000Z',
+      landed: 'nowhere',
+      ...merge,
+    },
+  });
+
+  it.each(['queued', 'running'] as const)(
+    'leaves a %s merge to the card state and never asks for a start',
+    (state) => {
+      for (const myHandle of ['owner', 'be-1'])
+        expect(
+          deriveNext(
+            withMerge({ state }),
+            wait({ reason: 'merge', next: [human('owner')], toStageId: 'done' }),
+            ctx({ myHandle }),
+          ),
+        ).toBeNull();
+    },
+  );
+
+  it('tells a failed merge to the merger as the conflict or the check, and to others as waiting', () => {
+    const conflict = withMerge({
+      state: 'failed',
+      failure: { reason: 'conflict', at: '2026-10-01T10:00:00.000Z', base: 'abc1234', files: ['a.ts'] },
+    });
+    const check = withMerge({
+      state: 'failed',
+      failure: {
+        reason: 'check_failed',
+        at: '2026-10-01T10:00:00.000Z',
+        base: 'abc1234',
+        command: 'npm test',
       },
-    };
-    for (const myHandle of ['owner', 'be-1']) {
-      const next = deriveNext(
-        merging,
-        wait({ reason: 'merge', next: [human('owner')], toStageId: 'done' }),
-        ctx({ myHandle }),
-      )!;
-      expect(next).toMatchObject({
-        you: false,
-        waiting: 'beolvasztás folyamatban',
-        long: 'A jóváhagyott munka beolvasztása folyamatban van.',
-        todo: 'Semmit: a beolvasztás magától halad.',
-        tone: 'neutral',
-        toStageId: 'done',
-      });
-      expect(next.line).not.toContain('Rád vár');
-    }
+    });
+    const w = wait({ reason: 'merge', next: [human('owner')], toStageId: 'done' });
+    expect(deriveNext(conflict, w, ctx())).toMatchObject({ you: true, waiting: 'ütközés', tone: 'needs' });
+    expect(deriveNext(check, w, ctx())).toMatchObject({
+      you: true,
+      waiting: 'elbukott az ellenőrzés',
+      tone: 'needs',
+    });
+    expect(deriveNext(conflict, w, ctx({ myHandle: 'be-1' }))).toMatchObject({
+      you: false,
+      waiting: 'nem olvasztható be',
+      tone: 'neutral',
+    });
+  });
+
+  it('tells a blocked merge to the merger as a task and to others as blocked', () => {
+    const blocked = withMerge({
+      state: 'blocked',
+      block: { reason: 'push_rejected', message: 'rejected', at: '2026-10-01T10:00:00.000Z' },
+    });
+    const w = wait({ reason: 'merge', next: [human('owner')], toStageId: 'done' });
+    expect(deriveNext(blocked, w, ctx())).toMatchObject({
+      you: true,
+      waiting: 'beolvasztás elakadt',
+      tone: 'needs',
+    });
+    expect(deriveNext(blocked, w, ctx({ myHandle: 'be-1' }))).toMatchObject({
+      you: false,
+      waiting: 'a beolvasztás elakadt',
+      tone: 'blocked',
+    });
   });
 
   it.each(['working', 'handing_off', 'ready'] as const)("keeps today's line for %s", (reason) => {

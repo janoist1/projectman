@@ -6,11 +6,12 @@ import {
   TaskRelationKind,
   TaskPriority,
 } from '@projectman/shared';
-import type { LabelView, TimelineEvent } from '@projectman/shared';
+import type { LabelView, MergeBlockReason, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
 import { fallbackReasonText, handoffEndName, noteExcerpt, providerName } from './handoff';
 import { labelName } from './labels';
+import { mergeBlockText } from './merge';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
@@ -290,13 +291,77 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
     case 'task_merge_requested':
-      return normal(str(d.base));
-    case 'task_merge_failed':
-      return normal(str(d.reason));
-    case 'task_merged':
-      return normal(str(d.mergeCommit));
-    case 'task_merge_blocked':
-      return normal(str(d.message));
+      return normal(
+        t('timeline.events.task_merge_requested', {
+          merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
+        }),
+      );
+    case 'task_merge_failed': {
+      const files = strings(d.files);
+      const check = str(d.command);
+      const output = str(d.outputTail);
+      const detail = [files.join('\n'), output].filter(Boolean).join('\n\n');
+      const what =
+        d.reason === 'check_failed'
+          ? check
+            ? t('timeline.events.merge_failed_check', { check })
+            : t('timeline.events.merge_failed_check_unnamed')
+          : files.length
+            ? t('timeline.events.merge_failed_conflict', { count: files.length })
+            : t('timeline.events.merge_failed_conflict_unnamed');
+      return {
+        text: t('timeline.events.task_merge_failed', { what }),
+        emphasis: 'normal',
+        ...(detail ? { detail } : {}),
+      };
+    }
+    case 'task_merged': {
+      const base = str(d.base);
+      if (d.via === 'found' || !str(d.mergeCommit))
+        return normal(t('timeline.events.task_merged_found', { base, commit: shortCommit(str(d.commit)) }));
+      // Only what the event really records is told; a part that is not there is left out.
+      const check = record(d.check);
+      const pushed = record(d.pushed);
+      const pulls = Array.isArray(d.pullRequests) ? d.pullRequests : [];
+      const parts = [
+        check && check.status === 'passed' && str(check.command)
+          ? t('timeline.events.merged_checked', { check: str(check.command) })
+          : check
+            ? null
+            : t('timeline.events.merged_unchecked'),
+        pushed
+          ? t(pushed.commitUrl ? 'timeline.events.merged_pushed_github' : 'timeline.events.merged_pushed')
+          : null,
+        ...pulls.flatMap((pull) => {
+          const number = Number(record(pull)?.number);
+          return Number.isInteger(number) ? [t('timeline.events.merged_pull', { number })] : [];
+        }),
+      ].filter((part): part is string => !!part);
+      return normal(
+        t('timeline.events.task_merged', {
+          base,
+          commit: shortCommit(str(d.mergeCommit)),
+          parts: parts.map((part) => ` · ${part}`).join(''),
+        }),
+      );
+    }
+    case 'task_merge_blocked': {
+      const reason = mergeBlockText(
+        {
+          repo: str(d.repo),
+          base: str(d.base),
+          landed: d.landed === 'remote' ? 'remote' : 'nowhere',
+          toStageId: '',
+          block: { reason: d.reason as MergeBlockReason, message: str(d.message), at: event.createdAt },
+        },
+        { github: true, check: null, target: t('timeline.events.merge_target_unknown') },
+      );
+      return {
+        text: t('timeline.events.task_merge_blocked', { reason }),
+        emphasis: 'normal',
+        ...(str(d.message) ? { detail: str(d.message) } : {}),
+      };
+    }
     case 'boundary_changed': {
       const state = BoundaryState.safeParse(d.state);
       const reason = BoundaryAuditReason.safeParse(d.reason);

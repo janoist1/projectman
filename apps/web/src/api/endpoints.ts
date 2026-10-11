@@ -73,6 +73,7 @@ import type {
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
+  Task,
 } from '@projectman/shared';
 import { apiRequest } from './client';
 
@@ -148,6 +149,9 @@ export const api = {
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
     apiRequest(routes.startTask(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
+  /** The merger starts the merge of the card's approved work into the main branch (PM-452). */
+  startMerge: (key: string, taskKey: string) =>
+    apiRequest<{ task: Task }>(routes.taskMerge(key, taskKey), { method: 'POST' }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),

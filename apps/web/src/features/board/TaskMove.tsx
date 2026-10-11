@@ -1,16 +1,21 @@
-import { useState } from 'react';
-import type { Task } from '@projectman/shared';
+import { useEffect, useState } from 'react';
+import { mergeRepoOf, mergeTargetOf } from '@projectman/shared';
+import type { ProjectConfig, Task } from '@projectman/shared';
 import { useLabels, useMoveTask } from '../../api/queries';
-import { useProject } from '../../app/contexts';
+import { useProject, useProjectIndexes } from '../../app/contexts';
 import { useToast } from '../../components/toastContext';
 import { Button } from '../../components/Button';
 import { SelectField } from '../../components/Field';
+import { Icon } from '../../components/Icon';
 import { Popover } from '../../components/Popover';
 import { t } from '../../i18n/t';
 import { isApprovalRequested } from '../../lib/errors';
 import { gateConditionText } from '../../lib/gates';
+import { mergeConditionKey, mergeConditionState, notMergedOf, refusalFactsOf } from '../../lib/merge';
+import type { MergeConditionState } from '../../lib/merge';
 import { nextStage } from '../../lib/pipeline';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { MergeRefusal } from './MergeRefusal';
 import { PrerequisiteWarning } from './PrerequisiteWarning';
 import { enteredStages, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './drawer.module.css';
@@ -23,12 +28,19 @@ export function TaskMove({
   task,
   pipeline,
   tasks,
+  config,
+  sendBack,
 }: {
   task: Task;
   pipeline: PipelineIndex;
   tasks: readonly Task[];
+  /** The configuration, for the merge condition of the move; missing where the viewer may not read it. */
+  config?: ProjectConfig;
+  /** Grows when the merge box sends the card back: the panel opens at the work stage. */
+  sendBack?: number;
 }) {
-  const { key } = useProject();
+  const { key, myHandle } = useProject();
+  const { members } = useProjectIndexes(key);
   const labels = useLabels(key);
   const move = useMoveTask(key);
   const toast = useToast();
@@ -44,17 +56,50 @@ export function TaskMove({
   };
   const options = pipeline.stages.filter((stage) => stage.id !== task.stageId);
   const [target, setTarget] = useState(nextStage(pipeline, task.stageId)?.id ?? options[0]?.id ?? '');
+  // "Vissza a fejlesztőnek" from the merge box: the nearest work stage before this one.
+  const workStage = [...pipeline.stages.slice(0, pipeline.stageIndex.get(task.stageId) ?? 0)]
+    .reverse()
+    .find((stage) => stage.kind === 'work');
+  useEffect(() => {
+    if (!sendBack || !workStage) return;
+    setTarget(workStage.id);
+    move.reset();
+    // Only a new request moves the target; the stage found is read as it is then.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendBack]);
   if (!options.length) return null;
-  const conditions = enteredStages(pipeline, task.stageId, target).flatMap((stage) =>
-    (stage.gate?.conditions ?? []).map((condition) =>
-      t('task.move.condition', {
+  const conditions: { text: string; merge?: MergeConditionState }[] = enteredStages(
+    pipeline,
+    task.stageId,
+    target,
+  ).flatMap((stage) =>
+    (stage.gate?.conditions ?? []).map((condition) => ({
+      text: t('task.move.condition', {
         stage: stage.name,
         condition: gateConditionText(condition, labels),
       }),
-    ),
+    })),
   );
+  // The work must be in the main branch before the move (PM-453): where the card stands, from its own fields.
+  const mergeRepo = config ? mergeRepoOf(config, task, task.stageId, target) : null;
+  if (config && mergeRepo) {
+    conditions.push({
+      text: t('task.move.condition', {
+        stage: pipeline.stageById.get(mergeTargetOf(config)?.id ?? target)?.name ?? '',
+        condition: t('task.move.merge.condition', { base: mergeRepo.defaultBranch }),
+      }),
+      merge: mergeConditionState(task),
+    });
+  }
+  const refusalFacts = refusalFactsOf({
+    task,
+    config,
+    members,
+    myHandle,
+    target: pipeline.stageById.get(target)?.name ?? '',
+  });
   return (
-    <Popover label={t('task.move.open')} iconRight="chevronDown" align="row">
+    <Popover label={t('task.move.open')} iconRight="chevronDown" align="row" openRequest={sendBack}>
       {(close) => (
         <>
           <SelectField
@@ -76,13 +121,32 @@ export function TaskMove({
             <div className={styles.conditions}>
               <p>{t('task.move.conditions')}</p>
               <ul>
-                {conditions.map((text, index) => (
-                  <li key={index}>{text}</li>
+                {conditions.map((condition, index) => (
+                  <li key={index} data-merge={condition.merge}>
+                    {condition.text}
+                    {condition.merge ? (
+                      <>
+                        {' '}
+                        {condition.merge === 'met' ? <Icon name="check" size={12} strokeWidth={3} /> : null}
+                        <span>({t(mergeConditionKey[condition.merge])})</span>
+                      </>
+                    ) : null}
+                  </li>
                 ))}
               </ul>
             </div>
           ) : null}
-          {move.isError ? (
+          {move.isError && notMergedOf(move.error) ? (
+            <MergeRefusal
+              error={move.error}
+              task={task}
+              facts={refusalFacts}
+              onStarted={() => {
+                move.reset();
+                close();
+              }}
+            />
+          ) : move.isError ? (
             <p
               role={isApprovalRequested(move.error) ? 'status' : 'alert'}
               className={isApprovalRequested(move.error) ? undefined : styles.error}

@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
+  alertPayloadOf,
   canSeeTeamMessage,
   cardWorkerSessions,
   developerLevelOf,
@@ -54,6 +55,7 @@ import type { CardSize } from './cardSize';
 import { useDrawerBase, withQueryParam } from './drawerBase';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
+import { MergeBox } from './MergeBox';
 import { SignalBox } from './SignalBox';
 import { WhyBox } from './WhyBox';
 import { primarySession } from './taskModel';
@@ -245,6 +247,8 @@ export function TaskDrawer() {
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
+  // The merge box sends the card back to the developers: the move panel opens at the work stage.
+  const [sendBack, setSendBack] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const drawerBase = useDrawerBase();
   const close = () => navigate(drawerBase.close);
@@ -407,6 +411,7 @@ export function TaskDrawer() {
             members={members}
             labels={labels}
             inboxItems={inbox.data?.items}
+            config={config}
           />
         ) : null}
         <SignalBox
@@ -417,6 +422,16 @@ export function TaskDrawer() {
           sessions={sessions}
           decidingLoop={myItems.some((item) => loopDecisionOf(item))}
           decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
+        />
+        <MergeBox
+          task={task}
+          members={members}
+          myHandle={myHandle}
+          config={config}
+          asked={myItems.some(
+            (item) => item.kind === 'merge_request' || alertPayloadOf(item)?.alert === 'merge_blocked',
+          )}
+          onSendBack={() => setSendBack((count) => count + 1)}
         />
         {myItems.length > 0 ? (
           <section className={drawer.section}>
@@ -502,6 +517,8 @@ export function TaskDrawer() {
               task={task}
               pipeline={pipeline}
               tasks={board.data?.tasks ?? []}
+              config={config}
+              sendBack={sendBack}
             />
           ) : null}
         </div>

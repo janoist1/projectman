@@ -1,3 +1,4 @@
+import type { Task } from '@projectman/shared';
 import { nameOf } from '../../lib/members';
 import { mockIndexes } from '../../test/render';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -16,6 +17,18 @@ const drawer = (
     <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
   </Routes>
 );
+
+/** The card's work is already on the main branch, so a move is not refused for want of the merge (PM-453). */
+function markMerged(task: Task) {
+  task.merged = {
+    via: 'tool',
+    mergeCommit: 'c'.repeat(40),
+    commit: 'a'.repeat(40),
+    repo: task.repo ?? 'webshop',
+    base: 'main',
+    at: new Date().toISOString(),
+  };
+}
 
 /** Opens the "⋯" menu of the rare task actions. */
 const openMenu = async () =>
@@ -220,6 +233,7 @@ describe('task drawer stage moves', () => {
   });
   it('reports requested approval as information and stays in the original stage', async () => {
     const project = mockProject();
+    markMerged(project.backend.findTask('AC-17')!);
     project.render(drawer, '/p/AC/tasks/AC-17');
     await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
@@ -238,6 +252,7 @@ describe('task drawer stage moves', () => {
     const task = project.backend.findTask('AC-28')!;
     task.stageId = 'merge';
     task.links[0]!.author = 'owner';
+    markMerged(task);
     project.render(drawer, '/p/AC/tasks/AC-28');
     await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));

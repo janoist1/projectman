@@ -31,6 +31,8 @@ import { ApiError } from '../../api/client';
 import { useBoardMove, useLabels } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
+import { mergerHandleOf, refusalFactsOf } from '../../lib/merge';
+import { nameOf } from '../../lib/members';
 import { PrerequisiteWarning } from './PrerequisiteWarning';
 import { groupMoveToast, groupOutcome } from './groupMove';
 import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
@@ -445,6 +447,11 @@ export function BoardPage() {
               columnName: drop.columnName,
               projectKey: key,
               labels: board.data?.labels ?? [],
+              mergerOf: (taskKey) => {
+                const task = model?.byKey.get(taskKey)?.task;
+                const handle = task && mergerHandleOf(task, model?.ctx.config);
+                return handle ? nameOf(handle, model?.ctx.members ?? new Map(), myHandle) : null;
+              },
             });
             toast.show(summary.message, summary.tone, { items: summary.items, sticky: summary.sticky });
             return;
@@ -458,7 +465,17 @@ export function BoardPage() {
         // A stale board is no failure: the refetch after it already shows the new order.
         onError: (error) =>
           toast.show(
-            moveErrorText(error, board.data?.labels ?? []),
+            moveErrorText(
+              error,
+              board.data?.labels ?? [],
+              refusalFactsOf({
+                task: model?.byKey.get(drop.taskKey)?.task,
+                config: model?.ctx.config,
+                members: model?.ctx.members ?? new Map(),
+                myHandle,
+                target: pipeline?.stageById.get(drop.stageId)?.name ?? drop.columnName,
+              }),
+            ),
             isApprovalRequested(error) || (error instanceof ApiError && error.code === 'board_stale')
               ? 'info'
               : 'error',

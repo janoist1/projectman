@@ -1,12 +1,13 @@
 import clsx from 'clsx';
 import { useId } from 'react';
-import type { InboxItem, LabelView, Task } from '@projectman/shared';
+import type { InboxItem, LabelView, ProjectConfig, Task } from '@projectman/shared';
 import { useMoveTask, useResolveInbox } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
 import { isApprovalRequested } from '../../lib/errors';
+import { mergeRefusal, refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import { nameOf } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -27,6 +28,7 @@ export function WhyBox({
   members,
   labels,
   inboxItems,
+  config,
 }: {
   task: Task;
   state: TaskState;
@@ -35,6 +37,8 @@ export function WhyBox({
   labels: readonly LabelView[];
   /** The project's inbox items; the box finds the hand-on item among them. */
   inboxItems: readonly InboxItem[] | undefined;
+  /** The configuration, where the viewer may read it: it names the stage's merge and who does it. */
+  config?: ProjectConfig;
 }) {
   const { key, myHandle } = useProject();
   const resolve = useResolveInbox(key, myHandle);
@@ -56,15 +60,25 @@ export function WhyBox({
   const moveOwn = wait.reason === 'queued' && next.you && next.toStageId !== null;
   const resolving = resolve.isPending && resolve.variables?.item.id === handOnItem?.id;
   const handOnOpen = handOnItem !== null && (handOnItem.state === 'open' || resolving);
-  const error = handOnOpen
+  // A move refused for want of the merge names who merges (PM-453), the same sentence as everywhere.
+  const facts = refusalFactsOf({
+    task,
+    config,
+    members,
+    myHandle,
+    target: to,
+  });
+  const failure = handOnOpen
     ? resolve.isError && resolve.variables?.item.id === handOnItem.id
-      ? moveErrorText(resolve.error, labels)
+      ? resolve.error
       : null
     : moveOwn && move.isError
-      ? moveErrorText(move.error, labels)
+      ? move.error
       : null;
-  // An approval request is a state, not a failure, whichever way the move went.
-  const errorIsStatus = isApprovalRequested(handOnOpen ? resolve.error : move.error);
+  const error = failure ? moveErrorText(failure, labels, facts) : null;
+  // An approval request or a merge someone else owes is a state, not a failure, whichever way the move went.
+  const errorIsStatus =
+    isApprovalRequested(failure) || (failure !== null && mergeRefusal(failure, facts)?.tone === 'info');
   const busy = resolving || (moveOwn && move.isPending);
   const buttonLabel = busy ? t('task.whyBox.moving') : t('task.whyBox.move', { stage: to });
   const onClick = () => {

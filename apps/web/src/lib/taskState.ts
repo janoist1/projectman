@@ -17,6 +17,7 @@ import type {
   StartBlock,
   Task,
   TaskPhase,
+  TaskMergeState,
   TaskStartWaiting,
   TaskWait,
   WorkDoing,
@@ -27,6 +28,7 @@ import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
 import { nameOf } from './members';
+import { failureKind, isMerger, mergeStepText } from './merge';
 import type { MemberIndex } from './members';
 import { nextStage } from './pipeline';
 import { outageStuckLabel, outageStuckTitle } from './outage';
@@ -523,6 +525,55 @@ function sketchConfig(ctx: TaskStateContext): Pick<ProjectConfig, 'team' | 'pipe
 }
 
 /**
+ * The state of a card whose approved work is being merged into the main branch (PM-453): the merger is
+ * asked wherever there is something to do (a request, a failure, a stop); everyone else waits for them,
+ * and a running merge reads as work in progress.
+ */
+function mergeCardState(
+  merge: TaskMergeState,
+  since: string,
+  ctx: Pick<TaskStateContext, 'members' | 'myHandle'>,
+): Omit<TaskState, 'workers'> {
+  const you = isMerger(merge, ctx.myHandle);
+  const state = (phase: TaskPhase, label: string, at = since): Omit<TaskState, 'workers'> => ({
+    phase,
+    label,
+    since: at,
+    worker: null,
+  });
+  const who = nameOf(merge.merger, ctx.members, ctx.myHandle);
+  const asked = (what: string) => state('needs_you', t('taskStatus.needsYou', { what }));
+  switch (merge.state) {
+    case 'running':
+      return state(
+        'working',
+        t('taskStatus.merge.running', { step: mergeStepText(merge.step) }),
+        merge.startedAt ?? since,
+      );
+    case 'queued':
+      return state('waiting', t('taskStatus.merge.queued'));
+    case 'failed':
+      return you
+        ? asked(
+            t(
+              failureKind(merge) === 'conflict'
+                ? 'taskStatus.next.short.mergeConflictYou'
+                : 'taskStatus.next.short.mergeCheckFailedYou',
+            ),
+          )
+        : state('waiting', t('taskStatus.waitingOn', { who }));
+    case 'blocked':
+      return you
+        ? asked(t('taskStatus.next.short.mergeBlockedYou'))
+        : state('blocked', t('taskStatus.statuses.blocked'));
+    case 'requested':
+      return you
+        ? asked(t('taskStatus.next.short.mergeYou'))
+        : state('waiting', t('taskStatus.waitingOn', { who }));
+  }
+}
+
+/**
  * The state of a card from the shared reason it stands still (PM-460): the phase and the sentence the
  * board has always shown for each reason. A reason that several causes share (`nobody`, `labels_missing`,
  * `refinement`) keeps the line of its cause.
@@ -567,7 +618,12 @@ function stateOfWait(
     }
     case 'start_waiting':
       return { phase: 'waiting', label: startWaitingLabel(task, ctx), since: wait.since, worker: null };
-    case 'merge':
+    case 'merge': {
+      if (task.merge) return mergeCardState(task.merge, wait.since, ctx);
+      if (item && mine)
+        return { phase: 'needs_you', label: needsYouLabel(item), since: wait.since, worker: null };
+      return waitingOn(handles, wait.since);
+    }
     case 'inbox':
     case 'hand_on': {
       if (item && mine)

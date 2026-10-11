@@ -3,6 +3,7 @@ import type { InboxItem } from '@projectman/shared';
 import { BoundaryRequest } from '@projectman/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n/t';
+import type { ApprovalHint } from '../../lib/inbox';
 import { inbox, plainLanguageQuestion } from '../../mocks/fixtures';
 import { mockIndexes, renderUi } from '../../test/render';
 import { InboxCard } from './InboxCard';
@@ -601,5 +602,143 @@ describe('InboxCard "Vidd tovább" (PM-461)', () => {
       'disabled',
       false,
     );
+  });
+});
+
+describe('InboxCard approval items (PM-484)', () => {
+  const labels = [{ id: 'merge-approved', name: 'Merge jóváhagyva', holders: [] } as never];
+  const quoted = t('taskStatus.quoted', { name: 'Merge jóváhagyva' });
+  const gateItem = (merge?: { merger: string; base: string }): InboxItem => ({
+    ...item('inb_dec_release'),
+    id: 'inb_gate_merge',
+    assignees: ['owner'],
+    payload: {
+      gate: {
+        requestId: 'gr_merge',
+        taskKey: 'AC-17',
+        fromStageId: 'merge',
+        toStageId: 'release',
+        stageId: 'release',
+        label: 'merge-approved',
+        requestedBy: { kind: 'ai', handle: 'devops' },
+        ...(merge ? { merge } : {}),
+      },
+    },
+  });
+  const question: InboxItem = {
+    ...item('inb_q_variant'),
+    id: 'inb_q_approval',
+    taskKey: 'AC-17',
+    assignees: ['owner'],
+    payload: { question: 'Jóváhagyod a beolvasztást?', approvalLabel: 'merge-approved' },
+  };
+
+  function renderQuestion(hint: ApprovalHint | null, props: { mobile?: boolean } = {}) {
+    return renderUi(
+      <>
+        <InboxCard
+          item={question}
+          members={members}
+          myHandle="owner"
+          pipeline={pipeline}
+          labels={labels}
+          approvalHint={hint}
+          cardHref="/p/AC/tasks/AC-17"
+          mobile={props.mobile}
+          onResolve={vi.fn()}
+        />
+        <InboxCard
+          item={gateItem()}
+          members={members}
+          myHandle="owner"
+          pipeline={pipeline}
+          labels={labels}
+          onResolve={vi.fn()}
+        />
+      </>,
+    );
+  }
+
+  it('says under the approval that a merge follows, and that you merge when you do', () => {
+    const merge = { merger: 'devops', base: 'main' };
+    const { unmount } = renderUi(
+      <InboxCard
+        item={gateItem(merge)}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={labels}
+        onResolve={vi.fn()}
+      />,
+    );
+    const to = 'Élesítés';
+    expect(screen.getByText(new RegExp('^Jóváhagyás után .+ beolvasztja a main ágba')).textContent).toContain(
+      to,
+    );
+    unmount();
+    renderUi(
+      <InboxCard
+        item={gateItem({ merger: 'owner', base: 'main' })}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={labels}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(t('inbox.gateThenMergeYou', { base: 'main', to }))).toBeTruthy();
+  });
+
+  it('has no merge line on an approval that names no merge', () => {
+    renderUi(
+      <InboxCard
+        item={gateItem()}
+        members={members}
+        myHandle="owner"
+        pipeline={pipeline}
+        labels={labels}
+        onResolve={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/^Jóváhagyás után/)).toBeNull();
+  });
+
+  it('tells that the answer sets no label, and jumps to the approval item with the focus on its title', () => {
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderQuestion({ kind: 'jump', label: 'merge-approved', gateItemId: 'inb_gate_merge' });
+    expect(screen.getByText(t('inbox.question.notApproval.text', { label: quoted }))).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: t('inbox.question.notApproval.jump') }));
+    expect(scroll).toHaveBeenCalledTimes(1);
+    const target = document.getElementById('inbox-item-inb_gate_merge')!;
+    expect(target.getAttribute('data-flash')).toBe('on');
+    expect(document.activeElement).toBe(target.querySelector('[data-inbox-title]'));
+  });
+
+  it('names who can give the approval when it is for others, without a link', () => {
+    renderQuestion({ kind: 'others', label: 'merge-approved', approvers: ['kata'] });
+    expect(screen.getByText(t('inbox.question.notApproval.others', { names: 'Kata' }))).toBeTruthy();
+    expect(screen.queryByRole('button', { name: t('inbox.question.notApproval.jump') })).toBeNull();
+  });
+
+  it('leads to the card when no approval request is open', () => {
+    renderQuestion({ kind: 'none', label: 'merge-approved', taskKey: 'AC-17' });
+    expect(screen.getByText(t('inbox.question.notApproval.none'))).toBeTruthy();
+    expect(
+      screen
+        .getByRole('link', { name: new RegExp(t('inbox.question.notApproval.openCard')) })
+        .getAttribute('href'),
+    ).toBe('/p/AC/tasks/AC-17');
+  });
+
+  it('says the label is already on the card', () => {
+    renderQuestion({ kind: 'done', label: 'merge-approved' });
+    expect(screen.getByText(t('inbox.question.notApproval.done', { label: quoted }))).toBeTruthy();
+    expect(screen.queryByText(t('inbox.question.notApproval.text', { label: quoted }))).toBeNull();
+  });
+
+  it('shows no note on a question that asks for no approval', () => {
+    renderQuestion(null);
+    expect(document.querySelector('[data-approval-hint]')).toBeNull();
   });
 });

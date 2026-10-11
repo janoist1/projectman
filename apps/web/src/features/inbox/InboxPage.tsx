@@ -15,6 +15,7 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
   decisionLine,
+  approvalHintOf,
   decisionSubject,
   decisionToast,
   boundaryOf,
@@ -244,6 +245,12 @@ export function InboxPage() {
               mobile={isMobile}
               taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? item.taskKey) : null}
               detailsHref={detailsHrefFor(item, key)}
+              approvalHint={approvalHintOf(item, {
+                task: board.data?.tasks.find((task) => task.key === item.taskKey),
+                items: items ?? [],
+                myHandle,
+              })}
+              cardHref={item.taskKey ? `/p/${key}/tasks/${item.taskKey}` : null}
               pending={resolve.isPending && resolve.variables?.item.id === item.id}
               error={
                 // A refused "Tovább" says why on its card (the gate), not in a toast.

@@ -5,6 +5,7 @@ import {
   gateRequestOf,
   handOnRequestOf,
   mergeRequestOf,
+  questionPayloadOf,
   InboxKind,
 } from '../domain/inbox';
 import type { InboxItem } from '../domain/inbox';
@@ -142,6 +143,18 @@ function make(
 
 function newestFirst(items: readonly InboxItem[]): InboxItem[] {
   return [...items].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * The newest item, except that an open question asking for an approval (PM-484) gives way to the open
+ * gate request for the same label: the card waits for the approval, not for the answer, whichever is newer.
+ */
+function headItem(items: readonly InboxItem[]): InboxItem | undefined {
+  const sorted = newestFirst(items);
+  const head = sorted[0];
+  const label = head ? questionPayloadOf(head)?.approvalLabel : undefined;
+  if (!label) return head;
+  return sorted.find((item) => gateRequestOf(item)?.label === label) ?? head;
 }
 
 /** The labels and the approvers of the open gate requests among the items, null when one names no label. */
@@ -315,8 +328,9 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     });
   }
 
-  const mine = viewer ? newestFirst(items.filter((item) => item.assignees.includes(viewer))) : [];
-  if (mine[0]) return itemWait(mine[0], mine, task, config);
+  const mine = viewer ? items.filter((item) => item.assignees.includes(viewer)) : [];
+  const mineHead = headItem(mine);
+  if (mineHead) return itemWait(mineHead, mine, task, config);
 
   if (task.status === 'blocked') return make(config, 'blocked', task.updatedAt, []);
 
@@ -372,8 +386,8 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     );
   }
 
-  const others = newestFirst(items);
-  if (others[0]) return itemWait(others[0], others, task, config);
+  const othersHead = headItem(items);
+  if (othersHead) return itemWait(othersHead, newestFirst(items), task, config);
 
   // A part its creator left in the first stage: who takes it on, and what it lacks for the next stage (PM-480).
   const left = input.rulesKnown === false ? null : partLeft(task, config);

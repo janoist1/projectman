@@ -3,7 +3,9 @@ import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
 import {
   alertText,
+  approvalHintOf,
   decisionSubject,
+  gateThenMergeText,
   inboxHeading,
   questionExtras,
   resolutionLabel,
@@ -39,6 +41,116 @@ it('shows approval questions closed by the system as approved rather than answer
   };
   expect(resolutionLabel(approved)).toBe(t('inbox.resolutions.approval_given'));
   expect(resolverName(approved, new Map(), 'owner')).toBe(t('inbox.resolutionRules.approval_given'));
+});
+
+describe('approvalHintOf (PM-484)', () => {
+  const question: InboxItem = {
+    ...item,
+    id: 'inb_q',
+    kind: 'question',
+    state: 'open',
+    resolution: null,
+    assignees: ['dev-1'],
+    payload: { question: 'May we merge?', approvalLabel: 'merge-approved' },
+  };
+  const gate = (id: string, assignees: string[], label = 'merge-approved'): InboxItem => ({
+    ...item,
+    id,
+    kind: 'decision',
+    state: 'open',
+    resolution: null,
+    assignees,
+    payload: {
+      gate: {
+        requestId: 'gat_1',
+        taskKey: 'AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        stageId: 'done',
+        label,
+        requestedBy: { kind: 'ai', handle: 'dev-1' },
+      },
+    },
+  });
+  const task = { labels: ['code-review-ok'] };
+
+  it('says nothing for a question without an approval label or an item that is no open question', () => {
+    const plain = { ...question, payload: { question: 'Inline or toast?' } };
+    expect(approvalHintOf(plain, { task, items: [], myHandle: 'owner' })).toBeNull();
+    expect(
+      approvalHintOf({ ...question, state: 'resolved' }, { task, items: [], myHandle: 'owner' }),
+    ).toBeNull();
+    expect(approvalHintOf(gate('g', ['owner']), { task, items: [], myHandle: 'owner' })).toBeNull();
+  });
+
+  it('is done when the label is already on the card', () => {
+    const hint = approvalHintOf(question, {
+      task: { labels: ['merge-approved'] },
+      items: [gate('g', ['owner'])],
+      myHandle: 'owner',
+    });
+    expect(hint).toEqual({ kind: 'done', label: 'merge-approved' });
+  });
+
+  it('jumps to the open approval item the viewer may give', () => {
+    const hint = approvalHintOf(question, {
+      task,
+      items: [gate('g_other_label', ['owner'], 'release-approved'), gate('g', ['owner'])],
+      myHandle: 'owner',
+    });
+    expect(hint).toEqual({ kind: 'jump', label: 'merge-approved', gateItemId: 'g' });
+  });
+
+  it('names the approvers when the approval is for others', () => {
+    const hint = approvalHintOf(question, {
+      task,
+      items: [gate('g', ['kata', 'owner'])],
+      myHandle: 'dev-1',
+    });
+    expect(hint).toEqual({ kind: 'others', label: 'merge-approved', approvers: ['kata', 'owner'] });
+  });
+
+  it('has no request to point at when none is open (rejected, or on another card)', () => {
+    const rejected = { ...gate('g', ['owner']), state: 'cancelled' as const };
+    const elsewhere = { ...gate('h', ['owner']), taskKey: 'AR-2' };
+    const hint = approvalHintOf(question, { task, items: [rejected, elsewhere], myHandle: 'owner' });
+    expect(hint).toEqual({ kind: 'none', label: 'merge-approved', taskKey: 'AR-1' });
+  });
+});
+
+describe('gateThenMergeText (PM-484)', () => {
+  const request = (merge?: { merger: string; base: string }): InboxItem => ({
+    ...item,
+    kind: 'decision',
+    state: 'open',
+    resolution: null,
+    payload: {
+      gate: {
+        requestId: 'gat_1',
+        taskKey: 'AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        stageId: 'done',
+        label: 'merge-approved',
+        requestedBy: { kind: 'ai', handle: 'dev-1' },
+        ...(merge ? { merge } : {}),
+      },
+    },
+  });
+
+  it('says who merges into which branch, and "te" for the viewer', () => {
+    const merge = { merger: 'dev-1', base: 'main' };
+    expect(gateThenMergeText(request(merge), null, new Map(), 'owner')).toBe(
+      t('inbox.gateThenMerge', { merger: 'dev-1', base: 'main', to: 'done' }),
+    );
+    expect(gateThenMergeText(request(merge), null, new Map(), 'dev-1')).toBe(
+      t('inbox.gateThenMergeYou', { base: 'main', to: 'done' }),
+    );
+  });
+
+  it('leaves the line out when the request names no merge', () => {
+    expect(gateThenMergeText(request(), null, new Map(), 'owner')).toBeNull();
+  });
 });
 
 it('attributes a forwarded owner answer to the integrator', () => {

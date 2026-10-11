@@ -17,7 +17,9 @@ import {
   delegationNote,
   fixLimitDecisionText,
   gateMoveText,
+  gateThenMergeText,
   inboxHeading,
+  inboxItemDomId,
   loopDecisionText,
   seniorWaitDecisionText,
   optionLabel,
@@ -27,6 +29,8 @@ import {
   splitQuestion,
   withConsequences,
 } from '../../lib/inbox';
+import type { ApprovalHint } from '../../lib/inbox';
+import { labelName } from '../../lib/labels';
 import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
@@ -36,7 +40,7 @@ import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
-import { QuestionBody, QuestionChoices, QuestionDetails } from './Question';
+import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails } from './Question';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
   primary: 'primary',
@@ -65,6 +69,10 @@ export interface InboxCardProps {
   error?: string | null;
   /** An Operator approval the server just refused as out of date (409); the card says so and offers "Rendben". */
   stale?: boolean;
+  /** A question that asks for an approval says its answer sets no label (PM-484); see `approvalHintOf`. */
+  approvalHint?: ApprovalHint | null;
+  /** The card's drawer, where the approval item of a question stands. */
+  cardHref?: string | null;
 }
 
 /** The "Vidd tovább" sentence with the next column in bold (PM-461). */
@@ -114,6 +122,8 @@ export function InboxCard({
   headingLevel = 2,
   error = null,
   stale = false,
+  approvalHint = null,
+  cardHref = null,
 }: InboxCardProps) {
   const operatorApproval = operatorApprovalOf(item);
   const handOn = handOnRequestOf(item);
@@ -132,6 +142,8 @@ export function InboxCard({
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
   const heading = gateMove ?? inboxHeading(item);
+  // An approval a merge follows says that one click is enough (PM-484).
+  const thenMerge = gateMove ? gateThenMergeText(item, pipeline, members, myHandle) : null;
   // What follows the short heading of a long question.
   const questionBody = item.kind === 'question' ? splitQuestion(item.title).body : null;
   // The tool line is redundant when the heading already names the tool.
@@ -235,6 +247,7 @@ export function InboxCard({
 
   return (
     <article
+      id={inboxItemDomId(item.id)}
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={item.kind}
       data-alert={outageAlert ? 'work_outage' : undefined}
@@ -257,8 +270,24 @@ export function InboxCard({
         </time>
       </div>
       {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
-      <Heading className={styles.title}>{heading}</Heading>
+      <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
+        {heading}
+      </Heading>
+      {thenMerge ? <p className={styles.body}>{thenMerge}</p> : null}
       {questionBody ? <QuestionBody text={questionBody} mobile={mobile} /> : null}
+      {approvalHint ? (
+        <ApprovalHintNote
+          hint={approvalHint}
+          labelName={labelName(approvalHint.label, labels)}
+          approverNames={
+            approvalHint.kind === 'others'
+              ? joinNames(namesOf(approvalHint.approvers, members, myHandle))
+              : ''
+          }
+          cardHref={cardHref ?? null}
+          mobile={mobile}
+        />
+      ) : null}
       {boundary ? (
         <div>
           <p>

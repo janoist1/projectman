@@ -83,6 +83,7 @@ import {
   evaluateStart,
   expiredLabels,
   gateRequestOf,
+  questionPayloadOf,
   handOnDecision,
   handOnRequestOf,
   holdersAllow,
@@ -140,7 +141,7 @@ import {
   cardMerger,
   hasAccess,
   mergeReadiness,
-  mergeRepoOf,
+  moveMerge,
   mergeRequestOf,
   ALERT_SEEN_OPTION,
   WorkOutageAlert,
@@ -3107,7 +3108,7 @@ export class MockBackend {
       if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
       const target = stageOf(this.config, input.stageId!);
       if (!target) return error(400, 'unknown_stage', 'Unknown stage');
-      const unmerged = this.mergeGate(task, target.id);
+      const unmerged = this.mergeGate(task, target.id, labels.labels);
       if (unmerged) return unmerged;
       const evaluation = evaluateMove(
         { ...task, ...patch, labels: labels.labels },
@@ -3415,8 +3416,23 @@ export class MockBackend {
     if (!plan.added.length && !plan.removed.length) return null;
     this.updateTask(task.key, { labels: plan.labels });
     this.recordLabels(task, plan, actor, opts);
+    this.closeApprovalQuestions(task, plan.added);
     this.continueLabelWait(task);
     return null;
+  }
+
+  /** The card's open questions that ask for a label just put on close by themselves (PM-486, rule approval_given). */
+  private closeApprovalQuestions(task: Task, added: readonly string[]): void {
+    for (const item of [...this.inbox]) {
+      if (item.state !== 'open' || item.kind !== 'question' || item.taskKey !== task.key) continue;
+      const label = questionPayloadOf(item)?.approvalLabel;
+      if (!label || !added.includes(label)) continue;
+      this.upsertInbox({
+        ...item,
+        state: 'resolved',
+        resolution: { optionId: 'ended', by: 'system', at: nowIso(), note: null, rule: 'approval_given' },
+      });
+    }
   }
 
   /** Takes off the labels that expire on an event (the task moving back, its PR changing). */
@@ -3775,9 +3791,12 @@ export class MockBackend {
    * The gate of a move into the merge target: the work has to be merged first. The refusal names the
    * merger and the branch, and opens the card's merge request as the server's gate does.
    */
-  private mergeGate(task: Task, stageId: string): MockResponse | null {
-    const repo = mergeRepoOf(this.config, task, task.stageId, stageId);
-    if (!repo || task.merged?.repo === repo.name) return null;
+  private mergeGate(task: Task, stageId: string, labels: string[] = task.labels): MockResponse | null {
+    // Only when the move's own gates hold (PM-484): a missing approval is asked for first, as the server does.
+    const due = moveMerge(this.config, { ...task, labels }, task.stageId, stageId);
+    if (due.kind !== 'due') return null;
+    const repo = due.repo;
+    if (task.merged?.repo === repo.name) return null;
     this.reconcileMerge(task);
     return error(409, 'task_not_merged', 'The approved commit is not on the default branch', {
       reason: this.mergeRefusals.get(task.key) ?? 'not_merged',
@@ -4071,6 +4090,11 @@ export class MockBackend {
     const nobody = this.noApproverError(task, target, approvals);
     if (nobody) return nobody;
     const requestId = mockId('gat');
+    // The merge that follows the approval (PM-484), so that the request can say who merges and into what.
+    const afterGates = moveMerge(this.config, task, task.stageId, target.id);
+    const merger = afterGates.kind === 'after_gates' ? cardMerger(this.config, task, null) : null;
+    const merge =
+      afterGates.kind === 'after_gates' && merger ? { merger, base: afterGates.repo.defaultBranch } : null;
     const items = approvals.map((approval): InboxItem => {
       const gate: GateRequestPayload = {
         requestId,
@@ -4081,6 +4105,7 @@ export class MockBackend {
         label: approval.label,
         requestedBy: actor,
         ...(placement ? { placement } : {}),
+        ...(merge ? { merge } : {}),
       };
       const item: InboxItem = {
         id: mockId('inb'),

@@ -3320,7 +3320,7 @@ export const hu = {
         jump: 'Ugrás a jóváhagyáshoz',
         others: 'A jóváhagyást {names} adhatja meg.',
         none: 'Nincs nyitott jóváhagyási kérés; a címkét a kártyán teheted fel.',
-        openCard: 'Kártya megnyitása',
+        openCard: 'Kártya megnyitása →',
         done: 'Már rajta van a kártyán: {label}.',
       },
     },

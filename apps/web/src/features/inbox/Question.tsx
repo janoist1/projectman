@@ -195,14 +195,29 @@ export function QuestionBody({
 /** How long the frame of the approval item a link led to stays lit (ms). */
 const FLASH_MS = 1400;
 
+/** The running flash timer of each lit card, so that a second click starts the flash over. */
+const flashTimers = new WeakMap<HTMLElement, number>();
+
 /** Brings the card of an inbox item into view, puts the focus on its heading and lights its frame once. */
 function showInboxItem(target: HTMLElement) {
   const reduceMotion =
     typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
   target.querySelector<HTMLElement>('[data-inbox-title]')?.focus({ preventScroll: true });
-  target.setAttribute('data-flash', reduceMotion ? 'static' : 'on');
-  if (!reduceMotion) window.setTimeout(() => target.removeAttribute('data-flash'), FLASH_MS);
+  window.clearTimeout(flashTimers.get(target));
+  flashTimers.delete(target);
+  if (reduceMotion) {
+    target.setAttribute('data-flash', 'static');
+    return;
+  }
+  // Taken off and put back after a reflow, so that the animation starts again.
+  target.removeAttribute('data-flash');
+  void target.offsetWidth;
+  target.setAttribute('data-flash', 'on');
+  flashTimers.set(
+    target,
+    window.setTimeout(() => target.removeAttribute('data-flash'), FLASH_MS),
+  );
 }
 
 /**
@@ -260,7 +275,7 @@ export function ApprovalHintNote({
             <p>{t('inbox.question.notApproval.none')}</p>
             {cardHref ? (
               <Link to={cardHref} className={linkClass}>
-                {t('inbox.question.notApproval.openCard')} →
+                {t('inbox.question.notApproval.openCard')}
               </Link>
             ) : null}
           </>

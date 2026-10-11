@@ -156,7 +156,7 @@
   background: var(--c-accent-soft);
   color: var(--c-accent-text);
   font-size: var(--text-sm);
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.45;
   min-width: 0;
 }
@@ -177,7 +177,7 @@
 .hintLink {
   all: unset;
   cursor: pointer;
-  font-weight: 800;
+  font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 2px;
   border-radius: var(--radius-sm);

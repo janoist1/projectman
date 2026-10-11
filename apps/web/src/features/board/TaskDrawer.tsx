@@ -463,7 +463,6 @@ export function TaskDrawer() {
                 }
                 detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
                 approvalHint={approvalHintOf(item, { task, items: inbox.data?.items ?? [], myHandle })}
-                cardHref={`/p/${key}/tasks/${taskKey}`}
               />
             ))}
           </section>

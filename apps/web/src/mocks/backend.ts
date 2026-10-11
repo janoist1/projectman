@@ -5753,7 +5753,10 @@ export class MockBackend {
   private resolve(itemId: string, body: unknown): MockResponse {
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
-    if (!item || !input) return error(404, 'not_found', 'Unknown inbox item');
+    if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');
+    if (!item) return error(404, 'not_found', 'Unknown inbox item');
+    if (input.attachmentIds !== undefined && item.kind !== 'question')
+      return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
     if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');
     if (!item.options.some((option) => option.id === input.optionId)) {
       return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
@@ -5777,7 +5780,25 @@ export class MockBackend {
     if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
       return error(403, 'not_an_assignee', 'Only assignees may decide');
     const note = input.note?.trim() || null;
-    if (item.kind === 'question' && input.optionId === 'answer' && !note) {
+    const attached = (input.attachmentIds ?? []).map((id) =>
+      this.messageAttachments.find((file) => file.id === id),
+    );
+    if (
+      attached.some(
+        (file) =>
+          !file ||
+          file.projectKey !== item.projectKey ||
+          file.messageId ||
+          file.uploadedBy.kind !== 'human' ||
+          file.uploadedBy.handle !== viewer.handle,
+      )
+    )
+      return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
+    if (attached.length && memberOf(this.config, item.source)?.kind !== 'ai')
+      return error(400, 'invalid_request', 'Only AI questions accept attachments', {
+        field: 'attachmentIds',
+      });
+    if (item.kind === 'question' && input.optionId === 'answer' && !note && !attached.length) {
       return error(400, 'answer_required', 'A free-text answer needs a note');
     }
     if (item.kind === 'hand_on') {
@@ -5820,7 +5841,7 @@ export class MockBackend {
         ...(!approved && note ? { note } : {}),
       });
     }
-    this.afterResolve(resolved);
+    this.afterResolve(resolved, attached as MessageAttachmentRef[]);
     return ok(clone(resolved));
   }
 
@@ -5953,7 +5974,7 @@ export class MockBackend {
   }
 
   /** What the server does with a decision: record it, answer the asker, apply a gate decision. */
-  private afterResolve(item: InboxItem): void {
+  private afterResolve(item: InboxItem, attachments: MessageAttachmentRef[] = []): void {
     const resolution = item.resolution!;
     const sessionId = item.sessionId;
     if (loopDecisionOf(item)) {
@@ -5995,11 +6016,24 @@ export class MockBackend {
         sessionId,
       );
       const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
-      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer, undefined, {
-        inboxItemId: item.id,
-        question,
+      const message = this.sendTeamMessage(
+        resolution.by,
+        [item.source],
+        item.taskKey,
         answer,
-      });
+        undefined,
+        {
+          inboxItemId: item.id,
+          question,
+          answer,
+        },
+        undefined,
+        attachments,
+      );
+      for (const attachment of attachments) {
+        const stored = this.messageAttachments.find((file) => file.id === attachment.id);
+        if (stored) stored.messageId = message.id;
+      }
       return;
     }
     if (item.kind === 'hand_on') {

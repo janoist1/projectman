@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
 import {
@@ -49,6 +49,12 @@ import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown 
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails } from './Question';
 import { QuestionAttachments } from './QuestionAttachments';
+import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
+import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { useFileDrop } from '../board/useFileDrop';
+import { pasteHasText, pastedImages } from '../../lib/attachmentInput';
+import { useIsMobile } from '../../lib/hooks';
+import attachmentStyles from '../messages/MessageAttachments.module.css';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
   primary: 'primary',
@@ -182,6 +188,28 @@ export function InboxCard({
   const [answer, setAnswer] = useState('');
   const [answerError, setAnswerError] = useState<string | null>(null);
   const answerId = useId();
+  const uploads = useMessageAttachmentUploads(item.projectKey);
+  const picker = useRef<HTMLInputElement>(null);
+  const answerInput = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useIsMobile();
+  const addFiles = (files: readonly File[]) => {
+    setAnswerError(null);
+    uploads.add(files);
+  };
+  const fileDrop = useFileDrop({
+    allowed: answering && !pending && !isMobile && !mobile,
+    onFiles: addFiles,
+    isolate: true,
+  });
+  const attachmentIds = answering
+    ? uploads.items.flatMap((entry) => (entry.attachment ? [entry.attachment.id] : []))
+    : [];
+  const answerBlocked = pending || Boolean(answering && uploads.blockedReason);
+  const answerHelp = uploads.error ?? uploads.blockedReason ?? answerError;
+  const resolveAnswer = (body: ResolveInboxRequest) => {
+    if (answerBlocked) return;
+    onResolve(item, { ...body, ...(attachmentIds.length ? { attachmentIds } : {}) });
+  };
   const source = members.get(item.source);
   const code = payloadCode(item);
   const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
@@ -234,12 +262,13 @@ export function InboxCard({
       (extras.recommendedOptionId !== null || choices.some((option) => option.consequence)));
 
   const submitAnswer = () => {
-    if (!answer.trim()) {
+    if (answerBlocked) return;
+    if (!answer.trim() && !attachmentIds.length) {
       setAnswerError(t('inbox.answerRequired'));
       return;
     }
     setAnswerError(null);
-    onResolve(item, { optionId: FREE_ANSWER_OPTION_ID, note: answer.trim() });
+    resolveAnswer({ optionId: FREE_ANSWER_OPTION_ID, note: answer.trim() });
   };
 
   // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
@@ -425,19 +454,25 @@ export function InboxCard({
           recommendationReason={extras.recommendationReason}
           size={buttonSize}
           mobile={mobile}
-          disabled={pending}
+          disabled={answerBlocked}
           variantOf={(option) =>
             answering ? 'secondary' : option.style === 'danger' ? 'dangerSolid' : variantFor[option.style]
           }
-          onPick={(option) => onResolve(item, { optionId: option.id })}
+          onPick={(option) => resolveAnswer({ optionId: option.id })}
         />
       ) : null}
       {answering ? (
-        <div className={styles.answer}>
+        <div className={styles.answer} {...fileDrop.props} data-message-composer="">
+          {fileDrop.state && !isMobile && !mobile ? (
+            <div className={attachmentStyles.drop} aria-hidden="true">
+              {t('attachments.dropActive')}
+            </div>
+          ) : null}
           <label htmlFor={answerId} className={styles.answerLabel}>
             {t('inbox.answerLabel')}
           </label>
           <textarea
+            ref={answerInput}
             id={answerId}
             className={styles.answerInput}
             rows={2}
@@ -445,14 +480,48 @@ export function InboxCard({
             placeholder={t('inbox.answerPlaceholder')}
             onChange={(event) => setAnswer(event.target.value)}
             aria-invalid={answerError ? true : undefined}
-            aria-describedby={answerError ? `${answerId}-error` : undefined}
+            aria-describedby={answerHelp ? `${answerId}-error` : undefined}
+            onPaste={(event) => {
+              event.stopPropagation();
+              if (pasteHasText(event.clipboardData)) return;
+              const images = pastedImages(event.clipboardData);
+              if (!images.length) return;
+              event.preventDefault();
+              if (!pending) addFiles(images);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submitAnswer();
             }}
           />
-          {answerError ? (
-            <span id={`${answerId}-error`} className={styles.answerError} role="alert">
-              {answerError}
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (!pending) addFiles(Array.from(event.target.files ?? []));
+              event.target.value = '';
+            }}
+          />
+          <MessageAttachmentTray
+            items={uploads.items}
+            onRemove={uploads.remove}
+            onRetry={uploads.retry}
+            focusInput={() => answerInput.current?.focus()}
+            disabled={pending}
+          />
+          {answerHelp ? (
+            <span
+              id={`${answerId}-error`}
+              className={styles.answerError}
+              aria-live="polite"
+              role={
+                answerError || uploads.error || uploads.items.some((entry) => entry.status === 'failed')
+                  ? 'alert'
+                  : undefined
+              }
+            >
+              {answerHelp}
             </span>
           ) : null}
         </div>
@@ -503,8 +572,20 @@ export function InboxCard({
       ) : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
           {answering ? (
-            <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={pending}>
+            <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={answerBlocked}>
               {t('inbox.answerSubmit')}
+            </Button>
+          ) : null}
+          {answering ? (
+            <Button
+              variant="ghost"
+              size={buttonSize}
+              disabled={pending}
+              title={t('messageAttachments.addTitle')}
+              onClick={() => picker.current?.click()}
+            >
+              <Icon name="paperclip" size={16} />
+              {t('messageAttachments.add')}
             </Button>
           ) : null}
           {item.kind === 'permission' ? (
@@ -520,9 +601,9 @@ export function InboxCard({
                 key={option.id}
                 variant={answering ? 'secondary' : variantFor[option.style]}
                 size={buttonSize}
-                disabled={pending}
+                disabled={answerBlocked}
                 onClick={() =>
-                  onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
+                  resolveAnswer({ optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
                 }
               >
                 {optionLabel(option)}

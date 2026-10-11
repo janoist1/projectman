@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MAX_ATTACHMENT_BYTES, MAX_MESSAGE_ATTACHMENTS, attachmentPreviewOf } from '@projectman/shared';
 import type { MessageAttachment } from '@projectman/shared';
 import { api } from '../../api/endpoints';
+import { isApiError } from '../../api/client';
 import { t } from '../../i18n/t';
 import { formatBytes, LOCALE } from '../../i18n/format';
 
@@ -124,7 +125,14 @@ export function useMessageAttachmentUploads(projectKey: string) {
     const item = current.current.find((entry) => entry.id === id);
     if (!item) return false;
     try {
-      if (item.attachment) await api.deleteMessageAttachment(projectKey, item.attachment.id);
+      if (item.attachment) {
+        try {
+          await api.deleteMessageAttachment(projectKey, item.attachment.id);
+        } catch (error) {
+          // A draft whose file is already gone can still be removed after a refused send.
+          if (!isApiError(error) || error.status !== 404) throw error;
+        }
+      }
       controllers.current.get(id)?.abort();
       if (item.src) {
         URL.revokeObjectURL(item.src);

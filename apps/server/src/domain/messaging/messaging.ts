@@ -79,6 +79,8 @@ export interface SendOptions {
   operatorRequest?: string;
   operatorSignal?: string;
   signalActionable?: boolean;
+  /** Runs synchronously in the message transaction, before binding files or recording the message. */
+  beforeRecord?: () => void;
 }
 
 /**
@@ -287,6 +289,7 @@ export class Messaging {
         }
       : undefined;
     const message = this.ctx.unitOfWork(() => {
+      opts.beforeRecord?.();
       if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
         this.operatorSignals!.decision(projectKey, opts.operatorSignal, from, true);
       const id = newId('msg');
@@ -572,15 +575,20 @@ export class Messaging {
   }
 
   /** A human answered an AI member's `ask_human` question: the answer goes back to the asking session. */
-  async answer(item: InboxItem): Promise<void> {
+  async answer(
+    item: InboxItem,
+    attachmentIds: readonly string[],
+    close: () => InboxItem,
+  ): Promise<InboxItem | null> {
     const resolution = item.resolution;
-    if (item.kind !== 'question' || !resolution) return;
+    if (item.kind !== 'question' || !resolution) return null;
     const config = await this.projects.config(item.projectKey);
     const asker = memberOf(config, item.source);
-    if (asker?.kind !== 'ai') return;
+    if (asker?.kind !== 'ai') return null;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
     const manager = Boolean(isProjectManager(asker) || isOperator(asker));
+    let closed: InboxItem | null = null;
     await this.send(
       item.projectKey,
       resolution.by,
@@ -588,8 +596,12 @@ export class Messaging {
         to: [asker.handle],
         text: `Answer to your question "${question}":\n\n${answerText(item)}`,
         taskKey: item.taskKey,
+        attachmentIds: [...attachmentIds],
       },
       {
+        beforeRecord: () => {
+          closed = close();
+        },
         sessionId: item.sessionId,
         workItem: manager
           ? { type: 'general' }
@@ -603,6 +615,7 @@ export class Messaging {
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
+    return closed;
   }
 
   /**

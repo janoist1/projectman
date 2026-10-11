@@ -1048,11 +1048,55 @@ describe('system prompt', () => {
           .appendSystemPrompt,
       );
 
+    it('describes the guest and limits the conversation to visible information and answers', () => {
+      const project = buildProject();
+      project.team.members.push({
+        kind: 'human',
+        handle: 'guest',
+        displayName: 'Guest Example',
+        access: 'client',
+        roles: [],
+      });
+      const pack = builder.build(
+        input({
+          project,
+          handle: 'operator',
+          workItem: { type: 'general', with: 'guest' },
+          task: null,
+          stage: null,
+        }),
+      );
+      expect(section(pack.appendSystemPrompt, '# Current work item')).toContain(
+        'You talk with Guest Example (client). You only read and answer; you change nothing. Show only what they can see; for a change, tell them to ask the project owner.',
+      );
+      expect(pack.initialMessage).toBeNull();
+      expect(pack.continueMessage).toBeNull();
+    });
+
+    it('excludes operator memory from guest conversations and retains it for owners', () => {
+      const conversation = (workItem: WorkItemRef) =>
+        builder.build(
+          input({
+            handle: 'operator',
+            workItem,
+            task: null,
+            stage: null,
+            memory: 'Private owner operations must stay outside guest context.',
+          }),
+        ).appendSystemPrompt;
+      const guest = conversation({ type: 'general', with: 'guest' });
+      expect(guest).not.toContain('Private owner operations');
+      expect(guest).not.toContain('# Your memory');
+      expect(guest).not.toContain('use save_memory');
+      expect(conversation({ type: 'general' })).toContain('Private owner operations');
+    });
+
     it('gives the three levels and what is data to the Operator alone', () => {
       const operator = operatorPrompt('en');
       expect(operator).toContain("You are the Operator: the owner's admin for how the project runs.");
-      expect(operator).toContain('You act only when the owner asks you');
-      expect(operator).toContain('Projectman may wake you to report system signals');
+      expect(operator).toContain('You work only when a person writes to you');
+      expect(operator).toContain("The owner's conversation is where you change things.");
+      expect(operator).toContain('Projectman may wake you in the owners');
       expect(operator).toContain(
         'once per signal with send_message (kind info, signal_id, signal_actionable)',
       );

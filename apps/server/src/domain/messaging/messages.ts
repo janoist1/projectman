@@ -4,6 +4,7 @@ import {
   isUnreadBy,
   memberOf,
   messageRoute,
+  operatorConversationOf,
   sameWorkItem,
   threadPeersOf,
 } from '@projectman/shared';
@@ -136,13 +137,16 @@ export class MessageService {
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
     const config = this.projects.cachedConfig(projectKey);
     const recipient = config ? memberOf(config, handle) : undefined;
-    // The project manager and the Operator have one conversation: every route lands in it.
-    const allRoutes = workItem.type === 'general' && (isProjectManager(recipient) || isOperator(recipient));
+    // The project manager has one conversation: every route lands in it. The Operator has one per person who is
+    // not an owner and one shared by the others (PM-475): a message lands in the one its route names.
+    const operator = workItem.type === 'general' && isOperator(recipient);
+    const allRoutes = workItem.type === 'general' && isProjectManager(recipient);
     // A task's session takes the messages routed to that task; any other chat takes everything not
     // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
     return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
       if (allRoutes) return true;
       const route = messageRoute(m, handle);
+      if (operator) return (route.type === 'general' ? route.with : undefined) === workItem.with;
       return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type !== 'task';
     });
   }
@@ -171,14 +175,20 @@ export class MessageService {
   }
 
   /**
-   * An owner's message, or the owner's answer to the Operator's question, entered the Operator's
-   * session: the Operator may act on it until its turn ends (PM-463). Anyone else's message opens nothing.
+   * A person's message, or the owner's answer to the Operator's question, entered the Operator's session of
+   * their conversation: the Operator may act on it until its turn ends (PM-463); for a person who is not an
+   * owner it only reads and answers (PM-475). Anyone else's message (an AI member's, the system's) opens nothing.
    */
   private openOperatorRequest(message: TeamMessage, handle: string): void {
     const config = this.projects.cachedConfig(message.projectKey);
     if (!config || !isOperator(memberOf(config, handle))) return;
-    if (!wakeFactsFor(this.ctx, config, message, handle).fromOwner) return;
-    const session = this.ctx.repos.sessions.findByWorkItem(message.projectKey, handle, { type: 'general' });
+    const facts = wakeFactsFor(this.ctx, config, message, handle);
+    if (!facts.fromHuman || !facts.fromOwnLogin) return;
+    const session = this.ctx.repos.sessions.findByWorkItem(
+      message.projectKey,
+      handle,
+      operatorConversationOf(config, message.from),
+    );
     if (!session) return;
     this.operatorRequests.open({
       projectKey: message.projectKey,

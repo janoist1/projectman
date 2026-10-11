@@ -118,7 +118,6 @@ export const OperatorRequestView = z.object({
   steps: z.array(OperatorStep),
 });
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
-/** The Operator's conversation as the project manager's, plus the last 50 requests (the newest last). */
 export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
 export const OperatorSignalKind = z.enum(['outage', 'nobody', 'stalled', 'silent']);
@@ -140,8 +139,14 @@ export const OperatorSignal = z.object({
   resolvedAt: z.string().nullable(),
 });
 export type OperatorSignal = z.infer<typeof OperatorSignal>;
+/**
+ * The viewer's Operator conversation as the project manager's, plus the last 50 requests (the newest last).
+ * `readOnly` (PM-475): the conversation is with a person who is not an owner, so the Operator only reads and answers
+ * (and the owners' system signals stay out of it).
+ */
 export const OperatorChannel = ProjectManagerChannel.extend({
   requests: z.array(OperatorRequestView),
+  readOnly: z.boolean(),
   signals: z.array(OperatorSignal),
   openSignals: z.number().int(),
 });

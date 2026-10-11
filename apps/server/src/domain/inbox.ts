@@ -45,6 +45,9 @@ import { commandVerdict, readableRootsFor } from './session-policy';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
+const GUEST_CONVERSATION_REFUSAL =
+  'This conversation has the team tools only: you read what the person can see and answer them. Nothing else is allowed, and nobody is asked.';
+
 export const PERMISSION_OPTIONS: InboxOption[] = [
   { id: 'allow', label: 'allow', style: 'primary' },
   { id: 'allow_session', label: 'allow_session', style: 'secondary' },
@@ -629,6 +632,16 @@ export class InboxService {
     // before it gets here; this is the same rule one step further, should one arrive anyway.
     if (this.ctx.repos.sessions.executionProfile(session.id) === 'managed_vm')
       return { behavior: 'deny', message: MANAGED_VM_NO_LOCAL_APPROVAL };
+    // The Operator's conversation with someone who is not an owner has the team tools alone (PM-475):
+    // anything else is refused at once, and never becomes an item for the owner to approve.
+    if (session.workItem.type === 'general' && session.workItem.with !== undefined) {
+      this.refused(session, {
+        toolName: request.toolName,
+        summary: summarizeToolInput(request.toolInput, session.cwd) || request.toolName,
+        by: 'approver_none',
+      });
+      return { behavior: 'deny', message: GUEST_CONVERSATION_REFUSAL };
+    }
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput, session.cwd);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;

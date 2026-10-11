@@ -5,9 +5,11 @@ import {
   pausesOnPlanUsage,
   isHandleOnLeave,
   isOpenTask,
+  isOperator,
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
+  memberOf,
   openPrerequisites,
   seniorsOf,
   sessionWorkItemOf,
@@ -132,10 +134,13 @@ export class Admission {
   memberLoad(config: ProjectConfig, handle: string, excludeTaskKey?: string): number {
     const taskKeys = new Set<string>();
     let chats = 0;
+    // The Operator's capacity is for the people who are not owners: the owners' conversation never counts (PM-475).
+    const operator = isOperator(memberOf(config, handle));
     for (const s of this.sessions.list(config.project.key, { member: handle })) {
       if (!this.sessions.isRunning(s.id)) continue;
-      if (s.workItem.type !== 'task') chats++;
-      else if (s.workItem.taskKey !== excludeTaskKey) {
+      if (s.workItem.type !== 'task') {
+        if (!operator || (s.workItem.type === 'general' && s.workItem.with)) chats++;
+      } else if (s.workItem.taskKey !== excludeTaskKey) {
         const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
         if (
           task &&

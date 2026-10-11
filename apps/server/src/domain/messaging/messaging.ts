@@ -11,6 +11,7 @@ import {
   operatorOf,
   ownerHandles,
   messageRoute,
+  operatorConversationOf,
   projectRefines,
   routeFor,
   sameWorkItem,
@@ -257,7 +258,11 @@ export class Messaging {
       .map((handle) => {
         const hold = this.holdOf(config, task, from, handle, opts);
         if (hold) return { handle, hold, workItem: routeFor(taskKey), running: null };
-        return { handle, hold: null, ...this.place(projectKey, config, handle, workItem, !!opts.ownCard) };
+        return {
+          handle,
+          hold: null,
+          ...this.place(projectKey, config, handle, workItem, !!opts.ownCard, from),
+        };
       });
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
@@ -342,7 +347,18 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
-    this.assertMayWriteToOperator(await this.projects.config(projectKey), from, [session.member], actor);
+    const config = await this.projects.config(projectKey);
+    this.assertMayWriteToOperator(config, from, [session.member], actor);
+    // A person writes into their own conversation with the Operator, not into another person's (PM-475).
+    if (
+      isOperator(memberOf(config, session.member)) &&
+      memberOf(config, from)?.kind === 'human' &&
+      !sameWorkItem(session.workItem, operatorConversationOf(config, from))
+    )
+      throw forbidden(
+        'operator_owner_only',
+        'a person writes to the Operator only in their own conversation',
+      );
     const input = actor.via
       ? formatInjectedTeamMessage(
           from,
@@ -386,9 +402,9 @@ export class Messaging {
   }
 
   /**
-   * Only an owner's own login writes to the Operator directly (PM-463): another person, or the integrator
-   * key, is refused with 403 operator_owner_only. AI members and the system pass: their messages are
-   * stored and reach the Operator as information with the owner's next one, and wake nobody.
+   * A person writes to the Operator only with their own login (PM-463, PM-475): through the integrator key
+   * it is refused with 403 operator_owner_only. AI members and the system pass: their messages are stored and
+   * reach the Operator as information with the owner's next one, and wake nobody.
    */
   private assertMayWriteToOperator(
     config: ProjectConfig,
@@ -399,8 +415,8 @@ export class Messaging {
     if (!recipients.some((handle) => isOperator(memberOf(config, handle)))) return;
     const sender = memberOf(config, from);
     if (sender?.kind !== 'human') return;
-    if (sender.access !== 'owner' || actor?.via)
-      throw forbidden('operator_owner_only', "only the owner's own login may write to the Operator");
+    if (actor?.via)
+      throw forbidden('operator_owner_only', "only a person's own login may write to the Operator");
   }
 
   /** Labels that notify the assignee (e.g. "QA: failed") reach them as a message from whoever set them. */
@@ -587,8 +603,14 @@ export class Messaging {
     handle: string,
     workItem: WorkItemRef,
     ownCard = false,
+    from?: string,
   ): { workItem: WorkItemRef; running: Session | null } {
-    workItem = sessionWorkItemOf(memberOf(config, handle), workItem);
+    const recipient = memberOf(config, handle);
+    // The Operator has one conversation per person who is not an owner, and one for the others (PM-475).
+    workItem =
+      from !== undefined && isOperator(recipient) && (workItem.type === 'task' || workItem.type === 'general')
+        ? operatorConversationOf(config, from)
+        : sessionWorkItemOf(recipient, workItem);
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };
     // Meant for the work on this card (an analyst check): not for the member's session on a family card.

@@ -13,6 +13,7 @@ import {
   handoffBlocksStart,
   isOnLeave,
   isOpenTask,
+  isOperator,
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
@@ -106,6 +107,7 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   DONE_TASK_TURN_LIMIT_MS,
+  guestSessionDir,
   memberSandboxDir,
   sensitivePaths,
   sessionSandbox,
@@ -653,6 +655,13 @@ export class SessionOrchestrator {
 
   list(projectKey: string, filter: { member?: string; taskKey?: string } = {}): Session[] {
     return this.ctx.repos.sessions.list(projectKey, filter);
+  }
+
+  /** Whether the session is the Operator's: only the owner and the admin see those (PM-475). */
+  isOperatorSession(sessionId: string): boolean {
+    const session = this.find(sessionId);
+    const config = session ? this.deps.projects.cachedConfig(session.projectKey) : null;
+    return !!session && !!config && isOperator(memberOf(config, session.member));
   }
 
   isRunning(sessionId: string): boolean {
@@ -1621,7 +1630,19 @@ export class SessionOrchestrator {
     // The session's own permission settings, set by an owner, in place of the member's (PM-170):
     // a resume keeps them (same row), a new session has none. The member's stay as they are.
     const permissions = effectiveSessionPermissions(member, existing ?? {});
-    const permissionMode = permissions.permissionMode ?? member.permissionMode;
+    // The Operator's conversation with someone who is not an owner (PM-475) runs on the team tools
+    // alone: no file or shell tools, an empty directory of its own, and every other tool refused.
+    const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+    // Only the Claude Code adapter can leave a CLI with the team tools alone (`--tools` and deny rules);
+    // the others keep their own shell and file tools, so a guest conversation fails closed on them.
+    if (guestOf !== undefined && provider !== 'claude')
+      throw conflict(
+        'provider_unsupported',
+        `the Operator's conversation with others needs Claude Code; ${provider} cannot be limited to the team tools`,
+        { provider },
+      );
+    const permissionMode =
+      guestOf !== undefined ? 'default' : (permissions.permissionMode ?? member.permissionMode);
     const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
     // The engine the session runs on (PM-311): every path, worktree and folder below is its. A start
     // is refused while it is not connected (admission makes it wait).
@@ -1706,6 +1727,10 @@ export class SessionOrchestrator {
           reason: 'no_member_workspaces',
         });
       cwd = await engine.memberWorkspaces.home({ projectKey, member: member.handle });
+    } else if (guestOf !== undefined) {
+      // Its own empty directory: not the workspace, and its transcript is not the owner's conversation's.
+      cwd = guestSessionDir(paths.home ?? path.join(paths.userHome, '.projectman'), projectKey, guestOf);
+      await engine.preparePortablePaths([cwd]);
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
@@ -1777,10 +1802,10 @@ export class SessionOrchestrator {
         Boolean(existing.branch?.startsWith('merge-fix/')) !== mergeFix ||
         // The managed VM (and anything behind the VM boundary) always places the session itself: it
         // never goes back to where it ran.
-        ((vm || this.managed) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
+        ((vm || this.managed || guestOf !== undefined) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
         ((placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration))),
     );
-    if (existing && !relocated && !ws && !vm && !this.managed) {
+    if (existing && !relocated && !ws && !vm && !this.managed && guestOf === undefined) {
       // Claude Code keeps conversations per working directory: resume where it started.
       cwd = existing.cwd;
       branch = existing.branch ?? branch;
@@ -1875,6 +1900,7 @@ export class SessionOrchestrator {
             : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
+      ...(guestOf !== undefined ? { teamToolsOnly: true } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
     // A developer's npm cache and development data live in its own directory (PM-193).
@@ -1924,9 +1950,12 @@ export class SessionOrchestrator {
     // The folder the sandbox kept and its root go into the policy: the adapter renders the file-tool
     // rules from it, and drops the legacy allow list beside a policy (PM-333).
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
+    // A team-tools-only guest conversation gets no session folder rules: it reads no file at all.
     const startPolicy = withSessionFolders(
       policy,
-      sessionFolder && folders ? { own: sessionFolder, root: folders.root } : undefined,
+      sessionFolder && folders && guestOf === undefined
+        ? { own: sessionFolder, root: folders.root }
+        : undefined,
     );
     const pack = this.deps.contextBuilder.build({
       ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),
@@ -2132,7 +2161,12 @@ export class SessionOrchestrator {
         policy: startPolicy,
         // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
         // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
-        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        allowedTools: vm
+          ? []
+          : [
+              ...allowedToolsFor(member.role, config, { teamToolsOnly: guestOf !== undefined }),
+              ...attachmentRules.allow,
+            ],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes

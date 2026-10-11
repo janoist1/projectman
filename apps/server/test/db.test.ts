@@ -4,7 +4,15 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { InboxItem, Session, Task } from '@projectman/shared';
 import Database from 'better-sqlite3';
-import { createRepositories, LATEST_SCHEMA_VERSION, migrate, openDatabase, schemaVersion } from '../src/db';
+import {
+  createRepositories,
+  decodeWorkItem,
+  encodeWorkItem,
+  LATEST_SCHEMA_VERSION,
+  migrate,
+  openDatabase,
+  schemaVersion,
+} from '../src/db';
 import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
@@ -617,5 +625,26 @@ describe('database', () => {
     expect(repos.authSessions.get('hash')?.userId).toBe('usr_1');
     expect(repos.authSessions.deleteExpired('2026-09-30T00:00:00.000Z')).toBe(1);
     expect(repos.authSessions.get('hash')).toBeNull();
+  });
+});
+
+describe('the work item column encoding (PM-475)', () => {
+  it('round-trips every work item, a general chat with a person too', () => {
+    for (const item of [
+      { type: 'task', taskKey: 'AR-1' },
+      { type: 'meeting', meetingId: 'mtg_1' },
+      { type: 'schedule', runId: 'run_1' },
+      { type: 'general' },
+      { type: 'general', with: 'cleo' },
+    ] as const) {
+      const { type, ref } = encodeWorkItem(item);
+      expect(decodeWorkItem(type, ref)).toEqual(item);
+    }
+  });
+
+  it('keeps the owners’ general chat as an empty ref, so no row needs a migration', () => {
+    expect(encodeWorkItem({ type: 'general' })).toEqual({ type: 'general', ref: '' });
+    expect(encodeWorkItem({ type: 'general', with: 'cleo' })).toEqual({ type: 'general', ref: 'cleo' });
+    expect(decodeWorkItem('general', '')).toEqual({ type: 'general' });
   });
 });

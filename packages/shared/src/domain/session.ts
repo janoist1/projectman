@@ -13,7 +13,14 @@ import { UsageSummary } from './token-usage';
 export const WorkItemRef = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task'), taskKey: TaskKey }),
   z.object({ type: z.literal('meeting'), meetingId: z.string() }),
-  z.object({ type: z.literal('general') }),
+  z.object({
+    type: z.literal('general'),
+    /**
+     * Whom the Operator's conversation is with (PM-475): set only on the Operator's conversation with a
+     * person who is not an owner; the owners share the one without it.
+     */
+    with: MemberHandle.optional(),
+  }),
   z.object({ type: z.literal('schedule'), runId: z.string() }),
 ]);
 export type WorkItemRef = z.infer<typeof WorkItemRef>;

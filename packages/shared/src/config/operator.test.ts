@@ -11,6 +11,7 @@ import {
   isOperatorActor,
   isRequiredOperator,
   operatorConfigVerdict,
+  operatorConversationOf,
   operatorFixedChange,
   operatorOf,
 } from './operator';
@@ -766,6 +767,23 @@ describe('the Operator member', () => {
     c.team.members.push({ ...operator, handle: 'operator-2' });
     expect(operatorOf(c)?.handle).toBe('operator-2');
     expect(operatorOf({ team: { ...c.team, members: [member(c, 'owner')] } })).toBeNull();
+  });
+
+  it('operatorConversationOf: owners share the general chat, every other person has their own (PM-475)', () => {
+    const c = config();
+    for (const [handle, access] of [
+      ['dana', 'developer'],
+      ['cleo', 'client'],
+      ['vera', 'viewer'],
+      ['ada', 'admin'],
+    ] as const)
+      c.team.members.push({ kind: 'human', handle, displayName: handle, access, roles: [] });
+    expect(operatorConversationOf(c, 'owner')).toEqual({ type: 'general' });
+    for (const handle of ['dana', 'cleo', 'vera', 'ada'])
+      expect(operatorConversationOf(c, handle)).toEqual({ type: 'general', with: handle });
+    // An AI member or an unknown sender never gets a conversation of their own.
+    expect(operatorConversationOf(c, 'pm')).toEqual({ type: 'general' });
+    expect(operatorConversationOf(c, 'nobody')).toEqual({ type: 'general' });
   });
 
   it('isRequiredOperator: only when it is the one', () => {

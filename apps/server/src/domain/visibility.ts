@@ -1,4 +1,10 @@
-import { canSeeAllTeamMessages, canSeeTask, canSeeTeamMessage, isCardLink } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  canSeeOperatorSessions,
+  canSeeTask,
+  canSeeTeamMessage,
+  isCardLink,
+} from '@projectman/shared';
 import type {
   InboxItem,
   MemberView,
@@ -220,10 +226,16 @@ export function canSeeProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
   taskOf?: (taskKey: string) => Task | null | undefined,
+  isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
   if (event.type === 'operator_signal') return viewer.access === 'owner';
   if (event.type === 'team_message') return canSeeTeamMessage(viewer, event.message);
+  // The Operator's sessions are the owner's and the admin's to see (PM-475).
+  if (!canSeeOperatorSessions(viewer) && isOperatorSession) {
+    if (event.type === 'session_upserted' && isOperatorSession(event.session.id)) return false;
+    if (event.type === 'chat_appended' && isOperatorSession(event.sessionId)) return false;
+  }
   if (!isClient(viewer)) return true;
   switch (event.type) {
     case 'task_upserted':

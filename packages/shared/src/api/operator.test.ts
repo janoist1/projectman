@@ -34,6 +34,7 @@ describe('Operator operation contracts', () => {
         state: 'missing',
         sessionId: null,
         requests: [],
+        readOnly: false,
         signals: [signal],
         openSignals: 1,
       }).signals,

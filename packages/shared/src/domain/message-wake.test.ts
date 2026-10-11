@@ -9,7 +9,7 @@ const wake: WakeFacts = {
   fromAi: false,
   recipientHasRole: true,
   recipientIsOperator: false,
-  fromOwner: false,
+  fromOwnLogin: false,
 };
 
 const facts: StaleFacts = {
@@ -101,20 +101,20 @@ describe('message validity and wake-up', () => {
     });
   });
 
-  describe('the Operator works only on the owner’s request (PM-447)', () => {
+  describe('the Operator wakes for a person’s own message (PM-447, PM-475)', () => {
     const toOperator: WakeFacts = { ...wake, recipientIsOperator: true };
-    const ownerSender: WakeFacts = { ...toOperator, fromHuman: true, fromOwner: true };
+    const personSender: WakeFacts = { ...toOperator, fromHuman: true, fromOwnLogin: true };
 
-    it('the owner’s own message wakes it, an action or an info alike', () => {
+    it('a person’s own message wakes it, an action or an info alike', () => {
       for (const message of [{}, { kind: 'action' as const }, { kind: 'info' as const }]) {
-        expect(messageWakes(message, ownerSender, null)).toBe(true);
-        expect(messageWakeBlock(message, ownerSender, null)).toBeNull();
+        expect(messageWakes(message, personSender, null)).toBe(true);
+        expect(messageWakeBlock(message, personSender, null)).toBeNull();
       }
     });
 
     it.each([
-      ['another person', { ...toOperator, fromHuman: true }],
-      ['the owner through the integrator key', { ...toOperator, fromHuman: true, fromOwner: false }],
+      ['a person through the integrator key', { ...toOperator, fromHuman: true, fromOwnLogin: false }],
+      ['an AI member that is not human', { ...toOperator, fromOwnLogin: true }],
       ['an AI member with a role on the card', { ...toOperator, fromAi: true }],
       ['an AI member without a role on the card', { ...toOperator, fromAi: true, recipientHasRole: false }],
       ['the system', toOperator],
@@ -132,8 +132,8 @@ describe('message validity and wake-up', () => {
     });
 
     it('does not change who wakes the other members', () => {
-      expect(messageWakes({}, { ...wake, fromHuman: true, fromOwner: false }, null)).toBe(true);
-      expect(messageWakes({}, { ...wake, fromOwner: true }, null)).toBe(true);
+      expect(messageWakes({}, { ...wake, fromHuman: true, fromOwnLogin: false }, null)).toBe(true);
+      expect(messageWakes({}, { ...wake, fromOwnLogin: true }, null)).toBe(true);
     });
   });
 });

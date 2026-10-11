@@ -53,6 +53,35 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'merge_task',
 ]);
 
+/**
+ * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):
+ * it reads what that person can see and answers them (`send_message`, to them only).
+ * `get_project_state` is left out on purpose: it comes back together with a viewer filter (PM-465).
+ */
+export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
+  'get_task',
+  'list_tasks',
+  'list_members',
+  'list_attachments',
+  'read_attachment',
+  'send_message',
+]);
+
+/**
+ * The step a refused write is logged as: the action the call would have been. A tool that is no
+ * action of the Operator's (`OperatorAction`) is refused with no step.
+ */
+export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
+  send_message: 'message',
+  create_task: 'task_create',
+  update_task: 'task_update',
+  attach_file: 'task_update',
+  delete_attachment: 'task_update',
+  link_pull_request: 'task_update',
+  start_task: 'task_start',
+  operate: 'config_change',
+};
+
 export interface OpenOperatorRequest {
   projectKey: string;
   sessionId: string;
@@ -116,11 +145,14 @@ export class OperatorRequests {
       this.ctx.repos.operatorRequests.close(request.id, now);
   }
 
-  /** The project's latest requests with their steps, the newest last; the ones past their time are closed first. */
-  views(projectKey: string): OperatorRequestView[] {
+  /**
+   * The latest requests that these members made with their steps, the newest last; the ones past their
+   * time are closed first. The owners' channel lists the owners' requests, a guest's their own (PM-475).
+   */
+  views(projectKey: string, fromHandles: string[]): OperatorRequestView[] {
     const { operatorRequests } = this.ctx.repos;
     for (const request of operatorRequests.openOfProject(projectKey)) this.expire(request);
-    return operatorRequests.latest(projectKey, OPERATOR_CHANNEL_REQUESTS).map((request) => ({
+    return operatorRequests.latestFrom(projectKey, fromHandles, OPERATOR_CHANNEL_REQUESTS).map((request) => ({
       id: request.id,
       messageId: request.messageId,
       quote: request.quote,

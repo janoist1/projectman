@@ -895,6 +895,39 @@ export class TaskService {
   }
 
   /**
+   * Ends a theme on the system's behalf, inside the caller's unit of work (PM-491, the release card):
+   * `done` when the work it stood for was finished, `cancelled` when it was abandoned. No person is
+   * asked, so only the domain calls it. A theme that is closed already is left as it is.
+   */
+  endTheme(
+    projectKey: string,
+    taskKey: string,
+    outcome: 'done' | 'cancelled',
+    actor: Actor,
+    reason?: string,
+  ): Task {
+    const task = this.get(projectKey, taskKey);
+    if (!isTheme(task)) throw conflict('task_not_theme', `${taskKey} is not a theme`);
+    if (!isOpenTask(task)) return task;
+    const at = isoNow(this.ctx);
+    const ended = this.store.write(task, { status: outcome, closedAt: at, updatedAt: at });
+    this.timeline.append({
+      projectKey,
+      taskKey,
+      actor,
+      type: 'task_updated',
+      data: {
+        fields: ['status', 'closedAt'],
+        action: 'closed',
+        previousStatus: task.status,
+        ...(reason !== undefined ? { reason } : {}),
+      },
+    });
+    this.publish(ended);
+    return ended;
+  }
+
+  /**
    * Reopens in the same stage, with no assignee; starting work remains explicit. A theme is reopened by
    * a person of developer access, any other card by an admin.
    */

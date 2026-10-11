@@ -68,6 +68,7 @@ export const TEAM_TOOL_NAMES = [
   'get_project_state',
   'list_tasks',
   'merge_task',
+  'propose_release',
   'update_task',
   'create_task',
   'link_pull_request',
@@ -550,6 +551,51 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       if (task.merge?.state === 'fixing' && task.merge.fix)
         return `fixing mergeId=${task.merge.id}. End this turn so your session restarts in the merge-fix worktree. There run git merge ${task.merge.fix.base}, resolve only mechanical conflicts, commit, then call merge_task with resolution describing what and where you fixed. For a behavioral conflict, send the card back with update_task and a reason.`;
       return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
+    },
+  }),
+
+  defineTool({
+    name: 'propose_release',
+    title: 'Propose a release',
+    readOnly: false,
+    description:
+      "Propose releasing this instance's default branch (or the merge commit `commit`) to the owners. Only a member " +
+      "with the deployment duty may call it. It makes a release card and an approval request in the owners' " +
+      'inbox; nothing is deployed until an owner approves, and the release watcher deploys it. The release has ' +
+      'the merged cards between the last release and the commit. Only one release is open at a time. With ' +
+      '`preview: true` nothing is recorded: the result lists the commit and the cards, so you can write the ' +
+      'summary. Without it your session ends after the call: the owner decides and the watcher continues, so ' +
+      'do nothing more afterwards.',
+    input: {
+      title: z.string().min(1).max(200).describe('The release card title, e.g. "Release 2026.10.11".'),
+      summary: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe(
+          'English markdown: what the release changes, as short bullets with the card keys. It becomes the text of the GitHub release.',
+        ),
+      commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/)
+        .optional()
+        .describe('A merge commit of a merged card; default: the head of the default branch.'),
+      preview: z
+        .boolean()
+        .optional()
+        .describe('Only list the commit and the cards of the release; record nothing (default false).'),
+    },
+    async run({ ctx, args, handler }) {
+      const result = await handler.proposeRelease(ctx, {
+        title: args.title,
+        summary: args.summary,
+        commit: args.commit,
+        preview: args.preview ?? false,
+      });
+      const cards = result.tasks.map((task) => `${task.key} ${task.title}`).join('\n');
+      const head = `commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}\n${cards}`;
+      if (!result.releaseId) return `preview (nothing recorded)\n${head}`;
+      return `releaseId=${result.releaseId} taskKey=${result.taskKey}\n${head}\nThe owners were asked. End your turn: your session ends now.`;
     },
   }),
 

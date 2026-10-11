@@ -1,6 +1,7 @@
 import {
   BoundaryAuditReason,
   BoundaryState,
+  ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
   TaskRelationKind,
@@ -362,6 +363,19 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         text: t('timeline.events.task_merge_blocked', { reason }),
         emphasis: 'normal',
         ...(str(d.message) ? { detail: str(d.message) } : {}),
+      };
+    }
+    case 'release_changed': {
+      const failure = record(d.failure);
+      return {
+        text: t('timeline.events.release_changed', {
+          state: t(`timeline.events.release_state.${ReleaseState.safeParse(d.state).data ?? 'proposed'}`),
+          commit: str(d.commit).slice(0, 8),
+        }),
+        emphasis: 'normal',
+        ...(str(failure?.message) || str(d.publishError)
+          ? { detail: str(failure?.message) || str(d.publishError) }
+          : {}),
       };
     }
     case 'boundary_changed': {

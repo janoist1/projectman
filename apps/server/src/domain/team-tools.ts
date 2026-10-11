@@ -49,6 +49,7 @@ import type {
   LocatedAttachmentForTool,
   MemberMemoryStore,
   NetworkDenial,
+  ProposedRelease,
   ScreenshotRun,
   SentMessageRecipient,
   TakeScreenshotsInput,
@@ -366,6 +367,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly merges: import('./merges').Merges;
+  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
   private readonly tasks: TaskService;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
@@ -401,6 +403,8 @@ export class TeamToolsService implements TeamToolsHandler {
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     merges: import('./merges').Merges;
+    /** The instance's releases (PM-491): propose_release. */
+    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
     tasks: TaskService;
     /** Why cards stand still (PM-460): get_task and list_tasks say it. */
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
@@ -459,6 +463,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.merges = deps.merges;
+    this.releases = deps.releases;
     this.tasks = deps.tasks;
     this.taskWaits = deps.taskWaits;
     this.projectFocus = deps.projectFocus;
@@ -938,6 +943,41 @@ export class TeamToolsService implements TeamToolsHandler {
           args,
         ),
       };
+    });
+  }
+
+  async proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease> {
+    return this.guard(async () => {
+      await this.caller(ctx, 'propose_release');
+      try {
+        if (args.preview) {
+          const candidate = await this.releases.preview(ctx.projectKey, ctx.member, args.commit);
+          return { commit: candidate.commit, baseCommit: candidate.baseCommit, tasks: candidate.tasks };
+        }
+        const { release, candidate } = await this.releases.propose(ctx.projectKey, ctx.member, {
+          title: args.title,
+          summary: args.summary,
+          commit: args.commit,
+        });
+        return {
+          releaseId: release.id,
+          taskKey: release.taskKey,
+          commit: release.commit,
+          baseCommit: release.baseCommit,
+          tasks: candidate.tasks,
+        };
+      } catch (err) {
+        // The agent reads the code: it says what to do (wait for the open release, nothing to release).
+        if (err instanceof DomainError && err.code.startsWith('release_'))
+          throw new TeamToolError(
+            err.status === 403 ? 'forbidden' : 'invalid',
+            `${err.code}: ${err.message}`,
+          );
+        throw err;
+      }
     });
   }
 

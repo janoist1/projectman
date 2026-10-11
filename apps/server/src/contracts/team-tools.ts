@@ -218,6 +218,18 @@ export interface ScreenshotRun {
   outputTail?: string;
 }
 
+/**
+ * What propose_release answers (PM-491): the commit and the cards of the release. In preview
+ * mode nothing was recorded, so there is no release id and no card.
+ */
+export interface ProposedRelease {
+  releaseId?: string;
+  taskKey?: string;
+  commit: string;
+  baseCommit: string | null;
+  tasks: { key: string; title: string }[];
+}
+
 export interface TeamToolsHandler {
   getProjectState(
     ctx: ToolContext,
@@ -316,6 +328,14 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
   ): Promise<{ task: Task }>;
+  /**
+   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
+   * branch's head (or `commit`); `preview` only lists what the release would contain.
+   */
+  proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
   updateTask(
     ctx: ToolContext,
     args: {

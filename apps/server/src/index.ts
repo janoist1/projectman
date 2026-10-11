@@ -94,6 +94,14 @@ interface ServerConfig {
   machineFixture: boolean;
 }
 
+/** `PROJECTMAN_RELEASE_TARGET`: `<project key>/<repository>`; anything else stops the start. */
+function parseReleaseTarget(value: string): { projectKey: string; repo: string } {
+  const [projectKey, repo, ...rest] = value.split('/');
+  if (!projectKey || !repo || rest.length > 0)
+    throw new Error(`invalid PROJECTMAN_RELEASE_TARGET: ${value} (<project key>/<repository>)`);
+  return { projectKey, repo };
+}
+
 async function configFromEnv(
   env: NodeJS.ProcessEnv,
   engineMode: Exclude<RunMode, 'engine'>,
@@ -145,6 +153,10 @@ async function configFromEnv(
   const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
     ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
     : undefined;
+  // The project and repository that are this instance itself (PM-491): `<project key>/<repository>`.
+  const releaseTarget = env.PROJECTMAN_RELEASE_TARGET?.trim()
+    ? parseReleaseTarget(env.PROJECTMAN_RELEASE_TARGET.trim())
+    : undefined;
   return {
     port,
     host,
@@ -152,6 +164,7 @@ async function configFromEnv(
     app: {
       engineMode,
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
+      ...(releaseTarget ? { releaseTarget } : {}),
       modules: machineFixture
         ? {
             createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),

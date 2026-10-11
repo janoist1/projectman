@@ -5,6 +5,7 @@ import { LabelId } from './label';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
+import { ReleaseStep } from './release';
 import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -29,8 +30,28 @@ export const InboxKind = z.enum([
   'alert',
   'hand_on',
   'merge_request',
+  /** The approval of a proposed release of the instance itself (PM-491); see `ReleaseApprovalPayload`. */
+  'release',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+/**
+ * `payload.release` of a `release` item: the release an owner approves or rejects. The options are
+ * `approve` (primary) and `reject` (danger); a note is optional.
+ */
+export const ReleaseApprovalPayload = z.object({
+  releaseId: z.string(),
+  commit: z.string(),
+  baseCommit: z.string().nullable(),
+  tasks: z.array(z.object({ key: TaskKey, title: z.string() })),
+  summary: z.string(),
+});
+export type ReleaseApprovalPayload = z.infer<typeof ReleaseApprovalPayload>;
+export function releaseApprovalOf(item: Pick<InboxItem, 'kind' | 'payload'>): ReleaseApprovalPayload | null {
+  if (item.kind !== 'release') return null;
+  const parsed = ReleaseApprovalPayload.safeParse(item.payload.release);
+  return parsed.success ? parsed.data : null;
+}
 
 export const MergeRequestPayload = z.object({
   taskKey: TaskKey,
@@ -399,7 +420,20 @@ export const WorkOutageAlert = z.object({
 });
 export type WorkOutageAlert = z.infer<typeof WorkOutageAlert>;
 
+/** `release_failed` (PM-491): the deploy of release `releaseId` failed in `step`; `rolledBack`: the previous commit runs again. */
+export const ReleaseFailedAlert = z.object({
+  alert: z.literal('release_failed'),
+  releaseId: z.string(),
+  taskKey: TaskKey,
+  commit: z.string(),
+  step: ReleaseStep,
+  message: z.string(),
+  rolledBack: z.boolean(),
+});
+export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  ReleaseFailedAlert,
   WorkOutageAlert,
   MergeBlockedAlert,
   SessionTokensAlert,

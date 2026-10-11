@@ -1887,7 +1887,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `{ type: 'general' }`, every other human has `{ type: 'general', with: <handle> }` (`WorkItemRef`; `db/sessions`
   stores `with` in the ref column, empty for the owners', so no migration). A guest conversation only reads and
   answers: `callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (reads, and `send_message` to that person alone,
-  which is no step); any other tool is 403 `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
+  which is no step; `get_project_state` stays out until it filters by viewer); any other tool is 403
+  `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
   logged as a `refused` step. Reads use the person's own view (`canSeeTask`, `visibleTaskDetail`,
   `visibleTimelineEvent`, attachments as `humanActor`; an invisible card is `not_found`), the prompt has no memory and
   says who it talks with. Requests are listed by sender, so `GET /operator` gives a person their own

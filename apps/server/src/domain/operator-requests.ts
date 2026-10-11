@@ -63,7 +63,6 @@ export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'list_members',
   'list_attachments',
   'read_attachment',
-  'get_project_state',
   'send_message',
 ]);
 

@@ -3,6 +3,7 @@ import { OperatorChannel, routes } from '@projectman/shared';
 import type { ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
+import { OPERATOR_GUEST_TOOLS } from '../src/domain/operator-requests';
 import { canSeeProjectEvent } from '../src/domain/visibility';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -183,6 +184,18 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       () => h.domain.teamTools.askHuman(context, { question: 'May I?' }),
     ])
       expect(await refusal(call())).toMatch(/^operator_owner_only:/);
+  });
+
+  it('keeps the project state closed to a guest until it has a viewer filter', () => {
+    expect(OPERATOR_GUEST_TOOLS.has('get_project_state')).toBe(false);
+    expect([...OPERATOR_GUEST_TOOLS].sort()).toEqual([
+      'get_task',
+      'list_attachments',
+      'list_members',
+      'list_tasks',
+      'read_attachment',
+      'send_message',
+    ]);
   });
 
   it('answers only the person it talks with', async () => {

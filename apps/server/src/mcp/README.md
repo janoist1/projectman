@@ -76,6 +76,12 @@ tests use the SDK's own client, which behaves the same way here):
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
+- `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
+  (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
+  the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
+  in them as one commit pushed to the default branch (the owner's own conversation and an open request only; it
+  answers `published`, `queued` or `running`). Handler methods: `readProjectDoc(ctx, { doc, fromLine?, lineCount? })`,
+  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See ARCHITECTURE.md, "Operator documents".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

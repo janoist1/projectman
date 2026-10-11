@@ -78,6 +78,7 @@ import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { DocWrites } from './doc-writes';
 import { Merges } from './merges';
 import { ReleaseService } from './releases';
 import type { ReleaseTarget } from './releases';
@@ -805,6 +806,8 @@ export function createDomain(opts: DomainOptions) {
     background,
     afterMerge: (task) => autoAdvance.check(task),
   });
+  const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
+  merges.useDocWrites(docWrites);
   inbox.useMergeStart(async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
   });
@@ -966,6 +969,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const teamTools = new TeamToolsService({
     projectState,
+    docWrites,
     merges,
     releases,
     operatorRequests,
@@ -1490,6 +1494,7 @@ export function createDomain(opts: DomainOptions) {
     reviewWatch,
     fullTests,
     merges,
+    docWrites,
     releases,
     loopWatch,
     seniorWaits,
@@ -1532,6 +1537,8 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      // The Operator's document writes the last server left are resumed before the merges queue starts.
+      await docWrites.init();
       await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
@@ -1675,6 +1682,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await docWrites.stop();
       await merges.stop();
       await screenshotRuns?.stop();
       await outages.stop();

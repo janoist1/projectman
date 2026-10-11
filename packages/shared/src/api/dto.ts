@@ -91,10 +91,12 @@ export const OperatorAction = z.enum([
   'session_stop',
   'project_pause',
   'project_resume',
+  'docs_write',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([
   'done',
+  'queued',
   'awaiting_approval',
   'approved',
   'rejected',

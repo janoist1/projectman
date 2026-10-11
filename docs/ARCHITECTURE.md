@@ -937,6 +937,17 @@ as a code-free card. See the machine inventory entry below.
 the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
 repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
 
+**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`domain/doc-writes.ts`)
+writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
+repository while `DocWrites.busy` says a write runs there, and a merge's `finally` calls `docWrites.pump()`
+before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
+for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.useDocWrites` ties the two (as
+`useFullTests` does). At most one write is open (`queued` or `running`) per project (unique index
+`doc_writes_open`). Its git work is the engine's (`prepare`, `readFile`, `commitFiles`, `checkoutConflicts`,
+`push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
+new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
+`published` when the remote already has that commit (the local branch is advanced), otherwise `queued` again.
+
 ## Heavy-run queue (PM-332)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -1946,6 +1957,22 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
+- **Operator documents (PM-495, PM-388).** `read_project_doc { doc, from_line?, line_count? }` is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool): the decision log or roadmap at the fresh head of the default branch,
+  read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
+  `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
+  own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
+  otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
+  The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
+  `domain/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
+  `docs_not_append_only`, `docs_unchanged`), then the write is queued (`doc_writes`, one open per project:
+  409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
+  "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
+  `running`; a write that ends without a waiting call updates its step (`done`, `stale` or `refused`, with the
+  refusal: `updateStep(…, refusal)`) and sends the Operator an English `info` system message, read with the owner's
+  next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
+  trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
+  the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
 - **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
   manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
   A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the

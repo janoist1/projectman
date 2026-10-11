@@ -20,6 +20,7 @@ import {
   WORK_DOING_SUMMARY_MAX,
   WorkDoing,
   OperatorOperation,
+  ProjectDoc,
 } from '@projectman/shared';
 import type { DeveloperLevelRequest } from '@projectman/shared';
 import { z } from 'zod';
@@ -55,6 +56,8 @@ import {
 
 export const TEAM_TOOL_NAMES = [
   'operate',
+  'read_project_doc',
+  'write_project_docs',
   'start_task',
   'submit_boundary_request',
   'get_boundary_request',
@@ -244,6 +247,72 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     input: { title: z.string().trim().min(1).max(120), operation: OperatorOperation },
     async run({ ctx, args, handler }) {
       return JSON.stringify(await handler.operate(ctx, args));
+    },
+  }),
+  defineTool({
+    name: 'read_project_doc',
+    title: 'Read a project document',
+    readOnly: true,
+    description:
+      "Only the Operator, not in guest conversations; needs no open owner request. Read the decision log (decisions) or the roadmap (roadmap) as it is on the head of the project's default branch, fresh from the remote. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+    input: {
+      doc: ProjectDoc,
+      from_line: z.number().int().min(1).optional().describe('First line to return, from 1 (default 1).'),
+      line_count: z
+        .number()
+        .int()
+        .min(1)
+        .max(2000)
+        .optional()
+        .describe('How many lines to return, at most 2000 (default 2000).'),
+    },
+    async run({ ctx, args, handler }) {
+      const read = await handler.readProjectDoc(ctx, {
+        doc: args.doc,
+        fromLine: args.from_line,
+        lineCount: args.line_count,
+      });
+      return JSON.stringify(read);
+    },
+  }),
+  defineTool({
+    name: 'write_project_docs',
+    title: 'Write the project documents',
+    readOnly: false,
+    description:
+      "Only the Operator, in the owner's own conversation, during an open owner request. Replace text in the decision log and the roadmap as ONE commit on the default branch, pushed to its remote. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go, so a decision is added, never rewritten. Show the owner the text before you write it. Refused when a file changed since base_commit (docs_stale: read it again), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued (it runs after the merge that holds the slot, and you are told how it ended with the owner's next message) or running (not finished within 60 seconds; the same). message is the commit subject: one line, English.",
+    input: {
+      base_commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/, 'A full 40-character commit id, as read_project_doc returned it.'),
+      message: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .regex(/^[^\r\n]+$/, 'One line.'),
+      edits: z
+        .array(
+          z.strictObject({
+            doc: ProjectDoc,
+            old_text: z
+              .string()
+              .max(20000)
+              .describe('The text to replace, exactly as in the file; empty appends at the end of the file.'),
+            new_text: z.string().min(1).max(20000),
+          }),
+        )
+        .min(1)
+        .max(20),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(
+        await handler.writeProjectDocs(ctx, {
+          baseCommit: args.base_commit,
+          message: args.message,
+          edits: args.edits,
+        }),
+      );
     },
   }),
   defineTool({

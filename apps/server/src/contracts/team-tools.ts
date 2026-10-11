@@ -29,10 +29,30 @@ import type {
   DecideBoundaryRequest,
   OperatorOperation,
   ConfigChangeRow,
+  ProjectDoc,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
 import type { ProjectStateReport, TaskStateReport } from './project-state';
+
+/** What read_project_doc answers: the lines asked for of a project document at one commit. */
+export interface ProjectDocRead {
+  doc: ProjectDoc;
+  repo: string;
+  path: string;
+  /** The commit the text was read at: the `base_commit` of a write. */
+  commit: string;
+  exists: boolean;
+  total_lines: number;
+  from_line: number;
+  text: string;
+}
+
+/** What write_project_docs answers. */
+export type ProjectDocWrite =
+  | { write_id: string; state: 'published'; commit: string; paths: string[]; warning?: string }
+  | { write_id: string; state: 'queued'; waiting_for: string }
+  | { write_id: string; state: 'running' };
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -250,6 +270,26 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
   ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
+  /**
+   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
+   * Only the Operator; needs no open request.
+   */
+  readProjectDoc(
+    ctx: ToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /**
+   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
+   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
+   */
+  writeProjectDocs(
+    ctx: ToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again

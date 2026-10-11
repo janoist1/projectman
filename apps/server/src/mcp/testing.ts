@@ -228,6 +228,23 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('startTask', ctx, args);
       return { task_key: args.taskKey, session_id: null, hired: null };
     },
+    async readProjectDoc(ctx, args) {
+      await enter('readProjectDoc', ctx, args);
+      return {
+        doc: args.doc,
+        repo: 'fake',
+        path: 'docs/DECISIONS.md',
+        commit: '0'.repeat(40),
+        exists: true,
+        total_lines: 0,
+        from_line: args.fromLine ?? 1,
+        text: '',
+      };
+    },
+    async writeProjectDocs(ctx, args) {
+      await enter('writeProjectDocs', ctx, args);
+      return { write_id: 'dw_fake', state: 'running' };
+    },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'Unknown boundary request.');

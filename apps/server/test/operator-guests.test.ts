@@ -1,3 +1,5 @@
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -41,8 +43,8 @@ function withGuests(config: ProjectConfig): void {
     });
 }
 
-async function setup(): Promise<void> {
-  h = await createDomainHarness({ adjust: withGuests });
+async function setup(opts: { appHome?: string } = {}): Promise<void> {
+  h = await createDomainHarness({ adjust: withGuests, ...opts });
   await h.domain.tasks.create('AR', { title: 'Internal plan' }, OWNER_ACTOR);
   await h.domain.tasks.create('AR', { title: 'Shared page', visibility: 'shared' }, OWNER_ACTOR);
 }
@@ -269,6 +271,32 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       ['message', 'refused'],
       ['message', 'refused'],
     ]);
+  });
+
+  it('attaches a file of its directory to the answer, to the guest alone (PM-520)', async () => {
+    // The conversation's own directory is below the app home: a temporary one, never the real home.
+    const appHome = mkdtempSync(path.join(tmpdir(), 'pm-guest-home-'));
+    try {
+      await setup({ appHome });
+      await say('cleo');
+      const session = conversationWith('cleo');
+      mkdirSync(session!.cwd, { recursive: true });
+      writeFileSync(path.join(session!.cwd, 'answer.txt'), 'the answer');
+      const send = (to: string[], attachments = ['answer.txt']) =>
+        h.domain.teamTools.sendMessage(toolOf(session), { to, text: 'See this', kind: 'info', attachments });
+      const sent = await send(['cleo']);
+      expect(h.repos.messages.get(sent.messageId)?.attachments).toEqual([
+        expect.objectContaining({ fileName: 'answer.txt', size: 10 }),
+      ]);
+      // The rule of the conversation stays: nobody else, and no file stored for a refused message.
+      expect(await refusal(send(['owner']))).toMatch(/^operator_owner_only:/);
+      const stored = () => readdirSync(path.join(h.messageAttachmentsDir, 'AR')).length;
+      const before = stored();
+      expect(await refusal(send(['cleo'], ['missing.txt']))).toContain('missing.txt');
+      expect(stored()).toBe(before);
+    } finally {
+      rmSync(appHome, { recursive: true, force: true });
+    }
   });
 
   it('shows a client only the cards shared with them', async () => {

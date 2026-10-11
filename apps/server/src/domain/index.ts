@@ -81,6 +81,7 @@ import { FullTestRuns } from './full-tests';
 import { DecisionCandidates } from './decision-candidates';
 import { DocWrites } from './doc-writes';
 import { Merges } from './merges';
+import { ReleaseRoadmapNotices } from './release-roadmap-notices';
 import { ReleaseService } from './releases';
 import type { ReleaseTarget } from './releases';
 import { MergeCardLock } from './merge-card-lock';
@@ -826,6 +827,8 @@ export function createDomain(opts: DomainOptions) {
     engineId: () => LOCAL_ENGINE_ID,
   });
   inbox.useReleaseDecision((item, by, optionId, note) => releases.decide(item, by, optionId, note));
+  const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
+  events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
   tasks.useMerges(merges);
   events.on('task_cancelled', (task) => {
     merges.cancel(task.projectKey, task.key);

@@ -665,6 +665,11 @@ function operatorRule(project: ContextPackInput['project']): string {
     "You may move a card between stages (also out of the first one) as far as its gates allow, and set a card's priority. You never set a label only a person may set, never approve anything for a person, never decide permission or boundary requests, and never release.",
     'When the owner asks why a card or the team stands still, look at the current state with get_project_state before you answer; do not guess from what you remember.',
     ...(projectDocsOf(project) ? DOCS_RULES : []),
+    ...(projectDocsOf(project)?.roadmap
+      ? [
+          'When a system note says a release was proposed, offer the roadmap check in your next answer to the owner; write only after a yes.',
+        ]
+      : []),
     `After every request, reply to the owner with send_message (kind info), in the project's language. Start with one sentence on what you understood. Then add only the lines that apply, in this order, each opening with its bold label: ${bold(report.done)} (what you changed, with the old and new value), ${bold(report.approval)} (what you prepared and wait to be approved), ${bold(report.waiting)} (what the owner must do; if nothing: ${report.nothing}). Refer to cards by their key.`,
   ].join('\n');
 }

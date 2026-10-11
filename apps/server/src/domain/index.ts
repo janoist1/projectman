@@ -79,6 +79,8 @@ import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { Merges } from './merges';
+import { ReleaseService } from './releases';
+import type { ReleaseTarget } from './releases';
 import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
@@ -201,8 +203,17 @@ export { ProviderKeys } from './provider-keys';
 export type { NanogptKeyCheck } from './provider-keys';
 export { createNanogptKeyCheck } from './nanogpt-key-check';
 
+export type { ReleaseTarget } from './releases';
+
 export interface DomainOptions {
   nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
+  /**
+   * The project and repository that are this instance itself (PM-491): its releases are proposed,
+   * approved and deployed. Absent: releases are off (`release_not_configured`).
+   */
+  releaseTarget?: ReleaseTarget;
+  /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
+  appVersion?: string;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
   runtimeBoundary?: RuntimeBoundary;
@@ -797,6 +808,19 @@ export function createDomain(opts: DomainOptions) {
   inbox.useMergeStart(async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
   });
+  const releases = new ReleaseService({
+    ctx,
+    projects,
+    tasks,
+    inbox,
+    timeline,
+    engines,
+    target: opts.releaseTarget ?? null,
+    appVersion: () => opts.appVersion ?? 'dev',
+    // The instance's own repository is on the machine the server runs on.
+    engineId: () => LOCAL_ENGINE_ID,
+  });
+  inbox.useReleaseDecision((item, by, optionId, note) => releases.decide(item, by, optionId, note));
   tasks.useMerges(merges);
   events.on('task_cancelled', (task) => {
     merges.cancel(task.projectKey, task.key);
@@ -943,6 +967,7 @@ export function createDomain(opts: DomainOptions) {
   const teamTools = new TeamToolsService({
     projectState,
     merges,
+    releases,
     operatorRequests,
     operatorSteps,
     operatorActions,
@@ -1465,6 +1490,7 @@ export function createDomain(opts: DomainOptions) {
     reviewWatch,
     fullTests,
     merges,
+    releases,
     loopWatch,
     seniorWaits,
     fixLimit,

@@ -918,6 +918,11 @@ export const hu = {
       no_free_member: 'Most nincs szabad fejlesztő.',
       senior_busy: 'A kártya a Seniorra vár.',
       inbox_item_closed: 'Ezt már elintézték.',
+      release_not_configured: 'Ez a példány nincs kiadásra beállítva.',
+      release_open: 'Már van egy folyamatban lévő kiadás.',
+      release_empty: 'Nincs mit kiadni: nincs új beolvasztott kártya.',
+      release_commit_unknown: 'Ez a commit nem egy kártya beolvasztásának eredménye.',
+      release_state_conflict: 'A kiadás állapota ezt most nem engedi.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
@@ -3036,6 +3041,7 @@ export const hu = {
       question: 'Kérdés',
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
+      release: 'Kiadás',
     },
     kindsLower: {
       hand_on: 'továbbvitel',
@@ -3046,6 +3052,7 @@ export const hu = {
       question: 'kérdés',
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
+      release: 'kiadás',
     },
     options: {
       allow: 'Engedélyezem',
@@ -3137,6 +3144,13 @@ export const hu = {
           '{member} munkamenete megállt: NanoGPT: korlát, a keret állapotára vár. A szolgáltató üzenete: {message}',
       },
       unknown: 'Figyelmeztetés',
+      /** The release watcher reported a failure (PM-491). */
+      release_failed: {
+        heading: 'Elbukott a kiadás',
+        body: 'A(z) {key} kiadás ({commit}) elbukott ebben a lépésben: {step}. {rollback} A hiba: {message}',
+        rolledBack: 'Az előző változat fut tovább.',
+        notRolledBack: 'Nézd meg, melyik változat fut.',
+      },
       session_tokens: {
         heading: 'Sok tokent használ egy munkamenet',
         body: '{member} munkamenete ({work}, indult: {started}) {counted} tokent használt; a figyelmeztetési határ {limit} token. A munkamenet fut tovább, nem állt meg.',
@@ -3756,6 +3770,16 @@ export const hu = {
       merge_failed_check: 'elbukott az ellenőrzés ({check})',
       merge_failed_check_unnamed: 'elbukott az ellenőrzés',
       task_merge_blocked: 'A beolvasztás elakadt: {reason}',
+      release_changed: 'A kiadás állapota: {state} ({commit})',
+      release_state: {
+        proposed: 'javasolva',
+        approved: 'jóváhagyva',
+        rejected: 'elutasítva',
+        deploying: 'telepítés folyamatban',
+        failed: 'elbukott',
+        live: 'él',
+        published: 'közzétéve',
+      },
       merge_target_unknown: 'a következő lépés',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
       task_stage_changed_branch_moved:

@@ -1527,6 +1527,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
+  Release flow (PM-491, `domain/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
+  reports on this same local socket, so it must run on the server's host; the instance's repository is on
+  the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
+  (see "Release of the instance"); no new boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
@@ -2078,7 +2082,48 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   no login: whoever may open the file may pause the team, like whoever may stop the service. A file nobody
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
-  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)).
+  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)). Since PM-491 it also takes `release_next`,
+  `release_claim` and `release_report`, the release watcher's operations (see "Release of the instance").
+
+## Release of the instance (PM-491, part of PM-387)
+
+The release flow of projectman's own instance, on the server; the watcher that deploys (PM-493) and the
+screens (PM-492) come in their own cards.
+
+- **Target.** `PROJECTMAN_RELEASE_TARGET=<project key>/<repository>` (read in `index.ts`, `parseReleaseTarget`;
+  `DomainOptions.releaseTarget`) names the project and repository that are the instance itself. Without it
+  every release operation is refused (`release_not_configured`). `appVersion` (`resolveAppVersion`) is the
+  commit the server runs; the control socket tells it in every answer, so the watcher knows a restart happened.
+- **Record.** `releases` (migration 51, `db/releases.ts`, contract `packages/shared/src/domain/release.ts`):
+  `proposed` → `approved` → `deploying` → `live` → `published`, or `rejected` / `failed`. A partial unique
+  index (`releases_open`) allows one release in `proposed`, `approved` or `deploying` for a project. A release has
+  a theme card (kind `theme`); its timeline holds `release_changed` for every change, and `ReleaseService`
+  (`domain/releases.ts`) is the only writer.
+- **Contents.** Only a commit a recorded merge of a card left on the default branch can be released
+  (`task_merges`, state `merged`; `release_commit_unknown` otherwise). The cards are those whose merge commit is
+  an ancestor of the release commit and not of the base: the last release that went live, else the running
+  version when that is a commit id. The ancestry questions go to the engine that holds the repository
+  (`BranchMerger.isAncestor`, the head through `BranchMerger.prepare`).
+- **Proposal.** `propose_release` (MCP) is for the holder of the `deployment` duty. It makes the theme card, the
+  record and an inbox item of kind `release` for the holders of the `release_approval` duty (else the owners),
+  and `preview: true` records nothing. The Devops session ends after the call.
+- **Approval.** Only a person decides, in the Rád vár: AI members (`ai_approval_forbidden`) and integrator keys
+  (`owner_approval_required`) cannot, and the owner bypass does not apply to a `release` item, so only its
+  assignees can. A rejection ends the release card and may carry a reason (`note` of `release_changed`); a
+  second decision is `inbox_item_closed`. The release card is a theme that the domain closes without a person
+  (`TaskService.closeThemeBySystem`, architect's decision): on reject, on failure and on publishing alike it
+  ends `cancelled`, because a theme is never `done` (reopening goes from `cancelled` only); the outcome is the
+  release record and its `release_changed` events.
+- **Watcher.** `release_next` returns the oldest release that is approved, deploying, or live without a tag.
+  `release_claim` (approved → deploying) records `previousCommit`, where a rollback goes. `release_report` takes
+  `live` (only while the server runs the release's commit), `failed` (cancels the card, alert `release_failed`
+  to the approvers), `published` (tag and URL; the card is closed) or `publish_failed` (alert once). An
+  operation out of order is `release_state_conflict`. The watcher's operations act on the target project only.
+
+Does this work on a remote engine? The records, the approval and the socket are the server's. Only
+`BranchMerger.isAncestor` / `prepare` cross the server/engine boundary, as they do for the merge (PM-452); the
+instance's repository is on the engine the project uses (`LOCAL_ENGINE_ID` for now). Deploying, restarting and
+publishing are the watcher's (PM-493) and act on the machine the server runs on; the control socket stays local.
 
 ## The machine and the sessions (PM-320, part of PM-300)
 

@@ -126,6 +126,10 @@ export async function createDomainHarness(
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
     merger?: BranchMerger | null;
+    /** The project and repository that are the instance itself (PM-491); absent: releases are off. */
+    releaseTarget?: { projectKey: string; repo: string };
+    /** The commit the server runs (PM-491); default `dev`. */
+    appVersion?: string;
     engineName?: (id: string) => string | null;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
@@ -173,6 +177,7 @@ export async function createDomainHarness(
         createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
       )
     : undefined;
+  const runningVersion = { value: opts.appVersion ?? 'dev' };
   const domain: Domain = createDomain({
     ...(opts.engines
       ? { engines: opts.engines }
@@ -195,6 +200,11 @@ export async function createDomainHarness(
           }
         : {}),
     engineName: opts.engineName,
+    ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
+    // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
+    get appVersion() {
+      return runningVersion.value;
+    },
     outageCheckMs: 3_600_000,
     ...(opts.engineAttachments ? { engineAttachments: opts.engineAttachments } : {}),
     sessionFoldersDir,
@@ -289,6 +299,10 @@ export async function createDomainHarness(
     sessionTmpDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
+    /** The commit the server runs, from now on (what a restart on a newer build changes). */
+    setAppVersion(version: string) {
+      runningVersion.value = version;
+    },
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */
     async attachmentRules(taskKey: string, projectKey = 'AR') {
       return attachmentToolRules(await attachmentStorage.taskDirectory(projectKey, taskKey));

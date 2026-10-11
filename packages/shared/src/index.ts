@@ -24,6 +24,7 @@ export * from './domain/loop-watch';
 export * from './domain/fix-limit';
 export * from './domain/full-test';
 export * from './domain/merge';
+export * from './domain/release';
 export * from './domain/work-map';
 export * from './domain/boundary';
 export * from './domain/permission-category';

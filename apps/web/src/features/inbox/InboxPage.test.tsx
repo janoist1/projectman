@@ -379,6 +379,15 @@ describe('the card row of an inbox item (PM-501)', () => {
     expect(document.title).toContain('AC-22');
   });
 
+  it('shows the drawer title when the drawer mounts with the page (a direct link)', async () => {
+    const project = mockProject();
+    ownAnswer(project);
+    project.render(withDrawer, '/p/AC/inbox/tasks/AC-22');
+
+    await drawer();
+    await waitFor(() => expect(document.title).toContain('AC-22'));
+  });
+
   it('closes back to the inbox on ✕ and on Esc, with the focus on the link and the started answer kept', async () => {
     const project = mockProject();
     const title = ownAnswer(project);

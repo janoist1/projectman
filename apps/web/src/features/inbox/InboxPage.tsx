@@ -208,7 +208,6 @@ export function InboxPage() {
     }),
     [key],
   );
-  const pageRef = useRef<HTMLDivElement>(null);
   const openedKey = useMatch('/p/:projectKey/inbox/tasks/:taskKey/*')?.params.taskKey ?? null;
   // The item whose card row opened the drawer: closing it, the focus returns to that row's link.
   const openedFrom = useRef<string | null>(null);
@@ -217,7 +216,10 @@ export function InboxPage() {
     const itemId = openedFrom.current;
     openedFrom.current = null;
     if (!itemId) return;
-    pageRef.current?.querySelector<HTMLElement>(`#${inboxItemDomId(itemId)} [data-inbox-card-link]`)?.focus();
+    document
+      .getElementById(inboxItemDomId(itemId))
+      ?.querySelector<HTMLElement>('[data-inbox-card-link]')
+      ?.focus();
   }, [openedKey]);
   const rememberOpener = (event: MouseEvent<HTMLElement>) => {
     const link = (event.target as Element).closest('[data-inbox-card-link]');
@@ -245,7 +247,7 @@ export function InboxPage() {
   const latest = mine[0];
 
   return withDrawer(
-    <div className={styles.page} ref={pageRef} onClick={rememberOpener}>
+    <div className={styles.page} onClick={rememberOpener}>
       <div className={styles.main}>
         <PageHeader
           className={styles.header}

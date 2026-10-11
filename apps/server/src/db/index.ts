@@ -14,6 +14,8 @@ import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createCounterRepository, createProjectRepository } from './projects';
 import { createOperatorRequestRepository } from './operator-requests';
+import { createOperatorSignalRepository } from './operator-signals';
+export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
 import { createReviewPinRepository } from './review-pins';
@@ -80,6 +82,7 @@ export function createRepositories(db: Db) {
     taskHandoffs: createTaskHandoffRepository(db),
     projectFocus: createProjectFocusRepository(db),
     operatorRequests: createOperatorRequestRepository(db),
+    operatorSignals: createOperatorSignalRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

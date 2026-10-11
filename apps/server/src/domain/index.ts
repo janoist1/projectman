@@ -2,10 +2,12 @@ import {
   canManageInstancePause,
   isOnLeave,
   isOpenTask,
+  OPERATOR_SILENT_WORK_MINUTES,
   isSenior,
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
+  operatorOf,
   mergeReadiness,
   permissionDelegationOf,
   routeFor,
@@ -61,6 +63,7 @@ import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { OperatorRequests, OperatorSteps } from './operator-requests';
+import { OperatorSignals } from './operator-signals';
 import { ProjectManagerChannels } from './project-manager';
 import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
@@ -319,6 +322,7 @@ export interface DomainOptions {
   screenshotExecutor?: ScreenshotExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
+  operatorSignalMs?: number;
   /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
   seniorWaitMs?: number;
   /**
@@ -824,6 +828,73 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
+  const operatorSignals = new OperatorSignals({ ctx, projects, sessions, admission, delivery, taskWaits });
+  messaging.useOperatorSignals(operatorSignals);
+  const finishOperatorSignals = (session: Session) => {
+    if (session.member === operatorOf(projects.cachedConfig(session.projectKey)!)?.handle)
+      operatorSignals.finish(session.projectKey);
+  };
+  events.on('session_idle', finishOperatorSignals);
+  events.on('session_ended', finishOperatorSignals);
+  const wakeOperatorSignals = (projectKey: string) =>
+    background.run(
+      () => operatorSignals.deliver(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator signal delivery failed'),
+    );
+  events.on('work_outage_started', ({ projectKey, outageId, inboxItemId }) => {
+    operatorSignals.raise({
+      projectKey,
+      kind: 'outage',
+      caseKey: `outage:${outageId}`,
+      subject: outageId,
+      inboxItemId,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  events.on('work_outage_ended', ({ projectKey, outageId }) =>
+    operatorSignals.resolve(projectKey, `outage:${outageId}`),
+  );
+  events.on('session_input_stalled', ({ projectKey, sessionId, inboxItemId }) => {
+    const session = sessions.find(sessionId);
+    operatorSignals.raise({
+      projectKey,
+      kind: 'stalled',
+      caseKey: `stalled:${sessionId}`,
+      subject: sessionId,
+      inboxItemId,
+      taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  const sessionSignalEnded = (session: Session) => {
+    operatorSignals.resolve(session.projectKey, `stalled:${session.id}`);
+    operatorSignals.resolve(session.projectKey, `silent:${session.id}`);
+  };
+  events.on('session_input_released', sessionSignalEnded);
+  events.on('session_ended', sessionSignalEnded);
+  const unsubscribeSignalActivity = bus.subscribe((event) => {
+    if (event.type === 'session_upserted' || event.type === 'chat_appended') {
+      const id = event.type === 'session_upserted' ? event.session.id : event.sessionId;
+      const session = sessions.find(id);
+      if (
+        event.type === 'chat_appended' ||
+        !session ||
+        session.state !== 'working' ||
+        ctx.now().getTime() - Date.parse(session.lastActivityAt) < OPERATOR_SILENT_WORK_MINUTES * 60_000
+      )
+        operatorSignals.resolve(event.projectKey, `silent:${id}`);
+      if (session?.state !== 'waiting_input') operatorSignals.resolve(event.projectKey, `stalled:${id}`);
+    }
+  });
+  const checkOperatorCards = ({ task }: { task: Task }) => {
+    background.run(
+      () => operatorSignals.sweep(task.projectKey),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'operator signal card check failed'),
+    );
+  };
+  events.on('task_stage_changed', checkOperatorCards);
+  events.on('task_labels_changed', checkOperatorCards);
+  events.on('task_assigned', checkOperatorCards);
   const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
   const operatorActions = new OperatorActions(operatorDeps);
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
@@ -845,6 +916,7 @@ export function createDomain(opts: DomainOptions) {
     operatorSteps,
     operatorActions,
     taskStarts,
+    operatorSignals,
     taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
@@ -942,6 +1014,8 @@ export function createDomain(opts: DomainOptions) {
         return messageStarts.rebuildQuota(spec);
       case 'loop_notice':
         return loopWatch.rebuild(spec);
+      case 'operator_signals':
+        return operatorSignals.rebuild(spec);
       case 'handoff_takeover':
         return handoffs.rebuild(spec);
     }
@@ -1273,6 +1347,7 @@ export function createDomain(opts: DomainOptions) {
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let operatorSignalTimer: ReturnType<typeof setInterval> | undefined;
   let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -1297,6 +1372,7 @@ export function createDomain(opts: DomainOptions) {
       deferred: deferredStarts,
       pauses,
       operatorRequests,
+      operatorSignals,
     }),
     bus,
     templates,
@@ -1316,6 +1392,7 @@ export function createDomain(opts: DomainOptions) {
     sessionCloser,
     operatorActions,
     operatorApprovals,
+    operatorSignals,
     tasks,
     attachments,
     members,
@@ -1355,6 +1432,7 @@ export function createDomain(opts: DomainOptions) {
     async start(): Promise<void> {
       await projects.syncFromStore();
       await sessions.reconcileAfterRestart();
+      for (const project of projects.summaries()) operatorSignals.finish(project.key);
       members.reconcileAfterRestart();
       inbox.expireOpenPermissions();
       await boundary.sweep();
@@ -1449,6 +1527,15 @@ export function createDomain(opts: DomainOptions) {
         opts.loopWatchMs ?? 60_000,
       );
       loopWatchTimer.unref();
+      operatorSignalTimer = setInterval(
+        () =>
+          background.run(
+            () => operatorSignals.sweep(),
+            (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+          ),
+        opts.operatorSignalMs ?? 60_000,
+      );
+      operatorSignalTimer.unref();
       // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
       seniorWaitTimer = setInterval(
         () =>
@@ -1495,11 +1582,13 @@ export function createDomain(opts: DomainOptions) {
       if (outageTimer) clearInterval(outageTimer);
       unsubscribeOutageKeys?.();
       unsubscribeEngines();
+      unsubscribeSignalActivity();
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       if (loopWatchTimer) clearInterval(loopWatchTimer);
+      if (operatorSignalTimer) clearInterval(operatorSignalTimer);
       if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);

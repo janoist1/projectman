@@ -552,6 +552,7 @@ export class WorkOutages {
         }
         if (used) ended = true;
         this.toldFor(key).delete(id);
+        await this.deps.ctx.events.emit('work_outage_ended', { projectKey: key, outageId: id });
       }
       for (const payload of groups.values()) {
         const existing = open.find(({ payload: old }) => old.outage.id === payload.outage.id);
@@ -563,7 +564,7 @@ export class WorkOutages {
         } else if (!this.toldFor(key).has(payload.outage.id)) {
           const owners = ownerHandles(config);
           if (owners.length) {
-            this.deps.inbox.create({
+            const item = this.deps.inbox.create({
               projectKey: key,
               kind: 'alert',
               assignees: owners,
@@ -573,6 +574,11 @@ export class WorkOutages {
               options: [ALERT_SEEN_OPTION],
             });
             this.toldFor(key).add(payload.outage.id);
+            await this.deps.ctx.events.emit('work_outage_started', {
+              projectKey: key,
+              outageId: payload.outage.id,
+              inboxItemId: item.id,
+            });
           }
         }
       }

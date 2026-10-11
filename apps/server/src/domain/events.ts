@@ -25,6 +25,9 @@ export interface AddedRelation {
  * clients see goes out through the event bus (the websocket) instead.
  */
 export interface DomainEventMap {
+  work_outage_started: { projectKey: string; outageId: string; inboxItemId: string };
+  work_outage_ended: { projectKey: string; outageId: string };
+  session_input_stalled: { projectKey: string; sessionId: string; inboxItemId: string };
   pause_changed: { projectKey: string };
   /** A configuration change was committed (also a project's creation or import). */
   config_changed: ConfigChange;

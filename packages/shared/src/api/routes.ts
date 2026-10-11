@@ -8,6 +8,8 @@ export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
   /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463); an owner's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
+  dismissOperatorSignal: (key: string, signalId: string) =>
+    `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,

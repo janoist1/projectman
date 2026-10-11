@@ -4,6 +4,7 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'operator_signal_closed',
   'merge_not_merger',
   'merge_not_ready',
   'task_not_merged',

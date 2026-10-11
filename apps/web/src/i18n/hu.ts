@@ -51,6 +51,7 @@ export const hu = {
       conversation: 'beszélgetés',
       fix_limit: 'javítási kör korlátja',
       loop: 'Körbe fut jelzés',
+      operator_signal: 'rendszerjelzés az Operátornak',
       permission_change: 'engedélyváltozás',
       description_changed: 'a leírás megváltozott',
       provider_resume: 'a szolgáltatói keret újra elérhető',
@@ -881,6 +882,7 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
       project_manager_move_refused:

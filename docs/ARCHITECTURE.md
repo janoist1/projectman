@@ -1920,6 +1920,19 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
   remain approval operations.
 
+- **System signals** (PM-476, migration 49, `domain/operator-signals.ts`). Provider/engine outages,
+  cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
+  create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
+  Admission persists refused `operator_signals` starts; notices enter the Operator's general conversation
+  as projectman input, without a team message or an owner request. A persisted `delivered_at` keeps the
+  15-minute project wake interval across restarts. Delivered signals become open when presented or when
+  the turn ends; startup recovers delivered pending rows. Undelivered rows never appear in REST or WS.
+  `send_message` may present a delivered signal to owners without a request; all other writes retain
+  the request guard. Owner acceptance records a visible message and the signal decision atomically,
+  and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
+  Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
+  admission stay on the server, and notice delivery uses the existing engine session boundary.
+
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.
 

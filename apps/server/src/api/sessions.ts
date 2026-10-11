@@ -83,7 +83,12 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
       throw notFound('task', body.taskKey);
     return reply
       .code(202)
-      .send(await domain.messaging.send(key, access.handle, body, { actor: actorOf(access) }));
+      .send(
+        await domain.messaging.send(key, access.handle, body, {
+          actor: actorOf(access),
+          operatorSignal: body.operatorSignal,
+        }),
+      );
   });
 
   app.post<{ Params: { key: string; id: string } }>(

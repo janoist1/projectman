@@ -17,6 +17,7 @@ export const SessionStartCauseKind = z.enum([
   'conversation',
   'fix_limit',
   'loop',
+  'operator_signal',
   'permission_change',
   'description_changed',
   'provider_resume',

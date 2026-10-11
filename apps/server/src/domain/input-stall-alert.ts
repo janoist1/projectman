@@ -47,7 +47,7 @@ export class InputStallAlerts {
       minutes,
       activity: session.activity,
     };
-    return this.inbox.create({
+    const item = this.inbox.create({
       projectKey: session.projectKey,
       kind: 'alert',
       assignees: owners,
@@ -58,5 +58,11 @@ export class InputStallAlerts {
       payload,
       options: [ALERT_SEEN_OPTION],
     });
+    void this.ctx.events.emit('session_input_stalled', {
+      projectKey: session.projectKey,
+      sessionId,
+      inboxItemId: item.id,
+    });
+    return item;
   }
 }

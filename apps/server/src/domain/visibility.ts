@@ -222,6 +222,7 @@ export function canSeeProjectEvent(
   taskOf?: (taskKey: string) => Task | null | undefined,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
+  if (event.type === 'operator_signal') return viewer.access === 'owner';
   if (event.type === 'team_message') return canSeeTeamMessage(viewer, event.message);
   if (!isClient(viewer)) return true;
   switch (event.type) {

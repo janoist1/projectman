@@ -4,6 +4,16 @@ export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createBoundaryRepository } from './boundary';
 import { createEgressRepository } from './egress';
+import { createFeedbackRepository } from './feedback';
+export type {
+  FeedbackEventRecord,
+  FeedbackLaunchCodeRecord,
+  FeedbackMarkPatch,
+  FeedbackMarkRecord,
+  FeedbackMarkStats,
+  FeedbackSessionRecord,
+  StoredFeedbackScreenshot,
+} from './feedback';
 import { createFullTestRunRepository } from './full-test-runs';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
@@ -102,6 +112,7 @@ export function createRepositories(db: Db) {
     boundary: createBoundaryRepository(db),
     egress: createEgressRepository(db),
     memberState: createMemberStateRepository(db),
+    feedback: createFeedbackRepository(db),
     /** Runs `fn` in a single SQLite transaction. */
     transaction<T>(fn: () => T): T {
       return db.transaction(fn)();

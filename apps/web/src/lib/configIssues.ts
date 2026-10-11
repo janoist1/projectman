@@ -35,6 +35,7 @@ export const CONFIG_ISSUE_MESSAGES: Record<ConfigIssue['code'], PlainMessageKey>
   last_stage_not_done: 'settings.issues.last_stage_not_done',
   duplicate_stage: 'settings.issues.duplicate_stage',
   duplicate_repo: 'errors.codes.duplicate_repo',
+  duplicate_feedback_surface: 'errors.codes.duplicate_feedback_surface',
   sponsor_not_human: 'settings.issues.sponsor_not_human',
   codex_bypass_not_allowed: 'settings.issues.codex_bypass_not_allowed',
   unknown_role: 'errors.codes.unknown_role',

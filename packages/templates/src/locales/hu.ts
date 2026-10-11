@@ -110,6 +110,11 @@ export const hu: TemplateLocale = {
       name: 'Ügyfélkommunikáció',
       description: 'Ügyféltájékoztatókat és tesztkéréseket készít. Küldés előtt jóváhagyást kér.',
     },
+    feedback_processing: {
+      name: 'Jelölések feldolgozása',
+      description:
+        'Minden jelölésről dönt: válaszol, kártyát nyit vagy meglévőhöz köti. Ami a tulajdonosra tartozik, továbbítja.',
+    },
     support: {
       name: 'Ügyféltámogatás',
       description: 'Reprodukálja a bejelentett problémákat. Egyértelmű támogatási feladatokat készít.',

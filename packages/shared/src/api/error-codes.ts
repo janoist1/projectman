@@ -232,6 +232,32 @@ export const ERROR_CODES = [
   'release_empty',
   'release_commit_unknown',
   'release_state_conflict',
+  // Feedback marks (PM-506): the project has no surface set up (409); the surface or the mark is unknown
+  // (404); the member may not mark (403, the reason in `details.reason`); only a processor decides (403); the
+  // page is not on an allowed address (403); the launch code or the tool session is not valid (401); too
+  // many marks or comments (429); the screenshot is not a real image (422) or too large (413); the page is
+  // not on the session's surface (422); the mark is closed, not closed, has a card already, or waits for the
+  // owner (409).
+  'feedback_not_configured',
+  'feedback_surface_not_found',
+  'feedback_mark_not_found',
+  'feedback_not_allowed',
+  'feedback_processor_only',
+  'feedback_origin_not_allowed',
+  'feedback_code_invalid',
+  'feedback_session_invalid',
+  'feedback_rate_limited',
+  'feedback_screenshot_invalid',
+  'feedback_screenshot_too_large',
+  'feedback_page_mismatch',
+  'feedback_closed',
+  'feedback_not_closed',
+  'feedback_task_exists',
+  'feedback_waiting_owner',
+  // The card a feedback mark was to be linked to does not exist in the project.
+  'task_not_found',
+  // Two feedback surfaces with the same id or address.
+  'duplicate_feedback_surface',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

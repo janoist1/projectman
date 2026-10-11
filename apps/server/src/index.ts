@@ -218,6 +218,7 @@ async function configFromEnv(
       vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
       vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
       githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
+      feedbackPublicUrl: env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined,
       shutdownPauseMs,
     },
   };

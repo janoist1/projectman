@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { FeedbackConfig } from '../domain/feedback';
+import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
 import { Pipeline } from '../domain/pipeline';
 import { RepoDocs } from './project-docs';
 import {
@@ -64,6 +66,13 @@ export const PatchConfigRequest = z
       .max(20)
       .optional(),
     boundary: ProjectConfig.shape.team.shape.boundary,
+    /** The feedback tool (PM-506): each list present replaces the whole list. */
+    feedback: z
+      .strictObject({
+        surfaces: FeedbackConfig.shape.surfaces.optional(),
+        blockedMarkers: FeedbackConfig.shape.blockedMarkers.optional(),
+      })
+      .optional(),
     pipeline: Pipeline.optional(),
   })
   .strict();
@@ -104,11 +113,21 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   // The last entry for a repository wins.
   const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
+  const feedback = patch.feedback
+    ? {
+        surfaces: (patch.feedback.surfaces ?? config.project.feedback?.surfaces ?? []).map((surface) => ({
+          ...surface,
+          origin: normalizeFeedbackOrigin(surface.origin) ?? surface.origin,
+        })),
+        blockedMarkers: patch.feedback.blockedMarkers ?? config.project.feedback?.blockedMarkers ?? [],
+      }
+    : undefined;
   return {
     ...config,
     project: {
       ...config.project,
       ...patch.project,
+      ...(feedback ? { feedback } : {}),
       repos:
         repoMerge || repoDocs
           ? config.project.repos.map((repo) => {

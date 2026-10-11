@@ -133,7 +133,7 @@ const writeEngineStatus = (pid: number) =>
 describe('the cloud package', () => {
   it('carries the closed list only, and says what stays on the Mac', async () => {
     const entries = readdirSync(join(out, 'home')).sort();
-    expect(entries).toEqual(['attachments', 'customization', 'db.sqlite', 'memory', 'secret']);
+    expect(entries).toEqual(['attachments', 'customization', 'db.sqlite', 'feedback', 'memory', 'secret']);
     expect(readdirSync(out).sort()).toEqual(['home', 'manifest.json']);
 
     const manifest = await readPackage(out);

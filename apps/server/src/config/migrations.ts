@@ -314,6 +314,23 @@ export function addMerger(raw: unknown): unknown {
 }
 
 /**
+ * The project manager role (PM-506) carries the feedback processing duty. A built-in role without an
+ * override gets it from the defaults; an override replaces the whole bundle, so the duty is appended
+ * to the override's list when it is missing. Idempotent.
+ */
+export function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const override = asRecord(asRecord(asRecord(asRecord(raw)?.team)?.roleOverrides)?.project_manager);
+  if (!override || !Array.isArray(override.duties) || override.duties.includes('feedback_processing'))
+    return raw;
+  override.duties.push('feedback_processing');
+  logger.warn(
+    { projectKey, fields: ['roleOverrides.project_manager.duties'] },
+    'Added the feedback processing duty to the project manager role override',
+  );
+  return raw;
+}
+
+/**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
  * a configuration (the working tree and earlier versions alike).
@@ -331,34 +348,38 @@ export function addMerger(raw: unknown): unknown {
  *   - the Operator is fixed: no leave, no schedule, capacity 1, no instructions of its own, no role
  *     override, and temp workers are not hired for its role (above);
  *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
- *     the fixed configuration.
+ *     the fixed configuration;
+ *   - an override of the project manager role gets the feedback processing duty (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addMerger(
-    fixOperator(
-      addOperator(
-        addCardMover(
-          addProjectManager(
-            migrateReleaseApproval(
-              migrateLegacyConfig(
-                migrateCodexBypass(
-                  migrateScheduledRole(
-                    dropMessageBurst(migrateShadowingRoles(raw, context), context),
+  return addFeedbackProcessing(
+    addMerger(
+      fixOperator(
+        addOperator(
+          addCardMover(
+            addProjectManager(
+              migrateReleaseApproval(
+                migrateLegacyConfig(
+                  migrateCodexBypass(
+                    migrateScheduledRole(
+                      dropMessageBurst(migrateShadowingRoles(raw, context), context),
+                      context,
+                    ),
                     context,
                   ),
-                  context,
                 ),
+                context,
               ),
               context,
             ),
-            context,
           ),
+          context,
         ),
         context,
       ),
-      context,
     ),
+    context,
   );
 }

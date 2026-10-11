@@ -8,6 +8,7 @@ import { registerProviderRoutes } from './providers';
 import { registerConfigRoutes } from './config';
 import { registerInboxRoutes } from './inbox';
 import { registerInvolvementRoutes } from './involvements';
+import { registerFeedbackRoutes } from './feedback';
 import { registerProjectFocusRoutes } from './project-focus';
 import { registerBoundaryRoutes } from './boundary';
 import { registerRuntimeBoundaryRoutes } from './runtime-boundary';
@@ -50,6 +51,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerInboxRoutes(app, domain);
   registerInvolvementRoutes(app, domain);
   registerProjectFocusRoutes(app, domain);
+  registerFeedbackRoutes(app, domain);
   registerBoundaryRoutes(app, domain);
   registerRuntimeBoundaryRoutes(app, domain);
   registerConfigRoutes(app, domain);

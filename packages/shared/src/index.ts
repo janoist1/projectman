@@ -31,6 +31,8 @@ export * from './domain/permission-category';
 export * from './domain/permission-delegation';
 export * from './domain/egress';
 export * from './domain/handoff';
+export * from './domain/feedback';
+export * from './domain/feedback-rules';
 export * from './domain/project-focus';
 export * from './chat/chat';
 export * from './config/schema';

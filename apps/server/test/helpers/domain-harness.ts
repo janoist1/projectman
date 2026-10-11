@@ -232,6 +232,7 @@ export async function createDomainHarness(
     memory,
     worktrees,
     attachmentStorage,
+    feedbackDir: join(dir, 'feedback'),
     accounts: new AuthService({ repos, now: opts.now }),
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces

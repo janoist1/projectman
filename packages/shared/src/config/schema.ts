@@ -8,6 +8,7 @@ import {
   MemberHandle,
   PermissionMode,
 } from '../domain/member';
+import { FeedbackConfig } from '../domain/feedback';
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
@@ -304,6 +305,8 @@ export const ProjectConfig = z.object({
     /** IANA time zone of the team, e.g. "Europe/Budapest"; schedules run in it. */
     timezone: z.string().min(1).default('UTC'),
     templateId: z.string().optional(),
+    /** The feedback tool (PM-506): where it may run and who may not mark. */
+    feedback: FeedbackConfig.optional(),
   }),
   team: z.object({
     cardMover: CardMover.optional(),

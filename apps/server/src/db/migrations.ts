@@ -1005,5 +1005,87 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     INSERT INTO decision_candidate_state (project_key, since, listed_at)
       SELECT DISTINCT project_key, strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL FROM inbox_items;`,
   },
+  {
+    version: 54,
+    name: 'feedback marks',
+    sql: `CREATE TABLE feedback_marks (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      author TEXT NOT NULL,
+      surface_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      page_url TEXT NOT NULL,
+      page_path TEXT NOT NULL,
+      page_title TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('point','area','element','page')),
+      body TEXT NOT NULL,
+      anchor TEXT NOT NULL,
+      environment TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('new','waiting_owner','handled','closed')),
+      outcome TEXT CHECK (outcome IN ('card_created','card_linked','answered')),
+      task_key TEXT,
+      screenshot TEXT,
+      handed_to TEXT,
+      handed_at TEXT,
+      handed_message_id TEXT,
+      inbox_item_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    CREATE INDEX feedback_marks_project ON feedback_marks (project_key, updated_at);
+    CREATE INDEX feedback_marks_task ON feedback_marks (project_key, task_key);
+    CREATE TABLE feedback_events (
+      id TEXT PRIMARY KEY,
+      mark_id TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      type TEXT NOT NULL,
+      body TEXT,
+      data TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX feedback_events_mark ON feedback_events (mark_id, created_at);
+    CREATE TABLE feedback_launch_codes (
+      code_hash TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      member TEXT NOT NULL,
+      surface_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      app_origin TEXT NOT NULL,
+      mark_id TEXT,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT
+    );
+    CREATE TABLE feedback_sessions (
+      id TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      project_key TEXT NOT NULL,
+      member TEXT NOT NULL,
+      surface_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      app_origin TEXT NOT NULL,
+      user_agent TEXT,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
+      revoked_by TEXT
+    );
+    CREATE INDEX feedback_sessions_member ON feedback_sessions (project_key, member);
+    CREATE TABLE feedback_marker_colors (
+      project_key TEXT NOT NULL,
+      member TEXT NOT NULL,
+      color_index INTEGER NOT NULL CHECK (color_index BETWEEN 0 AND 7),
+      PRIMARY KEY (project_key, member)
+    );
+    CREATE TABLE feedback_reads (
+      project_key TEXT NOT NULL,
+      member TEXT NOT NULL,
+      mark_id TEXT NOT NULL,
+      read_at TEXT NOT NULL,
+      PRIMARY KEY (project_key, member, mark_id)
+    );`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

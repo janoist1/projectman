@@ -115,6 +115,8 @@ export const InboxResolutionRule = z.enum([
   'senior_wait_ended',
   /** The label a question asked approval for was put on its card (PM-484): nothing is left to answer. */
   'approval_given',
+  /** A feedback mark that waited for the owner was handled (PM-506): nothing is left to see. */
+  'feedback_handled',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
 
@@ -393,6 +395,16 @@ export const PartsLeftAlert = z.object({
 });
 export type PartsLeftAlert = z.infer<typeof PartsLeftAlert>;
 
+/** `feedback_forwarded` (PM-506): the processor passed feedback mark `markId` of `author` on to the owners with a `reason`. */
+export const FeedbackForwardedAlert = z.object({
+  alert: z.literal('feedback_forwarded'),
+  markId: z.string(),
+  author: MemberHandle,
+  excerpt: z.string().max(200),
+  reason: z.string(),
+});
+export type FeedbackForwardedAlert = z.infer<typeof FeedbackForwardedAlert>;
+
 /** A provider quota stopped a session; the owners are told once per hold (PM-377). */
 export const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
@@ -446,6 +458,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   ProviderRateLimitAlert,
   RelationCheckAlert,
   PartsLeftAlert,
+  FeedbackForwardedAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

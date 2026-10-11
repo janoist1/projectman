@@ -486,6 +486,19 @@ describe('attachments: paste', () => {
     expect(((uploads(project)[0]!.body as FormData).get('file') as File).name).toBe('image.png');
   });
 
+  it('switches to the attachments view when an image is pasted on another view', async () => {
+    const project = mockProject();
+    project.render(drawerFor(project), '/p/AC/tasks/AC-20/timeline');
+    await screen.findByRole('textbox', { name: t('task.comments.label') });
+    // The attachments are in the tree but hidden: the role query finds them only once their view is shown.
+    expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
+    expect(
+      fireEvent.paste(document.body, { clipboardData: clipboard([makeFile('image.png', 'image/png')]) }),
+    ).toBe(false);
+    expect(await screen.findByRole('region', { name: t('attachments.title') })).toBeTruthy();
+    await findAddedRow('image.png');
+  });
+
   it('leaves text and non-image files to the page', async () => {
     const project = mockProject();
     project.render(drawerFor(project), '/p/AC/tasks/AC-20/attachments');

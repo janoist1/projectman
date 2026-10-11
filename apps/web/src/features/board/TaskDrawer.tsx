@@ -265,12 +265,15 @@ export function TaskDrawer() {
   // The card's conversation (PM-273): a view of the same open card (`/thread`), not a page. A theme has none.
   const hasThread = Boolean(task && !isTheme(task) && entry);
   // The views of the open card (PM-487) are sub-paths of it; an unknown one, and a theme's `/thread`, is the card.
+  // An older link to one event (`/tasks/KEY#timeline-<id>`, shared before the timeline had a view) opens the timeline.
   const view: CardView =
     subPath === 'attachments' || subPath === 'timeline'
       ? subPath
       : subPath === 'thread' && hasThread
         ? 'thread'
-        : 'card';
+        : !subPath && eventLink
+          ? 'timeline'
+          : 'card';
   const thread = view === 'thread';
   const taskMessages = useTaskMessages(key, taskKey, hasThread);
   const messageCount = taskMessages.data?.messages.length ?? 0;

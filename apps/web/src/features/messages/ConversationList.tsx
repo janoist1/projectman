@@ -9,7 +9,8 @@ import { formatAge, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { nameOf, roleLabel } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
-import { plainPreview } from './conversations';
+import { attachmentPreview, plainPreview } from './conversations';
+import { Icon } from '../../components/Icon';
 import type { ConversationRow } from './conversations';
 import styles from './ConversationList.module.css';
 
@@ -75,12 +76,17 @@ export function ConversationList({
         const member = members.get(row.peer);
         const name = nameOf(row.peer, members, myHandle);
         const message = row.lastMessage;
+        const preview = message
+          ? message.body.trim()
+            ? plainPreview(message.body)
+            : attachmentPreview(message)
+          : '';
         const text = message
           ? message.via
-            ? `${t('involvement.integrator')}: ${plainPreview(message.body)}`
+            ? `${t('involvement.integrator')}: ${preview}`
             : message.from === myHandle
-              ? t('messages.list.you', { text: plainPreview(message.body) })
-              : plainPreview(message.body)
+              ? t('messages.list.you', { text: preview })
+              : preview
           : (questionTitles.get(row.peer) ?? '');
         const label = [
           name,
@@ -104,7 +110,12 @@ export function ConversationList({
               <LeaveChip member={member} />
             </span>
             <span className={styles.time}>{rowTime(row.lastAt)}</span>
-            <span className={styles.preview}>{text}</span>
+            <span className={styles.preview}>
+              {message && !message.body.trim() && message.attachments?.length ? (
+                <Icon name="paperclip" size={12} />
+              ) : null}
+              {text}
+            </span>
             <span className={styles.marks}>
               {row.asks ? <Chip tone="needs">{t('messages.list.asks')}</Chip> : null}
               {row.unreadCount ? (

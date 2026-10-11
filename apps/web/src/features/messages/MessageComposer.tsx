@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { useBoard, useRoles, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -14,6 +14,12 @@ import { whenToAsk } from '../../lib/roles';
 import { PauseNote } from '../pause/PauseNote';
 import { useTeamPaused } from '../pause/usePause';
 import styles from './MessageComposer.module.css';
+import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
+import { MessageAttachmentTray } from './MessageAttachmentTray';
+import { useFileDrop } from '../board/useFileDrop';
+import { pasteHasText, pastedImages } from '../../lib/attachmentInput';
+import { useIsMobile } from '../../lib/hooks';
+import attachmentStyles from './MessageAttachments.module.css';
 
 export function MessageComposer({
   initialTo = [],
@@ -32,6 +38,15 @@ export function MessageComposer({
   const board = useBoard(key);
   const roles = useRoles(key);
   const send = useSendTeamMessage(key);
+  const uploads = useMessageAttachmentUploads(key);
+  const picker = useRef<HTMLInputElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useIsMobile();
+  const fileDrop = useFileDrop({
+    allowed: !send.isPending && !isMobile,
+    onFiles: uploads.add,
+    isolate: true,
+  });
   const teamPaused = useTeamPaused();
   const toast = useToast();
   const [to, setTo] = useState(initialTo);
@@ -47,14 +62,34 @@ export function MessageComposer({
     <form
       id={formId}
       className={styles.form}
+      data-message-composer
+      {...fileDrop.props}
       onSubmit={(event) => {
         event.preventDefault();
-        if (!selected.length || !text.trim()) return;
+        if (
+          !selected.length ||
+          (!text.trim() && !uploads.items.length) ||
+          uploads.blockedReason ||
+          send.isPending
+        )
+          return;
         send.mutate(
-          { to: selected, text: text.trim(), ...(taskKey ? { taskKey } : {}) },
+          {
+            to: selected,
+            text: text.trim(),
+            ...(uploads.items.length
+              ? {
+                  attachmentIds: uploads.items.flatMap((item) =>
+                    item.attachment ? [item.attachment.id] : [],
+                  ),
+                }
+              : {}),
+            ...(taskKey ? { taskKey } : {}),
+          },
           {
             onSuccess: () => {
               setText('');
+              uploads.clear();
               toast.show(t('messages.sent'));
               onSent?.();
             },
@@ -62,6 +97,11 @@ export function MessageComposer({
         );
       }}
     >
+      {fileDrop.state && !isMobile ? (
+        <div className={attachmentStyles.drop} role="status">
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       <fieldset className={styles.recipients} disabled={send.isPending}>
         <legend>{t('messages.recipients')}</legend>
         {recipients.map((member) => {
@@ -103,13 +143,58 @@ export function MessageComposer({
       </SelectField>
       <TextAreaField
         label={t('messages.text')}
-        required
+        ref={input}
+        onPaste={(event) => {
+          if (pasteHasText(event.clipboardData)) return;
+          const images = pastedImages(event.clipboardData);
+          if (!images.length) return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (!send.isPending) uploads.add(images);
+        }}
         maxLength={20000}
         rows={4}
         value={text}
         disabled={send.isPending}
         onChange={(event) => setText(event.target.value)}
       />
+      <input
+        type="file"
+        multiple
+        hidden
+        ref={picker}
+        aria-label={t('messageAttachments.add')}
+        onChange={(event) => {
+          if (!send.isPending) uploads.add(Array.from(event.target.files ?? []));
+          event.target.value = '';
+        }}
+      />
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        icon="paperclip"
+        className={styles.attach}
+        disabled={send.isPending}
+        title={t('messageAttachments.addTitle')}
+        onClick={() => picker.current?.click()}
+      >
+        {t('messageAttachments.add')}
+      </Button>
+      <MessageAttachmentTray
+        items={uploads.items}
+        onRemove={uploads.remove}
+        onRetry={uploads.retry}
+        focusInput={() => input.current?.focus()}
+        disabled={send.isPending}
+      />
+      <span className={styles.hint} aria-live="polite">
+        {uploads.error ? (
+          <span role="alert">{uploads.error}</span>
+        ) : (
+          (uploads.blockedReason ?? t('messageAttachments.hintForm'))
+        )}
+      </span>
       {teamPaused && selected.some((handle) => recipients.find((m) => m.handle === handle)?.kind === 'ai') ? (
         <PauseNote>{t('session.composer.pausedLive')}</PauseNote>
       ) : null}
@@ -125,7 +210,9 @@ export function MessageComposer({
           variant="primary"
           size="md"
           loading={send.isPending}
-          disabled={!selected.length || !text.trim()}
+          disabled={
+            !selected.length || (!text.trim() && !uploads.items.length) || Boolean(uploads.blockedReason)
+          }
         >
           {t('messages.send')}
         </Button>

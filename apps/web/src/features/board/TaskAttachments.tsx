@@ -303,6 +303,11 @@ export function TaskAttachments({
   useEffect(() => {
     if (!canUpload) return;
     const onPaste = (event: ClipboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        (event.target instanceof Element && event.target.closest('[data-message-composer]'))
+      )
+        return;
       const images = pastedImages(event.clipboardData);
       if (images.length === 0) return;
       // A dialog (the large view, a form) has the focus: the paste is not meant for the task.

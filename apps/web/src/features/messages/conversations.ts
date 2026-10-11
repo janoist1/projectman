@@ -1,6 +1,16 @@
 import type { InboxItem, TeamMessage, TeamThread } from '@projectman/shared';
 import { formatDayHeading } from '../../i18n/format';
 import type { MemberIndex } from '../../lib/members';
+import { t } from '../../i18n/t';
+
+export function attachmentPreview(message: Pick<TeamMessage, 'attachments'>): string {
+  const files = message.attachments ?? [];
+  return files.length === 1
+    ? t('messageAttachments.previewOne', { fileName: files[0]!.fileName })
+    : files.length
+      ? t('messageAttachments.previewMany', { count: files.length })
+      : '';
+}
 
 /** One row of the conversation list. */
 export interface ConversationRow {

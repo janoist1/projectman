@@ -413,15 +413,19 @@ export class OperatorApprovals {
     }
   }
 
+  private pending(projectKey: string): InboxItem[] {
+    return this.deps.ctx.repos.inbox.listOpen('approval').filter((item) => {
+      const payload = operatorApprovalOf(item);
+      return item.projectKey === projectKey && !this.applying.has(item.id) && payload && !payload.stale;
+    });
+  }
+
+  hasPending(projectKey: string): boolean {
+    return this.pending(projectKey).length > 0;
+  }
+
   async recheck(projectKey: string): Promise<void> {
-    for (const item of this.deps.ctx.repos.inbox.listOpen('approval')) {
-      if (
-        item.projectKey !== projectKey ||
-        this.applying.has(item.id) ||
-        !operatorApprovalOf(item) ||
-        operatorApprovalOf(item)!.stale
-      )
-        continue;
+    for (const item of this.pending(projectKey)) {
       if (!(await this.fresh(item))) this.stale(item);
     }
   }

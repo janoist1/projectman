@@ -1877,7 +1877,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   run before inbox closure, require an owner's own login, and are serialized per inbox item. Independent edits
   preserve proposals; changed rows, ended or restarted sessions, and changed pause identities mark them stale
   (`operator_approval_stale` 409). Stale items remain open with only `dismiss`. Configuration commits, session
-  ends and pause changes proactively recheck proposals. Approved/rejected/stale results update the existing step
+  ends and pause changes proactively recheck proposals through `BackgroundTasks`, without delaying subsequent
+  event listeners; projects without pending proposals skip this work. Approved/rejected/stale results update the existing step
   and record a system message without waking the Operator. Configuration history reads `Projectman-Operator`,
   `Projectman-Request` and `Projectman-Approved-By` trailers, including reverts. Runtime operations reuse session
   stop and pause/resume; pause freshness is checked inside the existing admission lock.

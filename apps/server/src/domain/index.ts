@@ -807,9 +807,16 @@ export function createDomain(opts: DomainOptions) {
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
   operatorActions.useApprovals(operatorApprovals);
   inbox.useOperatorDecision((item, by, optionId) => operatorApprovals.apply(item, by, optionId));
-  events.on('config_changed', ({ projectKey }) => operatorApprovals.recheck(projectKey));
-  events.on('session_ended', ({ projectKey }) => operatorApprovals.recheck(projectKey));
-  events.on('pause_changed', ({ projectKey }) => operatorApprovals.recheck(projectKey));
+  const recheckOperatorApprovals = ({ projectKey }: { projectKey: string }): void => {
+    if (!operatorApprovals.hasPending(projectKey)) return;
+    background.run(
+      () => operatorApprovals.recheck(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator approval recheck failed'),
+    );
+  };
+  events.on('config_changed', recheckOperatorApprovals);
+  events.on('session_ended', recheckOperatorApprovals);
+  events.on('pause_changed', recheckOperatorApprovals);
   const teamTools = new TeamToolsService({
     operatorRequests,
     operatorSteps,

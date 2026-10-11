@@ -58,6 +58,43 @@ const member = async (handle = 'dev-1') =>
 const resolve = (id: string, optionId = 'approve') => h.domain.inbox.resolve('AR', id, { optionId }, owner);
 
 describe('Operator actions and owner approvals (PM-464)', () => {
+  it.each(['config_changed', 'session_ended', 'pause_changed'] as const)(
+    'does not hold later %s listeners while an approval recheck is pending',
+    async (event) => {
+      await setup();
+      await operate(network());
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+      const loaded = await h.domain.projects.load('AR');
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const recheck = vi.spyOn(h.domain.operatorApprovals, 'recheck').mockReturnValue(pending);
+      const listener = vi.fn();
+      h.domain.ctx.events.on(event, listener);
+      try {
+        const emitted =
+          event === 'config_changed'
+            ? h.domain.ctx.events.emit(event, {
+                projectKey: 'AR',
+                previous: loaded.config,
+                next: loaded.config,
+                version: loaded.version,
+                actor: OWNER_ACTOR,
+              })
+            : event === 'session_ended'
+              ? h.domain.ctx.events.emit(event, session)
+              : h.domain.ctx.events.emit(event, { projectKey: 'AR' });
+        await emitted;
+        expect(recheck).toHaveBeenCalledWith('AR');
+        expect(listener).toHaveBeenCalledOnce();
+      } finally {
+        release();
+        recheck.mockRestore();
+      }
+    },
+  );
+
   it('preserves integrator attribution when a config patch message forges Operator trailers', async () => {
     await setup();
     await h.domain.projects.patch(
@@ -140,6 +177,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     await setup();
     const result = await operate(network());
     await h.domain.members.update('AR', 'dev-1', { outboundNetwork: true }, by);
+    await flush();
     const item = h.domain.inbox.get('AR', result.inbox_item_id!);
     expect(operatorApprovalOf(item)?.stale?.reason).toBe('config_changed');
     expect(item.options.map((o) => o.id)).toEqual(['dismiss']);

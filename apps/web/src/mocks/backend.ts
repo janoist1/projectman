@@ -5305,7 +5305,7 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
-    if (this.viewerAccess() === 'viewer') {
+    if (viewer.role === 'viewer' || this.viewerAccess() === 'viewer') {
       const operator = operatorOf(this.config);
       if (!operator || input.to.some((handle) => handle !== operator.handle))
         return error(403, 'insufficient_access', 'Viewers may write to the Operator alone');

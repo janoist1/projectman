@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MemberProfile, Session, TeamMessage, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
+import {
+  MemberProfile,
+  Session,
+  TeamMessage,
+  TeamMessagesView,
+  TeamThreadsView,
+  memberOf,
+} from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import { MockBackend } from './backend';
 
@@ -154,6 +161,23 @@ describe('mock team messaging and profiles', () => {
       expect(b.handle('POST', `${base}/messages`, body).status).toBeGreaterThanOrEqual(400);
     }
     expect(b.messages).toHaveLength(1);
+  });
+  it.each(['role', 'access'] as const)('restricts a viewer set through %s to the Operator alone', (field) => {
+    const b = backend();
+    b.viewerHandle = 'kata';
+    if (field === 'role') b.findMember('kata')!.role = 'viewer';
+    else {
+      const member = memberOf(b.config, 'kata')!;
+      if (member.kind !== 'human') throw new Error('Expected a human fixture');
+      member.access = 'viewer';
+    }
+    for (const to of [['fe-1'], ['operator', 'fe-1']]) {
+      expect(b.handle('POST', `${base}/messages`, { to, text: 'Acme request' }).status).toBe(403);
+      expect(b.messages).toHaveLength(0);
+    }
+    expect(b.handle('POST', `${base}/messages`, { to: ['operator'], text: 'Acme request' }).status).toBe(202);
+    expect(b.messages).toHaveLength(1);
+    expect(b.messages[0]).toMatchObject({ from: 'kata', to: ['operator'] });
   });
   it('trims messages and never sends one to its sender', () => {
     const b = backend();

@@ -326,6 +326,14 @@ export function TaskDrawer() {
     (item) => item.taskKey === taskKey && !(item.kind === 'hand_on' && item.id === handOnId),
   );
 
+  // A merge's inbox item stands in place of the box only while the merge is requested; once it failed or
+  // stopped, the box carries the steps and the buttons, and the item stays on the "Rád vár" page (PM-453).
+  const isMergeItem = (item: (typeof myItems)[number]) =>
+    item.kind === 'merge_request' || alertPayloadOf(item)?.alert === 'merge_blocked';
+  const mergeState = task?.merge?.state;
+  const shownItems =
+    mergeState && mergeState !== 'requested' ? myItems.filter((item) => !isMergeItem(item)) : myItems;
+
   const body = (() => {
     // Until there is a head, the close button stands alone above the state: behind the large window
     // the board cannot be reached, so Escape must not be the only way out.
@@ -428,14 +436,12 @@ export function TaskDrawer() {
           members={members}
           myHandle={myHandle}
           config={config}
-          asked={myItems.some(
-            (item) => item.kind === 'merge_request' || alertPayloadOf(item)?.alert === 'merge_blocked',
-          )}
+          asked={myItems.some(isMergeItem)}
           onSendBack={() => setSendBack((count) => count + 1)}
         />
-        {myItems.length > 0 ? (
+        {shownItems.length > 0 ? (
           <section className={drawer.section}>
-            {myItems.map((item) => (
+            {shownItems.map((item) => (
               <InboxCard
                 key={item.id}
                 item={item}

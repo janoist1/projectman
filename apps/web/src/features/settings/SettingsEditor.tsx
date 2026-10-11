@@ -171,9 +171,15 @@ export function useInstantLimits(config: ProjectConfig) {
       } catch (caught) {
         failed.current = true;
         setError(caught);
-        // The control may be off screen (a phone), so the refusal is also a toast.
+        // The control may be off screen (a phone), so the refusal is also a toast, except when the control
+        // itself shows the field's error (the merger): the toast would cover it.
         const conflict = isApiError(caught) && caught.code === 'config_conflict';
-        toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
+        const atField =
+          isApiError(caught) &&
+          (caught.details as { issues?: IssueRef[] } | undefined)?.issues?.some(
+            (issue) => issue.code === 'merger_unresolved',
+          );
+        if (!atField) toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
         if (conflict) await reload?.();
       } finally {
         inflight.current -= 1;

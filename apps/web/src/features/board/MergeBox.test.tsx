@@ -62,15 +62,32 @@ describe('a human merger in the drawer (PM-453)', () => {
     expect(screen.queryByRole('button', { name: t('task.merge.button') })).toBeNull();
   });
 
-  it('gets a retry in the inbox card when the merge is blocked', async () => {
+  it('gets the box, not the inbox card, once the merge is blocked: the steps, the base and one retry', async () => {
     const project = mergeProject();
     project.backend.setMergeOutcome('AC-27', 'blocked');
     startMerge(project.backend);
     project.backend.runMerge('AC-27');
     expect(project.backend.findTask('AC-27')!.merge?.state).toBe('blocked');
+    expect(project.backend.inbox.some((item) => alertPayloadOf(item)?.alert === 'merge_blocked')).toBe(true);
     project.render(drawer, route);
-    fireEvent.click(await screen.findByRole('button', { name: t('task.merge.retry') }));
+    const box = within(await mergeBox());
+    expect(box.getByText(t('task.merge.blocked.nowhere', { base: 'main' }))).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: t('task.merge.retry') })).toHaveLength(1);
+    fireEvent.click(box.getByRole('button', { name: t('task.merge.retry') }));
     await waitFor(() => expect(project.backend.findTask('AC-27')!.merge?.state).toBe('queued'));
+  });
+
+  it('gets the box with "Vissza a fejlesztőnek" after a conflict, though the request item is open', async () => {
+    const project = mergeProject();
+    project.backend.setMergeOutcome('AC-27', 'conflict');
+    startMerge(project.backend);
+    project.backend.runMerge('AC-27');
+    expect(project.backend.findTask('AC-27')!.merge?.state).toBe('failed');
+    expect(project.backend.inbox.some((item) => item.kind === 'merge_request')).toBe(true);
+    project.render(drawer, route);
+    const box = within(await mergeBox());
+    expect(box.getByRole('button', { name: t('task.merge.sendBack') })).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: t('task.merge.again') })).toHaveLength(1);
   });
 });
 

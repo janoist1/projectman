@@ -68,7 +68,13 @@ function MergeControls({ config, target }: { config: ProjectConfig; target: stri
         <SelectField
           key={repo.name}
           label={t('settings.repos.merge.labelOf', { repo: repo.name })}
-          hint={`${mergeHelp(repo, target)} ${checkText(repo)}`}
+          hint={
+            <>
+              {mergeHelp(repo, target)}
+              <br />
+              {checkText(repo)}
+            </>
+          }
           value={choiceOf(repo)}
           onChange={(event) => {
             const choice = event.target.value;

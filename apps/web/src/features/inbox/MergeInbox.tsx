@@ -95,6 +95,15 @@ export function MergeInboxBody({ item }: { item: InboxItem }) {
   return (
     <>
       <p className={styles.body}>{sentence}</p>
+      <p className={styles.body}>
+        {merge?.landed === 'remote'
+          ? t(
+              mergeOnGithub(config, repoName)
+                ? 'task.merge.blocked.remote'
+                : 'task.merge.blocked.remoteOther',
+            )
+          : t('task.merge.blocked.nowhere', { base })}
+      </p>
       {blocked.message ? (
         <Fold summary={t('task.merge.details')}>
           <pre className={mergeStyles.output}>{blocked.message}</pre>

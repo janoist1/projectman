@@ -31,7 +31,7 @@ interface MergeBoxProps {
   members: MemberIndex;
   myHandle: string | null;
   config?: ProjectConfig;
-  /** The viewer has the merge's inbox item, which is shown in its place: the box would say it twice. */
+  /** The viewer has the merge's inbox item, which is shown in place of a requested merge's box. */
   asked?: boolean;
   /** "Vissza a fejlesztőnek": the drawer opens the move panel at the work stage. */
   onSendBack?: () => void;
@@ -40,19 +40,23 @@ interface MergeBoxProps {
 type StepState = 'done' | 'active' | 'todo' | 'failed';
 
 /** Which of the merge's steps are done, running or still to come, from the step the server reports. */
-function runningSteps(merge: TaskMergeState, hasCheck: boolean, hasPush: boolean) {
+function runningSteps(merge: TaskMergeState, check: string | null, hasPush: boolean) {
+  const command = check ?? merge.check?.command ?? null;
   const order = ['queued', 'merging', 'checking', 'pushing', 'finishing'] as const;
   const at = order.indexOf(merge.step ?? 'queued');
   const state = (own: number): StepState => (at > own ? 'done' : at === own ? 'active' : 'todo');
   const commit = merge.commit ? shortCommit(merge.commit) : merge.branch || '…';
   return [
     { id: 'merge', state: state(1), text: t('task.merge.running.merge', { commit, base: merge.base }) },
-    ...(hasCheck
+    // The row also shows when the step is the check but its command is not known (the header says it runs).
+    ...(command || merge.check || merge.step === 'checking'
       ? [
           {
             id: 'check',
             state: state(2),
-            text: t('task.merge.running.check', { check: merge.check?.command ?? '' }),
+            text: command
+              ? t('task.merge.running.check', { check: command })
+              : t('task.merge.running.checkUnknown'),
           },
         ]
       : []),
@@ -96,7 +100,8 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
   const { key } = useProject();
   const start = useStartMerge(key);
   const merge = task.merge;
-  if (!merge || asked) return null;
+  // The request is shown by its inbox item; a failed or stopped merge is shown here, with its steps and buttons.
+  if (!merge || (asked && merge.state === 'requested')) return null;
   const you = isMerger(merge, myHandle);
   const repo = mergeRepo(config, merge.repo);
   const github = repo ? !!repo.github : true;
@@ -176,7 +181,7 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         t('task.merge.running.title', { base: merge.base }),
         'accent',
         <>
-          <StepList steps={runningSteps(merge, !!check, !!repo?.github || merge.step === 'pushing')} />
+          <StepList steps={runningSteps(merge, check, !!repo?.github || merge.step === 'pushing')} />
           {started ? <p className={styles.text}>{started}</p> : null}
         </>,
         true,

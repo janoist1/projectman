@@ -1381,7 +1381,7 @@ export const hu = {
         handOnNoOwner: 'A munka ebben a lépésben kész: {step}.',
         merge: 'A kártya jóváhagyott munkáját a fő ágba kell beolvasztani.',
         mergeFailed: 'A beolvasztás nem sikerült. A fő ág nem változott.',
-        mergeBlocked: 'A beolvasztás elakadt. A kártya dobozában áll, miért.',
+        mergeBlocked: 'A beolvasztás elakadt. Az okát lent látod.',
         approval: 'A következő lépéshez jóváhagyás kell: {labels}.',
         fixLimit: '{rounds} javítási kör után a kártya áll, és döntés kell.',
         held: 'A kártya áll, amíg rajta van: {labels}.',
@@ -1668,9 +1668,9 @@ export const hu = {
       openCard: 'Kártya megnyitása',
       details: 'Részletek',
       /** The work the merge is about: the commit when it is known, else "the approved work". */
-      what: 'A {commit} commit',
+      what: 'A jóváhagyott munka ({commit})',
       whatUnknown: 'A jóváhagyott munka',
-      whatLower: 'a {commit} commit',
+      whatLower: 'a jóváhagyott munka ({commit})',
       whatLowerUnknown: 'a jóváhagyott munka',
       requested: {
         title: 'Beolvasztható',
@@ -1689,6 +1689,7 @@ export const hu = {
         by: '{who} indította.',
         merge: 'Összefésülés: {commit} → {base}',
         check: 'Ellenőrzés: {check}',
+        checkUnknown: 'Ellenőrzés',
         push: 'Felküldés a GitHubra',
         done: 'kész',
         active: 'folyamatban',

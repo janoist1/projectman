@@ -54,6 +54,8 @@ describe('the merge request in the inbox (PM-453)', () => {
     const heading = t('inbox.mergeBlocked.title', { key: 'AC-27' });
     await screen.findByRole('heading', { name: heading });
     const card = cardOf(heading);
+    // Under the reason, where the branch stands.
+    expect(within(card).getByText(t('task.merge.blocked.nowhere', { base: 'main' }))).toBeTruthy();
     fireEvent.click(within(card).getByRole('button', { name: t('task.merge.retry') }));
     await waitFor(() => expect(project.backend.findTask('AC-27')!.merge?.state).toBe('queued'));
   });

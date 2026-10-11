@@ -342,6 +342,23 @@ export function createFeedbackRepository(db: Db) {
       `UPDATE feedback_sessions SET revoked_at = ?, revoked_by = ?
        WHERE project_key = ? AND member = ? AND revoked_at IS NULL`,
     ),
+    touchSession: db.prepare('UPDATE feedback_sessions SET last_used_at = ?, expires_at = ? WHERE id = ?'),
+    revokeSession: db.prepare(
+      'UPDATE feedback_sessions SET revoked_at = ?, revoked_by = ? WHERE id = ? AND revoked_at IS NULL',
+    ),
+    widgetLatest: db.prepare(
+      `SELECT * FROM feedback_marks WHERE project_key = ? AND surface_id = ?
+       ORDER BY updated_at DESC, id DESC LIMIT ?`,
+    ),
+    widgetSince: db.prepare(
+      `SELECT * FROM feedback_marks WHERE project_key = @project AND surface_id = @surface
+         AND (updated_at > @at OR (updated_at = @at AND id > @id))
+       ORDER BY updated_at, id LIMIT @limit`,
+    ),
+    marksSince: db.prepare(
+      `SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM feedback_marks
+       WHERE project_key = ? AND created_at > ?`,
+    ),
     activeSessions: db.prepare(
       `SELECT member AS k, COUNT(*) AS n FROM feedback_sessions
        WHERE project_key = ? AND revoked_at IS NULL AND expires_at > ? GROUP BY member`,
@@ -492,6 +509,42 @@ export function createFeedbackRepository(db: Db) {
     sessionByTokenHash(tokenHash: string): FeedbackSessionRecord | null {
       const row = statements.getSessionByToken.get(tokenHash) as SessionRow | undefined;
       return row ? toSession(row) : null;
+    },
+    /** Records a use of the session and its new (sliding) end of life. */
+    touchSession(id: string, lastUsedAt: string, expiresAt: string): void {
+      statements.touchSession.run(lastUsedAt, expiresAt, id);
+    },
+    /** Ends one session (the member left, or it is no longer good); false if it was already ended. */
+    revokeSession(id: string, by: string, at: string): boolean {
+      return statements.revokeSession.run(at, by, id).changes > 0;
+    },
+    /**
+     * The marks of one surface for the widget: with no cursor the latest `limit` by change, oldest
+     * first; with one, those changed after `(updatedAt, id)`, oldest first.
+     */
+    listMarksForWidget(
+      projectKey: string,
+      surfaceId: string,
+      after: { updatedAt: string; id: string } | null,
+      limit: number,
+    ): FeedbackMarkRecord[] {
+      const rows = (
+        after
+          ? statements.widgetSince.all({
+              project: projectKey,
+              surface: surfaceId,
+              at: after.updatedAt,
+              id: after.id,
+              limit,
+            })
+          : statements.widgetLatest.all(projectKey, surfaceId, limit).reverse()
+      ) as MarkRow[];
+      return rows.map(toMark);
+    },
+    /** How many marks the project got after `since`, and when the first of them was made. */
+    marksSince(projectKey: string, since: string): { count: number; oldest: string | null } {
+      const row = statements.marksSince.get(projectKey, since) as { n: number; oldest: string | null };
+      return { count: row.n, oldest: row.oldest };
     },
     /** Revokes all of the member's sessions; how many were still valid. */
     revokeSessions(projectKey: string, member: string, by: string, at: string): number {

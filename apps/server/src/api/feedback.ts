@@ -34,7 +34,7 @@ const HandleParam = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/);
 // The same policy as the attachment responses: nothing loads, no script runs.
 const CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox; frame-ancestors 'none'";
 
-function markIdOf(raw: string): string {
+export function markIdOf(raw: string): string {
   const parsed = FeedbackMarkId.safeParse(raw);
   if (!parsed.success)
     throw new DomainError('feedback_mark_not_found', `mark not found: ${raw}`, { status: 404 });

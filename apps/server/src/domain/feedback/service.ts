@@ -29,6 +29,7 @@ import type {
   FeedbackSummary,
   FeedbackSurfaceView,
   FeedbackThreadEntry,
+  FeedbackWidgetListResponse,
   HumanAccess,
   MemberConfig,
   ProjectConfig,
@@ -42,7 +43,7 @@ import type {
 } from '../../db';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { DomainError, forbidden, notFound } from '../errors';
+import { DomainError, forbidden, invalid, notFound } from '../errors';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
@@ -82,6 +83,19 @@ interface ViewContext {
 }
 
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
+
+/** The most marks one widget list returns. */
+export const MAX_FEEDBACK_WIDGET_LIST = 500;
+
+const encodeWidgetCursor = (updatedAt: string, id: string) =>
+  Buffer.from(`${updatedAt}|${id}`).toString('base64url');
+
+function decodeWidgetCursor(cursor: string): { updatedAt: string; id: string } {
+  const [updatedAt, id, ...rest] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+  if (updatedAt === undefined || id === undefined || rest.length > 0)
+    throw invalid('invalid_request', 'not a valid cursor');
+  return { updatedAt, id };
+}
 
 /**
  * The feedback marks of a project (PM-506): people mark a spot on a page of the product, the
@@ -175,6 +189,41 @@ export class FeedbackService {
   async detail(projectKey: string, markId: string, actor: Actor): Promise<FeedbackMarkDetail> {
     const viewer = await this.viewerOf(projectKey, actor);
     return this.detailOf(this.requireMark(projectKey, markId), viewer);
+  }
+
+  /** The person as the tool shows them; their marker colour is fixed here at the latest. */
+  async me(projectKey: string, actor: Actor): Promise<FeedbackPerson> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    this.ensureColor(projectKey, viewer.member);
+    return this.person(viewer.config, viewer.handle, this.ctx.repos.feedback.colors(projectKey));
+  }
+
+  /**
+   * The marks of one surface for the public widget: with no cursor the latest ones, then only those
+   * changed since the cursor (an opaque `(updated_at, id)`), oldest change first. A change of the
+   * reader's own read state does not move a mark; the widget keeps that itself.
+   */
+  async widgetList(
+    projectKey: string,
+    actor: Actor,
+    opts: { surfaceId: string; cursor: string | null },
+  ): Promise<FeedbackWidgetListResponse> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    this.ensureColor(projectKey, viewer.member);
+    const after = opts.cursor === null ? null : decodeWidgetCursor(opts.cursor);
+    const { feedback } = this.ctx.repos;
+    const records = feedback.listMarksForWidget(projectKey, opts.surfaceId, after, MAX_FEEDBACK_WIDGET_LIST);
+    const view = this.viewContext(viewer, feedback.stats(projectKey, viewer.handle));
+    const authors = [...new Set(records.map((record) => record.author))];
+    const last = records.at(-1);
+    return {
+      marks: records.map((record) => this.markView(record, view)),
+      markers: authors.flatMap((handle) => this.markerOf(viewer.config, handle, view.colors)),
+      cursor: last
+        ? encodeWidgetCursor(last.updatedAt, last.id)
+        : (opts.cursor ?? encodeWidgetCursor('', '')),
+      me: this.person(viewer.config, viewer.handle, view.colors),
+    };
   }
 
   /** The person has seen the mark's thread up to now. */

@@ -182,6 +182,14 @@ export const routes = {
   /** POST (processors): opens a closed mark again. */
   feedbackReopen: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/reopen`,
 
+  /**
+   * The public widget API of the feedback tool (PM-506, PM-509). Not under `/api`: it is cross-origin
+   * and carries its own bearer session, which the `/api` guard would refuse. `rest` starts with `/`.
+   */
+  feedbackWidgetApi: (rest = '') => `/feedback/api/v1${rest}`,
+  /** GET: the widget script the customer's page embeds. */
+  feedbackWidgetScript: () => '/feedback/widget.js',
+
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,
 } as const;

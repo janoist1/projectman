@@ -29,6 +29,7 @@ export interface SessionPolicy {
   placement:
     | {
         kind: 'task_worktree';
+        mergeFix?: { branch: string };
         path: string;
         /** A shared git directory outside `path` (a git worktree's); absent for an independent clone. */
         gitDir?: string;

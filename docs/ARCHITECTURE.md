@@ -1610,6 +1610,27 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+- **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
+  `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
+  The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
+  a file-changing duty, only while the card is `fixing`. Placement changes when its session
+  restarts after the turn. The checkout starts at the approved commit; the merger merges the
+  recorded conflict base, resolves mechanical conflicts, commits, and submits a resolution note.
+  Git cleanliness and ancestry are checked on the card's engine before queuing the fix head.
+  Assumptions: git and writable worktree storage on that engine, shared git metadata there.
+  **Remote engine:** checkout creation, head/status/ancestry reads and cleanup run on the card's
+  engine through the worktree and merge contracts; only checkout metadata, commit ids and the
+  resolution note cross the boundary. A merger assigned to another engine is refused. The
+  server stores the fix state and resolution attribution; it never edits conflict files.
+  This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
+  with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
+  `MemberWorkspaces` retains its existing work/review choices. The server's shared
+  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
+  Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
+  at startup and periodically. The engine revalidates the canonical fix path under its
+  repository mutex, refuses symlinks and leaves unregistered directories in place.
+
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
   `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
@@ -1938,6 +1959,22 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   hold is always refused. When the configured temporary-worker policy permits a hire, Start hires as the system,
   sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
   remain approval operations.
+
+- **System signals** (PM-476, migration 50, `domain/operator-signals.ts`). Provider/engine outages,
+  cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
+  create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
+  The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),
+  so startup card events cannot resolve an outage before provider checks finish. An acknowledged alert followed by a restart cannot
+  leave a recovered outage signal unresolved and suppress the next episode of the same outage id.
+  Admission persists refused `operator_signals` starts; notices enter the Operator's general conversation
+  as projectman input, without a team message or an owner request. A persisted `delivered_at` keeps the
+  15-minute project wake interval across restarts. Delivered signals become open when presented or when
+  the turn ends; startup recovers delivered pending rows. Undelivered rows never appear in REST or WS.
+  `send_message` may present a delivered signal to owners without a request; all other writes retain
+  the request guard. Owner acceptance records a visible message and the signal decision atomically,
+  and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
+  Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
+  admission stay on the server, and notice delivery uses the existing engine session boundary.
 
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.

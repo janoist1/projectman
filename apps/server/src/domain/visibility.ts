@@ -229,6 +229,7 @@ export function canSeeProjectEvent(
   isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
+  if (event.type === 'operator_signal') return viewer.access === 'owner';
   if (event.type === 'team_message') return canSeeTeamMessage(viewer, event.message);
   // The Operator's sessions are the owner's and the admin's to see (PM-475).
   if (!canSeeOperatorSessions(viewer) && isOperatorSession) {

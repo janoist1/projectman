@@ -10,6 +10,7 @@ import { encodeWorkItem } from '../db';
 import type { DomainContext } from './context';
 import type { DeferredStarts } from './admission';
 import type { OperatorRequests } from './operator-requests';
+import type { OperatorSignals } from './operator-signals';
 import type { PauseService } from './pause';
 import type { ProjectService } from './projects';
 
@@ -21,6 +22,7 @@ export class ProjectManagerChannels {
     deferred: DeferredStarts;
     pauses: PauseService;
     operatorRequests: OperatorRequests;
+    operatorSignals: OperatorSignals;
   };
 
   constructor(deps: ProjectManagerChannels['deps']) {
@@ -46,6 +48,8 @@ export class ProjectManagerChannels {
       ...channel,
       requests: this.deps.operatorRequests.views(projectKey, readOnly ? [viewer] : ownerHandles(config)),
       readOnly,
+      // The system signals are the owners' business (a card key, a subject): a person reading along sees none.
+      ...(readOnly ? { signals: [], openSignals: 0 } : this.deps.operatorSignals.channel(projectKey)),
     };
   }
 

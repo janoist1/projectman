@@ -77,7 +77,7 @@ describe('a start while the provider is not logged in', () => {
       ready = true;
       await h.domain.admission.retryDeferred();
       await waitFor(() => h.domain.sessions.findRunning('AR', 'dev-1', { type: 'task', taskKey: task.key }));
-      expect(h.runner.started).toHaveLength(1);
+      expect(h.runner.started.filter((session) => session.member === 'dev-1')).toHaveLength(1);
     },
   );
 
@@ -190,9 +190,9 @@ describe('a start while the provider is not logged in', () => {
       expect(resumes().map((row) => StartSpec.parse(row.spec))).toMatchObject([
         { kind: 'provider_resume', taskKey: task.key, handle: 'dev-1', after: 'login' },
       ]);
-      const started = h.runner.started.length;
+      const started = h.runner.started.filter((session) => session.member === 'dev-1').length;
       await h.domain.admission.retryDeferred();
-      expect(h.runner.started).toHaveLength(started);
+      expect(h.runner.started.filter((session) => session.member === 'dev-1')).toHaveLength(started);
 
       state.loggedIn = true;
       await h.domain.admission.retryDeferred();
@@ -235,9 +235,9 @@ describe('a start while the provider is not logged in', () => {
       await waitFor(() => resumes().length === 1);
       h.repos.tasks.update(task.id, { assignee: 'dev-2' });
       state.loggedIn = true;
-      const started = h.runner.started.length;
+      const started = h.runner.started.filter((session) => session.member === 'dev-1').length;
       await h.domain.admission.retryDeferred();
-      expect(h.runner.started).toHaveLength(started);
+      expect(h.runner.started.filter((session) => session.member === 'dev-1')).toHaveLength(started);
       expect(resumes()).toHaveLength(0);
     });
 

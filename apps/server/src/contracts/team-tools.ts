@@ -278,7 +278,14 @@ export interface TeamToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
-    args: { to: MemberHandle[]; text: string; taskKey?: string; kind: MessageKind },
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];
@@ -300,7 +307,10 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
-  mergeTask(ctx: ToolContext, args: { taskKey: string }): Promise<{ task: Task }>;
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
   updateTask(
     ctx: ToolContext,
     args: {

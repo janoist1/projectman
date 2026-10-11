@@ -168,6 +168,11 @@ export async function createDomainHarness(
         ? join(realpathSync(dir), 'projectman-501-tmp', '0123abcd')
         : undefined;
 
+  const memberWorkspaces = opts.memberWorkspaces
+    ? (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
+        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+      )
+    : undefined;
   const domain: Domain = createDomain({
     ...(opts.engines
       ? { engines: opts.engines }
@@ -177,6 +182,8 @@ export async function createDomainHarness(
               ...createLocalEngine(
                 {
                   worktrees,
+                  memberWorkspaces,
+                  workspacesRootDir: memberWorkspaces ? workspacesDir : undefined,
                   workspacePath: () => workspace,
                   fullTestExecutor: opts.fullTestExecutor,
                   claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
@@ -219,9 +226,7 @@ export async function createDomainHarness(
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
       ? {
-          memberWorkspaces: (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
-            createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
-          ),
+          memberWorkspaces,
           workspacesRootDir: workspacesDir,
         }
       : {}),

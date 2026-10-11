@@ -147,6 +147,8 @@ describe('the Operator talks with every person in a conversation of their own (P
       state: 'waiting',
       waiting: { reason: 'member_at_capacity' },
     });
+    // The owners' system signals never reach a person reading along.
+    expect(channel).toMatchObject({ signals: [], openSignals: 0 });
     // The owner has the Operator at once.
     await say('owner');
     expect(ownerConversation()).toBeDefined();

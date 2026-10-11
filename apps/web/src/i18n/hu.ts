@@ -51,6 +51,7 @@ export const hu = {
       conversation: 'beszélgetés',
       fix_limit: 'javítási kör korlátja',
       loop: 'Körbe fut jelzés',
+      operator_signal: 'rendszerjelzés az Operátornak',
       permission_change: 'engedélyváltozás',
       description_changed: 'a leírás megváltozott',
       provider_resume: 'a szolgáltatói keret újra elérhető',
@@ -855,6 +856,10 @@ export const hu = {
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
       merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
+      merge_fix_not_allowed: 'Csak a beolvasztó javíthat ütközés miatt sikertelen beolvasztást.',
+      merge_fix_invalid:
+        'A javítás nincs commitolva, vagy hiányzik belőle a jóváhagyott commit vagy az alap.',
+      merge_fix_engine_mismatch: 'A javító munkafának a kártya motorján kell lennie.',
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
@@ -880,6 +885,7 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
       project_manager_move_refused:

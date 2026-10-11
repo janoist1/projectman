@@ -158,7 +158,7 @@ export function MergeInboxActions({
             variant="primary"
             size={size}
             loading={start.isPending}
-            onClick={() => start.mutate(blocked.taskKey)}
+            onClick={() => start.mutate({ taskKey: blocked.taskKey })}
           >
             {start.isPending ? t('task.merge.retrying') : t('task.merge.retry')}
           </Button>

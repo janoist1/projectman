@@ -301,7 +301,13 @@ export class Merges {
       this.save(row, {
         state: 'fixing',
         step: undefined,
-        fix: { by: handle!, base: row.failure!.base, branch: info.branch, startedAt: isoNow(ctx) },
+        fix: {
+          by: handle!,
+          base: row.failure!.base,
+          branch: info.branch,
+          path: info.path,
+          startedAt: isoNow(ctx),
+        },
         resolution: undefined,
       });
       return tasks.get(projectKey, taskKey);

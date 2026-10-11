@@ -381,6 +381,22 @@ export default async ({ instance, open, shoot, step, log }) => {
     });
   }
 
+  await step('the human conflict fixer: empty, invalid and filled note (PM-481)', async () => {
+    const spec = specs.fixing;
+    overlays[spec.key].merge.merger = owner;
+    overlays[spec.key].merge.fix.by = owner;
+    overlays[spec.key].merge.fix.path = `/mock/worktrees/AC/_merge-fix/${spec.key}-${REPO}`;
+    await visit(`/p/AC/tasks/${spec.key}`);
+    const field = page.getByLabel('Mit javítottál?');
+    await field.waitFor();
+    await shot('drawer-human-fix-empty');
+    await page.getByRole('button', { name: 'Beolvasztás', exact: true }).click();
+    await page.getByText('Írd le röviden, mit javítottál az ütközésen.').waitFor();
+    await shot('drawer-human-fix-invalid');
+    await field.fill('Kept both changes in src/cart/totals.ts and restored the gift wrap row.');
+    await shot('drawer-human-fix-filled');
+  });
+
   await step('the move panel refused for want of the merge', async () => {
     state.refuse = specs.requestedAi.key;
     await visit(`/p/AC/tasks/${specs.requestedAi.key}`);

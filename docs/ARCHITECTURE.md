@@ -1617,6 +1617,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   restarts after the turn. The checkout starts at the approved commit; the merger merges the
   recorded conflict base, resolves mechanical conflicts, commits, and submits a resolution note.
   Git cleanliness and ancestry are checked on the card's engine before queuing the fix head.
+  Human mergers use the same checkout (PM-481), editing directly on the card's engine machine.
+  `fix.path` is an absolute path on that engine; remote use requires the human to have filesystem
+  access to its machine, which projectman does not provide. The existing checkout metadata
+  carries this path across the server/engine boundary.
   Assumptions: git and writable worktree storage on that engine, shared git metadata there.
   **Remote engine:** checkout creation, head/status/ancestry reads and cleanup run on the card's
   engine through the worktree and merge contracts; only checkout metadata, commit ids and the

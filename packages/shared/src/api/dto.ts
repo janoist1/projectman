@@ -1,4 +1,11 @@
 import { z } from 'zod';
+
+/** Empty starts or retries; fixConflict creates a checkout; resolution submits its committed fix (PM-481). */
+export const StartMergeRequest = z.object({
+  fixConflict: z.boolean().optional(),
+  resolution: z.string().trim().min(1).max(2000).optional(),
+});
+export type StartMergeRequest = z.infer<typeof StartMergeRequest>;
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';

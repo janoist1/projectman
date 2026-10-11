@@ -57,6 +57,7 @@ import {
   SendTeamMessageRequest,
   SetupRequest,
   StartTaskRequest,
+  StartMergeRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
@@ -427,6 +428,13 @@ export class MockBackend {
   private mergeFrom = new Map<string, string>();
   /** How a card's merge ends once `advanceMerge` has run it through its steps; absent: it merges. */
   private mergeOutcomes = new Map<string, MockMergeOutcome>();
+  private mergeFixNotes = new Map<string, string>();
+  private mergeFixErrors = new Map<string, 'uncommitted' | 'missing_commit' | 'missing_base'>();
+
+  setMergeFixError(taskKey: string, reason?: 'uncommitted' | 'missing_commit' | 'missing_base'): void {
+    if (reason) this.mergeFixErrors.set(taskKey, reason);
+    else this.mergeFixErrors.delete(taskKey);
+  }
   /** Why a move into the target is refused while the work is not merged; absent: `not_merged`. */
   private mergeRefusals = new Map<string, 'not_merged' | 'not_on_remote' | 'engine_unavailable'>();
   /** The cards that wait for a Senior (PM-348): since when, the question asked and the answer given. */
@@ -1938,7 +1946,7 @@ export class MockBackend {
       return this.boardMove(m[1]!, body);
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge$/.exec(rest)) && method === 'POST') {
-      return this.startMerge(m[1]!);
+      return this.startMerge(m[1]!, body);
     }
 
     if (
@@ -3563,7 +3571,10 @@ export class MockBackend {
   }
 
   /** The merge route: only the card's merger starts it; a started merge waits in the queue. */
-  private startMerge(taskKey: string): MockResponse {
+  private startMerge(taskKey: string, body?: unknown): MockResponse {
+    const parsed = StartMergeRequest.safeParse(body ?? {});
+    if (!parsed.success) return error(400, 'invalid_request', 'Invalid merge request');
+    const options = parsed.data;
     const task = this.findTask(taskKey);
     if (!task) return error(404, 'not_found', 'Unknown task');
     const viewer = memberOf(this.config, this.viewerHandle);
@@ -3571,8 +3582,45 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Requires developer access');
     this.reconcileMerge(task);
     const merge = task.merge;
+    if (options.fixConflict || options.resolution !== undefined) {
+      if (!merge || merge.merger !== this.viewerHandle)
+        return error(409, 'merge_fix_not_allowed', 'Only the merger may fix conflicts', {
+          reason: 'not_merger',
+        });
+      if (
+        (options.fixConflict && options.resolution !== undefined) ||
+        (options.fixConflict
+          ? merge.state !== 'failed' || merge.failure?.reason !== 'conflict'
+          : merge.state !== 'fixing' || !merge.fix)
+      )
+        return error(409, 'merge_fix_not_allowed', 'The merge is not in the required conflict state', {
+          reason: 'not_conflict',
+        });
+      const ready = mergeReadiness(this.config, task);
+      if (!ready.ready)
+        return error(409, 'merge_not_ready', 'The card is not ready', { reason: ready.reason });
+      if (options.fixConflict) {
+        this.mergeFixNotes.delete(taskKey);
+        this.writeMerge(task, {
+          ...merge,
+          state: 'fixing',
+          fix: {
+            by: this.viewerHandle,
+            base: merge.failure!.base,
+            branch: `merge-fix/${taskKey}`,
+            path: `/mock/worktrees/${this.config.project.key}/_merge-fix/${taskKey}-${merge.repo}`,
+            startedAt: nowIso(),
+          },
+        });
+        return ok({ task: clone(task) });
+      }
+      const reason = this.mergeFixErrors.get(taskKey);
+      if (reason) return error(409, 'merge_fix_invalid', 'Invalid committed fix', { reason });
+      this.mergeFixNotes.set(taskKey, options.resolution!);
+      this.addTimeline(taskKey, this.viewerHandle, 'task_note', { text: options.resolution!, mentions: [] });
+    }
     // The fix of a conflict is the merger's tool, not the button (PM-471): the server refuses a start meanwhile.
-    if (merge?.state === 'fixing')
+    if (merge?.state === 'fixing' && options.resolution === undefined)
       return error(409, 'merge_fix_not_allowed', 'Submit the committed fix with resolution', {
         reason: 'not_conflict',
       });
@@ -3589,6 +3637,9 @@ export class MockBackend {
       ...kept,
       state: 'queued',
       step: 'queued',
+      ...(options.resolution !== undefined
+        ? { commit: mockCommit(task, 'd4'), branch: merge.fix!.branch }
+        : {}),
       startedBy: this.viewerHandle,
       startedAt: nowIso(),
     });
@@ -3639,6 +3690,14 @@ export class MockBackend {
       return task.merge;
     }
     const merged: TaskMerged = {
+      ...(this.mergeFixNotes.has(taskKey)
+        ? {
+            resolution: {
+              note: this.mergeFixNotes.get(taskKey)!,
+              commit: merge.commit ?? mockCommit(task, 'a1'),
+            },
+          }
+        : {}),
       via: 'tool',
       mergeCommit: mockCommit(task, 'c3'),
       commit: merge.commit ?? mockCommit(task, 'a1'),
@@ -3652,6 +3711,7 @@ export class MockBackend {
     this.closeMergeItems(task, merge.id);
     this.writeMerge(task, undefined, merged);
     this.addTimeline(task.key, null, 'task_merged', { ...merged, mergeId: merge.id });
+    this.mergeFixNotes.delete(taskKey);
     return undefined;
   }
 

@@ -11,6 +11,7 @@ import {
   ReopenTaskRequest,
   routes,
   StartTaskRequest,
+  StartMergeRequest,
   TASK_CREATE_MIN_ACCESS,
   UpdateTaskRequest,
 } from '@projectman/shared';
@@ -85,7 +86,8 @@ export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
   app.post<TaskParams>(routes.taskMerge(':key', ':taskKey'), async (request) => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
-    return { task: await domain.merges.start(key, taskKey, actorOf(access)) };
+    const body = parseBody(StartMergeRequest, request.body);
+    return { task: await domain.merges.start(key, taskKey, actorOf(access), body) };
   });
 
   /** A closed handoff of the card with its note or summary (PM-342); an unknown or foreign one is 404. */

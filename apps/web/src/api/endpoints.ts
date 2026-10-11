@@ -51,6 +51,7 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  StartMergeRequest,
   StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
@@ -156,8 +157,8 @@ export const api = {
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
     apiRequest(routes.startTask(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
   /** The merger starts the merge of the card's approved work into the main branch (PM-452). */
-  startMerge: (key: string, taskKey: string) =>
-    apiRequest<{ task: Task }>(routes.taskMerge(key, taskKey), { method: 'POST' }),
+  startMerge: (key: string, taskKey: string, body?: StartMergeRequest) =>
+    apiRequest<{ task: Task }>(routes.taskMerge(key, taskKey), { method: 'POST', body }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),

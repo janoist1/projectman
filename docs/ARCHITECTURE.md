@@ -2093,12 +2093,15 @@ screens (PM-492) come in their own cards.
   and `preview: true` records nothing. The Devops session ends after the call.
 - **Approval.** Only a person decides, in the Rád vár: AI members (`ai_approval_forbidden`) and integrator keys
   (`owner_approval_required`) cannot, and the owner bypass does not apply to a `release` item, so only its
-  assignees can. Reject cancels the release card (`TaskService.endTheme`); a second decision is
-  `inbox_item_closed`.
+  assignees can. A rejection ends the release card and may carry a reason (`note` of `release_changed`); a
+  second decision is `inbox_item_closed`. The release card is a theme that the domain closes without a person
+  (`TaskService.closeThemeBySystem`, architect's decision): on reject, on failure and on publishing alike it
+  ends `cancelled`, because a theme is never `done` (reopening goes from `cancelled` only); the outcome is the
+  release record and its `release_changed` events.
 - **Watcher.** `release_next` returns the oldest release that is approved, deploying, or live without a tag.
   `release_claim` (approved → deploying) records `previousCommit`, where a rollback goes. `release_report` takes
   `live` (only while the server runs the release's commit), `failed` (cancels the card, alert `release_failed`
-  to the approvers), `published` (tag and URL; the card is done) or `publish_failed` (alert once). An
+  to the approvers), `published` (tag and URL; the card is closed) or `publish_failed` (alert once). An
   operation out of order is `release_state_conflict`. The watcher's operations act on the target project only.
 
 Does this work on a remote engine? The records, the approval and the socket are the server's. Only

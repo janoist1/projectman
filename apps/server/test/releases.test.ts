@@ -300,6 +300,35 @@ describe('the release flow', () => {
       expect(h.domain.releases.get(release.id)).toMatchObject({ state: 'rejected', decidedBy: 'owner' });
       expect(task('AR-4').status).toBe('cancelled');
       expect(h.domain.releases.next()).toBeNull();
+      // The card is closed by the person who decided, and no reason was given.
+      const closed = h.domain.timeline
+        .list('AR', { taskKey: 'AR-4' })
+        .find(
+          (event) => event.type === 'task_updated' && (event.data as { action?: string }).action === 'closed',
+        );
+      expect(closed?.actor).toMatchObject({ kind: 'human', handle: 'owner' });
+      expect(events('AR-4').at(-1)!.data).not.toHaveProperty('note');
+    });
+
+    it('keeps the reason of a rejection on the release card, and only of a rejection', async () => {
+      await setup();
+      await propose();
+      await h.domain.inbox.resolve(
+        'AR',
+        approvalOf().id,
+        { optionId: 'reject', note: '  Not this week.  ' },
+        OWNER,
+      );
+      expect(events('AR-4').at(-1)!.data).toMatchObject({ state: 'rejected', note: 'Not this week.' });
+
+      await propose({ title: 'Second try' });
+      await h.domain.inbox.resolve('AR', approvalOf().id, { optionId: 'approve', note: 'Go ahead' }, OWNER);
+      const approvedEvent = h.domain.timeline
+        .list('AR', { taskKey: 'AR-5' })
+        .filter((event) => event.type === 'release_changed')
+        .at(-1)!;
+      expect(approvedEvent.data).toMatchObject({ state: 'approved' });
+      expect(approvedEvent.data).not.toHaveProperty('note');
     });
 
     it('is refused for an AI member', async () => {
@@ -375,7 +404,7 @@ describe('the release flow', () => {
       expect(h.domain.releases.get(release.id).state).toBe('deploying');
     });
 
-    it('goes live, then published: the tag is kept and the card is done', async () => {
+    it('goes live, then published: the tag is kept and the card is closed', async () => {
       await setup();
       const { release } = await deploying();
       h.setAppVersion(sha(3));
@@ -395,7 +424,8 @@ describe('the release flow', () => {
         tag: 'v2026.10.11',
         publishedAt: expect.any(String),
       });
-      expect(task('AR-4').status).toBe('done');
+      // The outcome is in the record and its events; a theme ends as cancelled, so it can be reopened.
+      expect(task('AR-4').status).toBe('cancelled');
       expect(h.domain.releases.next()).toBeNull();
       expect(events('AR-4').map((event) => (event.data as { state: string }).state)).toEqual([
         'proposed',

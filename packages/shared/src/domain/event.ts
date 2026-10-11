@@ -195,6 +195,8 @@ export interface TimelineEventData {
     url?: string;
     failure?: ReleaseFailure;
     publishError?: string;
+    /** The reason the person gave when they rejected the release (state `rejected` only); absent when none. */
+    note?: string;
   };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {

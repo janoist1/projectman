@@ -259,9 +259,7 @@ export class ReleaseService {
         return { release, candidate };
       } catch (err) {
         // The card of a release that could not be recorded would stay behind with nothing to show for it.
-        ctx.unitOfWork(() =>
-          tasks.endTheme(projectKey, card.key, 'cancelled', SYSTEM_ACTOR, 'the release was not recorded'),
-        );
+        ctx.unitOfWork(() => tasks.closeThemeBySystem(projectKey, card.key, SYSTEM_ACTOR));
         throw err;
       }
     });
@@ -294,15 +292,8 @@ export class ReleaseService {
     };
     ctx.unitOfWork(() => {
       ctx.repos.releases.save(next, at);
-      this.record(next, release.state, humanActor(by.handle));
-      if (!approved)
-        tasks.endTheme(
-          release.projectKey,
-          release.taskKey,
-          'cancelled',
-          humanActor(by.handle),
-          'the release was rejected',
-        );
+      this.record(next, release.state, humanActor(by.handle), approved ? undefined : note);
+      if (!approved) tasks.closeThemeBySystem(release.projectKey, release.taskKey, humanActor(by.handle));
       inbox.resolveRelease(item.id, by.handle, optionId, note);
     });
   }
@@ -357,13 +348,7 @@ export class ReleaseService {
         ctx.unitOfWork(() => {
           ctx.repos.releases.save(next, at);
           this.record(next, release.state, SYSTEM_ACTOR);
-          tasks.endTheme(
-            release.projectKey,
-            release.taskKey,
-            'cancelled',
-            SYSTEM_ACTOR,
-            'the release failed',
-          );
+          tasks.closeThemeBySystem(release.projectKey, release.taskKey, SYSTEM_ACTOR);
           this.alert(config, next, report.failure);
         });
         return next;
@@ -381,7 +366,8 @@ export class ReleaseService {
         ctx.unitOfWork(() => {
           ctx.repos.releases.save(next, at);
           this.record(next, release.state, SYSTEM_ACTOR);
-          tasks.endTheme(release.projectKey, release.taskKey, 'done', SYSTEM_ACTOR);
+          // The outcome is the release record and its events; the card ends as every theme does.
+          tasks.closeThemeBySystem(release.projectKey, release.taskKey, SYSTEM_ACTOR);
         });
         return next;
       }
@@ -413,6 +399,8 @@ export class ReleaseService {
     release: Release,
     previousState: Release['state'] | null,
     actor: Parameters<TimelineService['append']>[0]['actor'],
+    /** The reason a person gave when they rejected the release; left out when empty. */
+    note?: string | null,
   ): void {
     this.deps.timeline.append({
       projectKey: release.projectKey,
@@ -428,6 +416,7 @@ export class ReleaseService {
         ...(release.url ? { url: release.url } : {}),
         ...(release.failure ? { failure: release.failure } : {}),
         ...(release.publishError ? { publishError: release.publishError } : {}),
+        ...(release.state === 'rejected' && note?.trim() ? { note: note.trim() } : {}),
       },
     });
   }

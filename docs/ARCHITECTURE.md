@@ -1973,6 +1973,12 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
+  `release_proposed`; `ReleaseRoadmapNotices` (`domain/release-roadmap-notices.ts`) then sends the Operator one
+  English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
+  Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
+  nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
+  comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
 - **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
   manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
   A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the

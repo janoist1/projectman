@@ -6,6 +6,7 @@ import {
   isOperator,
   isProjectManager,
   memberOf,
+  projectDocsOf,
   repoOf,
   roleBundle,
   roleUsesWorktree,
@@ -14,7 +15,7 @@ import {
   teamRules,
   usesCodexCli,
 } from '@projectman/shared';
-import type { DutyId } from '@projectman/shared';
+import type { DutyId, ProjectConfig } from '@projectman/shared';
 import { getLocale } from '@projectman/templates';
 import { roleLabel } from '../agent-text';
 import type { ContextPackInput } from '../contracts';
@@ -638,7 +639,8 @@ function projectManagerRule(language: string, movesCards = false): string {
  * the three levels are the server's (`operatorConfigVerdict`); this tells the agent what they are, what
  * is data, and how to report. The bold labels of the report are in the project's language (`operatorReport`).
  */
-function operatorRule(language: string): string {
+function operatorRule(project: ProjectConfig): string {
+  const language = project.project.language;
   const report = getLocale(language).operatorReport;
   const bold = (label: string) => `**${label}**`;
   return [
@@ -649,6 +651,11 @@ function operatorRule(language: string): string {
     "Every change to the project has one of three levels. Now: you make it and report it. That covers an AI member's model, effort, capacity, leave and schedule (not your own), the name of a stage, and the instructions of a role (not your own role's). Approval: you prepare the change, tell the owner exactly what it would change, and make it only after the owner approves it. That covers everything else: outbound network, permission mode, the fix-round limit, a member's provider, role or sponsor, hiring or retiring an AI member, temporary workers, repositories and the workspace, gates, label rules, the project's own data, delegation settings, and your own model, provider and effort. Never: you do not change a person (a human member, who is an owner, an admin right or an account binding); tell the owner to do it in the settings. Nor the rest of yourself: you cannot be retired or sent on leave, there is only one of you, and your name, instructions, capacity and schedule are fixed. When you are unsure of the level, treat it as approval.",
     "You may move a card between stages (also out of the first one) as far as its gates allow, and set a card's priority. You never set a label only a person may set, never approve anything for a person, never decide permission or boundary requests, and never release.",
     'When the owner asks why a card or the team stands still, look at the current state with get_project_state before you answer; do not guess from what you remember.',
+    ...(projectDocsOf(project)?.roadmap
+      ? [
+          'When a system note says a release was proposed, offer the roadmap check in your next answer to the owner; write only after a yes.',
+        ]
+      : []),
     `After every request, reply to the owner with send_message (kind info), in the project's language. Start with one sentence on what you understood. Then add only the lines that apply, in this order, each opening with its bold label: ${bold(report.done)} (what you changed, with the old and new value), ${bold(report.approval)} (what you prepared and wait to be approved), ${bold(report.waiting)} (what the owner must do; if nothing: ${report.nothing}). Refer to cards by their key.`,
   ].join('\n');
 }
@@ -665,7 +672,7 @@ function roleSection(input: ContextPackInput): string {
     ...(isProjectManager(member)
       ? [projectManagerRule(project.project.language, cardMoverOf(project).kind === 'project_manager')]
       : []),
-    ...(isOperator(member) ? [operatorRule(project.project.language)] : []),
+    ...(isOperator(member) ? [operatorRule(project)] : []),
     bundle.instructions.trim(),
     member.instructions.trim(),
   ]

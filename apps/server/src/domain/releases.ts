@@ -256,6 +256,7 @@ export class ReleaseService {
           });
           this.record(release, null, aiActor(by));
         });
+        await ctx.events.emit('release_proposed', { release });
         return { release, candidate };
       } catch (err) {
         // The card of a release that could not be recorded would stay behind with nothing to show for it.

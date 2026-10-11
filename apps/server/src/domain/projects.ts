@@ -8,6 +8,10 @@ import {
   isTheme,
   memberOf,
   operatorFixedChange,
+  isOperatorActor,
+  operatorConfigVerdict,
+  operatorApprovalOf,
+  canonical,
   ownerOnlyChanges,
   unknownPatchRepo,
   validateProjectConfig,
@@ -51,6 +55,12 @@ export interface LoadedProject {
 }
 
 export interface Author {
+  operator?: string;
+  request?: string;
+  approvedBy?: string;
+  /** Internal provenance, never accepted from an HTTP request. */
+  operatorRequestId?: string;
+  operatorApprovalId?: string;
   via?: 'integrator';
   name: string;
   email: string;
@@ -206,6 +216,10 @@ export class ProjectService {
   async history(key: string, limit?: number): Promise<ConfigVersionEntry[]> {
     if (!this.has(key)) throw notFound('project', key);
     return this.configStore.history(key, limit).catch(fromConfigError);
+  }
+
+  async versionConfig(key: string, version: string): Promise<ProjectConfig> {
+    return this.configStore.loadVersion(key, version).catch(fromConfigError);
   }
 
   /**
@@ -448,10 +462,45 @@ export class ProjectService {
     key: string,
     previous: ProjectConfig,
     next: ProjectConfig,
-    meta: Pick<ConfigChangeMeta, 'actor' | 'invitationBinding'>,
+    meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
   ): void {
     const member = memberOf(previous, meta.actor.handle);
-    if (meta.actor.kind !== 'system') {
+    if (isOperatorActor(previous, meta.actor)) {
+      const request = meta.author.operatorRequestId
+        ? this.ctx.repos.operatorRequests.get(meta.author.operatorRequestId)
+        : null;
+      if (
+        !request ||
+        request.projectKey !== key ||
+        meta.author.operator !== meta.actor.handle ||
+        meta.author.via
+      )
+        throw forbidden('operator_no_request', 'the Operator commit needs an owner request');
+      const verdict = operatorConfigVerdict(previous, next, { operator: meta.actor.handle! });
+      if (verdict.level === 'never')
+        throw forbidden('operator_never', 'the Operator cannot make this change');
+      const item = meta.author.operatorApprovalId
+        ? this.ctx.repos.inbox.get(meta.author.operatorApprovalId)
+        : null;
+      const approval = item ? operatorApprovalOf(item) : null;
+      const approver = memberOf(previous, meta.author.approvedBy);
+      if (
+        meta.author.operatorApprovalId &&
+        (!item ||
+          item.projectKey !== key ||
+          item.state !== 'open' ||
+          item.source !== meta.actor.handle ||
+          !approval ||
+          approval.stale ||
+          approval.requestId !== request.id ||
+          approver?.kind !== 'human' ||
+          approver.access !== 'owner' ||
+          canonical(approval.changes) !== canonical(verdict.changes))
+      )
+        throw conflict('operator_approval_stale', 'the approved configuration change no longer matches');
+      if (verdict.level === 'approval' && !approval)
+        throw forbidden('owner_approval_required', 'the Operator change needs approval');
+    } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('insufficient_access', 'only human members may change the configuration');
       ProjectService.assertChangeAllowed(previous, next, member.access, meta.invitationBinding);

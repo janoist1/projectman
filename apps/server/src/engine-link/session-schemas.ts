@@ -26,6 +26,7 @@ export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
   placement: z.discriminatedUnion('kind', [
     z.strictObject({
       kind: z.literal('task_worktree'),
+      mergeFix: z.strictObject({ branch: text }).optional(),
       path: text,
       gitDir: text.optional(),
       worktreeGitDir: text.optional(),

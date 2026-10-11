@@ -9,6 +9,57 @@ import { migrations } from '../src/db/migrations';
 
 const now = '2026-09-29T10:00:00.000Z';
 
+it('preserves existing merge rows and failure diagnostics through migration 49', () => {
+  const db = new Database(':memory:');
+  try {
+    for (const migration of migrations.filter((m) => m.version <= 48)) db.exec(migration.sql);
+    db.pragma('user_version = 48');
+    const failure = { reason: 'conflict', base: 'onto', at: now, files: ['a.ts'] };
+    db.prepare(
+      `INSERT INTO task_merges (id, project_key, task_key, repo, base, "commit", from_stage_id, to_stage_id, merger, requested_at, state, landed, failure_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      'm',
+      'AR',
+      'AR-1',
+      'web',
+      'main',
+      'approved',
+      'review',
+      'done',
+      'owner',
+      now,
+      'failed',
+      'nowhere',
+      JSON.stringify(failure),
+      now,
+      now,
+    );
+    migrate(db);
+    const repository = createRepositories(db).taskMerges;
+    const row = repository.get('m')!;
+    expect(row).toMatchObject({ state: 'failed', commit: 'approved', failure });
+    repository.save({
+      ...row,
+      state: 'fixing',
+      fix: { by: 'owner', base: 'onto', branch: 'merge-fix/AR-1', startedAt: now },
+    });
+    expect(repository.open('AR', 'AR-1')?.state).toBe('fixing');
+    repository.save({
+      ...row,
+      state: 'merged',
+      commit: 'resolved',
+      resolution: { note: 'Resolve imports in a.ts', commit: 'resolved' },
+    });
+    expect(repository.latestMerged('AR', 'AR-1')?.resolution).toEqual({
+      note: 'Resolve imports in a.ts',
+      commit: 'resolved',
+    });
+  } finally {
+    db.close();
+  }
+});
+
 describe('merge migration 48', () => {
   it('backfills persistent handovers from review pins and allows only one open merge per card', () => {
     const db = new Database(':memory:');
@@ -16,16 +67,26 @@ describe('merge migration 48', () => {
       const prior = migrations.filter((item) => item.version < 48);
       for (const migration of prior) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
-      const old = createRepositories(db);
-      old.projects.insert({
-        key: 'AR',
-        name: 'acme',
-        templateId: null,
-        configVersion: 'v1',
-        createdAt: now,
-        updatedAt: now,
-      });
-      old.tasks.insert(sampleTask());
+      // Seed the historical schema directly: current repositories require later migrations.
+      db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)').run('AR', 'acme', null, 'v1', now, now);
+      const task = sampleTask();
+      db.prepare(
+        `INSERT INTO tasks
+        (id, project_key, key, seq, title, stage_id, status, visibility, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        task.id,
+        task.projectKey,
+        task.key,
+        1,
+        task.title,
+        task.stageId,
+        task.status,
+        task.visibility,
+        task.createdBy,
+        task.createdAt,
+        task.updatedAt,
+      );
       db.prepare('INSERT INTO task_review_pins VALUES (?, ?, ?, ?, ?, ?, ?)').run(
         'AR',
         'AR-1',
@@ -35,7 +96,7 @@ describe('merge migration 48', () => {
         now,
         'dev-1',
       );
-      expect(migrate(db)).toBe(48);
+      expect(migrate(db)).toBe(LATEST_SCHEMA_VERSION);
       const repos = createRepositories(db);
       expect(repos.taskHandovers.get('AR', 'AR-1')).toEqual({ commit: 'approved', branch: 'task/AR-1' });
       repos.reviewPins.clear('AR-1');
@@ -61,6 +122,10 @@ describe('merge migration 48', () => {
       repos.taskMerges.save(row);
       expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
       repos.taskMerges.save({ ...row, state: 'blocked' });
+      expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
+      const fix = { by: 'owner', branch: 'merge-fix/AR-1', base: 'onto', startedAt: now };
+      repos.taskMerges.save({ ...row, state: 'fixing', fix });
+      expect(repos.taskMerges.open('AR', 'AR-1')).toMatchObject({ state: 'fixing', fix });
       expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).toThrow();
       repos.taskMerges.save({ ...row, state: 'cancelled' });
       expect(() => repos.taskMerges.save({ ...row, id: 'm2' })).not.toThrow();

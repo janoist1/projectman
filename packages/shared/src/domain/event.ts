@@ -37,6 +37,7 @@ export const TimelineEventType = z.enum([
   'task_relation_removed',
   'task_theme_changed',
   'task_prerequisite_closed',
+  'task_parts_left',
   'task_note',
   'attachment_added',
   'attachment_deleted',
@@ -233,6 +234,18 @@ export interface TimelineEventData {
    * Recorded on every open card that needed it.
    */
   task_prerequisite_closed: { ref: string; status: string; remaining: string[] };
+  /**
+   * Parts of this card, created by `member` when they broke it down, were left in the first stage (PM-480).
+   * `told`: the system reminded the member once (`messageId`); `alerted`: the owners were told, because
+   * the parts were still left after the member's next turn (`inboxItemId`). The system actor writes both.
+   */
+  task_parts_left: {
+    phase: 'told' | 'alerted';
+    member: string;
+    parts: string[];
+    messageId?: string;
+    inboxItemId?: string;
+  };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };

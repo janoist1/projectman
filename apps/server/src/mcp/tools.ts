@@ -18,6 +18,7 @@ import {
   WORK_DOING_DETAIL_MAX,
   WORK_DOING_SUMMARY_MAX,
   WorkDoing,
+  OperatorOperation,
 } from '@projectman/shared';
 import type { DeveloperLevelRequest } from '@projectman/shared';
 import { z } from 'zod';
@@ -51,6 +52,8 @@ import {
  */
 
 export const TEAM_TOOL_NAMES = [
+  'operate',
+  'start_task',
   'submit_boundary_request',
   'get_boundary_request',
   'decide_boundary_request',
@@ -216,6 +219,38 @@ const addedRelationInput = z.object({
 
 export const TEAM_TOOLS: readonly TeamTool[] = [
   defineTool({
+    name: 'operate',
+    title: 'Operate the project',
+    readOnly: false,
+    description:
+      'Only the Operator, during an open owner request. Propose a configuration, member, session or project pause operation. The server executes immediate changes, requests owner approval for restricted changes, and refuses forbidden changes. Title describes the result in the project language (1–120 characters).',
+    input: { title: z.string().trim().min(1).max(120), operation: OperatorOperation },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.operate(ctx, args));
+    },
+  }),
+  defineTool({
+    name: 'start_task',
+    title: 'Start work on a task',
+    readOnly: false,
+    description:
+      'Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply.',
+    input: {
+      task_key: TaskKey,
+      assignee: MemberHandle.optional(),
+      despite_prerequisites: z.boolean().optional(),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(
+        await handler.startTask(ctx, {
+          taskKey: args.task_key,
+          assignee: args.assignee,
+          despitePrerequisites: args.despite_prerequisites,
+        }),
+      );
+    },
+  }),
+  defineTool({
     name: 'submit_boundary_request',
     title: 'Submit a boundary request',
     readOnly: false,
@@ -359,6 +394,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       task_key: TaskKey.optional().describe(
         'Task the message is about, e.g. "AR-21". Defaults to the task of your current session.',
       ),
+      signal_id: z
+        .string()
+        .optional()
+        .describe('Operator only: the delivered system signal to present to owners.'),
+      signal_actionable: z
+        .boolean()
+        .optional()
+        .describe('Operator only: whether accepting this signal authorizes a proposed action.'),
     },
     async run({ ctx, args, handler }) {
       // A message to oneself would be typed back into the caller's own session.
@@ -374,6 +417,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         to,
         kind: args.kind,
         text: args.text,
+        signalId: args.signal_id,
+        signalActionable: args.signal_actionable,
         ...(taskKey ? { taskKey } : {}),
       });
       return formatSentMessage({ ...result, requested: to, taskKey });
@@ -464,9 +509,31 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: false,
     description:
       "Start merging the card's approved commit into its repository's default branch. Only the card's merger may call this. The result arrives as a team message. Call again to retry a failed or blocked merge.",
-    input: { task_key: TaskKey },
+    input: {
+      task_key: TaskKey,
+      fix_conflict: z
+        .boolean()
+        .optional()
+        .describe(
+          'After a conflict failure, request a writable merge-fix worktree. Your session restarts when this turn ends.',
+        ),
+      resolution: z
+        .string()
+        .min(1)
+        .max(2000)
+        .optional()
+        .describe(
+          'While fixing: describe what and where you resolved, after committing the mechanical conflict resolution.',
+        ),
+    },
     async run({ ctx, args, handler }) {
-      const { task } = await handler.mergeTask(ctx, { taskKey: args.task_key });
+      const { task } = await handler.mergeTask(ctx, {
+        taskKey: args.task_key,
+        fixConflict: args.fix_conflict,
+        resolution: args.resolution,
+      });
+      if (task.merge?.state === 'fixing' && task.merge.fix)
+        return `fixing mergeId=${task.merge.id}. End this turn so your session restarts in the merge-fix worktree. There run git merge ${task.merge.fix.base}, resolve only mechanical conflicts, commit, then call merge_task with resolution describing what and where you fixed. For a behavioral conflict, send the card back with update_task and a reason.`;
       return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
     },
   }),

@@ -26,6 +26,8 @@ import type {
   BoundaryGrant,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
+  OperatorOperation,
+  ConfigChangeRow,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
@@ -216,6 +218,20 @@ export interface ScreenshotRun {
 }
 
 export interface TeamToolsHandler {
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+  ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -262,7 +278,14 @@ export interface TeamToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
-    args: { to: MemberHandle[]; text: string; taskKey?: string; kind: MessageKind },
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];
@@ -284,7 +307,10 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
-  mergeTask(ctx: ToolContext, args: { taskKey: string }): Promise<{ task: Task }>;
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
   updateTask(
     ctx: ToolContext,
     args: {

@@ -3,6 +3,7 @@ import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel } from '@pr
 import type { DomainContext } from './context';
 import type { DeferredStarts } from './admission';
 import type { OperatorRequests } from './operator-requests';
+import type { OperatorSignals } from './operator-signals';
 import type { PauseService } from './pause';
 import type { ProjectService } from './projects';
 
@@ -14,6 +15,7 @@ export class ProjectManagerChannels {
     deferred: DeferredStarts;
     pauses: PauseService;
     operatorRequests: OperatorRequests;
+    operatorSignals: OperatorSignals;
   };
 
   constructor(deps: ProjectManagerChannels['deps']) {
@@ -29,7 +31,11 @@ export class ProjectManagerChannels {
   async operatorView(projectKey: string): Promise<OperatorChannel> {
     const operator = operatorOf(await this.deps.projects.config(projectKey));
     const channel = await this.channelOf(projectKey, operator);
-    return { ...channel, requests: this.deps.operatorRequests.views(projectKey) };
+    return {
+      ...channel,
+      requests: this.deps.operatorRequests.views(projectKey),
+      ...this.deps.operatorSignals.channel(projectKey),
+    };
   }
 
   private async channelOf(

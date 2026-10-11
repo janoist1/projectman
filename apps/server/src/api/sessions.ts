@@ -81,9 +81,12 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
     const body = parseBody(SendTeamMessageRequest, request.body);
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
-    return reply
-      .code(202)
-      .send(await domain.messaging.send(key, access.handle, body, { actor: actorOf(access) }));
+    return reply.code(202).send(
+      await domain.messaging.send(key, access.handle, body, {
+        actor: actorOf(access),
+        operatorSignal: body.operatorSignal,
+      }),
+    );
   });
 
   app.post<{ Params: { key: string; id: string } }>(

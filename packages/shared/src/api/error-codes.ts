@@ -4,8 +4,12 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'operator_signal_closed',
   'merge_not_merger',
   'merge_not_ready',
+  'merge_fix_not_allowed',
+  'merge_fix_invalid',
+  'merge_fix_engine_mismatch',
   'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',
@@ -208,6 +212,8 @@ export const ERROR_CODES = [
   'operator_owner_only',
   'operator_no_request',
   'operator_never',
+  'operator_only',
+  'operator_approval_stale',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

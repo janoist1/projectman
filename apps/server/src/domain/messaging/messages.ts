@@ -47,6 +47,7 @@ export interface RecordMessageInput {
   origin?: TeamMessage['origin'];
   /** The Operator's request this message was sent during (PM-463). */
   operatorRequest?: string;
+  operatorSignal?: string;
 }
 
 /**
@@ -107,6 +108,7 @@ export class MessageService {
       ...(input.actor.via ? { via: input.actor.via } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
       ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
+      ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);

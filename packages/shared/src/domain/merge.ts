@@ -24,7 +24,7 @@ export const MergeCheck = z.object({
   reused: z.boolean().optional(),
 });
 export type MergeCheck = z.infer<typeof MergeCheck>;
-export const MergeState = z.enum(['requested', 'queued', 'running', 'failed', 'blocked']);
+export const MergeState = z.enum(['requested', 'queued', 'running', 'failed', 'blocked', 'fixing']);
 export const MergeFailure = z.object({
   reason: z.enum(['conflict', 'check_failed']),
   at: z.string(),
@@ -54,6 +54,14 @@ export const TaskMergeState = z.object({
   check: MergeCheck.optional(),
   landed: z.enum(['nowhere', 'remote']),
   failure: MergeFailure.optional(),
+  fix: z
+    .object({
+      by: MemberHandle,
+      base: z.string(),
+      branch: z.string(),
+      startedAt: z.string(),
+    })
+    .optional(),
   block: z
     .object({
       reason: MergeBlockReason,
@@ -64,7 +72,13 @@ export const TaskMergeState = z.object({
     .optional(),
 });
 export type TaskMergeState = z.infer<typeof TaskMergeState>;
+
+/** The one member allowed to edit a card's dedicated conflict-resolution checkout. */
+export function isMergeFixer(merge: TaskMergeState | null | undefined, member: string): boolean {
+  return merge?.state === 'fixing' && merge.merger === member && merge.fix?.by === member;
+}
 export const TaskMerged = z.object({
+  resolution: z.object({ note: z.string().max(2000), commit: z.string() }).optional(),
   via: z.enum(['tool', 'found']),
   mergeCommit: z.string().optional(),
   commit: z.string(),

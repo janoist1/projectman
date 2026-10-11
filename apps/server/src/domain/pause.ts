@@ -40,6 +40,8 @@ export type PauseTarget = { scope: 'instance' } | { scope: 'project'; projectKey
 
 /** Who asks: a person (the app), the control command or the system; a person has a user id. */
 export interface PauseRequester {
+  /** Internal approval freshness check, run under the admission lock before changing state. */
+  check?: () => void;
   userId: string | null;
   source: PauseSource;
   via?: 'integrator';
@@ -206,6 +208,7 @@ export class PauseService {
     const actors = await this.actors(projectKeys, by);
     // Only the rows and the timeline are written under the admission lock: no start slips in between.
     const caught = await this.admission.exclusive(async () => {
+      by.check?.();
       if (pauses.findOpen(target.scope, keyOf(target))) return null;
       const at = isoNow(this.ctx);
       const record = {
@@ -451,6 +454,7 @@ export class PauseService {
     const projectKeys = this.coveredProjects(target);
     const actors = await this.actors(projectKeys, by);
     const closed = await this.admission.exclusive(async () => {
+      by.check?.();
       const pause = pauses.findOpen(target.scope, keyOf(target));
       if (!pause) return null;
       this.ctx.unitOfWork(() => {
@@ -612,8 +616,10 @@ export class PauseService {
   }
 
   private publishChanged(projectKeys: readonly string[]): void {
-    for (const projectKey of new Set(projectKeys))
+    for (const projectKey of new Set(projectKeys)) {
       this.ctx.bus.publish({ type: 'pause_changed', projectKey, pause: this.projectView(projectKey) });
+      void this.ctx.events.emit('pause_changed', { projectKey });
+    }
   }
 
   /**

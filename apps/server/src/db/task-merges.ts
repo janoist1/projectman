@@ -11,6 +11,7 @@ export interface MergeRecord extends Omit<TaskMergeState, 'state'> {
   finishedAt?: string;
   pushed?: TaskMerged['pushed'];
   pullRequests?: TaskMerged['pullRequests'];
+  resolution?: TaskMerged['resolution'];
 }
 
 const columns = {
@@ -28,6 +29,8 @@ const columns = {
   startedBy: 'started_by',
   startedAt: 'started_at',
   failure: 'failure_json',
+  fix: 'fix_json',
+  resolution: 'resolution_json',
   state: 'state',
   step: 'step',
   mergeCommit: 'merge_commit',
@@ -40,7 +43,7 @@ const columns = {
   updatedAt: 'updated_at',
   finishedAt: 'finished_at',
 } as const;
-const json = new Set(['check', 'block', 'failure', 'pushed', 'pullRequests']);
+const json = new Set(['check', 'block', 'failure', 'pushed', 'pullRequests', 'fix', 'resolution']);
 function record(row: Record<string, unknown>): MergeRecord {
   return Object.fromEntries(
     Object.entries(columns).flatMap(([key, column]) => {
@@ -63,6 +66,7 @@ export function mergeState(row: MergeRecord): TaskMergeState | undefined {
     startedBy: row.startedBy,
     startedAt: row.startedAt,
     failure: row.failure,
+    fix: row.fix,
     state: row.state,
     step: row.step,
     landed: row.landed,
@@ -84,6 +88,7 @@ export function mergedState(row: MergeRecord): TaskMerged | undefined {
     ...(row.check ? { check: row.check } : {}),
     ...(row.pushed ? { pushed: row.pushed } : {}),
     ...(row.pullRequests ? { pullRequests: row.pullRequests } : {}),
+    ...(row.resolution ? { resolution: row.resolution } : {}),
   };
 }
 export function createTaskMergeRepository(db: Db) {
@@ -99,7 +104,7 @@ export function createTaskMergeRepository(db: Db) {
     open(projectKey: string, taskKey: string) {
       return (
         read(
-          "SELECT * FROM task_merges WHERE project_key = ? AND task_key = ? AND state IN ('requested','queued','running','failed','blocked')",
+          "SELECT * FROM task_merges WHERE project_key = ? AND task_key = ? AND state IN ('requested','queued','running','failed','blocked','fixing')",
           projectKey,
           taskKey,
         )[0] ?? null

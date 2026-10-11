@@ -135,10 +135,6 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     profile (decision 26): members there may publish their own task branches through a
     restricted gate and a separate GitHub identity, never `main` (PM-142); everywhere else
     agents do not push._
-    **Addition, 2026-10-11 (PM-386):** in PM, the merger member (`team.merger`, here
-    `claude`) merges reviewed work and pushes `main` through `merge_task`. Code review is
-    sufficient: no per-card owner approval or `merge-approved` label is required. The safeguards
-    are the full test at merge and the owner's approval of the live update.
 22. **One word per thing in the Hungarian UI.** Decided by the owner on 2026-10-01, answering
     the reviewer's question on PM-96. A session is a "munkamenet" (not "session") and a
     pipeline stage is a "lépés" (not "szakasz"). Developer words stay out of plain UI text:
@@ -274,7 +270,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     merge commit the live instance runs. The GitHub release has the same name and a short English
     summary of what changed, with the card keys. The integrator creates both after the switch,
     once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
-    switch backups, without GitHub releases.
+    switch backups, without GitHub releases. The roadmap update before a release moved from the
+    integrator to the Operator (decision 50).
 36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
     triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
     futásához”). This supersedes decision 25. The members keep running on the owner's machine in
@@ -301,11 +298,6 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     check of a card is the integrating session's merge test before `main` moves (the whole suite
     when shared code or configuration changed). The owner's first idea, a full test only when a
     collecting card is finished, was set aside because its parts reach `main` one by one.
-    **Addition, 2026-10-11 (PM-386):** the server runs the card's single full check at merge,
-    in its full test sandbox (`npm run merge-test`), before `main` moves. Tests that cannot run
-    there are skipped with `describe.skipIf` when `PROJECTMAN_FULL_TEST_SANDBOX=1` and run
-    outside the sandbox before every live deployment. A failure prevents the live instance
-    from being updated. PM-387 implements that deployment check.
 41. **Outbound network is a per-member setting, on by default.** Decided by the owner on
     2026-10-05 (PM-355), in three answers: the scope is „Csak a kimenő hálózat, ki/be” (one
     on/off switch, no address list); the default is „Mindenkinek be” (every role, the read-only
@@ -366,3 +358,18 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     with them; the board asks for them and records them. Who does a kind of work is set per
     project, as a duty in the project's configuration, never fixed in the app: in projectman
     the senior developer merges (decision 47), another project may choose differently.
+49. **A card's conversation always has a recipient.** Decided by the owner on 2026-10-11
+    (PM-488). When nobody else is on the card (no one works on it, no assignee, no stage owner
+    but the writer), the project manager is the default recipient and passes the message on to
+    the member it is meant for; the screen says so. There is no note without a recipient: it
+    would be mixed up with the card's notes.
+50. **The Operator keeps the decision log and the roadmap.** Decided by the owner on 2026-10-10
+    (PM-447, „Operatoré a sarok és a napló”) and made concrete on 2026-10-11 (PM-388). The
+    Operator writes `docs/DECISIONS.md` and `docs/ROADMAP.md`, in the merge slot, and nobody
+    else changes them on a card branch; this entry is the last one written by hand on a card.
+    It writes down what the owner tells it and what the owner accepts from its offers: „Amit
+    neki mondasz, és amit ő ajánl”, and updates the roadmap „Döntéskor, kérésre és release
+    előtt” (when a decision changes the plan, on request, and before a release). The Operator
+    offers the owner's answers to card questions as decision candidates (PM-496); the owner's
+    yes or no is remembered, so a candidate is not offered twice. This modifies decision 35
+    only in who updates the roadmap before a release.

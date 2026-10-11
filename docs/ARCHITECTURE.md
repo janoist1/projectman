@@ -866,7 +866,9 @@ commit pinned at the hand-over, run by the server.
   Every result is a `task_full_test` timeline event. A branch that moves or a dirty checkout while the run
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
-  only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+  only in `test/full-test-sandbox.integration.test.ts` (macOS). It cannot start a nested sandbox,
+  so it is skipped when `PROJECTMAN_FULL_TEST_SANDBOX=1` and runs outside the sandbox before
+  every live deployment (PM-493, `release-test`).
 
 When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
 sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
@@ -876,9 +878,11 @@ for targeted tests while working and one full test and type check on the handed-
 A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
 or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
 workspaces, including at hand-over and in fix rounds. This is an instruction policy; it does not
-execute a merge test or add a pipeline step. The integrator checks the card before it enters
-the default branch, using the heavy-run queue for a full run. PM uses this mode (decision 40);
-other projects retain their existing default (absent or false). The two settings are independent:
+execute a merge test or add a pipeline step. An external integrator can check the card before it
+enters the default branch, using the heavy-run queue for a full run. In PM, the merger uses
+`merge_task`; the server runs `npm run merge-test` in the full test sandbox, in the machine's
+heavy-run queue, before the default branch moves (decision 40, PM-386).
+Other projects retain their existing default (absent or false). The two settings are independent:
 `fullTestAtMerge` does not disable `reviewTest`, and an available server review test retains
 precedence in the developer's instructions. Setting both requests two full checks per card,
 one before review and one before merge. To check only at merge, omit `reviewTest`. Reviewers

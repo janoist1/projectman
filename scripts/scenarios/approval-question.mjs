@@ -4,7 +4,7 @@
  * `merge-approved`; a card in front of it waits for that approval, so the "Rád vár" item says what follows.
  * It shoots, at 1512 and 390 px:
  *
- *   a. the approval item: the owner merges ("te olvasztod be"), then another member merges
+ *   a. the approval item when the owner merges ("te olvasztod be"); f. when another member merges
  *   b. the question item of an agent that asks for the approval, in its four variants: the jump link (the open
  *      approval is the viewer's), someone else can approve, no open approval request, the label is already on
  *   c. after the jump link: the focus on the approval item's heading and its frame (reduced motion: the frame stays)
@@ -137,14 +137,6 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'a-gate-you', { widths: WIDTHS, highlight: `#inbox-item-${gate.id}` });
   });
 
-  await step('a. the approval item, another member merges', async () => {
-    await configure({ kind: 'member', handle: developer });
-    const page = await open({ path: '/p/AC/inbox' });
-    await page.getByText(TEXT.thenMerge, { exact: false }).first().waitFor();
-    await shoot(page, 'a-gate-other', { widths: WIDTHS, highlight: `#inbox-item-${gate.id}` });
-    await configure({ kind: 'member', handle: owner });
-  });
-
   await step('b. the question: the jump link', async () => {
     const page = await inboxOf(only(open1), 'jump');
     await page.getByText(TEXT.notApproval, { exact: false }).first().waitFor();
@@ -199,5 +191,23 @@ export default async ({ instance, open, shoot, step, log }) => {
     const page = await open({ path: `/p/AC/tasks/${open1}` });
     await hint(page).first().waitFor();
     await shoot(page, 'e-drawer', { widths: WIDTHS });
+  });
+
+  // The request carries who merges as of the moment it was made: a card that reaches its gate after the
+  // setting changed is the one that names someone else.
+  await step('f. the approval item, another member merges', async () => {
+    await configure({ kind: 'member', handle: developer });
+    const third = await card('Add order history');
+    const other = gateOf(await itemsOf(), third);
+    log(`gate ${other?.id} ${JSON.stringify(other?.payload?.gate?.merge)}`);
+    if (!other) throw new Error('The third card needs its approval request.');
+    const page = await open({ path: '/p/AC/inbox' });
+    // The line names the merger: "Jóváhagyás után {name} beolvasztja ...", not "te olvasztod be".
+    await page
+      .locator(`#inbox-item-${other.id}`)
+      .getByText(/Jóváhagyás után .+ beolvasztja a main ágba/)
+      .waitFor();
+    await shoot(page, 'f-gate-other', { widths: WIDTHS, highlight: `#inbox-item-${other.id}` });
+    await configure({ kind: 'member', handle: owner });
   });
 };

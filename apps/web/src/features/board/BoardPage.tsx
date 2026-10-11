@@ -31,7 +31,7 @@ import { ApiError } from '../../api/client';
 import { useBoardMove, useLabels } from '../../api/queries';
 import { useToast } from '../../components/toastContext';
 import { isApprovalRequested } from '../../lib/errors';
-import { mergerHandleOf, refusalFactsOf } from '../../lib/merge';
+import { mergeRefusal, mergerHandleOf, refusalFactsOf } from '../../lib/merge';
 import { nameOf } from '../../lib/members';
 import { PrerequisiteWarning } from './PrerequisiteWarning';
 import { groupMoveToast, groupOutcome } from './groupMove';
@@ -463,23 +463,21 @@ export function BoardPage() {
           if (result.outcome === 'moved') toast.show(t('task.move.success'));
         },
         // A stale board is no failure: the refetch after it already shows the new order.
-        onError: (error) =>
-          toast.show(
-            moveErrorText(
-              error,
-              board.data?.labels ?? [],
-              refusalFactsOf({
-                task: model?.byKey.get(drop.taskKey)?.task,
-                config: model?.ctx.config,
-                members: model?.ctx.members ?? new Map(),
-                myHandle,
-                target: pipeline?.stageById.get(drop.stageId)?.name ?? drop.columnName,
-              }),
-            ),
-            isApprovalRequested(error) || (error instanceof ApiError && error.code === 'board_stale')
-              ? 'info'
-              : 'error',
-          ),
+        onError: (error) => {
+          const facts = refusalFactsOf({
+            task: model?.byKey.get(drop.taskKey)?.task,
+            config: model?.ctx.config,
+            members: model?.ctx.members ?? new Map(),
+            myHandle,
+            target: pipeline?.stageById.get(drop.stageId)?.name ?? drop.columnName,
+          });
+          // A merge refusal is only news to a member who does not merge (PM-453); the merger gets the error.
+          const informs =
+            isApprovalRequested(error) ||
+            (error instanceof ApiError && error.code === 'board_stale') ||
+            mergeRefusal(error, facts)?.tone === 'info';
+          toast.show(moveErrorText(error, board.data?.labels ?? [], facts), informs ? 'info' : 'error');
+        },
         onSettled: () => setPending(null),
       },
     );

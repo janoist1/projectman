@@ -5,7 +5,8 @@
  *
  *   a. the board: one card in each merge state (the "Rád vár" lines and the merge steps)
  *   b. the drawer of each state: requested (AI merger), requested (the viewer, as the inbox card), queued,
- *      running, failed on a conflict, failed on the check, blocked, merged
+ *      running, failed on a conflict, failed on the check, blocked, merged, a conflict being fixed (PM-471),
+ *      merged after a fixed conflict (the "Ütközés javítva" fold)
  *   c. the drawer's move panel refused for want of the merge
  *   d. the inbox: the merge request, the request after a conflict and the alert of a stopped merge
  *   e. the settings: who merges, the merge requirement of a repository, and "no one can merge" as a field error
@@ -111,6 +112,8 @@ export default async ({ instance, open, shoot, step, log }) => {
     checkFailed: { title: 'Validate the postcode' },
     blocked: { title: 'Send the order confirmation e-mail' },
     merged: { title: 'Show the gift wrap option' },
+    fixing: { title: 'Total the gift wrap fee' },
+    fixed: { title: 'Show the shipping countdown' },
   };
   for (const spec of Object.values(specs)) spec.key = await card(spec.title);
   const inbox = [];
@@ -212,6 +215,36 @@ export default async ({ instance, open, shoot, step, log }) => {
     },
     options: [{ id: 'seen', label: 'seen', style: 'primary' }],
   });
+
+  // PM-471: the AI merger fixes a simple conflict in its own checkout; the box has no button until it submits.
+  setup(
+    specs.fixing,
+    mergeOf(specs.fixing.key, {
+      merger: reviewer,
+      state: 'fixing',
+      failure: conflict,
+      fix: { by: reviewer, base: conflict.base, branch: `merge-fix/${specs.fixing.key}`, startedAt: ago(2) },
+    }),
+  );
+  events[specs.fixing.key].push({
+    type: 'task_merge_failed',
+    data: { ...conflict, mergeId: `merge-${specs.fixing.key}` },
+    at: conflict.at,
+  });
+
+  const resolution = {
+    note: 'Kept both changes in `src/cart/totals.ts`: the **shipping fee** from main and the gift wrap line from the card.\n\n- `src/checkout/summary.tsx`: took main’s layout and re-added the wrap row.',
+    commit: hex('d4d4d4'),
+  };
+  overlays[specs.fixed.key] = { stageId: target.id, merged: { ...merged, resolution } };
+  events[specs.fixed.key] = [
+    {
+      type: 'task_merge_requested',
+      data: { mergeId: 'merge-fixed', merger: reviewer, repo: REPO, base: BASE, toStageId: target.id },
+      at: ago(40),
+    },
+    { type: 'task_merged', data: { ...merged, resolution, mergeId: 'merge-fixed' }, at: merged.at },
+  ];
 
   overlays[specs.merged.key] = { stageId: target.id, merged };
   events[specs.merged.key] = [
@@ -335,11 +368,15 @@ export default async ({ instance, open, shoot, step, log }) => {
     ['drawer-failed-check', specs.checkFailed, TEXT.checkFailed],
     ['drawer-blocked', specs.blocked, TEXT.blocked],
     ['drawer-merged', specs.merged, 'Beolvasztotta'],
+    ['drawer-fixing', specs.fixing, 'Az ütközést javítják'],
+    ['drawer-fixed', specs.fixed, 'Ütközés javítva'],
   ];
   for (const [name, spec, text] of drawerShots) {
     await step(`the drawer: ${name}`, async () => {
       await visit(`/p/AC/tasks/${spec.key}`);
       await page.getByText(text).first().waitFor();
+      // The fold of a fixed conflict is shot open, with what the merger wrote.
+      if (name === 'drawer-fixed') await page.getByText(text).first().click();
       await shot(name);
     });
   }

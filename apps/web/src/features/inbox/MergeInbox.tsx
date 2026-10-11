@@ -50,7 +50,7 @@ export function MergeInboxBody({ item }: { item: InboxItem }) {
             commit: commit ? shortCommit(commit) : null,
             base: request.base,
             check,
-            push: !!repo?.github,
+            push: mergeOnGithub(config, request.repo),
           })}
         </p>
       );

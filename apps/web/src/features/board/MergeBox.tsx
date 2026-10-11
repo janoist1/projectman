@@ -152,7 +152,7 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         commit: commit ? shortCommit(commit) : null,
         base: merge.base,
         check,
-        push: !!repo?.github,
+        push: github,
       });
       return frame(
         t('task.merge.requested.title'),
@@ -181,7 +181,7 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         t('task.merge.running.title', { base: merge.base }),
         'accent',
         <>
-          <StepList steps={runningSteps(merge, check, !!repo?.github || merge.step === 'pushing')} />
+          <StepList steps={runningSteps(merge, check, github || merge.step === 'pushing')} />
           {started ? <p className={styles.text}>{started}</p> : null}
         </>,
         true,

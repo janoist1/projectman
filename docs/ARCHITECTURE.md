@@ -1973,6 +1973,23 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`domain/decision-candidates.ts`) finds the
+  questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
+  the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
+listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 20) is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool) and answers `{ candidates, more }`, the earliest answer first; the
+  question is cut to 2000 characters; 409 `docs_not_configured` when the project has no decision log. The call sets
+  `listed_at`. `mark_decision_candidates { items: [{ item_id, verdict, decision? }] }` is Operator-only, in the
+  owners' own conversation with an open request (`OPERATOR_TOOL_ACTIONS` maps it to `decision_offer`, "Döntésjelöltek
+  jelölése"); the verdict is `recorded` (with the decision number), `declined` or `skipped`. It is all or nothing:
+  an unknown item or one that is not a candidate refuses the whole call (`not_found`); a later mark overwrites the
+  earlier one. Migration 53 adds `decision_offers` (one verdict per project and item) and `decision_candidate_state`
+  (per project: `since`, set to the migration's time for projects with inbox items, and `listed_at`), so the answers
+  from before the feature are never offered. `MessageDelivery.batch()` appends one line to the Operator's input in
+  the owners' conversation, "N owner answers on cards since you last looked may be decisions:
+  list_decision_candidates.", when the project has a decision log and there are candidates answered after the later
+  of `since` and `listed_at`; the line is not stored. Remote engine: only server-side data and prompt text change;
+  no new machine-dependent part.
 - **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
   manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
   A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the

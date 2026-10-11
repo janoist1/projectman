@@ -985,5 +985,25 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   );
   CREATE UNIQUE INDEX doc_writes_open ON doc_writes(project_key) WHERE state IN ('queued','running');`,
   },
+  {
+    version: 53,
+    name: 'decision offers',
+    sql: `CREATE TABLE decision_offers (
+      project_key TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      verdict TEXT NOT NULL CHECK (verdict IN ('recorded','declined','skipped')),
+      decision TEXT,
+      request_id TEXT NOT NULL,
+      decided_at TEXT NOT NULL,
+      PRIMARY KEY (project_key, item_id)
+    );
+    CREATE TABLE decision_candidate_state (
+      project_key TEXT PRIMARY KEY,
+      since TEXT NOT NULL,
+      listed_at TEXT
+    );
+    INSERT INTO decision_candidate_state (project_key, since, listed_at)
+      SELECT DISTINCT project_key, strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL FROM inbox_items;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

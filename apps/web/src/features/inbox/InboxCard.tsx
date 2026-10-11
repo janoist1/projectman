@@ -206,6 +206,11 @@ export function InboxCard({
     : [];
   const answerBlocked = pending || Boolean(answering && uploads.blockedReason);
   const answerHelp = uploads.error ?? uploads.blockedReason ?? answerError;
+  const answerHelpError = Boolean(
+    uploads.error ||
+    uploads.items.some((entry) => entry.status === 'failed') ||
+    (!uploads.blockedReason && answerError),
+  );
   const resolveAnswer = (body: ResolveInboxRequest) => {
     if (answerBlocked) return;
     onResolve(item, { ...body, ...(attachmentIds.length ? { attachmentIds } : {}) });
@@ -513,13 +518,9 @@ export function InboxCard({
           {answerHelp ? (
             <span
               id={`${answerId}-error`}
-              className={styles.answerError}
+              className={answerHelpError ? styles.answerError : styles.answerHint}
               aria-live="polite"
-              role={
-                answerError || uploads.error || uploads.items.some((entry) => entry.status === 'failed')
-                  ? 'alert'
-                  : undefined
-              }
+              role={answerHelpError ? 'alert' : undefined}
             >
               {answerHelp}
             </span>
@@ -579,12 +580,12 @@ export function InboxCard({
           {answering ? (
             <Button
               variant="ghost"
+              icon="paperclip"
               size={buttonSize}
               disabled={pending}
               title={t('messageAttachments.addTitle')}
               onClick={() => picker.current?.click()}
             >
-              <Icon name="paperclip" size={16} />
               {t('messageAttachments.add')}
             </Button>
           ) : null}

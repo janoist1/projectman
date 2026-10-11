@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -185,8 +186,9 @@ describe('startInstance', () => {
         expect(await waitUntil(async () => !(await answers(webUrl)), 20_000)).toBe(true);
       } finally {
         parent.kill('SIGKILL');
-        // A killed parent cannot remove its temporary directory.
-        if (dir) rmSync(dir, { recursive: true, force: true });
+        // A killed parent cannot remove its temporary directory. Its children may still finish
+        // writing after their ports close, so retry transient ENOTEMPTY during teardown.
+        if (dir) await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       }
     },
     SLOW,

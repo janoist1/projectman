@@ -918,6 +918,11 @@ GitHub service (the default engine's `github.*` calls in cloud mode); it is inde
 Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
 as a code-free card. See the machine inventory entry below.
 
+`BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
+(PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
+the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
+repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
+
 ## Heavy-run queue (PM-332)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -1011,7 +1016,7 @@ workers follow the machine's size.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
-  - Member initiated merges: `merge.*` (PM-451, see "Merge").
+  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1657,7 +1662,15 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
   engine's user's git credentials for the push, and macOS APFS for the cheap dependency copy (a plain copy
-  elsewhere).
+  elsewhere). Two more calls serve the Operator's project documents (PM-494, PM-388): `merge.read_file`
+  (`cat-file` of one file at a commit, or at the head of the base after the fetch of its upstream; a path
+  that fails `isRepoFilePath`, a file over 1 MiB or one that is not UTF-8 text is refused) and
+  `merge.commit_files` (a commit on `onto` with one or two files set, built in a temporary index file
+  with `hash-object`, `update-index`, `write-tree` and `commit-tree`: no ref, index or working tree is
+  touched). The engine limit bounds both like the other `merge.*` calls (the repository must be
+  registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
+  without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
+  machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,

@@ -560,6 +560,39 @@ describe('cloud mode remote parts', () => {
       expect(refused).toMatchObject({ code: 'merge_not_allowed' });
     });
 
+    it('sends the document read and commit with the repository named, and returns their results', async () => {
+      const engine = await online();
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const sha = 'a'.repeat(40);
+      engine.answer('merge.read_file', () => ({ commit: sha, text: 'log\n' }));
+      engine.answer('merge.commit_files', () => ({ commit: 'b'.repeat(40), changed: ['docs/log.md'] }));
+      const merger = remote.directory.get('eng_a' as never)!.merger!;
+      expect(await merger.readFile(ref, { at: { base: 'main' }, path: 'docs/log.md' })).toEqual({
+        commit: sha,
+        text: 'log\n',
+      });
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.read_file',
+        params: { ref, at: { base: 'main' }, path: 'docs/log.md' },
+      });
+      const files = [{ path: 'docs/log.md', text: 'new\n' }];
+      expect(await merger.commitFiles(ref, { onto: sha, files, message: 'Docs' })).toEqual({
+        commit: 'b'.repeat(40),
+        changed: ['docs/log.md'],
+      });
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.commit_files',
+        params: { ref, onto: sha, files, message: 'Docs' },
+      });
+      // The engine's MergeError comes out as a MergeError.
+      engine.answer('merge.read_file', () => {
+        throw Object.assign(new Error('over 1 MiB'), { code: 'invalid_input' });
+      });
+      const refused = await merger.readFile(ref, { at: { commit: sha }, path: 'big.md' }).catch((e) => e);
+      expect(refused).toBeInstanceOf(MergeError);
+      expect(refused).toMatchObject({ code: 'invalid_input' });
+    });
+
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {
       const engine = await online();
       engine.answer('screenshots.run', () => new Promise(() => {}));

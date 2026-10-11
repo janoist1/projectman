@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Pipeline } from '../domain/pipeline';
+import { RepoDocs } from './project-docs';
 import {
   AutoCompactWindowTokens,
   MaxConcurrentAi,
@@ -57,6 +58,11 @@ export const PatchConfigRequest = z
       .array(z.object({ repo: z.string(), requireMerge: z.boolean().nullable() }))
       .max(20)
       .optional(),
+    /** Per repository: where the project documents live (PM-494); null removes the setting. */
+    repoDocs: z
+      .array(z.object({ repo: z.string(), docs: RepoDocs.nullable() }).strict())
+      .max(20)
+      .optional(),
     boundary: ProjectConfig.shape.team.shape.boundary,
     pipeline: Pipeline.optional(),
   })
@@ -68,13 +74,17 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
   return issues.map(({ code, path }) => ({ code, path: path.map(String).join('.') }));
 }
 
-/** The first repository of `repoMerge` that the configuration does not know (the edit answers `unknown_repo`); null: none. */
+/** The first repository of `repoMerge` or `repoDocs` that the configuration does not know (the edit answers `unknown_repo`); null: none. */
 export function unknownPatchRepo(
   config: Pick<ProjectConfig, 'project'>,
   patch: PatchConfigRequest,
 ): string | null {
   const known = new Set(config.project.repos.map((repo) => repo.name));
-  return patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ?? null;
+  return (
+    patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
+    null
+  );
 }
 
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
@@ -93,19 +103,29 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   else if (autoCompactWindowTokens !== undefined) limits.autoCompactWindowTokens = autoCompactWindowTokens;
   // The last entry for a repository wins.
   const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
+  const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
   return {
     ...config,
     project: {
       ...config.project,
       ...patch.project,
-      repos: repoMerge
-        ? config.project.repos.map((repo) => {
-            const change = repoMerge.get(repo.name);
-            if (change === undefined) return repo;
-            const { requireMerge: _previous, ...rest } = repo;
-            return change === null ? rest : { ...rest, requireMerge: change };
-          })
-        : config.project.repos,
+      repos:
+        repoMerge || repoDocs
+          ? config.project.repos.map((repo) => {
+              let changed = repo;
+              const merge = repoMerge?.get(repo.name);
+              if (merge !== undefined) {
+                const { requireMerge: _previous, ...rest } = changed;
+                changed = merge === null ? rest : { ...rest, requireMerge: merge };
+              }
+              const docs = repoDocs?.get(repo.name);
+              if (docs !== undefined) {
+                const { docs: _previous, ...rest } = changed;
+                changed = docs === null ? rest : { ...rest, docs };
+              }
+              return changed;
+            })
+          : config.project.repos,
     },
     team: {
       ...config.team,

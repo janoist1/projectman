@@ -198,6 +198,8 @@ type ContractResults = {
   'merge.release_check': BranchMerger['releaseCheck'];
   'merge.push': BranchMerger['push'];
   'merge.advance': BranchMerger['advance'];
+  'merge.read_file': BranchMerger['readFile'];
+  'merge.commit_files': BranchMerger['commitFiles'];
 };
 /** Named wire parameters are projections of the engine contract's argument tuples. */
 type ContractParams = {
@@ -234,6 +236,8 @@ type ContractParams = {
   'merge.release_check': { ref: MergeRepoRef } & Parameters<BranchMerger['releaseCheck']>[1];
   'merge.push': { ref: MergeRepoRef } & Parameters<BranchMerger['push']>[1];
   'merge.advance': { ref: MergeRepoRef } & Parameters<BranchMerger['advance']>[1];
+  'merge.read_file': { ref: MergeRepoRef } & Parameters<BranchMerger['readFile']>[1];
+  'merge.commit_files': { ref: MergeRepoRef } & Parameters<BranchMerger['commitFiles']>[1];
   // Streams and cleanup stay on the engine; only metadata and the upload receipt cross JSON.
   'files.export': {
     sessionId: string;
@@ -523,6 +527,22 @@ export const methods = {
   'merge.release_check': method(mergeCall({ mergeId: mergeText }), done),
   'merge.push': method(mergeCall({ base: mergeText, mergeCommit: mergeText }), mergePushed),
   'merge.advance': method(mergeCall({ base: mergeText, from: mergeText, to: mergeText }), mergeAdvanced),
+  'merge.read_file': method(
+    mergeCall({
+      at: z.union([z.strictObject({ commit: mergeText }), z.strictObject({ base: mergeText })]),
+      path: text.max(200),
+    }),
+    z.strictObject({ commit: mergeText, text: text.nullable() }),
+  ),
+  // The limit allows 2 files; the schema is looser so that a third is refused as `invalid_params`.
+  'merge.commit_files': method(
+    mergeCall({
+      onto: mergeText,
+      files: z.array(z.strictObject({ path: text.max(200), text })).max(20),
+      message: text.max(2000),
+    }),
+    z.strictObject({ commit: mergeText, changed: z.array(text).max(10) }),
+  ),
   'machine.snapshot': method(empty, snapshot),
   'machine.processes': method(empty, z.array(processRecord).nullable()),
   'machine.env_values': method(

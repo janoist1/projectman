@@ -142,6 +142,13 @@ export class FeedbackScreenshotStore {
     };
   }
 
+  /** The path of the stored original on this machine, when it is a regular file (for a session that runs here). */
+  async locate(projectKey: string, screenshot: StoredFeedbackScreenshot): Promise<string> {
+    const target = this.path(projectKey, screenshot.file);
+    if (!(await lstat(target)).isFile()) throw new Error('the screenshot is not a regular file');
+    return target;
+  }
+
   /** The original's bytes (to attach it to a card). */
   async read(projectKey: string, screenshot: StoredFeedbackScreenshot): Promise<Buffer> {
     const { stream } = await this.open(projectKey, screenshot, false);

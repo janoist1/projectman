@@ -1036,7 +1036,13 @@ workers follow the machine's size.
   view shows the public address and the sessions the tool holds. Assumes one server host for the
   database, the screenshot files and the public entrance. **Remote engine:** everything runs on the
   server; an engine needs nothing from it and receives a mark's screenshot only as the card's
-  attachment, over the existing attachment transfer. In the hybrid mode the `feedback` folder is carried
+  attachment, over the existing attachment transfer. The processing (PM-512) runs on the server too: the
+  wake-up message to the project manager (`domain/feedback/notices.ts`) is an ordinary stored team message,
+  and the feedback team tools (`domain/team-tools.ts`, `mcp/tools.ts`) are answered by the server.
+  `get_feedback { mark_id }` hands the stored screenshot's absolute path (`FeedbackScreenshotStore.locate`) only
+  to a session whose engine is the local one (`getFeedbackMark`); a session on a remote engine gets none
+  and reads the image as the card's attachment (`read_attachment`, PM-315) after
+  `create_task_from_feedback`. In the hybrid mode the `feedback` folder is carried
   with the other data (`HYBRID_CLOUD_ENTRIES`) and the public entrance belongs to the cloud server.
 
 - **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),

@@ -114,7 +114,7 @@ import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } 
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
-import { FeedbackScreenshotStore, FeedbackService } from './feedback';
+import { FeedbackNotices, FeedbackScreenshotStore, FeedbackService } from './feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
@@ -864,6 +864,11 @@ export function createDomain(opts: DomainOptions) {
   inbox.useReleaseDecision((item, by, optionId, note) => releases.decide(item, by, optionId, note));
   const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
   events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
+  // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
+  const feedbackNotices = new FeedbackNotices({ ctx, projects, messaging });
+  events.on('feedback_needs_processor', (event) => feedbackNotices.needsProcessor(event));
+  events.on('session_idle', (session) => feedbackNotices.settle(session));
+  events.on('session_ended', (session) => feedbackNotices.settle(session));
   tasks.useMerges(merges);
   events.on('task_cancelled', (task) => {
     merges.cancel(task.projectKey, task.key);
@@ -1042,6 +1047,7 @@ export function createDomain(opts: DomainOptions) {
     attachments,
     messageAttachments,
     attachmentDirectory,
+    feedback,
     materializeAttachment: opts.engineAttachments?.materialize,
     // The files and the folder of a session are on its engine.
     sessionEngine: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,

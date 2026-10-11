@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  FeedbackMarkDetail,
   MemberView,
   TaskDetail,
   TimelineEvent,
@@ -44,6 +45,14 @@ export const qaContext: ToolContext = {
   sessionId: 'ses_qa',
   projectKey: 'AR',
   member: 'qa',
+  taskKey: null,
+};
+
+/** The project manager, who processes feedback marks (PM-512). */
+export const pmContext: ToolContext = {
+  sessionId: 'ses_pm',
+  projectKey: 'AR',
+  member: 'pm',
   taskKey: null,
 };
 
@@ -600,6 +609,62 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { runId, status: 'running', startedAt: '2026-10-05T09:00:00.000Z', files: [] };
     },
 
+    async getFeedbackList(ctx, args) {
+      await enter('getFeedbackList', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return {
+        status: args.status,
+        total: 1,
+        marks: [sampleFeedbackMark()],
+        authorAccess: { cleo: 'client' },
+      };
+    },
+
+    async getFeedbackMark(ctx, args) {
+      await enter('getFeedbackMark', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return {
+        mark: sampleFeedbackMark(),
+        authorAccess: 'client',
+        screenshot: { kind: 'local', path: '/tmp/feedback/AR/fbm_fake0000000001.jpg' },
+      };
+    },
+
+    async replyFeedback(ctx, args) {
+      await enter('replyFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'handled', outcome: 'answered' };
+    },
+
+    async createTaskFromFeedback(ctx, args) {
+      await enter('createTaskFromFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return {
+        markId: args.markId,
+        status: 'handled',
+        outcome: 'card_created',
+        task: { key: 'AR-77', title: args.title },
+      };
+    },
+
+    async linkFeedback(ctx, args) {
+      await enter('linkFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'handled', outcome: 'card_linked' };
+    },
+
+    async forwardFeedback(ctx, args) {
+      await enter('forwardFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'waiting_owner', outcome: null };
+    },
+
+    async closeFeedback(ctx, args) {
+      await enter('closeFeedback', ctx, args);
+      requireFeedbackProcessor(ctx);
+      return { markId: args.markId, status: 'closed', outcome: null };
+    },
+
     async deleteAttachment(ctx, args) {
       await enter('deleteAttachment', ctx, args);
       const attachment = findAttachment(args.taskKey, args.attachmentId);
@@ -611,6 +676,71 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       );
       return { attachmentId: attachment.id, fileName: attachment.fileName };
     },
+  };
+}
+
+/** The feedback tools are for the project manager `pm` only in the fake. */
+function requireFeedbackProcessor(ctx: ToolContext): void {
+  if (ctx.member !== 'pm')
+    throw new TeamToolError(
+      'forbidden',
+      'feedback_processor_only: only a member with the feedback processing duty may use the feedback tools.',
+    );
+}
+
+/** A mark a client made on the shop's cart page. */
+export function sampleFeedbackMark(): FeedbackMarkDetail {
+  return {
+    id: 'fbm_fake0000000001',
+    projectKey: 'AR',
+    author: { handle: 'cleo', name: 'Cleo', kind: 'human', color: 2 },
+    surface: { id: 'shop', name: 'Shop', origin: 'https://shop.example.com' },
+    pageUrl: 'https://shop.example.com/cart?step=2',
+    pagePath: '/cart?step=2',
+    pageTitle: 'Cart',
+    kind: 'point',
+    body: 'The total is wrong',
+    anchor: {
+      kind: 'point',
+      selector: '.total',
+      textSnippet: '12 990 Ft',
+      elementOffset: null,
+      pagePoint: { x: 10, y: 20 },
+      rect: null,
+    },
+    status: 'new',
+    outcome: null,
+    card: null,
+    working: false,
+    commentCount: 1,
+    unread: false,
+    hasScreenshot: true,
+    createdAt: '2026-10-12T08:00:00.000Z',
+    updatedAt: '2026-10-12T08:00:00.000Z',
+    lastActivityAt: '2026-10-12T08:05:00.000Z',
+    closedAt: null,
+    thread: [
+      {
+        id: 'fbe_fake0000000001',
+        type: 'comment',
+        actor: { handle: 'cleo', name: 'Cleo', kind: 'human', color: 2 },
+        body: 'It also shows the old price',
+        card: null,
+        createdAt: '2026-10-12T08:05:00.000Z',
+      },
+    ],
+    environment: {
+      viewport: { width: 1280, height: 800 },
+      scroll: { x: 0, y: 0 },
+      devicePixelRatio: 2,
+      userAgent: 'Mozilla/5.0 (test)',
+      browser: 'Chrome 140',
+      os: 'macOS',
+      language: 'hu-HU',
+    },
+    screenshot: { mediaType: 'image/jpeg', size: 54_000, width: 1280, height: 800 },
+    canProcess: true,
+    canComment: true,
   };
 }
 

@@ -3,6 +3,10 @@ import type {
   AddRelationRef,
   Attachment,
   DeveloperLevelRequest,
+  FeedbackMarkDetail,
+  FeedbackMarkView,
+  FeedbackOutcome,
+  FeedbackStatus,
   FocusPlace,
   MemberHandle,
   MessageAttachmentRef,
@@ -206,6 +210,37 @@ export interface LocatedAttachmentForTool {
   path: string;
   /** The file is in the attachment directory of the session's own task, which it reads without asking. */
   readableWithoutAsking: boolean;
+}
+
+/** get_feedback without a mark: the marks a processor decides (PM-512). */
+export interface FeedbackToolList {
+  status: 'todo' | 'open' | 'all';
+  /** How many marks match; `marks` holds at most the limit asked for. */
+  total: number;
+  marks: FeedbackMarkView[];
+  /** The access of each marker in `marks` (`ai` for an AI member), by handle; a handle no longer on the team is absent. */
+  authorAccess: Record<string, string>;
+}
+
+/**
+ * get_feedback with a mark: the mark as a processor sees it, and where its screenshot can be opened.
+ * A session on the server's own machine gets the stored file's path; a session on another engine
+ * cannot reach it (the card's attachment carries the image once a card is opened).
+ */
+export interface FeedbackToolMark {
+  mark: FeedbackMarkDetail;
+  /** The access of the marker (`ai` for an AI member), or null when they are no longer on the team. */
+  authorAccess: string | null;
+  screenshot: { kind: 'none' } | { kind: 'local'; path: string } | { kind: 'remote' };
+}
+
+/** What the feedback tools that change a mark answer: the mark's state after the step. */
+export interface FeedbackToolResult {
+  markId: string;
+  status: FeedbackStatus;
+  outcome: FeedbackOutcome | null;
+  /** The card a create step opened. */
+  task?: { key: string; title: string };
 }
 
 /** The longest side, in pixels, of an image `read_message_attachment` hands over (larger ones are shrunk). */
@@ -560,6 +595,35 @@ export interface TeamToolsHandler {
    * a message they cannot see is not found, whoever uploaded it.
    */
   readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
+  /**
+   * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
+   * the marks that wait for a decision.
+   */
+  getFeedbackList(
+    ctx: ToolContext,
+    args: { status: 'todo' | 'open' | 'all'; limit: number },
+  ): Promise<FeedbackToolList>;
+  /** get_feedback with `mark_id`: one mark in full. */
+  getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark>;
+  /** reply_feedback: an answer in the mark's thread, in the processor's name. */
+  replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult>;
+  /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
+  createTaskFromFeedback(
+    ctx: ToolContext,
+    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** link_feedback: the mark belongs to an existing card. */
+  linkFeedback(
+    ctx: ToolContext,
+    args: { markId: string; taskKey: string; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** forward_feedback: the mark goes to the owners, who are alerted; the mark then waits for them. */
+  forwardFeedback(
+    ctx: ToolContext,
+    args: { markId: string; reason: string; reply: string },
+  ): Promise<FeedbackToolResult>;
+  /** close_feedback: the mark is closed, with an optional last reply. */
+  closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
   /**
    * attach_file: attaches a regular file from the calling session's working directory (as the
    * server recorded it; never a directory the caller names) in the caller's name. The path is

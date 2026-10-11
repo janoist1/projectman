@@ -6,7 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
 import { TeamToolError } from '../contracts';
 import { createMcpModule, TEAM_TOOL_NAMES } from './index';
-import { createFakeTeamToolsHandler, devContext, qaContext, type FakeTeamToolsHandler } from './testing';
+import {
+  createFakeTeamToolsHandler,
+  devContext,
+  pmContext,
+  qaContext,
+  type FakeTeamToolsHandler,
+} from './testing';
 
 /* ---------- harness ---------- */
 
@@ -40,6 +46,7 @@ async function startServer(
   const tokens = new Map<string, ToolContext>([
     ['token-dev', devContext],
     ['token-qa', qaContext],
+    ['token-pm', pmContext],
   ]);
   const resolveCalls: string[] = [];
   createMcpModule({
@@ -1423,6 +1430,120 @@ describe('team tools', () => {
     const refused = await call(qa, 'set_current_work', { summary: 'Something is being tested' });
     expect(refused.isError).toBe(true);
     expect(text(refused)).toContain('only for a session working on a task');
+  });
+});
+
+/* ---------- feedback tools ---------- */
+
+describe('feedback tools', () => {
+  const MARK = 'fbm_fake0000000001';
+
+  it('declares strict inputs, defaults and read-only hints', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-pm');
+    const { tools } = await client.listTools();
+    const byName = new Map(tools.map((t) => [t.name, t]));
+    const schema = (name: string) =>
+      byName.get(name)!.inputSchema as {
+        properties: Record<string, { pattern?: string; default?: unknown; maximum?: number }>;
+        required?: string[];
+      };
+
+    expect(Object.keys(schema('get_feedback').properties)).toEqual(['mark_id', 'status', 'limit']);
+    expect(schema('get_feedback').required ?? []).toEqual([]);
+    expect(schema('get_feedback').properties.status!.default).toBe('todo');
+    expect(schema('get_feedback').properties.limit).toMatchObject({ default: 30, maximum: 100 });
+    expect(byName.get('get_feedback')!.annotations?.readOnlyHint).toBe(true);
+    expect(schema('reply_feedback').required).toEqual(['mark_id', 'body']);
+    expect(schema('create_task_from_feedback').required).toEqual(['mark_id', 'title', 'description']);
+    expect(schema('link_feedback').required).toEqual(['mark_id', 'task_key']);
+    expect(schema('forward_feedback').required).toEqual(['mark_id', 'reason', 'reply']);
+    expect(schema('close_feedback').required).toEqual(['mark_id']);
+    for (const name of ['reply_feedback', 'create_task_from_feedback', 'link_feedback', 'forward_feedback']) {
+      expect(byName.get(name)!.annotations?.readOnlyHint, name).toBe(false);
+      expect(schema(name).properties.mark_id!.pattern, name).toBeDefined();
+    }
+  });
+
+  it('get_feedback lists the marks to decide and names the marker’s access', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-pm');
+    const list = text(await call(client, 'get_feedback'));
+    expect(list).toContain(MARK);
+    expect(list).toContain('cleo, client');
+    expect(list).toContain('get_feedback { mark_id }');
+    expect(h.handler.calls.find((c) => c.method === 'getFeedbackList')!.args).toEqual({
+      status: 'todo',
+      limit: 30,
+    });
+    await call(client, 'get_feedback', { status: 'all', limit: 5 });
+    expect(h.handler.calls.filter((c) => c.method === 'getFeedbackList').at(-1)!.args).toEqual({
+      status: 'all',
+      limit: 5,
+    });
+  });
+
+  it('get_feedback with a mark shows it in full and where its screenshot is', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-pm');
+    const read = text(await call(client, 'get_feedback', { mark_id: MARK }));
+    expect(read).toContain(`Feedback mark ${MARK}`);
+    expect(read).toContain('/tmp/feedback/AR/fbm_fake0000000001.jpg');
+    expect(read).toContain('open the path with your file or image viewing tool');
+    expect(h.handler.calls.filter((c) => c.method === 'getFeedbackMark')).toHaveLength(1);
+  });
+
+  it('reports each decision with the state the mark is in now', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-pm');
+    expect(text(await call(client, 'reply_feedback', { mark_id: MARK, body: 'Which page?' }))).toContain(
+      'your reply was added',
+    );
+    const created = text(
+      await call(client, 'create_task_from_feedback', {
+        mark_id: MARK,
+        title: 'Fix the total',
+        description: 'The total is wrong.',
+        reply: 'A card is open.',
+      }),
+    );
+    expect(created).toContain('Card AR-77 "Fix the total" was opened.');
+    expect(created).toContain('handled, card_created');
+    expect(text(await call(client, 'link_feedback', { mark_id: MARK, task_key: 'AR-21' }))).toContain(
+      'linked to AR-21',
+    );
+    expect(
+      text(
+        await call(client, 'forward_feedback', { mark_id: MARK, reason: 'Price decision', reply: 'Asked.' }),
+      ),
+    ).toContain('waiting_owner');
+    expect(text(await call(client, 'close_feedback', { mark_id: MARK }))).toContain('closed');
+  });
+
+  it('refuses invalid arguments before the handler', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-pm');
+    expect((await call(client, 'get_feedback', { mark_id: 'AR-1' })).isError).toBe(true);
+    expect((await call(client, 'get_feedback', { limit: 101 })).isError).toBe(true);
+    expect((await call(client, 'reply_feedback', { mark_id: MARK, body: '  ' })).isError).toBe(true);
+    expect((await call(client, 'forward_feedback', { mark_id: MARK, reason: 'Why' })).isError).toBe(true);
+    expect((await call(client, 'close_feedback', { mark_id: MARK, reply: 'x'.repeat(4001) })).isError).toBe(
+      true,
+    );
+    expect(h.handler.calls.filter((c) => c.method.toLowerCase().includes('feedback'))).toHaveLength(0);
+  });
+
+  it('tells a member that does not process feedback why it is refused', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    for (const [name, args] of [
+      ['get_feedback', {}],
+      ['close_feedback', { mark_id: MARK }],
+    ] as const) {
+      const refused = await call(client, name, args);
+      expect(refused.isError, name).toBe(true);
+      expect(text(refused), name).toContain('Error [forbidden]: feedback_processor_only');
+    }
   });
 });
 

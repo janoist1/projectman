@@ -267,6 +267,11 @@ export function createFeedbackRepository(db: Db) {
       `SELECT * FROM feedback_marks WHERE project_key = ? AND task_key = ?
        ORDER BY updated_at DESC, id DESC LIMIT ?`,
     ),
+    listHanded: db.prepare(
+      `SELECT * FROM feedback_marks WHERE project_key = ? AND handed_to IS NOT NULL
+       ORDER BY handed_at, id`,
+    ),
+    countNew: db.prepare(`SELECT COUNT(*) AS n FROM feedback_marks WHERE project_key = ? AND status = 'new'`),
     insertEvent: db.prepare(
       `INSERT INTO feedback_events (id, mark_id, actor, type, body, data, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -381,6 +386,14 @@ export function createFeedbackRepository(db: Db) {
           : statements.listMarks.all(projectKey, opts.limit)
       ) as MarkRow[];
       return rows.map(toMark);
+    },
+    /** The marks a processor was woken for (`handed_to` set), oldest wake-up first. */
+    listHanded(projectKey: string): FeedbackMarkRecord[] {
+      return (statements.listHanded.all(projectKey) as MarkRow[]).map(toMark);
+    },
+    /** How many marks of the project wait for a first decision. */
+    countNew(projectKey: string): number {
+      return (statements.countNew.get(projectKey) as { n: number }).n;
     },
     updateMark(id: string, patch: FeedbackMarkPatch): boolean {
       const keys = (Object.keys(patch) as Array<keyof FeedbackMarkPatch>).filter(

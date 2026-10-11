@@ -328,6 +328,26 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
       });
     }
 
+    case 'part_left': {
+      // A part its creator left in the first stage: the creator takes it on, to the stage with the gate's labels.
+      const to = stageName(wait.toStageId);
+      const needed = labelsText(wait.labels, labels);
+      return build({
+        head: names || t('taskStatus.next.heads.nobody'),
+        you: meNext,
+        waiting: meNext
+          ? t('taskStatus.next.short.partLeftYou', { stage: here, to })
+          : t('taskStatus.next.short.partLeft', { stage: here }),
+        long: needed
+          ? t('taskStatus.next.long.partLeftLabels', { stage: here, to, labels: needed })
+          : t('taskStatus.next.long.partLeft', { stage: here, to }),
+        todo: meNext
+          ? t('taskStatus.next.todo.partLeftYou', { to })
+          : t('taskStatus.next.todo.partLeft', { who: names || t('taskStatus.next.heads.nobody') }),
+        toStageId: null,
+      });
+    }
+
     case 'queued': {
       const [first] = wait.next;
       if (first?.kind === 'human') {

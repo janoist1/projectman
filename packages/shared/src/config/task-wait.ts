@@ -7,8 +7,9 @@ import { StageId } from '../domain/pipeline';
 import { isTheme, TaskKey, TaskStartWaiting } from '../domain/task';
 import type { Task } from '../domain/task';
 import { stageOwners } from './duties';
-import { aiLabelSetters, evaluateStart, stageAdvance, stageIndex } from './gates';
+import { aiLabelSetters, evaluateMove, evaluateStart, stageAdvance, stageIndex } from './gates';
 import { labelDefinition } from './labels';
+import { partLeft, partReadyStage } from './left-parts';
 import { memberOf, stageOf } from './lookup';
 import { developmentStage } from './refinement';
 import type { ProjectConfig } from './schema';
@@ -44,6 +45,8 @@ export const TaskWaitReason = z.enum([
   'approval',
   /** Labels of the next gate are missing. */
   'labels_missing',
+  /** A part of a broken-down card was left in the first stage; its creator takes it on (PM-480). */
+  'part_left',
   /** A refinement step is on turn. */
   'refinement',
   /** It stands in the queue and may start. */
@@ -337,6 +340,21 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
 
   const others = newestFirst(items);
   if (others[0]) return itemWait(others[0], others, task, config);
+
+  // A part its creator left in the first stage: who takes it on, and what it lacks for the next stage (PM-480).
+  const left = input.rulesKnown === false ? null : partLeft(task, config);
+  const leftTarget = left ? partReadyStage(config) : null;
+  if (left && leftTarget) {
+    const unmet = evaluateMove(task, config, task.stageId, leftTarget.id).unmet;
+    return make(config, 'part_left', task.stageEnteredAt ?? task.createdAt, [left.member], {
+      toStageId: leftTarget.id,
+      labels: [
+        ...new Set(
+          unmet.flatMap(({ condition }) => (condition.type === 'has_label' ? [condition.label] : [])),
+        ),
+      ],
+    });
+  }
 
   // A card that cannot be started yet says what it waits for, before the queue's "ready" (PM-291).
   const block = input.rulesKnown === false ? null : startBlock(task, config);

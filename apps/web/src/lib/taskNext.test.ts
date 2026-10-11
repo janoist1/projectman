@@ -200,6 +200,19 @@ describe('deriveNext: the card row of "Miért áll?" (PM-461)', () => {
     ['queued', { next: [ai('qa')] }, {}, { waiting: 'sorra veszi', toStageId: null }],
     ['queued', {}, {}, { head: 'Sorra kerül', waiting: 'Fejlesztés' }],
     ['assignee', { next: [ai('be-1')] }, {}, { waiting: 'sorra veszi' }],
+    [
+      'part_left',
+      { next: [ai('be-1')], toStageId: 'code_review' },
+      {},
+      { waiting: 'a rész itt maradt: Fejlesztés', you: false, toStageId: null },
+    ],
+    [
+      'part_left',
+      { next: [human('owner')], toStageId: 'code_review', labels: ['qa-ok'] },
+      {},
+      { head: 'Rád vár', you: true, toStageId: null },
+    ],
+    ['part_left', { next: [] }, {}, { head: 'Senki' }],
     ['nobody', {}, {}, { head: 'Senki', waiting: 'nincs, aki továbbvinné', tone: 'blocked' }],
   ];
   it.each(reasons.map((row, index) => [`${row[0]} #${index}`, ...row] as const))(

@@ -1,7 +1,7 @@
 import { TaskWaitReason } from '@projectman/shared';
 import type { TaskWait } from '@projectman/shared';
 import { describe, expect, it } from 'vitest';
-import { describeTaskWait, taskWaitShort } from '.';
+import { describeTaskWait, partsLeftText, taskWaitShort } from '.';
 
 function wait(reason: TaskWait['reason'], fields: Partial<TaskWait> = {}): TaskWait {
   return {
@@ -65,5 +65,45 @@ describe('describeTaskWait and taskWaitShort (PM-460)', () => {
     );
     expect(taskWaitShort(wait('nobody', { next: [] }))).toBe('nobody can take it on');
     expect(describeTaskWait(wait('nobody', { next: [], labels: ['qa-ok'] }))).toContain('qa-ok');
+  });
+
+  it('say that a left part is taken on by its creator (PM-480)', () => {
+    const left = wait('part_left', {
+      next: [{ handle: 'arch', kind: 'ai' }],
+      toStageId: 'ready',
+      labels: ['scope-ok'],
+    });
+    expect(describeTaskWait(left)).toBe(
+      'a part of a broken-down card was left in its first stage: arch takes it on (labels scope-ok → ready, or refine).',
+    );
+    expect(taskWaitShort(left)).toBe('part left in its first stage; arch takes it on');
+    expect(taskWaitShort(wait('part_left', { next: [] }))).toBe(
+      'part left in its first stage; its creator takes it on',
+    );
+  });
+});
+
+describe('partsLeftText (PM-480)', () => {
+  const input = { parentKey: 'AR-1', firstStage: 'incoming', target: 'ready', refineLabel: 'refine' };
+
+  it('names the parts and what to do with them, and that it is said once', () => {
+    const text = partsLeftText({
+      ...input,
+      parts: [
+        { key: 'AR-2', title: 'First' },
+        { key: 'AR-3', title: 'Second' },
+      ],
+    });
+    expect(text).toContain('You broke AR-1 down, and 2 of its parts are still in incoming');
+    expect(text).toContain('AR-2 "First", AR-3 "Second"');
+    expect(text).toContain('move it to ready with update_task');
+    expect(text).toContain('add `refine`');
+    expect(text).toContain('prerequisite relations');
+    expect(text).toContain('You are told this once');
+  });
+
+  it('speaks of one part in the singular', () => {
+    const text = partsLeftText({ ...input, parts: [{ key: 'AR-2', title: 'First' }] });
+    expect(text).toContain('1 of its parts is still in incoming, where nobody starts it:');
   });
 });

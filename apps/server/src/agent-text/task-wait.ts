@@ -48,6 +48,8 @@ export function describeTaskWait(wait: TaskWait): string {
       return `waits for the approval ${labelsOf(wait)} of ${handles(wait) || 'a person'}${wait.toStageId ? ` (to enter ${wait.toStageId})` : ''}.`;
     case 'labels_missing':
       return `missing label${wait.labels.length > 1 ? 's' : ''} ${labelsOf(wait)}${wait.next.length > 0 ? `, set by ${handles(wait)}` : ''}.`;
+    case 'part_left':
+      return `a part of a broken-down card was left in its first stage: ${handles(wait) || 'its creator'} takes it on (${wait.labels.length > 0 ? `labels ${labelsOf(wait)} → ${wait.toStageId ?? 'the next stage'}, or ` : ''}refine).`;
     case 'refinement':
       return `a refinement step is on turn${wait.labels.length > 0 ? ` (${labelsOf(wait)})` : ''}${by}.`;
     case 'ready':
@@ -76,6 +78,8 @@ export function taskWaitShort(wait: TaskWait): string {
       return `held by ${labelsOf(wait)}`;
     case 'labels_missing':
       return `waits for ${labelsOf(wait)}`;
+    case 'part_left':
+      return `part left in its first stage; ${handles(wait) || 'its creator'} takes it on`;
     case 'ready':
       return 'ready to start';
     case 'nobody':

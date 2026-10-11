@@ -48,6 +48,7 @@ export * from './config/refinement';
 export * from './config/team-rules';
 export * from './config/team-map';
 export * from './config/start-block';
+export * from './config/left-parts';
 export * from './config/lookup';
 export * from './config/leave';
 export * from './config/project-manager';

@@ -4,6 +4,7 @@ import {
   defaultMerger,
   mergeReadiness,
   mergeTargetOf,
+  moveMerge,
   stageOwners,
   validateProjectConfig,
   type Merger,
@@ -150,5 +151,55 @@ describe('mergeReadiness in the templates', () => {
     expect(mergeReadiness(config, task('work'))).toEqual({ ready: false, reason: 'no_merge' });
     config.project.repos = [];
     expect(mergeReadiness(config, task('work'))).toEqual({ ready: false, reason: 'no_merge' });
+  });
+});
+
+describe('moveMerge in the templates', () => {
+  const card = (labels: string[] = []) => ({ labels, assignee: null, links: [], repo: null });
+
+  it('is none where no merge is due: no repository to merge, a move that stays before the target or goes back', () => {
+    const small = build('small-team');
+    expect(moveMerge(small, card(), 'dev', 'code_review')).toEqual({ kind: 'none' });
+    expect(moveMerge(small, card(), 'done', 'code_review')).toEqual({ kind: 'none' });
+    small.project.repos = [{ name: 'web', path: '.', defaultBranch: 'main', requireMerge: false }];
+    expect(moveMerge(small, card(['code-review-ok']), 'code_review', 'done')).toEqual({ kind: 'none' });
+  });
+
+  it('is due when the gates of the move hold', () => {
+    const small = build('small-team');
+    expect(moveMerge(small, card(['code-review-ok', 'merge-approved']), 'code_review', 'done')).toMatchObject(
+      {
+        kind: 'due',
+        repo: { name: 'web' },
+      },
+    );
+  });
+
+  it('is after the gates while an approval or a condition is missing', () => {
+    const small = build('small-team');
+    const approval = moveMerge(small, card(['code-review-ok']), 'code_review', 'done');
+    expect(approval).toMatchObject({ kind: 'after_gates', repo: { name: 'web' }, unmet: [] });
+    expect(approval.kind === 'after_gates' && approval.approvals.map((a) => a.label)).toEqual([
+      'merge-approved',
+    ]);
+    const blocking = moveMerge(
+      small,
+      card(['code-review-ok', 'merge-approved', 'waiting-answer']),
+      'code_review',
+      'done',
+    );
+    expect(blocking.kind === 'after_gates' && blocking.unmet).not.toEqual([]);
+  });
+
+  it('leaves out the release approval of a release target, so the merge comes first', () => {
+    const web = build('web-client-project');
+    const merge = moveMerge(web, card(['client-accepted', 'merge-approved']), 'merge', 'release');
+    expect(merge).toMatchObject({ kind: 'due', repo: { name: 'web' } });
+    // A move from before the merge step still waits for the merge approval first; only the release approval is left out.
+    const early = moveMerge(web, card(['client-accepted']), 'client_test', 'release');
+    expect(early.kind === 'after_gates' && early.approvals.map((a) => a.label)).toEqual(['merge-approved']);
+    expect(moveMerge(web, card(['client-accepted', 'merge-approved']), 'client_test', 'release').kind).toBe(
+      'due',
+    );
   });
 });

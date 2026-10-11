@@ -12,7 +12,14 @@ import {
   isCodeReviewStage,
   isOpenTask,
 } from '@projectman/shared';
-import type { Actor, MergeBlockReason, MergeFailure, ProjectConfig, Task } from '@projectman/shared';
+import type {
+  Actor,
+  MergeBlockReason,
+  MergeFailure,
+  ProjectConfig,
+  RepoConfig,
+  Task,
+} from '@projectman/shared';
 import type { BranchMerger, EngineDirectory, GithubService } from '../contracts';
 import { mergedState } from '../db';
 import type { MergeRecord } from '../db';
@@ -55,6 +62,26 @@ export class Merges {
   constructor(deps: Deps) {
     this.deps = deps;
     this.cards = deps.cards ?? new MergeCardLock();
+  }
+
+  /** The member who merges this card (cardMerger with the card's code reviewer); null: nobody can. */
+  mergerOf(config: ProjectConfig, task: Task): string | null {
+    return cardMerger(config, task, this.reviewer(config, task));
+  }
+
+  /** The `task_not_merged` refusal of a move whose work is not on the base branch. */
+  notMergedError(
+    config: ProjectConfig,
+    task: Task,
+    repo: RepoConfig,
+    reason: 'not_merged' | 'not_on_remote' | 'engine_unavailable',
+    message = 'the approved commit is not on the default branch',
+  ) {
+    return conflict('task_not_merged', message, {
+      reason,
+      merger: this.mergerOf(config, task),
+      base: repo.defaultBranch,
+    });
   }
 
   private reviewer(config: ProjectConfig, task: Task): string | null {
@@ -373,11 +400,13 @@ export class Merges {
     } catch (err) {
       if (err instanceof DomainError && err.code === 'handover_uncommitted') throw err;
       await this.reconcile(task.projectKey, task.key);
-      throw conflict('task_not_merged', 'could not read the approved source commit', {
-        reason: 'engine_unavailable',
-        merger: cardMerger(config, task, this.reviewer(config, task)),
-        base: repo.defaultBranch,
-      });
+      throw this.notMergedError(
+        config,
+        task,
+        repo,
+        'engine_unavailable',
+        'could not read the approved source commit',
+      );
     }
     if (!source) return;
     if (await this.includesApproved(task, repo.name, source.commit)) return;
@@ -429,11 +458,7 @@ export class Merges {
       }
     }
     await this.reconcile(task.projectKey, task.key);
-    throw conflict('task_not_merged', 'the approved commit is not on the default branch', {
-      reason,
-      merger: cardMerger(config, task, this.reviewer(config, task)),
-      base: repo.defaultBranch,
-    });
+    throw this.notMergedError(config, task, repo, reason);
   }
 
   async init(): Promise<void> {

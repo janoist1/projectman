@@ -23,6 +23,9 @@ type AdvanceSessions = Pick<
  * It never moves a card someone works on (that would pull the stage from under them; the end of the
  * round looks at the card again), never acts on a closed or blocked card or on a theme, and does not ask
  * again after the approvers rejected the request until the card's labels change.
+ *
+ * The approval is asked before the merge is checked (PM-484): `moveToStage` opens the request even when
+ * the work is not merged yet, because the merge itself waits for that approval (`moveMerge`).
  */
 export class AutoAdvance {
   private readonly ctx: DomainContext;

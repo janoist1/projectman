@@ -61,7 +61,7 @@ import { planDeveloperLevel } from './developer-level';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
+import type { MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
@@ -385,18 +385,28 @@ export class TaskService {
         ? await this.requireLifecycleAccess(projectKey, actor)
         : await this.projects.config(projectKey);
     const effects: Effect[] = [];
-    // A move into a review or test stage hands the branch over (PM-183): read before the write.
-    const handover =
-      change.stageId !== undefined
-        ? await this.moves.prepareHandover(
-            config,
-            {
-              ...this.get(projectKey, taskKey),
-              ...(change.repo !== undefined ? { repo: change.repo } : {}),
-            },
-            change.stageId,
-          )
-        : null;
+    // A move into a review or test stage hands the branch over (PM-183), and one that needs a merge checks
+    // it (PM-484): read before the write, as the card will be once the labels of this change are on it.
+    let prepared: PreparedMove = { handover: null, mergeChecked: false };
+    if (change.stageId !== undefined) {
+      const current = this.get(projectKey, taskKey);
+      const wanted = change.labels
+        ? unique(change.labels.map((label) => label.trim()).filter(Boolean))
+        : unique([
+            ...current.labels.filter((label) => !change.removeLabels?.includes(label)),
+            ...(change.addLabels ?? []),
+          ]);
+      prepared = await this.moves.prepareMove(
+        config,
+        {
+          ...current,
+          labels: wanted,
+          ...(change.repo !== undefined ? { repo: change.repo } : {}),
+          ...(change.assignee !== undefined ? { assignee: change.assignee } : {}),
+        },
+        change.stageId,
+      );
+    }
     const result = this.ctx.unitOfWork(() =>
       this.applyUpdate(
         config,
@@ -405,7 +415,7 @@ export class TaskService {
         actor,
         opts.sessionId ?? null,
         effects,
-        handover,
+        prepared,
       ),
     );
     await runEffects(effects);
@@ -436,7 +446,9 @@ export class TaskService {
     if (entering && req.withSubtasks && this.group.along(config, seen).length > 0)
       return this.moveGroupOnBoard(config, seen, target, req, actor);
     // A move into a review or test stage hands the branch over (PM-183): read before the write.
-    const handover = entering ? await this.moves.prepareHandover(config, seen, target.id) : null;
+    const prepared: PreparedMove = entering
+      ? await this.moves.prepareMove(config, seen, target.id)
+      : { handover: null, mergeChecked: false };
     const effects: Effect[] = [];
     const result = this.ctx.unitOfWork((): { board: BoardMoveResult; pending?: InboxItem[] } => {
       const task = this.requireDroppable(projectKey, taskKey, req);
@@ -451,7 +463,7 @@ export class TaskService {
       }
       if (!chronological) this.order.requireCurrent(config, task, req.columnId, req.placement);
       const moved = this.moves.move(config, task, target.id, actor, effects, {
-        handover,
+        ...prepared,
         despitePrerequisites: req.despitePrerequisites,
         placement: req.placement,
       });
@@ -515,7 +527,7 @@ export class TaskService {
     actor: Actor,
     sessionId: string | null,
     effects: Effect[],
-    handover: Handover | null,
+    prepared: PreparedMove,
   ): { task: Task; pendingApproval?: InboxItem[]; handoffStart?: HandoffStart | undefined } {
     // A theme does not move, have an assignee or a repository (PM-192).
     if (isTheme(task)) {
@@ -723,7 +735,7 @@ export class TaskService {
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
     if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
-      handover,
+      ...prepared,
       despitePrerequisites: change.despitePrerequisites,
     });
     return moved.moved

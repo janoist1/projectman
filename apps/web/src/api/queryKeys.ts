@@ -26,6 +26,7 @@ export const queryKeys = {
   me: ['me'] as const,
   projects: ['projects'] as const,
   templates: ['templates'] as const,
+  projectPreview: (body: unknown) => ['project-preview', body] as const,
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,

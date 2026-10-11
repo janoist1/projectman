@@ -1,0 +1,82 @@
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { PatchConfigRequest } from '@projectman/shared';
+import { setFetchImplementation } from '../../api/client';
+import { t } from '../../i18n/t';
+import { mockProject } from '../../test/mockProject';
+import type { MockRequest } from '../../test/mockProject';
+import { SettingsTestRoutes } from './testRoutes';
+
+/** "Who moves the cards on" in the settings: saves as it changes, and says why a choice is refused (PM-439). */
+
+afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, init)));
+
+function lastConfigPatch(requests: readonly MockRequest[]): PatchConfigRequest {
+  const patch = requests.filter((r) => r.method === 'PATCH' && r.path === '/api/projects/AC/config').at(-1);
+  if (!patch) throw new Error('No configuration PATCH was sent');
+  return patch.body as PatchConfigRequest;
+}
+
+const moverGroup = async () => {
+  const section = within(await screen.findByRole('region', { name: t('settings.sections.team') }));
+  return within(await section.findByRole('region', { name: t('settings.team.mover.label') }));
+};
+
+const choice = (group: ReturnType<typeof within>, kind: 'worker' | 'project_manager' | 'human') =>
+  group.getByRole('radio', { name: new RegExp(t(`settings.team.mover.${kind}.title`)) }) as HTMLInputElement;
+
+describe('the card mover in the settings (PM-439)', () => {
+  it('shows the worker as the default, and saves another choice at once', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = await moverGroup();
+    expect(choice(group, 'worker').checked).toBe(true);
+    expect(group.queryByLabelText(t('settings.team.mover.who'))).toBeNull();
+    fireEvent.click(choice(group, 'project_manager'));
+    await waitFor(() => expect(project.backend.config.team.cardMover).toEqual({ kind: 'project_manager' }));
+    expect(lastConfigPatch(project.requests).cardMover).toEqual({ kind: 'project_manager' });
+  });
+
+  it('asks who the one person is, and saves the handle', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = await moverGroup();
+    fireEvent.click(choice(group, 'human'));
+    const who = (await group.findByLabelText(t('settings.team.mover.who'))) as HTMLSelectElement;
+    expect(who.value).toBe('owner');
+    await waitFor(() =>
+      expect(project.backend.config.team.cardMover).toEqual({ kind: 'human', handle: 'owner' }),
+    );
+  });
+
+  it('shows a saved person who cannot move cards as an error under the field', async () => {
+    const project = mockProject();
+    project.backend.config.team.cardMover = { kind: 'human', handle: 'kata' };
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = await moverGroup();
+    expect(await group.findByText(t('settings.team.mover.cannotMove', { name: 'Kata' }))).toBeTruthy();
+  });
+
+  it('says why a refused choice was refused, and keeps the saved one', async () => {
+    const project = mockProject();
+    const config = project.backend.config;
+    config.team.members = config.team.members.filter((member) => member.handle !== 'pm');
+    project.render(<SettingsTestRoutes initialSection="team" />);
+    const group = await moverGroup();
+    fireEvent.click(choice(group, 'project_manager'));
+    const refusal = await group.findByRole('alert');
+    expect(refusal.textContent).toBe(
+      t('settings.team.mover.cannotMove', { name: t('settings.team.mover.project_manager.title') }),
+    );
+    expect(project.backend.config.team.cardMover).toBeUndefined();
+    await waitFor(() => expect(choice(group, 'worker').checked).toBe(true));
+  });
+
+  it('only tells a member who may not manage the team who moves the cards', async () => {
+    const project = mockProject();
+    project.render(<SettingsTestRoutes initialSection="team" />, '/', { can: { manageTeam: false } });
+    const group = await moverGroup();
+    expect(group.queryByRole('radio')).toBeNull();
+    expect(group.getByText(t('settings.team.mover.value.worker'))).toBeTruthy();
+  });
+});

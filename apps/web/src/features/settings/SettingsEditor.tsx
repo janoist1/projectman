@@ -85,10 +85,15 @@ function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: str
     draft.team.merger && JSON.stringify(draft.team.merger) !== JSON.stringify(saved.team.merger)
       ? draft.team.merger
       : null;
+  const cardMover =
+    draft.team.cardMover && JSON.stringify(draft.team.cardMover) !== JSON.stringify(saved.team.cardMover)
+      ? draft.team.cardMover
+      : null;
   // A removed cap or warning limit is sent as null: a missing field would leave the stored one as it is.
   return {
     baseVersion,
     ...(merger ? { merger } : {}),
+    ...(cardMover ? { cardMover } : {}),
     ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,
@@ -172,12 +177,12 @@ export function useInstantLimits(config: ProjectConfig) {
         failed.current = true;
         setError(caught);
         // The control may be off screen (a phone), so the refusal is also a toast, except when the control
-        // itself shows the field's error (the merger): the toast would cover it.
+        // itself shows the field's error (the merger, the card mover): the toast would cover it.
         const conflict = isApiError(caught) && caught.code === 'config_conflict';
         const atField =
           isApiError(caught) &&
           (caught.details as { issues?: IssueRef[] } | undefined)?.issues?.some(
-            (issue) => issue.code === 'merger_unresolved',
+            (issue) => issue.code === 'merger_unresolved' || issue.code.startsWith('mover_'),
           );
         if (!atField) toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
         if (conflict) await reload?.();

@@ -107,6 +107,18 @@ export function useTemplates() {
   return useQuery({ queryKey: queryKeys.templates, queryFn: api.templates, staleTime: Infinity });
 }
 
+/** The configuration a create would save and its issues; asked once the wizard reaches its summary. */
+export function useProjectPreview(body: CreateProjectRequest | null) {
+  return useQuery({
+    queryKey: queryKeys.projectPreview(body),
+    queryFn: () => api.previewProject(body!),
+    enabled: body !== null,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
+
 export function useCreateProject() {
   const client = useQueryClient();
   return useMutation({

@@ -54,6 +54,17 @@ export const newRepo = (): RepoRow => ({
   defaultBranch: 'main',
 });
 
+/** The steps of the new-project wizard, in order. */
+export const WIZARD_STEPS = ['name', 'kind', 'mover', 'code', 'summary'] as const;
+export type WizardStep = (typeof WIZARD_STEPS)[number];
+
+/** The step that fixes an issue of the previewed configuration: the mover, the code, else the kind. */
+export function stepForIssue(path: string): WizardStep {
+  if (path === 'team.cardMover' || path.startsWith('team.cardMover.')) return 'mover';
+  if (path === 'project.repos' || path.startsWith('project.repos')) return 'code';
+  return 'kind';
+}
+
 /** Project key suggestion from the name: "Acme webshop" → "AW", "Kosár" → "KO". */
 export function suggestKey(name: string): string {
   const letters = stripAccents(name)

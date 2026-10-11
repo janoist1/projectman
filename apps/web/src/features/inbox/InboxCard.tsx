@@ -389,7 +389,7 @@ export function InboxCard({
           {error}
         </p>
       ) : null}
-      {detailsHref && mobile && !handOn ? (
+      {detailsHref && mobile && !handOn && !mergeItem ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

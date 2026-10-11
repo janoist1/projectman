@@ -37,7 +37,7 @@ import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
-import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
+import { approvalHintOf, decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
 import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
@@ -462,6 +462,8 @@ export function TaskDrawer() {
                   )
                 }
                 detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
+                approvalHint={approvalHintOf(item, { task, items: inbox.data?.items ?? [], myHandle })}
+                cardHref={`/p/${key}/tasks/${taskKey}`}
               />
             ))}
           </section>

@@ -16,6 +16,27 @@
   box-shadow: inset 3px 0 0 var(--c-needs);
 }
 
+/* The card a "Ugrás a jóváhagyáshoz" link led to: the frame lights once (a still frame with reduced motion). */
+.card[data-flash='on'] {
+  animation: flash 1.4s ease-out;
+}
+
+.card[data-flash='static'] {
+  border-color: var(--c-accent);
+}
+
+@keyframes flash {
+  0%,
+  60% {
+    border-color: var(--c-accent);
+    box-shadow: 0 0 0 2px var(--c-accent);
+  }
+  100% {
+    border-color: var(--c-line);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
 .compact {
   padding: 13px 14px;
   gap: 8px;

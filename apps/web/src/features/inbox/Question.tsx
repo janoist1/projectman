@@ -1,5 +1,6 @@
 import clsx from 'clsx';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router';
 import type { InboxOption } from '@projectman/shared';
 import { Button } from '../../components/Button';
 import type { ButtonSize, ButtonVariant } from '../../components/Button';
@@ -8,7 +9,8 @@ import { Fold } from '../../components/Fold';
 import { InlineMarkdown, Markdown } from '../../components/Markdown';
 import { t } from '../../i18n/t';
 import { foldHeight } from '../../lib/foldHeight';
-import { optionLabel } from '../../lib/inbox';
+import { inboxItemDomId, optionLabel } from '../../lib/inbox';
+import type { ApprovalHint } from '../../lib/inbox';
 import styles from './Question.module.css';
 
 export interface QuestionChoicesProps {
@@ -186,6 +188,84 @@ export function QuestionBody({
           {open ? t('inbox.question.less') : t('inbox.question.more')}
         </button>
       ) : null}
+    </div>
+  );
+}
+
+/** How long the frame of the approval item a link led to stays lit (ms). */
+const FLASH_MS = 1400;
+
+/** Brings the card of an inbox item into view, puts the focus on its heading and lights its frame once. */
+function showInboxItem(target: HTMLElement) {
+  const reduceMotion =
+    typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+  target.querySelector<HTMLElement>('[data-inbox-title]')?.focus({ preventScroll: true });
+  target.setAttribute('data-flash', reduceMotion ? 'static' : 'on');
+  if (!reduceMotion) window.setTimeout(() => target.removeAttribute('data-flash'), FLASH_MS);
+}
+
+/**
+ * The blue note of a question that asks for an approval (PM-484): the answer sets no label, and where
+ * the approval is given. It is no live region; the reader finds it between the question and its buttons.
+ */
+export function ApprovalHintNote({
+  hint,
+  labelName,
+  approverNames,
+  cardHref,
+  mobile = false,
+}: {
+  hint: ApprovalHint;
+  /** The label as the card shows it (the name, not the id). */
+  labelName: string;
+  /** Who can give the approval, for the `others` variant. */
+  approverNames: string;
+  /** The card's drawer (`/p/{key}/tasks/{task}`), where the approval item is. */
+  cardHref: string | null;
+  mobile?: boolean;
+}) {
+  const navigate = useNavigate();
+  const quoted = t('taskStatus.quoted', { name: labelName });
+  const linkClass = clsx(styles.hintLink, mobile && styles.hintLinkMobile);
+  return (
+    <div className={styles.hint} data-approval-hint={hint.kind}>
+      <span className={styles.hintIcon} aria-hidden="true">
+        ⓘ
+      </span>
+      <div className={styles.hintBody}>
+        {hint.kind === 'done' ? (
+          <p>{t('inbox.question.notApproval.done', { label: quoted })}</p>
+        ) : (
+          <p>{t('inbox.question.notApproval.text', { label: quoted })}</p>
+        )}
+        {hint.kind === 'jump' ? (
+          <button
+            type="button"
+            className={linkClass}
+            onClick={() => {
+              const target = document.getElementById(inboxItemDomId(hint.gateItemId));
+              if (target) showInboxItem(target);
+              else if (cardHref) navigate(cardHref);
+            }}
+          >
+            {t('inbox.question.notApproval.jump')}
+          </button>
+        ) : null}
+        {hint.kind === 'others' ? (
+          <p>{t('inbox.question.notApproval.others', { names: approverNames })}</p>
+        ) : null}
+        {hint.kind === 'none' ? (
+          <>
+            <p>{t('inbox.question.notApproval.none')}</p>
+            {cardHref ? (
+              <Link to={cardHref} className={linkClass}>
+                {t('inbox.question.notApproval.openCard')} →
+              </Link>
+            ) : null}
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }

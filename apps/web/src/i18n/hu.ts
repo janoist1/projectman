@@ -3314,6 +3314,15 @@ export const hu = {
       untitled: 'Válaszra vár',
       /** Abbreviations whose full stop does not end a sentence (the heading of a question), space-separated. */
       abbreviations: 'pl kb stb ill vö ún ld dr db sz ti max min ford',
+      /** A question that asks for an approval (PM-484): the answer sets no label. */
+      notApproval: {
+        text: 'Ez kérdés, nem jóváhagyás: a válaszodtól nem kerül fel a {label} címke.',
+        jump: 'Ugrás a jóváhagyáshoz',
+        others: 'A jóváhagyást {names} adhatja meg.',
+        none: 'Nincs nyitott jóváhagyási kérés; a címkét a kártyán teheted fel.',
+        openCard: 'Kártya megnyitása',
+        done: 'Már rajta van a kártyán: {label}.',
+      },
     },
     details: 'Megnyitás',
     tool: 'Eszköz: {tool}',
@@ -3324,6 +3333,9 @@ export const hu = {
     gateMove: 'Továbblépés: {from} → {to}',
     /** The decision names what it approves (PM-445); older requests carry no label and read `gateMove`. */
     gateApproval: 'Jóváhagyás: {label} · {from} → {to}',
+    /** Under an approval that a merge follows (PM-484): one click is enough. */
+    gateThenMerge: 'Jóváhagyás után {merger} beolvasztja a {base} ágba, és a kártya átkerül ide: {to}.',
+    gateThenMergeYou: 'Jóváhagyás után te olvasztod be a {base} ágba, és a kártya átkerül ide: {to}.',
     answerLabel: 'Válaszod',
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',

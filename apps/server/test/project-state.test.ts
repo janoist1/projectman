@@ -12,6 +12,67 @@ const operator = { sessionId: 'ses_operator', projectKey: 'AR', member: 'operato
 const report = (key = 'AR-1') => h.domain.projectState.task('AR', key);
 
 describe('project state from server records', () => {
+  it('reports the shared TaskWait result before other reasons', async () => {
+    h = await createDomainHarness();
+    const task = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    h.repos.tasks.update(task.id, { status: 'blocked' });
+    const state = await report();
+    const config = await h.domain.projects.config('AR');
+    expect(state.wait).toEqual(h.domain.taskWaits.ofCard(config, h.domain.tasks.get('AR', task.key), null));
+    expect(state.wait?.reason).toBe('blocked');
+    expect(formatProjectState(state).split('\n')[1]).toBe(
+      '- blocked: the card is blocked: someone has to unblock it.',
+    );
+  });
+
+  it('reports only delivered active public signals, sorted and scoped to their card', async () => {
+    let now = new Date('2026-10-01T10:00:00.000Z');
+    h = await createDomainHarness({ now: () => now });
+    const first = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    const second = await h.domain.tasks.create('AR', { title: 'Other card' }, OWNER_ACTOR);
+    const raise = (
+      kind: 'silent' | 'stalled' | 'outage' | 'nobody',
+      taskKey: string | null,
+      state: 'pending' | 'open' | 'accepted' | 'dismissed' | 'resolved',
+      delivered = true,
+      resolved = false,
+    ) => {
+      now = new Date(now.getTime() + 1000);
+      const signal = h.domain.operatorSignals.raise({
+        projectKey: 'AR',
+        kind,
+        caseKey: `${state}:${kind}:${taskKey}:${delivered}:${resolved}`,
+        taskKey,
+      });
+      h.repos.operatorSignals.save({
+        ...signal,
+        state,
+        deliveredAt: delivered ? now.toISOString() : null,
+        resolvedAt: resolved ? now.toISOString() : null,
+      });
+      return signal.id;
+    };
+    const pending = raise('silent', first.key, 'pending');
+    const open = raise('nobody', second.key, 'open');
+    const general = raise('outage', null, 'open');
+    raise('stalled', first.key, 'pending', false);
+    raise('silent', first.key, 'open', true, true);
+    for (const state of ['accepted', 'dismissed', 'resolved'] as const) raise('stalled', first.key, state);
+    // Active reports are not limited to the channel's seven-day presentation window.
+    now = new Date('2026-10-11T10:00:00.000Z');
+    const before = h.repos.operatorSignals.list('AR');
+    expect((await report(first.key)).signals.map((s) => s.id)).toEqual([pending]);
+    expect((await report(second.key)).signals.map((s) => s.id)).toEqual([open]);
+    const overview = await h.domain.projectState.overview('AR');
+    expect(overview.signals.map((s) => s.id)).toEqual([pending, open, general]);
+    for (const signal of overview.signals) {
+      expect(signal).not.toHaveProperty('projectKey');
+      expect(signal).not.toHaveProperty('caseKey');
+      expect(signal).not.toHaveProperty('deliveredAt');
+    }
+    expect(h.repos.operatorSignals.list('AR')).toEqual(before);
+    expect(formatProjectState(overview)).toContain('Signals:\n- signal_silent:');
+  });
   it('uses the common Operator guard to refuse internal reports in guest conversations', async () => {
     h = await createDomainHarness({
       adjust: (config) =>

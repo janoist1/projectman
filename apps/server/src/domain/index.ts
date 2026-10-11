@@ -925,7 +925,15 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', recheckOperatorApprovals);
   events.on('session_ended', recheckOperatorApprovals);
   events.on('pause_changed', recheckOperatorApprovals);
-  const projectState = new ProjectState({ ctx, projects, tasks, pauses, deferred: deferredStarts });
+  const projectState = new ProjectState({
+    ctx,
+    projects,
+    tasks,
+    pauses,
+    deferred: deferredStarts,
+    taskWaits,
+    operatorSignals,
+  });
   const teamTools = new TeamToolsService({
     projectState,
     merges,

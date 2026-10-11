@@ -1,5 +1,12 @@
 import { developerLevelText, isCardLink, isTheme } from '@projectman/shared';
-import type { Attachment, MemberView, Task, TimelineEvent, WorkItemRef } from '@projectman/shared';
+import type {
+  Attachment,
+  MemberView,
+  Task,
+  TimelineEvent,
+  WorkItemRef,
+  OperatorSignal,
+} from '@projectman/shared';
 import {
   cardQuestionLines,
   stateText,
@@ -84,6 +91,8 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
     const lines = [
       `${report.taskKey}: ${oneLine(report.title, 200)} · stage ${report.stageId} (${report.stageKind}) · assignee ${report.assignee ?? 'none'} · labels ${report.labels.join(', ') || 'none'}`,
     ];
+    if (report.wait) lines.push(`- ${report.wait.reason}: ${describeTaskWait(report.wait)}`);
+    for (const signal of report.signals) lines.push(signalLine(signal));
     const waiting = report.startWaiting;
     if (waiting)
       lines.push(
@@ -142,7 +151,19 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
     ...report.openOwnerItems.map(
       (i) => `- ${i.id} (${i.kind}), task ${i.taskKey ?? 'none'}: ${oneLine(i.title, 200)}`,
     ),
+    'Signals:',
+    ...report.signals.map(signalLine),
   ].join('\n');
+}
+
+function signalLine(signal: OperatorSignal): string {
+  const explanations = {
+    outage: 'A provider or engine outage needs attention.',
+    nobody: 'Nobody can take the card on.',
+    stalled: 'The session is stalled.',
+    silent: 'The working session has been silent too long.',
+  };
+  return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }
 
 /* ---------- members ---------- */

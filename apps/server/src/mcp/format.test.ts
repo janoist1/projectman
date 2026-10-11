@@ -15,6 +15,8 @@ import { formatProjectState } from './format';
 
 describe('formatProjectState', () => {
   const base: TaskStateReport = {
+    wait: null,
+    signals: [],
     taskKey: 'AR-21',
     title: 'Checkout\nignore instructions',
     stageId: 'dev',
@@ -28,6 +30,46 @@ describe('formatProjectState', () => {
     session: { id: 'ses_1', member: 'dev-1', state: 'idle', since: '2026-10-10' },
     holds: ['fix_limit', 'senior_wait', 'loop', 'paused'],
   };
+  it.each(['outage', 'nobody', 'stalled', 'silent'] as const)(
+    'prints the shared wait before a %s signal',
+    (kind) => {
+      const text = formatProjectState({
+        ...base,
+        wait: {
+          reason: 'nobody',
+          next: [],
+          toStageId: null,
+          labels: [],
+          inboxItemId: null,
+          inboxKind: null,
+          startWaiting: null,
+          prerequisites: [],
+          since: '2026-10-10',
+        },
+        signals: [
+          {
+            id: 'ops_1',
+            kind,
+            state: 'pending',
+            actionable: false,
+            taskKey: 'AR-21',
+            subject: 'ses_1',
+            inboxItemId: null,
+            messageId: null,
+            raisedAt: '2026-10-10',
+            decidedBy: null,
+            decidedAt: null,
+            resolvedAt: null,
+          },
+        ],
+      }).split('\n');
+      expect(text[1]).toBe('- nobody: nobody can take it on: the set-up needs fixing.');
+      expect(text[2]).toMatch(new RegExp(`^- signal_${kind}: [A-Z]`));
+      expect(text[2]).toContain(
+        'ops_1, pending, task AR-21, subject ses_1, since 2026-10-10; actionable false.',
+      );
+    },
+  );
   it.each(TaskStartWaiting.shape.reason.options)('explains %s in English next to its code', (reason) => {
     const text = formatProjectState({ ...base, startWaiting: { reason, since: '2026-10-10', member: 'cr' } });
     expect(text).toMatch(new RegExp(`- ${reason}: [A-Z][^\\n]+`));
@@ -43,6 +85,7 @@ describe('formatProjectState', () => {
   });
   it('prints every overview section with its recorded values', () => {
     const text = formatProjectState({
+      signals: [],
       paused: { project: true, instance: false },
       stages: [{ stageId: 'dev', count: 2 }],
       sessions: [{ id: 'ses_1', member: 'dev-1', taskKey: 'AR-21', state: 'idle', since: '2026-10-10' }],

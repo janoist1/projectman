@@ -3,7 +3,8 @@ import type { Session } from '@projectman/shared';
 import type { ProjectStateReport, TaskStateReport } from '../contracts';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
-import type { TaskService } from './tasks';
+import type { TaskService, TaskWaits } from './tasks';
+import type { OperatorSignals } from './operator-signals';
 import type { PauseService } from './pause';
 import { LIVE_SESSION_STATES } from './sessions';
 import type { DeferredStarts } from './admission';
@@ -17,6 +18,8 @@ export class ProjectState {
     tasks: TaskService;
     pauses: Pick<PauseService, 'projectView'>;
     deferred: DeferredStarts;
+    taskWaits: Pick<TaskWaits, 'ofCard'>;
+    operatorSignals: Pick<OperatorSignals, 'active'>;
   };
 
   constructor(deps: ProjectState['deps']) {
@@ -48,6 +51,8 @@ export class ProjectState {
       stageKind: stage.kind,
       assignee: task.assignee,
       labels: task.labels,
+      wait: this.deps.taskWaits.ofCard(config, task, null),
+      signals: this.deps.operatorSignals.active(projectKey).filter((s) => s.taskKey === taskKey),
       startWaiting: task.startWaiting ?? null,
       startBlock: startBlock(task, config),
       missingGateLabels: [
@@ -99,6 +104,7 @@ export class ProjectState {
     }
     return {
       paused: { project: !!pause.project, instance: !!pause.instance },
+      signals: this.deps.operatorSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
         count: cards.filter((t) => t.stageId === s.id).length,

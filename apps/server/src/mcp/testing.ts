@@ -296,6 +296,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         sessions: [],
         waitingStarts: [],
         openOwnerItems: [],
+        signals: [],
       };
     },
     async getTask(ctx, args) {

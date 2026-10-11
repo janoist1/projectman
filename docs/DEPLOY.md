@@ -432,7 +432,7 @@ LaunchAgents in `~/Library/LaunchAgents`, written by `npm run live`:
 - `com.projectman.live` runs `node apps/server/dist/index.js` (not `npm start`, so launchd's SIGTERM
   reaches the server and the stop pauses the team first). `KeepAlive`, `ThrottleInterval 10`, and an
   `ExitTimeOut` of the shutdown pause plus 30 s (90 s by default; it follows `PROJECTMAN_SHUTDOWN_PAUSE_MS`
-  of the installing shell). Logs: `~/.projectman/logs/live.log`.
+  of the installing shell). Logs: `~/.projectman/logs/live-server.log`.
 - `com.projectman.live-watcher` runs one watcher round every 60 s (`StartInterval`, no `KeepAlive`, so
   never two at once). Logs: `~/.projectman/logs/live-watcher.log`.
 

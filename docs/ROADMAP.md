@@ -6,7 +6,7 @@ this way: [VISION.md](VISION.md); decisions taken: [DECISIONS.md](DECISIONS.md).
 updates this file at the owner's request, together with decisions that change the plan, and
 before a release after the owner's yes (decision 50).
 
-Last reviewed: 2026-10-06, after the board triage (decisions 36–40).
+Last reviewed: 2026-10-06, after the board triage (decisions 36–40). Live: v2026.10.6.
 
 ## Where we stand
 

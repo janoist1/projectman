@@ -563,9 +563,10 @@ describe('token economy (PM-181)', () => {
   // PM-445 adds 141 characters: a human's decision is asked with ask_human, never with send_message.
   // PM-462 adds 35 characters: every team has an Operator, one more line in the team list (the human
   // operator role is now called owner, three characters shorter).
+  // PM-486 adds 70 characters: answering ask_human never grants an approval label.
   it.each([
-    { name: 'developer', handle: 'fe-1', system: 16277, brief: 865 },
-    { name: 'code reviewer', handle: 'code-review', system: 14377, brief: 1903 },
+    { name: 'developer', handle: 'fe-1', system: 16347, brief: 865 },
+    { name: 'code reviewer', handle: 'code-review', system: 14447, brief: 1903 },
   ])('does not grow the system prompt and brief of the $name', ({ handle, system, brief }) => {
     const pack =
       handle === 'fe-1'
@@ -594,7 +595,8 @@ describe('token economy (PM-181)', () => {
     // PM-432 adds the project manager's 39-character line to the team list.
     // PM-445 adds 141 characters: a human's decision is asked with ask_human, never with send_message.
     // PM-462 adds the Operator's 35 characters to the team list.
-    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(11026);
+    // PM-486 adds the same 70-character approval warning.
+    expect(customRolePack().appendSystemPrompt.length).toBeLessThanOrEqual(11096);
   });
 });
 

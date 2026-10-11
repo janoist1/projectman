@@ -3287,6 +3287,7 @@ export const hu = {
       senior_took: 'Magától lezárult: a Senior megkapta',
       senior_wait_ended: 'Magától lezárult: a kártya másként folytatódott',
       dismiss: 'Tudomásul véve',
+      approval_given: 'Lezárva: a jóváhagyás megtörtént',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
@@ -3296,6 +3297,7 @@ export const hu = {
       fix_limit_ended: 'Automatikus',
       senior_took: 'Automatikus',
       senior_wait_ended: 'Automatikus',
+      approval_given: 'Automatikus',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',

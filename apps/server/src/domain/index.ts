@@ -82,6 +82,7 @@ import { Merges } from './merges';
 import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
+import { ApprovalQuestions } from './approval-questions';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging, RelationNotices } from './messaging';
@@ -821,6 +822,10 @@ export function createDomain(opts: DomainOptions) {
     memberWorkspaces: engines.get(LOCAL_ENGINE_ID)?.memberWorkspaces,
   });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
+  const approvalQuestions = new ApprovalQuestions({ ctx, inbox, openQuestionLabel });
+  events.on('task_labels_changed', ({ task, previousLabels }) =>
+    approvalQuestions.labelsChanged(task, previousLabels),
+  );
   // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
   // Remote engines are not connected yet when this is built, so a given directory always gets the runs (PM-315).
   const screenshotRuns =

@@ -30,6 +30,17 @@ const item: InboxItem = {
   resolution: { optionId: 'allow', by: 'system', at: '2026-09-30T10:00:00.000Z', note: null },
 };
 
+it('shows approval questions closed by the system as approved rather than answered', () => {
+  const approved: InboxItem = {
+    ...item,
+    kind: 'question',
+    payload: { question: 'May we merge?', approvalLabel: 'merge-approved' },
+    resolution: { ...item.resolution!, optionId: 'ended', rule: 'approval_given' },
+  };
+  expect(resolutionLabel(approved)).toBe(t('inbox.resolutions.approval_given'));
+  expect(resolverName(approved, new Map(), 'owner')).toBe(t('inbox.resolutionRules.approval_given'));
+});
+
 it('attributes a forwarded owner answer to the integrator', () => {
   const forwarded: InboxItem = {
     ...item,

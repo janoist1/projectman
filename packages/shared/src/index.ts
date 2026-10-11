@@ -46,6 +46,7 @@ export * from './config/senior';
 export * from './config/session-policy';
 export * from './config/labels';
 export * from './config/gates';
+export * from './config/approval-question';
 export * from './config/refinement';
 export * from './config/team-rules';
 export * from './config/team-map';

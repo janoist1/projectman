@@ -40,6 +40,27 @@ describe('merger setting (PM-470)', () => {
     expect((await h.domain.projects.load('AR')).version).toBe(before.version);
   });
 
+  it('stores the project documents of a repository, clears them with null and refuses an unknown repository (PM-494)', async () => {
+    h = await createDomainHarness();
+    const saved = await patch({ repoDocs: [{ repo: 'web', docs: { decisions: 'docs/D.md' } }] });
+    expect(saved.config.project.repos[0]).toMatchObject({ name: 'web', docs: { decisions: 'docs/D.md' } });
+
+    h = await restartDomainHarness(h);
+    expect((await h.domain.projects.load('AR')).config.project.repos[0]).toMatchObject({
+      docs: { decisions: 'docs/D.md' },
+    });
+
+    const version = (await h.domain.projects.load('AR')).version;
+    await expect(patch({ repoDocs: [{ repo: 'ghost', docs: null }] })).rejects.toMatchObject({
+      code: 'unknown_repo',
+    });
+    await expect(patch({ repoDocs: [{ repo: 'web', docs: { decisions: '../x' } }] })).rejects.toBeDefined();
+    expect((await h.domain.projects.load('AR')).version).toBe(version);
+
+    const cleared = await patch({ repoDocs: [{ repo: 'web', docs: null }] });
+    expect(cleared.config.project.repos[0]).not.toHaveProperty('docs');
+  });
+
   it('refuses a merger that cannot be resolved', async () => {
     h = await createDomainHarness({
       adjust: (c) => {

@@ -77,7 +77,10 @@ export function AppRoutes() {
           </Route>
           <Route path="sessions/:sessionId" element={sessionPage} />
           <Route path="sessions" element={involvementsPage} />
-          <Route path="inbox" element={inboxPage} />
+          <Route path="inbox" element={inboxPage}>
+            {/* The card's drawer over the inbox; the splat selects `…/thread` too. */}
+            <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
+          </Route>
           <Route path="map" element={mapPage}>
             <Route index element={mapOverview} />
             <Route path=":groupKey" element={mapGroupView}>

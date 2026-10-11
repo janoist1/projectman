@@ -28,31 +28,22 @@ function useReleaseFacts(taskKey: string | null) {
   return { projectKey: key, task, config };
 }
 
-/** `KEY cím` of the release card, a link to it; a deleted card shows its key only. */
-export function ReleaseCardLink({ taskKey }: { taskKey: string }) {
+/** `KEY cím` of the release card, a link to it; a card the board no longer lists shows the fallback title, else its key only. */
+export function ReleaseCardLink({ taskKey, fallback }: { taskKey: string; fallback?: string }) {
   const { projectKey, task } = useReleaseFacts(taskKey);
   return (
     <Link to={`/p/${projectKey}/tasks/${taskKey}`}>
       <span className={releaseStyles.key}>{taskKey}</span>
-      {task?.title ?? ''}
+      {task?.title ?? fallback ?? ''}
     </Link>
   );
 }
 
-/** The card line under the header of a release item or alert. */
-export function ReleaseCardLine({ taskKey }: { taskKey: string }) {
-  return (
-    <p className={releaseStyles.cardLine}>
-      <ReleaseCardLink taskKey={taskKey} />
-    </p>
-  );
-}
-
 /** What a decided release shows in the list of decisions: the release card, linked. */
-export function ReleaseSubject({ taskKey }: { taskKey: string }) {
+export function ReleaseSubject({ taskKey, title }: { taskKey: string; title?: string }) {
   return (
     <span className={releaseStyles.cardLine}>
-      <ReleaseCardLink taskKey={taskKey} />
+      <ReleaseCardLink taskKey={taskKey} fallback={title} />
     </span>
   );
 }

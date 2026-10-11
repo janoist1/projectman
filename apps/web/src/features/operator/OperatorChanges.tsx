@@ -37,6 +37,7 @@ const FIELDS = [
   'color',
   'order',
   'schemaVersion',
+  'docs',
 ] as const;
 type KnownField = (typeof FIELDS)[number];
 

@@ -24,11 +24,40 @@ export function useIsMobile(): boolean {
   return useMediaQuery(MOBILE_QUERY);
 }
 
+/**
+ * The titles the mounted views want. The view that rendered last shows (a card's drawer over a page) and gives way
+ * when it closes. The order is the first render's, not the effects': a child mounting in the same commit as its
+ * parent runs its effect first, and must still win.
+ */
+interface TitleEntry {
+  title: string;
+  order: number;
+}
+const mountedTitles = new Set<TitleEntry>();
+let renderCount = 0;
+
+function showTopTitle(): void {
+  let top: TitleEntry | null = null;
+  for (const entry of mountedTitles) if (!top || entry.order > top.order) top = entry;
+  if (top?.title) document.title = top.title;
+}
+
 /** "Folyamat · Acme webshop · projectman" */
 export function useDocumentTitle(...parts: Array<string | null | undefined>): void {
   const title = [...parts.filter(Boolean), t('app.name')].join(' · ');
+  const entry = useRef<TitleEntry | null>(null);
+  entry.current ??= { title: '', order: ++renderCount };
   useEffect(() => {
-    document.title = title;
+    const mine = entry.current!;
+    mountedTitles.add(mine);
+    return () => {
+      mountedTitles.delete(mine);
+      showTopTitle();
+    };
+  }, []);
+  useEffect(() => {
+    entry.current!.title = title;
+    showTopTitle();
   }, [title]);
 }
 

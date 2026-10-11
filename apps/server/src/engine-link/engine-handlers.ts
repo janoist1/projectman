@@ -440,6 +440,12 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'merge.advance'({ ref, ...input }) {
       return merger().advance(ref, input);
     },
+    async 'merge.read_file'({ ref, ...input }) {
+      return merger().readFile(ref, input);
+    },
+    async 'merge.commit_files'({ ref, ...input }) {
+      return merger().commitFiles(ref, input);
+    },
     async 'machine.snapshot'() {
       return probe.machine();
     },

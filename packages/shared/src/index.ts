@@ -61,6 +61,7 @@ export * from './config/repos';
 export * from './config/owner-only';
 export * from './config/integrator';
 export * from './config/permission-level';
+export * from './config/project-docs';
 export * from './config/edit';
 export * from './config/test-workers';
 export * from './domain/schedule';

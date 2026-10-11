@@ -3,10 +3,10 @@ import type { ComponentProps, ReactNode } from 'react';
 import { attachmentPreviewOf, routes } from '@projectman/shared';
 import type { Task, TimelineEvent } from '@projectman/shared';
 import { useProject } from '../../app/contexts';
-import { Icon } from '../../components/Icon';
 import { Timeline } from '../../components/Timeline';
 import { t } from '../../i18n/t';
 import { AttachmentImageDialog } from './AttachmentImageDialog';
+import { AttachmentOpenLink } from './AttachmentOpenLink';
 import styles from './TimelineAttachment.module.css';
 
 interface OpenImage {
@@ -44,45 +44,18 @@ export function TaskTimeline({
     if (!id || deleted.has(id)) return t('timeline.attachmentAdded', { fileName });
     const preview = attachmentPreviewOf(text(event.data.mediaType));
     const size = Number(event.data.size) || 0;
-    const content = routes.attachmentContent(key, task.key, id);
-    // The same words as the card's file list name the action (label and tooltip).
-    const link =
-      preview === 'image' ? (
-        <button
-          type="button"
-          className={styles.link}
-          aria-label={t('attachments.previewLabel', { fileName })}
-          title={t('attachments.previewLabel', { fileName })}
-          onClick={() => setOpen({ id, fileName, size })}
-        >
-          <Icon name="eye" size={14} strokeWidth={2.1} className={styles.icon} />
-          {fileName}
-        </button>
-      ) : preview === 'pdf' ? (
-        // A PDF opens in a tab of its own, from the protected route: never inside this page.
-        <a
-          className={styles.link}
-          href={content}
-          target="_blank"
-          rel="noopener noreferrer"
-          aria-label={t('attachments.openPdfLabel', { fileName })}
-          title={t('attachments.openPdfLabel', { fileName })}
-        >
-          <Icon name="external" size={14} strokeWidth={2.1} className={styles.icon} />
-          {fileName}
-        </a>
-      ) : (
-        <a
-          className={styles.link}
-          href={routes.attachmentDownload(key, task.key, id)}
-          download
-          aria-label={t('attachments.downloadLabel', { fileName })}
-          title={t('attachments.downloadLabel', { fileName })}
-        >
-          <Icon name="download" size={14} strokeWidth={2.1} className={styles.icon} />
-          {fileName}
-        </a>
-      );
+    const link = (
+      <AttachmentOpenLink
+        projectKey={key}
+        taskKey={task.key}
+        attachment={{ id, fileName, preview }}
+        onPreview={() => setOpen({ id, fileName, size })}
+        className={styles.link}
+        iconClassName={styles.icon}
+      >
+        {fileName}
+      </AttachmentOpenLink>
+    );
     return (
       <>
         {lead} {link}

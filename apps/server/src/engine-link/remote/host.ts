@@ -274,6 +274,9 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       },
       push: (ref, input) => merge('merge.push', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
       advance: (ref, input) => merge('merge.advance', { ref, ...input }, MERGE_WAIT_MS),
+      // A read of a base fetches its upstream first.
+      readFile: (ref, input) => merge('merge.read_file', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      commitFiles: (ref, input) => merge('merge.commit_files', { ref, ...input }, MERGE_WAIT_MS),
     };
 
     return {

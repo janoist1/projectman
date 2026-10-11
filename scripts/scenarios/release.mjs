@@ -290,7 +290,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     for (const id of ['early', 'rolledback', 'down', 'publish'])
       await shoot(page, `alert-${id}`, {
         widths: WIDTHS,
-        highlight: `article[data-alert="release_failed"] >> nth=${['early', 'rolledback', 'down', 'publish'].indexOf(id)}`,
+        highlight: `article[data-alert="release_failed"] >> nth=${['publish', 'down', 'rolledback', 'early'].indexOf(id)}`,
       });
   });
 

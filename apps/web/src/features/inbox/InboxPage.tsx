@@ -1,5 +1,7 @@
 import clsx from 'clsx';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
+import { Outlet, useMatch } from 'react-router';
 import { InboxKind, handOnRequestOf, operatorApprovalOf } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
@@ -22,6 +24,7 @@ import {
   detailsHrefFor,
   handOnResolvedText,
   handOnToast,
+  inboxItemDomId,
   isAssignedTo,
   isAutomaticDecision,
   isPositiveResolution,
@@ -33,6 +36,8 @@ import { errorMessage } from '../../lib/errors';
 import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { DrawerBaseContext } from '../board/drawerBase';
+import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
@@ -79,7 +84,7 @@ function RecentRow({
           <FoldedCommand text={subject} className={styles.recentCode} lines={1} />
         ) : item.kind === 'release' && item.taskKey ? (
           <span className={styles.recentSubject}>
-            <ReleaseSubject taskKey={item.taskKey} />
+            <ReleaseSubject taskKey={item.taskKey} title={item.title} />
           </span>
         ) : (
           <span className={styles.recentSubject}>{subject}</span>
@@ -201,14 +206,54 @@ export function InboxPage() {
     [board.data],
   );
 
-  if (inbox.isPending) return <LoadingState />;
-  if (inbox.isError) return <ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />;
+  // A card's drawer opens over the page (the nested route) and closes back here (PM-501).
+  const drawerBase = useMemo<DrawerBase>(
+    () => ({
+      close: `/p/${key}/inbox`,
+      card: (taskKey, sub) => `/p/${key}/inbox/tasks/${taskKey}${sub ? `/${sub}` : ''}`,
+    }),
+    [key],
+  );
+  const openedKey = useMatch('/p/:projectKey/inbox/tasks/:taskKey/*')?.params.taskKey ?? null;
+  // The item whose card row opened the drawer: closing it, the focus returns to that row's link.
+  const openedFrom = useRef<string | null>(null);
+  useEffect(() => {
+    if (openedKey) return;
+    const itemId = openedFrom.current;
+    openedFrom.current = null;
+    if (!itemId) return;
+    document
+      .getElementById(inboxItemDomId(itemId))
+      ?.querySelector<HTMLElement>('[data-inbox-card-link]')
+      ?.focus();
+  }, [openedKey]);
+  const rememberOpener = (event: MouseEvent<HTMLElement>) => {
+    const link = (event.target as Element).closest('[data-inbox-card-link]');
+    const id = link?.closest('article')?.id;
+    if (id) openedFrom.current = id.slice(inboxItemDomId('').length);
+  };
+  // The drawer of a card opened by its address shows before the list does.
+  const withDrawer = (page: ReactNode) => (
+    <DrawerBaseContext.Provider value={drawerBase}>
+      {page}
+      <Outlet />
+    </DrawerBaseContext.Provider>
+  );
+
+  // The card row links to the drawer while the board loads (or failed) and when the card is on it; a card
+  // the loaded board does not have is plain text.
+  const taskHrefOf = (item: InboxItem): string | null =>
+    item.taskKey && (!board.data || titles.has(item.taskKey)) ? drawerBase.card(item.taskKey) : null;
+
+  if (inbox.isPending) return withDrawer(<LoadingState />);
+  if (inbox.isError)
+    return withDrawer(<ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />);
 
   const visible = filter === 'all' ? mine : mine.filter((item) => item.kind === filter);
   const latest = mine[0];
 
-  return (
-    <div className={styles.page}>
+  return withDrawer(
+    <div className={styles.page} onClick={rememberOpener}>
       <div className={styles.main}>
         <PageHeader
           className={styles.header}
@@ -249,7 +294,8 @@ export function InboxPage() {
               pipeline={pipeline}
               labels={board.data?.labels}
               mobile={isMobile}
-              taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? item.taskKey) : null}
+              taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? null) : null}
+              taskHref={taskHrefOf(item)}
               detailsHref={detailsHrefFor(item, key)}
               approvalHint={approvalHintOf(item, {
                 task: board.data?.tasks.find((task) => task.key === item.taskKey),
@@ -337,6 +383,6 @@ export function InboxPage() {
           />
         </aside>
       )}
-    </div>
+    </div>,
   );
 }

@@ -153,6 +153,22 @@ export class InboxService {
     if (item) this.publish(item);
   }
 
+  private releaseDecision?: (item: InboxItem, by: Resolver, optionId: string, note: string | null) => void;
+
+  /** The release service (PM-491) decides a release approval item; it closes the item itself, in its transaction. */
+  useReleaseDecision(
+    decide: (item: InboxItem, by: Resolver, optionId: string, note: string | null) => void,
+  ): void {
+    this.releaseDecision = decide;
+  }
+
+  /** Close a release approval item as part of the transaction that decided its release. */
+  resolveRelease(id: string, by: string, optionId: string, note: string | null): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId, by, at, note }, at);
+    if (item) this.publish(item);
+  }
+
   private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
   private readonly resolutionLocks = new KeyedMutex();
   private operatorDecision?: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>;
@@ -333,7 +349,7 @@ export class InboxService {
       if (refusal) throw forbidden(refusal, APPROVAL_REFUSALS[refusal]);
     }
     const isAssignee = item.assignees.includes(by.handle);
-    if (!isAssignee && !(item.kind !== 'decision' && by.access === 'owner')) {
+    if (!isAssignee && !(item.kind !== 'decision' && item.kind !== 'release' && by.access === 'owner')) {
       throw forbidden('not_an_assignee', 'only the assignees may resolve this item');
     }
     const note = req.note?.trim() ? req.note.trim() : null;
@@ -343,6 +359,15 @@ export class InboxService {
     if (item.kind === 'merge_request') {
       if (!this.mergeStart) throw conflict('inbox_item_closed', 'the merge request is no longer available');
       await this.mergeStart(item, by);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    }
+    if (item.kind === 'release') {
+      if (!this.releaseDecision)
+        throw conflict('inbox_item_closed', 'the release approval is no longer available');
+      // The decision closes the item in its own transaction; a refused one leaves it open.
+      this.releaseDecision(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
@@ -589,11 +614,15 @@ export class InboxService {
     }
   }
 
-  /** Cancels open questions and permission requests raised by a member (e.g. when it is retired). */
+  /**
+   * Cancels open questions and permission requests raised by a member (e.g. when it is retired).
+   * A decision and a release approval outlive their proposer: the release record stays `proposed`
+   * until a human resolves the item, so cancelling it would leave the open release stuck.
+   */
   cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
     const cancelled: InboxItem[] = [];
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {
-      if (item.source !== handle || item.kind === 'decision') continue;
+      if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
       const closed = this.cancel(item.id);
       if (closed) cancelled.push(closed);
     }

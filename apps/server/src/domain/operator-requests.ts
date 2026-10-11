@@ -52,6 +52,7 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'hand_off',
   'publish_task_branch',
   'merge_task',
+  'propose_release',
 ]);
 
 /**

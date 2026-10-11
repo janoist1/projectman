@@ -20,6 +20,7 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
+import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
 export { mergeState, mergedState } from './task-merges';
@@ -77,6 +78,7 @@ export function createRepositories(db: Db) {
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
     taskMerges: createTaskMergeRepository(db),
+    releases: createReleaseRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),

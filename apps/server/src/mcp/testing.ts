@@ -208,6 +208,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async proposeRelease(ctx, args) {
+      await enter('proposeRelease', ctx, args);
+      const commit = args.commit ?? '0'.repeat(40);
+      const tasks = [{ key: 'FAKE-1', title: 'A merged card' }];
+      return args.preview
+        ? { commit, baseCommit: null, tasks }
+        : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
+    },
     async submitBoundaryRequest(ctx, args) {
       await enter('submitBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');

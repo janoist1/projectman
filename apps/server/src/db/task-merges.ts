@@ -119,6 +119,14 @@ export function createTaskMergeRepository(db: Db) {
         )[0] ?? null
       );
     },
+    /** Every card of the repository that was merged, oldest first (the commits a release can be made of). */
+    mergedOf(projectKey: string, repo: string) {
+      return read(
+        "SELECT * FROM task_merges WHERE project_key = ? AND repo = ? AND state = 'merged' ORDER BY finished_at, rowid",
+        projectKey,
+        repo,
+      );
+    },
     save(row: MergeRecord) {
       const entries = Object.entries(columns);
       db.prepare(

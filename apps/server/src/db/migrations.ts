@@ -948,6 +948,21 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 51,
+    name: 'releases',
+    sql: `CREATE TABLE releases (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, repo TEXT NOT NULL, task_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('proposed','approved','rejected','deploying','failed','live','published')),
+      "commit" TEXT NOT NULL, base_commit TEXT, tasks_json TEXT NOT NULL, summary TEXT NOT NULL,
+      proposed_by TEXT NOT NULL, proposed_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT,
+      deploy_started_at TEXT, previous_commit TEXT, live_at TEXT,
+      tag TEXT, url TEXT, published_at TEXT,
+      failure_json TEXT, publish_error TEXT, updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX releases_open ON releases(project_key) WHERE state IN ('proposed','approved','deploying');
+    CREATE INDEX releases_project ON releases(project_key, proposed_at);`,
+  },
+  {
+    version: 52,
     name: 'doc writes',
     sql: `CREATE TABLE doc_writes (
     id TEXT PRIMARY KEY,

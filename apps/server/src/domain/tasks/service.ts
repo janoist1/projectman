@@ -880,18 +880,35 @@ export class TaskService {
       const task = this.get(projectKey, taskKey);
       if (!isTheme(task)) throw conflict('task_not_theme', `${taskKey} is not a theme: cancel it instead`);
       if (!isOpenTask(task)) throw conflict('task_closed', `theme ${taskKey} is closed already`);
-      const at = isoNow(this.ctx);
-      const closed = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
-      this.timeline.append({
-        projectKey,
-        taskKey,
-        actor,
-        type: 'task_updated',
-        data: { fields: ['status', 'closedAt'], action: 'closed', previousStatus: task.status },
-      });
-      this.publish(closed);
-      return closed;
+      return this.writeThemeClosed(task, actor);
     });
+  }
+
+  /**
+   * Closes a theme on the system's behalf, inside the caller's unit of work (PM-491, the release card;
+   * the architect's decision): no person is asked, so only the domain calls it. The theme ends as
+   * `cancelled`, like `closeTheme`, so that it can be reopened; a theme that is closed already is
+   * returned as it is.
+   */
+  closeThemeBySystem(projectKey: string, taskKey: string, actor: Actor): Task {
+    const task = this.get(projectKey, taskKey);
+    if (!isTheme(task)) throw conflict('task_not_theme', `${taskKey} is not a theme: cancel it instead`);
+    if (!isOpenTask(task)) return task;
+    return this.writeThemeClosed(task, actor);
+  }
+
+  private writeThemeClosed(task: Task, actor: Actor): Task {
+    const at = isoNow(this.ctx);
+    const closed = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+    this.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      actor,
+      type: 'task_updated',
+      data: { fields: ['status', 'closedAt'], action: 'closed', previousStatus: task.status },
+    });
+    this.publish(closed);
+    return closed;
   }
 
   /**

@@ -214,6 +214,13 @@ export const ERROR_CODES = [
   'operator_never',
   'operator_only',
   'operator_approval_stale',
+  // The release of the instance (PM-491): not set up for this project, one is open already, nothing new
+  // to release, the commit is no recorded merge, the release is not in the state the step needs.
+  'release_not_configured',
+  'release_open',
+  'release_empty',
+  'release_commit_unknown',
+  'release_state_conflict',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

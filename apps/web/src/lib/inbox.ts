@@ -299,6 +299,18 @@ export function alertText(
       member: nameOf(alert.member, members, myHandle),
       parts: alert.parts.join(', '),
     });
+  if (alert.alert === 'release_failed')
+    return t('inbox.alerts.release_failed.body', {
+      key: alert.taskKey,
+      commit: alert.commit.slice(0, 8),
+      step: alert.step,
+      message: alert.message,
+      rollback: t(
+        alert.rolledBack
+          ? 'inbox.alerts.release_failed.rolledBack'
+          : 'inbox.alerts.release_failed.notRolledBack',
+      ),
+    });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
       member: nameOf(item.source, members, myHandle),

@@ -9,6 +9,7 @@ import type { CardVersion, MessageKind } from './message';
 import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
+import type { ReleaseFailure, ReleaseState } from './release';
 import { TaskKey } from './task';
 import type { TaskPriority } from './task';
 
@@ -64,6 +65,7 @@ export const TimelineEventType = z.enum([
   'task_merge_failed',
   'task_merged',
   'task_merge_blocked',
+  'release_changed',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -182,6 +184,19 @@ export interface TimelineEventData {
     message: string;
     landed: 'nowhere' | 'remote';
     mergeCommit?: string;
+  };
+  /** The release of the instance changed state (PM-491), on the release card; `previousState` null: it was proposed. */
+  release_changed: {
+    releaseId: string;
+    state: ReleaseState;
+    previousState: ReleaseState | null;
+    commit: string;
+    tag?: string;
+    url?: string;
+    failure?: ReleaseFailure;
+    publishError?: string;
+    /** The reason the person gave when they rejected the release (state `rejected` only); absent when none. */
+    note?: string;
   };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {

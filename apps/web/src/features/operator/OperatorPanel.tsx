@@ -11,6 +11,8 @@ import { Icon } from '../../components/Icon';
 import { ErrorState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useIsMobile } from '../../lib/hooks';
+import { dragHasFiles, droppedFiles } from '../../lib/attachmentInput';
+import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
 import { Composer } from '../session/Composer';
 import { OperatorThread } from './OperatorThread';
 import type { FailedOperatorMessage } from './OperatorThread';
@@ -36,6 +38,9 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const board = useBoard(key);
   const { channel, state, handle, member } = useOperator();
   const send = useSendTeamMessage(key);
+  const uploads = useMessageAttachmentUploads(key);
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const panel = useRef<HTMLElement>(null);
   const titleId = useId();
   const access = me.projects.find((project) => project.key === key)?.access;
@@ -55,11 +60,20 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
   const [prefill, setPrefill] = useState<{ text: string; id: number } | null>(null);
 
   const [failed, setFailed] = useState<FailedOperatorMessage | null>(null);
-  const post = (text: string, taskKey: string | null) =>
+  const post = (
+    text: string,
+    taskKey: string | null,
+    attachments: NonNullable<FailedOperatorMessage['attachments']> = [],
+  ) =>
     send
-      .mutateAsync({ to: [handle!], text, ...(taskKey ? { taskKey } : {}) })
+      .mutateAsync({
+        to: [handle!],
+        text,
+        ...(taskKey ? { taskKey } : {}),
+        ...(attachments.length ? { attachmentIds: attachments.map((file) => file.id) } : {}),
+      })
       .then(() => setFailed(null))
-      .catch(() => setFailed({ text, taskKey }));
+      .catch(() => setFailed({ text, taskKey, attachments }));
 
   // The focus goes into the panel on open and back to the button on close.
   useEffect(() => {
@@ -104,7 +118,43 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
       aria-modal="false"
       aria-labelledby={titleId}
       onKeyDown={onKeyDown}
+      onDragEnter={(event) => {
+        if (isMobile || !handle || !dragHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragDepth.current += 1;
+        setDragging(true);
+      }}
+      onDragOver={(event) => {
+        if (isMobile || !handle || !dragHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = send.isPending ? 'none' : 'copy';
+      }}
+      onDragLeave={(event) => {
+        if (!dragging) return;
+        event.stopPropagation();
+        dragDepth.current -= 1;
+        if (dragDepth.current <= 0) {
+          dragDepth.current = 0;
+          setDragging(false);
+        }
+      }}
+      onDrop={(event) => {
+        if (isMobile || !handle || !dragHasFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        dragDepth.current = 0;
+        setDragging(false);
+        if (!send.isPending) uploads.add(droppedFiles(event.dataTransfer));
+      }}
     >
+      {dragging ? (
+        <div className={styles.drop} aria-hidden="true">
+          <Icon name="paperclip" size={28} />
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       <header className={styles.head}>
         <Avatar member={member} handle={handle ?? 'operator'} size="lg" />
         <div className={styles.who}>
@@ -165,7 +215,9 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
             handle={handle}
             channel={state}
             failed={failed}
-            onRetry={() => failed && void post(failed.text, failed.taskKey)}
+            onRetry={() =>
+              failed && !send.isPending && void post(failed.text, failed.taskKey, failed.attachments)
+            }
             onExample={(text) => setPrefill({ text, id: (prefill?.id ?? 0) + 1 })}
           />
           <OperatorWaitBanner channel={state} />
@@ -192,8 +244,15 @@ export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTML
                 readOnly ? t('operator.composer.placeholderOther') : t('operator.composer.placeholder')
               }
               disabled={send.isPending}
+              attachments={uploads}
               prefill={prefill}
-              onSend={(text) => post(text, contextCard)}
+              onSend={(text) =>
+                post(
+                  text,
+                  contextCard,
+                  uploads.items.flatMap((item) => (item.attachment ? [item.attachment] : [])),
+                )
+              }
             />
           </div>
           {readOnly ? (

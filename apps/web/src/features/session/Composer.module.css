@@ -45,6 +45,17 @@
   border-radius: 50%;
 }
 
+.row:has(.attach) .send {
+  width: 36px;
+  height: 36px;
+}
+
+.attach {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
 .hint {
   font-size: var(--text-xs);
   color: var(--c-ink-4);

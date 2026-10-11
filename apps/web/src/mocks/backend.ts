@@ -45,6 +45,8 @@ import {
   InvitationView,
   LoginRequest,
   MAX_ATTACHMENT_BYTES,
+  MAX_UNSENT_MESSAGE_ATTACHMENTS,
+  canDeleteMessageAttachment,
   OCTET_STREAM,
   PR_MERGED_LABEL,
   PatchConfigRequest,
@@ -191,6 +193,8 @@ import {
   waitWorkers,
 } from '@projectman/shared';
 import type {
+  MessageAttachment,
+  MessageAttachmentRef,
   CapacityHolder,
   EngineStatusView,
   EngineView,
@@ -452,6 +456,7 @@ export class MockBackend {
   >();
   scheduleRuns: ScheduleRun[] = [];
   attachments: Attachment[] = [];
+  messageAttachments: MessageAttachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
   providerLoggedIn = { claude: true, codex: true, gemini: true, nanogpt: true };
@@ -584,7 +589,11 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
-    if (event.type === 'team_message' && !canSeeTeamMessage(this.taskViewer(), event.message)) return;
+    if (
+      (event.type === 'team_message' || event.type === 'team_message_updated') &&
+      !canSeeTeamMessage(this.taskViewer(), event.message)
+    )
+      return;
     const projectKey = 'projectKey' in event ? event.projectKey : null;
     for (const [connection, projects] of this.connections) {
       if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
@@ -1269,8 +1278,9 @@ export class MockBackend {
     /** What the message answers: the card thread shows it as a question and its answer (PM-249). */
     answer?: TeamMessageAnswer,
     relayed?: TeamMessage['relayed'],
+    attachments?: MessageAttachmentRef[],
   ): TeamMessage {
-    const refusal = this.teamMessageRefusal(from, recipients, text);
+    const refusal = this.teamMessageRefusal(from, recipients, text, Boolean(attachments?.length));
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
     const to = teamRecipients(from, recipients);
     const body = text.trim();
@@ -1291,6 +1301,7 @@ export class MockBackend {
       })),
       ...(answer ? { answer } : {}),
       ...(relayed ? { relayed } : {}),
+      ...(attachments?.length ? { attachments: clone(attachments) } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -1323,8 +1334,14 @@ export class MockBackend {
    * The server's refusal of a team message, or null: 400 invalid_request with `details.field`
    * "text" or "to" for an empty text or no recipient but the sender, 404 for unknown members.
    */
-  private teamMessageRefusal(from: string, to: readonly string[], text: string): MockResponse | null {
-    if (!text.trim()) return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
+  private teamMessageRefusal(
+    from: string,
+    to: readonly string[],
+    text: string,
+    hasAttachments = false,
+  ): MockResponse | null {
+    if (!text.trim() && !hasAttachments)
+      return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
     const recipients = teamRecipients(from, to);
     if (!recipients.length)
       return error(400, 'invalid_request', 'The message names no recipient but its sender', { field: 'to' });
@@ -2057,6 +2074,9 @@ export class MockBackend {
       if (!task) return error(404, 'not_found', 'Unknown task');
       const refused = this.applyLabels(task, input, this.viewerActor(), { comment: input.comment });
       return refused ?? ok(this.taskDetail(task));
+    }
+    if ((m = /^\/message-attachments(?:\/(msa_[a-z0-9]+)(?:\/(content|download|thumbnail))?)?$/.exec(rest))) {
+      return this.handleMessageAttachments(method, m[1], m[2], body);
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/attachments(?:\/(att_[a-z0-9]+))?$/.exec(rest))) {
       return this.handleAttachments(method, m[1]!, m[2], body);
@@ -2969,6 +2989,68 @@ export class MockBackend {
 
   private viewerActor(): Actor {
     return { kind: 'human', handle: this.viewerHandle };
+  }
+
+  /** Message files have no card association; visibility follows the message or the unsent uploader. */
+  private handleMessageAttachments(
+    method: string,
+    id: string | undefined,
+    content: string | undefined,
+    body: unknown,
+  ): MockResponse {
+    const viewer = this.taskViewer();
+    if (!id && method === 'POST') {
+      const file = body instanceof FormData ? body.get('file') : null;
+      if (!(file instanceof File)) return error(400, 'invalid_request', 'Missing file');
+      if (file.size > MAX_ATTACHMENT_BYTES) return error(413, 'attachment_too_large', 'Too large');
+      if (
+        this.messageAttachments.filter(
+          (item) => !item.messageId && item.uploadedBy.handle === this.viewerHandle,
+        ).length >= MAX_UNSENT_MESSAGE_ATTACHMENTS
+      )
+        return error(409, 'message_attachment_limit', 'Too many unsent files');
+      const attachment: MessageAttachment = {
+        id: `${mockId('msa')}0000`,
+        projectKey: fixtures.PROJECT_KEY,
+        fileName: file.name,
+        size: file.size,
+        mediaType: file.type in INLINE_MEDIA_TYPES ? file.type : OCTET_STREAM,
+        preview: attachmentPreviewOf(file.type),
+        uploadedBy: this.viewerActor(),
+        createdAt: nowIso(),
+      };
+      this.messageAttachments.push(attachment);
+      return { status: 201, body: { attachment: clone(attachment) } };
+    }
+    const attachment = this.messageAttachments.find((file) => file.id === id);
+    const message = attachment?.messageId
+      ? this.messages.find((entry) => entry.id === attachment.messageId)
+      : undefined;
+    if (
+      !attachment ||
+      (attachment.messageId
+        ? !message || !canSeeTeamMessage(viewer, message)
+        : attachment.uploadedBy.kind !== 'human' || attachment.uploadedBy.handle !== this.viewerHandle)
+    )
+      return error(404, 'not_found', 'Unknown attachment');
+    if ((method === 'GET' || method === 'HEAD') && content) return ok(clone(attachment));
+    if (method === 'DELETE' && !content) {
+      if (!canDeleteMessageAttachment(viewer, attachment))
+        return error(403, 'insufficient_access', 'Cannot delete attachment');
+      this.messageAttachments = this.messageAttachments.filter((file) => file.id !== id);
+      if (message) {
+        message.attachments = message.attachments?.map((file) =>
+          file.id === id ? { ...file, goneAt: nowIso(), goneBy: this.viewerActor() } : file,
+        );
+        this.emit({
+          type: 'team_message_updated',
+          projectKey: fixtures.PROJECT_KEY,
+          message: clone(message),
+        });
+      }
+      return ok({ id, deleted: true });
+    }
+    return error(404, 'not_found', 'Unknown route');
   }
 
   /**
@@ -5219,15 +5301,32 @@ export class MockBackend {
 
   private humanTeamMessage(body: unknown): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
-    if (!viewer || !['owner', 'admin', 'developer', 'client'].includes(viewer.role))
+    if (!viewer || viewer.kind !== 'human')
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
+    if (this.viewerAccess() === 'viewer') {
+      const operator = operatorOf(this.config);
+      if (!operator || input.to.some((handle) => handle !== operator.handle))
+        return error(403, 'insufficient_access', 'Viewers may write to the Operator alone');
+    }
     if (input.taskKey) {
       const task = this.findTask(input.taskKey);
       if (!task || !this.canSee(task)) return error(404, 'not_found', 'Unknown task');
     }
-    const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text);
+    const ids = input.attachmentIds ?? [];
+    const attached = ids.map((id) => this.messageAttachments.find((file) => file.id === id));
+    if (
+      attached.some(
+        (file) =>
+          !file ||
+          file.messageId ||
+          file.uploadedBy.kind !== 'human' ||
+          file.uploadedBy.handle !== this.viewerHandle,
+      )
+    )
+      return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
+    const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text, ids.length > 0);
     if (refusal) return refusal;
     // "Igen, intézd" accepts the Operator's open signal with the message itself (PM-476).
     const signal = input.operatorSignal
@@ -5238,7 +5337,17 @@ export class MockBackend {
       if (signal.state !== 'open')
         return error(409, 'operator_signal_closed', 'The signal is no longer open');
     }
-    const message = this.sendTeamMessage(this.viewerHandle, input.to, input.taskKey ?? null, input.text);
+    const message = this.sendTeamMessage(
+      this.viewerHandle,
+      input.to,
+      input.taskKey ?? null,
+      input.text,
+      undefined,
+      undefined,
+      undefined,
+      attached as MessageAttachmentRef[],
+    );
+    for (const file of attached) file!.messageId = message.id;
     if (signal) {
       signal.state = 'accepted';
       signal.decidedBy = this.viewerHandle;

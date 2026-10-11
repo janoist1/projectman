@@ -2,7 +2,16 @@ import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router';
 import { PROJECT_MANAGER_ROLE, isUnreadBy } from '@projectman/shared';
-import type { OperatorChannel, OperatorRequestView, OperatorSignal, TeamMessage } from '@projectman/shared';
+import type {
+  OperatorChannel,
+  OperatorRequestView,
+  OperatorSignal,
+  TeamMessage,
+  MessageAttachmentRef,
+} from '@projectman/shared';
+import { MessageAttachments } from '../messages/MessageAttachments';
+import { Icon } from '../../components/Icon';
+import { useIsMobile } from '../../lib/hooks';
 import { useBoard, useConversation, useReadTeamMessages } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Button } from '../../components/Button';
@@ -25,6 +34,7 @@ import styles from './OperatorThread.module.css';
 export interface FailedOperatorMessage {
   text: string;
   taskKey: string | null;
+  attachments?: MessageAttachmentRef[];
 }
 
 /**
@@ -64,6 +74,7 @@ export function OperatorThread({
   onExample: (text: string) => void;
 }) {
   const { key, myHandle, isOwner } = useProject();
+  const isMobile = useIsMobile();
   const { members } = useProjectIndexes(key);
   const board = useBoard(key);
   const conversation = useConversation(key, handle);
@@ -164,7 +175,14 @@ export function OperatorThread({
             <div className={styles.col}>
               {entry.showTask && message.taskKey ? cardKey(message.taskKey) : null}
               <div className={styles.bubble}>
-                {mine ? <Markdown text={message.body} /> : <Markdown text={message.body} cardKey={cardKey} />}
+                {message.body ? (
+                  mine ? (
+                    <Markdown text={message.body} />
+                  ) : (
+                    <Markdown text={message.body} cardKey={cardKey} />
+                  )
+                ) : null}
+                <MessageAttachments files={message.attachments ?? []} from={message.from} />
               </div>
               <div className={styles.meta}>
                 {message.relayed ? <span>{t('pm.relayed')}</span> : null}
@@ -220,6 +238,17 @@ export function OperatorThread({
               <p className={styles.introBody}>{t('operator.intro.approval')}</p>
             </>
           )}
+          <p className={styles.introBody}>
+            {isMobile ? (
+              <>
+                {t('operator.intro.attachPhone', { icon: '|' }).split('|')[0]}
+                <Icon name="paperclip" size={14} />
+                {t('operator.intro.attachPhone', { icon: '|' }).split('|')[1]}
+              </>
+            ) : (
+              t(readOnly ? 'operator.intro.other.attach' : 'operator.intro.attach')
+            )}
+          </p>
           <div className={styles.examples} role="group" aria-label={t('operator.intro.examplesLabel')}>
             {examples.map((example) => (
               <button
@@ -264,7 +293,8 @@ export function OperatorThread({
             <div className={styles.col}>
               {failed.taskKey ? cardKey(failed.taskKey) : null}
               <div className={clsx(styles.bubble, styles.failedBubble)}>
-                <Markdown text={failed.text} />
+                {failed.text ? <Markdown text={failed.text} /> : null}
+                <MessageAttachments files={failed.attachments ?? []} from={myHandle ?? ''} sent={false} />
               </div>
               <div className={styles.meta}>
                 <span className={styles.failedText} role="alert">

@@ -859,6 +859,13 @@ export function useSendTeamMessage(key: string) {
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
   });
 }
+export function useDeleteMessageAttachment(key: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.deleteMessageAttachment(key, id),
+    onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
+  });
+}
 export function useReadTeamMessage(key: string) {
   const client = useQueryClient();
   return useMutation({

@@ -19,10 +19,13 @@ export function AttachmentOpenLink({
   iconClassName,
   labelSuffix = '',
   children,
+  messageAttachment = false,
 }: {
   projectKey: string;
   /** The card the file is on: its protected routes. */
-  taskKey: string;
+  taskKey?: string;
+  /** Message files use their own protected routes, without a card. */
+  messageAttachment?: boolean;
   attachment: { id: string; fileName: string; preview: AttachmentPreview };
   /** An image opens in the large view; the caller holds the dialog. */
   onPreview: () => void;
@@ -52,7 +55,11 @@ export function AttachmentOpenLink({
     return (
       <a
         className={className}
-        href={routes.attachmentContent(projectKey, taskKey, id)}
+        href={
+          messageAttachment
+            ? routes.messageAttachmentContent(projectKey, id)
+            : routes.attachmentContent(projectKey, taskKey!, id)
+        }
         target="_blank"
         rel="noopener noreferrer"
         aria-label={label}
@@ -67,7 +74,11 @@ export function AttachmentOpenLink({
   return (
     <a
       className={className}
-      href={routes.attachmentDownload(projectKey, taskKey, id)}
+      href={
+        messageAttachment
+          ? routes.messageAttachmentDownload(projectKey, id)
+          : routes.attachmentDownload(projectKey, taskKey!, id)
+      }
       download
       aria-label={label}
       title={label}

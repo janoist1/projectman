@@ -55,7 +55,7 @@ export class MessageStarts {
       // owners' one stays outside the capacity.
       const workItem: WorkItemRef =
         isOperator(member) && by?.kind === 'human' && by.handle
-          ?operatorConversationOf(config, by.handle)
+          ? operatorConversationOf(config, by.handle)
           : { type: 'general' };
       return (
         await this.admission.start({

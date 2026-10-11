@@ -12,6 +12,7 @@ import {
   handoffBlocksStart,
   isOnLeave,
   isOpenTask,
+  isOperator,
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
@@ -646,6 +647,13 @@ export class SessionOrchestrator {
 
   list(projectKey: string, filter: { member?: string; taskKey?: string } = {}): Session[] {
     return this.ctx.repos.sessions.list(projectKey, filter);
+  }
+
+  /** Whether the session is the Operator's: only the owner and the admin see those (PM-475). */
+  isOperatorSession(sessionId: string): boolean {
+    const session = this.find(sessionId);
+    const config = session ? this.deps.projects.cachedConfig(session.projectKey) : null;
+    return !!session && !!config && isOperator(memberOf(config, session.member));
   }
 
   isRunning(sessionId: string): boolean {

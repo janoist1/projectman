@@ -1,4 +1,4 @@
-import { isOpenTask, memberOf, quoteOf, sessionWorkItemOf } from '@projectman/shared';
+import { isOpenTask, isOperator, memberOf, quoteOf, sessionWorkItemOf } from '@projectman/shared';
 import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
@@ -50,6 +50,7 @@ export class MessageStarts {
           member,
           workItem: { type: 'general' },
           cause: { kind: 'conversation', by },
+          ...(isOperator(member) ? { capacity: false } : {}),
         })
       ).session;
     });
@@ -204,7 +205,17 @@ export class MessageStarts {
           ...(origin?.kind === 'answer' ? { inboxItemId: origin.inboxItemId } : {}),
         };
         await this.delivery.startAndDeliver(projectKey, handle, workItem, (messages) =>
-          this.admission.start({ config, member, workItem, messages, cause }),
+          this.admission.start({
+            config,
+            member,
+            workItem,
+            messages,
+            cause,
+            // The owners' conversation with the Operator never waits behind another person's (PM-475).
+            ...(isOperator(member) && !(workItem.type === 'general' && workItem.with)
+              ? { capacity: false }
+              : {}),
+          }),
         );
       },
     };

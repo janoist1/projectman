@@ -107,7 +107,7 @@ export function encodeWorkItem(item: WorkItemRef): { type: string; ref: string }
     case 'schedule':
       return { type: 'schedule', ref: item.runId };
     case 'general':
-      return { type: 'general', ref: '' };
+      return { type: 'general', ref: item.with ?? '' };
   }
 }
 
@@ -115,7 +115,7 @@ export function decodeWorkItem(type: string, ref: string): WorkItemRef {
   if (type === 'task') return { type: 'task', taskKey: ref };
   if (type === 'schedule') return { type: 'schedule', runId: ref };
   if (type === 'meeting') return { type: 'meeting', meetingId: ref };
-  return { type: 'general' };
+  return ref ? { type: 'general', with: ref } : { type: 'general' };
 }
 
 /** The session without its token usage, which comes from another table. */

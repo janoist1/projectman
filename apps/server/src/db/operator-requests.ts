@@ -92,6 +92,17 @@ export function createOperatorRequestRepository(db: Db) {
     latest(projectKey: string, limit: number): OperatorRequestRecord[] {
       return statements.latest.all(projectKey, limit) as OperatorRequestRecord[];
     },
+    /** The latest `limit` requests of the project that these members made, the newest last (PM-475). */
+    latestFrom(projectKey: string, handles: string[], limit: number): OperatorRequestRecord[] {
+      if (handles.length === 0) return [];
+      return db
+        .prepare(
+          `SELECT * FROM (SELECT ${requestColumns}, rowid AS n FROM operator_requests
+           WHERE project_key = ? AND from_handle IN (${handles.map(() => '?').join(', ')})
+           ORDER BY opened_at DESC, rowid DESC LIMIT ?) ORDER BY openedAt, n`,
+        )
+        .all(projectKey, ...handles, limit) as OperatorRequestRecord[];
+    },
     insertStep(step: OperatorStepRecord): void {
       statements.insertStep.run({
         ...step,

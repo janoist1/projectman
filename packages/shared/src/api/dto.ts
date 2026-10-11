@@ -118,8 +118,14 @@ export const OperatorRequestView = z.object({
   steps: z.array(OperatorStep),
 });
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
-/** The Operator's conversation as the project manager's, plus the last 50 requests (the newest last). */
-export const OperatorChannel = ProjectManagerChannel.extend({ requests: z.array(OperatorRequestView) });
+/**
+ * The viewer's Operator conversation as the project manager's, plus the last 50 requests (the newest last).
+ * `readOnly` (PM-475): the conversation is with a person who is not an owner, so the Operator only reads and answers.
+ */
+export const OperatorChannel = ProjectManagerChannel.extend({
+  requests: z.array(OperatorRequestView),
+  readOnly: z.boolean(),
+});
 export type OperatorChannel = z.infer<typeof OperatorChannel>;
 
 /* ---------- auth ---------- */

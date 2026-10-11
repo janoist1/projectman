@@ -29,7 +29,7 @@ export function messageStaleReason(
 
 /**
  * Why a valid action message starts no session for its recipient: an AI member has no role on the card
- * (PM-426), or the recipient is the Operator and the message is not the owner's (PM-447).
+ * (PM-426), or the recipient is the Operator and the message is not a person's own (PM-447, PM-475).
  */
 export type WakeBlock = 'no_card_role' | 'operator_owner_only';
 
@@ -41,14 +41,15 @@ export interface WakeFacts {
   recipientHasRole: boolean;
   /** The recipient is the project's Operator, who works only on the owner's request (PM-447). */
   recipientIsOperator: boolean;
-  /** The sender is an owner of the project, with their own login and not through the integrator key. */
-  fromOwner: boolean;
+  /** The sender is a person with their own login, not acting through the integrator key (PM-475). */
+  fromOwnLogin: boolean;
 }
 
 /**
  * The block, only when it alone keeps a valid action from waking: null for a person's, the system's, an
- * info or a stale message (PM-426). The Operator is the exception: only the owner's message wakes it,
- * so any other action message to it is blocked (PM-447).
+ * info or a stale message (PM-426). The Operator is the exception: only a person's message sent with their
+ * own login wakes it (PM-475), so an AI member's, the system's or the integrator key's action message to it
+ * is blocked (PM-447).
  */
 export function messageWakeBlock(
   message: Pick<TeamMessage, 'kind'>,
@@ -56,7 +57,7 @@ export function messageWakeBlock(
   stale: StaleReason | null,
 ): WakeBlock | null {
   if ((message.kind ?? 'action') !== 'action' || stale !== null) return null;
-  if (facts.recipientIsOperator) return facts.fromOwner ? null : 'operator_owner_only';
+  if (facts.recipientIsOperator) return facts.fromHuman && facts.fromOwnLogin ? null : 'operator_owner_only';
   return !facts.fromHuman && facts.fromAi && !facts.recipientHasRole ? 'no_card_role' : null;
 }
 
@@ -65,7 +66,7 @@ export function messageWakes(
   facts: WakeFacts,
   stale: StaleReason | null,
 ): boolean {
-  if (facts.recipientIsOperator) return facts.fromOwner;
+  if (facts.recipientIsOperator) return facts.fromHuman && facts.fromOwnLogin;
   return (
     facts.fromHuman ||
     ((message.kind ?? 'action') === 'action' &&

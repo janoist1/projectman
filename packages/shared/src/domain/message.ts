@@ -93,6 +93,15 @@ export function canSeeAllTeamMessages(viewer: Pick<TaskViewer, 'access'>): boole
   return viewer.access === 'owner' || viewer.access === 'admin';
 }
 
+/**
+ * Whether the viewer sees the Operator's sessions (their list, detail, terminal and live events, PM-475): the
+ * same people who see every team message, so the owner and the admin keep sight of what the Operator tells
+ * the project's other people.
+ */
+export function canSeeOperatorSessions(viewer: Pick<TaskViewer, 'access'>): boolean {
+  return canSeeAllTeamMessages(viewer);
+}
+
 /** An owner and an admin see every team message; everyone else only what they sent or what was sent to them. */
 export function canSeeTeamMessage(viewer: TaskViewer, message: Pick<TeamMessage, 'from' | 'to'>): boolean {
   return (
@@ -167,6 +176,6 @@ export function sameWorkItem(a: WorkItemRef, b: WorkItemRef): boolean {
     case 'schedule':
       return a.runId === (b as typeof a).runId;
     case 'general':
-      return true;
+      return a.with === (b as typeof a).with;
   }
 }

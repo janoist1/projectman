@@ -1,5 +1,12 @@
-import { isOnLeave, operatorOf, projectManagerOf } from '@projectman/shared';
-import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel } from '@projectman/shared';
+import {
+  isOnLeave,
+  operatorConversationOf,
+  operatorOf,
+  ownerHandles,
+  projectManagerOf,
+} from '@projectman/shared';
+import type { AiMemberConfig, OperatorChannel, ProjectManagerChannel, WorkItemRef } from '@projectman/shared';
+import { encodeWorkItem } from '../db';
 import type { DomainContext } from './context';
 import type { DeferredStarts } from './admission';
 import type { OperatorRequests } from './operator-requests';
@@ -25,28 +32,40 @@ export class ProjectManagerChannels {
     return this.channelOf(projectKey, manager);
   }
 
-  /** The Operator's one conversation as the project manager's, plus its latest requests and their steps (PM-463). */
-  async operatorView(projectKey: string): Promise<OperatorChannel> {
-    const operator = operatorOf(await this.deps.projects.config(projectKey));
-    const channel = await this.channelOf(projectKey, operator);
-    return { ...channel, requests: this.deps.operatorRequests.views(projectKey) };
+  /**
+   * The viewer's conversation with the Operator as the project manager's, plus its latest requests and their
+   * steps (PM-463): the owners share one, every other person has their own and only reads and answers in it (PM-475).
+   */
+  async operatorView(projectKey: string, viewer: string): Promise<OperatorChannel> {
+    const config = await this.deps.projects.config(projectKey);
+    const operator = operatorOf(config);
+    const conversation = operatorConversationOf(config, viewer);
+    const channel = await this.channelOf(projectKey, operator, conversation);
+    const readOnly = conversation.type === 'general' && conversation.with !== undefined;
+    return {
+      ...channel,
+      requests: this.deps.operatorRequests.views(projectKey, readOnly ? [viewer] : ownerHandles(config)),
+      readOnly,
+    };
   }
 
   private async channelOf(
     projectKey: string,
     manager: AiMemberConfig | null,
+    conversation: WorkItemRef = { type: 'general' },
   ): Promise<ProjectManagerChannel> {
     const { ctx, deferred, pauses } = this.deps;
     if (!manager) return { member: null, state: 'missing', sessionId: null };
-    const session = ctx.repos.sessions.findByWorkItem(projectKey, manager.handle, { type: 'general' });
+    const session = ctx.repos.sessions.findByWorkItem(projectKey, manager.handle, conversation);
     const base = {
       member: { handle: manager.handle, displayName: manager.displayName, onLeave: isOnLeave(manager) },
       sessionId: session?.id ?? null,
     };
     if (isOnLeave(manager)) return { ...base, state: 'on_leave' };
+    const wi = encodeWorkItem(conversation);
     const waiting = deferred
       .list()
-      .filter((entry) => entry.start.key.startsWith(`message:${projectKey}:${manager.handle}:general:`))
+      .filter((entry) => entry.start.key === `message:${projectKey}:${manager.handle}:${wi.type}:${wi.ref}`)
       .sort((a, b) => a.waiting.since.localeCompare(b.waiting.since))[0]?.waiting;
     if (waiting) return { ...base, state: 'waiting', waiting };
     const pause = pauses.projectView(projectKey);

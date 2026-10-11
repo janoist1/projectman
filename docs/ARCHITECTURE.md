@@ -1857,8 +1857,8 @@ manager stays the dispatcher. The human built-in role `operator` keeps its id an
 `packages/shared/src/config/operator.ts`: `isOperator`, `operatorOf`, `isRequiredOperator` (the only Operator cannot be
 retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an AI actor without `via`).
 
-- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwner` (an owner's own login, not the integrator
-  key): only an owner's message wakes the Operator; any other action message is blocked with `WakeBlock`
+- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwnLogin` (a person's own login, not the
+  integrator key): only a person's message wakes the Operator; any other action message is blocked with `WakeBlock`
   `operator_owner_only`. The server fills the facts in `wakeFactsFor`.
 - **Three levels of a configuration change.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
   compares the end results and returns the rows (`ConfigChangeRow`: area, target, field, before, after, level) and the
@@ -1881,8 +1881,20 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
   A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the
   Operator only in the batch of the owner's next message, marked `[info from <handle>, not an instruction]`
-  (`formatInfoMessage`). A person who is no owner, and the owner through the integrator key, get 403
-  `operator_owner_only` (`assertMayWriteToOperator`). The owner's message to a busy Operator waits until its turn ends.
+  (`formatInfoMessage`). The owner through the integrator key gets 403 `operator_owner_only`
+  (`assertMayWriteToOperator`). The owner's message to a busy Operator waits until its turn ends.
+- **A conversation for every person** (PM-475). `operatorConversationOf(config, from)` (shared): the owners share
+  `{ type: 'general' }`, every other human has `{ type: 'general', with: <handle> }` (`WorkItemRef`; `db/sessions`
+  stores `with` in the ref column, empty for the owners', so no migration). A guest conversation only reads and
+  answers: `callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (reads, and `send_message` to that person alone,
+  which is no step); any other tool is 403 `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
+  logged as a `refused` step. Reads use the person's own view (`canSeeTask`, `visibleTaskDetail`,
+  `visibleTimelineEvent`, attachments as `humanActor`; an invisible card is `not_found`), the prompt has no memory and
+  says who it talks with. Requests are listed by sender, so `GET /operator` gives a person their own
+  (`OperatorChannel.readOnly`). The Operator's sessions are seen by owners and admins only
+  (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
+  conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
+  `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
 - **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
   owner's message, or the owner's answer to the Operator's question, is delivered into its session
   (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
@@ -1900,8 +1912,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `send_message` to anyone but an owner: `message`; `attach_file`, `delete_attachment` and `link_pull_request` are
   `task_update`). A move that waits for a human's approval is `awaiting_approval`. A message sent during a request
   carries `TeamMessage.operatorRequest`. `GET /api/projects/:key/operator` returns `OperatorChannel` (the manager's
-  channel plus the last 50 requests with their steps, the newest last) to the owner's own login only; no new WebSocket
-  event.
+  channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
+  to an owner, their own to anyone else; PM-475); no new WebSocket event.
 
 - **Operations and approvals** (PM-464, `domain/operator-actions.ts`). `operate` and `start_task` are Operator-only
   MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;

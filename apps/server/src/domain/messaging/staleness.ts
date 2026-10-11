@@ -111,8 +111,8 @@ export function wakeFactsFor(
     fromAi: sender?.kind === 'ai',
     recipientHasRole: !task || isTheme(task) || recipientHasCardRole(ctx, config, task, recipient),
     recipientIsOperator: isOperator(memberOf(config, recipient)),
-    // An owner's own login only: the integrator key acts for the owner but does not wake the Operator.
-    fromOwner: sender?.kind === 'human' && sender.access === 'owner' && message.via !== 'integrator',
+    // A person's own login only: the integrator key acts for the owner but does not wake the Operator.
+    fromOwnLogin: message.via !== 'integrator',
   };
 }
 

@@ -138,17 +138,15 @@ describe('the owner’s requests to the Operator (PM-463)', () => {
     expect(splitTeamMessageBatch(text)?.items.map((item) => item.from)).toEqual(['dev-1', 'owner']);
   });
 
-  it('refuses a person who is no owner, and the owner’s integrator key, with 403', async () => {
+  it('refuses the owner’s integrator key with 403', async () => {
     await setup();
-    const sendFrom = (from: string, via?: 'integrator') =>
-      h.domain.messaging.sendReporting(
-        'AR',
-        from,
-        { to: ['operator'], text: 'Please change something.' },
-        via ? { actor: { ...OWNER_ACTOR, via } } : undefined,
-      );
-    for (const promise of [sendFrom('dana'), sendFrom('owner', 'integrator')])
-      expect(await rejection(promise)).toMatchObject({ code: 'operator_owner_only', status: 403 });
+    const promise = h.domain.messaging.sendReporting(
+      'AR',
+      'owner',
+      { to: ['operator'], text: 'Please change something.' },
+      { actor: { ...OWNER_ACTOR, via: 'integrator' } },
+    );
+    expect(await rejection(promise)).toMatchObject({ code: 'operator_owner_only', status: 403 });
     expect(h.runner.started).toHaveLength(0);
     expect(h.repos.messages.pending('AR', 'operator')).toHaveLength(0);
   });
@@ -336,7 +334,7 @@ describe('the Operator’s step log (PM-463)', () => {
     await endTurn();
     await ask('Second');
     await h.domain.teamTools.createTask(tool(), { title: 'Second card' });
-    const channel = OperatorChannel.parse(await h.domain.projectManagerChannels.operatorView('AR'));
+    const channel = OperatorChannel.parse(await h.domain.projectManagerChannels.operatorView('AR', 'owner'));
     expect(channel.member?.handle).toBe('operator');
     expect(channel.sessionId).toBe(session().id);
     expect(channel.requests.map((r) => [r.quote, r.closedAt !== null, r.steps.map((s) => s.action)])).toEqual(
@@ -349,7 +347,7 @@ describe('the Operator’s step log (PM-463)', () => {
 });
 
 describe('GET /api/projects/:key/operator (PM-463)', () => {
-  it('returns the channel to the owner’s own login and refuses everyone else', async () => {
+  it('returns the owners’ channel to the owner and a conversation of their own to everyone else', async () => {
     app = await createAppHarness({ app: { claudeTmpRoots: [] } });
     const owner = await setupOwner(app.app);
     await createProject(app, owner);
@@ -386,8 +384,11 @@ describe('GET /api/projects/:key/operator (PM-463)', () => {
         access,
         email: `${access}@example.com`,
       });
+      // Every person has a conversation of their own, which they only read and answer in (PM-475).
       const response = await app.app.inject({ url: routes.operator('AR'), headers: { cookie } });
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(200);
+      expect(OperatorChannel.parse(response.json())).toMatchObject({ readOnly: true, requests: [] });
     }
+    expect(channel.readOnly).toBe(false);
   });
 });

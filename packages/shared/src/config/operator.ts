@@ -10,10 +10,12 @@ import { approverOf, outboundNetworkOf } from './permission-level';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 export {
+  OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
   OPERATOR_ROLE,
   isOperator,
   isOperatorActor,
   isRequiredOperator,
+  operatorConversationOf,
   operatorOf,
 } from './operator-member';
 

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ClientCommand, routes } from '@projectman/shared';
+import { canSeeOperatorSessions, ClientCommand, routes } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../auth/local-request';
 import type { AuthService, AuthUser } from '../auth/auth-service';
@@ -118,7 +118,7 @@ export function registerWebsocket(
             if (!access) client.projects.delete(event.projectKey);
             else {
               const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
-              if (canSeeProjectEvent(access, event, taskOf))
+              if (canSeeProjectEvent(access, event, taskOf, (id) => domain.sessions.isOperatorSession(id)))
                 send(
                   client,
                   visibleProjectEvent(access, event, taskOf, (id) => domain.messages.get(id)),
@@ -138,6 +138,9 @@ export function registerWebsocket(
     if (!access || access.access === 'client' || !hasAccess(access.access, minimum)) {
       throw forbidden('insufficient_access', 'no access to this terminal');
     }
+    // The Operator's terminals are the owner's and the admin's to see (PM-475).
+    if (!canSeeOperatorSessions(access) && domain.sessions.isOperatorSession(sessionId))
+      throw forbidden('insufficient_access', 'no access to this terminal');
   };
 
   const handle = async (client: Client, data: unknown) => {

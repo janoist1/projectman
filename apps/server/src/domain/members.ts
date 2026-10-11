@@ -4,6 +4,7 @@ import {
   HumanMemberConfig,
   DEFAULT_AGENT_PROVIDER,
   modelForProvider,
+  canSeeOperatorSessions,
   holdersAllow,
   isOperator,
   isRequiredOperator,
@@ -748,12 +749,14 @@ export class MemberProfiles {
             .forMember(projectKey, handle)
             .map((event) => visibleTimelineEvent(viewer, event, (id) => this.ctx.repos.messages.get(id)))
         : [],
-      sessions: internal
-        ? this.sessions
-            .list(projectKey, { member: handle })
-            .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
-            .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
-        : [],
+      // The Operator's sessions are the owner's and the admin's to see (PM-475).
+      sessions:
+        internal && (canSeeOperatorSessions(viewer) || !isOperator(original))
+          ? this.sessions
+              .list(projectKey, { member: handle })
+              .map((session) => visibleSession(viewer, session, (id) => this.ctx.repos.messages.get(id)))
+              .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))
+          : [],
       capacity: original.kind === 'ai' ? original.capacity : null,
       capacityUsed: original.kind === 'ai' && internal ? this.admission.memberLoad(config, handle) : 0,
       ...(original.kind === 'ai' && internal ? { usage: this.recentUsage(projectKey, handle) } : {}),

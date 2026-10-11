@@ -6,7 +6,7 @@
  */
 export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
-  /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463); an owner's own login only. */
+  /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
   operator: (key: string) => `/api/projects/${key}/operator`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',

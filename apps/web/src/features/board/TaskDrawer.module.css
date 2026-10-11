@@ -359,18 +359,36 @@
     padding-left: 16px;
     padding-right: 16px;
   }
+  /* The views share the row by their own widths, not in equal parts: four views fit at 390px as they are. */
   .views .switch {
     flex: 1;
   }
-  .views .switch button {
-    flex: 1;
+  /* `[aria-pressed]` outweighs the control's own padding rule. */
+  .views .switch button[aria-pressed] {
+    flex: 1 1 auto;
     justify-content: center;
+    padding: 0 6px;
   }
   .scroll.conversation {
     padding: 0;
   }
   .conversation .thread {
     --thread-pad-x: 16px;
+  }
+}
+
+/* Narrower than the four views need: the row scrolls sideways (no bar, the open view is kept in sight), and
+   never cuts or shortens a name. */
+@media (max-width: 359px) {
+  .views .switch {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .views .switch::-webkit-scrollbar {
+    display: none;
+  }
+  .views .switch button[aria-pressed] {
+    flex: none;
   }
 }
 

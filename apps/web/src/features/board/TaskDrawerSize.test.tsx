@@ -33,7 +33,7 @@ function renderBoard(route: string, project = mockProject()) {
           <Where />
           <Routes>
             <Route path="/p/:key" element={<BoardPage />}>
-              <Route path="tasks/:taskKey" element={<TaskDrawer />} />
+              <Route path="tasks/:taskKey/*" element={<TaskDrawer />} />
             </Route>
           </Routes>
         </AttachmentUploadsProvider>
@@ -165,7 +165,7 @@ describe('the card in the quick view and in the large window (PM-283)', () => {
   });
 
   it('keeps the draft of a comment through the switch', async () => {
-    renderBoard(`/p/AC/tasks/${ownerTask}`);
+    renderBoard(`/p/AC/tasks/${ownerTask}/timeline`);
     await quickView();
     const box = (await screen.findByRole('textbox', {
       name: t('task.comments.label'),
@@ -181,10 +181,10 @@ describe('the card in the quick view and in the large window (PM-283)', () => {
   it('reads the reading column first in the window with two columns, and the quick order elsewhere', async () => {
     const order = async () => {
       const dialog = await screen.findByRole('dialog', { name: t('task.drawerLabel') });
-      const timeline = within(dialog).getByRole('heading', { name: t('task.timeline') });
+      const description = within(dialog).getByText(t('task.description'));
       const properties = within(dialog).getByText(t('taskLifecycle.assignee'));
-      return timeline.compareDocumentPosition(properties) & Node.DOCUMENT_POSITION_FOLLOWING
-        ? 'timeline'
+      return description.compareDocumentPosition(properties) & Node.DOCUMENT_POSITION_FOLLOWING
+        ? 'description'
         : 'props';
     };
     // Narrow window: the order of the quick view, the properties first.
@@ -193,7 +193,7 @@ describe('the card in the quick view and in the large window (PM-283)', () => {
     narrow.unmount();
     screenIs((query) => query.includes('min-width: 1104px'));
     renderBoard(`/p/AC/tasks/${ownerTask}?size=large`);
-    expect(await order()).toBe('timeline');
+    expect(await order()).toBe('description');
   });
 
   it('has no large window on a phone: no switch, and ?size=large does nothing', async () => {

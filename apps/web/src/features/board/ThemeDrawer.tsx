@@ -31,15 +31,18 @@ export function ThemeHeader({
   size,
   onToggleSize,
   onClose,
+  rule = true,
 }: {
   task: Task;
   headingRef: Ref<HTMLHeadingElement>;
   size: CardSize;
   onToggleSize: (() => void) | undefined;
   onClose: () => void;
+  /** The line under the head; the row of views under it has its own (PM-487). */
+  rule?: boolean;
 }) {
   return (
-    <div className={head.head}>
+    <div className={rule ? head.head : `${head.head} ${head.bare}`}>
       <div className={head.chips}>
         <Chip tone="neutral" size="md" icon="layers">
           {t('theme.badge')}

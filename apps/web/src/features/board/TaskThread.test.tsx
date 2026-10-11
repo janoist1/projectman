@@ -371,7 +371,7 @@ describe('the links into the card conversation (PM-273)', () => {
   it('links a timeline message to the full message, keeping the size', async () => {
     const project = mockProject();
     message(project, 'fe-1', ['qa']);
-    project.render(card, '/p/AC/tasks/AC-21?size=large');
+    project.render(card, '/p/AC/tasks/AC-21/timeline?size=large');
     const links = await screen.findAllByRole('link', { name: t('timeline.fullMessage') });
     const link = links.find((candidate) => candidate.getAttribute('href')?.includes('message=msg_tl'))!;
     expect(link.getAttribute('href')).toBe('/p/AC/tasks/AC-21/thread?message=msg_tl&size=large');
@@ -461,7 +461,7 @@ describe('the notices of the system in the card conversation (PM-421)', () => {
       from: 'system',
       to: ['qa'],
     });
-    project.render(card, '/p/AC/tasks/AC-21');
+    project.render(card, '/p/AC/tasks/AC-21/timeline');
     const links = await screen.findAllByRole('link', { name: t('timeline.fullMessage') });
     expect(links.some((link) => link.getAttribute('href')?.includes('message=msg_system'))).toBe(true);
   });

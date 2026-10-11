@@ -569,6 +569,7 @@ export function resolutionLabel(item: InboxItem): string {
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
   if (item.resolution?.rule === 'senior_wait_ended') return t('inbox.resolutions.senior_wait_ended');
+  if (item.resolution?.rule === 'approval_given') return t('inbox.resolutions.approval_given');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))

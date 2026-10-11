@@ -4,6 +4,7 @@ import type { ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
 import { OPERATOR_GUEST_TOOLS } from '../src/domain/operator-requests';
+import { humanActor } from '../src/domain/util';
 import { canSeeProjectEvent } from '../src/domain/visibility';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -101,6 +102,15 @@ describe('the Operator talks with every person in a conversation of their own (P
     expect(operatorSessions()).toHaveLength(3);
   });
 
+  it('opens a conversation of their own when a person starts the Operator’s chat, the owners’ one for an owner', async () => {
+    await setup();
+    const dana = await h.domain.messageStarts.startConversation('AR', 'operator', humanActor('dana'));
+    expect(dana.workItem).toEqual({ type: 'general', with: 'dana' });
+    const owner = await h.domain.messageStarts.startConversation('AR', 'operator', OWNER_ACTOR);
+    expect(owner.workItem).toEqual({ type: 'general' });
+    expect(owner.id).not.toBe(dana.id);
+  });
+
   it('does not wake for an AI member or the integrator key', async () => {
     await setup();
     const sent = await h.domain.messaging.sendReporting('AR', 'dev-1', { to: ['operator'], text: 'FYI' });
@@ -186,7 +196,13 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
       expect(await refusal(call())).toMatch(/^operator_owner_only:/);
   });
 
-  it('keeps the project state closed to a guest until it has a viewer filter', () => {
+  it('keeps the project state closed to a guest until it has a viewer filter', async () => {
+    await setup();
+    await say('cleo', 'Why is the card stuck?');
+    const guard = h.domain.teamTools['callerWithRequest'].bind(h.domain.teamTools);
+    expect(await refusal(guard(toolOf(conversationWith('cleo')), 'get_project_state'))).toMatch(
+      /^operator_owner_only:/,
+    );
     expect(OPERATOR_GUEST_TOOLS.has('get_project_state')).toBe(false);
     expect([...OPERATOR_GUEST_TOOLS].sort()).toEqual([
       'get_task',

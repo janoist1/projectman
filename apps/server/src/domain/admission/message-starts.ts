@@ -1,4 +1,11 @@
-import { isOpenTask, isOperator, memberOf, quoteOf, sessionWorkItemOf } from '@projectman/shared';
+import {
+  isOpenTask,
+  isOperator,
+  memberOf,
+  operatorConversationOf,
+  quoteOf,
+  sessionWorkItemOf,
+} from '@projectman/shared';
 import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
@@ -44,13 +51,19 @@ export class MessageStarts {
     return this.admission.exclusive(async () => {
       const config = await this.projects.config(projectKey);
       const member = requireAiMember(config, handle);
+      // The Operator talks with each person in a conversation of their own (PM-475); only the
+      // owners' one stays outside the capacity.
+      const workItem: WorkItemRef =
+        isOperator(member) && by?.kind === 'human' && by.handle
+          ?operatorConversationOf(config, by.handle)
+          : { type: 'general' };
       return (
         await this.admission.start({
           config,
           member,
-          workItem: { type: 'general' },
+          workItem,
           cause: { kind: 'conversation', by },
-          ...(isOperator(member) ? { capacity: false } : {}),
+          ...(isOperator(member) && !('with' in workItem) ? { capacity: false } : {}),
         })
       ).session;
     });

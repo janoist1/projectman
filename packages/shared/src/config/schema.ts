@@ -268,7 +268,8 @@ export const RepoConfig = z.object({
     .optional(),
   /**
    * Developers run targeted checks only; the integrator owns the full check before merge (PM-380).
-   * Absent or false: retain the existing hand-over policy. Does not disable `reviewTest`.
+   * Absent or false: retain the existing hand-over policy. true: `reviewTest` runs only at the merge,
+   * not before review (`reviewTestBeforeReview`, PM-386).
    */
   fullTestAtMerge: z.boolean().optional(),
   /**

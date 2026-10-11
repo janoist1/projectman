@@ -309,7 +309,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       const controller = new AbortController();
       fullRuns.set(spec.runId, controller);
       try {
-        return await engine.fullTestExecutor.run(spec, controller.signal);
+        return await engine.fullTestExecutor.run(spec, controller.signal, () =>
+          deps.emit({ kind: 'full_test_started', runId: spec.runId }),
+        );
       } finally {
         fullRuns.delete(spec.runId);
       }

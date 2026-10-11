@@ -8,6 +8,7 @@ import {
   mergeTargetOf,
   moveMerge,
   requiresMerge,
+  reviewTestBeforeReview,
   unresolvedMerger,
 } from './merger';
 import { ProjectConfig } from './schema';
@@ -82,6 +83,24 @@ describe('requiresMerge', () => {
     expect(requiresMerge({ fullTestAtMerge: true })).toBe(false);
     expect(requiresMerge({ requireMerge: true, fullTestAtMerge: true })).toBe(true);
     expect(requiresMerge({ requireMerge: false })).toBe(false);
+  });
+});
+
+describe('reviewTestBeforeReview', () => {
+  const reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 };
+
+  it('is true for a reviewTest without fullTestAtMerge', () => {
+    expect(reviewTestBeforeReview({ reviewTest })).toBe(true);
+    expect(reviewTestBeforeReview({ reviewTest, fullTestAtMerge: false })).toBe(true);
+  });
+
+  it('is false when the full test runs at the merge', () => {
+    expect(reviewTestBeforeReview({ reviewTest, fullTestAtMerge: true })).toBe(false);
+  });
+
+  it('is false without a reviewTest', () => {
+    expect(reviewTestBeforeReview({})).toBe(false);
+    expect(reviewTestBeforeReview({ fullTestAtMerge: true })).toBe(false);
   });
 });
 

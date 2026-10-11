@@ -103,7 +103,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       }
     },
 
-    async run(spec, signal) {
+    async run(spec, signal, onStarted) {
       // Behind the machine's other heavy runs (PM-332): the wait is not part of the run, so `started`
       // (the duration and the timeout) begins when the lock is held.
       let lock: HeavyLock | undefined;
@@ -123,6 +123,8 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         }
       }
       try {
+        // The run's turn has come (or it needs none): a run stopped while it waited never starts.
+        if (!signal.aborted) onStarted?.();
         return await runLocked(spec, signal);
       } finally {
         await lock?.release();

@@ -875,15 +875,17 @@ the configured full command on the handed-over commit, PTY tests included. Other
 for targeted tests while working and one full test and type check on the handed-over commit.
 A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
 or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
-workspaces, including at hand-over and in fix rounds. This is an instruction policy; it does not
-execute a merge test or add a pipeline step. The integrator checks the card before it enters
+workspaces, including at hand-over and in fix rounds. The integrator checks the card before it enters
 the default branch, using the heavy-run queue for a full run. PM uses this mode (decision 40);
-other projects retain their existing default (absent or false). The two settings are independent:
-`fullTestAtMerge` does not disable `reviewTest`, and an available server review test retains
-precedence in the developer's instructions. Setting both requests two full checks per card,
-one before review and one before merge. To check only at merge, omit `reviewTest`. Reviewers
-without a server result also receive instructions to run only targeted tests.
-No machine boundary changes: the check runs where the integrator runs. Dependencies are
+other projects retain their existing default (absent or false). With `fullTestAtMerge: true` the
+repository's `reviewTest` runs only at the merge (PM-386, PM-489): `reviewTestBeforeReview` is false, so
+`reviewTestOf` finds no test, nothing is queued or held before review and the context carries no
+`serverFullTest`. The merge step (`Merges`, "Merge (PM-452)") runs the command once on the merge result
+before the default branch moves; a repository that merges but names no `reviewTest` blocks its merge
+(`check_unavailable`). Where `requiresMerge` is true the context says the merge step runs the full check;
+where an outside integrator merges (`fullTestAtMerge` without `requireMerge`) it keeps the integrator
+wording. Reviewers without a server result receive instructions to run only targeted tests.
+No machine boundary changes: the check runs where the integrator or the merge runs. Dependencies are
 installed only when missing from the working directory.
 
 ## Merge (PM-452)
@@ -898,7 +900,16 @@ pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.
 with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
 the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
 runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
-Conflicts and failed checks notify the merger and keep the card in place. Operational failures notify
+The check goes through two steps (PM-489): `check_waiting` while the full test waits for the machine's
+heavy-run queue (PM-332), then `checking` when the executor reports that the run holds the lock
+(`FullTestExecutor.run`'s `onStarted`; on a remote engine the `full_test_started` event, sent by the
+`full_test.run` handler like `screenshot_started`). An engine that does not send the event leaves the step at
+`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A repository with
+`fullTestAtMerge` and no `reviewTest` blocks (`check_unavailable`): nothing merges unchecked.
+`task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
+already in the default branch stays a system event.
+Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger
+to send the card back (a fix round) if the card caused it, or to retry once and then ask a human. Operational failures notify
 the AI merger or create an alert for the human merger. Calling the same tool retries under the same id.
 Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check the ordinary move rules.
 The merger never moves the card itself. Every forward move path checks the default branch before the
@@ -1010,7 +1021,8 @@ workers follow the machine's size.
   - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
-  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
+  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
+    `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge").
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
@@ -2121,8 +2133,8 @@ code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the
 who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
 picks the code reviewer when a code review stage comes before the merge target, else the developer.
 `RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
-target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
-until PM-386). The merge target is the first release stage, else the done stage. The pure rules
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, an outside integrator merging; the
+owner switches the PM project over as PM-386 plans). The merge target is the first release stage, else the done stage. The pure rules
 (`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
 `mergeReadiness`, `moveMerge`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
 The order of a move (PM-484): the merge waits for the same approval the move waits for (`mergeReadiness`

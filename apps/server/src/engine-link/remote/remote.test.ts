@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type {
+  FullTestResult,
   FullTestSpec,
   PermissionBroker,
   RunnerEvent,
@@ -516,6 +517,33 @@ describe('cloud mode remote parts', () => {
       );
       finish({ exitCode: null, timedOut: false, aborted: true, output: '' });
       await expect(run).resolves.toMatchObject({ aborted: true });
+    });
+
+    it('reports a full test started by the engine, once, and only for its own run', async () => {
+      const engine = await online();
+      let finish: (value: FullTestResult) => void = () => {};
+      engine.answer(
+        'full_test.run',
+        () =>
+          new Promise<FullTestResult>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const onStarted = vi.fn();
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const run = executor.run(fullTestSpec('f1'), new AbortController().signal, onStarted);
+      await vi.waitFor(() =>
+        expect(engine.requests.some((item) => item.method === 'full_test.run')).toBe(true),
+      );
+      await engine.emit({ kind: 'full_test_started', runId: 'other' } as never);
+      expect(onStarted).not.toHaveBeenCalled();
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' } as never);
+      expect(onStarted).toHaveBeenCalledTimes(1);
+      finish({ outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' });
+      await expect(run).resolves.toMatchObject({ outcome: 'passed' });
+      // The run is over: a late event reaches nobody.
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' } as never);
+      expect(onStarted).toHaveBeenCalledTimes(1);
     });
 
     it('sends the merge calls with the repository named and not a path, and keeps the error codes', async () => {

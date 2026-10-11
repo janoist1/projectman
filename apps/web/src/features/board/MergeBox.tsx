@@ -45,20 +45,24 @@ type StepState = 'done' | 'active' | 'todo' | 'failed';
 /** Which of the merge's steps are done, running or still to come, from the step the server reports. */
 function runningSteps(merge: TaskMergeState, check: string | null, hasPush: boolean) {
   const command = check ?? merge.check?.command ?? null;
-  const order = ['queued', 'merging', 'checking', 'pushing', 'finishing'] as const;
-  const at = order.indexOf(merge.step ?? 'queued');
+  const order = ['queued', 'merging', 'check_waiting', 'pushing', 'finishing'] as const;
+  // Waiting for the machine's test queue is the check's own row (index 2), shown with its own text.
+  const waiting = merge.step === 'check_waiting';
+  const at = order.indexOf(merge.step === 'checking' ? 'check_waiting' : (merge.step ?? 'queued'));
   const state = (own: number): StepState => (at > own ? 'done' : at === own ? 'active' : 'todo');
   const commit = merge.commit ? shortCommit(merge.commit) : merge.branch || '…';
   return [
     { id: 'merge', state: state(1), text: t('task.merge.running.merge', { commit, base: merge.base }) },
     // The row also shows when the step is the check but its command is not known (the header says it runs).
-    ...(command || merge.check || merge.step === 'checking'
+    ...(command || merge.check || merge.step === 'checking' || waiting
       ? [
           {
             id: 'check',
             state: state(2),
             text: command
-              ? t('task.merge.running.check', { check: command })
+              ? t(waiting ? 'task.merge.running.checkWaiting' : 'task.merge.running.check', {
+                  check: command,
+                })
               : t('task.merge.running.checkUnknown'),
           },
         ]

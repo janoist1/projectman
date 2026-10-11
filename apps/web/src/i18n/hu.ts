@@ -1255,6 +1255,7 @@ export const hu = {
       steps: {
         queued: 'sorra vár',
         merging: 'összefésülés',
+        check_waiting: 'a teszt sorra vár',
         checking: 'ellenőrzés fut',
         pushing: 'felküldés',
         finishing: 'lezárás',
@@ -1765,6 +1766,7 @@ export const hu = {
         by: '{who} indította.',
         merge: 'Összefésülés: {commit} → {base}',
         check: 'Ellenőrzés: {check}',
+        checkWaiting: 'A teljes teszt a gép tesztsorára vár: {check}',
         checkUnknown: 'Ellenőrzés',
         push: 'Felküldés a GitHubra',
         done: 'kész',

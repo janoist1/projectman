@@ -1722,6 +1722,53 @@ describe('expected steps', () => {
     }
   });
 
+  describe('where the project merges and the full test runs at the merge (PM-386)', () => {
+    const mergeStep =
+      "the merge step (the merger's `merge_task`) runs the full check (`custom-check --all`) on the merge result before the default branch moves";
+    const mergingProject = () => {
+      const project = buildProject();
+      const repo = project.project.repos[0]!;
+      repo.fullTestAtMerge = true;
+      repo.requireMerge = true;
+      repo.reviewTest = { command: 'custom-check --all', maxWorkers: 2, timeoutMinutes: 15 };
+      return project;
+    };
+
+    it('tells the developer the merge step runs the full check', () => {
+      const project = mergingProject();
+      const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+      const steps = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(steps).toContain(`Do not run the whole test suite: ${mergeStep}.`);
+      expect(steps).not.toContain('the integrator or merge step');
+    });
+
+    it('tells the reviewer the merge step runs the full check', () => {
+      const project = mergingProject();
+      const source = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+      const steps = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(steps).toContain(`Do not run the whole test suite: ${mergeStep}. Run only targeted tests`);
+      expect(steps).not.toContain('the integrator or merge step');
+    });
+
+    it('names the check without a command when the repository has none', () => {
+      const project = mergingProject();
+      delete project.project.repos[0]!.reviewTest;
+      const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+      expect(doneSteps(builder.build(source).appendSystemPrompt)).toContain(
+        "the merge step (the merger's `merge_task`) runs the full check on the merge result before the default branch moves.",
+      );
+    });
+
+    it('keeps the integrator wording where an outside integrator merges', () => {
+      const project = mergingProject();
+      project.project.repos[0]!.requireMerge = false;
+      const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+      const steps = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(steps).toContain('the integrator or merge step runs the full check once');
+      expect(steps).not.toContain('the merge step (the merger');
+    });
+  });
+
   it('keeps the server review test first and falls back to merge testing when unavailable', () => {
     const project = buildProject();
     project.project.repos[0]!.fullTestAtMerge = true;

@@ -701,7 +701,7 @@ export class Merges {
         if (!mergeReadiness(latest, tasks.get(row.projectKey, row.taskKey)).ready)
           return this.block(row, 'gate_changed', 'the card is no longer ready to merge');
         this.save(row, { mergeCommit: base.remote?.commit ?? base.local });
-        return this.finish(row, latest);
+        return this.finish(row, latest, true);
       }
       if (base.relation === 'local_ahead' || base.relation === 'diverged')
         return this.block(
@@ -757,8 +757,16 @@ export class Merges {
       if (!this.continue(row, running)) return;
       if (conflicts.length)
         return this.block(row, 'local_checkout', 'uncommitted files overlap the merge', conflicts.join('\n'));
+      // The full test runs at the merge and nowhere else: without a command nothing would check the work.
+      if (repo.fullTestAtMerge === true && !repo.reviewTest)
+        return this.block(
+          row,
+          'check_unavailable',
+          'the repository runs its full test at the merge (fullTestAtMerge) but names no reviewTest command',
+        );
       if (repo.reviewTest) {
-        this.save(row, { step: 'checking' });
+        // The test may wait for the machine's heavy-run queue: `checking` starts when it really runs.
+        this.save(row, { step: 'check_waiting' });
         const passed = ctx.repos.fullTestRuns
           .forCommit(task.key, commit)
           .find(
@@ -766,6 +774,7 @@ export class Merges {
           );
         if (passed && (await merger.isAncestor(ref, { ancestor: onto, commit: commit }))) {
           this.save(row, {
+            step: 'checking',
             check: { command: repo.reviewTest.command, status: 'passed', runId: passed.id, reused: true },
           });
         } else {
@@ -812,6 +821,9 @@ export class Merges {
                 }),
               },
               running.controller.signal,
+              () => {
+                if (this.continue(row, running)) this.save(row, { step: 'checking' });
+              },
             );
           } catch (err) {
             if (!this.continue(row, running)) return;
@@ -881,15 +893,18 @@ export class Merges {
     }
   }
 
-  private async finish(row: MergeRecord, config: ProjectConfig): Promise<void> {
+  /** `found`: the work was already in the default branch; that is a system event, not the starter's merge. */
+  private async finish(row: MergeRecord, config: ProjectConfig, found = false): Promise<void> {
     const { ctx, timeline, tasks } = this.deps;
+    const starter = !found && row.startedBy ? memberOf(config, row.startedBy) : undefined;
+    const actor: Actor = starter ? { kind: starter.kind, handle: starter.handle } : SYSTEM_ACTOR;
     ctx.unitOfWork(() => {
       this.save(row, { state: 'merged', step: 'finishing', finishedAt: isoNow(ctx) });
       this.clearAlert(row);
       timeline.append({
         projectKey: row.projectKey,
         taskKey: row.taskKey,
-        actor: SYSTEM_ACTOR,
+        actor,
         type: 'task_merged',
         data: { ...mergedState(row)!, mergeId: row.id },
       });
@@ -1030,11 +1045,13 @@ export class Merges {
     const text =
       row.state === 'merged'
         ? `Merge ${row.taskKey} into ${row.repo}/${row.base} completed at ${row.mergeCommit}.`
-        : row.state === 'failed'
-          ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
-          : row.state === 'blocked'
-            ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}. Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
-            : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
+        : row.state === 'failed' && row.failure!.reason === 'check_failed'
+          ? `The full check (\`${row.failure!.command ?? 'the full test'}\`) failed on the merge result of ${row.taskKey} onto ${row.base}; the default branch did not move.\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nIf the card caused it, send the card back to its work stage with update_task (a fix round) and name the failing tests; do not fix it yourself. If it is not the card's fault (it fails on the default branch too, a flaky test, the sandbox), retry once with merge_task; if it fails again, ask_human.`
+          : row.state === 'failed'
+            ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
+            : row.state === 'blocked'
+              ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}. Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
+              : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
     await this.deps.messaging.send(
       row.projectKey,
       'system',

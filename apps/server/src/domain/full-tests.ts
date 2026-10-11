@@ -1,5 +1,13 @@
 import path from 'node:path';
-import { effectiveRepo, isOpenTask, isTheme, repoOf, stageOf, stageOwners } from '@projectman/shared';
+import {
+  effectiveRepo,
+  isOpenTask,
+  isTheme,
+  repoOf,
+  reviewTestBeforeReview,
+  stageOf,
+  stageOwners,
+} from '@projectman/shared';
 import type {
   EngineId,
   FullTestCancelReason,
@@ -26,9 +34,13 @@ const MESSAGE_OUTPUT_CHARS = 3000;
 
 type ReviewTest = NonNullable<RepoConfig['reviewTest']>;
 
-/** The full test the task's repository asks for before review (PM-217); none when it is not asked for. */
+/**
+ * The full test the task's repository asks for before review (PM-217); none when it is not asked for,
+ * and none when it runs only at the merge (`fullTestAtMerge`, PM-386).
+ */
 export function reviewTestOf(config: ProjectConfig, task: Pick<Task, 'repo'>): ReviewTest | undefined {
-  return repoOf(config, effectiveRepo(config, task))?.reviewTest;
+  const repo = repoOf(config, effectiveRepo(config, task));
+  return repo && reviewTestBeforeReview(repo) ? repo.reviewTest : undefined;
 }
 
 /**

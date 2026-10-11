@@ -19,9 +19,14 @@ import type { Merger, ProjectConfig, RepoConfig } from './schema';
 type MergerConfig = Pick<ProjectConfig, 'team' | 'pipeline'>;
 type GateTask = Pick<Task, 'labels' | 'assignee' | 'links'>;
 
-/** Absent: merge unless an integrating session merges (`fullTestAtMerge`, decision 40: PM until PM-386). */
+/** Absent: merge unless an outside integrator merges (fullTestAtMerge without requireMerge, decision 40). */
 export function requiresMerge(repo: Pick<RepoConfig, 'requireMerge' | 'fullTestAtMerge'>): boolean {
   return repo.requireMerge ?? repo.fullTestAtMerge !== true;
+}
+
+/** Whether the repository's reviewTest runs before review; with fullTestAtMerge it runs only at the merge (decision 40, PM-386). */
+export function reviewTestBeforeReview(repo: Pick<RepoConfig, 'reviewTest' | 'fullTestAtMerge'>): boolean {
+  return repo.reviewTest !== undefined && repo.fullTestAtMerge !== true;
 }
 
 /** The stage a card enters with its work merged: the first release stage, else the done stage; null: none. */

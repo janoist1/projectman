@@ -392,7 +392,7 @@ function parseBody<T>(
 export type MockMergeOutcome = 'merged' | 'conflict' | 'check_failed' | 'blocked';
 
 /** The steps a running merge goes through, one `advanceMerge` each. */
-const MERGE_STEPS = ['merging', 'checking', 'pushing', 'finishing'] as const;
+const MERGE_STEPS = ['merging', 'check_waiting', 'checking', 'pushing', 'finishing'] as const;
 
 /** A stable, commit-looking id for a card's mock work. */
 function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
@@ -3710,7 +3710,7 @@ export class MockBackend {
     };
     this.closeMergeItems(task, merge.id);
     this.writeMerge(task, undefined, merged);
-    this.addTimeline(task.key, null, 'task_merged', { ...merged, mergeId: merge.id });
+    this.addTimeline(task.key, merge.startedBy ?? null, 'task_merged', { ...merged, mergeId: merge.id });
     this.mergeFixNotes.delete(taskKey);
     return undefined;
   }

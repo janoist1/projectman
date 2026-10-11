@@ -97,6 +97,7 @@ import {
   openPrerequisites,
   projectRefines,
   isWorkingOnTask,
+  isSessionAtWork,
   labelDefinition,
   labelHolders,
   memberDuties,
@@ -190,6 +191,7 @@ import {
   waitWorkers,
 } from '@projectman/shared';
 import type {
+  CapacityHolder,
   EngineStatusView,
   EngineView,
   HandoffFallbackReason,
@@ -2326,6 +2328,7 @@ export class MockBackend {
             : [],
           capacity: original.kind === 'ai' ? original.capacity : null,
           capacityUsed: original.kind === 'ai' && internal ? this.memberLoad(handle) : 0,
+          ...(original.kind === 'ai' && internal ? { capacityHolders: this.memberHolders(handle) } : {}),
           ...(original.kind === 'ai' && internal ? { usage: this.memberUsage(handle) } : {}),
           ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.role) && original.email
             ? { email: original.email }
@@ -5114,17 +5117,53 @@ export class MockBackend {
 
   /** What the member is working on now (see `isWorkingOnTask`), plus its live other chats. */
   private memberLoad(handle: string): number {
-    const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
-    const keys = new Set(
-      live.flatMap((s) => {
-        if (s.workItem.type !== 'task') return [];
-        const task = this.findTask(s.workItem.taskKey);
-        return task && isOpenTask(task) && isWorkingOnTask(this.config, task, handle, s.state)
-          ? [task.key]
-          : [];
-      }),
-    );
-    return keys.size + live.filter((s) => s.workItem.type !== 'task').length;
+    return this.memberHolders(handle).length;
+  }
+
+  /** What takes the member's places (PM-297): one element per task, one per other live session. */
+  private memberHolders(handle: string): CapacityHolder[] {
+    const holders: CapacityHolder[] = [];
+    const ofTask = new Map<string, CapacityHolder>();
+    for (const s of this.sessions) {
+      if (s.member !== handle || !this.isLive(s)) continue;
+      const working = isSessionAtWork(s, {
+        awaitsFirstTurn: false,
+        pendingInput: false,
+        messageOnItsWay: false,
+      });
+      if (s.workItem.type !== 'task') {
+        holders.push({
+          kind: s.workItem.type,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        });
+        continue;
+      }
+      const task = this.findTask(s.workItem.taskKey);
+      if (!task || !isOpenTask(task) || !isWorkingOnTask(this.config, task, handle, s.state)) continue;
+      const held = ofTask.get(task.key);
+      if (!held) {
+        const holder: CapacityHolder = {
+          kind: 'task',
+          taskKey: task.key,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        };
+        ofTask.set(task.key, holder);
+        holders.push(holder);
+        continue;
+      }
+      held.working ||= working;
+      if (s.lastActivityAt > held.lastActivityAt) {
+        held.lastActivityAt = s.lastActivityAt;
+        held.sessionId = s.id;
+      }
+    }
+    return holders;
   }
 
   /** Like the server, a session records the agent CLI it runs: the member's provider. */

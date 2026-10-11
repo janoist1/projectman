@@ -7,11 +7,13 @@ import { Avatar } from '../../components/Avatar';
 import { Button } from '../../components/Button';
 import { t } from '../../i18n/t';
 import { isApprovalRequested } from '../../lib/errors';
+import { capacityOf } from '../../lib/capacity';
 import { mergeRefusal, refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import { nameOf } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskState } from '../../lib/taskState';
+import { CapacityList } from './CapacityList';
 import { moveErrorText } from './moveTask';
 import styles from './WhyBox.module.css';
 
@@ -47,6 +49,8 @@ export function WhyBox({
   const { next, wait } = state;
   if (!next || !wait) return null;
 
+  // What holds the places of the member the card waits for (PM-297): the box lists them under its sentence.
+  const capacity = wait.reason === 'start_waiting' ? capacityOf(task.startWaiting) : null;
   const stageName = (id: string | null) => (id ? (pipeline.stageById.get(id)?.name ?? id) : '');
   const to = stageName(next.toStageId);
   const here = stageName(task.stageId);
@@ -130,7 +134,15 @@ export function WhyBox({
         </div>
         <div className={styles.row}>
           <dt>{t('task.whyBox.waiting')}</dt>
-          <dd>{next.long}</dd>
+          <dd>
+            {next.long}
+            {capacity ? (
+              <CapacityList
+                capacity={capacity}
+                memberName={nameOf(task.startWaiting?.member ?? '', members, myHandle)}
+              />
+            ) : null}
+          </dd>
         </div>
         {to ? (
           <div className={styles.row}>

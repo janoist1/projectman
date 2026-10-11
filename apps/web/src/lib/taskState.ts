@@ -24,6 +24,7 @@ import type {
 } from '@projectman/shared';
 import { formatAge, formatStamp } from '../i18n/format';
 import { joinAlternatives, joinNames, t } from '../i18n/t';
+import { capacityHint, capacityOf, capacityReason } from './capacity';
 import { decidesFixLimit, fixLimitStatus } from './fixLimit';
 import { isAssignedTo, openItems, permissionCommand, shortCommand } from './inbox';
 import { labelName } from './labels';
@@ -303,6 +304,10 @@ export function startWaitingHint(task: Task, members: MemberIndex, myHandle: str
           name: nameOf(waiting.waitDecidedBy, members, myHandle),
         });
   }
+  // What holds the member's places says what happens and when (PM-297); without holders it is today's tip.
+  const capacity = capacityOf(waiting);
+  if (capacity)
+    return capacityHint(capacity, waiting.member ? nameOf(waiting.member, members, myHandle) : '');
   return t(`taskStatus.startHints.${waiting.reason}`, {
     minCliVersion: CODEX_PERMISSION_PROFILE_MIN_VERSION,
   });
@@ -321,6 +326,13 @@ export function startWaitingText(
     return t('taskStatus.startWaiting.provider_rate_limited_unknown');
   if (waiting.reason === 'engine_offline' && !waiting.engine)
     return t('taskStatus.startWaiting.engine_offline_none');
+  const name = waiting.member
+    ? nameOf(waiting.member, ctx.members, ctx.myHandle)
+    : t('taskStatus.stageOwners');
+  // One thing holds the member's place: the sentence says what (PM-297); several, or no data: "tele van".
+  const capacity = capacityOf(waiting);
+  const what = capacity ? capacityReason(capacity) : null;
+  if (what) return t('taskStatus.startWaiting.capacityOne', { name, what });
   return t(`taskStatus.startWaiting.${waiting.reason}`, {
     provider: t(`providers.${waiting.provider ?? DEFAULT_AGENT_PROVIDER}`),
     engine: waiting.engine ? (ctx.engineNames?.get(waiting.engine) ?? waiting.engine) : '',
@@ -328,7 +340,7 @@ export function startWaitingText(
     until: waiting.until ? formatStamp(waiting.until) : '',
     prerequisites: (waiting.prerequisites ?? []).join(', '),
     labels: (waiting.labels ?? []).map((id) => labelName(id, ctx.labels ?? [])).join(', '),
-    name: waiting.member ? nameOf(waiting.member, ctx.members, ctx.myHandle) : t('taskStatus.stageOwners'),
+    name,
   });
 }
 

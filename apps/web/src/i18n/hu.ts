@@ -1182,6 +1182,10 @@ export const hu = {
     teamLink: 'Csapat',
     /** The accessible name of a chip: the member and the card or cards they work on. */
     workingChip: '{name}: {cards}',
+    /** A card waits for the member's place (PM-297): the chip's mark and the accessible name's end. */
+    waitedFor: '{key} vár rá',
+    waitedForMany: '{count} kártya vár rá',
+    waitedForChip: '{name}: {holders} · {waiting}',
     doneAll: 'Mind ({count})',
     doneFewer: 'Kevesebb',
     /** The Done column keeps the order of closing: no insertion line, no manual order (PM-118). */
@@ -1286,6 +1290,8 @@ export const hu = {
       ai_disabled: 'Indulásra vár: az AI-munka ki van kapcsolva',
       team_paused: 'Indulásra vár: a csapat szünetel',
       member_at_capacity: 'Indulásra vár: {name} tele van',
+      /** One thing holds the member's place (PM-297): `what` is "még beszélget", "még dolgozik (PM-12)"… */
+      capacityOne: 'Indulásra vár: {name} {what}',
       member_on_leave: 'Indulásra vár: {name} szabadságon van',
       repo_required: 'Válassz repót a feladathoz',
       workspace_busy: 'Indulásra vár: {name} munkaállomásán más feladat fut',
@@ -1306,7 +1312,25 @@ export const hu = {
       workspace_codex_config: 'Indulásra vár: a munkafa .codex mappájában nem engedélyezett beállítás van',
     },
     stageOwners: 'a lépés összes felelőse',
+    /** What holds a member's place, in running text: the strip, the profile (PM-297). */
+    capacityNames: {
+      general: 'általános beszélgetés',
+      schedule: 'ütemezett futás',
+      meeting: 'megbeszélés',
+      taskHidden: 'egy másik kártya',
+    },
     startHints: {
+      /** The card waits for the places of the member, by what holds them (PM-297); `n` is the silence limit. */
+      capacity: {
+        general: 'A beszélgetés {n} perc csend után magától lezárul, és a kártya elindul.',
+        schedule: 'Az ütemezett futás {n} perc csend után magától lezárul, és a kártya elindul.',
+        meeting: 'A megbeszélés végéig foglalja a helyet; utána a kártya magától elindul.',
+        task: 'A kártya magától elindul, amint {name} végez a mostani lépésével.',
+        several:
+          'A kártya magától elindul, amint {name} egyik helye felszabadul. Ami {n} percig csendes, magától lezárul.',
+      },
+      capacityAt: 'Ha addig senki nem ír bele, {time} körül indul.',
+      capacitySoon: 'Hamarosan indul.',
       workspace_codex_config:
         'A Codex a munkafa .codex mappáját megbízhatóként tölti be, és az ottani hookok, MCP-szerverek és szabályok a homokozón kívül futnának. Töröld a mappát a feladat ágáról, vagy hagyj benne csak egy config.toml-t modellbeállításokkal. A munka ezután magától elindul (a szerver félpercenként újrapróbálja). A szerver naplója megnevezi a fájlt és a kulcsokat.',
       provider_rate_limited:
@@ -1371,6 +1395,14 @@ export const hu = {
       title: 'Ki: {head} · Mire vár: {waiting} · Teendő: {todo}',
       noTodo: 'semmi',
       senior: 'Senior fejlesztő',
+      /** What holds the only place of the member the card waits for, after the name (PM-297). */
+      capacityKinds: {
+        general: 'még beszélget',
+        schedule: 'ütemezett futása tart',
+        meeting: 'megbeszélésen van',
+        task: 'még dolgozik ({keys})',
+        taskHidden: 'még dolgozik egy másik kártyán',
+      },
       /** What waits when the start waits: a short sentence per reason (the box adds the long one). */
       startReasons: {
         ai_limit_reached: 'túl sok AI dolgozik',
@@ -1485,6 +1517,7 @@ export const hu = {
       },
       todo: {
         auto: 'Semmit: magától sorra kerül. Ha sürgős, a Csapat oldalon látod, mi foglalja.',
+        capacity: 'Semmit. {hint}',
         nothing: 'Semmit: magától halad.',
         handOn: 'Semmit: {mover} intézi.',
         handOnYou: 'Nézd meg, és vidd tovább.',
@@ -1636,6 +1669,21 @@ export const hu = {
       route: '{from} → {to}',
       move: 'Tovább: {stage}',
       moving: 'Továbbviszem…',
+      /** What holds the places of the member the card waits for (PM-297). */
+      capacityOne: 'A helyét ez foglalja:',
+      capacityMany: 'Mind a {max} helye foglalt, ezek foglalják:',
+      capacityList: 'Ami {name} helyét foglalja',
+      capacityWorking: 'most dolgozik',
+      capacityLastEntry: 'utolsó bejegyzés {ago}',
+      capacityMeeting: '{ago} tart',
+      /** The name and the meta in one, the accessible name of a row that is a link. */
+      capacityLink: '{what}, {meta}',
+      capacityRow: {
+        general: 'Általános beszélgetés',
+        schedule: 'Ütemezett futás',
+        meeting: 'Megbeszélés',
+        taskHidden: 'Egy másik kártya',
+      },
     },
     editTitle: 'Cím szerkesztése',
     editDescription: 'Leírás szerkesztése',
@@ -4245,6 +4293,12 @@ export const hu = {
     waiting: 'Döntésére vár',
     email: 'E-mail',
     capacity: 'Kapacitás: {used} / {max}',
+    /** A card waits for this member's place (PM-297). */
+    full: 'Tele van.',
+    fullOf: 'Tele van ({used}/{max}).',
+    fullWaiting: 'Erre vár:',
+    fullHolders: 'A helyét foglalja:',
+    fullMeta: '({meta})',
     conversation: 'Beszélgetés indítása',
     remove: 'Tag eltávolítása',
     removeConfirm: 'Eltávolítod ezt a csapattagot: {name}?',

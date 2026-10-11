@@ -2813,6 +2813,8 @@ export const hu = {
     openPdf: 'PDF megnyitása',
     openPdfLabel: '{fileName} megnyitása új lapon',
     previewOf: 'A csatolmány előnézete: {fileName}',
+    imageFailed: 'A kép nem tölthető be.',
+    imageFailedHint: 'Lehet, hogy közben törölték a kártyáról.',
     queued: 'Sorban áll',
     uploading: 'Feltöltés…',
     uploadingLabel: '{fileName} feltöltése',
@@ -3344,6 +3346,15 @@ export const hu = {
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',
     answerOwn: 'Saját válasz',
+    /** The files a question names (PM-498): tiles that open or download them. */
+    attachments: {
+      title: 'Csatolmányok a válaszhoz',
+      gone: 'már nem elérhető',
+      goneLabel: '{fileName}: már nem elérhető, a kártyáról törölték',
+      goneTitle: 'A fájlt a kérdés óta törölték a kártyáról.',
+      /** The end of a tile's label when the file is on the parent card. */
+      fromCard: ', a {key} kártyáról',
+    },
     answerRequired: 'Írj választ, vagy válassz egy lehetőséget.',
     recent: 'Mostanában döntöttél',
     resolveFailed: 'Nem ment át a döntés. Próbáld újra.',

@@ -68,6 +68,7 @@ import {
   unknownPatchRepo,
   approvalRefusal,
   attachmentPreviewOf,
+  withQuestionAttachmentGone,
   canDeleteAttachment,
   canReadAttachments,
   canSeeTask,
@@ -716,6 +717,19 @@ export class MockBackend {
       taskKey: attachment.taskKey,
     });
     this.syncCover(attachment.taskKey);
+    this.markQuestionAttachmentGone(id);
+  }
+
+  /** Every item that names the deleted file, open or answered, marks it gone and is published again (as the server does). */
+  private markQuestionAttachmentGone(attachmentId: string): void {
+    const at = nowIso();
+    this.inbox = this.inbox.map((item) => {
+      const payload = withQuestionAttachmentGone(item.payload, attachmentId, at);
+      if (!payload) return item;
+      const updated = { ...item, payload };
+      this.emit({ type: 'inbox_upserted', projectKey: item.projectKey, item: clone(updated) });
+      return updated;
+    });
   }
 
   /** A session that has not exited or failed. */

@@ -200,3 +200,31 @@
   margin: 0 auto;
   object-fit: contain;
 }
+
+/* In place of an image that did not load (deleted since, or the route answered an error). */
+.imageFailed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--c-ink-4);
+}
+
+.imageFailedTitle,
+.imageFailedHint {
+  margin: 0;
+}
+
+.imageFailedTitle {
+  margin-top: 4px;
+  font-size: var(--text-md);
+  font-weight: 700;
+  color: var(--c-ink-2);
+}
+
+.imageFailedHint {
+  font-size: var(--text-sm);
+  color: var(--c-ink-3);
+}

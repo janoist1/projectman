@@ -213,13 +213,16 @@ export class FeedbackService {
     const { projectKey, request } = input;
     const config = await this.projects.config(projectKey);
     const member = memberOf(config, input.author);
-    if (!member) throw forbidden('feedback_not_allowed', 'you are not a member of this project');
+    if (!member)
+      throw forbidden('feedback_not_allowed', 'you are not a member of this project', {
+        reason: 'not_human',
+      });
     const refusal = feedbackMarkRefusal(config, member);
     if (refusal === 'no_surface')
       throw new DomainError('feedback_not_configured', 'this project has no feedback surface', {
         status: 409,
       });
-    if (refusal) throw forbidden('feedback_not_allowed', 'you may not make marks here');
+    if (refusal) throw forbidden('feedback_not_allowed', 'you may not make marks here', { reason: refusal });
     const surface = config.project.feedback?.surfaces.find((s) => s.id === input.surfaceId);
     if (!surface) throw new DomainError('feedback_surface_not_found', 'unknown surface', { status: 404 });
     let page: URL;
@@ -279,7 +282,9 @@ export class FeedbackService {
       // Other people comment as the marker does: a human who is not a viewer and not blocked.
       if (viewer.member.kind !== 'human') throw this.refusal('feedback_processor_only');
       if (viewer.access === 'viewer' || this.blocked(viewer))
-        throw forbidden('feedback_not_allowed', 'you may not comment on marks');
+        throw forbidden('feedback_not_allowed', 'you may not comment on marks', {
+          reason: viewer.access === 'viewer' ? 'viewer' : 'blocked',
+        });
     }
     return this.marks.run(markId, async () => {
       const mark = this.requireMark(projectKey, markId);
@@ -414,7 +419,7 @@ export class FeedbackService {
       throw new DomainError('feedback_not_configured', 'this project has no feedback surface', {
         status: 409,
       });
-    if (refusal) throw forbidden('feedback_not_allowed', 'you may not make marks here');
+    if (refusal) throw forbidden('feedback_not_allowed', 'you may not make marks here', { reason: refusal });
     const surface = viewer.config.project.feedback?.surfaces.find((s) => s.id === request.surfaceId);
     if (!surface) throw new DomainError('feedback_surface_not_found', 'unknown surface', { status: 404 });
     const origin = normalizeFeedbackOrigin(surface.origin) ?? surface.origin;

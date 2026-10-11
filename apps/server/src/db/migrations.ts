@@ -1084,6 +1084,8 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
       member TEXT NOT NULL,
       mark_id TEXT NOT NULL,
       read_at TEXT NOT NULL,
+      -- The last thread entry the member saw (rowid order, so entries made within one millisecond count).
+      last_event_rowid INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (project_key, member, mark_id)
     );`,
   },

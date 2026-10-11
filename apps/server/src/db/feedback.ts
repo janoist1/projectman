@@ -276,7 +276,7 @@ export function createFeedbackRepository(db: Db) {
       `SELECT m.id AS id,
          COALESCE(SUM(e.type = 'comment'), 0) AS comments,
          MAX(e.created_at) AS last_at,
-         COALESCE(SUM(e.actor <> @viewer AND e.created_at > COALESCE(r.read_at, m.created_at)), 0) AS unread
+         COALESCE(SUM(e.actor <> @viewer AND e.rowid > COALESCE(r.last_event_rowid, 0)), 0) AS unread
        FROM feedback_marks m
        LEFT JOIN feedback_events e ON e.mark_id = m.id
        LEFT JOIN feedback_reads r
@@ -285,8 +285,11 @@ export function createFeedbackRepository(db: Db) {
        GROUP BY m.id`,
     ),
     markRead: db.prepare(
-      `INSERT INTO feedback_reads (project_key, member, mark_id, read_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT (project_key, member, mark_id) DO UPDATE SET read_at = excluded.read_at`,
+      `INSERT INTO feedback_reads (project_key, member, mark_id, read_at, last_event_rowid)
+       VALUES (@project, @member, @mark, @at,
+         (SELECT COALESCE(MAX(rowid), 0) FROM feedback_events WHERE mark_id = @mark))
+       ON CONFLICT (project_key, member, mark_id) DO UPDATE
+         SET read_at = excluded.read_at, last_event_rowid = excluded.last_event_rowid`,
     ),
     todoOf: db.prepare(
       `SELECT COUNT(*) AS n FROM feedback_marks
@@ -302,7 +305,7 @@ export function createFeedbackRepository(db: Db) {
          LEFT JOIN feedback_reads r
            ON r.project_key = m.project_key AND r.mark_id = m.id AND r.member = @viewer
          WHERE e.mark_id = m.id AND e.actor <> @viewer
-           AND e.created_at > COALESCE(r.read_at, m.created_at))`,
+           AND e.rowid > COALESCE(r.last_event_rowid, 0))`,
     ),
     lastByAuthor: db.prepare(
       `SELECT author AS k, MAX(created_at) AS at FROM feedback_marks WHERE project_key = ? GROUP BY author`,
@@ -414,7 +417,7 @@ export function createFeedbackRepository(db: Db) {
       );
     },
     markRead(projectKey: string, member: string, markId: string, at: string): void {
-      statements.markRead.run(projectKey, member, markId, at);
+      statements.markRead.run({ project: projectKey, member, mark: markId, at });
     },
     /** Marks that wait for a decision; `exceptAuthor` leaves out a person's own. */
     todoCount(projectKey: string, exceptAuthor: string | null): number {

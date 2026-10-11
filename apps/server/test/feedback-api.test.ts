@@ -139,6 +139,7 @@ describe('feedback marks API (PM-506)', () => {
       const viewer = await launch(cookies.viewer!, { surfaceId: 'shop' });
       expect(viewer.statusCode).toBe(403);
       expect(errorCode(viewer)).toBe('feedback_not_allowed');
+      expect(viewer.json().error.details).toEqual({ reason: 'viewer' });
       const unknown = await launch(cookies.client!, { surfaceId: 'nope' });
       expect(unknown.statusCode).toBe(404);
       expect(errorCode(unknown)).toBe('feedback_surface_not_found');
@@ -285,7 +286,7 @@ describe('feedback marks API (PM-506)', () => {
           surfaceId: 'shop',
           request: await request(),
         }),
-      ).rejects.toMatchObject({ code: 'feedback_not_allowed' });
+      ).rejects.toMatchObject({ code: 'feedback_not_allowed', details: { reason: 'viewer' } });
       expect(existsSync(join(h.home, 'feedback', 'AR'))).toBe(false);
     });
 

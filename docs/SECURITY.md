@@ -271,6 +271,33 @@ card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry be
 is outside this change. On remote engines inspection must run beside the CLI, returning only
 relative file/key names to the server.
 
+## Operator actions and approvals (PM-464)
+
+The Operator's `operate` and `start_task` tools require its own session and an open
+owner request. Configuration commits carry internal `operatorRequestId` provenance;
+`assertCommitAllowed` verifies the request's project and Operator attribution and runs
+`operatorConfigVerdict` under the configuration commit lock. Forbidden changes are refused;
+restricted changes require the matching open approval and its exact change rows.
+
+Only a project owner using their own login can approve, reject or dismiss an Operator
+proposal. Integrator (`via`) and AI decisions receive 403. Approval replays the stored
+operation against current configuration and compares its before/after rows. Session
+stops require the same running session ID and start time; pause changes require the
+same pause state. Changed proposals become stale, execute nothing and remain open
+with only `dismiss` available. Configuration commits, session endings and pause changes
+also trigger proactive checks. The Operator cannot stop its own session.
+
+`start_task` may override prerequisites with `despitePrerequisites`, just as the owner's
+Start button does, but cannot override a fix-limit hold. Policy-controlled temporary
+worker hiring uses `SYSTEM_ACTOR` and `SYSTEM_AUTHOR`, sponsored by the requesting
+owner, within the configured role and count limits. Permanent Operator hiring follows
+the configuration verdict and approval path.
+
+Configuration history reads attribution only from the final trailer block. Commit
+creation quotes user-supplied `Projectman-` lines, so a patch message cannot forge
+Operator approval or hide integrator attribution. Attribution fields come from internal
+author metadata, never from the HTTP request body.
+
 ## Automatic command decisions
 
 PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)

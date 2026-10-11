@@ -33,6 +33,7 @@ export * from './domain/handoff';
 export * from './domain/project-focus';
 export * from './chat/chat';
 export * from './config/schema';
+export * from './config/canonical';
 export * from './config/invariants';
 export * from './api/dto';
 export * from './api/routes';

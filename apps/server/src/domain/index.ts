@@ -70,6 +70,7 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { Merges } from './merges';
@@ -823,10 +824,27 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
+  const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
+  const operatorActions = new OperatorActions(operatorDeps);
+  const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
+  operatorActions.useApprovals(operatorApprovals);
+  inbox.useOperatorDecision((item, by, optionId) => operatorApprovals.apply(item, by, optionId));
+  const recheckOperatorApprovals = ({ projectKey }: { projectKey: string }): void => {
+    if (!operatorApprovals.hasPending(projectKey)) return;
+    background.run(
+      () => operatorApprovals.recheck(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator approval recheck failed'),
+    );
+  };
+  events.on('config_changed', recheckOperatorApprovals);
+  events.on('session_ended', recheckOperatorApprovals);
+  events.on('pause_changed', recheckOperatorApprovals);
   const teamTools = new TeamToolsService({
     merges,
     operatorRequests,
     operatorSteps,
+    operatorActions,
+    taskStarts,
     taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
@@ -1296,6 +1314,8 @@ export function createDomain(opts: DomainOptions) {
     messages,
     messaging,
     sessionCloser,
+    operatorActions,
+    operatorApprovals,
     tasks,
     attachments,
     members,

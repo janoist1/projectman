@@ -386,6 +386,11 @@ describe('the card row of an inbox item (PM-501)', () => {
 
     await drawer();
     await waitFor(() => expect(document.title).toContain('AC-22'));
+
+    fireEvent.click(within(await drawer()).getByRole('button', { name: t('common.close') }));
+    await waitFor(() => expect(where()).toBe('/p/AC/inbox'));
+    await waitFor(() => expect(document.title).not.toContain('AC-22'));
+    expect(document.title).toContain(t('inbox.title'));
   });
 
   it('closes back to the inbox on ✕ and on Esc, with the focus on the link and the started answer kept', async () => {

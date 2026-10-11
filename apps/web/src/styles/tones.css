@@ -24,6 +24,10 @@
   --tone-fg: var(--role-pm-fg);
   --tone-bg: var(--role-pm-bg);
 }
+[data-tone='operator'] {
+  --tone-fg: var(--role-operator-fg);
+  --tone-bg: var(--role-operator-bg);
+}
 [data-tone='frontend'] {
   --tone-fg: var(--role-frontend-fg);
   --tone-bg: var(--role-frontend-bg);

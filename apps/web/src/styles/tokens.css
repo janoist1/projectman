@@ -161,6 +161,9 @@
   --role-human-bg: #f1eee6;
   --role-owner-fg: #f5f4ef;
   --role-owner-bg: #191916;
+  /* The Operator (PM-447): purple, the --column-purple values, so it never reads as the project manager's blue. */
+  --role-operator-fg: #6b21a8;
+  --role-operator-bg: #efe8f8;
   --role-system-fg: #3f3e3a;
   --role-system-bg: #eeede8;
 
@@ -304,6 +307,8 @@
     --role-human-bg: #2f2a1c;
     --role-owner-fg: #141412;
     --role-owner-bg: #f2f1ec;
+    --role-operator-fg: #d9bdf2;
+    --role-operator-bg: #2a1a3d;
     --role-system-fg: #dbd9d1;
     --role-system-bg: #2a2a26;
 

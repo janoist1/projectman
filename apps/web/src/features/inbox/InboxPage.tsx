@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { useMemo, useState } from 'react';
 import { InboxKind } from '@projectman/shared';
+import { operatorApprovalOf } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { useBoard, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
@@ -31,6 +32,7 @@ import {
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { moveErrorText } from '../board/moveTask';
+import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
 import { FoldedCommand } from './PermissionParts';
 import styles from './InboxPage.module.css';
@@ -248,19 +250,29 @@ export function InboxPage() {
                   ? moveErrorText(resolve.error, board.data?.labels ?? [])
                   : null
               }
+              stale={
+                // A stale Operator approval says so on its card, not in a toast.
+                operatorApprovalOf(item) !== null &&
+                resolve.isError &&
+                resolve.variables?.item.id === item.id &&
+                isStaleError(resolve.error)
+              }
               onResolve={(target, body) =>
                 resolve.mutate(
                   { item: target, body },
                   {
-                    onSuccess: () =>
-                      toast.show(
-                        target.kind === 'hand_on'
-                          ? handOnToast(target, pipeline)
-                          : decisionToast(target, body.optionId, myHandle),
-                        'ok',
-                      ),
-                    onError: () => {
-                      if (target.kind !== 'hand_on') toast.show(t('inbox.resolveFailed'), 'error');
+                    onSuccess: () => {
+                      const text =
+                        operatorApprovalOf(target) !== null
+                          ? operatorDecisionToast(target, body.optionId)
+                          : target.kind === 'hand_on'
+                            ? handOnToast(target, pipeline)
+                            : decisionToast(target, body.optionId, myHandle);
+                      if (text) toast.show(text, 'ok');
+                    },
+                    onError: (error) => {
+                      if (target.kind !== 'hand_on' && !isStaleError(error))
+                        toast.show(t('inbox.resolveFailed'), 'error');
                     },
                   },
                 )

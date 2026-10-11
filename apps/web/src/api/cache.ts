@@ -13,7 +13,7 @@ import type {
   Task,
   TaskDetail,
 } from '@projectman/shared';
-import { withSessionWork } from '@projectman/shared';
+import { operatorApprovalOf, withSessionWork } from '@projectman/shared';
 import { openItemsFor } from '../lib/inbox';
 import { ApiError } from './client';
 import { queryKeys } from './queryKeys';
@@ -113,7 +113,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.profiles(event.projectKey) });
   }
-  // The project manager's channel state follows these (PM-434 adds no event of its own).
+  // The project manager's channel state follows these (PM-434 adds no event of its own). The Operator's
+  // channel adds the Operator's steps, which an approval in the inbox settles (`inbox_upserted`).
   if (
     'projectKey' in event &&
     [
@@ -127,6 +128,10 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     ].includes(event.type)
   ) {
     void client.invalidateQueries({ queryKey: queryKeys.projectManager(event.projectKey) });
+    void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
+  }
+  if ('projectKey' in event && event.type === 'inbox_upserted' && operatorApprovalOf(event.item)) {
+    void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
   }
   switch (event.type) {
     case 'task_upserted': {
@@ -256,6 +261,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     case 'team_message': {
       // The feed, its unread count, the threads and the unread list all change: refetch them.
       void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
+      return;
+    }
+    case 'operator_signal': {
+      // A signal opened or was decided or resolved: the corner's channel carries it (PM-476).
+      void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });
       return;
     }
     case 'chat_appended': {

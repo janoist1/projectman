@@ -13,6 +13,7 @@ import {
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
+import { Chip } from '../../components/Chip';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { LeaveChip } from '../../components/LeaveChip';
 import { Markdown } from '../../components/Markdown';
@@ -284,7 +285,17 @@ export function ConversationThread({
             <span className={styles.nameText}>{name}</span>
             <LeaveChip member={member} />
           </div>
-          <div className={styles.role}>{roleLabel(member, roles)}</div>
+          <div className={styles.role}>
+            {roleLabel(member, roles)}
+            {marksOnly ? (
+              <>
+                {' '}
+                <Chip tone="accent" title={t('pm.distributorTitle')}>
+                  {t('pm.distributor')}
+                </Chip>
+              </>
+            ) : null}
+          </div>
         </div>
         {member ? (
           <ButtonLink to={`/p/${key}/team/${peer}`} variant="ghost" size="sm">
@@ -319,7 +330,9 @@ export function ConversationThread({
                 <p className={styles.emptyBody}>
                   {member?.kind === 'human'
                     ? t('messages.thread.emptyHuman')
-                    : t(marksOnly ? 'messages.thread.emptyMarkBody' : 'messages.thread.emptyBody')}
+                    : marksOnly
+                      ? t('pm.emptyThread')
+                      : t('messages.thread.emptyBody')}
                 </p>
               </div>
             ) : (

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { OPERATOR_ROLE } from '@projectman/shared';
 import type { RoleView } from '@projectman/shared';
 import { builtInRoles } from '../mocks/fixtures';
 import { aiRoleView, hireableRoles, humanRoleName, roleView } from './roles';
@@ -45,6 +46,11 @@ describe('role data mapping', () => {
       hireableRoles([...builtInRoles, custom, { ...custom, id: 'human_lead', holders: 'human' }]).map(
         (role) => role.id,
       ),
-    ).toEqual([...builtInRoles.filter((role) => role.holders !== 'human').map((role) => role.id), custom.id]);
+    ).toEqual([
+      ...builtInRoles
+        .filter((role) => role.holders !== 'human' && role.id !== OPERATOR_ROLE)
+        .map((role) => role.id),
+      custom.id,
+    ]);
   });
 });

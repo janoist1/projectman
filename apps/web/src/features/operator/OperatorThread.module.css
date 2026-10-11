@@ -125,6 +125,23 @@
   color: var(--c-ink-2);
 }
 
+/* Steps under the message they belong to, in line with the Operator's bubbles (after the 28px avatar slot). */
+.extra {
+  margin: 6px 0 0 36px;
+  min-width: 0;
+}
+
+.transition {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-line-soft);
+}
+
+.transitionLink {
+  font-weight: 800;
+  color: var(--c-accent-text);
+}
+
 .examples {
   margin-top: 14px;
   display: flex;

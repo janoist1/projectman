@@ -8,7 +8,9 @@ import {
   DEFAULT_AGENT_PROVIDER,
   effortForProvider,
   hasPlanUsage,
+  isOperator,
   mergeTokenUsage,
+  PROJECT_MANAGER_ROLE,
   roleBundle,
 } from '@projectman/shared';
 import type { SchedulesView, Session, TeamMessage } from '@projectman/shared';
@@ -16,7 +18,6 @@ import {
   useBoard,
   useProviders,
   useConfig,
-  useProjectManagerChannel,
   useSchedules,
   useLabels,
   useMemberMemories,
@@ -31,7 +32,7 @@ import {
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { PlanUsageMeter } from '../../app/PlanUsageMeter';
 import { Avatar } from '../../components/Avatar';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import { Dialog } from '../../components/Dialog';
 import { Fold } from '../../components/Fold';
 import { Icon } from '../../components/Icon';
@@ -55,7 +56,7 @@ import { describeCron } from '../../lib/schedules';
 import { MessageComposer } from '../messages/MessageComposer';
 import { MessageList } from '../messages/MessageList';
 import { usePausedRows, useHeldStart, useTeamPaused } from '../pause/usePause';
-import { useIsRequiredPm } from '../pm/useRequiredPm';
+import { useIsRequiredPm } from '../operator/useRequiredMember';
 import { ChatView } from '../session/ChatView';
 import { EditMemberDialog } from './EditMemberDialog';
 import { ProviderWarning } from './ProviderWarning';
@@ -112,9 +113,8 @@ function MemberSchedule({
 
 export function MemberProfilePage() {
   const { handle = '' } = useParams();
-  const { key, myHandle, can, me, openPm } = useProject();
+  const { key, myHandle, can, me, openOperator } = useProject();
   const navigate = useNavigate();
-  const isChannelPm = useProjectManagerChannel(key, can.createTasks).data?.member?.handle === handle;
   const requiredPm = useIsRequiredPm(handle);
   const profile = useMemberProfile(key, handle);
   const board = useBoard(key);
@@ -150,6 +150,8 @@ export function MemberProfilePage() {
   const providerStatus = providers.data?.providers.find((entry) => entry.provider === provider);
   const effort = effortForProvider(provider, member.effort);
   const ai = member.kind === 'ai';
+  const builtInOperator = isOperator(member);
+  const isPm = ai && member.role === PROJECT_MANAGER_ROLE;
   const cheapSubagent = cheapSubagentOf(member);
   const ownConfig = config.data?.config.team.members.find((entry) => entry.handle === handle);
   const status = memberStatusView(member, data.inbox, myHandle, pausedRows);
@@ -203,6 +205,14 @@ export function MemberProfilePage() {
                 ·{' '}
               </>
             ) : null}
+            {builtInOperator ? (
+              <>
+                <Chip tone="accent" title={t('operator.builtIn.title')}>
+                  {t('operator.builtIn.chip')}
+                </Chip>{' '}
+                ·{' '}
+              </>
+            ) : null}
             <span>
               {status.reason
                 ? t('memberStatus.cannotWorkWithReason', { reason: status.reason })
@@ -215,11 +225,16 @@ export function MemberProfilePage() {
           {ai && member.onLeave && can.manageTeam ? <LeaveButton member={member} variant="primary" /> : null}
           {ai && !member.onLeave && can.workInSessions ? (
             <span className={styles.heldStart}>
-              {isChannelPm ? (
-                // The project manager has its one conversation, in the header panel (PM-429).
-                <Button variant="primary" onClick={(event) => openPm(event.currentTarget)}>
+              {builtInOperator ? (
+                // The Operator has its one conversation, in the corner panel (PM-447).
+                <Button variant="primary" onClick={(event) => openOperator(event.currentTarget)}>
                   {t('profile.conversation')}
                 </Button>
+              ) : isPm ? (
+                // The project manager is a member of the Messages page like any other (PM-447).
+                <ButtonLink to={`/p/${key}/messages/with/${handle}`} variant="primary">
+                  {t('profile.conversation')}
+                </ButtonLink>
               ) : (
                 <>
                   <Button
@@ -401,7 +416,7 @@ export function MemberProfilePage() {
               </p>
             ) : null}
             <p>{t('profile.capacity', { used: data.capacityUsed, max: data.capacity ?? 0 })}</p>
-            <PermissionLevelControl member={member} />
+            {builtInOperator ? null : <PermissionLevelControl member={member} />}
             {hasPlanUsage(member.provider ?? DEFAULT_AGENT_PROVIDER) ? (
               <PlanUsageMeter
                 provider={member.provider ?? DEFAULT_AGENT_PROVIDER}

@@ -40,6 +40,7 @@ const BUILT_IN_OPTIONS = [
   'wait_for_senior',
   'any_developer',
   'move',
+  'dismiss',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 

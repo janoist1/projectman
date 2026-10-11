@@ -71,13 +71,7 @@
 
 .dot_working {
   background: var(--c-accent);
-  animation: pm-dot-pulse 1.4s ease-in-out infinite;
-}
-
-/* On leave: a hollow ring. */
-.dot_leave {
-  background: var(--c-surface);
-  border: 2px solid var(--c-ink-3);
+  animation: operator-dot-pulse 1.4s ease-in-out infinite;
 }
 
 .dot_waiting {
@@ -96,11 +90,46 @@
   border: 2px solid var(--c-surface);
 }
 
+/* The owner's open signals: a number on the avatar; it shakes once (600 ms) when it appears. */
+.signals {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border-radius: 8px;
+  border: 2px solid var(--c-surface);
+  background: var(--c-needs);
+  color: var(--c-surface);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  animation: operator-signals-shake 600ms ease-in-out 1;
+}
+
 .narrow {
   display: none;
 }
 
-@keyframes pm-dot-pulse {
+@keyframes operator-signals-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-2px);
+  }
+  40%,
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+@keyframes operator-dot-pulse {
   0%,
   100% {
     opacity: 1;
@@ -110,7 +139,7 @@
   }
 }
 
-/* The label sheds width in steps: name, then "PM", then the avatar only. */
+/* The label sheds width in steps: name, then "Op", then the avatar only. */
 @media (max-width: 1499px) {
   .wide {
     display: none;
@@ -132,7 +161,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .dot_working {
+  .dot_working,
+  .signals {
     animation: none;
   }
 }

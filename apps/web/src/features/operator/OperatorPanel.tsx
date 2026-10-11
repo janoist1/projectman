@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent, RefObject } from 'react';
 import { Link, useLocation, useMatch } from 'react-router';
+import { canSeeOperatorSessions } from '@projectman/shared';
 import { useBoard, useSendTeamMessage } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
@@ -11,30 +12,35 @@ import { ErrorState } from '../../components/States';
 import { t } from '../../i18n/t';
 import { useIsMobile } from '../../lib/hooks';
 import { Composer } from '../session/Composer';
-import { PmThread } from './PmThread';
-import type { FailedPmMessage } from './PmThread';
-import { PmWaitBanner } from './PmWaitBanner';
-import { pmStatusText } from './pmChannel';
-import { usePm } from './usePm';
-import styles from './PmPanel.module.css';
+import { OperatorThread } from './OperatorThread';
+import type { FailedOperatorMessage } from './OperatorThread';
+import { OperatorWaitBanner } from './OperatorWaitBanner';
+import { operatorStatusText } from './operatorChannel';
+import { useOperator } from './useOperator';
+import styles from './OperatorPanel.module.css';
 
-/** The panel's width on a desktop screen (the same as in PmPanel.module.css): an open card makes room for it. */
+/** The panel's width on a desktop screen (the same as in OperatorPanel.module.css): an open card makes room for it. */
 const PANEL_WIDTH = 440;
 
 /**
- * The project manager's conversation (PM-429): a panel that slides in from the right (a sheet from
- * the bottom on a phone) beside the page, without hiding it. Not modal: the board stays usable.
+ * The Operator's conversation (PM-429, PM-447): a panel that slides in from the right (a sheet from
+ * the bottom on a phone) beside the page, without hiding it. Not modal: the board stays usable. Every
+ * person of the project has their own conversation in it; on a read-only channel (not an owner) the
+ * Operator only reads and answers.
  */
-export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
-  const { key, closePm } = useProject();
+export function OperatorPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElement | null> }) {
+  const { key, me, closeOperator } = useProject();
   const isMobile = useIsMobile();
   const { pathname } = useLocation();
   const openedAt = useRef(pathname);
   const board = useBoard(key);
-  const { channel, state, handle, member } = usePm();
+  const { channel, state, handle, member } = useOperator();
   const send = useSendTeamMessage(key);
   const panel = useRef<HTMLElement>(null);
   const titleId = useId();
+  const access = me.projects.find((project) => project.key === key)?.access;
+  const sessionVisible = access !== undefined && canSeeOperatorSessions({ access });
+  const readOnly = state?.readOnly ?? false;
 
   // The open card is what the message is about, unless the writer takes it off.
   const openCard = useMatch('/p/:projectKey/tasks/:taskKey/*')?.params.taskKey ?? null;
@@ -48,7 +54,7 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
   // An example from the introduction goes into the box to be edited and sent.
   const [prefill, setPrefill] = useState<{ text: string; id: number } | null>(null);
 
-  const [failed, setFailed] = useState<FailedPmMessage | null>(null);
+  const [failed, setFailed] = useState<FailedOperatorMessage | null>(null);
   const post = (text: string, taskKey: string | null) =>
     send
       .mutateAsync({ to: [handle!], text, ...(taskKey ? { taskKey } : {}) })
@@ -75,24 +81,24 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
 
   // On a phone the sheet covers the page: following a link (a card, the full session) leaves it.
   useEffect(() => {
-    if (isMobile && pathname !== openedAt.current) closePm();
-  }, [isMobile, pathname, closePm]);
+    if (isMobile && pathname !== openedAt.current) closeOperator();
+  }, [isMobile, pathname, closeOperator]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       event.stopPropagation();
-      closePm();
+      closeOperator();
     }
   };
 
-  const name = state?.member?.displayName ?? t('pm.name');
-  const status = pmStatusText(state);
+  const name = state?.member?.displayName ?? t('operator.name');
+  const status = operatorStatusText(state);
   const missing = state?.state === 'missing';
 
   return (
     <section
       ref={panel}
-      id="pm-panel"
+      id="operator-panel"
       className={styles.panel}
       role="dialog"
       aria-modal="false"
@@ -100,20 +106,23 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
       onKeyDown={onKeyDown}
     >
       <header className={styles.head}>
-        <Avatar member={member} handle={handle ?? 'pm'} size="lg" />
+        <Avatar member={member} handle={handle ?? 'operator'} size="lg" />
         <div className={styles.who}>
           <h2 id={titleId} className={styles.name}>
             {name}
           </h2>
-          <div className={styles.status}>{status}</div>
+          <div className={styles.status}>
+            {status}
+            {status && !readOnly && !missing ? ` · ${t('operator.panel.subline')}` : ''}
+          </div>
         </div>
-        {state?.sessionId ? (
+        {state?.sessionId && sessionVisible ? (
           <Link
             to={`/p/${key}/sessions/${state.sessionId}`}
             className={styles.session}
-            title={t('pm.panel.fullSessionTitle')}
+            title={t('operator.panel.fullSessionTitle')}
           >
-            <span className={styles.sessionLabel}>{t('pm.panel.fullSession')}</span>
+            <span className={styles.sessionLabel}>{t('operator.panel.fullSession')}</span>
             <Icon name="external" size={13} strokeWidth={2.2} />
           </Link>
         ) : null}
@@ -122,8 +131,8 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
           size="md"
           iconOnly
           icon="close"
-          aria-label={t('pm.panel.close')}
-          onClick={closePm}
+          aria-label={t('operator.panel.close')}
+          onClick={closeOperator}
         />
       </header>
 
@@ -138,39 +147,39 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
         <div className={styles.body}>
           <ErrorState
             error={channel.error}
-            message={t('pm.loadFailed')}
+            message={t('operator.loadFailed')}
             onRetry={() => void channel.refetch()}
             compact
           />
         </div>
       ) : missing || !state || !handle ? (
         <div className={clsx(styles.body, styles.missing)}>
-          <p>{t('pm.missing.title')}</p>
-          <ButtonLink to={`/p/${key}/team`} variant="secondary" size="md" onClick={closePm}>
-            {t('pm.missing.team')} →
+          <p>{t('operator.missing.title')}</p>
+          <ButtonLink to={`/p/${key}/team`} variant="secondary" size="md" onClick={closeOperator}>
+            {t('operator.missing.team')} →
           </ButtonLink>
         </div>
       ) : (
         <>
-          <PmThread
+          <OperatorThread
             handle={handle}
             channel={state}
             failed={failed}
             onRetry={() => failed && void post(failed.text, failed.taskKey)}
             onExample={(text) => setPrefill({ text, id: (prefill?.id ?? 0) + 1 })}
           />
-          <PmWaitBanner channel={state} />
+          <OperatorWaitBanner channel={state} />
           {contextCard ? (
             <div className={styles.context}>
               <span className={styles.contextText}>
-                {t('pm.context.label', { key: contextCard, title: contextTitle }).trim()}
+                {t('operator.context.label', { key: contextCard, title: contextTitle }).trim()}
               </span>
               <Button
                 variant="ghost"
                 size="sm"
                 iconOnly
                 icon="close"
-                aria-label={t('pm.context.remove')}
+                aria-label={t('operator.context.remove')}
                 onClick={() => setDismissedCard(contextCard)}
               />
             </div>
@@ -178,13 +187,21 @@ export function PmPanel({ returnFocusTo }: { returnFocusTo: RefObject<HTMLElemen
           <div className={styles.composer}>
             <Composer
               autoFocus
-              label={t('pm.composer.label')}
-              placeholder={t('pm.composer.placeholder')}
+              label={t('operator.composer.label')}
+              placeholder={
+                readOnly ? t('operator.composer.placeholderOther') : t('operator.composer.placeholder')
+              }
               disabled={send.isPending}
               prefill={prefill}
               onSend={(text) => post(text, contextCard)}
             />
           </div>
+          {readOnly ? (
+            <p className={styles.observers}>
+              <Icon name="eye" size={13} />
+              <span>{t('operator.panel.observers')}</span>
+            </p>
+          ) : null}
         </>
       )}
     </section>

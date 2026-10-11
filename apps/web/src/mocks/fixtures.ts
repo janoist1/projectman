@@ -225,6 +225,19 @@ export function buildConfig(): ProjectConfig {
           sponsor: 'owner',
           temp: false,
         },
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Operátor',
+          role: 'ai_operator',
+          model: 'opus',
+          effort: 'high',
+          permissionMode: 'default',
+          capacity: 1,
+          instructions: '',
+          sponsor: 'owner',
+          temp: false,
+        },
       ],
       roles: [],
       limits: {
@@ -477,6 +490,19 @@ export const members: MemberView[] = [
     sponsor: 'owner',
     temp: false,
   },
+  {
+    handle: 'operator',
+    displayName: 'Operátor',
+    kind: 'ai',
+    role: 'ai_operator',
+    roles: ['ai_operator'],
+    specialty: null,
+    status: 'idle',
+    activity: null,
+    currentTaskKeys: [],
+    sponsor: 'owner',
+    temp: false,
+  },
 ];
 for (const member of members) {
   const config = buildConfig().team.members.find((entry) => entry.handle === member.handle);
@@ -484,6 +510,7 @@ for (const member of members) {
     Object.assign(member, {
       provider: config.provider ?? 'claude',
       model: config.model,
+      ...(config.effort ? { effort: config.effort } : {}),
       permissionMode: config.permissionMode,
     });
 }

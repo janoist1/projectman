@@ -519,6 +519,8 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.gemini',
         '/Users/anna/.projectman/secrets',
         '/Users/anna/.projectman/providers',
+        // The release watcher's journal and database backups (PM-493).
+        '/Users/anna/.projectman/release',
       ]),
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.

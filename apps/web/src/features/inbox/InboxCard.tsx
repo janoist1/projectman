@@ -2,7 +2,13 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
-import { BoundaryReason, alertPayloadOf, handOnRequestOf, operatorApprovalOf } from '@projectman/shared';
+import {
+  BoundaryReason,
+  alertPayloadOf,
+  handOnRequestOf,
+  operatorApprovalOf,
+  releaseApprovalOf,
+} from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
@@ -39,6 +45,7 @@ import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/Opera
 import styles from './InboxCard.module.css';
 import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
+import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown } from './ReleaseInbox';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails } from './Question';
 import { QuestionAttachments } from './QuestionAttachments';
@@ -212,6 +219,9 @@ export function InboxCard({
   const outageAlert = alertPayload?.alert === 'work_outage' ? alertPayload : null;
   // The merge request and the alert of a stopped merge (PM-453) tell and act through the card's merge words.
   const mergeItem = item.kind === 'merge_request' || alertPayload?.alert === 'merge_blocked';
+  // The proposed release of the instance (PM-492) and the alert of one that failed: both lead to the release card.
+  const releaseItem = releaseApprovalOf(item) !== null;
+  const releaseAlert = alertPayload?.alert === 'release_failed' ? alertPayload : null;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
@@ -295,7 +305,8 @@ export function InboxCard({
       id={inboxItemDomId(item.id)}
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={item.kind}
-      data-alert={outageAlert ? 'work_outage' : undefined}
+      data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
+      data-severity={releaseAlert && isReleaseDown(releaseAlert) ? 'down' : undefined}
     >
       <div className={styles.head}>
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
@@ -369,11 +380,19 @@ export function InboxCard({
       ) : null}
       {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
       {mergeItem ? <MergeInboxBody item={item} /> : null}
+      {releaseItem ? <ReleaseInboxBody item={item} /> : null}
+      {releaseAlert ? <ReleaseAlertBody alert={releaseAlert} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
       {outageAlert ? (
         <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
       ) : null}
-      {item.body && !mergeItem && loopText === null && fixLimitText === null && seniorWaitText === null ? (
+      {item.body &&
+      !mergeItem &&
+      !releaseItem &&
+      !releaseAlert &&
+      loopText === null &&
+      fixLimitText === null &&
+      seniorWaitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
         ) : (
@@ -447,7 +466,15 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : mergeItem ? (
+      {assignedToOthers ? null : releaseItem ? (
+        <ReleaseInboxActions
+          item={item}
+          size={buttonSize}
+          pending={pending}
+          detailsHref={detailsHref}
+          onResolve={onResolve}
+        />
+      ) : mergeItem ? (
         <MergeInboxActions
           item={item}
           size={buttonSize}

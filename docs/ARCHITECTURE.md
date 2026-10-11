@@ -869,7 +869,9 @@ commit pinned at the hand-over, run by the server.
   Every result is a `task_full_test` timeline event. A branch that moves or a dirty checkout while the run
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
-  only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+  only in `test/full-test-sandbox.integration.test.ts` (macOS). It cannot start a nested sandbox,
+  so it is skipped when `PROJECTMAN_FULL_TEST_SANDBOX=1` and runs outside the sandbox before
+  every live deployment (PM-493, `release-test`).
 
 When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
 sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
@@ -878,9 +880,10 @@ the configured full command on the handed-over commit, PTY tests included. Other
 for targeted tests while working and one full test and type check on the handed-over commit.
 A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
 or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
-workspaces, including at hand-over and in fix rounds. The integrator checks the card before it enters
-the default branch, using the heavy-run queue for a full run. PM uses this mode (decision 40);
-other projects retain their existing default (absent or false). With `fullTestAtMerge: true` the
+workspaces, including at hand-over and in fix rounds. In PM, the merger uses `merge_task`; the
+server runs `npm run merge-test` in the full test sandbox, in the machine's heavy-run queue,
+before the default branch moves (decision 40, PM-386). Other projects retain their existing default
+(absent or false). With `fullTestAtMerge: true` the
 repository's `reviewTest` runs only at the merge (PM-386, PM-489): `reviewTestBeforeReview` is false, so
 `reviewTestOf` finds no test, nothing is queued or held before review and the context carries no
 `serverFullTest`. The merge step (`Merges`, "Merge (PM-452)") runs the command once on the merge result
@@ -987,10 +990,21 @@ workers follow the machine's size.
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
-- **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
-  script itself.
+- **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
+  before the default branch moves (PM-386, PM-490). The first-parent diff selects server/web checks;
+  shared code, scripts, configuration or unknown paths require all workspaces. The executor holds
+  the machine's lock, so the nested root scripts do not queue again.
 
 ## Machine-dependent parts (PM-341)
+
+- **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
+  checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
+  outcome, elapsed time, failed files and output tail. It needs macOS Seatbelt, srt, PTY support and
+  the machine's heavy-run queue; run it outside member sandboxes, which cannot start nested Seatbelt.
+  The checkout and common git directory are readable; the user/app homes are denied except those
+  paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
+  **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
+  dependencies and queue. Only the command and result need to cross the existing full-test boundary.
 
 - **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
   (`providerStatus`). Every 30 seconds the server checks the used providers' login
@@ -1973,6 +1987,12 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
   trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
   the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
+  `release_proposed`; `ReleaseRoadmapNotices` (`domain/release-roadmap-notices.ts`) then sends the Operator one
+  English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
+  Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
+  nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
+  comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
 - **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`domain/decision-candidates.ts`) finds the
   questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
   the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.

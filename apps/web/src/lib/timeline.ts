@@ -1,6 +1,7 @@
 import {
   BoundaryAuditReason,
   BoundaryState,
+  ReleaseFailure,
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
@@ -18,6 +19,7 @@ import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
+import { isHttpsUrl, releaseOutcome, releaseStepName } from './release';
 import { closureTexts, eventClosure } from './sessions';
 import { describeStart, describeStop, involvementText } from './involvement';
 
@@ -38,6 +40,10 @@ export interface DescribedEvent {
   detail?: string;
   /** What the merger wrote about the conflict it fixed (markdown prose), folded behind "Ütközés javítva" (PM-471). */
   resolution?: string;
+  /** The reason a person gave with their decision (a rejected release), shown as a quote under the row. */
+  note?: string;
+  /** An external page the row ends with ("GitHub release ↗"); always an `https://` address. */
+  link?: { href: string; label: string };
 }
 
 function str(value: unknown): string {
@@ -366,17 +372,57 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       };
     }
     case 'release_changed': {
-      const failure = record(d.failure);
-      return {
-        text: t('timeline.events.release_changed', {
-          state: t(`timeline.events.release_state.${ReleaseState.safeParse(d.state).data ?? 'proposed'}`),
-          commit: str(d.commit).slice(0, 8),
-        }),
-        emphasis: 'normal',
-        ...(str(failure?.message) || str(d.publishError)
-          ? { detail: str(failure?.message) || str(d.publishError) }
-          : {}),
-      };
+      const commit = shortCommit(str(d.commit));
+      const key = 'timeline.events.release_changed';
+      switch (ReleaseState.safeParse(d.state).data) {
+        case 'proposed':
+          return normal(t(`${key}.proposed`, { commit }));
+        case 'approved':
+          return normal(t(`${key}.approved`));
+        case 'rejected': {
+          const note = str(d.note).trim();
+          return { text: t(`${key}.rejected`), emphasis: 'normal', ...(note ? { note } : {}) };
+        }
+        case 'deploying':
+          return normal(t(`${key}.deploying`, { commit }));
+        case 'failed': {
+          const failure = ReleaseFailure.safeParse(d.failure).data;
+          if (!failure) return normal(t(`${key}.unknown`, { commit }));
+          const outcome = releaseOutcome(failure.step, failure.rolledBack);
+          const text = t(`${key}.failed`, {
+            step: releaseStepName(failure.step),
+            outcome: t(
+              outcome === 'early'
+                ? `${key}.failedEarly`
+                : outcome === 'rolledBack'
+                  ? `${key}.failedRolledBack`
+                  : `${key}.failedDown`,
+            ),
+          });
+          return {
+            text,
+            emphasis: outcome === 'down' ? 'needs' : 'normal',
+            ...(failure.message ? { detail: failure.message } : {}),
+          };
+        }
+        case 'live': {
+          const publishError = str(d.publishError);
+          if (publishError)
+            return { text: t(`${key}.livePublishError`), emphasis: 'needs', detail: publishError };
+          return normal(t(`${key}.live`, { commit }));
+        }
+        case 'published': {
+          const tag = str(d.tag);
+          const text = tag ? t(`${key}.published`, { tag }) : t(`${key}.live`, { commit });
+          // Only an https address becomes a link (the row is written by the release watcher, but still data).
+          return {
+            ...normal(text),
+            ...(isHttpsUrl(d.url) ? { link: { href: d.url, label: t(`${key}.githubRelease`) } } : {}),
+          };
+        }
+        default:
+          return normal(t(`${key}.unknown`, { commit }));
+      }
     }
     case 'boundary_changed': {
       const state = BoundaryState.safeParse(d.state);

@@ -99,6 +99,7 @@ export function fullTestEnv(
     FORCE_COLOR: '0',
     // The server holds the machine's heavy-run lock for the run: the npm scripts inside do not queue again.
     PROJECTMAN_HEAVY_LOCK_HELD: '1',
+    PROJECTMAN_FULL_TEST_SANDBOX: '1',
   };
   for (const name of ['LANG', 'LC_ALL'] as const) {
     const value = base[name];

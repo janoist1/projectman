@@ -67,6 +67,11 @@ export function createMessageRepository(db: Db) {
         AND CASE WHEN json_valid(subject) THEN json_extract(subject, '$.inboxItemId') ELSE NULL END IS ?
         AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
         AND seq > (SELECT seq FROM team_messages WHERE id = ?) LIMIT 1`),
+    hasNote: db.prepare(
+      `SELECT 1 FROM team_messages WHERE project_key = ? AND from_handle = ?
+       AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
+       AND instr(body, ?) > 0 LIMIT 1`,
+    ),
     insert: db.prepare(
       `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -115,6 +120,10 @@ export function createMessageRepository(db: Db) {
         recipient,
         message.id,
       );
+    },
+    /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
+    hasNote(projectKey: string, from: string, to: string, marker: string): boolean {
+      return !!statements.hasNote.get(projectKey, from, to, marker);
     },
     insert(m: TeamMessage): void {
       statements.insert.run(

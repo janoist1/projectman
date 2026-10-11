@@ -64,7 +64,7 @@ if (process.env.TMPDIR !== expectedTmp) problems.push('TMPDIR is ' + process.env
 
 for (const name of Object.keys(process.env)) {
   // PROJECTMAN_HEAVY_LOCK_HELD is the run's own: the scripts inside do not queue again (PM-336).
-  if (name !== 'PROJECTMAN_HEAVY_LOCK_HELD' && /^PROJECTMAN_|TOKEN|SSH_AUTH_SOCK|API_KEY/.test(name))
+  if (!['PROJECTMAN_HEAVY_LOCK_HELD', 'PROJECTMAN_FULL_TEST_SANDBOX'].includes(name) && /^PROJECTMAN_|TOKEN|SSH_AUTH_SOCK|API_KEY/.test(name))
     problems.push('environment has ' + name);
 }
 if (process.env.PROJECTMAN_HEAVY_LOCK_HELD !== '1') problems.push('PROJECTMAN_HEAVY_LOCK_HELD is not 1');
@@ -91,123 +91,127 @@ if (problems.length) { console.log('PROBLEMS: ' + problems.join('; ')); process.
 
 const logger = silentLogger();
 
-describe.runIf(process.platform === 'darwin')('the full test sandbox', () => {
-  let root: string;
-  let userHome: string;
-  let checkout: string;
-  let tmpDir: string;
-  let secretFile: string;
+// Seatbelt cannot start a nested srt sandbox (sandbox_apply: Operation not permitted).
+describe.skipIf(process.platform !== 'darwin' || process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1')(
+  'the full test sandbox',
+  () => {
+    let root: string;
+    let userHome: string;
+    let checkout: string;
+    let tmpDir: string;
+    let secretFile: string;
 
-  // The run directory is named after the end of the run id and is never reused (a leftover of a run that
-  // was killed before it cleaned up makes the next run with the same id `sandbox_unavailable`, PM-419):
-  // every run of the test gets an id of its own, so a leftover of an earlier test run cannot collide.
-  const runIdOf = (name: string) => `ftr_${name}_${randomBytes(3).toString('hex')}`;
-  const spec = (runId: string, command: string, timeoutMs = 120_000) => ({
-    runId,
-    cwd: checkout,
-    command,
-    maxWorkers: 2,
-    timeoutMs,
-    sandbox: fullTestSandbox({ checkout, userHome }),
-  });
-  const executor = () =>
-    createFullTestExecutor({
-      logger,
-      tmpDir,
-      // The server's environment, with everything the run must not get.
-      env: {
-        PATH: process.env.PATH,
-        PROJECTMAN_SKIP_PTY_TESTS: '1',
-        PROJECTMAN_HOME: '/nonexistent',
-        GH_TOKEN: 'token',
-        NPM_TOKEN: 'token',
-        SSH_AUTH_SOCK: '/nonexistent',
-        ANTHROPIC_API_KEY: 'key',
-      },
+    // The run directory is named after the end of the run id and is never reused (a leftover of a run that
+    // was killed before it cleaned up makes the next run with the same id `sandbox_unavailable`, PM-419):
+    // every run of the test gets an id of its own, so a leftover of an earlier test run cannot collide.
+    const runIdOf = (name: string) => `ftr_${name}_${randomBytes(3).toString('hex')}`;
+    const spec = (runId: string, command: string, timeoutMs = 120_000) => ({
+      runId,
+      cwd: checkout,
+      command,
+      maxWorkers: 2,
+      timeoutMs,
+      sandbox: fullTestSandbox({ checkout, userHome }),
+    });
+    const executor = () =>
+      createFullTestExecutor({
+        logger,
+        tmpDir,
+        // The server's environment, with everything the run must not get.
+        env: {
+          PATH: process.env.PATH,
+          PROJECTMAN_SKIP_PTY_TESTS: '1',
+          PROJECTMAN_HOME: '/nonexistent',
+          GH_TOKEN: 'token',
+          NPM_TOKEN: 'token',
+          SSH_AUTH_SOCK: '/nonexistent',
+          ANTHROPIC_API_KEY: 'key',
+        },
+      });
+
+    beforeAll(() => {
+      root = realpathSync(mkdtempSync(join(os.tmpdir(), 'pm-full-test-')));
+      userHome = join(root, 'home');
+      checkout = join(userHome, 'checkout');
+      tmpDir = join(root, 'runs');
+      mkdirSync(checkout, { recursive: true });
+      mkdirSync(tmpDir);
+      secretFile = join(userHome, 'secret.txt');
+      writeFileSync(secretFile, 'secret');
+      writeFileSync(join(checkout, 'package.json'), '{}');
+      writeFileSync(join(checkout, 'probe.mjs'), PROBE);
+    });
+    afterAll(() => rmSync(root, { recursive: true, force: true }));
+
+    it('reports the sandbox as available', async () => {
+      expect(await executor().available()).toEqual({ ok: true });
     });
 
-  beforeAll(() => {
-    root = realpathSync(mkdtempSync(join(os.tmpdir(), 'pm-full-test-')));
-    userHome = join(root, 'home');
-    checkout = join(userHome, 'checkout');
-    tmpDir = join(root, 'runs');
-    mkdirSync(checkout, { recursive: true });
-    mkdirSync(tmpDir);
-    secretFile = join(userHome, 'secret.txt');
-    writeFileSync(secretFile, 'secret');
-    writeFileSync(join(checkout, 'package.json'), '{}');
-    writeFileSync(join(checkout, 'probe.mjs'), PROBE);
-  });
-  afterAll(() => rmSync(root, { recursive: true, force: true }));
+    it(
+      'runs the command with a PTY, a read-only checkout, a closed home, no outside network and a clean environment',
+      { timeout: 180_000 },
+      async () => {
+        // The file exists, so a refusal below is the sandbox's and not a missing file.
+        expect(readFileSync(secretFile, 'utf8')).toBe('secret');
+        // The run's own temporary directory, which the probe finds as its TMPDIR.
+        const probeId = runIdOf('probe');
+        const expectedTmp = runPaths(runDirOf(tmpDir, '/private/tmp', probeId)).tmp;
+        const result = await executor().run(
+          spec(probeId, `node probe.mjs '${secretFile}' '${expectedTmp}'`),
+          new AbortController().signal,
+        );
+        expect(result.outputTail).toBe('');
+        expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
+        expect(existsSync(join(checkout, 'written-by-the-run.txt'))).toBe(false);
+        // The run's own directory is gone.
+        expect(readdirSync(tmpDir)).toEqual([]);
+      },
+    );
 
-  it('reports the sandbox as available', async () => {
-    expect(await executor().available()).toEqual({ ok: true });
-  });
+    it(
+      'runs when the temporary directory is too deep for the socket of the sandbox, and leaves nothing behind',
+      { timeout: 180_000 },
+      async () => {
+        const deep = join(root, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40));
+        mkdirSync(deep, { recursive: true });
+        const deepId = runIdOf('deepdir');
+        const result = await createFullTestExecutor({
+          logger,
+          tmpDir: deep,
+          env: { PATH: process.env.PATH },
+        }).run(spec(deepId, 'echo deep'), new AbortController().signal);
+        expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
+        expect(readdirSync(deep)).toEqual([]);
+        // The fallback directory (the name comes from the run id) is gone too.
+        const fallback = basename(runDirOf('/private/tmp', '/private/tmp', deepId));
+        expect(fallback).toMatch(/^pmft-[A-Za-z0-9]{8}$/);
+        expect(readdirSync('/private/tmp').filter((name) => name === fallback)).toEqual([]);
+      },
+    );
 
-  it(
-    'runs the command with a PTY, a read-only checkout, a closed home, no outside network and a clean environment',
-    { timeout: 180_000 },
-    async () => {
-      // The file exists, so a refusal below is the sandbox's and not a missing file.
-      expect(readFileSync(secretFile, 'utf8')).toBe('secret');
-      // The run's own temporary directory, which the probe finds as its TMPDIR.
-      const probeId = runIdOf('probe');
-      const expectedTmp = runPaths(runDirOf(tmpDir, '/private/tmp', probeId)).tmp;
-      const result = await executor().run(
-        spec(probeId, `node probe.mjs '${secretFile}' '${expectedTmp}'`),
-        new AbortController().signal,
-      );
-      expect(result.outputTail).toBe('');
-      expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
-      expect(existsSync(join(checkout, 'written-by-the-run.txt'))).toBe(false);
-      // The run's own directory is gone.
-      expect(readdirSync(tmpDir)).toEqual([]);
-    },
-  );
+    it(
+      'tells a failing command from one that could not run, and stops a run',
+      { timeout: 180_000 },
+      async () => {
+        const failed = await executor().run(
+          spec(runIdOf('failed'), "echo ' FAIL  test/a.test.ts > case'; exit 3"),
+          new AbortController().signal,
+        );
+        expect(failed).toMatchObject({ outcome: 'failed', exitCode: 3, failedFiles: ['test/a.test.ts'] });
+        expect(failed.outputTail).toContain('FAIL');
 
-  it(
-    'runs when the temporary directory is too deep for the socket of the sandbox, and leaves nothing behind',
-    { timeout: 180_000 },
-    async () => {
-      const deep = join(root, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40));
-      mkdirSync(deep, { recursive: true });
-      const deepId = runIdOf('deepdir');
-      const result = await createFullTestExecutor({
-        logger,
-        tmpDir: deep,
-        env: { PATH: process.env.PATH },
-      }).run(spec(deepId, 'echo deep'), new AbortController().signal);
-      expect(result).toMatchObject({ outcome: 'passed', exitCode: 0 });
-      expect(readdirSync(deep)).toEqual([]);
-      // The fallback directory (the name comes from the run id) is gone too.
-      const fallback = basename(runDirOf('/private/tmp', '/private/tmp', deepId));
-      expect(fallback).toMatch(/^pmft-[A-Za-z0-9]{8}$/);
-      expect(readdirSync('/private/tmp').filter((name) => name === fallback)).toEqual([]);
-    },
-  );
+        const timedOut = await executor().run(
+          spec(runIdOf('timeout'), 'sleep 60', 5000),
+          new AbortController().signal,
+        );
+        expect(timedOut).toMatchObject({ outcome: 'error', reason: 'timeout' });
 
-  it(
-    'tells a failing command from one that could not run, and stops a run',
-    { timeout: 180_000 },
-    async () => {
-      const failed = await executor().run(
-        spec(runIdOf('failed'), "echo ' FAIL  test/a.test.ts > case'; exit 3"),
-        new AbortController().signal,
-      );
-      expect(failed).toMatchObject({ outcome: 'failed', exitCode: 3, failedFiles: ['test/a.test.ts'] });
-      expect(failed.outputTail).toContain('FAIL');
-
-      const timedOut = await executor().run(
-        spec(runIdOf('timeout'), 'sleep 60', 5000),
-        new AbortController().signal,
-      );
-      expect(timedOut).toMatchObject({ outcome: 'error', reason: 'timeout' });
-
-      const controller = new AbortController();
-      const stopped = executor().run(spec(runIdOf('abort'), 'sleep 60'), controller.signal);
-      setTimeout(() => controller.abort(), 6000);
-      expect(await stopped).toMatchObject({ outcome: 'error', reason: 'killed' });
-      expect(readdirSync(tmpDir)).toEqual([]);
-    },
-  );
-});
+        const controller = new AbortController();
+        const stopped = executor().run(spec(runIdOf('abort'), 'sleep 60'), controller.signal);
+        setTimeout(() => controller.abort(), 6000);
+        expect(await stopped).toMatchObject({ outcome: 'error', reason: 'killed' });
+        expect(readdirSync(tmpDir)).toEqual([]);
+      },
+    );
+  },
+);

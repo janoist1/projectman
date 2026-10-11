@@ -32,6 +32,7 @@ import {
   resolutionNote,
   resolverName,
 } from '../../lib/inbox';
+import { errorMessage } from '../../lib/errors';
 import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
@@ -41,6 +42,7 @@ import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
 import { FoldedCommand } from './PermissionParts';
+import { ReleaseSubject } from './ReleaseInbox';
 import styles from './InboxPage.module.css';
 
 type KindFilter = 'all' | InboxKind;
@@ -80,6 +82,10 @@ function RecentRow({
         <span className={styles.recentLine}>{decisionLine(item, members, myHandle)}</span>
         {item.kind === 'permission' ? (
           <FoldedCommand text={subject} className={styles.recentCode} lines={1} />
+        ) : item.kind === 'release' && item.taskKey ? (
+          <span className={styles.recentSubject}>
+            <ReleaseSubject taskKey={item.taskKey} title={item.title} />
+          </span>
         ) : (
           <span className={styles.recentSubject}>{subject}</span>
         )}
@@ -312,7 +318,10 @@ export function InboxPage() {
                         target: pipeline?.stageById.get(handOnRequestOf(item)?.toStageId ?? '')?.name ?? '',
                       }),
                     )
-                  : null
+                  : // A refused release decision (the integrator's key is no approval) says why on its card.
+                    item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
+                    ? errorMessage(resolve.error)
+                    : null
               }
               stale={
                 // A stale Operator approval says so on its card, not in a toast.
@@ -335,7 +344,7 @@ export function InboxPage() {
                       if (text) toast.show(text, 'ok');
                     },
                     onError: (error) => {
-                      if (target.kind !== 'hand_on' && !isStaleError(error))
+                      if (target.kind !== 'hand_on' && target.kind !== 'release' && !isStaleError(error))
                         toast.show(t('inbox.resolveFailed'), 'error');
                     },
                   },

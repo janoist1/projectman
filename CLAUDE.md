@@ -101,6 +101,8 @@ npm test             # all workspaces; waits its turn in the machine's heavy-run
 npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
+npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
@@ -115,10 +117,11 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. They never run the full suite. The integrating session
-checks each card once before it enters `main`; shared code, `packages/shared` or configuration
-changes require a full run. Workspace checks do not queue; the integrating session's full run
-uses the heavy-run queue above (decision 40, PM-380). If a heavy command says its queue cannot be used
+before hand-over and in fix rounds. They never run the full suite. The merger (`team.merger`,
+`claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
+before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
+Shared code or configuration changes require the whole suite; workspace checks do not queue
+(decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), it did not run: note this on your card and ask for the command to run outside
 your sandbox; never run it another way (PM-346).
 
@@ -132,5 +135,6 @@ Open development instances at `http://127.0.0.1:5173`; the live instance's login
 ## Git
 
 English, imperative commit messages ("Add session runner state machine"). Commit your
-work on your branch; do not push. The integrating session merges verified work into `main`
-and pushes `main` (decision 21); the repository is public.
+work on your branch; do not push. The merger member merges verified work and pushes `main`
+through `merge_task` (decision 21, PM-386); the repository is public. Nobody commits to `main`
+or switches branches in the default branch's checkout: `main` moves only through merging.

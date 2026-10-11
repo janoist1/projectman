@@ -1130,6 +1130,17 @@ describe('system prompt', () => {
       expect(operator).not.toContain('anything about yourself');
     });
 
+    it('offers the roadmap check at a proposed release only when the project has a roadmap (PM-497)', () => {
+      const line =
+        'When a system note says a release was proposed, offer the roadmap check in your next answer to the owner; write only after a yes.';
+      const promptOf = (project: ReturnType<typeof buildProject>) =>
+        roleOf(builder.build(input({ project, handle: 'operator' })).appendSystemPrompt);
+      expect(promptOf(buildProject())).not.toContain(line);
+      const project = buildProject();
+      project.project.repos[0]!.docs = { roadmap: 'docs/ROADMAP.md' };
+      expect(promptOf(project)).toContain(line);
+    });
+
     it('gives the rules of the decision log and the roadmap only to a project with docs (PM-496)', () => {
       const withDocs = buildProject();
       withDocs.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' };

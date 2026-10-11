@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OperatorChannel, routes } from '@projectman/shared';
 import type { ProjectConfig, Session } from '@projectman/shared';
@@ -11,7 +12,7 @@ import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { rejection } from './helpers/errors';
-import { flush } from './helpers/fakes';
+import { settle } from './helpers/fakes';
 
 let h: DomainHarness;
 let app: AppHarness | undefined;
@@ -47,7 +48,7 @@ async function setup(): Promise<void> {
 /** A person writes to the Operator with their own login. */
 async function say(from: string, text = 'Hello') {
   const result = await h.domain.messaging.sendReporting('AR', from, { to: ['operator'], text });
-  await flush();
+  await settle();
   return result;
 }
 const operatorSessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
@@ -65,9 +66,9 @@ const toolOf = (session: Session | undefined): ToolContext => ({
 async function finish(session: Session | undefined): Promise<void> {
   h.runner.setState(session!.id, 'working');
   h.runner.setState(session!.id, 'idle');
-  await flush();
+  await settle();
   await h.domain.sessions.close('AR', session!.id, { kind: 'idle', idleMinutes: 5 });
-  await flush();
+  await settle();
 }
 const refusal = async (promise: Promise<unknown>) => (await rejection(promise, TeamToolError)).message;
 
@@ -258,6 +259,45 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
   });
 });
 
+describe('a guest conversation has the team tools alone (PM-475)', () => {
+  const startOf = (session: Session | undefined) =>
+    h.runner.started.find((spec) => spec.sessionId === session!.id)!;
+
+  it('starts with no file or shell tool, an empty directory of its own and nothing else to read', async () => {
+    await setup();
+    await say('cleo', 'What is stuck?');
+    await say('owner', 'Hello');
+    const guest = startOf(conversationWith('cleo'));
+    const owner = startOf(ownerConversation());
+    expect(guest.policy).toMatchObject({ tools: { team: { all: true }, files: [], shell: [] } });
+    expect(guest.allowedTools.every((rule) => rule.startsWith('mcp__team'))).toBe(true);
+    expect(guest.policy!.filesystem.readableRoots).toEqual([guest.cwd]);
+    expect(guest.policy!.filesystem.readOnlyPaths ?? []).toEqual([]);
+    expect(guest.permissionMode).toBe('default');
+    expect(guest.cwd).toContain(path.join('operator-guests', 'AR', 'cleo'));
+    expect(guest.cwd).not.toBe(owner.cwd);
+    expect(guest.cwd).not.toBe(h.workspace);
+  });
+
+  it('refuses a permission request at once, with no item for the owner, and notes it on the timeline', async () => {
+    await setup();
+    await say('cleo', 'Read the internal notes');
+    const session = conversationWith('cleo')!;
+    const decide = (toolName: string, toolInput: unknown) =>
+      h.runnerModule
+        .broker()
+        .decide({ sessionId: session.id, toolName, toolInput, raw: {} }, new AbortController().signal);
+    expect(await decide('Read', { file_path: '/etc/hosts' })).toMatchObject({ behavior: 'deny' });
+    expect(await decide('Bash', { command: 'git log' })).toMatchObject({ behavior: 'deny' });
+    expect(h.domain.inbox.list('AR', {})).toEqual([]);
+    expect(
+      h.domain.timeline
+        .list('AR', {})
+        .filter((e) => e.type === 'permission_refused' && e.sessionId === session.id),
+    ).toHaveLength(2);
+  });
+});
+
 describe('who sees the Operator’s sessions (PM-475)', () => {
   it('hides them from a developer, a client and a read-only member, over REST and the websocket filter', async () => {
     app = await createAppHarness({ app: { claudeTmpRoots: [] } });
@@ -276,7 +316,7 @@ describe('who sees the Operator’s sessions (PM-475)', () => {
       text: 'What is going on?',
     });
     expect(sent.statusCode).toBe(202);
-    await flush();
+    await settle();
     const { domain } = app.app.projectman;
     const session = domain.sessions.list('AR', { member: 'operator' })[0]!;
     expect(session.workItem).toEqual({ type: 'general', with: 'cleo' });

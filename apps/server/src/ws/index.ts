@@ -131,7 +131,12 @@ export function registerWebsocket(
   });
 
   /** Terminals are for internal members; typing and resizing need developer access. */
-  const requireTerminalAccess = async (client: Client, sessionId: string, minimum: HumanAccess) => {
+  const requireTerminalAccess = async (
+    client: Client,
+    sessionId: string,
+    minimum: HumanAccess,
+    options: { operatorInput?: boolean } = {},
+  ) => {
     const session = domain.sessions.find(sessionId);
     if (!session) throw notFound('session', sessionId);
     const access = await domain.accessFor(session.projectKey, client.user.email);
@@ -141,6 +146,9 @@ export function registerWebsocket(
     // The Operator's terminals are the owner's and the admin's to see (PM-475).
     if (!canSeeOperatorSessions(access) && domain.sessions.isOperatorSession(sessionId))
       throw forbidden('insufficient_access', 'no access to this terminal');
+    // Raw input to the Operator is a request of the owner's: an admin watches, but does not type (PM-475).
+    if (options.operatorInput && access.access !== 'owner' && domain.sessions.isOperatorSession(sessionId))
+      throw forbidden('insufficient_access', 'only the owner types into the Operator’s terminal');
   };
 
   const handle = async (client: Client, data: unknown) => {
@@ -194,7 +202,7 @@ export function registerWebsocket(
         case 'terminal_input':
           if (!client.terminals.has(command.sessionId))
             throw forbidden('not_attached', 'attach the terminal first');
-          await requireTerminalAccess(client, command.sessionId, 'developer');
+          await requireTerminalAccess(client, command.sessionId, 'developer', { operatorInput: true });
           if (authenticated(client)) runner.writeTerminal(command.sessionId, command.data);
           return;
         case 'terminal_resize':

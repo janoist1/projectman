@@ -1891,7 +1891,10 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
   logged as a `refused` step. Reads use the person's own view (`canSeeTask`, `visibleTaskDetail`,
   `visibleTimelineEvent`, attachments as `humanActor`; an invisible card is `not_found`), the prompt has no memory and
-  says who it talks with. Requests are listed by sender, so `GET /operator` gives a person their own
+  says who it talks with. The session itself has the team tools alone (`teamToolsOnly` in `buildSessionPolicy`: no file,
+  shell or web tool, `default` permission mode), runs in an empty directory of its own (`guestSessionDir`, made through
+  `preparePortablePaths`, so it works on a remote engine) and its permission requests are refused in `Inbox.decide`
+  without an item. Raw terminal input into an Operator session is the owner's only. Requests are listed by sender, so `GET /operator` gives a person their own
   (`OperatorChannel.readOnly`). The Operator's sessions are seen by owners and admins only
   (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
   conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after

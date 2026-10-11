@@ -298,6 +298,32 @@ creation quotes user-supplied `Projectman-` lines, so a patch message cannot for
 Operator approval or hide integrator attribution. Attribution fields come from internal
 author metadata, never from the HTTP request body.
 
+### The Operator talks with everyone, and obeys the owner (PM-475)
+
+Every person of the project has a conversation of their own with the Operator
+(`{ type: 'general', with: <handle> }`); the owners share `{ type: 'general' }`. Only a
+change an owner asked for is made. In a conversation with anyone else the Operator reads and
+answers, nothing more:
+
+- **Writes are refused by the server.** `callerWithRequest` lets such a session call
+  `OPERATOR_GUEST_TOOLS` only (`get_task`, `list_tasks`, `list_members`, `list_attachments`,
+  `read_attachment`, and `send_message` to that person alone). Every other tool gets 403
+  `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
+  among them until it filters by viewer (PM-465).
+- **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
+  `canSeeTask` / `visibleTaskDetail` / `humanActor`, so a client sees only what is shared with them.
+- **No other way to data.** The session starts with the team tools alone (`teamToolsOnly`): no file,
+  shell or web tool, no extra readable directory, `default` permission mode, and its working
+  directory is an empty directory of its own (`guestSessionDir`), so it neither reads the
+  workspace, the worktrees, the attachments or the git history, nor shares a transcript with the
+  owners' conversation. A permission request from it is refused at once and never reaches the owner's
+  inbox. It has no memory section, and an AI member's message does not wake it.
+- **Who sees the sessions.** The Operator's sessions (REST, the websocket, the terminal, the member
+  profile) are visible to owners and admins only (`canSeeOperatorSessions`). Raw terminal input into
+  the Operator's session is the owner's alone: an admin may watch, not type.
+- One guest conversation runs at a time and closes after five idle minutes; the owners' one is
+  outside that capacity.
+
 ## Automatic command decisions
 
 PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)

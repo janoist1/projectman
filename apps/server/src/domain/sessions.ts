@@ -106,6 +106,7 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   DONE_TASK_TURN_LIMIT_MS,
+  guestSessionDir,
   memberSandboxDir,
   sensitivePaths,
   sessionSandbox,
@@ -1621,7 +1622,11 @@ export class SessionOrchestrator {
     // The session's own permission settings, set by an owner, in place of the member's (PM-170):
     // a resume keeps them (same row), a new session has none. The member's stay as they are.
     const permissions = effectiveSessionPermissions(member, existing ?? {});
-    const permissionMode = permissions.permissionMode ?? member.permissionMode;
+    // The Operator's conversation with someone who is not an owner (PM-475) runs on the team tools
+    // alone: no file or shell tools, an empty directory of its own, and every other tool refused.
+    const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+    const permissionMode =
+      guestOf !== undefined ? 'default' : (permissions.permissionMode ?? member.permissionMode);
     const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
     // The engine the session runs on (PM-311): every path, worktree and folder below is its. A start
     // is refused while it is not connected (admission makes it wait).
@@ -1685,6 +1690,10 @@ export class SessionOrchestrator {
           reason: 'no_member_workspaces',
         });
       cwd = await engine.memberWorkspaces.home({ projectKey, member: member.handle });
+    } else if (guestOf !== undefined) {
+      // Its own empty directory: not the workspace, and its transcript is not the owner's conversation's.
+      cwd = guestSessionDir(paths.home ?? path.join(paths.userHome, '.projectman'), projectKey, guestOf);
+      await engine.preparePortablePaths([cwd]);
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
@@ -1755,10 +1764,10 @@ export class SessionOrchestrator {
         engineChanged ||
         // The managed VM (and anything behind the VM boundary) always places the session itself: it
         // never goes back to where it ran.
-        ((vm || this.managed) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
+        ((vm || this.managed || guestOf !== undefined) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
         ((placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration))),
     );
-    if (existing && !relocated && !ws && !vm && !this.managed) {
+    if (existing && !relocated && !ws && !vm && !this.managed && guestOf === undefined) {
       // Claude Code keeps conversations per working directory: resume where it started.
       cwd = existing.cwd;
       branch = existing.branch ?? branch;
@@ -1851,6 +1860,7 @@ export class SessionOrchestrator {
             : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
+      ...(guestOf !== undefined ? { teamToolsOnly: true } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
     // A developer's npm cache and development data live in its own directory (PM-193).
@@ -2096,7 +2106,12 @@ export class SessionOrchestrator {
         policy: startPolicy,
         // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
         // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
-        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        allowedTools: vm
+          ? []
+          : [
+              ...allowedToolsFor(member.role, config, { teamToolsOnly: guestOf !== undefined }),
+              ...attachmentRules.allow,
+            ],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes

@@ -213,6 +213,14 @@ export function memberSandboxDir(appHome: string, projectKey: string, handle: st
 }
 
 /**
+ * The empty directory the Operator's conversation with someone who is not an owner runs in (PM-475):
+ * not the workspace, so the conversation has a transcript of its own and nothing to read beside it.
+ */
+export function guestSessionDir(appHome: string, projectKey: string, guestHandle: string): string {
+  return path.join(appHome, 'operator-guests', projectKey, guestHandle);
+}
+
+/**
  * The files of a shared git directory a worktree's commands never write (PM-153): the default
  * branch, and the `HEAD` and `index` of the checkout the directory belongs to (the integrating
  * one), with their lock files, so git fails at the lock and leaves none behind. `packed-refs` too:
@@ -737,11 +745,29 @@ export function sessionPolicyFor(role: RoleId, config: Pick<ProjectConfig, 'team
   const { readOnlyTools, worktree } = roleSessionAccess(config, role);
   return { readOnlyTools, worktree };
 }
-export function allowedToolsFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): string[] {
-  return claudeToolRules({ tools: roleSessionTools(config, role), deniedOperations: [] }).allow;
+export function allowedToolsFor(
+  role: RoleId,
+  config: Pick<ProjectConfig, 'team'>,
+  options: { teamToolsOnly?: boolean } = {},
+): string[] {
+  const tools = roleSessionTools(config, role);
+  return claudeToolRules({
+    tools: options.teamToolsOnly ? { ...tools, files: [], shell: [] } : tools,
+    deniedOperations: [],
+  }).allow;
 }
 export function usesWorktree(role: RoleId, config: Pick<ProjectConfig, 'team'>): boolean {
   return sessionPolicyFor(role, config).worktree;
+}
+
+/** The tools a session may use: its role's, or the team tools alone (`teamToolsOnly`, PM-475). */
+function sessionToolsOf(input: {
+  config: ProjectConfig;
+  role: RoleId;
+  teamToolsOnly?: boolean;
+}): SessionPolicy['tools'] {
+  const tools = roleSessionTools(input.config, input.role);
+  return input.teamToolsOnly ? { ...tools, files: [], shell: [] } : tools;
 }
 
 /** Build intent from actual placement. Strict sandbox enforcement is a separate activation. */
@@ -767,7 +793,15 @@ export function buildSessionPolicy(input: {
    * the placement is the member's own workspace and the CLI asks nothing locally.
    */
   managedVm?: { boundary: { name: string; version: number } };
+  /**
+   * The Operator's conversation with someone who is not an owner (PM-475): the team tools only, no
+   * file, shell or web tool, and nothing to read outside the placement.
+   */
+  teamToolsOnly?: boolean;
 }): SessionPolicy {
+  if (input.teamToolsOnly) {
+    input = { ...input, readableRoots: [], readOnlyPaths: [] };
+  }
   if (input.managedVm) return buildManagedVmPolicy({ ...input, managedVm: input.managedVm });
   const role = roleSessionAccess(input.config, input.role);
   const placement = input.placement;
@@ -800,7 +834,7 @@ export function buildSessionPolicy(input: {
     access: placement.kind,
     ...(placement.kind === 'review_copy' ? { reviewCopyMode } : {}),
     placement,
-    tools: roleSessionTools(input.config, input.role),
+    tools: sessionToolsOf(input),
     filesystem: {
       readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
       writableRoots: permissions.sandbox === 'workspace-write' ? [...new Set(ownRoots)] : [],
@@ -842,6 +876,7 @@ function buildManagedVmPolicy(input: {
   readableRoots?: string[];
   protectedPaths?: string[];
   readOnlyPaths?: string[];
+  teamToolsOnly?: boolean;
   managedVm: { boundary: { name: string; version: number } };
 }): SessionPolicy {
   const placement = input.placement;
@@ -855,7 +890,7 @@ function buildManagedVmPolicy(input: {
     execution: { profile: 'managed_vm', boundary: input.managedVm.boundary },
     access: 'member_workspace',
     placement,
-    tools: roleSessionTools(input.config, input.role),
+    tools: sessionToolsOf(input),
     filesystem: {
       readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
       writableRoots: permissions.sandbox === 'read-only' ? [] : ownRoots,

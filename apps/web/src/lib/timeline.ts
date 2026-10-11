@@ -496,6 +496,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             : t('timeline.prerequisiteFree')),
       );
     }
+    case 'task_parts_left':
+      return normal(
+        t(
+          str(d.phase) === 'alerted'
+            ? 'timeline.events.parts_left_alerted'
+            : 'timeline.events.parts_left_told',
+          {
+            name: nameOf(str(d.member), ctx.members, ctx.myHandle),
+            parts: strings(d.parts).join(', '),
+          },
+        ),
+      );
     case 'task_note':
       return normal(str(d.text));
     case 'attachment_added':

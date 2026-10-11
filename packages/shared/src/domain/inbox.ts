@@ -356,6 +356,15 @@ export const RelationCheckAlert = z.object({
 });
 export type RelationCheckAlert = z.infer<typeof RelationCheckAlert>;
 
+/** `parts_left` (PM-480): parts of card `taskKey` that `member` created are still left in the first stage after a reminder. */
+export const PartsLeftAlert = z.object({
+  alert: z.literal('parts_left'),
+  taskKey: TaskKey,
+  member: MemberHandle,
+  parts: z.array(TaskKey).min(1),
+});
+export type PartsLeftAlert = z.infer<typeof PartsLeftAlert>;
+
 /** A provider quota stopped a session; the owners are told once per hold (PM-377). */
 export const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
@@ -395,6 +404,7 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   RefinementAlert,
   ProviderRateLimitAlert,
   RelationCheckAlert,
+  PartsLeftAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 

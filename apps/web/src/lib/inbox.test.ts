@@ -88,6 +88,20 @@ describe('splitQuestion', () => {
     expect(text).toContain('AR-3');
     expect(text).not.toContain('{');
   });
+  it('renders the alert that parts were left in the first stage after a reminder (PM-480)', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      payload: { alert: 'parts_left', taskKey: 'AR-1', member: 'dev-1', parts: ['AR-2', 'AR-3'] },
+    };
+    expect(inboxHeading(alert)).toBe(t('inbox.alerts.parts_left.heading'));
+    const text = alertText(alert, new Map(), null);
+    expect(text).toContain('AR-1');
+    expect(text).toContain('AR-2, AR-3');
+    expect(text).toContain('dev-1');
+    expect(text).not.toContain('{');
+  });
   it('keeps a short one-line question whole, without marks', () => {
     expect(splitQuestion('Mehet ma este a kiadás az élesbe?')).toEqual({
       title: 'Mehet ma este a kiadás az élesbe?',

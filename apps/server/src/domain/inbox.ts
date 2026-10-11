@@ -600,11 +600,15 @@ export class InboxService {
     }
   }
 
-  /** Cancels open questions and permission requests raised by a member (e.g. when it is retired). */
+  /**
+   * Cancels open questions and permission requests raised by a member (e.g. when it is retired).
+   * A decision and a release approval outlive their proposer: the release record stays `proposed`
+   * until a human resolves the item, so cancelling it would leave the open release stuck.
+   */
   cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
     const cancelled: InboxItem[] = [];
     for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {
-      if (item.source !== handle || item.kind === 'decision') continue;
+      if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
       const closed = this.cancel(item.id);
       if (closed) cancelled.push(closed);
     }

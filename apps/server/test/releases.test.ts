@@ -8,7 +8,7 @@ import type { ControlRelease } from '../src/control';
 import type { BranchMerger, MergeBaseState } from '../src/contracts';
 import type { Resolver } from '../src/domain/inbox';
 import type { ToolContext } from '../src/contracts';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER as OWNER_AUTHOR, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { recordingLog, ScriptedPause } from './helpers/control';
 
@@ -262,6 +262,18 @@ describe('the release flow', () => {
       expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
       expect(h.repos.releases.list('AR')).toHaveLength(1);
       expect(h.domain.tasks.list('AR').filter((card) => card.kind === 'theme')).toHaveLength(1);
+    });
+
+    it('keeps the approval request when the proposer is retired, so the release is not stuck', async () => {
+      await setup();
+      const { release } = await propose();
+      const item = approvalOf();
+
+      await h.domain.members.retire('AR', 'devops', {}, { actor: OWNER_ACTOR, author: OWNER_AUTHOR });
+
+      expect(h.domain.inbox.get('AR', item.id)).toMatchObject({ state: 'open' });
+      await decide('approve');
+      expect(h.domain.releases.get(release.id)).toMatchObject({ state: 'approved' });
     });
 
     it('previews with nothing recorded', async () => {

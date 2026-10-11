@@ -212,6 +212,25 @@ export interface BranchMerger {
   push(ref: MergeRepoRef, input: { base: string; mergeCommit: string }): Promise<MergePushResult>;
   /** Moves the local `base` from `from` to `to`, a descendant of `from`. */
   advance(ref: MergeRepoRef, input: { base: string; from: string; to: string }): Promise<MergeAdvanceResult>;
+  /**
+   * The text of `path` at `commit`, or at the head of `base` after fetching its upstream (the upstream's
+   * commit, else the local branch's). text null: no such file there. Rejects (invalid_input) a path that
+   * fails isRepoFilePath, a file over 1 MiB or one that is not UTF-8 text; unknown_object for an unknown commit.
+   * For the Operator's documents (PM-388).
+   */
+  readFile(
+    ref: MergeRepoRef,
+    input: { at: { commit: string } | { base: string }; path: string },
+  ): Promise<{ commit: string; text: string | null }>;
+  /**
+   * A commit whose parent is `onto` and whose tree is onto's with these files' text set (created when
+   * absent). No ref, index or working tree is touched; the machine's git identity, like build (no_identity).
+   * changed: the paths whose content differs from onto. For the Operator's documents (PM-388).
+   */
+  commitFiles(
+    ref: MergeRepoRef,
+    input: { onto: string; files: { path: string; text: string }[]; message: string },
+  ): Promise<{ commit: string; changed: string[] }>;
 }
 
 export interface EngineHost {

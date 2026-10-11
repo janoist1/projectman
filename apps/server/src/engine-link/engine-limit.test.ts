@@ -809,9 +809,87 @@ describe('engine local limit', () => {
         ['merge.release_check', { ref, mergeId }],
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
+        ['merge.read_file', { ref, at: { commit: sha }, path: 'docs/decisions.md' }],
+        ['merge.read_file', { ref, at: { base: 'main' }, path: 'ROADMAP.md' }],
+        [
+          'merge.commit_files',
+          { ref, onto: sha, files: [{ path: 'docs/a.md', text: 'x' }], message: 'Docs' },
+        ],
+        [
+          'merge.commit_files',
+          {
+            ref,
+            onto: sha,
+            files: [
+              { path: 'a.md', text: 'x'.repeat(1024 * 1024) },
+              { path: 'b.md', text: '' },
+            ],
+            message: 'Docs',
+          },
+        ],
       ];
       for (const [method, params] of calls)
         await expect(limit.check(method, params as never), method).resolves.toBeDefined();
+    });
+
+    it('refuses a document read or commit with a bad path, too much text, too many files or a bad id', async () => {
+      const limit = merging();
+      for (const bad of ['/abs', '../x', 'a/../b', '.git/config', 'a\\b', '', 'a//b', './a', 'a\0b']) {
+        await refused(limit, 'merge.read_file', { ref, at: { commit: sha }, path: bad }, 'invalid_params');
+        await refused(
+          limit,
+          'merge.commit_files',
+          { ref, onto: sha, files: [{ path: bad, text: 'x' }], message: 'm' },
+          'invalid_params',
+        );
+      }
+      const commit = (files: { path: string; text: string }[], message = 'm', onto = sha) =>
+        refused(limit, 'merge.commit_files', { ref, onto, files, message }, 'invalid_params');
+      await commit([{ path: 'a.md', text: 'x'.repeat(1024 * 1024 + 1) }]);
+      await commit([{ path: 'a.md', text: 'é'.repeat(600 * 1024) }]); // under 1 MiB in characters, over in bytes
+      await commit([{ path: 'a.md', text: 'a\0b' }]);
+      await commit([]);
+      await commit([
+        { path: 'a.md', text: '' },
+        { path: 'b.md', text: '' },
+        { path: 'c.md', text: '' },
+      ]);
+      await commit([
+        { path: 'a.md', text: '1' },
+        { path: 'a.md', text: '2' },
+      ]);
+      await commit([{ path: 'a.md', text: 'x' }], '   ');
+      await commit([{ path: 'a.md', text: 'x' }], 'a\0b');
+      await commit([{ path: 'a.md', text: 'x' }], 'm', 'main');
+      await refused(
+        limit,
+        'merge.read_file',
+        { ref, at: { commit: 'main' }, path: 'a.md' },
+        'invalid_params',
+      );
+      await refused(limit, 'merge.read_file', { ref, at: { base: '--x' }, path: 'a.md' }, 'invalid_params');
+      await refused(
+        limit,
+        'merge.read_file',
+        { ref, at: { base: 'develop' }, path: 'a.md' },
+        'merge_not_allowed',
+      );
+    });
+
+    it('refuses the document calls for a repo without a mergeBranch', async () => {
+      const limit = make();
+      await refused(
+        limit,
+        'merge.read_file',
+        { ref, at: { commit: sha }, path: 'a.md' },
+        'merge_not_allowed',
+      );
+      await refused(
+        limit,
+        'merge.commit_files',
+        { ref, onto: sha, files: [{ path: 'a.md', text: 'x' }], message: 'm' },
+        'merge_not_allowed',
+      );
     });
 
     it('refuses every call for a repo without a mergeBranch', async () => {
@@ -825,6 +903,7 @@ describe('engine local limit', () => {
         ['merge.release_check', { ref, mergeId }],
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
+        ['merge.read_file', { ref, at: { base: 'main' }, path: 'a.md' }],
       ];
       for (const [method, params] of calls) await refused(limit, method, params, 'merge_not_allowed');
     });

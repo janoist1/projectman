@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { lstat, mkdir, readdir, realpath, rm, unlink } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, realpath, rm, unlink } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import type {
   BranchMerger,
@@ -10,8 +11,16 @@ import type {
   MergeRepoRef,
 } from '../contracts';
 import { isWithin } from './within';
-import { isBranchName, isCommitId, isMergeId, isMergeMessage } from './merge-input';
-import { MergeError, NETWORK_GIT_TIMEOUT_MS, outputTail, runGit } from './merge-git';
+import {
+  DOC_FILE_MAX_BYTES,
+  isBranchName,
+  isCommitFileSet,
+  isCommitId,
+  isMergeId,
+  isMergeMessage,
+  isRepoFilePath,
+} from './merge-input';
+import { MergeError, NETWORK_GIT_TIMEOUT_MS, outputTail, runGit, runGitBytes } from './merge-git';
 
 /**
  * The local `BranchMerger` (PM-451, PM-448): the git work of merging a card's approved commit into the
@@ -210,6 +219,42 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     }
     return null;
   };
+  const fetchUpstream = async (repo: string, upstream: Upstream): Promise<void> => {
+    const fetched = await runGit(
+      repo,
+      [
+        'fetch',
+        '--no-tags',
+        '--no-recurse-submodules',
+        '--no-write-fetch-head',
+        '--',
+        upstream.remote,
+        `+${upstream.remoteRef}:${upstream.ref}`,
+      ],
+      { timeoutMs: networkTimeout },
+    );
+    if (fetched.code !== 0)
+      throw new MergeError(
+        'git_failed',
+        `fetch failed${fetched.timedOut ? ' (timed out)' : ''}: ${outputTail(fetched.stderr || fetched.stdout, 500)}`,
+      );
+  };
+  /** The machine's git identity as the environment of a commit; `no_identity` when the repository has none. */
+  const identityOf = async (repo: string): Promise<Record<string, string>> => {
+    const name = (await runGit(repo, ['config', '--get', 'user.name'])).stdout.trim();
+    const email = (await runGit(repo, ['config', '--get', 'user.email'])).stdout.trim();
+    if (!name || !email)
+      throw new MergeError(
+        'no_identity',
+        'The repository has no committer identity: set user.name and user.email in its git configuration',
+      );
+    return {
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_COMMITTER_NAME: name,
+      GIT_COMMITTER_EMAIL: email,
+    };
+  };
   const worktreeOf = async (repo: string, base: string): Promise<string | null> => {
     const out = await must(repo, ['worktree', 'list', '--porcelain'], 'worktree list', {
       env: { GIT_OPTIONAL_LOCKS: '0' },
@@ -243,26 +288,7 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     const commit = commitArg(input.commit, 'The commit');
     await requireCommit(repo, commit, 'The commit');
     const upstream = await upstreamOf(repo, base);
-    if (upstream) {
-      const fetched = await runGit(
-        repo,
-        [
-          'fetch',
-          '--no-tags',
-          '--no-recurse-submodules',
-          '--no-write-fetch-head',
-          '--',
-          upstream.remote,
-          `+${upstream.remoteRef}:${upstream.ref}`,
-        ],
-        { timeoutMs: networkTimeout },
-      );
-      if (fetched.code !== 0)
-        throw new MergeError(
-          'git_failed',
-          `fetch failed${fetched.timedOut ? ' (timed out)' : ''}: ${outputTail(fetched.stderr || fetched.stdout, 500)}`,
-        );
-    }
+    if (upstream) await fetchUpstream(repo, upstream);
     const local = await requireCommit(repo, `refs/heads/${base}`, 'The base');
     const containsLocal = await ancestor(repo, commit, local);
     let remote: MergeBaseState['remote'] = null;
@@ -309,13 +335,7 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     await requireCommit(repo, onto, 'The base commit');
     await requireCommit(repo, commit, 'The commit');
     // The identity first: a repository without one is told so before any work is done.
-    const name = (await runGit(repo, ['config', '--get', 'user.name'])).stdout.trim();
-    const email = (await runGit(repo, ['config', '--get', 'user.email'])).stdout.trim();
-    if (!name || !email)
-      throw new MergeError(
-        'no_identity',
-        'The repository has no committer identity: set user.name and user.email in its git configuration',
-      );
+    const identity = await identityOf(repo);
     const merged = await runGit(repo, [
       'merge-tree',
       '--write-tree',
@@ -339,12 +359,6 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       );
     const tree = merged.stdout.split('\0')[0]!.trim();
     if (!isCommitId(tree)) throw new MergeError('git_failed', 'merge-tree gave no tree');
-    const identity = {
-      GIT_AUTHOR_NAME: name,
-      GIT_AUTHOR_EMAIL: email,
-      GIT_COMMITTER_NAME: name,
-      GIT_COMMITTER_EMAIL: email,
-    };
     const made = (
       await must(repo, ['commit-tree', tree, '-p', onto, '-p', commit, '-m', input.message], 'commit-tree', {
         env: identity,
@@ -583,5 +597,129 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     );
   };
 
-  return { prepare, isAncestor, build, checkoutConflicts, checkoutForCheck, releaseCheck, push, advance };
+  /** The tree entry of `file` at `commit`; null when there is none. */
+  const treeEntry = async (
+    repo: string,
+    commit: string,
+    file: string,
+  ): Promise<{ mode: string; type: string; object: string } | null> => {
+    const out = await must(repo, ['ls-tree', '-z', '--full-tree', commit, '--', file], 'ls-tree');
+    for (const entry of paths(out)) {
+      const tab = entry.indexOf('\t');
+      if (tab === -1 || entry.slice(tab + 1) !== file) continue;
+      const [mode, type, object] = entry.slice(0, tab).split(' ');
+      if (mode && type && object) return { mode, type, object };
+    }
+    return null;
+  };
+
+  const readFile = async (
+    ref: MergeRepoRef,
+    input: { at: { commit: string } | { base: string }; path: string },
+  ): Promise<{ commit: string; text: string | null }> => {
+    const repo = repoOf(ref);
+    if (!isRepoFilePath(input.path)) invalid('Not a path inside the repository');
+    let commit: string;
+    if ('commit' in input.at) {
+      commit = await requireCommit(repo, commitArg(input.at.commit, 'The commit'), 'The commit');
+    } else {
+      const base = await baseArg(input.at.base);
+      const upstream = await upstreamOf(repo, base);
+      if (upstream) {
+        await fetchUpstream(repo, upstream);
+        commit = await requireCommit(repo, upstream.ref, 'The upstream');
+      } else commit = await requireCommit(repo, `refs/heads/${base}`, 'The base');
+    }
+    const entry = await treeEntry(repo, commit, input.path);
+    if (!entry) return { commit, text: null };
+    if (entry.type !== 'blob' || (entry.mode !== '100644' && entry.mode !== '100755'))
+      return invalid(`${input.path} is not a regular file`);
+    const size = Number((await must(repo, ['cat-file', '-s', entry.object], 'cat-file')).trim());
+    if (!Number.isFinite(size) || size > DOC_FILE_MAX_BYTES) return invalid(`${input.path} is over 1 MiB`);
+    const blob = await runGitBytes(repo, ['cat-file', 'blob', entry.object]);
+    if (blob.code !== 0)
+      throw new MergeError('git_failed', `cat-file failed: ${outputTail(blob.stderr, 500)}`);
+    let text: string;
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(blob.stdout);
+    } catch {
+      return invalid(`${input.path} is not UTF-8 text`);
+    }
+    if (text.includes('\0')) return invalid(`${input.path} is not text`);
+    return { commit, text };
+  };
+
+  const commitFiles = async (
+    ref: MergeRepoRef,
+    input: { onto: string; files: { path: string; text: string }[]; message: string },
+  ): Promise<{ commit: string; changed: string[] }> => {
+    const repo = repoOf(ref);
+    const onto = commitArg(input.onto, 'The base commit');
+    if (!isMergeMessage(input.message) || input.message.trim().length === 0) invalid('Not a commit message');
+    if (!isCommitFileSet(input.files))
+      invalid('Not a set of 1 to 2 different files inside the repository, each text under 1 MiB');
+    await requireCommit(repo, onto, 'The base commit');
+    const identity = await identityOf(repo);
+    // The index is a file of its own in a temporary directory: the repository's index, refs and working tree stay as they are.
+    const scratch = await mkdtemp(path.join(os.tmpdir(), 'projectman-index-'));
+    try {
+      const indexEnv = { GIT_INDEX_FILE: path.join(scratch, 'index') };
+      await must(repo, ['read-tree', onto], 'read-tree', { env: indexEnv });
+      let entries = '';
+      for (const file of input.files) {
+        const existing = await treeEntry(repo, onto, file.path);
+        if (
+          existing &&
+          (existing.type !== 'blob' || (existing.mode !== '100644' && existing.mode !== '100755'))
+        )
+          invalid(`${file.path} is not a regular file`);
+        // A file where onto has the directory's place would silently remove that file.
+        for (let at = file.path.indexOf('/'); at !== -1; at = file.path.indexOf('/', at + 1)) {
+          const parent = await treeEntry(repo, onto, file.path.slice(0, at));
+          if (parent && parent.type !== 'tree')
+            invalid(`${file.path.slice(0, at)} is a file, not a directory`);
+        }
+        const blob = (
+          await must(repo, ['hash-object', '-w', '-t', 'blob', '--no-filters', '--stdin'], 'hash-object', {
+            input: file.text,
+          })
+        ).trim();
+        if (!isCommitId(blob)) throw new MergeError('git_failed', 'hash-object gave no object');
+        entries += `${existing?.mode ?? '100644'} ${blob}\t${file.path}\0`;
+      }
+      await must(repo, ['update-index', '-z', '--index-info'], 'update-index', {
+        env: indexEnv,
+        input: entries,
+      });
+      const tree = (await must(repo, ['write-tree'], 'write-tree', { env: indexEnv })).trim();
+      if (!isCommitId(tree)) throw new MergeError('git_failed', 'write-tree gave no tree');
+      const made = (
+        await must(repo, ['commit-tree', tree, '-p', onto, '-m', input.message], 'commit-tree', {
+          env: identity,
+        })
+      ).trim();
+      if (!isCommitId(made)) throw new MergeError('git_failed', 'commit-tree gave no commit');
+      const diff = await must(
+        repo,
+        ['diff-tree', '-r', '--name-only', '-z', '--no-renames', '--no-commit-id', onto, made],
+        'diff-tree',
+      );
+      return { commit: made, changed: paths(diff).sort() };
+    } finally {
+      await rm(scratch, { recursive: true, force: true });
+    }
+  };
+
+  return {
+    prepare,
+    isAncestor,
+    build,
+    checkoutConflicts,
+    checkoutForCheck,
+    releaseCheck,
+    push,
+    advance,
+    readFile,
+    commitFiles,
+  };
 }

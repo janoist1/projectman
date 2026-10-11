@@ -9,7 +9,14 @@ import {
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
 } from '../domain/session-policy';
-import { isBranchName, isCommitId, isMergeId, isMergeMessage } from '../engine-host/merge-input';
+import {
+  isBranchName,
+  isCommitFileSet,
+  isCommitId,
+  isMergeId,
+  isMergeMessage,
+  isRepoFilePath,
+} from '../engine-host/merge-input';
 import { isWithin } from '../engine-host/within';
 import { BILLING_ENV_VARS } from '../runner';
 import { engineFiles } from './engine-config';
@@ -558,6 +565,27 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
     'merge.advance': async (params) => {
       await mergeBase(params.ref, params.base);
       commitIds(params.from, params.to);
+      return params;
+    },
+    'merge.read_file': async (params) => {
+      if ('base' in params.at) await mergeBase(params.ref, params.at.base);
+      else {
+        mergeRepo(params.ref);
+        commitIds(params.at.commit);
+      }
+      if (!isRepoFilePath(params.path)) refuse('invalid_params', 'Not a path inside the repository');
+      return params;
+    },
+    'merge.commit_files': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.onto);
+      if (!isCommitFileSet(params.files))
+        refuse(
+          'invalid_params',
+          'Not a set of 1 to 2 different files inside the repository, each text under 1 MiB',
+        );
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
       return params;
     },
     'files.export': (params) => {

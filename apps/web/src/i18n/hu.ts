@@ -2642,6 +2642,7 @@ export const hu = {
         color: 'szín',
         order: 'sorrend',
         schemaVersion: 'sémaverzió',
+        docs: 'dokumentumok helye',
       },
     },
     approval: {

@@ -99,6 +99,40 @@ export function runGit(
   });
 }
 
+/** Runs git for its raw output: the standard output stays bytes (a file's content is not decoded here). */
+export function runGitBytes(
+  cwd: string,
+  args: readonly string[],
+  options: Pick<GitRunOptions, 'timeoutMs' | 'env'> = {},
+): Promise<{ code: number | null; stdout: Buffer; stderr: string; timedOut: boolean }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      'git',
+      [...SAFE_GIT_CONFIG, '-C', cwd, ...args],
+      {
+        env: mergeGitEnv(options.env),
+        encoding: 'buffer',
+        timeout: options.timeoutMs ?? MERGE_GIT_TIMEOUT_MS,
+        maxBuffer: 64 * 1024 * 1024,
+        windowsHide: true,
+      },
+      (error, stdout, stderr) => {
+        if (error && typeof error.code !== 'number' && !error.killed) {
+          reject(error);
+          return;
+        }
+        resolve({
+          code: error ? (typeof error.code === 'number' ? error.code : null) : 0,
+          stdout,
+          stderr: stderr.toString('utf8'),
+          timedOut: error?.killed === true,
+        });
+      },
+    );
+    child.stdin?.end();
+  });
+}
+
 export { MergeError };
 
 /** The end of a git output, at most `max` characters, without credentials. */

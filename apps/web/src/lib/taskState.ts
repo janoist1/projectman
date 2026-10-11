@@ -552,6 +552,8 @@ function mergeCardState(
       );
     case 'queued':
       return state('waiting', t('taskStatus.merge.queued'));
+    case 'fixing':
+      return state('working', t('taskStatus.merge.fixing'), merge.fix?.startedAt ?? since);
     case 'failed':
       return you
         ? asked(

@@ -177,6 +177,58 @@ describe('the merge box in the drawer (PM-453)', () => {
   });
 });
 
+describe('a conflict the merger fixes (PM-471)', () => {
+  function fixingProject(viewerIsMerger: boolean) {
+    const project = mergeProject(viewerIsMerger ? 'owner' : 'code-review');
+    project.backend.setMergeOutcome('AC-27', 'conflict');
+    if (!viewerIsMerger) project.backend.viewerHandle = 'code-review';
+    startMerge(project.backend);
+    project.backend.runMerge('AC-27');
+    project.backend.viewerHandle = 'owner';
+    const merge = project.backend.findTask('AC-27')!.merge!;
+    merge.state = 'fixing';
+    merge.fix = {
+      by: merge.merger,
+      base: 'b'.repeat(40),
+      branch: 'merge-fix/AC-27',
+      startedAt: merge.requestedAt,
+    };
+    return project;
+  }
+
+  it('says who fixes it and offers no button', async () => {
+    const project = fixingProject(false);
+    project.render(drawer, route);
+    const box = await mergeBox();
+    expect(box.getAttribute('data-merge-state')).toBe('fixing');
+    expect(within(box).getByRole('heading', { name: t('task.merge.fixing.title') })).toBeTruthy();
+    expect(box.textContent).toContain('main');
+    expect(within(box).queryByRole('button')).toBeNull();
+  });
+
+  it('gives the merger the same box without the merge buttons, in place of the request item', async () => {
+    const project = fixingProject(true);
+    expect(project.backend.inbox.some((item) => item.kind === 'merge_request')).toBe(true);
+    project.render(drawer, route);
+    const box = await mergeBox();
+    expect(box.textContent).toContain(t('task.merge.fixing.you', { base: 'main' }));
+    expect(screen.queryByRole('button', { name: t('task.merge.again') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('task.merge.button') })).toBeNull();
+  });
+
+  it('is refused by the merge route while the fix is under way', async () => {
+    const project = fixingProject(true);
+    const response = project.backend.handle(
+      'POST',
+      '/api/projects/AC/tasks/AC-27/merge',
+      undefined,
+      new URLSearchParams(),
+    );
+    expect(response.status).toBe(409);
+    expect(project.backend.findTask('AC-27')!.merge?.state).toBe('fixing');
+  });
+});
+
 describe('an AI merger, seen by another member (PM-453)', () => {
   it('shows no button while the request waits, and "Miért áll?" names the merger', async () => {
     // The default merger is the AI code reviewer; the viewer (`owner`) is not them.

@@ -91,7 +91,7 @@ export function mergeBlockText(
 }
 
 /** Where the merge condition of a move stands, from the card's own fields only (the server has the last word). */
-export type MergeConditionState = 'met' | 'waiting' | 'running' | 'failed' | 'blocked' | 'none';
+export type MergeConditionState = 'met' | 'waiting' | 'running' | 'fixing' | 'failed' | 'blocked' | 'none';
 
 export function mergeConditionState(task: Pick<Task, 'merge' | 'merged'>): MergeConditionState {
   const merge = task.merge;
@@ -106,6 +106,7 @@ export const mergeConditionKey = {
   met: 'task.move.merge.met',
   waiting: 'task.move.merge.waiting',
   running: 'task.move.merge.running',
+  fixing: 'task.move.merge.fixing',
   failed: 'task.move.merge.failed',
   blocked: 'task.move.merge.blocked',
   none: 'task.move.merge.none',

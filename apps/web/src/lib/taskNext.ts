@@ -237,8 +237,9 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
 
     case 'merge': {
       const merge = task.merge;
-      // A queued or running merge goes on by itself: the card's own line and the merge box say so.
-      if (merge?.state === 'queued' || merge?.state === 'running') return null;
+      // A queued or running merge goes on by itself, and a conflict being fixed (PM-471) is the merger's
+      // work in progress: the card's own line and the merge box say so.
+      if (merge?.state === 'queued' || merge?.state === 'running' || merge?.state === 'fixing') return null;
       const merger = names || t('taskStatus.next.heads.nobody');
       const toStageId = wait.toStageId;
       if (merge?.state === 'failed') {

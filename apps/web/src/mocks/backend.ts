@@ -3500,6 +3500,11 @@ export class MockBackend {
       return error(403, 'insufficient_access', 'Requires developer access');
     this.reconcileMerge(task);
     const merge = task.merge;
+    // The fix of a conflict is the merger's tool, not the button (PM-471): the server refuses a start meanwhile.
+    if (merge?.state === 'fixing')
+      return error(409, 'merge_fix_not_allowed', 'Submit the committed fix with resolution', {
+        reason: 'not_conflict',
+      });
     const merger = merge?.merger ?? cardMerger(this.config, task, null);
     if (!merger || merger !== this.viewerHandle)
       return error(403, 'merge_not_merger', 'Only the card merger may start the merge');

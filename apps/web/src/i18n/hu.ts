@@ -1195,6 +1195,7 @@ export const hu = {
     merge: {
       running: 'Beolvasztás · {step}',
       queued: 'Beolvasztás: sorra vár',
+      fixing: 'Beolvasztás · ütközést javít',
       steps: {
         queued: 'sorra vár',
         merging: 'összefésülés',
@@ -1670,6 +1671,7 @@ export const hu = {
         met: 'beolvasztva',
         waiting: 'beolvasztásra vár',
         running: 'beolvasztás folyamatban',
+        fixing: 'az ütközést javítják',
         failed: 'a beolvasztás nem sikerült',
         blocked: 'a beolvasztás elakadt',
         none: 'még nincs',
@@ -1713,6 +1715,12 @@ export const hu = {
         active: 'folyamatban',
         todo: 'még nem kezdődött el',
         failed: 'nem sikerült',
+      },
+      fixing: {
+        title: 'Az ütközést javítják',
+        you: 'Az ütközést a kártya külön munkafáján javítod, és utána újra beolvasztod. A {base} nem változott.',
+        others:
+          '{merger} javítja az ütközést a kártya külön munkafáján, és utána újra beolvasztja. A {base} nem változott.',
       },
       failed: {
         conflictTitle: 'Nem sikerült beolvasztani: ütközés',
@@ -3463,6 +3471,7 @@ export const hu = {
       merged_pushed_github: 'felküldve a GitHubra',
       merged_pushed: 'felküldve a távoli tárhelyre',
       merged_pull: 'PR #{number} merge-elve',
+      merged_resolution: 'Ütközés javítva',
       task_merge_failed: 'Nem sikerült beolvasztani: {what}. A fő ág nem változott.',
       merge_failed_conflict: 'ütközés ({count} fájl)',
       merge_failed_conflict_unnamed: 'ütközés',

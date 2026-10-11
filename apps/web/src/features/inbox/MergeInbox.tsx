@@ -40,6 +40,8 @@ export function MergeInboxBody({ item }: { item: InboxItem }) {
     const repo = mergeRepo(config, request.repo);
     const check = task?.merge?.check?.command ?? repo?.reviewTest?.command ?? null;
     const failure = request.failure;
+    if (task?.merge?.state === 'fixing')
+      return <p className={styles.body}>{t('task.merge.fixing.you', { base: request.base })}</p>;
     if (!failure) {
       const commit = task ? mergeCommitOf(task) : null;
       return (
@@ -136,10 +138,13 @@ export function MergeInboxActions({
   const alert = item.kind === 'alert' ? alertPayloadOf(item) : null;
   const blocked = alert?.alert === 'merge_blocked' ? alert : null;
   const again = !!request?.failure;
+  // The merger fixes the conflict in its own checkout (PM-471): merging again is not offered until it submits the fix.
+  const { task } = useMergeFacts(request?.taskKey);
+  const fixing = task?.merge?.state === 'fixing';
   return (
     <>
       <div className={mergeStyles.actions}>
-        {request ? (
+        {request && fixing ? null : request ? (
           <Button
             variant="primary"
             size={size}

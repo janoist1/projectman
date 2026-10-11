@@ -44,6 +44,28 @@ describe('the merge request in the inbox (PM-453)', () => {
     expect(within(card).getByRole('button', { name: t('task.merge.again') })).toBeTruthy();
   });
 
+  it('offers no button while the merger fixes the conflict, only the way to the card', async () => {
+    const project = humanMerger();
+    project.backend.setMergeOutcome('AC-27', 'conflict');
+    project.backend.handle('POST', '/api/projects/AC/tasks/AC-27/merge', undefined, new URLSearchParams());
+    project.backend.runMerge('AC-27');
+    const merge = project.backend.findTask('AC-27')!.merge!;
+    merge.state = 'fixing';
+    merge.fix = {
+      by: 'owner',
+      base: 'b'.repeat(40),
+      branch: 'merge-fix/AC-27',
+      startedAt: merge.requestedAt,
+    };
+    project.render(<InboxPage />, '/p/AC/inbox');
+    const heading = t('inbox.mergeRequest.failedTitle', { key: 'AC-27' });
+    await screen.findByRole('heading', { name: heading });
+    const card = cardOf(heading);
+    expect(card.textContent).toContain(t('task.merge.fixing.you', { base: 'main' }));
+    expect(within(card).queryByRole('button', { name: t('task.merge.again') })).toBeNull();
+    expect(within(card).getByRole('link', { name: t('inbox.mergeRequest.open') })).toBeTruthy();
+  });
+
   it('shows the blocked merge as an alert with a retry that starts it again', async () => {
     const project = humanMerger();
     project.backend.setMergeOutcome('AC-27', 'blocked');

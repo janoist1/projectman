@@ -41,6 +41,26 @@ describe('the merge on the board card (PM-453)', () => {
     expect(await cardText(project)).toContain(t('taskStatus.merge.steps.queued'));
   });
 
+  it('shows a conflict being fixed as the merger’s work in progress, to everyone', async () => {
+    const project = mockProject();
+    project.backend.config.team.merger = { kind: 'member', handle: 'owner' };
+    project.backend.reconcileMerges();
+    project.backend.setMergeOutcome('AC-27', 'conflict');
+    project.backend.handle('POST', '/api/projects/AC/tasks/AC-27/merge', undefined, new URLSearchParams());
+    project.backend.runMerge('AC-27');
+    const merge = project.backend.findTask('AC-27')!.merge!;
+    merge.state = 'fixing';
+    merge.fix = {
+      by: 'owner',
+      base: 'b'.repeat(40),
+      branch: 'merge-fix/AC-27',
+      startedAt: merge.requestedAt,
+    };
+    const text = await cardText(project);
+    expect(text).toContain(t('taskStatus.merge.fixing'));
+    expect(text).not.toContain('Rád vár');
+  });
+
   it('shows a client nothing about the merge', async () => {
     const project = mockProject();
     project.backend.reconcileMerges();

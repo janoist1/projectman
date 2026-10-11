@@ -187,6 +187,16 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
         true,
       );
     }
+    case 'fixing':
+      // The merger fixes a simple conflict in its own checkout (PM-471); nothing to press until it submits the fix.
+      return frame(
+        t('task.merge.fixing.title'),
+        'accent',
+        <p className={styles.text}>
+          {t(you ? 'task.merge.fixing.you' : 'task.merge.fixing.others', { merger: who, base: merge.base })}
+        </p>,
+        true,
+      );
     case 'failed': {
       const conflict = failureKind(merge) === 'conflict';
       const files = merge.failure?.files ?? [];

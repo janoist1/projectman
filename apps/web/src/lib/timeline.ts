@@ -35,6 +35,8 @@ export interface DescribedEvent {
   emphasis: 'normal' | 'needs';
   /** Raw (often English) explanation, shown folded behind "Részletek". */
   detail?: string;
+  /** What the merger wrote about the conflict it fixed (markdown prose), folded behind "Ütközés javítva" (PM-471). */
+  resolution?: string;
 }
 
 function str(value: unknown): string {
@@ -337,13 +339,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           return Number.isInteger(number) ? [t('timeline.events.merged_pull', { number })] : [];
         }),
       ].filter((part): part is string => !!part);
-      return normal(
-        t('timeline.events.task_merged', {
-          base,
-          commit: shortCommit(str(d.mergeCommit)),
-          parts: parts.map((part) => ` · ${part}`).join(''),
-        }),
-      );
+      const text = t('timeline.events.task_merged', {
+        base,
+        commit: shortCommit(str(d.mergeCommit)),
+        parts: parts.map((part) => ` · ${part}`).join(''),
+      });
+      const resolution = str(record(d.resolution)?.note).trim();
+      return resolution ? { text, emphasis: 'normal', resolution } : normal(text);
     }
     case 'task_merge_blocked': {
       const reason = mergeBlockText(

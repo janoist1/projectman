@@ -504,6 +504,34 @@ describe('team tools', () => {
     );
   });
 
+  it('send_message passes the file paths once each and accepts at most ten (PM-520)', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const result = await call(client, 'send_message', {
+      kind: 'info',
+      to: ['owner'],
+      text: 'Screenshot',
+      attachments: ['shots/a.png', ' shots/a.png ', 'b.txt'],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(h.handler.calls[0]).toMatchObject({
+      method: 'sendMessage',
+      args: { attachments: ['shots/a.png', 'b.txt'] },
+    });
+
+    for (const attachments of [[], Array.from({ length: 11 }, (_, i) => `f${i}.txt`), ['']]) {
+      const refused = await call(client, 'send_message', {
+        kind: 'info',
+        to: ['owner'],
+        text: 'x',
+        attachments,
+      });
+      expect(refused.isError, JSON.stringify(attachments)).toBe(true);
+    }
+    expect(h.handler.calls).toHaveLength(1);
+  });
+
   it('send_message refuses a message addressed only to the caller', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');

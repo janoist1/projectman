@@ -406,6 +406,11 @@ export interface TeamToolsHandler {
       kind: MessageKind;
       signalId?: string;
       signalActionable?: boolean;
+      /**
+       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
+       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
+       */
+      attachments?: string[];
     },
   ): Promise<{
     messageId: string;

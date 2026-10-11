@@ -74,6 +74,7 @@ import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { Merges } from './merges';
+import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -495,7 +496,9 @@ export function createDomain(opts: DomainOptions) {
   });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
+  const mergeCards = new MergeCardLock();
   const sessions = new SessionOrchestrator({
+    mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
       void outages.observeAuthError(key, handle, provider, engineId).catch(() => {});
     },
@@ -541,6 +544,7 @@ export function createDomain(opts: DomainOptions) {
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
   const worktreeSweep = new WorktreeSweep({
+    mergeCards,
     ctx,
     projects,
     inbox,
@@ -769,6 +773,7 @@ export function createDomain(opts: DomainOptions) {
   });
   messaging.useFullTests(fullTests);
   const merges = new Merges({
+    cards: mergeCards,
     ctx,
     projects,
     tasks,

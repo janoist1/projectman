@@ -773,7 +773,10 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
-  async mergeTask(ctx: ToolContext, args: { taskKey: string }): Promise<{ task: Task }> {
+  async mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }> {
     return this.guard(async () => {
       await this.caller(ctx, 'merge_task');
       return {
@@ -781,6 +784,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ctx.projectKey,
           this.validTaskKey(ctx, args.taskKey),
           aiActor(ctx.member),
+          args,
         ),
       };
     });

@@ -316,6 +316,41 @@ export class FakeMemoryStore implements MemberMemoryStore {
 }
 
 export class FakeWorktreeManager implements WorktreeManager {
+  readonly fixes = new Map<string, WorktreeInfo>();
+  async ensureMergeFix(args: Parameters<WorktreeManager['ensureMergeFix']>[0]) {
+    const key = `${args.project.project.key}/${args.taskKey}/${args.repoName}`;
+    const existing = this.fixes.get(key);
+    if (existing) return existing;
+    const path = join(this.root, args.project.project.key, '_merge-fix', `${args.taskKey}-${args.repoName}`);
+    mkdirSync(path, { recursive: true });
+    const info = { path, repo: args.repoName, branch: `merge-fix/${args.taskKey}` };
+    this.fixes.set(key, info);
+    this.heads.set(path, {
+      path,
+      branch: info.branch,
+      commit: args.commit,
+      dirty: false,
+      changes: 0,
+      committedAt: null,
+    });
+    return info;
+  }
+  async findMergeFix(args: Parameters<WorktreeManager['findMergeFix']>[0]) {
+    return this.fixes.get(`${args.project.project.key}/${args.taskKey}/${args.repoName}`) ?? null;
+  }
+  async removeMergeFix(args: Parameters<WorktreeManager['removeMergeFix']>[0]) {
+    const key = `${args.project.project.key}/${args.taskKey}/${args.repoName}`;
+    const info = this.fixes.get(key);
+    if (info) {
+      await this.remove({ path: info.path });
+      this.fixes.delete(key);
+    }
+  }
+  async listMergeFixes(args: Parameters<WorktreeManager['listMergeFixes']>[0]) {
+    return [...this.fixes.entries()]
+      .filter(([key]) => key.startsWith(`${args.project.project.key}/`) && key.endsWith(`/${args.repoName}`))
+      .map(([key, info]) => ({ taskKey: key.split('/')[1]!, path: info.path }));
+  }
   async refreshDependencies() {
     return { status: 'skipped', reason: 'not_worktree' } as const;
   }

@@ -1610,6 +1610,27 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+- **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
+  `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
+  The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
+  a file-changing duty, only while the card is `fixing`. Placement changes when its session
+  restarts after the turn. The checkout starts at the approved commit; the merger merges the
+  recorded conflict base, resolves mechanical conflicts, commits, and submits a resolution note.
+  Git cleanliness and ancestry are checked on the card's engine before queuing the fix head.
+  Assumptions: git and writable worktree storage on that engine, shared git metadata there.
+  **Remote engine:** checkout creation, head/status/ancestry reads and cleanup run on the card's
+  engine through the worktree and merge contracts; only checkout metadata, commit ids and the
+  resolution note cross the boundary. A merger assigned to another engine is refused. The
+  server stores the fix state and resolution attribution; it never edits conflict files.
+  This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
+  with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
+  `MemberWorkspaces` retains its existing work/review choices. The server's shared
+  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
+  Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
+  at startup and periodically. The engine revalidates the canonical fix path under its
+  repository mutex, refuses symlinks and leaves unregistered directories in place.
+
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
   `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`

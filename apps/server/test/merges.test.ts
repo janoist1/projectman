@@ -116,6 +116,249 @@ describe('member initiated merge', () => {
   const start = (key = 'AR-1', actor = aiActor('dev-1')) => h!.domain.merges.start('AR', key, actor);
   const merged = async (key = 'AR-1') => vi.waitFor(() => expect(task(key).merged?.via).toBe('tool'));
   const blocked = async (reason: string) => vi.waitFor(() => expect(row()?.block?.reason).toBe(reason));
+  const fix = (options: { fixConflict?: boolean; resolution?: string }, actor = aiActor('dev-1')) =>
+    h!.domain.merges.start('AR', 'AR-1', actor, options);
+  async function conflictFailure() {
+    await setup({ remote: false });
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await start();
+    await vi.waitFor(() => expect(row()?.failure?.reason).toBe('conflict'));
+  }
+  it('requests a fix only for the nominated merger after a conflict and preserves the request id', async () => {
+    await setup();
+    await expect(fix({ fixConflict: true })).rejects.toMatchObject({ code: 'merge_fix_not_allowed' });
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await start();
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    const id = row()!.id;
+    await expect(fix({ fixConflict: true }, aiActor('cr'))).rejects.toMatchObject({
+      code: 'merge_fix_not_allowed',
+      details: { reason: 'not_merger' },
+    });
+    await fix({ fixConflict: true });
+    expect(row()).toMatchObject({
+      id,
+      state: 'fixing',
+      commit: 'approved-AR-1',
+      fix: { by: 'dev-1', base: 'base', branch: 'merge-fix/AR-1' },
+    });
+    await expect(fix({ fixConflict: true })).rejects.toMatchObject({ code: 'merge_fix_not_allowed' });
+    await expect(start()).rejects.toMatchObject({ code: 'merge_fix_not_allowed' });
+  });
+  it.each(['uncommitted', 'missing_commit', 'missing_base'] as const)(
+    'refuses an invalid resolution: %s',
+    async (reason) => {
+      await conflictFailure();
+      await fix({ fixConflict: true });
+      const tree = [...h!.worktrees.fixes.values()][0]!;
+      if (reason === 'uncommitted') h!.worktrees.heads.get(tree.path)!.dirty = true;
+      if (reason === 'missing_base')
+        merger.isAncestor.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      await expect(fix({ resolution: 'Resolve imports in a.ts' })).rejects.toMatchObject({
+        code: 'merge_fix_invalid',
+        details: { reason },
+      });
+      expect(row()?.state).toBe('fixing');
+    },
+  );
+  it('queues the clean fix head, records its note, accepts the approved source at the gate, and cleans up', async () => {
+    await conflictFailure();
+    await fix({ fixConflict: true });
+    const id = row()!.id;
+    const tree = [...h!.worktrees.fixes.values()][0]!;
+    h!.worktrees.heads.get(tree.path)!.commit = 'resolved';
+    merger.isAncestor.mockResolvedValue(true);
+    await fix({ resolution: 'Resolve adjacent imports in a.ts' });
+    expect(events('task_note').at(-1)).toMatchObject({
+      actor: aiActor('dev-1'),
+      data: { text: 'Resolve adjacent imports in a.ts' },
+    });
+    await merged();
+    expect(task().merged).toMatchObject({
+      commit: 'resolved',
+      resolution: { commit: 'resolved', note: 'Resolve adjacent imports in a.ts' },
+    });
+    expect(h!.repos.taskMerges.get(id)?.fix?.base).toBe('base');
+    expect(merger.build).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ commit: 'resolved' }),
+    );
+    await h!.domain.merges.checkGate(await h!.domain.projects.config('AR'), task(), 'done');
+    expect(task().merged?.resolution?.note).toBe('Resolve adjacent imports in a.ts');
+    await vi.waitFor(() => expect(h!.worktrees.fixes.size).toBe(0));
+  });
+  it('refuses a fix when the merger runs on another engine', async () => {
+    await conflictFailure();
+    vi.spyOn(h!.domain.sessions, 'cardEngineId').mockReturnValue('another');
+    await expect(fix({ fixConflict: true })).rejects.toMatchObject({ code: 'merge_fix_engine_mismatch' });
+  });
+  it('rechecks open fix state after delayed sweep discovery', async () => {
+    await conflictFailure();
+    await fix({ fixConflict: true });
+    const current = row()!;
+    h!.repos.taskMerges.save({ ...current, state: 'cancelled' });
+    const listed = await h!.worktrees.listMergeFixes({
+      project: await h!.domain.projects.config('AR'),
+      repoName: 'web',
+    });
+    const discovery = deferred<typeof listed>();
+    const list = vi.spyOn(h!.worktrees, 'listMergeFixes').mockReturnValueOnce(discovery.promise);
+    const remove = vi.spyOn(h!.worktrees, 'removeMergeFix');
+    const sweep = h!.domain.worktreeSweep.run();
+    await vi.waitFor(() => expect(list).toHaveBeenCalled());
+    h!.repos.taskMerges.save({ ...current, state: 'fixing' });
+    discovery.resolve(listed);
+    await sweep;
+    expect(remove).not.toHaveBeenCalled();
+    expect(h!.worktrees.fixes.size).toBe(1);
+  });
+  it('serializes fix creation behind an in-flight sweep removal', async () => {
+    await conflictFailure();
+    await fix({ fixConflict: true });
+    const current = row()!;
+    h!.repos.taskMerges.save({ ...current, state: 'cancelled' });
+    const gate = deferred<void>();
+    const originalRemove = h!.worktrees.removeMergeFix.bind(h!.worktrees);
+    const remove = vi.spyOn(h!.worktrees, 'removeMergeFix').mockImplementationOnce(async (args) => {
+      await gate.promise;
+      await originalRemove(args);
+    });
+    const sweep = h!.domain.worktreeSweep.run();
+    await vi.waitFor(() => expect(remove).toHaveBeenCalled());
+    h!.repos.taskMerges.save({ ...current, state: 'failed' });
+    const ensure = vi.spyOn(h!.worktrees, 'ensureMergeFix');
+    const pendingFix = fix({ fixConflict: true });
+    expect(ensure).not.toHaveBeenCalled();
+    gate.resolve();
+    await Promise.all([sweep, pendingFix]);
+    expect(ensure).toHaveBeenCalledOnce();
+    expect(row()?.state).toBe('fixing');
+    expect(h!.worktrees.fixes.size).toBe(1);
+  });
+  it.each(['requested', 'queued', 'running', 'blocked', 'failed'] as const)(
+    'refuses fixing an unrelated state or check failure: %s',
+    async (state) => {
+      await setup();
+      await h!.domain.merges.reconcile('AR', 'AR-1');
+      h!.repos.taskMerges.save({
+        ...row()!,
+        state,
+        failure: { reason: 'check_failed', base: 'base', at: 'now' },
+      });
+      await expect(fix({ fixConflict: true })).rejects.toMatchObject({
+        code: 'merge_fix_not_allowed',
+        details: { reason: 'not_conflict' },
+      });
+      expect(h!.worktrees.fixes.size).toBe(0);
+    },
+  );
+  it('refuses conflict fixing in member workspace mode without creating a fix checkout', async () => {
+    merger = fakeMerger(false);
+    h = await createDomainHarness({ memberWorkspaces: true, merger });
+    const card = await h.domain.tasks.create('AR', { title: 'Conflict', repo: 'web' }, OWNER_ACTOR);
+    const now = new Date().toISOString();
+    h.repos.taskMerges.save({
+      id: 'm',
+      projectKey: 'AR',
+      taskKey: card.key,
+      repo: 'web',
+      base: 'main',
+      commit: 'approved',
+      branch: 'task/AR-1',
+      fromStageId: card.stageId,
+      toStageId: 'done',
+      merger: 'dev-1',
+      requestedAt: now,
+      state: 'failed',
+      landed: 'nowhere',
+      failure: { reason: 'conflict', base: 'base', at: now },
+      createdAt: now,
+      updatedAt: now,
+    });
+    await expect(fix({ fixConflict: true })).rejects.toMatchObject({
+      code: 'merge_fix_not_allowed',
+      details: { reason: 'member_workspaces' },
+    });
+    expect(h.worktrees.fixes.size).toBe(0);
+  });
+  it('retains the resolved commit and note when retrying a blocked fix merge', async () => {
+    await conflictFailure();
+    await fix({ fixConflict: true });
+    const tree = [...h!.worktrees.fixes.values()][0]!;
+    h!.worktrees.heads.get(tree.path)!.commit = 'resolved';
+    merger.isAncestor.mockResolvedValue(true);
+    merger.advance.mockResolvedValueOnce({
+      ok: false,
+      reason: 'checkout_in_the_way',
+      message: 'dirty',
+      paths: ['a.ts'],
+    });
+    await fix({ resolution: 'Resolve imports in a.ts' });
+    await blocked('local_checkout');
+    await start();
+    await merged();
+    expect(task().merged).toMatchObject({
+      commit: 'resolved',
+      resolution: { commit: 'resolved', note: 'Resolve imports in a.ts' },
+    });
+  });
+  it('restarts a lead developer after their turn into the writable fix checkout and sweeps it after cancellation', async () => {
+    await setup({
+      remote: false,
+      adjust(config) {
+        config.team.merger = { kind: 'member', handle: 'cr' };
+        const member = config.team.members.find((m) => m.handle === 'cr')!;
+        if (member.kind === 'ai') {
+          member.role = 'lead_developer';
+          member.permissionMode = 'auto';
+        }
+      },
+    });
+    const session = (await h!.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' }))
+      .session;
+    h!.runner.setState(session.id, 'working');
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await start('AR-1', aiActor('cr'));
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    const before = h!.runner.started.length;
+    await fix({ fixConflict: true }, aiActor('cr'));
+    expect(h!.runner.started).toHaveLength(before);
+    h!.runner.setState(session.id, 'idle');
+    await vi.waitFor(() => expect(h!.runner.started.length).toBe(before + 1));
+    const spec = h!.runner.lastStarted();
+    expect(spec.policy).toMatchObject({
+      placement: { kind: 'task_worktree', mergeFix: { branch: 'merge-fix/AR-1' } },
+    });
+    expect(spec.policy!.filesystem.writableRoots).toContain(spec.cwd);
+    expect(spec.cwd).toContain('_merge-fix');
+    const labels = task().labels;
+    h!.repos.tasks.update(task().id, { labels: [] });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    await h!.domain.worktreeSweep.run();
+    expect(h!.worktrees.fixes.size).toBe(1);
+    await h!.domain.sessions.stop('AR', session.id);
+    await h!.domain.worktreeSweep.run();
+    expect(h!.worktrees.fixes.size).toBe(0);
+    await h!.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' });
+    const reader = h!.runner.lastStarted();
+    expect(reader.cwd).not.toContain('_merge-fix');
+    expect(reader.policy!.placement.kind).toBe('read_only');
+    h!.runner.setState(session.id, 'idle');
+    expect(h!.domain.sessions.isRunning(session.id)).toBe(true);
+    h!.repos.tasks.update(task().id, { labels });
+    await h!.domain.merges.reconcile('AR', 'AR-1');
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await start('AR-1', aiActor('cr'));
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    h!.runner.setState(session.id, 'working');
+    const restarted = h!.runner.started.length;
+    await fix({ fixConflict: true }, aiActor('cr'));
+    h!.runner.setState(session.id, 'idle');
+    await vi.waitFor(() => expect(h!.runner.started.length).toBe(restarted + 1));
+    expect(h!.runner.lastStarted().policy).toMatchObject({
+      placement: { kind: 'task_worktree', mergeFix: { branch: 'merge-fix/AR-1' } },
+    });
+  });
   afterEach(async () => {
     await h?.cleanup();
     h = undefined;

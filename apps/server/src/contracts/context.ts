@@ -294,6 +294,22 @@ export type DependencyRefreshResult =
   | { status: 'skipped'; reason: DependencySkip };
 
 export interface WorktreeManager {
+  ensureMergeFix(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+    commit: string;
+  }): Promise<WorktreeInfo>;
+  findMergeFix(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+  }): Promise<WorktreeInfo | null>;
+  removeMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }): Promise<void>;
+  listMergeFixes(args: {
+    project: ProjectConfig;
+    repoName: string;
+  }): Promise<Array<{ taskKey: string; path: string }>>;
   /** Clones missing or stale task dependencies. Never rejects or installs packages. */
   refreshDependencies(path: string): Promise<DependencyRefreshResult>;
   /** The head and cleanliness of a task worktree; null when it is detached or has no commit. */

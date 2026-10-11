@@ -6,6 +6,9 @@
 export const ERROR_CODES = [
   'merge_not_merger',
   'merge_not_ready',
+  'merge_fix_not_allowed',
+  'merge_fix_invalid',
+  'merge_fix_engine_mismatch',
   'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',

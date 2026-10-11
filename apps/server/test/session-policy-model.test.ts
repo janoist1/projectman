@@ -59,6 +59,54 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
+  it('grants a lead developer writes only to their named merge-fix placement', () => {
+    const task = {
+      repo: 'web',
+      merge: {
+        id: 'm',
+        repo: 'web',
+        base: 'main',
+        merger: 'lead',
+        toStageId: 'done',
+        requestedAt: 'now',
+        state: 'fixing' as const,
+        landed: 'nowhere' as const,
+        fix: { by: 'lead', branch: 'merge-fix/AR-1', base: 'a'.repeat(40), startedAt: 'now' },
+      },
+    };
+    const placement = {
+      kind: 'task_worktree' as const,
+      path: copy,
+      gitDir: sharedGit,
+      mergeFix: { branch: task.merge.fix.branch },
+    };
+    const build = (member: string, currentTask = task, currentPlacement = placement) =>
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'lead_developer',
+        member,
+        task: currentTask,
+        placement: currentPlacement,
+        permissionMode: 'acceptEdits',
+      });
+    const p = build('lead');
+    expect(p.filesystem.writableRoots).toEqual([copy]);
+    expect(p.tools.shell).toContainEqual({ command: `git merge ${task.merge.fix.base}`, arguments: 'exact' });
+    expect(p.tools.files).toEqual([]);
+    expect(() => build('other')).toThrow(/file-changing duty/);
+    expect(() => build('lead', task, { ...placement, mergeFix: { branch: 'task/AR-1' } })).toThrow(
+      /file-changing duty/,
+    );
+    expect(() =>
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'lead_developer',
+        member: 'lead',
+        task: { ...task, merge: { ...task.merge, state: 'failed' } },
+        placement,
+      }),
+    ).toThrow(/file-changing duty/);
+  });
   it.each(['codex', 'nanogpt'] as const)(
     'renders the member cache and development data for %s sandboxed commands',
     (provider) => {

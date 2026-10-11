@@ -14,6 +14,7 @@ import type { DiskGuard } from './disk-guard';
 import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
+import { MergeCardLock } from './merge-card-lock';
 
 /** A closed card's worktree stays this long: a done card may come back, and the developer may look again. */
 export const CLOSED_WORKTREE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
@@ -39,6 +40,7 @@ export interface WorktreeSweepReport {
  * What was removed, and about how much space it freed, goes to the server log.
  */
 export class WorktreeSweep {
+  private readonly mergeCards: MergeCardLock;
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly inbox: InboxService;
@@ -50,6 +52,7 @@ export class WorktreeSweep {
   private readonly keepMs: number;
 
   constructor(deps: {
+    mergeCards?: MergeCardLock;
     ctx: DomainContext;
     projects: ProjectService;
     inbox: InboxService;
@@ -63,6 +66,7 @@ export class WorktreeSweep {
     disk: Pick<DiskGuard, 'free'>;
     keepMs?: number;
   }) {
+    this.mergeCards = deps.mergeCards ?? new MergeCardLock();
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.inbox = deps.inbox;
@@ -86,6 +90,38 @@ export class WorktreeSweep {
     for (const summary of this.projects.summaries()) {
       const config = this.projects.cachedConfig(summary.key);
       if (!config) continue;
+      const managers = this.engines
+        ? this.engines
+            .ids()
+            .map((id) => this.engines!.get(id)?.worktrees)
+            .filter((m): m is WorktreeManager => !!m)
+        : this.worktrees
+          ? [this.worktrees]
+          : [];
+      for (const manager of managers)
+        for (const repo of config.project.repos) {
+          try {
+            for (const fix of await manager.listMergeFixes({ project: config, repoName: repo.name })) {
+              await this.mergeCards.run(summary.key, fix.taskKey, async () => {
+                if (this.ctx.repos.taskMerges.open(summary.key, fix.taskKey)) return;
+                if (
+                  this.sessions
+                    .list(summary.key, { taskKey: fix.taskKey })
+                    .some(
+                      (s) =>
+                        (s.cwd === fix.path || s.branch === `merge-fix/${fix.taskKey}`) &&
+                        this.sessions.isRunning(s.id),
+                    )
+                )
+                  return;
+                await manager.removeMergeFix({ project: config, repoName: repo.name, taskKey: fix.taskKey });
+                report.removed.push(`${fix.taskKey}:merge-fix`);
+              });
+            }
+          } catch (err) {
+            this.ctx.logger.warn({ err, repo: repo.name }, 'could not sweep merge-fix checkouts');
+          }
+        }
       for (const task of this.ctx.repos.tasks.list(summary.key)) {
         if (!this.due(task)) continue;
         try {

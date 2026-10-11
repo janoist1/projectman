@@ -26,6 +26,8 @@ export interface WorktreeRoutineContext {
   cwd: string;
   /** The task repository's default branch, when it is configured. */
   defaultBranch: string | undefined;
+  /** Only the conflict base authorized for this merge-fix session. */
+  mergeFixBase?: string;
 }
 
 /**
@@ -108,6 +110,13 @@ function isRoutineStep(words: readonly string[], context: WorktreeRoutineContext
     case 'commit':
       return isCommit(args);
     case 'merge':
+      if (
+        context.mergeFixBase &&
+        /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(context.mergeFixBase) &&
+        args.length === 1 &&
+        args[0] === context.mergeFixBase
+      )
+        return true;
       return isFastForwardMerge(args, context.defaultBranch);
     default:
       return false;

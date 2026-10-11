@@ -198,6 +198,19 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'worktree.ensureForTask'([arg]) {
       return engine.worktrees.ensureForTask(arg);
     },
+    async 'worktree.ensureMergeFix'([arg]) {
+      return engine.worktrees.ensureMergeFix(arg);
+    },
+    async 'worktree.findMergeFix'([arg]) {
+      return engine.worktrees.findMergeFix(arg);
+    },
+    async 'worktree.removeMergeFix'([arg]) {
+      await engine.worktrees.removeMergeFix(arg);
+      return none;
+    },
+    async 'worktree.listMergeFixes'([arg]) {
+      return engine.worktrees.listMergeFixes(arg);
+    },
     async 'worktree.find'([arg]) {
       return engine.worktrees.find(arg);
     },

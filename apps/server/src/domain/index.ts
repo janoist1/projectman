@@ -828,7 +828,15 @@ export function createDomain(opts: DomainOptions) {
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
   const taskWaits = new TaskWaits({ ctx, members });
-  const operatorSignals = new OperatorSignals({ ctx, projects, sessions, admission, delivery, taskWaits });
+  const operatorSignals = new OperatorSignals({
+    ctx,
+    projects,
+    sessions,
+    admission,
+    delivery,
+    taskWaits,
+    activeOutageIds: (projectKey) => outages.activeIds(projectKey),
+  });
   messaging.useOperatorSignals(operatorSignals);
   const finishOperatorSignals = (session: Session) => {
     if (session.member === operatorOf(projects.cachedConfig(session.projectKey)!)?.handle)

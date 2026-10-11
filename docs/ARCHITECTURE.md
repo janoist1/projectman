@@ -1923,6 +1923,8 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
 - **System signals** (PM-476, migration 49, `domain/operator-signals.ts`). Provider/engine outages,
   cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
   create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
+  The sweep also checks `WorkOutages.activeIds`, so an acknowledged alert followed by a restart cannot
+  leave a recovered outage signal unresolved and suppress the next episode of the same outage id.
   Admission persists refused `operator_signals` starts; notices enter the Operator's general conversation
   as projectman input, without a team message or an owner request. A persisted `delivered_at` keeps the
   15-minute project wake interval across restarts. Delivered signals become open when presented or when

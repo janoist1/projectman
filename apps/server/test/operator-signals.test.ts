@@ -44,6 +44,81 @@ async function deliver() {
 }
 
 describe('Operator system signals', () => {
+  it('resolves an acknowledged outage after restart so the same provider can signal again', async () => {
+    now = new Date('2026-10-11T10:00:00Z');
+    h = await createDomainHarness({ persistent: true, now: () => now });
+    Object.assign(h.runner, {
+      providerStatus: async (provider: string) => ({
+        provider,
+        loggedIn: false,
+        problem: 'logged_out',
+        method: null,
+        checkedAt: now.toISOString(),
+      }),
+    });
+    await h.domain.outages.check();
+    await flush();
+    const alert = h.domain.inbox
+      .list('AR', { kind: 'alert', state: 'open' })
+      .find((item) => item.payload.alert === 'work_outage')!;
+    const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'outage')!;
+    expect(h.domain.outages.activeIds('AR').has(signal.subject!)).toBe(true);
+    await h.domain.inbox.resolve(
+      'AR',
+      alert.id,
+      { optionId: 'seen' },
+      (await h.domain.accessFor('AR', 'owner@example.com'))!,
+    );
+    // Acknowledging the warning does not end a still observed outage.
+    await h.domain.operatorSignals.sweep('AR');
+    expect(get(signal.id).resolvedAt).toBeNull();
+    h = await restartDomainHarness(h, { now: () => now });
+    await h.domain.outages.recheckProvider('claude');
+    expect(h.domain.outages.activeIds('AR').size).toBe(0);
+    await h.domain.operatorSignals.sweep('AR');
+    expect(get(signal.id)).toMatchObject({ state: 'resolved', resolvedAt: now.toISOString() });
+    Object.assign(h.runner, {
+      providerStatus: async (provider: string) => ({
+        provider,
+        loggedIn: false,
+        problem: 'logged_out',
+        method: null,
+        checkedAt: now.toISOString(),
+      }),
+    });
+    await h.domain.outages.recheckProvider('claude');
+    const next = h.repos.operatorSignals.openByCase('AR', signal.caseKey)!;
+    expect(next.id).not.toBe(signal.id);
+    expect(next.resolvedAt).toBeNull();
+  });
+
+  it('rolls back the accepted signal and its websocket event when message recording fails', async () => {
+    await setup();
+    const signal = raise();
+    await deliver();
+    await h.domain.teamTools.sendMessage(tool(), {
+      to: ['owner'],
+      kind: 'info',
+      text: 'Proposal',
+      signalId: signal.id,
+      signalActionable: true,
+    });
+    const events: ServerEvent[] = [];
+    h.domain.bus.subscribe((event) => events.push(event));
+    vi.spyOn(h.domain.messages, 'record').mockImplementationOnce(() => {
+      throw new Error('Recording failed');
+    });
+    await expect(
+      h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: ['operator'], text: 'Yes' },
+        { actor: OWNER_ACTOR, operatorSignal: signal.id },
+      ),
+    ).rejects.toThrow('Recording failed');
+    expect(get(signal.id)).toMatchObject({ state: 'open', decidedAt: null, decidedBy: null });
+    expect(events.filter((event) => event.type === 'operator_signal')).toEqual([]);
+  });
   it('keeps a failed notice pending and retries without spending the wake interval', async () => {
     await setup();
     await h.domain.sessions.ensureSession('AR', 'operator', { type: 'general' });

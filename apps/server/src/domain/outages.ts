@@ -163,6 +163,11 @@ export class WorkOutages {
     return this.views.get(memberKey(projectKey, handle));
   }
 
+  /** Current observed outage ids, including episodes whose owner alert was acknowledged. */
+  activeIds(projectKey: string): ReadonlySet<string> {
+    return new Set(this.projectOutages.get(projectKey)?.keys() ?? []);
+  }
+
   forTask(task: Task): WorkOutage | undefined {
     const candidates: WorkOutage[] = [];
     const outages = this.projectOutages.get(task.projectKey);

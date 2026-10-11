@@ -38,6 +38,7 @@ export class OperatorSignals {
     admission: Admission;
     delivery: MessageDelivery;
     taskWaits: TaskWaits;
+    activeOutageIds: (projectKey: string) => ReadonlySet<string>;
   }) {
     this.deps = privateDeps;
   }
@@ -48,13 +49,12 @@ export class OperatorSignals {
     admission: Admission;
     delivery: MessageDelivery;
     taskWaits: TaskWaits;
+    activeOutageIds: (projectKey: string) => ReadonlySet<string>;
   };
 
   raise(input: SignalInput): OperatorSignalRecord {
     const { ctx } = this.deps;
-    const existing = ctx.repos.operatorSignals
-      .list(input.projectKey)
-      .find((s) => s.caseKey === input.caseKey && !s.resolvedAt);
+    const existing = ctx.repos.operatorSignals.openByCase(input.projectKey, input.caseKey);
     if (existing) return existing;
     const signal: OperatorSignalRecord = {
       ...input,
@@ -76,9 +76,7 @@ export class OperatorSignals {
   }
 
   resolve(projectKey: string, caseKey: string): void {
-    const signal = this.deps.ctx.repos.operatorSignals
-      .list(projectKey)
-      .find((s) => s.caseKey === caseKey && !s.resolvedAt);
+    const signal = this.deps.ctx.repos.operatorSignals.openByCase(projectKey, caseKey);
     if (!signal) return;
     const visible = signal.deliveredAt !== null;
     signal.resolvedAt = isoNow(this.deps.ctx);
@@ -167,7 +165,9 @@ export class OperatorSignals {
           taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
         });
       }
+      const outages = this.deps.activeOutageIds(key);
       for (const signal of this.deps.ctx.repos.operatorSignals.list(key)) {
+        if (signal.kind === 'outage' && !outages.has(signal.subject ?? '')) this.resolve(key, signal.caseKey);
         if ((signal.kind === 'nobody' || signal.kind === 'silent') && !active.has(signal.caseKey))
           this.resolve(key, signal.caseKey);
         if (

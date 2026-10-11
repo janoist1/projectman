@@ -13,7 +13,13 @@ type Row = Omit<OperatorSignalRecord, 'actionable'> & { actionable: number };
 const record = (row: Row): OperatorSignalRecord => ({ ...row, actionable: !!row.actionable });
 
 export function createOperatorSignalRepository(db: Db) {
+  const openByCase = db.prepare(`SELECT ${columns} FROM operator_signals
+    WHERE project_key = ? AND case_key = ? AND resolved_at IS NULL`);
   return {
+    openByCase(projectKey: string, caseKey: string): OperatorSignalRecord | null {
+      const row = openByCase.get(projectKey, caseKey) as Row | undefined;
+      return row ? record(row) : null;
+    },
     get(id: string): OperatorSignalRecord | null {
       const row = db.prepare(`SELECT ${columns} FROM operator_signals WHERE id = ?`).get(id) as
         Row | undefined;

@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   AttachmentId,
   canReadAttachments,
+  DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   ERROR_CODES,
   ownerHandles,
@@ -43,12 +44,13 @@ import type {
   DecideBoundaryRequest,
 } from '@projectman/shared';
 import { taskWaitShort } from '../agent-text';
-import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
+import { PROVIDER_MCP_IMAGE_RESULTS, TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
   AttachmentPage,
   EngineAttachments,
   EngineHost,
+  EngineSessionFolders,
   GithubService,
   ListTasksInput,
   LocatedAttachmentForTool,
@@ -89,6 +91,7 @@ import {
 } from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
 import { canSeeTask, clientCanSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from './visibility';
+import { sessionFileName } from './message-attachments';
 import type { MessageAttachmentService } from './message-attachments';
 import type { Viewer } from './visibility';
 import type { OperatorActions } from './operator-actions';
@@ -413,7 +416,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly attachments: AttachmentOperations;
   private readonly messageAttachments: Pick<
     MessageAttachmentService,
-    'reading' | 'assertCanUpload' | 'upload' | 'delete'
+    'reading' | 'source' | 'assertCanUpload' | 'upload' | 'delete'
   >;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly materializeAttachment: EngineAttachments['materialize'] | undefined;
@@ -458,7 +461,10 @@ export class TeamToolsService implements TeamToolsHandler {
     githubSync: GithubSync;
     attachments: AttachmentOperations;
     /** The files of team messages (PM-516): `read_message_attachment`. */
-    messageAttachments: Pick<MessageAttachmentService, 'reading' | 'assertCanUpload' | 'upload' | 'delete'>;
+    messageAttachments: Pick<
+      MessageAttachmentService,
+      'reading' | 'source' | 'assertCanUpload' | 'upload' | 'delete'
+    >;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
     /**
@@ -892,15 +898,58 @@ export class TeamToolsService implements TeamToolsHandler {
       // The file is judged through the eyes of whoever the session talks for: the AI member, or the
       // guest of an Operator conversation, so a file of a message they cannot see is not found.
       const viewer = guest ? guest.viewer : { access: 'ai' as const, handle: ctx.member };
-      return this.messageAttachments.reading(ctx.projectKey, id, viewer).catch((err: unknown) => {
+      // A session with file tools of its own gets what the content cannot show as a file in its
+      // session folder (PM-518). A guest conversation reads no file at all: it has no folder.
+      const target = guest ? null : this.sessionFileTarget(ctx);
+      const notFound = (err: unknown): never => {
         if (err instanceof DomainError && err.code === 'not_found')
           throw new TeamToolError(
             'not_found',
             `There is no message attachment ${id} that you can see (or it was deleted).`,
           );
         throw err;
-      });
+      };
+      const reading = await this.messageAttachments
+        .reading(ctx.projectKey, id, viewer, { images: !target || target.mcpImageResults })
+        .catch(notFound);
+      if (!target || reading.content.kind !== 'none') return reading;
+      try {
+        const source = await this.messageAttachments.source(ctx.projectKey, id, viewer);
+        const file = await target.folders.materializeFile(target.sessionId, {
+          name: sessionFileName(id, reading.attachment.fileName),
+          source,
+        });
+        return { ...reading, file: { path: file.path } };
+      } catch (err) {
+        // The file is an addition: an engine that cannot take it (offline, older, no folder for
+        // the session) leaves the reading as it is, with the entry only.
+        this.ctx.logger.warn(
+          { err, attachment: id, session: target.sessionId },
+          'message attachment could not be put into the session folder',
+        );
+        return reading;
+      }
     });
+  }
+
+  /**
+   * Where the calling session's files go (PM-518): its engine's session folders when the session has
+   * a folder of its own there, and whether its CLI shows an image in a tool result. Null: the session
+   * has no folder (a provider without session folders, the managed VM, an unknown session), so it
+   * gets the content only.
+   */
+  private sessionFileTarget(
+    ctx: ToolContext,
+  ): { sessionId: string; folders: EngineSessionFolders; mcpImageResults: boolean } | null {
+    const session = this.ctx.repos.sessions.get(ctx.sessionId);
+    if (!session || session.projectKey !== ctx.projectKey || session.member !== ctx.member) return null;
+    const folders = this.sessionEngine?.(session.id)?.sessionFolders;
+    if (!folders?.of(session.id)) return null;
+    return {
+      sessionId: session.id,
+      folders,
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS[session.provider ?? DEFAULT_AGENT_PROVIDER],
+    };
   }
 
   async attachFile(

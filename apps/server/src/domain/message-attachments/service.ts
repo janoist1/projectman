@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Readable } from 'node:stream';
 import {
   MAX_MESSAGE_ATTACHMENTS,
@@ -7,7 +8,13 @@ import {
   canSeeTeamMessage,
   memberOf,
 } from '@projectman/shared';
-import type { Actor, MessageAttachment, MessageAttachmentRef, TaskViewer } from '@projectman/shared';
+import type {
+  Actor,
+  MessageAttachment,
+  MessageAttachmentRef,
+  TaskViewer,
+  TeamMessage,
+} from '@projectman/shared';
 import type {
   AttachmentThumbnail,
   AttachmentWriter,
@@ -38,6 +45,29 @@ export const MESSAGE_TEXT_MAX_BYTES = 100_000;
 export const UNSENT_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const SWEEP_INTERVAL_MS = 60 * 60 * 1000;
+
+const FILE_NAME_MAX_BYTES = 255;
+
+/**
+ * The name a message attachment has in a session's folder (PM-518): `<id>-<file name>`, so two files
+ * of the same name stay apart, at most 255 bytes (the extension is kept), and no path separator.
+ */
+export function sessionFileName(id: string, fileName: string): string {
+  const prefix = `${id}-`;
+  const room = FILE_NAME_MAX_BYTES - Buffer.byteLength(prefix);
+  const name = fileName.replace(/[\\/\0]/g, '_');
+  if (Buffer.byteLength(name) <= room) return `${prefix}${name}`;
+  const dot = name.lastIndexOf('.');
+  const extension = dot > 0 && Buffer.byteLength(name.slice(dot)) <= 32 ? name.slice(dot) : '';
+  let stem = '';
+  let bytes = Buffer.byteLength(extension);
+  for (const char of extension ? name.slice(0, dot) : name) {
+    bytes += Buffer.byteLength(char);
+    if (bytes > room) break;
+    stem += char;
+  }
+  return `${prefix}${stem}${extension}`;
+}
 
 const toDto = (r: MessageAttachmentRecord): MessageAttachment => ({
   id: r.id,
@@ -235,18 +265,21 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
    * The content of a file of a team message for an AI member (`read_message_attachment`), judged
    * through `viewer`'s eyes: a file of a message they cannot see is not found, whoever uploaded it.
    */
-  async reading(projectKey: string, id: string, viewer: TaskViewer): Promise<MessageAttachmentReading> {
-    const { repos } = this.ctx;
-    const record = repos.messageAttachments.get(id);
-    const message = record?.messageId ? repos.messages.get(record.messageId) : null;
-    if (!record || record.projectKey !== projectKey || record.state !== 'ready' || !message)
-      throw notFound('message attachment', id);
-    if (!canSeeTeamMessage(viewer, message)) throw notFound('message attachment', id);
+  async reading(
+    projectKey: string,
+    id: string,
+    viewer: TaskViewer,
+    options: { images?: boolean } = {},
+  ): Promise<MessageAttachmentReading> {
+    const { record, message } = this.visibleTo(projectKey, id, viewer);
     const reading = (content: MessageAttachmentReading['content']): MessageAttachmentReading => ({
       attachment: toRef(record),
       message: { id: message.id, from: message.from, createdAt: message.createdAt },
       content,
     });
+    // The caller's CLI does not show images in a tool result (PM-518): the file is all it gets.
+    if (record.preview === 'image' && options.images === false)
+      return reading({ kind: 'none', reason: 'type' });
     if (record.preview === 'image') {
       const bytes = await this.readWhole(record);
       try {
@@ -271,6 +304,48 @@ export class MessageAttachmentService implements MessageAttachmentOperations {
     } catch {
       return reading({ kind: 'none', reason: 'type' });
     }
+  }
+
+  /**
+   * The stored file of a message attachment `viewer` may see, for giving it to a session's engine
+   * (PM-518): its absolute path on this machine with the size and SHA-256 the engine checks. Not found
+   * exactly as `reading` is.
+   */
+  async source(
+    projectKey: string,
+    id: string,
+    viewer: TaskViewer,
+  ): Promise<{ path: string; size: number; sha256: string }> {
+    const { record } = this.visibleTo(projectKey, id, viewer);
+    try {
+      const path = await this.storage.locate({ projectKey, id }, record.size);
+      const hash = createHash('sha256');
+      const stream = await this.openFile(record);
+      try {
+        for await (const chunk of stream) hash.update(chunk as Buffer);
+      } finally {
+        stream.destroy();
+      }
+      return { path, size: record.size, sha256: hash.digest('hex') };
+    } catch (err) {
+      this.ctx.logger.error({ err, attachment: id }, 'message attachment file could not be located');
+      throw storageFailed('the file could not be read');
+    }
+  }
+
+  /** The ready, sent file and its message, when `viewer` sees the message; otherwise not found. */
+  private visibleTo(
+    projectKey: string,
+    id: string,
+    viewer: TaskViewer,
+  ): { record: MessageAttachmentRecord; message: TeamMessage } {
+    const { repos } = this.ctx;
+    const record = repos.messageAttachments.get(id);
+    const message = record?.messageId ? repos.messages.get(record.messageId) : null;
+    if (!record || record.projectKey !== projectKey || record.state !== 'ready' || !message)
+      throw notFound('message attachment', id);
+    if (!canSeeTeamMessage(viewer, message)) throw notFound('message attachment', id);
+    return { record, message };
   }
 
   /**

@@ -479,6 +479,29 @@ describe('cloud mode remote parts', () => {
       expect(folders.of('s1')).toBeUndefined();
     });
 
+    it('has the engine fetch a message file with a single-use token and put it into a session folder (PM-518)', async () => {
+      const engine = await online();
+      engine.answer('files.materialize_into_session', () => ({ path: '/fictional/folders/s1/f/x.pdf' }));
+      const folders = remote.directory.get('eng_a' as never)!.sessionFolders!;
+      const file = path.join(spool, 'x.pdf');
+      writeFileSync(file, 'abc');
+      const sha = createHash('sha256').update('abc').digest('hex');
+      const reply = await folders.materializeFile('s1', {
+        name: 'msa_1-x.pdf',
+        source: { path: file, size: 3, sha256: sha },
+      });
+      expect(reply).toEqual({ path: '/fictional/folders/s1/f/x.pdf' });
+      const sent = engine.requests.at(-1)!;
+      expect(sent.method).toBe('files.materialize_into_session');
+      expect(sent.params).toMatchObject({
+        sessionId: 's1',
+        name: 'msa_1-x.pdf',
+        size: 3,
+        sha256: sha,
+        downloadToken: expect.stringMatching(/^[A-Za-z0-9_-]{20,}$/),
+      });
+    });
+
     it('keeps the folders of the sessions the engine runs when it sweeps', async () => {
       const engine = await online('eng_a', { running: [running('live')] });
       engine.answer('folders.make', () => null);

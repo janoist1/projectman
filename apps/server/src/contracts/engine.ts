@@ -78,6 +78,18 @@ export interface EngineSessionFolders {
   remove(sessionId: string): Promise<void>;
   sweep(keep: (sessionId: string) => boolean): Promise<string[]>;
   releaseTmpRoot(): Promise<void>;
+  /**
+   * Puts a file into the session's own folder, `<folder>/message-attachments/<name>` (PM-518), and
+   * names its path there: a message attachment the session's agent opens with its own tools.
+   * `source` is the stored file on the server's machine with its size and SHA-256; a remote engine
+   * fetches it with a single-use download token, a local one copies it. The file is made exclusively
+   * (0600); one already there with the same checksum is the answer as it is. Rejects for a session
+   * with no folder on this engine, and for a name that is not a plain file name.
+   */
+  materializeFile(
+    sessionId: string,
+    input: { name: string; source: { path: string; size: number; sha256: string } },
+  ): Promise<{ path: string }>;
 }
 
 export type WorkspaceFileRefusalReason =

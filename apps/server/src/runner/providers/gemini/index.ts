@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import { DENY_DEFAULT } from '../../hook-payload';
 import { resolveCommand } from '../../cli';
 import { CODEX_TIMING } from '../codex';
@@ -25,6 +26,7 @@ export function createGeminiAdapter(opts: {
       sessionPermissionRules: false,
       readiness: 'screen',
       toolGate: 'pre_tool_use',
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.gemini,
     },
     timing: CODEX_TIMING,
     inputTools: new Set(),

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { cliVersionAtLeast, NANOGPT_MIN_CODEX_VERSION } from '@projectman/shared';
 import type { PlanUsage } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { AmbientConfigLocations, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { inspectCodexMcpServers, inspectAmbientConfig } from '../../managed-vm';
@@ -67,6 +68,7 @@ export function createNanogptAdapter(opts: {
     ...codex,
     provider: 'nanogpt',
     label: 'NanoGPT',
+    capabilities: { ...codex.capabilities, mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.nanogpt },
     createTranscriptParser: (parserOpts) =>
       new CodexTranscriptParser({ ...parserOpts, detectRateLimit: true }),
     planUsage: {

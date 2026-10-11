@@ -777,6 +777,7 @@ describe("the disk work of the session's engine (PM-312)", () => {
         },
         sweep: (keep) => real.sweep(keep),
         releaseTmpRoot: () => real.releaseTmpRoot(),
+        materializeFile: (id, input) => real.materializeFile(id, input),
       };
       return { ...host, sessionFolders: folders };
     });

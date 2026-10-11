@@ -11,6 +11,7 @@ import { OPERATOR_GUEST_TOOLS } from '../src/domain/operator-requests';
 import { humanActor } from '../src/domain/util';
 import { buildClaudeArgs, buildSettings } from '../src/runner/providers/claude/args';
 import { canSeeProjectEvent } from '../src/domain/visibility';
+import { pdfBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
@@ -43,7 +44,7 @@ function withGuests(config: ProjectConfig): void {
     });
 }
 
-async function setup(opts: { appHome?: string } = {}): Promise<void> {
+async function setup(opts: { appHome?: string; sessionFolders?: boolean } = {}): Promise<void> {
   h = await createDomainHarness({ adjust: withGuests, ...opts });
   await h.domain.tasks.create('AR', { title: 'Internal plan' }, OWNER_ACTOR);
   await h.domain.tasks.create('AR', { title: 'Shared page', visibility: 'shared' }, OWNER_ACTOR);
@@ -252,6 +253,40 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     );
     expect(refused.code).toBe('not_found');
     expect(refused.message).not.toContain('for-dana');
+  });
+
+  it('puts a message file into the session folder of the owner’s conversation, never a guest’s (PM-518)', async () => {
+    await setup({ sessionFolders: true });
+    const sendPdf = async (to: string) => {
+      const file = await h.domain.messageAttachments.upload({
+        projectKey: 'AR',
+        actor: OWNER_ACTOR,
+        fileName: 'plan.pdf',
+        content: Readable.from([pdfBytes()]),
+      });
+      await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: [to], text: 'A file', taskKey: null, attachmentIds: [file.id] },
+        { actor: OWNER_ACTOR },
+      );
+      return file;
+    };
+    const forCleo = await sendPdf('cleo');
+    const forOperator = await sendPdf('operator');
+    await say('cleo', 'What did you send me?');
+    const guest = await h.domain.teamTools.readMessageAttachment(toolOf(conversationWith('cleo')), {
+      attachmentId: forCleo.id,
+    });
+    expect(guest.content).toEqual({ kind: 'none', reason: 'type' });
+    expect(guest.file).toBeUndefined();
+
+    await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'And this?' });
+    await settle();
+    const own = await h.domain.teamTools.readMessageAttachment(toolOf(ownerConversation()), {
+      attachmentId: forOperator.id,
+    });
+    expect(own.file?.path).toContain(`${forOperator.id}-plan.pdf`);
   });
 
   it('answers only the person it talks with', async () => {

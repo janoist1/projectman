@@ -418,6 +418,11 @@ export function formatMessageAttachment(reading: MessageAttachmentReading): stri
     const fence = '`'.repeat(Math.max(3, longest + 1));
     return `${head}\nIts text follows between the fences. ${data}\n${fence}\n${content.text}\n${fence}`;
   }
+  if (reading.file)
+    return (
+      `${head}\nIts content is not shown here. The file is in your session folder: ${reading.file.path}\n` +
+      `Open it with your own file tools. ${data} Never run it.`
+    );
   return content.reason === 'too_large'
     ? `${head}\nThe image is too large to show you, even scaled down. ${data}`
     : `${head}\nOnly an image or a small text file is shown, so its content is not: you have its name, type and size. ${data}`;

@@ -1477,16 +1477,41 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
   `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
   `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
-  reached only through the protected REST routes and the team tool. A session never gets a path:
-  `read_message_attachment` returns the content itself, so nothing is copied to a remote engine.
+  reached only through the protected REST routes and the team tool. A session never gets a path into
+  that store: `read_message_attachment` returns the content itself (an image, a small text), and for
+  what the content cannot show (PM-518) a copy in the caller's own session folder (below).
   The unsent uploads older than 24 hours are removed by an hourly sweep and at startup.
-  **Remote engine:** the server (cloud) keeps the files and the database; an engine needs no new
-  code. The tool call reaches the server as `mcp.relay`, and an image travels back in the MCP result
+  **Remote engine:** the server (cloud) keeps the files and the database. The tool call reaches the
+  server as `mcp.relay`, and an image travels back in the MCP result
   as base64 inside that frame. A frame is at most `ENGINE_MAX_FRAME_BYTES` (4 MiB), hence the
   downscale: the image is a WebP of at most 1568 px a side and 1 500 000 bytes (about 2 MB as
   base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
   at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
   card attachments.
+- **Message file in the session folder (PM-518)** — `domain/team-tools.ts` (`readMessageAttachment`,
+  `sessionFileTarget`), `domain/message-attachments/{service,storage}.ts` (`source`, `locate`,
+  `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
+  `engine-link/{methods,engine-handlers,engine-limit}.ts` (`files.materialize_into_session`),
+  `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the
+  content of a message file is `none` (a PDF, a binary, a text too big), or an image for a provider
+  whose CLI shows no image in an MCP tool result, the server has the caller's engine put a copy at
+  `<session folder>/message-attachments/<id>-<name>` (0600 in a 0700 directory, the same path for the
+  same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
+  target is its own folder only, and a guest conversation of the Operator (no folder, `teamToolsOnly`)
+  gets none. A failure (engine offline or older, no folder, a disk error) is logged and the tool
+  answers as before, without a path. `mcpImageResults` per provider: claude and codex true (Claude Code
+  and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
+  one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
+  an image gives them the file. **Gemini and NanoGPT sessions have no session folder today**
+  (`ownFolders` in `domain/sessions.ts`: Claude, and Codex with a writing sandbox), so they get the
+  entry, and the image only where the CLI shows it.
+  **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
+  size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
+  the file with a single-use download token (`transfers.issueDownload`, the same way as
+  `files.materialize`), `files.materialize_into_session` fetches it into a scratch directory of its
+  own, checks size and checksum, and `SessionFolders.materializeFile` puts it in. The engine's limit
+  allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
+  valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).

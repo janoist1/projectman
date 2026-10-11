@@ -144,6 +144,11 @@ export interface MessageAttachmentStorage {
   /** Opens the published file for reading; throws unless it is a regular file of `size` bytes. */
   openRead(ref: MessageAttachmentFileRef, size: number): Promise<Readable>;
   createThumbnail(ref: MessageAttachmentFileRef): Promise<AttachmentWriter>;
+  /**
+   * The published file's absolute path, for handing it to a session's engine (PM-518); throws unless
+   * it is a regular file of `size` bytes (no link followed).
+   */
+  locate(ref: MessageAttachmentFileRef, size: number): Promise<string>;
   /** Opens the thumbnail; null when there is none (yet). */
   openThumbnail(ref: MessageAttachmentFileRef): Promise<AttachmentThumbnail | null>;
   /** Removes the published file, its thumbnail and any temporary one; a missing file is fine. */

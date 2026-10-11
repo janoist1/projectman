@@ -38,6 +38,12 @@ export interface ProviderCapabilities {
    * screen shows the prompt (Codex fires SessionStart only with the first turn).
    */
   readiness: 'session_start' | 'screen';
+  /**
+   * The CLI hands an MCP tool result's `image` content to the model (PM-518). Where it does not,
+   * `read_message_attachment` puts an image in the session folder as a file. The value comes from
+   * `PROVIDER_MCP_IMAGE_RESULTS` (`contracts/runner.ts`), with the evidence for each provider.
+   */
+  mcpImageResults: boolean;
 }
 
 /** Timing of the interaction with a TUI (CLAUDE_TIMING and CODEX_TIMING in the adapters). */

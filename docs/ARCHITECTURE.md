@@ -957,10 +957,21 @@ workers follow the machine's size.
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
-- **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
-  script itself.
+- **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
+  before the default branch moves (PM-386, PM-490). The first-parent diff selects server/web checks;
+  shared code, scripts, configuration or unknown paths require all workspaces. The executor holds
+  the machine's lock, so the nested root scripts do not queue again.
 
 ## Machine-dependent parts (PM-341)
+
+- **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
+  checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
+  outcome, elapsed time, failed files and output tail. It needs macOS Seatbelt, srt, PTY support and
+  the machine's heavy-run queue; run it outside member sandboxes, which cannot start nested Seatbelt.
+  The checkout and common git directory are readable; the user/app homes are denied except those
+  paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
+  **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
+  dependencies and queue. Only the command and result need to cross the existing full-test boundary.
 
 - **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
   (`providerStatus`). Every 30 seconds the server checks the used providers' login

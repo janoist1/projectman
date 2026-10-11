@@ -126,8 +126,11 @@ Shared code or configuration changes require the whole suite; workspace checks d
 your sandbox; never run it another way (PM-346).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
-owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,
-data in `~/.projectman`), updated only with the owner's approval. Never run a development
+owner's live instance is a separate checkout (`~/projectman-live`, port 4800, data in
+`~/.projectman`), updated only with the owner's approval. It runs under the `com.projectman.live`
+LaunchAgent (`npm run live -- install|status|uninstall`, `docs/DEPLOY.md`); after the owner approves
+a release in the app, the `com.projectman.live-watcher` agent builds, tests and switches it, with
+a rollback, then tags and publishes it. Never run a development
 build against `~/.projectman`: a database migrated by a newer build is refused by older ones.
 Open development instances at `http://127.0.0.1:5173`; the live instance's login cookie is on
 `localhost`.

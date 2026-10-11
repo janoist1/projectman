@@ -997,6 +997,21 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),
+  `apps/server/test/live-*.test.ts`. Two macOS LaunchAgents (`com.projectman.live` for the server,
+  `com.projectman.live-watcher`, one round a minute) switch the owner's live checkout
+  (`~/projectman-live`) to a release the owner approved: fetch, build, release test, configuration check,
+  then pause, stop, database backup, atomic directory switch, verification, and on success tag and
+  GitHub release; on a failure it puts back the previous build and the backup. The state is a journal in
+  `~/.projectman/release/` (denied to the sessions' sandboxes in `domain/session-policy.ts`); the watcher
+  talks to the server through the control socket (`release_next`, `release_claim`, `release_report`).
+  It needs launchd (`launchctl`), the user's `gui/<uid>` domain, `git`, `npm`, `sqlite3`, `lsof`, the
+  `gh` CLI login and git access to the GitHub remote, the live checkout, the data home and its control
+  socket on one machine, and the machine's heavy-run queue. **Remote engine:** the watcher belongs to the
+  server's machine, not to an engine: it switches the one live server and its database, which never run on
+  an engine. An engine needs nothing from it; a hybrid installation (`PROJECTMAN_MODE=hybrid`) is refused
+  by the install, as another process supervisor and release path would be needed.
+
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
   outcome, elapsed time, failed files and output tail. It needs macOS Seatbelt, srt, PTY support and

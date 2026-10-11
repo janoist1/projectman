@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Ref } from 'react';
+import clsx from 'clsx';
 import { Link, useNavigate } from 'react-router';
 import { isOpenTask } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
@@ -42,7 +43,7 @@ export function ThemeHeader({
   rule?: boolean;
 }) {
   return (
-    <div className={rule ? head.head : `${head.head} ${head.bare}`}>
+    <div className={clsx(head.head, !rule && head.bare)}>
       <div className={head.chips}>
         <Chip tone="neutral" size="md" icon="layers">
           {t('theme.badge')}

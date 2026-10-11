@@ -75,9 +75,13 @@ export default async ({ instance, open, shoot, step, log }) => {
   });
 
   await step('d. the Timeline view, opened at its end', async () => {
-    const page = await open({ path: `/p/AC/tasks/${CARD}/timeline` });
-    await page.getByRole('textbox').first().waitFor();
-    await shoot(page, 'views-timeline', { widths: [1512, 390] });
+    const wide = await open({ path: `/p/AC/tasks/${CARD}/timeline`, width: 1512 });
+    await wide.getByRole('textbox').first().waitFor();
+    await shoot(wide, 'views-timeline', { widths: [1512] });
+    // A phone opens the page at its own width: nothing resizes the window after the timeline is at its end.
+    const phone = await open({ path: `/p/AC/tasks/${CARD}/timeline`, width: 390 });
+    await phone.getByRole('textbox').first().waitFor();
+    await shoot(phone, 'views-timeline', { widths: [390] });
   });
 
   await step('e. a theme: three views', async () => {

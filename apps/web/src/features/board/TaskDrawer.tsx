@@ -340,12 +340,27 @@ export function TaskDrawer() {
   // Hiding the card's sections shortens the scroll box and so moves it: the card is put back where it was, the
   // attachments open at their start, and the timeline at its end (the latest event, the next step, the comment box).
   const timelineEnd = view === 'timeline' && !detail.isPending;
+  const timelineStick = useRef(true);
   useLayoutEffect(() => {
     const box = scrollRef.current;
     if (!box || thread) return;
+    if (timelineEnd) timelineStick.current = true;
     box.scrollTop =
       view === 'card' ? cardScroll.current : view === 'attachments' ? 0 : timelineEnd ? box.scrollHeight : 0;
   }, [view, thread, timelineEnd]);
+
+  // The timeline stays at its end while its content still grows (the comment box, the next step, a resize of the
+  // window), until the reader scrolls away from the end.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box || !timelineEnd || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (timelineStick.current) box.scrollTop = box.scrollHeight;
+    });
+    observer.observe(box);
+    for (const child of Array.from(box.children)) observer.observe(child);
+    return () => observer.disconnect();
+  }, [timelineEnd, twoColumns]);
 
   // On a narrow phone the row of views scrolls: the open view stays in it.
   useEffect(() => {
@@ -732,7 +747,11 @@ export function TaskDrawer() {
           ref={scrollRef}
           className={clsx(styles.scroll, thread && styles.conversation)}
           onScroll={(event) => {
-            if (view === 'card') cardScroll.current = event.currentTarget.scrollTop;
+            const box = event.currentTarget;
+            if (view === 'card') cardScroll.current = box.scrollTop;
+            if (view === 'timeline') {
+              timelineStick.current = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+            }
           }}
         >
           {/* All views stay in the tree: what is typed in a hidden one (a message, a comment, a description) is kept. */}

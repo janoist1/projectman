@@ -856,6 +856,10 @@ export const hu = {
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
       merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
+      merge_fix_not_allowed: 'Csak a beolvasztó javíthat ütközés miatt sikertelen beolvasztást.',
+      merge_fix_invalid:
+        'A javítás nincs commitolva, vagy hiányzik belőle a jóváhagyott commit vagy az alap.',
+      merge_fix_engine_mismatch: 'A javító munkafának a kártya motorján kell lennie.',
       task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
@@ -1357,6 +1361,8 @@ export const hu = {
         labels: '{labels}',
         queuedHuman: 'továbbviszi innen: {stage}',
         queuedHumanYou: 'vidd tovább innen: {stage}',
+        partLeft: 'a rész itt maradt: {stage}',
+        partLeftYou: 'vidd tovább a részt: {stage} → {to}',
         takes: 'sorra veszi',
         queuedStage: '{stage}',
         nobody: 'nincs, aki továbbvinné',
@@ -1375,6 +1381,10 @@ export const hu = {
         blocked: 'A kártya elakadt. Az idővonalon áll, miért.',
         labels: 'A következő lépéshez ez még hiányzik: {labels}.',
         queuedHuman: 'A kártya ebben a lépésben áll: {stage}, és valakinek tovább kell vinnie.',
+        partLeft:
+          'A rész a bontás után a kezdő lépésben maradt ({stage}), és senki nem indítja. Aki létrehozta, viszi tovább: {to}, vagy finomításra teszi, ha még nem indítható.',
+        partLeftLabels:
+          'A rész a bontás után a kezdő lépésben maradt ({stage}), és senki nem indítja. Aki létrehozta, viszi tovább: {to}, ehhez még hiányzik: {labels}. Ha még nem indítható, finomításra teszi.',
         takes: 'A kártya ebben a lépésben áll: {stage}, a felelőse hamarosan sorra veszi.',
         queuedStage: 'A kártya ennek a lépésnek a sorában áll: {stage}.',
         nobody:
@@ -1399,6 +1409,9 @@ export const hu = {
         labelsYou: 'Tedd fel a hiányzó címkét.',
         queuedHuman: 'Semmit: {who} viszi tovább.',
         queuedHumanYou: 'Nézd meg, és vidd tovább.',
+        partLeft: 'Semmit: {who} viszi tovább a részt.',
+        partLeftYou:
+          'Tedd fel a hiányzó címkéket, és vidd tovább a részt: {to}. Ha még nem indítható, tedd finomításra, és írd le, mi hiányzik.',
         takes: 'Semmit: magától sorra kerül.',
         inboxOther: 'Semmit: {who} intézi.',
         inboxYou: 'Nyisd meg a tételt, és intézd el.',
@@ -2719,6 +2732,10 @@ export const hu = {
         heading: 'Új kapcsolat, nincs elemző',
         body: 'A(z) {key} kártyán, amelyen dolgoznak, új kapcsolat jött létre ({relations}), amely érintheti a munkát, de nincs elemző, aki megnézné. Érdemes ránézni. A kártyán dolgozó tagok megkapták az értesítést, semmi nem állt meg.',
       },
+      parts_left: {
+        heading: 'Bontás után ottfelejtett részek',
+        body: '{member} lebontotta a(z) {key} kártyát, de a részei ({parts}) a kezdő lépésben maradtak, ezért senki nem indítja őket. {member} egy emlékeztetőt már kapott, a köre után is itt vannak. Érdemes ránézni: vagy továbbviszi őket, vagy te. A felület semmit nem mozgatott.',
+      },
       session_input: {
         heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
         body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',
@@ -3266,6 +3283,9 @@ export const hu = {
       task_cancelled_reason: 'Megszakította a feladatot: {reason}',
       task_cancelled_duplicate: 'Lezárta duplikátumként: {original}',
       task_reopened: 'Újranyitotta a feladatot.',
+      parts_left_told: 'Emlékeztető ment ide: {name}. A bontás után a kezdő lépésben maradt részek: {parts}.',
+      parts_left_alerted:
+        'A tulajdonos értesítve: az emlékeztető ({name}) után is a kezdő lépésben maradt részek: {parts}.',
       theme_closed: 'Lezárta a témát.',
       assignment_previous: '{assignment} Előző felelős: {previous}.',
       task_created_imported: 'Létrehozva (importálva)',

@@ -631,6 +631,7 @@ function stateOfWait(
       return first ? waitingOn(handles, wait.since) : queuedFor(task, ctx);
     }
     case 'assignee':
+    case 'part_left':
       return waitingOn(handles, wait.since);
     case 'nobody': {
       // Nobody can act: the line says what is missing, as its cause always did.

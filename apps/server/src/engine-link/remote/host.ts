@@ -87,6 +87,12 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       refreshDependencies: (cwd) => call('worktree.refreshDependencies', [cwd]),
       head: (cwd) => call('worktree.head', [cwd]),
       ensureForTask: (args) => call('worktree.ensureForTask', [args]),
+      ensureMergeFix: (args) => call('worktree.ensureMergeFix', [args]),
+      findMergeFix: (args) => call('worktree.findMergeFix', [args]),
+      removeMergeFix: async (args) => {
+        await call('worktree.removeMergeFix', [args]);
+      },
+      listMergeFixes: (args) => call('worktree.listMergeFixes', [args]),
       find: (args) => call('worktree.find', [args]),
       status: (cwd) => call('worktree.status', [cwd]),
       remove: async (args) => {

@@ -307,7 +307,10 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
-  mergeTask(ctx: ToolContext, args: { taskKey: string }): Promise<{ task: Task }>;
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
   updateTask(
     ctx: ToolContext,
     args: {

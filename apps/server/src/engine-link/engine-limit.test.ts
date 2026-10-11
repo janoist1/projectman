@@ -438,6 +438,33 @@ describe('engine local limit', () => {
         repos: [{ name: repoName, path: `/cloud/${repoName}${extra}` }],
       },
     });
+    it('binds every merge-fix operation to the registered engine repository and rejects ref injection', async () => {
+      const limit = make();
+      for (const method of [
+        'worktree.ensureMergeFix',
+        'worktree.findMergeFix',
+        'worktree.removeMergeFix',
+        'worktree.listMergeFixes',
+      ] as const) {
+        const [arg] = await limit.check(method, [
+          { project: projectConfig(), repoName: 'projectman', taskKey: 'PM-1', commit: 'a'.repeat(40) },
+        ] as never);
+        expect(arg.project.project.workspacePath).toBe(workspace);
+        expect(arg.project.project.repos[0]!.path).toBe(repo);
+        await refused(
+          limit,
+          method,
+          [{ project: projectConfig('other'), repoName: 'other', taskKey: 'PM-1', commit: 'a'.repeat(40) }],
+          'repo_not_registered',
+        );
+      }
+      await refused(
+        limit,
+        'worktree.ensureMergeFix',
+        [{ project: projectConfig(), repoName: 'projectman', taskKey: 'PM-1', commit: '--help' }],
+        'invalid_params',
+      );
+    });
 
     it('replaces the cloud’s paths with the registered ones', async () => {
       const [arg] = (await make().check('worktree.ensureForTask', [

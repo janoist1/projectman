@@ -77,6 +77,7 @@ import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
 import { Merges } from './merges';
+import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -99,7 +100,7 @@ import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
-import { AutoAdvance, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
+import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
@@ -499,7 +500,9 @@ export function createDomain(opts: DomainOptions) {
   });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
+  const mergeCards = new MergeCardLock();
   const sessions = new SessionOrchestrator({
+    mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
       void outages.observeAuthError(key, handle, provider, engineId).catch(() => {});
     },
@@ -545,6 +548,7 @@ export function createDomain(opts: DomainOptions) {
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
   const worktreeSweep = new WorktreeSweep({
+    mergeCards,
     ctx,
     projects,
     inbox,
@@ -773,6 +777,7 @@ export function createDomain(opts: DomainOptions) {
   });
   messaging.useFullTests(fullTests);
   const merges = new Merges({
+    cards: mergeCards,
     ctx,
     projects,
     tasks,
@@ -839,8 +844,8 @@ export function createDomain(opts: DomainOptions) {
   });
   messaging.useOperatorSignals(operatorSignals);
   const finishOperatorSignals = (session: Session) => {
-    if (session.member === operatorOf(projects.cachedConfig(session.projectKey)!)?.handle)
-      operatorSignals.finish(session.projectKey);
+    const config = projects.cachedConfig(session.projectKey);
+    if (config && session.member === operatorOf(config)?.handle) operatorSignals.finish(session.projectKey);
   };
   events.on('session_idle', finishOperatorSignals);
   events.on('session_ended', finishOperatorSignals);
@@ -1333,6 +1338,26 @@ export function createDomain(opts: DomainOptions) {
   // New relations on a card that is being worked on reach its workers and, when they may change the work, its analyst (PM-421).
   const relationNotices = new RelationNotices({ ctx, projects, tasks, sessions, messaging, inbox });
   events.on('task_relations_added', (added) => relationNotices.added(added));
+  // Parts of a broken-down card left in the first stage: their creator is told once when their turn ends,
+  // the owners when the parts are still left after the next turn (PM-480). Only says; never moves or labels.
+  const leftParts = new LeftParts({ ctx, projects, sessions, messaging, inbox, timeline });
+  const checkLeftParts = (session: Session): void => {
+    background.run(
+      () => leftParts.turnEnded(session),
+      (err) => opts.logger.warn({ err, sessionId: session.id }, 'could not look for left parts'),
+    );
+  };
+  events.on('session_idle', checkLeftParts);
+  events.on('session_ended', checkLeftParts);
+  const partChanged = (task: Task): void => {
+    background.run(
+      () => leftParts.changed(task),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'could not close the left parts alert'),
+    );
+  };
+  events.on('task_stage_changed', (change) => partChanged(change.task));
+  events.on('task_labels_changed', ({ task }) => partChanged(task));
+  events.on('task_cancelled', (task) => partChanged(task));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));

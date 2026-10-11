@@ -8,6 +8,7 @@ import { StageGlyph } from '../../components/flow/StageGlyph';
 import { Icon } from '../../components/Icon';
 import { rich, joinNodes } from '../../i18n/rich';
 import { joinNames, t } from '../../i18n/t';
+import { withArticle } from '../../lib/article';
 import { humanRoleName } from '../../lib/roles';
 import { EditLink } from './EditLink';
 import { LabelButton, OwnerStack } from './parts';
@@ -108,7 +109,9 @@ function MoverRow() {
       <span className={styles.startText}>
         {mover.kind === 'worker'
           ? rich('howWeWork.flow.mover.worker', {})
-          : rich('howWeWork.flow.mover.person', { name })}
+          : mover.kind === 'project_manager'
+            ? rich('howWeWork.flow.mover.person', { name: withArticle(name) })
+            : rich('howWeWork.flow.mover.person', { name })}
       </span>
       <EditLink hash="settings-mover-title" inFoot={false}>
         {t('howWeWork.flow.mover.edit')}

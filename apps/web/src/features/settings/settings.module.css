@@ -194,6 +194,14 @@
   font-size: var(--text-sm);
 }
 
+/* A refused choice of a group of controls: the field error's look, under the group. */
+.fieldError {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--c-blocked-text);
+}
+
 .problems {
   margin: 0;
   padding-left: 18px;

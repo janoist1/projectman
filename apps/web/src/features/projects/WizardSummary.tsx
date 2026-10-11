@@ -4,6 +4,7 @@ import type { MemberConfig, ProjectConfig, ProjectPreview, TeamMapStage } from '
 import { Avatar } from '../../components/Avatar';
 import { Chip } from '../../components/Chip';
 import { rich } from '../../i18n/rich';
+import { withArticle } from '../../lib/article';
 import { t } from '../../i18n/t';
 import { issueMessage } from '../../lib/configIssues';
 import { memberLike } from '../how-we-work/MapContext';
@@ -24,6 +25,12 @@ function stageNameOf(config: ProjectConfig, path: string): string | null {
   return index === undefined ? null : (config.pipeline.stages[Number(index)]?.name ?? null);
 }
 
+/** An issue in words, with the name of the stage it is about in front ("Code review: …"). */
+export function issueText(config: ProjectConfig | undefined, issue: Issue): string {
+  const stageName = config ? stageNameOf(config, issue.path) : null;
+  return `${stageName ? `${stageName}: ` : ''}${issueMessage(issue)}`;
+}
+
 /** Who carries the card on out of a stage, in words; null where the card does not move on by hand. */
 function moverWords(config: ProjectConfig, entry: TeamMapStage): string | null {
   if (!entry.nextStageId || !isHandOnMove(config, entry.stage.id, entry.nextStageId)) return null;
@@ -32,11 +39,11 @@ function moverWords(config: ProjectConfig, entry: TeamMapStage): string | null {
   if (mover.kind === 'human') return t('projects.create.movedBy.creator');
   const handle = cardMoverHandle(config);
   const name = config.team.members.find((member) => member.handle === handle)?.displayName;
-  return name ? t('projects.create.movedBy.project_manager', { name }) : null;
+  return name ? t('projects.create.movedBy.project_manager', { name: withArticle(name) }) : null;
 }
 
-function People({ people }: { people: readonly MemberConfig[] }) {
-  if (people.length === 0) return <span>{t('projects.create.nobodyWorks')}</span>;
+function People({ people, empty }: { people: readonly MemberConfig[]; empty: string }) {
+  if (people.length === 0) return <span>{empty}</span>;
   return (
     <>
       {people.map((person, index) => (
@@ -74,7 +81,10 @@ function StageLine({
     <li className={styles.stageLine}>
       {showName ? <b className={styles.stageName}>{entry.stage.name}</b> : null}
       <span>
-        <People people={people} />
+        <People
+          people={people}
+          empty={t(entry.stage.kind === 'done' ? 'projects.create.doneStage' : 'projects.create.nobodyWorks')}
+        />
       </span>
       {moved ? <span className={styles.moved}>→ {moved}</span> : null}
       {needs.length > 0 ? (
@@ -118,7 +128,9 @@ export function WizardSummary({
       ? rich('projects.create.summaryMover.worker', {})
       : moverKind === 'human'
         ? rich('projects.create.summaryMover.creator', {})
-        : rich('projects.create.summaryMover.project_manager', { name: managerName ?? '' });
+        : rich('projects.create.summaryMover.project_manager', {
+            name: withArticle(managerName ?? ''),
+          });
   return (
     <div className={styles.summary}>
       <p className={styles.moverLine}>{moverLine}</p>
@@ -160,11 +172,9 @@ export function WizardSummary({
           <ul>
             {problems.map((issue, index) => {
               const step = stepForIssue(issue.path);
-              const stageName = stageNameOf(config, issue.path);
               return (
                 <li key={`${issue.code}:${issue.path}:${index}`}>
-                  {stageName ? `${stageName}: ` : null}
-                  {issueMessage(issue)}{' '}
+                  {issueText(config, issue)}{' '}
                   <button type="button" className={styles.fixLink} onClick={() => onFix(step)}>
                     {step === 'kind'
                       ? t('projects.create.fixKind')

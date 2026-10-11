@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router';
 import clsx from 'clsx';
-import type { CreateProjectRequest } from '@projectman/shared';
+import type { CreateProjectRequest, ProjectConfig } from '@projectman/shared';
 import { isApiError } from '../../api/client';
 import { useCreateProject, useProjectPreview, useProjects, useTemplates } from '../../api/queries';
 import { Avatar } from '../../components/Avatar';
@@ -14,7 +14,6 @@ import { ErrorState, LoadingState } from '../../components/States';
 import { useToast } from '../../components/toastContext';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { t, tDynamic } from '../../i18n/t';
-import { issueMessage } from '../../lib/configIssues';
 import type { IssueRef } from '../../lib/configIssues';
 import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle } from '../../lib/hooks';
@@ -22,7 +21,7 @@ import { AuthLayout } from '../auth/AuthLayout';
 import { InstancePauseBar } from '../pause/PauseBanner';
 import { KEY_RE, WIZARD_STEPS, newRepo, reposPayload, suggestKey, validateRepos } from './projectForm';
 import type { RepoErrors, RepoRow, WizardStep } from './projectForm';
-import { WizardSummary, blockingIssues, summarySubtitle } from './WizardSummary';
+import { WizardSummary, blockingIssues, issueText, summarySubtitle } from './WizardSummary';
 import styles from './CreateProjectPage.module.css';
 
 interface Errors {
@@ -33,11 +32,11 @@ interface Errors {
 }
 
 /** Why the server refused a create: the issues of an invalid configuration, else the error's own words. */
-function rejectionReason(error: unknown): string {
+function rejectionReason(error: unknown, config: ProjectConfig | undefined): string {
   if (isApiError(error)) {
     const issues = (error.details as { issues?: IssueRef[] } | undefined)?.issues;
     if (Array.isArray(issues) && issues.length > 0)
-      return [...new Set(issues.map((issue) => issueMessage(issue)))].join(' ');
+      return [...new Set(issues.map((issue) => issueText(config, issue)))].join(' ');
   }
   return errorMessage(error);
 }
@@ -220,7 +219,9 @@ export function CreateProjectPage() {
 
             {step === 'kind' ? (
               <fieldset className={styles.fieldset}>
-                <legend className={styles.help}>{t('projects.create.kindHelp')}</legend>
+                <legend className={clsx(styles.help, styles.legendHelp)}>
+                  {t('projects.create.kindHelp')}
+                </legend>
                 {templates.isPending ? <LoadingState compact /> : null}
                 {templates.isError ? (
                   <ErrorState compact error={templates.error} onRetry={() => void templates.refetch()} />
@@ -237,15 +238,17 @@ export function CreateProjectPage() {
                       checked={selectedTemplate === template.id}
                       onChange={setTemplateId}
                       title={tDynamic(template.nameKey, template.id)}
-                      description={[
-                        tDynamic(template.descriptionKey, ''),
-                        t('projects.create.kindCounts', {
-                          ai: template.memberCount.ai,
-                          stages: template.stageCount,
-                        }),
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
+                      description={
+                        <>
+                          {tDynamic(template.descriptionKey, '')}
+                          <span className={styles.kindCounts}>
+                            {t('projects.create.kindCounts', {
+                              ai: template.memberCount.ai,
+                              stages: template.stageCount,
+                            })}
+                          </span>
+                        </>
+                      }
                     />
                   ))}
                 </div>
@@ -391,7 +394,9 @@ export function CreateProjectPage() {
           <div className={styles.bar}>
             {create.isError ? (
               <ErrorBanner>
-                {t('projects.create.rejected', { reason: rejectionReason(create.error) })}
+                {t('projects.create.rejected', {
+                  reason: rejectionReason(create.error, preview.data?.config),
+                })}
               </ErrorBanner>
             ) : null}
             {onSummary && preview.data && !works ? (

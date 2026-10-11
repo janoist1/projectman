@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import {
   cardMerger,
@@ -168,6 +169,13 @@ function MoverControls({ config }: { config: ProjectConfig }) {
     ? (error.details as { issues?: IssueRef[] } | undefined)?.issues
     : undefined;
   const refused = issues?.find((issue) => issue.code.startsWith('mover_'));
+  // Who the refused choice named: the page shows the saved choice again, so the name is kept here.
+  const [tried, setTried] = useState('');
+  const refusal = refused
+    ? refused.code === 'mover_on_leave'
+      ? issueMessage(refused)
+      : t('settings.team.mover.cannotMove', { name: tried })
+    : null;
   const current = mover.kind === 'human' ? mover.handle : null;
   const currentMember = shown.team.members.find((member) => member.handle === current);
   // A choice that cannot move cards says so under the field, saved or not.
@@ -186,8 +194,15 @@ function MoverControls({ config }: { config: ProjectConfig }) {
           commit((draft) => {
             if (kind === 'human') {
               const first = moverCandidates(draft)[0];
-              if (first) draft.team.cardMover = { kind: 'human', handle: first.handle };
-            } else draft.team.cardMover = { kind };
+              if (first) {
+                draft.team.cardMover = { kind: 'human', handle: first.handle };
+                setTried(first.displayName);
+              }
+            } else {
+              draft.team.cardMover = { kind };
+              // The name the choice carries on its card, which starts the sentence ("A Projektmenedzser nem …").
+              setTried(kind === 'project_manager' ? t('settings.team.mover.project_manager.title') : '');
+            }
           });
         }}
         humanExtra={
@@ -195,11 +210,13 @@ function MoverControls({ config }: { config: ProjectConfig }) {
             label={t('settings.team.mover.who')}
             value={current ?? ''}
             error={wrong}
-            onChange={(event) =>
+            onChange={(event) => {
+              const handle = event.target.value;
+              setTried(candidates.find((member) => member.handle === handle)?.displayName ?? handle);
               commit((draft) => {
-                draft.team.cardMover = { kind: 'human', handle: event.target.value };
-              })
-            }
+                draft.team.cardMover = { kind: 'human', handle };
+              });
+            }}
           >
             {current && !candidates.some((member) => member.handle === current) ? (
               <option value={current}>{currentMember?.displayName ?? current}</option>
@@ -212,9 +229,13 @@ function MoverControls({ config }: { config: ProjectConfig }) {
           </SelectField>
         }
       />
-      {error ? (
+      {refusal ? (
+        <p role="alert" className={shared.fieldError}>
+          {refusal}
+        </p>
+      ) : error ? (
         <p role="alert" className={shared.validation}>
-          {refused ? issueMessage(refused) : errorMessage(error)}
+          {errorMessage(error)}
         </p>
       ) : null}
     </fieldset>

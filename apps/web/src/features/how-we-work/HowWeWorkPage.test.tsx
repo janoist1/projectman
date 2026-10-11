@@ -8,6 +8,7 @@ import { setFetchImplementation } from '../../api/client';
 import { applyServerEvent } from '../../api/cache';
 import flowStyles from '../../components/flow/Flow.module.css';
 import { t } from '../../i18n/t';
+import { withArticle } from '../../lib/article';
 import { MockBackend } from '../../mocks/backend';
 import { mockProject } from '../../test/mockProject';
 import { HowWeWorkPage } from './HowWeWorkPage';
@@ -118,7 +119,7 @@ describe('how we work page', () => {
     const pm = project.backend.config.team.members.find(
       (member) => member.kind === 'ai' && member.role === 'project_manager',
     )!;
-    expect(flow.getByText(pm.displayName).closest('li')?.textContent).toContain('viszi tovább');
+    expect(flow.getByText(withArticle(pm.displayName)).closest('li')?.textContent).toContain('viszi tovább');
     const link = flow.getByRole('link', { name: t('howWeWork.flow.mover.edit') });
     expect(link.getAttribute('href')).toContain('/p/AC/settings#settings-mover-title');
   });

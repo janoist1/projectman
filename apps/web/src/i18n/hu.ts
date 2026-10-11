@@ -1073,6 +1073,7 @@ export const hu = {
       column: 'Oszlop: {name}',
       worksOn: 'Dolgozik rajta:',
       nobodyWorks: 'nincs, aki dolgozna rajta',
+      doneStage: 'Itt a kártya kész.',
       movedBy: {
         worker: 'a kártya gazdája viszi tovább',
         project_manager: '{name} viszi tovább',

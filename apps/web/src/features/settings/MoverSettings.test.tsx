@@ -64,7 +64,10 @@ describe('the card mover in the settings (PM-439)', () => {
     project.render(<SettingsTestRoutes initialSection="team" />);
     const group = await moverGroup();
     fireEvent.click(choice(group, 'project_manager'));
-    expect(await group.findByText(t('settings.issues.mover_cannot_move'))).toBeTruthy();
+    const refusal = await group.findByRole('alert');
+    expect(refusal.textContent).toBe(
+      t('settings.team.mover.cannotMove', { name: t('settings.team.mover.project_manager.title') }),
+    );
     expect(project.backend.config.team.cardMover).toBeUndefined();
     await waitFor(() => expect(choice(group, 'worker').checked).toBe(true));
   });

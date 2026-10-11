@@ -159,8 +159,12 @@ describe('the new project wizard (PM-439)', () => {
     await heading(t('projects.create.summaryTitle'));
     fireEvent.click(await screen.findByRole('button', { name: t('projects.create.submit') }));
 
+    // The reason starts with the name of the stage it is about.
+    const reason = issueMessage(issue).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     expect(
-      await screen.findByText(t('projects.create.rejected', { reason: issueMessage(issue) })),
+      await screen.findByText(
+        new RegExp(`^${t('projects.create.rejected', { reason: `[^:]+: ${reason}` })}$`),
+      ),
     ).toBeTruthy();
     // Back at the first step the name is still there.
     fireEvent.click(

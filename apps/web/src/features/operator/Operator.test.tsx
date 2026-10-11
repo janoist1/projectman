@@ -380,6 +380,66 @@ describe('the steps of a request', () => {
     expect(within(steps).getByText(t('operator.steps.iconAwaiting'))).toBeTruthy();
   });
 
+  it('shows what a done step changed, with a link to the history when it made a configuration version', async () => {
+    const project = mockProject();
+    const asked = project.backend.sendTeamMessage('owner', ['operator'], null, 'Kapcsold ki a szabadságot');
+    project.backend.operatorRequests = [
+      request(
+        [
+          step({
+            id: 'stp_1',
+            action: 'member_change',
+            status: 'done',
+            member: 'dev-1',
+            changes: [{ ...CHANGE, field: 'onLeave', before: 'true', after: 'false' }],
+            configVersion: 'cfg0001',
+          }),
+        ],
+        asked.id,
+      ),
+    ];
+    renderLayout(project);
+    fireEvent.click(await button());
+    const steps = await screen.findByRole('region', { name: t('operator.steps.label') });
+    expect(within(steps).getByRole('region', { name: t('operator.approval.changes') })).toBeTruthy();
+    const history = within(steps).getByRole('link', { name: new RegExp(t('operator.steps.history')) });
+    expect(history.getAttribute('href')).toBe('/p/AC/settings/history');
+  });
+
+  it.each([
+    { owners: 1, name: 'writeToOwner', href: '/p/AC/messages/with/owner' },
+    { owners: 2, name: 'writeToAnOwner', href: '/p/AC/team' },
+  ] as const)(
+    'links a refused owner-only step to $href with $owners owner(s)',
+    async ({ owners, name, href }) => {
+      const project = mockProject();
+      if (owners > 1) {
+        const owner = project.backend.members.find((member) => member.handle === 'owner')!;
+        project.backend.members.push({ ...owner, handle: 'owner-2', displayName: 'Második' });
+      }
+      const asked = project.backend.sendTeamMessage('kata', ['operator'], null, 'Töröld a szövegírót');
+      project.backend.operatorRequests = [
+        request(
+          [
+            step({
+              id: 'stp_1',
+              action: 'member_retire',
+              status: 'refused',
+              member: 'pm',
+              refusal: { code: 'operator_owner_only', message: 'owner only' },
+            }),
+          ],
+          asked.id,
+        ),
+      ];
+      renderLayout(project, '/p/AC', { viewer: 'kata' });
+      fireEvent.click(await button());
+      const steps = await screen.findByRole('region', { name: t('operator.steps.label') });
+      const link = within(steps).getByRole('link', { name: new RegExp(t(`operator.steps.${name}`)) });
+      expect(link.getAttribute('href')).toBe(href);
+    },
+  );
+
   it('decides a proposal inline for the owner, and shows the card as approved', async () => {
     const project = mockProject();
     const asked = project.backend.sendTeamMessage(
@@ -581,14 +641,44 @@ describe('the approval in Rád vár', () => {
 
   it('folds the rows past the third behind a "+N" button', async () => {
     const project = mockProject();
-    const rows = ['a', 'b', 'c', 'd', 'e'].map((field): ConfigChangeRow => ({ ...CHANGE, field }));
+    const rows = ['model', 'effort', 'capacity', 'onLeave', 'schedule'].map((field): ConfigChangeRow => ({
+      ...CHANGE,
+      field,
+    }));
     project.backend.inbox.push(approvalItem('stp_1', { changes: rows }));
     rendered(project);
     const more = await screen.findByRole('button', { name: t('operator.approval.more', { count: 2 }) });
-    expect(screen.queryByText(/dev-1 · d/)).toBeNull();
+    expect(screen.queryByText(t('operator.change.fields.onLeave'))).toBeNull();
     fireEvent.click(more);
-    expect(screen.getByText(/dev-1 · d/)).toBeTruthy();
+    expect(screen.getByText(t('operator.change.fields.onLeave'))).toBeTruthy();
     expect(screen.getByRole('button', { name: t('operator.approval.less') })).toBeTruthy();
+  });
+
+  it('names the changes in Hungarian: the area, the member by name, yes/no, and JSON cut short in mono', async () => {
+    const project = mockProject();
+    const json = JSON.stringify({ aaaa: 'x'.repeat(80) });
+    project.backend.inbox.push(
+      approvalItem('stp_1', {
+        changes: [
+          { ...CHANGE, field: 'onLeave', before: 'false', after: 'true' },
+          { ...CHANGE, area: 'role', target: 'qa', field: 'override.*', before: null, after: 'qa' },
+          { ...CHANGE, area: 'project', target: null, field: 'mysteryKey', before: null, after: json },
+        ],
+      }),
+    );
+    rendered(project);
+    const changes = await screen.findByRole('region', { name: t('operator.approval.changes') });
+    const text = changes.textContent ?? '';
+    expect(text).toContain(t('operator.change.areas.member'));
+    expect(text).toContain('Általános fejlesztő');
+    expect(text).not.toContain('dev-1');
+    expect(text).toContain(t('operator.change.yes'));
+    expect(text).toContain(t('operator.change.no'));
+    expect(text).toContain(`${t('operator.change.prefixes.override')}`);
+    expect(text).not.toContain('*');
+    const cut = within(changes).getByTitle(json);
+    expect(cut.textContent?.endsWith('…')).toBe(true);
+    expect(cut.className).toMatch(/mono/);
   });
 
   it('turns stale when the configuration moved on: the reason on the card, only "Rendben" left, and no toast', async () => {

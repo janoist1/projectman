@@ -112,7 +112,7 @@ function MemberIdentity({
             </Chip>
           ) : null}
           {builtIn ? (
-            <Chip tone="accent" title={t('operator.builtIn.title')}>
+            <Chip tone="operator" title={t('operator.builtIn.title')}>
               {t('operator.builtIn.chip')}
             </Chip>
           ) : null}

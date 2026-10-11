@@ -1,3 +1,4 @@
+import clsx from 'clsx';
 import { useMemo } from 'react';
 import { Link } from 'react-router';
 import { operatorApprovalOf } from '@projectman/shared';
@@ -11,6 +12,7 @@ import { codeMessage } from '../../lib/errors';
 import { nameOf } from '../../lib/members';
 import { TaskChip } from '../messages/TaskChip';
 import { OperatorApprovalActions, OperatorApprovalBody, useOperatorDecision } from './OperatorApproval';
+import { OperatorChanges } from './OperatorChanges';
 import styles from './OperatorSteps.module.css';
 
 type Group = 'done' | 'awaiting' | 'refused';
@@ -50,12 +52,19 @@ function StepNote({ step, ownerHandle }: { step: OperatorStep; ownerHandle: stri
   return (
     <span className={styles.note}>
       {ownerOnly ? t('operator.steps.ownerOnly') : reason}
-      {ownerOnly && ownerHandle ? (
+      {ownerOnly ? (
         <>
           {' '}
-          <Link to={`/p/${key}/messages/with/${ownerHandle}`} className={styles.link}>
-            {t('operator.steps.writeToOwner')} →
-          </Link>
+          {ownerHandle ? (
+            <Link to={`/p/${key}/messages/with/${ownerHandle}`} className={styles.link}>
+              {t('operator.steps.writeToOwner')} →
+            </Link>
+          ) : (
+            // No single owner to write to: the Team page lists them.
+            <Link to={`/p/${key}/team`} className={styles.link}>
+              {t('operator.steps.writeToAnOwner')} →
+            </Link>
+          )}
         </>
       ) : null}
     </span>
@@ -95,7 +104,17 @@ function StepRow({
             <span className={styles.member}>{nameOf(step.member, members, myHandle)}</span>
           ) : null}
           <StepNote step={step} ownerHandle={ownerHandle} />
+          {step.configVersion ? (
+            <Link to={`/p/${key}/settings/history`} className={clsx(styles.link, styles.historyLink)}>
+              {t('operator.steps.history')} →
+            </Link>
+          ) : null}
         </div>
+        {group === 'done' && step.changes.length > 0 ? (
+          <div className={styles.doneChanges}>
+            <OperatorChanges changes={step.changes} />
+          </div>
+        ) : null}
         {inboxItem && approval ? (
           <div className={styles.approval}>
             <OperatorApprovalBody payload={approval} stale={decision.staleFor(inboxItem)} />
@@ -135,13 +154,13 @@ export function OperatorSteps({
     () => new Map((inbox.data?.items ?? []).map((item) => [item.id, item])),
     [inbox.data],
   );
-  const ownerHandle = useMemo(
-    () =>
-      [...members.values()].find(
-        (member) => member.kind === 'human' && member.role === 'owner' && member.handle !== myHandle,
-      )?.handle ?? null,
-    [members, myHandle],
-  );
+  // The one owner to write to; with none or several, the step links to the Team page instead.
+  const ownerHandle = useMemo(() => {
+    const owners = [...members.values()].filter(
+      (member) => member.kind === 'human' && member.role === 'owner' && member.handle !== myHandle,
+    );
+    return owners.length === 1 ? owners[0]!.handle : null;
+  }, [members, myHandle]);
   if (request.steps.length === 0) return null;
 
   const groups: { group: Group; steps: OperatorStep[] }[] = (['done', 'awaiting', 'refused'] as const)

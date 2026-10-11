@@ -128,6 +128,7 @@ export function OperatorApprovalActions({
   stale: boolean;
   onDecide: (item: InboxItem, body: ResolveInboxRequest) => void;
 }) {
+  const [pressed, setPressed] = useState<string | null>(null);
   const isStale = payload.stale !== null || stale;
   const op = payload.operation.op;
   const approveLabel =
@@ -154,8 +155,13 @@ export function OperatorApprovalActions({
           key={option.id}
           variant={variantFor[option.id] ?? 'secondary'}
           size={size}
+          // The pressed button waits (spinner); the other one only stands still.
+          loading={pending && pressed === option.id}
           disabled={pending}
-          onClick={() => onDecide(item, { optionId: option.id })}
+          onClick={() => {
+            setPressed(option.id);
+            onDecide(item, { optionId: option.id });
+          }}
         >
           {labelOf(option.id)}
         </Button>

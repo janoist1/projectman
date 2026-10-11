@@ -14,6 +14,23 @@
 .card[data-state='open'] {
   border-color: var(--c-needs-border, var(--c-line));
   border-left-color: var(--c-needs-text);
+  background: var(--c-needs-bg);
+}
+
+/* A signal that is settled recedes: muted text, a neutral stripe. */
+.card[data-state='accepted'],
+.card[data-state='dismissed'],
+.card[data-state='resolved'] {
+  border-left-color: var(--c-line);
+}
+
+.card[data-state='accepted'] .title,
+.card[data-state='dismissed'] .title,
+.card[data-state='resolved'] .title,
+.card[data-state='accepted'] .body,
+.card[data-state='dismissed'] .body,
+.card[data-state='resolved'] .body {
+  color: var(--c-ink-3);
 }
 
 .head {
@@ -63,6 +80,9 @@
 }
 
 .closed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   font-size: var(--text-sm);
   font-weight: 700;

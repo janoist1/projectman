@@ -207,7 +207,7 @@ export function MemberProfilePage() {
             ) : null}
             {builtInOperator ? (
               <>
-                <Chip tone="accent" title={t('operator.builtIn.title')}>
+                <Chip tone="operator" title={t('operator.builtIn.title')}>
                   {t('operator.builtIn.chip')}
                 </Chip>{' '}
                 ·{' '}

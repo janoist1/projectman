@@ -118,16 +118,27 @@ export function OperatorSignalCard({
       {open && !readOnly ? (
         <div className={styles.actions}>
           {signal.actionable ? (
-            <Button variant="primary" size="md" disabled={busy} onClick={accept}>
+            <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
               {t('operator.signal.accept')}
             </Button>
           ) : null}
-          <Button variant="secondary" size="md" disabled={busy} onClick={() => dismiss.mutate(signal.id)}>
+          <Button
+            variant="secondary"
+            size="md"
+            loading={dismiss.isPending}
+            disabled={busy}
+            onClick={() => dismiss.mutate(signal.id)}
+          >
             {t('operator.signal.dismiss')}
           </Button>
         </div>
       ) : null}
-      {!open && closed ? <p className={styles.closed}>{closed}</p> : null}
+      {!open && closed ? (
+        <p className={styles.closed}>
+          {signal.state === 'resolved' ? <Icon name="check" size={14} strokeWidth={2.6} /> : null}
+          {closed}
+        </p>
+      ) : null}
       {failure ? (
         <p className={styles.error} role="alert">
           {closedByServer ? t('operator.signal.closed') : t('operator.signal.failed')}

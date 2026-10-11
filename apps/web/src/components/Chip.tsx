@@ -9,6 +9,7 @@ export type ChipTone =
   | 'neutral'
   | 'outline'
   | 'accent'
+  | 'operator'
   | 'needs'
   | 'ok'
   | 'blocked'

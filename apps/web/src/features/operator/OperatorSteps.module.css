@@ -116,6 +116,14 @@
   color: var(--c-accent-text);
 }
 
+.historyLink {
+  font-size: var(--text-sm);
+}
+
+.doneChanges {
+  margin-top: 6px;
+}
+
 .approval {
   display: flex;
   flex-direction: column;

@@ -128,6 +128,9 @@ import {
   taskSeq,
   taskWorkOf,
   introducedErrors,
+  validateProjectConfig,
+  DEFAULT_PROJECT_LANGUAGE,
+  ProjectConfig,
   mergeTokenUsage,
   alertPayloadOf,
   cardMerger,
@@ -226,7 +229,6 @@ import type {
   TaskMergeState,
   TaskMerged,
   PlanUsage,
-  ProjectConfig,
   ScheduleRun,
   ServerEvent,
   Session,
@@ -247,6 +249,7 @@ import {
   aiMemberDefaults,
   defaultMemberHandle,
   defaultMemberName,
+  getTemplate,
   humanMemberHandle,
   roleViews,
 } from '@projectman/templates';
@@ -1618,6 +1621,13 @@ export class MockBackend {
       });
     }
     if (path === '/api/templates') return ok(clone(fixtures.templates));
+    if (path === '/api/projects/preview' && method === 'POST') {
+      const input = parseBody(CreateProjectRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid project');
+      const draft = this.projectDraft(input);
+      if ('status' in draft) return draft;
+      return ok({ config: draft, issues: validateProjectConfig(draft) });
+    }
     if (path === '/api/projects') {
       if (method === 'POST') {
         const input = parseBody(CreateProjectRequest, body);
@@ -1625,6 +1635,14 @@ export class MockBackend {
         if (input.key === fixtures.PROJECT_KEY || this.extraProjects.some((p) => p.key === input.key)) {
           return error(409, 'project_exists', 'Project key already exists');
         }
+        // Like the server: a configuration that does not work is refused, with the issues.
+        const draft = this.projectDraft(input);
+        if ('status' in draft) return draft;
+        const blocking = validateProjectConfig(draft).filter((issue) => issue.severity !== 'warning');
+        if (blocking.length > 0)
+          return error(422, 'invalid_config', 'configuration violates the team invariants', {
+            issues: blocking,
+          });
         this.extraProjects.push({ key: input.key, name: input.name, templateId: input.templateId });
         return ok({
           key: input.key,
@@ -2236,6 +2254,39 @@ export class MockBackend {
     }
     const issues = introducedErrors(this.config, next);
     return issues.length > 0 ? error(400, 'config_invalid', 'Invalid configuration', { issues }) : null;
+  }
+
+  /** The configuration a create would save: the template's, with the request's name, workspace, repos and mover. */
+  private projectDraft(input: CreateProjectRequest): ProjectConfig | MockResponse {
+    const template = getTemplate(input.templateId);
+    if (!template) return error(400, 'unknown_template', `unknown template: ${input.templateId}`);
+    const built = template.build({
+      key: input.key,
+      name: input.name,
+      workspacePath: input.workspacePath,
+      language: DEFAULT_PROJECT_LANGUAGE,
+      owner: { handle: 'owner', displayName: 'Owner', email: 'owner@example.com' },
+      cardMover:
+        input.cardMover === 'creator'
+          ? { kind: 'human', handle: 'owner' }
+          : { kind: input.cardMover ?? 'worker' },
+    });
+    const parsed = ProjectConfig.safeParse({
+      ...built,
+      project: {
+        ...built.project,
+        key: input.key,
+        name: input.name,
+        workspacePath: input.workspacePath,
+        templateId: input.templateId,
+        ...(input.repos ? { repos: input.repos } : {}),
+      },
+    });
+    return parsed.success
+      ? parsed.data
+      : error(422, 'invalid_config', 'template produced an invalid configuration', {
+          schemaIssues: parsed.error.issues,
+        });
   }
 
   private patchConfig(body: unknown): MockResponse {

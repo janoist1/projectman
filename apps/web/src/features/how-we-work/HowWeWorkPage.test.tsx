@@ -110,6 +110,26 @@ describe('how we work page', () => {
       expect(flow.getAllByText(stage.name).length).toBeGreaterThan(0);
   });
 
+  it('says who moves the cards on, with the way to change it for an admin (PM-439)', async () => {
+    const project = mockProject();
+    project.backend.config.team.cardMover = { kind: 'project_manager' };
+    renderPage(project);
+    const flow = within(await screen.findByRole('region', { name: t('howWeWork.sections.flow') }));
+    const pm = project.backend.config.team.members.find(
+      (member) => member.kind === 'ai' && member.role === 'project_manager',
+    )!;
+    expect(flow.getByText(pm.displayName).closest('li')?.textContent).toContain('viszi tovább');
+    const link = flow.getByRole('link', { name: t('howWeWork.flow.mover.edit') });
+    expect(link.getAttribute('href')).toContain('/p/AC/settings#settings-mover-title');
+  });
+
+  it('says the worker moves the cards by default, and gives a viewer no link to change it (PM-439)', async () => {
+    renderPage(mockProject(), '/', VIEWER);
+    const flow = within(await screen.findByRole('region', { name: t('howWeWork.sections.flow') }));
+    expect(flow.getByText(/az viszi tovább, aki dolgozik rajta/)).toBeTruthy();
+    expect(flow.queryByRole('link', { name: t('howWeWork.flow.mover.edit') })).toBeNull();
+  });
+
   it('lists exactly the rules the configuration yields, in order', async () => {
     const project = mockProject();
     renderPage(project);

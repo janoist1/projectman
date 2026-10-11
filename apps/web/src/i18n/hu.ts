@@ -1011,21 +1011,20 @@ export const hu = {
   /** Project templates: TemplateSummary.nameKey / descriptionKey point here. */
   templates: {
     'web-client-project': {
-      name: 'Webes ügyfélprojekt',
-      description:
-        'Ügyfélnek készülő webes projekt: fejlesztők, code review, integration, QA és ügyfélteszt; merge és élesítés emberi döntéssel.',
+      name: 'Fejlesztés ügyfélnek',
+      description: 'Fejlesztés, átnézés, tesztelés, ügyfélteszt és élesítés. Az élesítésről te döntesz.',
     },
     'small-team': {
       name: 'Kis csapat',
-      description: 'Egy fejlesztő és egy code review; a tulajdonos dönt a lezárásról.',
+      description: 'Egy fejlesztő és egy átnéző. A lezárásról te döntesz.',
     },
     'internal-tool': {
       name: 'Belső eszköz',
-      description: 'Két fejlesztő, code review és QA, ügyfélteszt nélkül; a merge-ről a tulajdonos dönt.',
+      description: 'Fejlesztés, átnézés és tesztelés, ügyfélteszt nélkül. A beolvasztásról te döntesz.',
     },
     'daily-routine': {
       name: 'Napi rutin',
-      description: 'Egy ütemezett munkatárs visszatérő, napi feladatokhoz.',
+      description: 'Egy munkatárs hétköznap reggel átnézi a kódot, és feladatot nyit, ha talál valamit.',
     },
   },
 
@@ -1034,7 +1033,62 @@ export const hu = {
     emptyBody: 'Egy projekt: egy munkaterület, egy csapat és egy folyamat.',
     create: {
       title: 'Új projekt',
-      intro: 'Sablonból indulsz, utána bármit átalakíthatsz: tagot vehetsz fel, lépést rendezhetsz át.',
+      intro:
+        'Öt rövid lépés, és indulhat a munka. Amit most nem kérdezünk, később a beállításokban átírhatod.',
+      firstIntro: 'Öt rövid lépés, és indulhat a munka.',
+      stepsLabel: 'A projekt létrehozásának lépései',
+      stepsNames: {
+        name: 'Név',
+        kind: 'Fajta',
+        mover: 'Mozgatás',
+        code: 'Kód',
+        summary: 'Összefoglaló',
+      },
+      stepButton: '{n}. lépés / {total}: {name}',
+      stepCompact: '{n}/{total} · {name}',
+      back: 'Vissza',
+      next: 'Tovább',
+      nameTitle: 'Hogy hívják a projektet?',
+      kindTitle: 'Mire lesz a projekt?',
+      kindHelp: 'Ebből áll össze a csapat és az oszlopok. Később bármit átírhatsz.',
+      kindCounts: 'Te + {ai} AI-tag · {stages} lépés',
+      pmName: 'Projektmenedzser',
+      kindPm: 'Mindegyikben benne van a Projektmenedzser: bármivel fordulhatsz hozzá.',
+      moverTitle: 'Ki viszi tovább a kártyákat?',
+      moverHelp:
+        'Aki egy lépéssel végzett, a kártyát a következő oszlopba kell tenni. A kapuk mindig érvényesek: a kártya csak akkor lép, ha megvan, ami kell hozzá.',
+      codeTitle: 'Hol a kód?',
+      codeHelp: 'Innen indulnak az AI-tagok munkamenetei.',
+      reposToggle: 'Repók (nem kötelező)',
+      summaryTitle: 'Így halad egy kártya',
+      summaryKind: '{kind} · {name} ({key})',
+      summaryLoading: 'Összeállítjuk a folyamatot…',
+      summaryFailed: 'Nem sikerült összeállítani az összefoglalót.',
+      summaryRetry: 'Újrapróbálom',
+      summaryMover: {
+        worker: 'Minden oszlopban **az viszi tovább a kártyát, aki dolgozik rajta**.',
+        project_manager: 'A kártyákat **{name}** viszi tovább; a gazdák szólnak neki, ha végeztek.',
+        creator: 'A kártyákat **te** viszed tovább: az elvégzett munkájú kártya a „Rád vár” listádra kerül.',
+      },
+      column: 'Oszlop: {name}',
+      worksOn: 'Dolgozik rajta:',
+      nobodyWorks: 'nincs, aki dolgozna rajta',
+      movedBy: {
+        worker: 'a kártya gazdája viszi tovább',
+        project_manager: '{name} viszi tovább',
+        creator: 'te viszed tovább',
+      },
+      needs: 'kell:',
+      humanDecides: 'te döntesz',
+      checkOk:
+        '**Működik.** Minden oszlopnak van gazdája, és a kártya eljut a Készig. A narancs címkék a te döntéseid.',
+      checkBad: 'Így még nem működne:',
+      fixKind: 'Másik fajtát választok',
+      fixMover: 'Módosítom',
+      fixCode: 'Módosítom',
+      cannotSubmit: 'Előbb javítsd, ami hiányzik.',
+      rejected: 'A szerver nem hozta létre a projektet: {reason}',
+      rejectedNoReason: 'A szerver nem hozta létre a projektet.',
       name: 'Név',
       namePlaceholder: 'pl. Acme webshop',
       key: 'Kulcs',
@@ -1952,6 +2006,11 @@ export const hu = {
       start:
         '**Új kártya:** AI-tag vagy legalább „{access}” hozzáférésű ember veheti fel. Első lépése: {stage}.',
       column: 'Oszlop: {name}',
+      mover: {
+        worker: 'A kártyákat **az viszi tovább, aki dolgozik rajta**.',
+        person: 'A kártyákat **{name}** viszi tovább.',
+        edit: 'Módosítás',
+      },
       gate: 'Kapu',
       gateNeeds: 'Belépéshez kell',
       gateLacks: 'Nem lehet rajta',
@@ -4136,6 +4195,37 @@ export const hu = {
     team: {
       role: 'Szerep',
       manage: 'Tagok kezelése a Csapat oldalon',
+      /** Who moves the cards on (PM-439): the choice of the wizard and the settings. */
+      mover: {
+        label: 'Ki viszi tovább a kártyákat?',
+        help: 'Aki egy lépéssel végzett, a kártyát a következő oszlopba kell tenni. A kapuk mindig érvényesek.',
+        recommended: 'Ajánlott',
+        worker: {
+          title: 'Aki dolgozik rajta',
+          description:
+            'A kártya gazdája – AI vagy ember – maga viszi tovább, ha végzett. Így halad a leggyorsabban.',
+        },
+        project_manager: {
+          title: 'A Projektmenedzser',
+          description:
+            'A gazdák szólnak neki, ha végeztek, és ő teszi tovább a kártyát. A sorrend egy kézben van.',
+        },
+        human: {
+          title: 'Egy ember',
+          description:
+            'Az elvégzett munkájú kártya a „Rád vár” listára kerül, és onnan viszi tovább. Az AI-tagok nem mozgatnak.',
+        },
+        youMove: 'Te viszed tovább.',
+        youMoveLater: 'Ha később meghívsz valakit, a beállításokban rá is bízhatod.',
+        who: 'Ki legyen az?',
+        cannotMove:
+          '{name} nem mozgathat kártyát ebben a projektben. Válassz mást, vagy adj neki jogot a Csapat oldalon.',
+        value: {
+          worker: 'a kártya gazdája',
+          project_manager: '{name}',
+          human: '{name}',
+        },
+      },
       merger: {
         label: 'Beolvasztó',
         help: 'Ő olvasztja be a jóváhagyott munkát a fő ágba. A rendszer magától nem olvaszt be.',

@@ -31,6 +31,7 @@ import {
   Me,
   MemberView,
   ProjectPauseView,
+  ProjectPreview,
   ProjectSummary,
   ScheduleRun,
   SchedulesView,
@@ -136,6 +137,9 @@ export const api = {
 
   templates: () => apiRequest(routes.templates(), { schema: TemplateSummary.array() }),
   projects: () => apiRequest(routes.projects(), { schema: ProjectSummary.array() }),
+  /** What a create would make and what is wrong with it; nothing is saved. */
+  previewProject: (body: CreateProjectRequest) =>
+    apiRequest(routes.projectPreview(), { method: 'POST', body, schema: ProjectPreview }),
   createProject: (body: CreateProjectRequest) =>
     apiRequest<unknown>(routes.projects(), { method: 'POST', body }),
 

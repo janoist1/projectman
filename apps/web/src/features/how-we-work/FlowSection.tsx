@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { cardMoverHandle, cardMoverOf } from '@projectman/shared';
 import type { TeamMapStage } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
 import { FlowLine } from '../../components/flow/FlowLine';
@@ -8,6 +9,7 @@ import { Icon } from '../../components/Icon';
 import { rich, joinNodes } from '../../i18n/rich';
 import { joinNames, t } from '../../i18n/t';
 import { humanRoleName } from '../../lib/roles';
+import { EditLink } from './EditLink';
 import { LabelButton, OwnerStack } from './parts';
 import { memberLike, useMapView, useShowTarget } from './MapContext';
 import { stageColumns } from './model';
@@ -28,6 +30,7 @@ export function FlowSection({ flashed }: { flashed: ReadonlySet<string> }) {
       <FlowLine containerRef={flowRef} returns={returns} watch={map} />
       <ol className={styles.flowList}>
         <StartRow />
+        <MoverRow />
         {columns.map(({ column, color, stages }) => {
           const named = stages.length > 1 || stages[0]?.stage.name !== column.name;
           const columnLabel = t('howWeWork.flow.column', { name: column.name });
@@ -90,6 +93,26 @@ function StartRow() {
           })}
         </span>
       </FlowStation>
+    </li>
+  );
+}
+
+/** Who carries the cards on from one column to the next (PM-439), with a way to change it for those who may. */
+function MoverRow() {
+  const { config, member } = useMapView();
+  const mover = cardMoverOf(config);
+  const handle = cardMoverHandle(config);
+  const name = (handle ? member(handle)?.displayName : undefined) ?? handle ?? '';
+  return (
+    <li className={styles.moverRow}>
+      <span className={styles.startText}>
+        {mover.kind === 'worker'
+          ? rich('howWeWork.flow.mover.worker', {})
+          : rich('howWeWork.flow.mover.person', { name })}
+      </span>
+      <EditLink hash="settings-mover-title" inFoot={false}>
+        {t('howWeWork.flow.mover.edit')}
+      </EditLink>
     </li>
   );
 }

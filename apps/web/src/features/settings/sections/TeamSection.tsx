@@ -1,10 +1,18 @@
 import { Link } from 'react-router';
-import { cardMerger, hasAccess, isOperator, mergerOf } from '@projectman/shared';
+import {
+  cardMerger,
+  cardMoverHandle,
+  cardMoverOf,
+  hasAccess,
+  isOperator,
+  mergerOf,
+} from '@projectman/shared';
 import type { MemberConfig, ProjectConfig, RoleView } from '@projectman/shared';
 import { isApiError } from '../../../api/client';
 import { useRoles } from '../../../api/queries';
 import { useProject } from '../../../app/contexts';
 import { Chip } from '../../../components/Chip';
+import { MoverChoice } from '../../../components/MoverChoice';
 import { SelectField } from '../../../components/Field';
 import { t } from '../../../i18n/t';
 import { issueMessage } from '../../../lib/configIssues';
@@ -135,6 +143,84 @@ function MergerControls({ config }: { config: ProjectConfig }) {
   );
 }
 
+/** The humans who may carry the cards on: developer access or more (the same rule as the invariant's). */
+function moverCandidates(config: ProjectConfig): MemberConfig[] {
+  return config.team.members.filter(
+    (member) => member.kind === 'human' && hasAccess(member.access, 'developer'),
+  );
+}
+
+/** The card mover as a sentence, for those who may not change it. */
+function moverValue(config: ProjectConfig): string {
+  const mover = cardMoverOf(config);
+  if (mover.kind === 'worker') return t('settings.team.mover.value.worker');
+  const handle = cardMoverHandle(config) ?? (mover.kind === 'human' ? mover.handle : null);
+  const name = config.team.members.find((member) => member.handle === handle)?.displayName ?? handle ?? '';
+  return t(`settings.team.mover.value.${mover.kind}`, { name });
+}
+
+/** Who carries the cards on: the three choices, and a picker for "one person". Saves as it changes. */
+function MoverControls({ config }: { config: ProjectConfig }) {
+  const { shown, saving, commit, error, locked } = useInstantLimits(config);
+  const mover = cardMoverOf(shown);
+  const candidates = moverCandidates(shown);
+  const issues = isApiError(error)
+    ? (error.details as { issues?: IssueRef[] } | undefined)?.issues
+    : undefined;
+  const refused = issues?.find((issue) => issue.code.startsWith('mover_'));
+  const current = mover.kind === 'human' ? mover.handle : null;
+  const currentMember = shown.team.members.find((member) => member.handle === current);
+  // A choice that cannot move cards says so under the field, saved or not.
+  const wrong =
+    mover.kind === 'human' && !candidates.some((member) => member.handle === current)
+      ? t('settings.team.mover.cannotMove', { name: currentMember?.displayName ?? current ?? '' })
+      : null;
+  return (
+    <fieldset className={shared.controls} disabled={locked} aria-busy={saving}>
+      <MoverChoice
+        name="card-mover"
+        value={mover.kind}
+        legend={t('settings.team.mover.label')}
+        onChange={(kind) => {
+          if (kind === 'human' && candidates.length === 0) return;
+          commit((draft) => {
+            if (kind === 'human') {
+              const first = moverCandidates(draft)[0];
+              if (first) draft.team.cardMover = { kind: 'human', handle: first.handle };
+            } else draft.team.cardMover = { kind };
+          });
+        }}
+        humanExtra={
+          <SelectField
+            label={t('settings.team.mover.who')}
+            value={current ?? ''}
+            error={wrong}
+            onChange={(event) =>
+              commit((draft) => {
+                draft.team.cardMover = { kind: 'human', handle: event.target.value };
+              })
+            }
+          >
+            {current && !candidates.some((member) => member.handle === current) ? (
+              <option value={current}>{currentMember?.displayName ?? current}</option>
+            ) : null}
+            {candidates.map((member) => (
+              <option key={member.handle} value={member.handle}>
+                {member.displayName}
+              </option>
+            ))}
+          </SelectField>
+        }
+      />
+      {error ? (
+        <p role="alert" className={shared.validation}>
+          {refused ? issueMessage(refused) : errorMessage(error)}
+        </p>
+      ) : null}
+    </fieldset>
+  );
+}
+
 /**
  * The configured members in short: name and role. Model, permissions, capacity and subscription
  * are the Team page's business, which this links to instead of repeating them. Below them, who
@@ -167,6 +253,24 @@ export function TeamSection({ config }: { config: ProjectConfig }) {
       <p className={shared.muted}>
         <Link to={`/p/${key}/team`}>{t('settings.team.manage')}</Link>
       </p>
+      <section aria-labelledby="settings-mover-title">
+        <h3 id="settings-mover-title" className={shared.groupTitle}>
+          {t('settings.team.mover.label')}
+        </h3>
+        <div className={shared.controls}>
+          <p className={shared.help}>{t('settings.team.mover.help')}</p>
+          {can.manageTeam ? (
+            <MoverControls config={config} />
+          ) : (
+            <dl className={shared.facts}>
+              <div>
+                <dt>{t('settings.team.mover.label')}</dt>
+                <dd>{moverValue(config)}</dd>
+              </div>
+            </dl>
+          )}
+        </div>
+      </section>
       <section aria-labelledby="settings-merger-title">
         <h3 id="settings-merger-title" className={shared.groupTitle}>
           {t('settings.team.merger.label')}

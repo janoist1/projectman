@@ -541,6 +541,114 @@ describe('member initiated merge', () => {
     await blocked('check_unavailable');
   });
 
+  it('waits for the machine queue as its own step, then checks when the run starts', async () => {
+    const steps: unknown[] = [];
+    const executor = fakeExecutor();
+    vi.mocked(executor.run).mockImplementation(async (_spec, _signal, onStarted) => {
+      steps.push(row()?.step);
+      onStarted?.();
+      steps.push(row()?.step);
+      return passed;
+    });
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    await start();
+    await merged();
+    expect(steps).toEqual(['check_waiting', 'checking']);
+  });
+
+  it('stays at the waiting step when the executor never reports the start', async () => {
+    const executor = fakeExecutor();
+    const finish = deferred<FullTestResult>();
+    vi.mocked(executor.run).mockImplementation(() => finish.promise);
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    await start();
+    await vi.waitFor(() => expect(executor.run).toHaveBeenCalled());
+    expect(row()?.step).toBe('check_waiting');
+    finish.resolve(passed);
+    await merged();
+  });
+
+  it('blocks a repository that runs its full test at the merge but names no command', async () => {
+    await setup({
+      adjust: (c) => {
+        c.project.repos[0]!.fullTestAtMerge = true;
+      },
+    });
+    await start();
+    await blocked('check_unavailable');
+    expect(row()?.block?.message).toContain('fullTestAtMerge');
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+  });
+
+  it('records the merge on the member who started it, AI or human', async () => {
+    await setup({
+      adjust: (c) => {
+        c.team.merger = { kind: 'member', handle: 'owner' };
+      },
+    });
+    await start('AR-1', OWNER_ACTOR);
+    await merged();
+    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'human', handle: 'owner' });
+  });
+
+  it('records the merge on the AI member who started it', async () => {
+    await setup();
+    await start();
+    await merged();
+    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'ai', handle: 'dev-1' });
+  });
+
+  it('records work found in the default branch as a system event', async () => {
+    await setup();
+    merger.base.contains = { local: true, remote: true };
+    await start();
+    await merged();
+    expect(events('task_merged')[0]?.actor).toEqual({ kind: 'system', handle: null });
+  });
+
+  it('tells the AI merger what to do after a failed full check', async () => {
+    await setup({
+      executor: fakeExecutor({ ...passed, outcome: 'failed', outputTail: 'FAIL src/a.test.ts' }),
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    await start();
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    const text = h!.repos.messages
+      .list('AR', { taskKey: 'AR-1' })
+      .map((m) => m.body)
+      .find((body) => body.includes('The full check'));
+    expect(text).toContain('The full check (`npm test`) failed on the merge result of AR-1 onto ');
+    expect(text).toContain('the default branch did not move.');
+    expect(text).toContain('FAIL src/a.test.ts');
+    expect(text).toContain('send the card back to its work stage with update_task (a fix round)');
+    expect(text).toContain('retry once with merge_task; if it fails again, ask_human.');
+  });
+
+  it('keeps the conflict message for a conflict', async () => {
+    await setup();
+    merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+    await start();
+    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+    const text = h!.repos.messages
+      .list('AR', { taskKey: 'AR-1' })
+      .map((m) => m.body)
+      .find((body) => body.includes('failed (conflict)'));
+    expect(text).toContain('fix_conflict: true');
+  });
+
   it('blocks a thrown check', async () => {
     const executor = fakeExecutor();
     vi.mocked(executor.run).mockRejectedValue(new Error('check broke'));

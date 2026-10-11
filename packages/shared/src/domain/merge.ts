@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { StageId } from './pipeline';
 import { MemberHandle } from './member';
 
-export const MergeStep = z.enum(['queued', 'merging', 'checking', 'pushing', 'finishing']);
+export const MergeStep = z.enum(['queued', 'merging', 'check_waiting', 'checking', 'pushing', 'finishing']);
 export const MergeBlockReason = z.enum([
   'push_rejected',
   'remote_unreachable',

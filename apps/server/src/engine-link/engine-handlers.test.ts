@@ -40,6 +40,44 @@ describe('engine handlers', () => {
     expect(names.sort()).toEqual(engineMethods.sort());
   });
 
+  it('tells the cloud when a full test gets its turn, by the run id', async () => {
+    const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
+    const rpc = {
+      handle: (method: string, handler: never) => {
+        handlers.set(method, handler);
+        return () => undefined;
+      },
+    } as unknown as EngineRpc;
+    const events: unknown[] = [];
+    const result = { outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+    const executor = {
+      run: async (_spec: unknown, _signal: AbortSignal, onStarted?: () => void) => {
+        events.push('before');
+        onStarted?.();
+        return result;
+      },
+    };
+    createEngineHandlers({
+      limit: { check: async (_method: string, params: unknown) => params } as never,
+      audit: { record: () => undefined } as never,
+      runner: {} as never,
+      transcripts: {} as never,
+      planUsageFor: (() => ({})) as never,
+      engine: { fullTestExecutor: executor } as never,
+      github: {} as never,
+      probe: {} as never,
+      transfers: {} as never,
+      mcpBase: 'http://127.0.0.1:4801',
+      emit: (event: unknown) => void events.push(event),
+      terminals: new Set(),
+      exportDir: '/nonexistent',
+    }).register(rpc);
+    await expect(handlers.get('full_test.run')!({ spec: { runId: 'f9' } }, { id: 'r1' })).resolves.toEqual(
+      result,
+    );
+    expect(events).toEqual(['before', { kind: 'full_test_started', runId: 'f9' }]);
+  });
+
   it('lists exactly the cloud-direction methods as the ones the engine does not answer', () => {
     const cloudMethods = (Object.keys(methods) as EngineMethod[]).filter(
       (name) => methods[name].direction === 'cloud',

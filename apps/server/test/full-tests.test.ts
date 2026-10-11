@@ -89,12 +89,13 @@ describe('the full test before review', () => {
   const reviewerStarted = () => h.runner.started.some((s) => s.member === 'cr');
   const heldFor = (handle: string) => h.domain.messages.waiting('AR', handle, TASK).map((m) => m.body);
 
-  async function setup(opts: { reviewTest?: boolean; executor?: FakeExecutor } = {}) {
+  async function setup(opts: { reviewTest?: boolean; executor?: FakeExecutor; atMerge?: boolean } = {}) {
     executor = opts.executor ?? new FakeExecutor();
     h = await createDomainHarness({
       fullTestExecutor: executor,
       adjust: (config) => {
         if (opts.reviewTest !== false) config.project.repos[0]!.reviewTest = REVIEW_TEST;
+        if (opts.atMerge) config.project.repos[0]!.fullTestAtMerge = true;
       },
     });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
@@ -484,6 +485,18 @@ describe('the full test before review', () => {
     await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
     expect(executor.specs).toHaveLength(0);
     expect(runs()).toEqual([]);
+    expect(task().reviewPin?.fullTest).toBeUndefined();
+  });
+
+  it('runs only at the merge when the repository asks for the full test there (PM-386)', async () => {
+    await setup({ atMerge: true });
+    const config = await h.domain.projects.config('AR');
+    expect(h.domain.fullTests.runsFor(task(), config)).toBe(false);
+    await handOver();
+    await vi.waitFor(() => expect(reviewerStarted()).toBe(true));
+    expect(executor.specs).toHaveLength(0);
+    expect(runs()).toEqual([]);
+    expect(h.domain.fullTests.holds(task(), config)).toBe(false);
     expect(task().reviewPin?.fullTest).toBeUndefined();
   });
 

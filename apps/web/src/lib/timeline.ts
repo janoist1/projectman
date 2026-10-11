@@ -644,6 +644,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           fileName: str(d.fileName),
         }),
       );
+    case 'feedback_linked':
+      return normal(t(d.created === true ? 'timeline.feedbackCreated' : 'timeline.feedbackLinked'));
     case 'schedule_started':
       return normal(t('schedules.startedEvent'));
     case 'schedule_skipped':

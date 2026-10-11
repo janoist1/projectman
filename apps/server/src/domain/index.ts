@@ -114,6 +114,7 @@ import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } 
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
+import { FeedbackScreenshotStore, FeedbackService } from './feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
@@ -201,6 +202,7 @@ export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
+export { FeedbackService } from './feedback';
 export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
@@ -250,6 +252,10 @@ export interface DomainOptions {
   engineAttachments?: EngineAttachments;
   /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
   attachmentStorage: AttachmentStorage;
+  /** Where the screenshots of feedback marks live (PROJECTMAN_HOME/feedback, PM-506). */
+  feedbackDir: string;
+  /** The public address of the feedback widget's entrance, when there is one (settings view only). */
+  feedbackPublicUrl?: string | null;
   /** Where the files of team message attachments live (PROJECTMAN_HOME/message-attachments, PM-516). */
   messageAttachmentStorage: MessageAttachmentStorage;
   /** Creates the accounts of accepted invitations. */
@@ -512,6 +518,16 @@ export function createDomain(opts: DomainOptions) {
     timeline,
     storage: opts.attachmentStorage,
     onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
+  });
+  const feedback = new FeedbackService({
+    ctx,
+    projects,
+    tasks,
+    attachments,
+    timeline,
+    inbox,
+    screenshots: new FeedbackScreenshotStore(opts.feedbackDir),
+    publicBaseUrl: opts.feedbackPublicUrl ?? null,
   });
   const messageAttachments = new MessageAttachmentService({
     ctx,
@@ -1503,6 +1519,7 @@ export function createDomain(opts: DomainOptions) {
     operatorSignals,
     tasks,
     attachments,
+    feedback,
     messageAttachments,
     members,
     roles,

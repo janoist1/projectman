@@ -306,6 +306,12 @@ export function alertText(
       member: nameOf(alert.member, members, myHandle),
       parts: alert.parts.join(', '),
     });
+  if (alert.alert === 'feedback_forwarded')
+    return t('inbox.alerts.feedback_forwarded.body', {
+      author: nameOf(alert.author, members, myHandle),
+      excerpt: alert.excerpt,
+      reason: alert.reason,
+    });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
       member: nameOf(item.source, members, myHandle),
@@ -640,6 +646,7 @@ export function resolutionLabel(item: InboxItem): string {
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
   if (item.resolution?.rule === 'senior_wait_ended') return t('inbox.resolutions.senior_wait_ended');
   if (item.resolution?.rule === 'approval_given') return t('inbox.resolutions.approval_given');
+  if (item.resolution?.rule === 'feedback_handled') return t('inbox.resolutions.feedback_handled');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))

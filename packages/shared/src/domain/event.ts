@@ -42,6 +42,7 @@ export const TimelineEventType = z.enum([
   'task_note',
   'attachment_added',
   'attachment_deleted',
+  'feedback_linked',
   'schedule_started',
   'schedule_skipped',
   'session_started',
@@ -266,6 +267,8 @@ export interface TimelineEventData {
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** The actor is who deleted it; the uploader is in the matching `attachment_added`. */
   attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
+  /** A feedback mark was tied to the card (PM-506): `created` the card was opened from it, else it was linked. */
+  feedback_linked: { markId: string; created: boolean };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   /**

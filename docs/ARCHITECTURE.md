@@ -554,7 +554,8 @@ claude | codex ── transcript JSONL ────────────▶ r
   and approvals); members and profiles; sessions; admission (`admission/`: checks, deferred
   starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
   messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
-  file storage, content check, file names); inbox; invitations; the board; GitHub
+  file storage, content check, file names); feedback marks (`feedback/`: the service, the
+  screenshot store; PM-506); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler; domain events.
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
@@ -593,6 +594,10 @@ attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 060
                           a file still being written is <id>.part; an image or PDF
                           an agent asked for also has <id>.<ext> (a hard link);
                           an image's thumbnail is <id>.thumb (<id>.thumb.part while written)
+feedback/<KEY>/<markId>.<ext>   screenshots of feedback marks (PM-506): private (0700 directories,
+                          0600 files), named by the generated mark id; the WebP thumbnail is
+                          <markId>.thumb (<name>.part while written); at most 2 MB, proven an image
+                          by its content; served to processors only
 message-attachments/<KEY>/<id>  files of team messages (PM-516): the same modes and names
 ```
 
@@ -601,7 +606,10 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
 a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
-test stage); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the
+thread of a mark), `feedback_reads`, `feedback_marker_colors`, `feedback_launch_codes` (single use,
+two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on customer pages, kept as
+hashes); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## Permission settings of an AI member (PM-164, part of PM-162)
@@ -1016,6 +1024,20 @@ workers follow the machine's size.
   the machine's lock, so the nested root scripts do not queue again.
 
 ## Machine-dependent parts (PM-341)
+
+- **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
+  `apps/server/src/domain/feedback/{service,screenshots}.ts`, `apps/server/src/api/feedback.ts`,
+  `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family
+  `feedback_*` and `PROJECTMAN_HOME/feedback/`. The app side (this card) is cookie authenticated and
+  runs on the server; the public entrance for the tool on customer pages (a later card) will be an
+  internet-facing address of the server, whose origin and launch codes are bound to the surface. The
+  screenshots (originals and WebP thumbnails, made with `sharp`) are files in the server's home next to
+  the database and the attachments; the card's copy goes through the attachment service. The settings
+  view shows the public address and the sessions the tool holds. Assumes one server host for the
+  database, the screenshot files and the public entrance. **Remote engine:** everything runs on the
+  server; an engine needs nothing from it and receives a mark's screenshot only as the card's
+  attachment, over the existing attachment transfer. In the hybrid mode the `feedback` folder is carried
+  with the other data (`HYBRID_CLOUD_ENTRIES`) and the public entrance belongs to the cloud server.
 
 - **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),
   `apps/server/test/live-*.test.ts`. Two macOS LaunchAgents (`com.projectman.live` for the server,
@@ -1817,7 +1839,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
   hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
-  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `memory`, `HYBRID_CLOUD_ENTRIES`);
+  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`);
   it never holds a CLI home, provider logins, worktrees, workspaces, repositories, `github-publish`,
   `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
   (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine

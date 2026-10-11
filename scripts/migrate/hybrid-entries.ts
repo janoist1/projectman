@@ -16,6 +16,7 @@ export const HYBRID_CLOUD_ENTRIES = [
   'secrets',
   'customization',
   'attachments',
+  'feedback',
   'memory',
 ] as const;
 

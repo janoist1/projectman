@@ -960,3 +960,30 @@ describe('merger_unresolved', () => {
     ]);
   });
 });
+
+describe('feedback surfaces (PM-506)', () => {
+  it('reports a surface whose id or normalised address repeats', () => {
+    const config = build((input) => {
+      input.project.feedback = {
+        surfaces: [
+          { id: 'a', name: 'A', origin: 'https://a.example' },
+          { id: 'a', name: 'B', origin: 'https://b.example' },
+          { id: 'c', name: 'C', origin: 'https://A.example/' },
+          { id: 'd', name: 'D', origin: 'https://d.example' },
+        ],
+        blockedMarkers: [],
+      };
+    });
+    const found = validateProjectConfig(config).filter(
+      (issue) => issue.code === 'duplicate_feedback_surface',
+    );
+    expect(found).toEqual([
+      { code: 'duplicate_feedback_surface', path: 'project.feedback.surfaces[1].id', detail: 'a' },
+      {
+        code: 'duplicate_feedback_surface',
+        path: 'project.feedback.surfaces[2].origin',
+        detail: 'https://a.example',
+      },
+    ]);
+  });
+});

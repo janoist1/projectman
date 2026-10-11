@@ -273,6 +273,7 @@ const COUNTED_TABLES = [
   'task_workspace_bindings',
   'boundary_requests',
   'boundary_grants',
+  'feedback_marks',
 ];
 
 /** The projects of the customization repository and the repositories each names (absolute paths). */

@@ -937,6 +937,24 @@ export const hu = {
       release_empty: 'Nincs mit kiadni: nincs új beolvasztott kártya.',
       release_commit_unknown: 'Ez a commit nem egy kártya beolvasztásának eredménye.',
       release_state_conflict: 'A kiadás állapota ezt most nem engedi.',
+      feedback_not_configured: 'A projektben nincs beállítva visszajelző felület.',
+      feedback_surface_not_found: 'Ilyen felület nincs a projektben.',
+      feedback_mark_not_found: 'Ilyen jelölés nincs.',
+      feedback_not_allowed: 'Jelölni nem jogosult.',
+      feedback_processor_only: 'Ezt csak a jelölések feldolgozója teheti.',
+      feedback_origin_not_allowed: 'Erről a címről nem lehet jelölni.',
+      feedback_code_invalid: 'A belépőkód nem érvényes vagy lejárt.',
+      feedback_session_invalid: 'A jelölőmunkamenet lejárt. Indítsd újra az alkalmazásból.',
+      feedback_rate_limited: 'Túl sok jelölés vagy hozzászólás. Várj egy kicsit, és próbáld újra.',
+      feedback_screenshot_invalid: 'A képernyőkép nem érvényes kép.',
+      feedback_screenshot_too_large: 'A képernyőkép túl nagy.',
+      feedback_page_mismatch: 'Az oldal nem tartozik ehhez a felülethez.',
+      feedback_closed: 'A jelölés le van zárva.',
+      feedback_not_closed: 'A jelölés nincs lezárva.',
+      feedback_task_exists: 'Ehhez a jelöléshez már tartozik kártya.',
+      feedback_waiting_owner: 'A jelölés a tulajdonosra vár; ő dönt róla.',
+      task_not_found: 'Ilyen kártya nincs ebben a projektben.',
+      duplicate_feedback_surface: 'Két felületnek azonos az azonosítója vagy a címe.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
@@ -3277,6 +3295,10 @@ export const hu = {
         heading: 'Bontás után ottfelejtett részek',
         body: '{member} lebontotta a(z) {key} kártyát, de a részei ({parts}) a kezdő lépésben maradtak, ezért senki nem indítja őket. {member} egy emlékeztetőt már kapott, a köre után is itt vannak. Érdemes ránézni: vagy továbbviszi őket, vagy te. A felület semmit nem mozgatott.',
       },
+      feedback_forwarded: {
+        heading: 'Jelölés, ami a döntésedre vár',
+        body: '{author} jelölését a feldolgozó továbbította neked: „{excerpt}” Indok: {reason}',
+      },
       session_input: {
         heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
         body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',
@@ -3440,6 +3462,7 @@ export const hu = {
       senior_wait_ended: 'Magától lezárult: a kártya másként folytatódott',
       dismiss: 'Tudomásul véve',
       approval_given: 'Lezárva: a jóváhagyás megtörtént',
+      feedback_handled: 'Lezárva: a jelölés el van intézve',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
@@ -3450,6 +3473,7 @@ export const hu = {
       senior_took: 'Automatikus',
       senior_wait_ended: 'Automatikus',
       approval_given: 'Automatikus',
+      feedback_handled: 'Automatikus',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -3878,6 +3902,8 @@ export const hu = {
     subtaskAdded: 'Alfeladat hozzáadva: {subtaskKey} → {parentKey}',
     subtaskRemoved: 'Alfeladat eltávolítva: {subtaskKey} → {parentKey}',
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',
+    feedbackCreated: 'A kártya egy jelölésből készült',
+    feedbackLinked: 'Egy jelölés ehhez a kártyához lett kötve',
     /** The words before the file's link on the timeline row. */
     attachmentAddedLead: 'Csatolmány hozzáadva:',
     attachmentDeleted: 'Csatolmány törölve: {fileName}',
@@ -4309,6 +4335,7 @@ export const hu = {
     research: 'Kutatás',
     final_decision: 'Végső döntés',
     project_operation: 'Projekt működtetése',
+    feedback_processing: 'Jelölések feldolgozása',
   },
   profile: {
     noPlanUsage: {

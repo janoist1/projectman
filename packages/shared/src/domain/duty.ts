@@ -29,6 +29,7 @@ export const DUTY_IDS = [
   'research',
   'final_decision',
   'project_operation',
+  'feedback_processing',
 ] as const;
 export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
@@ -257,6 +258,17 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     holders: 'both',
     prompt:
       'Draft concise client updates and test requests; obtain a human decision before sending anything outside the team.',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
+  feedback_processing: {
+    id: 'feedback_processing',
+    group: 'communication',
+    holders: 'both',
+    prompt:
+      "Process the project's feedback marks (get_feedback): one decision per mark — answer, open a card or link one — and close what needs nothing more. Never promise a deadline, a price or scope: answer that the owner decides and forward the mark (forward_feedback).",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

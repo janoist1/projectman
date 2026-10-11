@@ -8,6 +8,7 @@ import { memberOf } from './lookup';
 import { unresolvedMerger } from './merger';
 import { projectManagerOf, projectManagersOf } from './project-manager';
 import { developmentStage, projectRefines } from './refinement';
+import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
 import { isHumanOnlyLabel } from '../domain/label';
 import { DEFAULT_AGENT_PROVIDER, hasAccess } from '../domain/member';
 import { permissionModeFitsProvider } from '../domain/provider-model';
@@ -36,6 +37,7 @@ export interface ConfigIssue {
     | 'last_stage_not_done'
     | 'duplicate_stage'
     | 'duplicate_repo'
+    | 'duplicate_feedback_surface'
     | 'sponsor_not_human'
     | 'codex_bypass_not_allowed'
     | 'unknown_role'
@@ -144,6 +146,26 @@ export function validateProjectConfig(config: ProjectConfig): ConfigIssue[] {
     if (repoNames.has(repo.name))
       issues.push({ code: 'duplicate_repo', path: `project.repos[${i}].name`, detail: repo.name });
     repoNames.add(repo.name);
+  });
+
+  const surfaceIds = new Set<string>();
+  const surfaceOrigins = new Set<string>();
+  (config.project.feedback?.surfaces ?? []).forEach((surface, i) => {
+    const origin = normalizeFeedbackOrigin(surface.origin) ?? surface.origin;
+    if (surfaceIds.has(surface.id))
+      issues.push({
+        code: 'duplicate_feedback_surface',
+        path: `project.feedback.surfaces[${i}].id`,
+        detail: surface.id,
+      });
+    else if (surfaceOrigins.has(origin))
+      issues.push({
+        code: 'duplicate_feedback_surface',
+        path: `project.feedback.surfaces[${i}].origin`,
+        detail: origin,
+      });
+    surfaceIds.add(surface.id);
+    surfaceOrigins.add(origin);
   });
 
   const columns = new Set<string>();

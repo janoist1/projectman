@@ -700,6 +700,33 @@ describe('custom roles that became built-in roles', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
+  it('appends the feedback processing duty to a project manager override, once (PM-506)', () => {
+    const legacy = raw();
+    Object.assign(legacy.team, {
+      roleOverrides: { project_manager: { duties: ['scheduling', 'triage'], instructions: '' } },
+    });
+    const { config, warn } = migrate(legacy);
+    expect(config.team.roleOverrides?.project_manager?.duties).toEqual([
+      'scheduling',
+      'triage',
+      'feedback_processing',
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      { projectKey: 'AR', fields: ['roleOverrides.project_manager.duties'] },
+      'Added the feedback processing duty to the project manager role override',
+    );
+    const again = vi.fn();
+    const migrated = migrateProjectConfig(config, { projectKey: 'AR', logger: { warn: again } });
+    expect(migrated).toBe(config);
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it('leaves a project manager role without an override to the built-in defaults (PM-506)', () => {
+    const { migrated } = migrate(raw());
+    expect(JSON.stringify(migrated)).not.toContain('feedback_processing');
+    expect(BUILT_IN_ROLE_DUTIES.project_manager).toContain('feedback_processing');
+  });
+
   it('leaves a malformed roles list to the schema', () => {
     const warn = vi.fn();
     for (const roles of [null, 'lead_developer', [null, 7, 'x', { id: 7 }, { name: 'no id' }]]) {

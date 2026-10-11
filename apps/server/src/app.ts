@@ -316,6 +316,11 @@ export interface BuildAppOptions {
    */
   githubPublishTokenFile?: string;
   /**
+   * The public address of the feedback widget's entrance (PROJECTMAN_FEEDBACK_PUBLIC_URL, PM-506), when
+   * the installation has one; the settings view shows it. Absent: the settings say there is none.
+   */
+  feedbackPublicUrl?: string;
+  /**
    * How long stopping the server (a signal) lets the sessions come to a safe point before it closes
    * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
    */
@@ -389,12 +394,14 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   // in the home is created or opened.
   const standby = assertHomeMayStart(home, options.engineMode ?? 'single') === 'standby';
   const attachmentsDir = join(home, 'attachments');
+  const feedbackDir = join(home, 'feedback');
   const messageAttachmentsDir = join(home, 'message-attachments');
   for (const dir of [
     home,
     join(home, 'memory'),
     join(home, 'worktrees'),
     attachmentsDir,
+    feedbackDir,
     messageAttachmentsDir,
   ]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -626,6 +633,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       memory,
       worktrees,
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
+      feedbackDir,
+      feedbackPublicUrl: options.feedbackPublicUrl ?? null,
       messageAttachmentStorage:
         modules.messageAttachmentStorage ?? createMessageAttachmentStorage(messageAttachmentsDir),
       accounts: auth,

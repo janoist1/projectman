@@ -432,6 +432,7 @@ const REPLACED_ENTRIES = [
   'secrets',
   'customization',
   'attachments',
+  'feedback',
   'memory',
   ENGINE_CONFIG_FILE,
   ENGINE_KEY_FILE,

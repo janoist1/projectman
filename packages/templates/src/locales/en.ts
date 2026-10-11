@@ -106,6 +106,11 @@ export const en: TemplateLocale = {
       name: 'Client communication',
       description: 'Draft client updates and test requests. Obtain approval before sending.',
     },
+    feedback_processing: {
+      name: 'Feedback processing',
+      description:
+        'Decide each feedback mark: answer it, open a card or link one. Forward what needs the owner.',
+    },
     support: { name: 'Support', description: 'Reproduce reported problems. Prepare clear support tasks.' },
     standup_facilitation: {
       name: 'Standup facilitation',

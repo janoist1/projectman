@@ -154,6 +154,34 @@ export const routes = {
   patchConfig: (key: string) => `/api/projects/${key}/config`,
   revertConfig: (key: string) => `/api/projects/${key}/config/revert`,
 
+  /** GET (`FeedbackInboxResponse`; `?task=KEY` only the marks of that card) the project's feedback marks (PM-506). */
+  feedback: (key: string) => `/api/projects/${key}/feedback`,
+  /** GET `FeedbackSummary`: the badge numbers. */
+  feedbackSummary: (key: string) => `/api/projects/${key}/feedback/summary`,
+  /** GET `FeedbackSettingsView` (owner, admin). */
+  feedbackSettings: (key: string) => `/api/projects/${key}/feedback/settings`,
+  /** POST (`FeedbackLaunchRequest` -> `FeedbackLaunchResponse`): the address that starts the tool on a surface. */
+  feedbackLaunch: (key: string) => `/api/projects/${key}/feedback/launch`,
+  /** POST (owner, admin): ends every tool session of the member. */
+  feedbackMarkerLogout: (key: string, handle: string) =>
+    `/api/projects/${key}/feedback/markers/${handle}/logout`,
+  /** GET `FeedbackMarkDetail`. */
+  feedbackMark: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}`,
+  /** GET (processors): the screenshot; `?thumb=1` the small one. */
+  feedbackScreenshot: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/screenshot`,
+  /** POST (`FeedbackCommentRequest` -> `FeedbackMarkDetail`). */
+  feedbackComments: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/comments`,
+  /** POST: the viewer has read the mark's thread (204). */
+  feedbackRead: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/read`,
+  /** POST (`CreateTaskFromFeedbackRequest` -> `CreateTaskFromFeedbackResponse`, processors). */
+  feedbackTask: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/task`,
+  /** POST (`LinkFeedbackRequest` -> `FeedbackMarkDetail`, processors). */
+  feedbackLink: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/link`,
+  /** POST (`CloseFeedbackRequest` -> `FeedbackMarkDetail`, processors). */
+  feedbackClose: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/close`,
+  /** POST (processors): opens a closed mark again. */
+  feedbackReopen: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/reopen`,
+
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,
 } as const;

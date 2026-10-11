@@ -268,6 +268,8 @@ export function canSeeProjectEvent(
       return canSeeInboxItem(viewer, event.item);
     case 'config_changed':
     case 'member_changed':
+    // A mark names only its id: the card key and title come from the detail, which hides them from a client.
+    case 'feedback_changed':
       return true;
     default:
       // Live timeline events, member state, sessions, chat and plan usage are internal.

@@ -1,8 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { MergeFailure, TaskMergeState, TaskMerged } from './merge';
+import { isMergeFixer, MergeFailure, TaskMergeState, TaskMerged } from './merge';
 
 describe('member merge contracts', () => {
-  it.each(['requested', 'queued', 'running', 'failed', 'blocked'] as const)(
+  it('allows only the nominated merger to fix a conflict', () => {
+    const merge = TaskMergeState.parse({
+      id: 'm',
+      repo: 'web',
+      base: 'main',
+      toStageId: 'done',
+      merger: 'lead',
+      requestedAt: 'now',
+      state: 'fixing',
+      landed: 'nowhere',
+      fix: { by: 'lead', branch: 'merge-fix/AR-1', base: 'onto', startedAt: 'now' },
+    });
+    expect(isMergeFixer(merge, 'lead')).toBe(true);
+    expect(isMergeFixer(merge, 'other')).toBe(false);
+    expect(isMergeFixer({ ...merge, state: 'failed' }, 'lead')).toBe(false);
+    expect(isMergeFixer({ ...merge, merger: 'other' }, 'lead')).toBe(false);
+    expect(isMergeFixer({ ...merge, fix: undefined }, 'lead')).toBe(false);
+  });
+  it.each(['requested', 'queued', 'running', 'failed', 'blocked', 'fixing'] as const)(
     'accepts open state %s',
     (state) => {
       expect(

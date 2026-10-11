@@ -393,7 +393,116 @@ export function createWorktreeManager(opts: WorktreeManagerOptions): WorktreeMan
     });
   }
 
-  return { ensureForTask, refreshDependencies, find, status, head, remove };
+  async function fixLocation(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
+    const location = await taskLocation(args);
+    const target = path.join(
+      rootDir,
+      args.project.project.key,
+      '_merge-fix',
+      `${args.taskKey}-${location.repo.name}`,
+    );
+    const projectRoot = await canonical(path.join(rootDir, args.project.project.key));
+    if (
+      (await canonical(path.dirname(target))) !== path.join(projectRoot, '_merge-fix') ||
+      (await canonical(target)) !== path.join(projectRoot, '_merge-fix', path.basename(target))
+    )
+      throw new WorktreeError('outside_root', 'merge fix must stay inside its project folder');
+    return { ...location, target, branch: `merge-fix/${args.taskKey}` };
+  }
+
+  async function findMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
+    const { repo, repoPath, target, branch } = await fixLocation(args);
+    return withLock(await canonical(repoPath), async () => {
+      const found = await findByPath(await listWorktrees(repoPath), target);
+      if (!found) return null;
+      if (found.branch !== branch)
+        throw new WorktreeError('path_taken', 'merge-fix path holds another branch');
+      return worktreeInfo(target, branch, repo.name);
+    });
+  }
+
+  async function ensureMergeFix(args: {
+    project: ProjectConfig;
+    repoName: string;
+    taskKey: string;
+    commit: string;
+  }) {
+    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(args.commit))
+      throw new WorktreeError('no_start_point', 'merge fix needs a commit id');
+    const { repo, repoPath, target, branch } = await fixLocation(args);
+    const info = await withLock(await canonical(repoPath), async () => {
+      const listed = await listWorktrees(repoPath);
+      const found = await findByPath(listed, target);
+      if (found) {
+        if (
+          found.branch !== branch ||
+          !(await gitSucceeds(['-C', target, 'merge-base', '--is-ancestor', args.commit, 'HEAD']))
+        )
+          throw new WorktreeError('path_taken', 'merge-fix checkout does not contain the approved commit');
+        return worktreeInfo(target, branch, repo.name);
+      }
+      if (await exists(target)) throw new WorktreeError('path_taken', 'merge-fix path already exists');
+      if (await refExists(repoPath, `refs/heads/${branch}`))
+        throw new WorktreeError('path_taken', 'merge-fix branch already exists without its checkout');
+      await mkdir(path.dirname(target), { recursive: true });
+      await git(['-C', repoPath, 'worktree', 'add', '-b', branch, target, args.commit], {
+        timeoutMs: CHECKOUT_TIMEOUT_MS,
+      });
+      return worktreeInfo(target, branch, repo.name);
+    });
+    dependencyRepos.set(path.resolve(info.path), repoPath);
+    dependencyRepos.set(await canonical(info.path), repoPath);
+    await refreshDependencies(info.path);
+    return info;
+  }
+
+  async function removeMergeFix(args: { project: ProjectConfig; repoName: string; taskKey: string }) {
+    const location = await fixLocation(args);
+    const found = await findMergeFix(args);
+    if (found) await remove({ path: found.path });
+    await withLock(await canonical(location.repoPath), async () => {
+      if (await refExists(location.repoPath, `refs/heads/${location.branch}`))
+        await git(['-C', location.repoPath, 'branch', '-D', '--', location.branch]);
+    });
+  }
+
+  async function listMergeFixes(args: { project: ProjectConfig; repoName: string }) {
+    // Resolve and validate the repository through the same boundary as task operations.
+    const location = await taskLocation({ ...args, taskKey: `${args.project.project.key}-1` });
+    const branches = (
+      await git([
+        '-C',
+        location.repoPath,
+        'for-each-ref',
+        '--format=%(refname:short)',
+        'refs/heads/merge-fix/',
+      ])
+    )
+      .trim()
+      .split('\n');
+    const fixes: Array<{ taskKey: string; path: string }> = [];
+    for (const branch of branches) {
+      const taskKey = branch.slice('merge-fix/'.length);
+      if (!TaskKey.safeParse(taskKey).success || !taskKey.startsWith(`${args.project.project.key}-`))
+        continue;
+      const fix = await fixLocation({ ...args, taskKey });
+      fixes.push({ taskKey, path: fix.target });
+    }
+    return fixes;
+  }
+
+  return {
+    ensureMergeFix,
+    findMergeFix,
+    removeMergeFix,
+    listMergeFixes,
+    ensureForTask,
+    refreshDependencies,
+    find,
+    status,
+    head,
+    remove,
+  };
 }
 
 async function assertRepositoryRoot(repoPath: string): Promise<void> {

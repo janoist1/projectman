@@ -7,6 +7,7 @@ import {
   DUTIES,
   dutyMembers,
   effectiveRepo,
+  isMergeFixer,
   requiresMerge,
   gateLabels,
   isHumanOnlyLabel,
@@ -121,6 +122,8 @@ const LOCAL_ONLY_DUTY_PROMPTS: Partial<Record<DutyId, string>> = {
 
 /** The prompt fragment of a duty for this work item; see `LOCAL_ONLY_DUTY_PROMPTS`. */
 export function dutyPrompt(input: ContextPackInput, duty: DutyId): string {
+  if (isMergeFixer(input.task?.merge, input.member.handle))
+    return 'You are fixing a mechanical merge conflict in the dedicated writable merge-fix worktree. Follow the Merge fix steps; commit the resolution and submit it with merge_task. Send behavioral conflicts back to the developer with a reason. Never push manually.';
   if (serverMergeRepo(input) && (duty === 'implementation' || duty === 'docs'))
     return duty === 'implementation'
       ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit."
@@ -609,6 +612,11 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   const task = input.workItem.type === 'task' ? input.task : null;
   const current = s.current;
   if (!task || !current) return ['Read the task with get_task and ask the sender what is expected of you.'];
+  if (isMergeFixer(task.merge, input.member.handle) && task.merge?.fix)
+    return [
+      `In the merge-fix worktree run git merge ${task.merge.fix.base}. Resolve only mechanical conflicts and commit.`,
+      'Call merge_task with resolution describing what and where you fixed. If behavior is affected, send the card back with update_task and a reason instead.',
+    ];
 
   const notOwner = `You do not own the current stage (${stageLabel(current)}${
     (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : ''

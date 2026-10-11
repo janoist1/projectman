@@ -464,9 +464,31 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     readOnly: false,
     description:
       "Start merging the card's approved commit into its repository's default branch. Only the card's merger may call this. The result arrives as a team message. Call again to retry a failed or blocked merge.",
-    input: { task_key: TaskKey },
+    input: {
+      task_key: TaskKey,
+      fix_conflict: z
+        .boolean()
+        .optional()
+        .describe(
+          'After a conflict failure, request a writable merge-fix worktree. Your session restarts when this turn ends.',
+        ),
+      resolution: z
+        .string()
+        .min(1)
+        .max(2000)
+        .optional()
+        .describe(
+          'While fixing: describe what and where you resolved, after committing the mechanical conflict resolution.',
+        ),
+    },
     async run({ ctx, args, handler }) {
-      const { task } = await handler.mergeTask(ctx, { taskKey: args.task_key });
+      const { task } = await handler.mergeTask(ctx, {
+        taskKey: args.task_key,
+        fixConflict: args.fix_conflict,
+        resolution: args.resolution,
+      });
+      if (task.merge?.state === 'fixing' && task.merge.fix)
+        return `fixing mergeId=${task.merge.id}. End this turn so your session restarts in the merge-fix worktree. There run git merge ${task.merge.fix.base}, resolve only mechanical conflicts, commit, then call merge_task with resolution describing what and where you fixed. For a behavioral conflict, send the card back with update_task and a reason.`;
       return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
     },
   }),

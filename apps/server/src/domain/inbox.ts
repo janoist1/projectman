@@ -650,6 +650,8 @@ export class InboxService {
               cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd,
               role: member.role,
               provider: session.provider,
+              member: session.member,
+              branch: session.branch,
             },
             task,
             toolName: request.toolName,

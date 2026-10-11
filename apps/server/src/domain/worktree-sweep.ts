@@ -86,6 +86,36 @@ export class WorktreeSweep {
     for (const summary of this.projects.summaries()) {
       const config = this.projects.cachedConfig(summary.key);
       if (!config) continue;
+      const managers = this.engines
+        ? this.engines
+            .ids()
+            .map((id) => this.engines!.get(id)?.worktrees)
+            .filter((m): m is WorktreeManager => !!m)
+        : this.worktrees
+          ? [this.worktrees]
+          : [];
+      for (const manager of managers)
+        for (const repo of config.project.repos) {
+          try {
+            for (const fix of await manager.listMergeFixes({ project: config, repoName: repo.name })) {
+              if (this.ctx.repos.taskMerges.open(summary.key, fix.taskKey)) continue;
+              if (
+                this.sessions
+                  .list(summary.key, { taskKey: fix.taskKey })
+                  .some(
+                    (s) =>
+                      (s.cwd === fix.path || s.branch === `merge-fix/${fix.taskKey}`) &&
+                      this.sessions.isRunning(s.id),
+                  )
+              )
+                continue;
+              await manager.removeMergeFix({ project: config, repoName: repo.name, taskKey: fix.taskKey });
+              report.removed.push(`${fix.taskKey}:merge-fix`);
+            }
+          } catch (err) {
+            this.ctx.logger.warn({ err, repo: repo.name }, 'could not sweep merge-fix checkouts');
+          }
+        }
       for (const task of this.ctx.repos.tasks.list(summary.key)) {
         if (!this.due(task)) continue;
         try {

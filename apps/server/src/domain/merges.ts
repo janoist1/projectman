@@ -128,7 +128,7 @@ export class Merges {
       ctx.logger.warn({ err, taskKey }, 'could not read a merge request source');
       return;
     }
-    if (!source || (task.merged?.commit === source.commit && task.merged.repo === ready.repo.name)) return;
+    if (!source || (await this.includesApproved(task, ready.repo.name, source.commit))) return;
     let row: MergeRecord | undefined;
     ctx.unitOfWork(() => {
       const current = tasks.get(projectKey, taskKey);
@@ -162,13 +162,24 @@ export class Merges {
     if (row) await this.notify(row, config);
   }
 
-  async start(projectKey: string, taskKey: string, actor: Actor): Promise<Task> {
+  async start(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    options: { fixConflict?: boolean; resolution?: string } = {},
+  ): Promise<Task> {
     return this.cards.run(`${projectKey}:${taskKey}`, async () => {
+      if (options.fixConflict || options.resolution !== undefined)
+        return this.fix(projectKey, taskKey, actor, options);
       await this.reconcileCard(projectKey, taskKey);
       const { ctx, tasks, projects } = this.deps;
       const task = tasks.get(projectKey, taskKey),
         config = await projects.config(projectKey);
       const row = ctx.repos.taskMerges.open(projectKey, taskKey);
+      if (row?.state === 'fixing')
+        throw conflict('merge_fix_not_allowed', 'submit the committed fix with resolution', {
+          reason: 'not_conflict',
+        });
       const merger = row?.merger ?? cardMerger(config, task, this.reviewer(config, task));
       if (!merger || actorHandle(actor) !== merger)
         throw forbidden('merge_not_merger', 'only the card merger may start the merge');
@@ -177,7 +188,23 @@ export class Merges {
         throw conflict('merge_not_ready', 'the card is not ready to merge', { reason: readiness.reason });
       if (row?.state === 'queued' || row?.state === 'running') return task;
       if (!row) throw conflict('merge_not_ready', 'the card has no work to merge', { reason: 'no_merge' });
-      const source = await this.source(config, task);
+      const approvedSource = await this.source(config, task);
+      const source =
+        row.fix && row.resolution
+          ? { commit: row.resolution.commit, branch: row.fix.branch }
+          : approvedSource;
+      if (
+        row.fix &&
+        row.resolution &&
+        approvedSource &&
+        !(await this.engine(task)?.merger?.isAncestor(this.ref(row), {
+          ancestor: approvedSource.commit,
+          commit: row.resolution.commit,
+        }))
+      )
+        throw conflict('merge_fix_invalid', 'the fix no longer contains the approved source', {
+          reason: 'missing_commit',
+        });
       if (!source) throw conflict('merge_not_ready', 'the card has no commit', { reason: 'no_merge' });
       ctx.unitOfWork(() => {
         const current = tasks.get(projectKey, taskKey),
@@ -213,6 +240,123 @@ export class Merges {
     return this.deps.engines.get(this.deps.sessions.cardEngineId(task.projectKey, task));
   }
 
+  private async fix(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    options: { fixConflict?: boolean; resolution?: string },
+  ): Promise<Task> {
+    const { ctx, tasks, projects, sessions, engines } = this.deps;
+    const task = tasks.get(projectKey, taskKey);
+    const row = ctx.repos.taskMerges.open(projectKey, taskKey);
+    const handle = actorHandle(actor);
+    if (!row || row.merger !== handle)
+      throw conflict('merge_fix_not_allowed', 'only the card merger may fix conflicts', {
+        reason: 'not_merger',
+      });
+    if (options.fixConflict && options.resolution !== undefined)
+      throw conflict('merge_fix_not_allowed', 'request a fix or submit a resolution separately', {
+        reason: 'not_conflict',
+      });
+    if (
+      options.fixConflict
+        ? row.state !== 'failed' || row.failure?.reason !== 'conflict'
+        : row.state !== 'fixing' || !row.fix
+    )
+      throw conflict('merge_fix_not_allowed', 'the merge is not in the required conflict state', {
+        reason: 'not_conflict',
+      });
+    const engineId = sessions.cardEngineId(projectKey, task);
+    const callerEngine =
+      sessions.list(projectKey, { taskKey }).find((s) => s.member === handle && sessions.isRunning(s.id))
+        ?.engineId ?? engines.engineFor(projectKey, handle!);
+    if (callerEngine !== engineId)
+      throw conflict('merge_fix_engine_mismatch', 'the merger must use the card engine');
+    const engine = engines.get(engineId);
+    if (!engine || !engine.merger)
+      throw conflict('merge_fix_not_allowed', 'the card engine is unavailable', { reason: 'not_conflict' });
+    if (engine.memberWorkspaces)
+      throw conflict('merge_fix_not_allowed', 'merge fixes require task worktree mode', {
+        reason: 'member_workspaces',
+      });
+    if (engines.engineFor(projectKey, handle!) !== engineId)
+      throw conflict('merge_fix_engine_mismatch', 'the merger must use the card engine');
+    const config = await projects.config(projectKey);
+    if (!mergeReadiness(config, task).ready) throw conflict('merge_not_ready', 'the card is no longer ready');
+    const key = { project: config, repoName: row.repo, taskKey };
+    if (options.fixConflict) {
+      if (!row.commit)
+        throw conflict('merge_fix_invalid', 'the approved commit is missing', { reason: 'missing_commit' });
+      const info = await engine.worktrees.ensureMergeFix({ ...key, commit: row.commit });
+      if (
+        ctx.repos.taskMerges.open(projectKey, taskKey)?.id !== row.id ||
+        !mergeReadiness(await projects.config(projectKey), tasks.get(projectKey, taskKey)).ready
+      )
+        throw conflict('merge_fix_not_allowed', 'the merge request changed while creating the fix', {
+          reason: 'not_conflict',
+        });
+      this.save(row, {
+        state: 'fixing',
+        step: undefined,
+        fix: { by: handle!, base: row.failure!.base, branch: info.branch, startedAt: isoNow(ctx) },
+        resolution: undefined,
+      });
+      return tasks.get(projectKey, taskKey);
+    }
+    const note = options.resolution!;
+    if (note.length < 1 || note.length > 2000)
+      throw conflict('merge_fix_invalid', 'resolution must contain 1 to 2000 characters', {
+        reason: 'missing_commit',
+      });
+    const info = await engine.worktrees.findMergeFix(key);
+    const head = info ? await engine.worktrees.head(info.path) : null;
+    if (head?.dirty || (info && (await engine.worktrees.status(info.path)).dirty))
+      throw conflict('merge_fix_invalid', 'commit the resolution first', { reason: 'uncommitted' });
+    const approved = row.commit;
+    if (
+      !head ||
+      head.branch !== row.fix!.branch ||
+      !approved ||
+      !(await engine.merger.isAncestor(this.ref(row), { ancestor: approved, commit: head.commit }))
+    )
+      throw conflict('merge_fix_invalid', 'the fix must contain the approved commit', {
+        reason: 'missing_commit',
+      });
+    if (!(await engine.merger.isAncestor(this.ref(row), { ancestor: row.fix!.base, commit: head.commit })))
+      throw conflict('merge_fix_invalid', 'the fix must contain the conflict base', {
+        reason: 'missing_base',
+      });
+    // The card may have changed while git was read; do not queue a superseded request.
+    const current = tasks.get(projectKey, taskKey);
+    if (
+      !mergeReadiness(await projects.config(projectKey), current).ready ||
+      ctx.repos.taskMerges.open(projectKey, taskKey)?.id !== row.id
+    )
+      throw conflict('merge_fix_not_allowed', 'the merge request changed', { reason: 'not_conflict' });
+    this.save(row, {
+      state: 'queued',
+      step: 'queued',
+      commit: head.commit,
+      branch: head.branch,
+      resolution: { note, commit: head.commit },
+      failure: undefined,
+      block: undefined,
+      mergeCommit: undefined,
+      check: undefined,
+      startedBy: handle,
+      startedAt: isoNow(ctx),
+    });
+    this.deps.timeline.append({
+      projectKey,
+      taskKey,
+      actor,
+      type: 'task_note',
+      data: { text: note, mentions: [] },
+    });
+    this.pump();
+    return tasks.get(projectKey, taskKey);
+  }
+
   async checkGate(config: ProjectConfig, task: Task, targetId: string): Promise<void> {
     const repo = mergeRepoOf(config, task, task.stageId, targetId);
     if (!repo) return;
@@ -229,7 +373,7 @@ export class Merges {
       });
     }
     if (!source) return;
-    if (task.merged?.commit === source.commit && task.merged.repo === repo.name) return;
+    if (await this.includesApproved(task, repo.name, source.commit)) return;
     const merger = this.engine(task)?.merger;
     let reason: 'not_merged' | 'not_on_remote' | 'engine_unavailable' = 'engine_unavailable';
     if (merger) {
@@ -394,6 +538,17 @@ export class Merges {
   private ref(row: MergeRecord) {
     return { projectKey: row.projectKey, repo: row.repo };
   }
+  private async includesApproved(task: Task, repo: string, approved: string): Promise<boolean> {
+    if (!task.merged || task.merged.repo !== repo) return false;
+    if (task.merged.commit === approved) return true;
+    if (!task.merged.resolution || task.merged.resolution.commit !== task.merged.commit) return false;
+    return (
+      (await this.engine(task)?.merger?.isAncestor(
+        { projectKey: task.projectKey, repo },
+        { ancestor: approved, commit: task.merged.commit },
+      )) ?? false
+    );
+  }
   private async release(row: MergeRecord, merger?: BranchMerger): Promise<void> {
     await merger?.releaseCheck(this.ref(row), { mergeId: row.id }).catch((err: unknown) =>
       this.deps.ctx.logger.warn(
@@ -410,6 +565,26 @@ export class Merges {
         'could not release a merge checkout',
       ),
     );
+    if (row.fix && (row.state === 'merged' || row.state === 'cancelled')) {
+      const task = this.deps.tasks.find(row.projectKey, row.taskKey);
+      if (
+        !task ||
+        this.deps.sessions
+          .list(row.projectKey, { taskKey: row.taskKey })
+          .some((s) => s.branch === row.fix!.branch && this.deps.sessions.isRunning(s.id))
+      )
+        return;
+      try {
+        const config = await this.deps.projects.config(row.projectKey);
+        await this.engine(task)?.worktrees.removeMergeFix({
+          project: config,
+          repoName: row.repo,
+          taskKey: row.taskKey,
+        });
+      } catch (err) {
+        this.deps.ctx.logger.warn({ err, mergeId: row.id }, 'could not remove merge-fix checkout');
+      }
+    }
   }
   private save(row: MergeRecord, patch: Partial<MergeRecord>): void {
     Object.assign(row, patch, { updatedAt: isoNow(this.deps.ctx) });
@@ -682,6 +857,7 @@ export class Merges {
       });
     });
     await this.notify(row, config);
+    await this.release(row, this.engine(tasks.get(row.projectKey, row.taskKey))?.merger);
     const task = tasks.find(row.projectKey, row.taskKey);
     if (task) await this.deps.afterMerge(task);
   }

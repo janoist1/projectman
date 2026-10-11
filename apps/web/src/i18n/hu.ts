@@ -2612,6 +2612,7 @@ export const hu = {
         project_pause: 'A projekt szüneteltetése',
         project_resume: 'A projekt szünetének feloldása',
         docs_write: 'Döntésnapló vagy roadmap írása',
+        decision_offer: 'Döntésjelöltek jelölése',
       },
     },
     change: {

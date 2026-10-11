@@ -92,6 +92,7 @@ export const OperatorAction = z.enum([
   'project_pause',
   'project_resume',
   'docs_write',
+  'decision_offer',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([

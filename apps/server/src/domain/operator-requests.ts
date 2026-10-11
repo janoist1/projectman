@@ -38,6 +38,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'list_network_denials',
   'get_project_state',
   'read_project_doc',
+  'list_decision_candidates',
 ]);
 
 /**
@@ -83,6 +84,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   start_task: 'task_start',
   operate: 'config_change',
   write_project_docs: 'docs_write',
+  mark_decision_candidates: 'decision_offer',
 };
 
 export interface OpenOperatorRequest {

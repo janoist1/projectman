@@ -6,6 +6,7 @@ import {
   isOperator,
   isProjectManager,
   memberOf,
+  projectDocsOf,
   repoOf,
   roleBundle,
   roleUsesWorktree,
@@ -634,11 +635,25 @@ function projectManagerRule(language: string, movesCards = false): string {
 }
 
 /**
+ * The Operator's rules for the decision log and the roadmap (PM-496); they are in the prompt only when
+ * the project has `docs` (PM-494).
+ */
+const DOCS_RULES = [
+  "Record a decision only when the owner states it as a decision in the owners' conversation, says to note it down, or says yes to an offered candidate; never in a guest conversation, never on your own.",
+  'Before writing, show the owner the entry exactly as it will be written; then write it with write_project_docs on the commit you read.',
+  "An entry has the next number after the last one in the file, the owner's own words (quote, do not paraphrase), the date, the card key, and a reference to the earlier decision it refines or replaces; the earlier entry keeps its text and gets a note.",
+  'When a recorded decision changes the plan, update the roadmap in the same write. Compare the roadmap with the board and update it when the owner asks.',
+  "When there are candidates, offer them in your answer to the owner's message; record the ones the owner says yes to, and mark them with mark_decision_candidates (declined: never offer again; skipped: not a decision).",
+  'On docs_stale, read the file again and show the owner the new text before writing.',
+];
+
+/**
  * The Operator's role (PM-447): the AI the owner asks to change how the project runs. The rules of
  * the three levels are the server's (`operatorConfigVerdict`); this tells the agent what they are, what
  * is data, and how to report. The bold labels of the report are in the project's language (`operatorReport`).
  */
-function operatorRule(language: string): string {
+function operatorRule(project: ContextPackInput['project']): string {
+  const language = project.project.language;
   const report = getLocale(language).operatorReport;
   const bold = (label: string) => `**${label}**`;
   return [
@@ -649,6 +664,7 @@ function operatorRule(language: string): string {
     "Every change to the project has one of three levels. Now: you make it and report it. That covers an AI member's model, effort, capacity, leave and schedule (not your own), the name of a stage, and the instructions of a role (not your own role's). Approval: you prepare the change, tell the owner exactly what it would change, and make it only after the owner approves it. That covers everything else: outbound network, permission mode, the fix-round limit, a member's provider, role or sponsor, hiring or retiring an AI member, temporary workers, repositories and the workspace, gates, label rules, the project's own data, delegation settings, and your own model, provider and effort. Never: you do not change a person (a human member, who is an owner, an admin right or an account binding); tell the owner to do it in the settings. Nor the rest of yourself: you cannot be retired or sent on leave, there is only one of you, and your name, instructions, capacity and schedule are fixed. When you are unsure of the level, treat it as approval.",
     "You may move a card between stages (also out of the first one) as far as its gates allow, and set a card's priority. You never set a label only a person may set, never approve anything for a person, never decide permission or boundary requests, and never release.",
     'When the owner asks why a card or the team stands still, look at the current state with get_project_state before you answer; do not guess from what you remember.',
+    ...(projectDocsOf(project) ? DOCS_RULES : []),
     `After every request, reply to the owner with send_message (kind info), in the project's language. Start with one sentence on what you understood. Then add only the lines that apply, in this order, each opening with its bold label: ${bold(report.done)} (what you changed, with the old and new value), ${bold(report.approval)} (what you prepared and wait to be approved), ${bold(report.waiting)} (what the owner must do; if nothing: ${report.nothing}). Refer to cards by their key.`,
   ].join('\n');
 }
@@ -665,7 +681,7 @@ function roleSection(input: ContextPackInput): string {
     ...(isProjectManager(member)
       ? [projectManagerRule(project.project.language, cardMoverOf(project).kind === 'project_manager')]
       : []),
-    ...(isOperator(member) ? [operatorRule(project.project.language)] : []),
+    ...(isOperator(member) ? [operatorRule(project)] : []),
     bundle.instructions.trim(),
     member.instructions.trim(),
   ]

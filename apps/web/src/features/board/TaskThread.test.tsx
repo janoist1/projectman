@@ -273,10 +273,30 @@ describe('the recipients of the card conversation (PM-273)', () => {
     expect(screen.getByText(t('task.thread.default.stageOwners'))).toBeTruthy();
   });
 
-  it('asks who to write to when there is nobody, and does not send', async () => {
+  it('goes to the project manager when nobody else is on the card, and sends to them (PM-488)', async () => {
     const project = mockProject();
     project.backend.sessions = [];
     project.backend.findTask('AC-24')!.assignee = null;
+    project.render(card, '/p/AC/tasks/AC-24/thread');
+    await thread();
+    expect(chips()).toEqual([expect.stringContaining('Projektmenedzser')]);
+    expect(screen.getByText(t('task.thread.default.projectManager'))).toBeTruthy();
+    fireEvent.change(composer('AC-24'), { target: { value: 'Anyone?' } });
+    fireEvent.click(screen.getByRole('button', { name: t('common.send') }));
+    await waitFor(() =>
+      expect(project.requests).toContainEqual({
+        method: 'POST',
+        path: '/api/projects/AC/messages',
+        body: { to: ['pm'], text: 'Anyone?', taskKey: 'AC-24' },
+      }),
+    );
+  });
+
+  it('asks who to write to when there is nobody to receive it, and does not send', async () => {
+    const project = mockProject();
+    project.backend.sessions = [];
+    project.backend.findTask('AC-24')!.assignee = null;
+    project.backend.findMember('pm')!.status = 'retired';
     project.render(card, '/p/AC/tasks/AC-24/thread');
     await thread();
     expect(chips()).toEqual([]);

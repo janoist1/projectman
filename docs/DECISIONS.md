@@ -357,3 +357,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     with them; the board asks for them and records them. Who does a kind of work is set per
     project, as a duty in the project's configuration, never fixed in the app: in projectman
     the senior developer merges (decision 47), another project may choose differently.
+49. **A card's conversation always has a recipient.** Decided by the owner on 2026-10-11
+    (PM-488). When nobody else is on the card (no one works on it, no assignee, no stage owner
+    but the writer), the project manager is the default recipient and passes the message on to
+    the member it is meant for; the screen says so. There is no note without a recipient: it
+    would be mixed up with the card's notes.

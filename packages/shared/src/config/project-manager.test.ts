@@ -5,6 +5,7 @@ import {
   isProjectManager,
   isRequiredProjectManager,
   PROJECT_MANAGER_ROLE,
+  projectManagerAmong,
   projectManagerMoveRefusal,
   projectManagerOf,
   projectManagersOf,
@@ -204,5 +205,37 @@ describe('sessionWorkItemOf', () => {
       { type: 'general' },
     ] as const)
       expect(sessionWorkItemOf(pm, item)).toEqual(item);
+  });
+});
+
+describe('projectManagerAmong', () => {
+  const view = (handle: string, extra: Record<string, unknown> = {}) => ({
+    handle,
+    kind: 'ai',
+    role: PROJECT_MANAGER_ROLE,
+    temp: false,
+    ...extra,
+  });
+
+  it('takes the first one not on leave, else the first', () => {
+    expect(projectManagerAmong([view('a', { onLeave: true }), view('b')])?.handle).toBe('b');
+    expect(projectManagerAmong([view('a', { onLeave: true }), view('b', { onLeave: true })])?.handle).toBe(
+      'a',
+    );
+  });
+
+  it('skips temp, retired, human and other-role members', () => {
+    const members = [
+      view('t', { temp: true }),
+      view('r', { status: 'retired' }),
+      view('h', { kind: 'human', role: 'owner' }),
+      view('d', { role: 'developer' }),
+    ];
+    expect(projectManagerAmong(members)).toBeNull();
+    expect(projectManagerAmong([...members, view('pm')])?.handle).toBe('pm');
+  });
+
+  it('is null for an empty list', () => {
+    expect(projectManagerAmong([])).toBeNull();
   });
 });

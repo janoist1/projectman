@@ -1652,9 +1652,11 @@ export const hu = {
       working: 'A kártyán dolgoznak',
       others: 'Többi tag',
       default: {
-        workers: 'A kártyán épp dolgozók.',
-        assignee: 'Most senki nem dolgozik rajta, ezért a felelősének.',
-        stageOwners: 'Most senki nem dolgozik rajta, ezért a szakasz gazdáinak.',
+        workers: 'A kártyán épp dolgozók kapják meg.',
+        assignee: 'Most senki nem dolgozik rajta, ezért a felelőse kapja meg.',
+        stageOwners: 'Most senki nem dolgozik rajta, ezért a szakasz gazdái kapják meg.',
+        projectManager:
+          'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
         none: 'Válaszd ki, kinek írsz.',
       },
       edited: 'Te választottad.',

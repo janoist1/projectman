@@ -995,10 +995,14 @@ describe('system prompt', () => {
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
       expect(pm).toContain('Only propose what needs the owner: stopping a session');
       expect(pm).toContain('never decide permission or boundary requests, never release');
-      for (const handle of ['code-review', 'fe-1'])
-        expect(roleOf(builder.build(input({ project, handle })).appendSystemPrompt)).not.toContain(
-          'You are the project manager',
-        );
+      expect(pm).toContain(
+        "A person's message on a card's conversation comes to you when nobody else is on the card",
+      );
+      for (const handle of ['code-review', 'fe-1']) {
+        const other = roleOf(builder.build(input({ project, handle })).appendSystemPrompt);
+        expect(other).not.toContain('You are the project manager');
+        expect(other).not.toContain("A person's message on a card's conversation comes to you");
+      }
     });
 
     it('tells the project manager to move cards when selected as the card mover', () => {

@@ -119,7 +119,32 @@ export const OperatorRequestView = z.object({
 });
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
 /** The Operator's conversation as the project manager's, plus the last 50 requests (the newest last). */
-export const OperatorChannel = ProjectManagerChannel.extend({ requests: z.array(OperatorRequestView) });
+export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
+export const OPERATOR_SILENT_WORK_MINUTES = 30;
+export const OperatorSignalKind = z.enum(['outage', 'nobody', 'stalled', 'silent']);
+export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
+export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
+export const OperatorSignal = z.object({
+  id: z.string(),
+  kind: OperatorSignalKind,
+  state: OperatorSignalState,
+  actionable: z.boolean(),
+  taskKey: TaskKey.nullable(),
+  subject: z.string().nullable(),
+  inboxItemId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  raisedAt: z.string(),
+  decidedBy: MemberHandle.nullable(),
+  decidedAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+export type OperatorSignal = z.infer<typeof OperatorSignal>;
+export const OperatorChannel = ProjectManagerChannel.extend({
+  requests: z.array(OperatorRequestView),
+  signals: z.array(OperatorSignal),
+  openSignals: z.number().int(),
+});
 export type OperatorChannel = z.infer<typeof OperatorChannel>;
 
 /* ---------- auth ---------- */
@@ -827,6 +852,7 @@ export const SendMessageRequest = z.object({ text: z.string().min(1) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
 export const SendTeamMessageRequest = z.object({
+  operatorSignal: z.string().optional(),
   to: z.array(MemberHandle).min(1).max(100),
   text: z.string().trim().min(1).max(20000),
   taskKey: TaskKey.optional(),

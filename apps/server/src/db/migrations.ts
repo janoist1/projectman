@@ -933,5 +933,18 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     CREATE UNIQUE INDEX task_merges_open ON task_merges(project_key, task_key)
       WHERE state IN ('requested','queued','running','failed','blocked','fixing');`,
   },
+  {
+    version: 50,
+    name: 'operator signals',
+    sql: `CREATE TABLE operator_signals (
+    id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent')), case_key TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+    actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+    raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT
+  );
+  CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
+  ALTER TABLE team_messages ADD COLUMN operator_signal TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

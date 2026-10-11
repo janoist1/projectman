@@ -67,16 +67,26 @@ describe('merge migration 48', () => {
       const prior = migrations.filter((item) => item.version < 48);
       for (const migration of prior) db.exec(migration.sql);
       db.pragma(`user_version = ${Math.max(...prior.map((item) => item.version))}`);
-      const old = createRepositories(db);
-      old.projects.insert({
-        key: 'AR',
-        name: 'acme',
-        templateId: null,
-        configVersion: 'v1',
-        createdAt: now,
-        updatedAt: now,
-      });
-      old.tasks.insert(sampleTask());
+      // Seed the historical schema directly: current repositories require later migrations.
+      db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)').run('AR', 'acme', null, 'v1', now, now);
+      const task = sampleTask();
+      db.prepare(
+        `INSERT INTO tasks
+        (id, project_key, key, seq, title, stage_id, status, visibility, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        task.id,
+        task.projectKey,
+        task.key,
+        1,
+        task.title,
+        task.stageId,
+        task.status,
+        task.visibility,
+        task.createdBy,
+        task.createdAt,
+        task.updatedAt,
+      );
       db.prepare('INSERT INTO task_review_pins VALUES (?, ?, ?, ?, ?, ?, ?)').run(
         'AR',
         'AR-1',

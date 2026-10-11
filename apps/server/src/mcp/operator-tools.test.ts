@@ -3,6 +3,22 @@ import { TEAM_TOOLS } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('forwards optional signal presentation arguments without changing ordinary message calls', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'send_message')!;
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({
+      to: ['owner'],
+      kind: 'info',
+      text: 'System proposal',
+      signal_id: 'ops_1',
+      signal_actionable: true,
+    });
+    await tool.run({ ctx: devContext, args, handler });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'sendMessage',
+      args: { signalId: 'ops_1', signalActionable: true },
+    });
+  });
   it('validates and forwards the operation and title and returns the step result', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'operate')!;
     const handler = createFakeTeamToolsHandler();

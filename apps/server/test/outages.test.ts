@@ -11,6 +11,7 @@ import type { ProviderStatus, EngineDirectory } from '../src/contracts';
 import type { AutomaticStart } from '../src/domain/admission';
 import { DeferredStarts } from '../src/domain/admission';
 import { WorkOutages } from '../src/domain/outages';
+import { createDomainEvents } from '../src/domain/events';
 import { ENGINE_OFFLINE_AFTER_MS } from '../src/engine-link';
 import { createLocalEngine } from '../src/domain/engines';
 import type { ProjectAccess } from '../src/domain';
@@ -64,7 +65,13 @@ describe('work outage watch', () => {
     deferred = new DeferredStarts();
     retry = vi.fn();
     watch = new WorkOutages({
-      ctx: h.domain.ctx,
+      // This watch owns different deferrals and engine names from the domain's watch. Keep its
+      // notifications isolated so an Operator wake-up cannot invoke the domain's separate watch.
+      ctx: {
+        ...h.domain.ctx,
+        now: () => h.domain.ctx.now(),
+        events: createDomainEvents(h.domain.ctx.logger),
+      },
       projects: h.domain.projects,
       inbox: h.domain.inbox,
       engines: directory,

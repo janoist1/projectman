@@ -394,6 +394,14 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       task_key: TaskKey.optional().describe(
         'Task the message is about, e.g. "AR-21". Defaults to the task of your current session.',
       ),
+      signal_id: z
+        .string()
+        .optional()
+        .describe('Operator only: the delivered system signal to present to owners.'),
+      signal_actionable: z
+        .boolean()
+        .optional()
+        .describe('Operator only: whether accepting this signal authorizes a proposed action.'),
     },
     async run({ ctx, args, handler }) {
       // A message to oneself would be typed back into the caller's own session.
@@ -409,6 +417,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         to,
         kind: args.kind,
         text: args.text,
+        signalId: args.signal_id,
+        signalActionable: args.signal_actionable,
         ...(taskKey ? { taskKey } : {}),
       });
       return formatSentMessage({ ...result, requested: to, taskKey });

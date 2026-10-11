@@ -75,6 +75,7 @@ import type { OpenQuestionLabel } from './open-question-label';
 import { OPERATOR_NEVER_TOOLS, OPERATOR_READ_TOOLS } from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
 import type { OperatorActions } from './operator-actions';
+import type { OperatorSignals } from './operator-signals';
 import type { TaskStarts } from './admission';
 import type { OperatorOperation } from '@projectman/shared';
 import type { ProjectFocusService } from './project-focus';
@@ -185,6 +186,8 @@ function isOwner(config: ProjectConfig, handle: string): boolean {
 
 function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
+  if (err.code === 'operator_signal_closed')
+    return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
   if (err.code === 'gate_blocked' || err.code === 'approval_requested') {
@@ -316,6 +319,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record'>;
   private readonly operatorActions: OperatorActions;
+  private readonly operatorSignals: OperatorSignals;
   private readonly taskStarts: TaskStarts;
   private readonly boundary: BoundaryService;
   private readonly egress: EgressService | null;
@@ -399,11 +403,13 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The Operator's step log (PM-463). */
     operatorSteps: Pick<OperatorSteps, 'record'>;
     operatorActions: OperatorActions;
+    operatorSignals: OperatorSignals;
     taskStarts: TaskStarts;
   }) {
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
     this.operatorActions = deps.operatorActions;
+    this.operatorSignals = deps.operatorSignals;
     this.taskStarts = deps.taskStarts;
     this.screenshots = deps.screenshots;
     this.sessionEngine = deps.sessionEngine;
@@ -435,7 +441,14 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async sendMessage(
     ctx: ToolContext,
-    args: { to: string[]; text: string; taskKey?: string; kind: 'action' | 'info' },
+    args: {
+      to: string[];
+      text: string;
+      taskKey?: string;
+      kind: 'action' | 'info';
+      signalId?: string;
+      signalActionable?: boolean;
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: string[];
@@ -443,7 +456,12 @@ export class TeamToolsService implements TeamToolsHandler {
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
-      const who = await this.callerWithRequest(ctx, 'send_message');
+      const signal = args.signalId !== undefined || args.signalActionable !== undefined;
+      const who = await this.callerWithRequest(
+        ctx,
+        'send_message',
+        signal ? { id: args.signalId, to: args.to } : undefined,
+      );
       const { config } = who;
       // To the owner the Operator only reports; to anyone else it acts for the request: a step (PM-463).
       // A message has one step, so with several such recipients it names the first as its `member`.
@@ -478,6 +496,8 @@ export class TeamToolsService implements TeamToolsHandler {
                 sessionId: ctx.sessionId,
                 kind: args.kind,
                 operatorRequest: who.request?.id,
+                operatorSignal: args.signalId,
+                signalActionable: args.signalActionable ?? false,
               },
             )
             .catch((err: unknown) => {
@@ -1156,7 +1176,11 @@ export class TeamToolsService implements TeamToolsHandler {
    * caller and for a reading tool with none open). The step log must use this very request: opening it
    * again could find it expired between the guard and the write.
    */
-  private async callerWithRequest(ctx: ToolContext, tool: string): Promise<CallerWithRequest> {
+  private async callerWithRequest(
+    ctx: ToolContext,
+    tool: string,
+    signal?: { id?: string; to: string[] },
+  ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
     if (member?.kind !== 'ai')
@@ -1164,6 +1188,19 @@ export class TeamToolsService implements TeamToolsHandler {
         'forbidden',
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
+    if (signal) {
+      if (
+        tool !== 'send_message' ||
+        !isOperator(member) ||
+        !signal.id ||
+        signal.to.some((handle) => !isOwner(config, handle))
+      )
+        throw new TeamToolError(
+          'invalid',
+          'invalid_request: only the Operator may present signals to owners.',
+        );
+      this.operatorSignals.presentation(ctx.projectKey, signal.id);
+    }
     if (!isOperator(member)) return { config, request: null };
     if (OPERATOR_NEVER_TOOLS.has(tool))
       throw new TeamToolError(
@@ -1171,7 +1208,7 @@ export class TeamToolsService implements TeamToolsHandler {
         `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
       );
     const request = this.operatorRequests.openFor(ctx.sessionId);
-    if (!request && !OPERATOR_READ_TOOLS.has(tool))
+    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal)
       throw new TeamToolError(
         'forbidden',
         `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +

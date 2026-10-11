@@ -85,6 +85,7 @@ export const TeamMessage = z.object({
   relayed: RelayedReply.optional(),
   /** Set on a message the Operator sent during an owner's request (PM-463): the request's id. */
   operatorRequest: z.string().optional(),
+  operatorSignal: z.string().optional(),
 });
 export type TeamMessage = z.infer<typeof TeamMessage>;
 

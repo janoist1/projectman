@@ -15,6 +15,16 @@ export function registerProjectRoutes(
   deps: { domain: Domain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
+  app.post<{ Params: { key: string; signalId: string } }>(
+    routes.dismissOperatorSignal(':key', ':signalId'),
+    async (request) => {
+      const { key, signalId } = request.params;
+      const access = await requireAccess(domain, request, key, { internal: true });
+      if (access.access !== 'owner' || access.via)
+        throw forbidden('operator_owner_only', "only the owner's own login may dismiss a signal");
+      return domain.operatorSignals.decision(key, signalId, access.handle, false);
+    },
+  );
 
   app.get<ProjectParams>(routes.projectManager(':key'), async (request) => {
     await requireAccess(domain, request, request.params.key, { minimum: TASK_CREATE_MIN_ACCESS });

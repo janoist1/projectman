@@ -273,6 +273,17 @@ relative file/key names to the server.
 
 ## Operator actions and approvals (PM-464)
 
+System signals (PM-476) permit one narrow write without an open owner request: the
+Operator may use `send_message` with `signal_id`, addressed only to the owners, to
+present this project's delivered, not yet presented `pending` or `open` signal once.
+The server revalidates the signal and recipients transactionally. All other writes
+still fail with `operator_no_request`. Accepting or dismissing a signal requires a
+project owner's own login; integrator and AI acceptance fails with 409, and dismissal
+with 403. Acceptance opens an ordinary PM-463 owner request and grants no additional
+powers. `operator_signal` WebSocket events reach only owners. Wake-up facts are data,
+not instructions. A proposed action (`signal_actionable`) may rely on another session's
+activity; the owner sees the proposal before deciding whether to authorize it.
+
 The Operator's `operate` and `start_task` tools require its own session and an open
 owner request. Configuration commits carry internal `operatorRequestId` provenance;
 `assertCommitAllowed` verifies the request's project and Operator attribution and runs

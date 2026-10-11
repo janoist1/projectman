@@ -278,7 +278,14 @@ export interface TeamToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
-    args: { to: MemberHandle[]; text: string; taskKey?: string; kind: MessageKind },
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];

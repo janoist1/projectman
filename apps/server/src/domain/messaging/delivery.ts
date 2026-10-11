@@ -334,8 +334,8 @@ export class MessageDelivery {
   }
 
   /** Types a notice with the team prefix that is not stored as a message. */
-  notice(session: Session, from: string, text: string, taskKey: string | null): void {
-    Promise.resolve()
+  notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean> {
+    return Promise.resolve()
       .then(async () => {
         const { text: typed, messageIds } = this.withHeld(
           session,
@@ -343,10 +343,12 @@ export class MessageDelivery {
         );
         await this.sessions.typeInto(session, typed);
         for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
+        return true;
       })
-      .catch((err: unknown) =>
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message'),
-      );
+      .catch((err: unknown) => {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message');
+        return false;
+      });
   }
 
   /**
@@ -354,7 +356,10 @@ export class MessageDelivery {
    * the existing runner queue delivery of coordination and answer notices.
    */
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {
-    if (session.state !== 'idle') return this.notice(session, from, text, taskKey);
+    if (session.state !== 'idle') {
+      void this.notice(session, from, text, taskKey);
+      return;
+    }
     this.keep(session, { text: formatInjectedTeamMessage(from, text, taskKey), messageId: null });
   }
 

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import type {
+  StartMergeRequest,
   StopOrphansRequest,
   AttachmentListResponse,
   BoardView,
@@ -189,7 +190,8 @@ export function useStartTask(key: string) {
 export function useStartMerge(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (taskKey: string) => api.startMerge(key, taskKey),
+    mutationFn: ({ taskKey, body }: { taskKey: string; body?: StartMergeRequest }) =>
+      api.startMerge(key, taskKey, body),
     onSuccess: async ({ task }) => {
       writeTask(client, key, task);
       await Promise.all([

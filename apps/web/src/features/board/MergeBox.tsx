@@ -1,10 +1,13 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
-import type { ProjectConfig, Task, TaskMergeState } from '@projectman/shared';
+import { useRef, useState } from 'react';
+import { isMergeFixer } from '@projectman/shared';
+import type { ProjectConfig, StartMergeRequest, Task, TaskMergeState } from '@projectman/shared';
 import { useStartMerge } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Fold } from '../../components/Fold';
+import { TextAreaField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { Spinner } from '../../components/States';
 import { t } from '../../i18n/t';
@@ -100,6 +103,10 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
   const { key } = useProject();
   const start = useStartMerge(key);
   const merge = task.merge;
+  const fixKey = `${merge?.id}/${merge?.fix?.startedAt}`;
+  const [draft, setDraft] = useState({ key: fixKey, note: '', invalid: false });
+  if (draft.key !== fixKey) setDraft({ key: fixKey, note: '', invalid: false });
+  const noteField = useRef<HTMLTextAreaElement>(null);
   // The request is shown by its inbox item; a failed or stopped merge is shown here, with its steps and buttons.
   if (!merge || (asked && merge.state === 'requested')) return null;
   const you = isMerger(merge, myHandle);
@@ -115,15 +122,21 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
       {errorMessage(start.error)}
     </p>
   ) : null;
-  const begin = (label: string, busy: string, variant: 'primary' | 'secondary' = 'primary') => (
+  const begin = (
+    label: string,
+    busy: string,
+    variant: 'primary' | 'secondary' = 'primary',
+    body?: StartMergeRequest,
+  ) => (
     <Button
       variant={variant}
       size="md"
       className={box.action}
-      loading={start.isPending}
-      onClick={() => start.mutate(task.key)}
+      loading={start.isPending && !!start.variables?.body?.fixConflict === !!body?.fixConflict}
+      disabled={start.isPending}
+      onClick={() => start.mutate({ taskKey: task.key, body })}
     >
-      {start.isPending ? busy : label}
+      {start.isPending && !!start.variables?.body?.fixConflict === !!body?.fixConflict ? busy : label}
     </Button>
   );
   const frame = (title: string, tone: 'needs' | 'accent' | 'blocked', body: ReactNode, live = false) => (
@@ -188,13 +201,83 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
       );
     }
     case 'fixing':
-      // The merger fixes a simple conflict in its own checkout (PM-471); nothing to press until it submits the fix.
       return frame(
         t('task.merge.fixing.title'),
         'accent',
-        <p className={styles.text}>
-          {t(you ? 'task.merge.fixing.you' : 'task.merge.fixing.others', { merger: who, base: merge.base })}
-        </p>,
+        isMergeFixer(merge, myHandle ?? '') ? (
+          <>
+            <p className={styles.text}>{t('task.merge.fixing.you', { base: merge.base })}</p>
+            <dl className={box.checkout}>
+              {merge.fix?.path ? (
+                <>
+                  <dt>{t('task.merge.fixing.path')}</dt>
+                  <dd>
+                    <code>{merge.fix.path}</code>
+                  </dd>
+                </>
+              ) : null}
+              <dt>{t('task.merge.fixing.branch')}</dt>
+              <dd>
+                <code>{merge.fix?.branch}</code>
+              </dd>
+              <dt>{t('task.merge.fixing.command')}</dt>
+              <dd>
+                <code>git merge {merge.fix?.base}</code>
+              </dd>
+            </dl>
+            <TextAreaField
+              ref={noteField}
+              label={t('task.merge.fixNote.label')}
+              rows={3}
+              maxLength={2000}
+              readOnly={start.isPending}
+              value={draft.note}
+              error={draft.invalid ? t('task.merge.fixNote.required') : null}
+              hint={
+                <span className={box.noteHint}>
+                  <span>{t('task.merge.fixNote.hint')}</span>
+                  {draft.note.length > 1800 ? (
+                    <span>{t('task.merge.fixNote.count', { count: draft.note.length })}</span>
+                  ) : null}
+                </span>
+              }
+              onChange={(event) => setDraft({ key: fixKey, note: event.target.value, invalid: false })}
+            />
+            {failure}
+            <div className={box.actions}>
+              <Button
+                variant="primary"
+                size="md"
+                className={box.action}
+                loading={start.isPending}
+                disabled={start.isPending}
+                onClick={() => {
+                  if (!draft.note.trim()) {
+                    setDraft({ ...draft, invalid: true });
+                    noteField.current?.focus();
+                    return;
+                  }
+                  start.mutate({ taskKey: task.key, body: { resolution: draft.note.trim() } });
+                }}
+              >
+                {t(start.isPending ? 'task.merge.starting' : 'task.merge.button')}
+              </Button>
+              {onSendBack ? (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  className={box.action}
+                  disabled={start.isPending}
+                  onClick={onSendBack}
+                >
+                  {t('task.merge.sendBack')}
+                </Button>
+              ) : null}
+            </div>
+          </>
+        ) : (
+          <p className={styles.text}>{t('task.merge.fixing.others', { merger: who, base: merge.base })}</p>
+        ),
         true,
       );
     case 'failed': {
@@ -218,12 +301,25 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
           ) : null}
           {you ? (
             <>
-              <p className={styles.text}>{t('task.merge.failed.guidance')}</p>
+              <p className={styles.text}>
+                {t(conflict ? 'task.merge.failed.fixGuidance' : 'task.merge.failed.guidance')}
+              </p>
               {failure}
               <div className={box.actions}>
-                {begin(t('task.merge.again'), t('task.merge.starting'))}
+                {conflict
+                  ? begin(t('task.merge.fix.start'), t('task.merge.fix.starting'), 'primary', {
+                      fixConflict: true,
+                    })
+                  : null}
+                {begin(t('task.merge.again'), t('task.merge.starting'), conflict ? 'secondary' : 'primary')}
                 {onSendBack ? (
-                  <Button variant="secondary" size="md" className={box.action} onClick={onSendBack}>
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className={box.action}
+                    disabled={start.isPending}
+                    onClick={onSendBack}
+                  >
                     {t('task.merge.sendBack')}
                   </Button>
                 ) : null}

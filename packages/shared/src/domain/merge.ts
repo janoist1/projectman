@@ -59,6 +59,8 @@ export const TaskMergeState = z.object({
       by: MemberHandle,
       base: z.string(),
       branch: z.string(),
+      /** Absolute checkout path on the card's engine (PM-481); absent on older rows. */
+      path: z.string().optional(),
       startedAt: z.string(),
     })
     .optional(),

@@ -47,7 +47,7 @@ export function MergeRefusal({
           <Button
             size="md"
             loading={start.isPending}
-            onClick={() => start.mutate(task.key, { onSuccess: () => onStarted?.() })}
+            onClick={() => start.mutate({ taskKey: task.key }, { onSuccess: () => onStarted?.() })}
           >
             {start.isPending ? t('task.merge.starting') : t('task.merge.button')}
           </Button>

@@ -1774,11 +1774,23 @@ export const hu = {
       },
       fixing: {
         title: 'Az ütközést javítják',
-        you: 'Az ütközést a kártya külön munkafáján javítod, és utána újra beolvasztod. A {base} nem változott.',
+        you: 'A külön munkafán futtasd a lenti parancsot, oldd fel az ütközést, és commitold. Utána írd le, mit javítottál, és olvaszd be. A {base} nem változott.',
+        path: 'Munkafa',
+        branch: 'Ág',
+        command: 'Parancs',
         others:
           '{merger} javítja az ütközést a kártya külön munkafáján, és utána újra beolvasztja. A {base} nem változott.',
       },
+      fix: { start: 'Javítás külön munkafán', starting: 'Munkafa készül…' },
+      fixNote: {
+        label: 'Mit javítottál?',
+        hint: 'Az idővonalon, a beolvasztás „Ütközés javítva” részénél látszik.',
+        required: 'Írd le röviden, mit javítottál az ütközésen.',
+        count: '{count} / 2000',
+      },
       failed: {
+        fixGuidance:
+          'Egyszerű ütközés? Javítsd egy külön munkafán, és onnan olvaszd be; a kártya ága és a jóváhagyás nem változik. Ha a működést érinti, okkal küldd vissza a fejlesztőnek.',
         conflictTitle: 'Nem sikerült beolvasztani: ütközés',
         checkTitle: 'Nem sikerült beolvasztani: elbukott az ellenőrzés',
         unchanged: 'A {base} nem változott.',

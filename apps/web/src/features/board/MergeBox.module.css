@@ -67,6 +67,29 @@
   gap: 8px;
 }
 
+.checkout {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--c-ink-2);
+}
+
+.checkout dt {
+  font-weight: 600;
+}
+.checkout dd {
+  margin: 2px 0 8px;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.noteHint {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.noteHint > :last-child:not(:first-child) {
+  white-space: nowrap;
+}
+
 /* On a phone the buttons are touch targets and take the width. */
 @media (max-width: 767px) {
   .actions {

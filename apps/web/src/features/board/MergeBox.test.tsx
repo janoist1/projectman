@@ -1,8 +1,9 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { Route, Routes } from 'react-router';
 import { alertPayloadOf } from '@projectman/shared';
 import { afterEach, describe, expect, it } from 'vitest';
 import { setFetchImplementation } from '../../api/client';
+import { queryKeys } from '../../api/queryKeys';
 import { t } from '../../i18n/t';
 import type { MockBackend } from '../../mocks/backend';
 import { mockProject } from '../../test/mockProject';
@@ -204,16 +205,75 @@ describe('a conflict the merger fixes (PM-471)', () => {
     expect(within(box).getByRole('heading', { name: t('task.merge.fixing.title') })).toBeTruthy();
     expect(box.textContent).toContain('main');
     expect(within(box).queryByRole('button')).toBeNull();
+    expect(screen.queryByLabelText(t('task.merge.fixNote.label'))).toBeNull();
   });
 
-  it('gives the merger the same box without the merge buttons, in place of the request item', async () => {
+  it('gives the human fixer a note field and submit button in place of the request item', async () => {
     const project = fixingProject(true);
     expect(project.backend.inbox.some((item) => item.kind === 'merge_request')).toBe(true);
     project.render(drawer, route);
     const box = await mergeBox();
     expect(box.textContent).toContain(t('task.merge.fixing.you', { base: 'main' }));
     expect(screen.queryByRole('button', { name: t('task.merge.again') })).toBeNull();
-    expect(screen.queryByRole('button', { name: t('task.merge.button') })).toBeNull();
+    expect(screen.getByRole('button', { name: t('task.merge.button') })).toBeTruthy();
+    expect(screen.getByLabelText(t('task.merge.fixNote.label'))).toBeTruthy();
+  });
+
+  it('preserves the draft on refresh, counts long notes, and clears it for a new fix round', async () => {
+    const project = fixingProject(true);
+    const { client } = project.render(drawer, route);
+    const field = await screen.findByLabelText(t('task.merge.fixNote.label'));
+    expect(field.getAttribute('maxlength')).toBe('2000');
+    fireEvent.change(field, { target: { value: 'a'.repeat(1800) } });
+    expect(screen.queryByText(t('task.merge.fixNote.count', { count: 1800 }))).toBeNull();
+    fireEvent.change(field, { target: { value: 'a'.repeat(1801) } });
+    expect(screen.getByText(t('task.merge.fixNote.count', { count: 1801 }))).toBeTruthy();
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.task('AC', 'AC-27') }));
+    expect((field as HTMLTextAreaElement).value).toHaveLength(1801);
+    project.backend.findTask('AC-27')!.merge!.fix!.startedAt = '2026-10-12T00:00:00.000Z';
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.task('AC', 'AC-27') }));
+    await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe(''));
+    project.backend.findTask('AC-27')!.merge = undefined;
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.task('AC', 'AC-27') }));
+    await waitFor(() => expect(screen.queryByLabelText(t('task.merge.fixNote.label'))).toBeNull());
+  });
+
+  it('requires a note, preserves it after a server error, and submits it to the timeline', async () => {
+    const project = mergeProject();
+    project.backend.setMergeOutcome('AC-27', 'conflict');
+    startMerge(project.backend);
+    project.backend.runMerge('AC-27');
+    const { client } = project.render(drawer, route);
+    fireEvent.click(await screen.findByRole('button', { name: t('task.merge.fix.start') }));
+    const field = await screen.findByLabelText(t('task.merge.fixNote.label'));
+    expect(project.requests.find((request) => request.path.endsWith('/merge'))?.body).toEqual({
+      fixConflict: true,
+    });
+    expect(screen.getByText('git merge ' + project.backend.findTask('AC-27')!.merge!.fix!.base)).toBeTruthy();
+    const count = project.requests.filter((request) => request.path.endsWith('/merge')).length;
+    fireEvent.change(field, { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: t('task.merge.button') }));
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(field);
+    expect(project.requests.filter((request) => request.path.endsWith('/merge'))).toHaveLength(count);
+    fireEvent.change(field, { target: { value: '  Resolve adjacent imports  ' } });
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+    project.backend.setMergeFixError('AC-27', 'uncommitted');
+    fireEvent.click(screen.getByRole('button', { name: t('task.merge.button') }));
+    await screen.findByRole('alert');
+    expect((field as HTMLTextAreaElement).value).toBe('  Resolve adjacent imports  ');
+    project.backend.setMergeFixError('AC-27');
+    project.backend.setMergeOutcome('AC-27', 'merged');
+    fireEvent.click(screen.getByRole('button', { name: t('task.merge.button') }));
+    await waitFor(() => expect(project.backend.findTask('AC-27')!.merge?.state).toBe('queued'));
+    expect(project.requests.filter((request) => request.path.endsWith('/merge')).at(-1)?.body).toEqual({
+      resolution: 'Resolve adjacent imports',
+    });
+    project.backend.runMerge('AC-27');
+    expect(project.backend.findTask('AC-27')!.merged?.resolution?.note).toBe('Resolve adjacent imports');
+    await act(() => client.invalidateQueries({ queryKey: queryKeys.task('AC', 'AC-27') }));
+    fireEvent.click(await screen.findByText(t('timeline.events.merged_resolution')));
+    expect(screen.getAllByText('Resolve adjacent imports', { selector: 'p' }).length).toBeGreaterThan(0);
   });
 
   it('is refused by the merge route while the fix is under way', async () => {

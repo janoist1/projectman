@@ -629,6 +629,52 @@ reader's file tools still read the user's home and the other PM-339 folders (PM-
 PM-339 base still reads what its profile opens (PM-360); NanoGPT members (PM-365) and Gemini (no OS
 sandbox) are not covered by the sandbox rules.
 
+## The feedback tool's public API (PM-506, PM-509)
+
+The tool is a script (`/feedback/widget.js`) that runs on a customer's page and calls
+`/feedback/api/v1` across origins. It is the one surface of the server that a page of another
+site may call, so it has its own guard instead of the `/api` one (cookies and CSRF origin checks
+do not apply: nothing here uses a cookie).
+
+- **Entry.** The app gives a person a single-use launch code (two minutes, 256 bits, kept as a
+  SHA-256 hash, bound to the person, the project and the surface). The page swaps it for a session
+  with `POST /sessions`. A code is used up by the first attempt that names it, also when the
+  `Origin` is wrong. Every refusal is the same `401 feedback_code_invalid`, so nothing tells a
+  guess from an expired or foreign code. Wrong attempts are counted per client address (10 in 15
+  minutes, then `429`; the address comes from `PROJECTMAN_CLIENT_IP_HEADER`, as for the login).
+- **The session token** is 256 random bits, returned once, stored only as a hash. The widget keeps
+  it in the page's `localStorage` and sends it as `Authorization: Bearer`.
+- **Risk: XSS on the customer's site.** Script on the page (the site's own or an injected one) can
+  read that token and act as the person until it ends. The token is therefore narrow: one person,
+  one project, one surface (one site address), only marking and reading. It cannot reach
+  anything a person sees in the app: the widget API leaves out a mark's environment, its
+  screenshot, the reason of a forward and `canProcess` (always false), and shows only the marks
+  of the session's own surface. Internal cards stay hidden as in the app (`visible: false`).
+- **Origin.** Every request (also a refused one) needs an `Origin` that is the address of some
+  project's surface, else `403 feedback_origin_not_allowed` with no CORS header. A session works
+  only from the address it was made for. `Access-Control-Allow-Credentials` is never sent;
+  answers are `no-store` and vary on `Origin`. The check and the session check run in an
+  `onRequest` hook, before the body is read, so an unauthorised request cannot make the server
+  take a 3 MiB body.
+- **Revocation.** The session is checked on every request, not trusted from its issue: it ends at
+  once when the person signs it out (`DELETE /sessions/current`), an owner or admin signs the
+  person out of the tool (`Kiléptetem`) or switches the person's "may mark" off, the person is
+  removed or becomes a viewer, or the surface is changed or deleted. It expires after 30 days
+  without use and 90 days in any case. Every failure is `401 feedback_session_invalid`. These
+  endings are for good: every change of the project's configuration revokes the sessions whose
+  person may no longer mark or whose surface is gone or has another address (and the first request
+  after a missed change does too), so a handle that is given to someone else later, or a switch that
+  is turned on again, does not bring an old token back; the person needs a new code. A configuration
+  that cannot be read only refuses that request.
+- **Limits.** Per session and hour: 30 marks, 120 comments (in memory, so a server restart
+  resets them); per project and day: 500 marks (counted from the database). Over a limit: `429`
+  with `Retry-After`. Request bodies: 3 MiB for a mark (screenshot), 64 KiB for everything else.
+  A screenshot is checked by its content (a real PNG or JPEG of bounded size), not by its label.
+- **Remaining risks.** A stolen token works until it ends (up to 30 days idle) from the same site
+  address; there is no per-device binding. A page can send an `Origin` only from a browser, so a
+  script off the browser (curl) with a stolen token can send any `Origin` it likes: the token,
+  not the `Origin`, is the credential there. The in-memory hourly limits are per server process.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

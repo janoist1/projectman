@@ -219,6 +219,7 @@ async function configFromEnv(
       vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
       githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
       feedbackPublicUrl: env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined,
+      feedbackWidgetFile: join(installDir, 'apps', 'feedback-widget', 'dist', 'widget.js'),
       shutdownPauseMs,
     },
   };

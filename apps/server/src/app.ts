@@ -320,6 +320,8 @@ export interface BuildAppOptions {
    * the installation has one; the settings view shows it. Absent: the settings say there is none.
    */
   feedbackPublicUrl?: string;
+  /** The built feedback widget (apps/feedback-widget/dist/widget.js, PM-509); null or missing: its route answers 404. */
+  feedbackWidgetFile?: string | null;
   /**
    * How long stopping the server (a signal) lets the sessions come to a safe point before it closes
    * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
@@ -721,7 +723,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     engineRegistry?.useCounters((id) => domain.engineCounters(id));
     engineLinks?.register(app);
     remote?.transfers.register(app);
-    registerApiRoutes(app, { domain, auth, clientIpHeader, engineRegistry });
+    registerApiRoutes(app, {
+      domain,
+      auth,
+      clientIpHeader,
+      engineRegistry,
+      feedbackWidgetFile: options.feedbackWidgetFile,
+    });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);

@@ -38,7 +38,7 @@ export class OperatorSignals {
     admission: Admission;
     delivery: MessageDelivery;
     taskWaits: TaskWaits;
-    activeOutageIds: (projectKey: string) => ReadonlySet<string>;
+    activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
   }) {
     this.deps = privateDeps;
   }
@@ -49,7 +49,7 @@ export class OperatorSignals {
     admission: Admission;
     delivery: MessageDelivery;
     taskWaits: TaskWaits;
-    activeOutageIds: (projectKey: string) => ReadonlySet<string>;
+    activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
   };
 
   raise(input: SignalInput): OperatorSignalRecord {
@@ -167,7 +167,8 @@ export class OperatorSignals {
       }
       const outages = this.deps.activeOutageIds(key);
       for (const signal of this.deps.ctx.repos.operatorSignals.list(key)) {
-        if (signal.kind === 'outage' && !outages.has(signal.subject ?? '')) this.resolve(key, signal.caseKey);
+        if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
+          this.resolve(key, signal.caseKey);
         if ((signal.kind === 'nobody' || signal.kind === 'silent') && !active.has(signal.caseKey))
           this.resolve(key, signal.caseKey);
         if (

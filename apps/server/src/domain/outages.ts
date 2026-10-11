@@ -65,6 +65,7 @@ export class WorkOutages {
   private readonly views = new Map<string, WorkOutage>();
   private readonly projectOutages = new Map<string, Map<string, WorkOutageAlert>>();
   private adopted = false;
+  private evaluated = false;
   private pending: Promise<void> = Promise.resolve();
   private queued = 0;
   private checking = false;
@@ -163,8 +164,9 @@ export class WorkOutages {
     return this.views.get(memberKey(projectKey, handle));
   }
 
-  /** Current observed outage ids, including episodes whose owner alert was acknowledged. */
-  activeIds(projectKey: string): ReadonlySet<string> {
+  /** Null until the first evaluation; then includes episodes whose owner alert was acknowledged. */
+  activeIds(projectKey: string): ReadonlySet<string> | null {
+    if (!this.evaluated) return null;
     return new Set(this.projectOutages.get(projectKey)?.keys() ?? []);
   }
 
@@ -607,6 +609,7 @@ export class WorkOutages {
         if (task) this.deps.tasks.publish(task);
       }
     }
+    this.evaluated = true;
     for (const id of this.since.keys())
       if (
         ![...this.failures.values(), ...this.engineFailures.values()].some(

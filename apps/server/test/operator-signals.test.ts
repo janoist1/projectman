@@ -8,6 +8,7 @@ import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from '.
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';
 import { canSeeProjectEvent } from '../src/domain/visibility';
+import { WorkOutages } from '../src/domain/outages';
 
 let h: DomainHarness;
 let app: AppHarness | undefined;
@@ -44,6 +45,28 @@ async function deliver() {
 }
 
 describe('Operator system signals', () => {
+  it.each(['pending', 'open'] as const)(
+    'preserves a %s outage signal before the first restart evaluation',
+    async (state) => {
+      now = new Date('2026-10-11T10:00:00Z');
+      h = await createDomainHarness({ persistent: true, now: () => now });
+      const signal = raise();
+      if (state === 'open') await deliver();
+      expect(get(signal.id).state).toBe(state);
+      // Hold the startup check at the same boundary as a slow provider probe.
+      const check = vi.spyOn(WorkOutages.prototype, 'check').mockResolvedValue(undefined);
+      h = await restartDomainHarness(h, { now: () => now });
+      check.mockRestore();
+      expect(h.domain.outages.activeIds('AR')).toBeNull();
+      await h.domain.operatorSignals.sweep('AR');
+      expect(get(signal.id)).toMatchObject({ state, resolvedAt: null });
+      await h.domain.outages.recheckProvider('claude');
+      expect(h.domain.outages.activeIds('AR')).toEqual(new Set());
+      await h.domain.operatorSignals.sweep('AR');
+      expect(get(signal.id).resolvedAt).toBe(now.toISOString());
+    },
+  );
+
   it('resolves an acknowledged outage after restart so the same provider can signal again', async () => {
     now = new Date('2026-10-11T10:00:00Z');
     h = await createDomainHarness({ persistent: true, now: () => now });
@@ -62,7 +85,7 @@ describe('Operator system signals', () => {
       .list('AR', { kind: 'alert', state: 'open' })
       .find((item) => item.payload.alert === 'work_outage')!;
     const signal = h.repos.operatorSignals.list('AR').find((s) => s.kind === 'outage')!;
-    expect(h.domain.outages.activeIds('AR').has(signal.subject!)).toBe(true);
+    expect(h.domain.outages.activeIds('AR')!.has(signal.subject!)).toBe(true);
     await h.domain.inbox.resolve(
       'AR',
       alert.id,
@@ -74,7 +97,7 @@ describe('Operator system signals', () => {
     expect(get(signal.id).resolvedAt).toBeNull();
     h = await restartDomainHarness(h, { now: () => now });
     await h.domain.outages.recheckProvider('claude');
-    expect(h.domain.outages.activeIds('AR').size).toBe(0);
+    expect(h.domain.outages.activeIds('AR')!.size).toBe(0);
     await h.domain.operatorSignals.sweep('AR');
     expect(get(signal.id)).toMatchObject({ state: 'resolved', resolvedAt: now.toISOString() });
     Object.assign(h.runner, {

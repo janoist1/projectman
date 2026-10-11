@@ -19,7 +19,8 @@ import {
 // it cannot open a pseudo-terminal: the config leaves these files out there (PROJECTMAN_SKIP_PTY_TESTS)
 // and the integrating session runs them. The protocol is tested in control.test.ts.
 
-describe('the control socket file', () => {
+// The full test sandbox cannot bind these Unix sockets; deployment checks run them outside it.
+describe.skipIf(process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1')('the control socket file', () => {
   const dirs: string[] = [];
   const sockets: ControlSocket[] = [];
   let h: AppHarness | undefined;

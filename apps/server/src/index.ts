@@ -9,6 +9,7 @@ import type { BuildAppOptions, LoopbackHost, RunMode } from './app';
 import { assertEngineProfile, buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
+import { parseFeedbackPublicUrl } from './http/feedback-host-guard';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { createServerLogStream, serverLogFile } from './logging/server-log';
 import { loadBoundaryConfig } from './runtime-boundary';
@@ -141,6 +142,10 @@ async function configFromEnv(
     throw new Error(
       `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
     );
+  // The public address of the feedback widget's entrance (PM-506, PM-513): a wrong value stops the start,
+  // because the host guard (http/feedback-host-guard) is built from it.
+  const feedbackPublicUrl = env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined;
+  if (feedbackPublicUrl) parseFeedbackPublicUrl(feedbackPublicUrl);
   // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
   const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
   if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
@@ -218,7 +223,7 @@ async function configFromEnv(
       vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
       vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
       githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
-      feedbackPublicUrl: env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined,
+      feedbackPublicUrl,
       shutdownPauseMs,
     },
   };

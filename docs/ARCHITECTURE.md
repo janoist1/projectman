@@ -1067,6 +1067,22 @@ workers follow the machine's size.
   assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
   has no such plist.
 
+- **Feedback widget public entrance (PM-506)** — the hostname without Access for the marking widget on
+  customer pages (PM-513). Code: `PROJECTMAN_FEEDBACK_PUBLIC_URL` checked at start in
+  `apps/server/src/index.ts` (`parseFeedbackPublicUrl`; a wrong value stops the server), the host guard
+  `apps/server/src/http/feedback-host-guard.ts` (an `onRequest` hook registered first in `app.ts`; on the
+  public `Host` it answers the unknown-route 404 to every raw path except `/feedback/widget.js` and
+  `/feedback/api/v1/<segments of [A-Za-z0-9_-]>`), `PASSED_VARIABLES` in `scripts/live/plist.ts` (the
+  LaunchAgent gives the server only the variables named there),
+  `deploy/cloudflare/config.example.yml` (two rules for the hostname: `^/feedback/` to `127.0.0.1:4800`,
+  then a 404 rule) and `deploy/cloudflare/check.sh` (`FEEDBACK_ORIGIN`). Machine assumption: the tunnel
+  (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
+  (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
+  repository. The hybrid cloud image uses a token-managed tunnel set in the dashboard, with the variable
+  given by whoever installs it (`docs/HYBRID.md`). **Remote engine:** the entrance belongs to the server
+  (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
+  Security notes: `docs/SECURITY.md` "The widget's public hostname".
+
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
   outcome, elapsed time, failed files and output tail. It needs macOS Seatbelt, srt, PTY support and

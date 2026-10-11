@@ -339,6 +339,54 @@ the tailnet section above to the public address. The result goes on PM-200 (stat
 or cookies). Also try the login once from a browser in a private window with an email address
 that is **not** on the list: it must be refused at Access.
 
+### 7. A public entrance for the marking widget (PM-506, PM-513)
+
+The marking widget runs on a customer's web page and cannot sign in to Access, so its paths
+(`/feedback/widget.js` and `/feedback/api/v1/*`) need an entrance without Access. It is **a
+second hostname on the same tunnel**, with **no Access application**, which passes `^/feedback/`
+and nothing else. Do **not** open the Access application `chopper.istvan.io` with a Bypass policy
+(step 3 forbids it). The example below uses `jelolo.example.com`; choose the real name.
+
+1. **DNS**: `cloudflared tunnel route dns projectman jelolo.example.com` creates the proxied
+   CNAME to the tunnel (the same as step 4 did for `chopper`).
+2. **Tunnel**: the two rules for `<FEEDBACK-HOSTNAME>` in
+   [config.example.yml](../deploy/cloudflare/config.example.yml), before the `chopper` rules: path
+   `^/feedback/` to `http://127.0.0.1:4800`, and a `http_status:404` rule for the rest of that
+   hostname. Again no `httpHostHeader`: the server's guard below reads the original `Host`. Check
+   with `cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule
+https://jelolo.example.com/api/setup` (the 404 rule) and `.../feedback/widget.js` (the 4800
+   rule), then restart the tunnel service.
+3. **Server**: set `PROJECTMAN_FEEDBACK_PUBLIC_URL=https://jelolo.example.com` in the live
+   instance's environment. `npm run live -- install` takes it from the installing shell with the
+   other variables (`PASSED_VARIABLES` in `scripts/live/plist.ts`), so export it and install
+   again; the server restarts with it. The value is `https` (or `http` on a loopback host, for
+   development), the hostname only: no path, query or `#` (a trailing `/` is fine). A wrong
+   value stops the server at start with a message that names the variable.
+
+**Why there is no Access application, and why it is safe enough.** The widget is a script on
+somebody else's site: it has no Access login and no Cloudflare cookie, so Access in front of it
+would only block it. What stands in its place is the widget's own session: it starts with a
+one-time code the person gets from the app (valid 120 seconds, bound to the page's origin), the
+token it yields is limited to marking and commenting in one project, it can be revoked, and CORS
+answers only the instance's registered surface addresses (see "The feedback tool's
+public API" and "The widget's public hostname" in [SECURITY.md](SECURITY.md)). Nothing of the application is reachable on this hostname, by two
+locks that do not depend on each other: the tunnel passes only `^/feedback/`, and **the server's
+host guard** answers the ordinary unknown-route 404 to every request whose `Host` is the public
+address unless its raw path is exactly `/feedback/widget.js` or `/feedback/api/v1/` followed by
+`[A-Za-z0-9_-]` segments. `..`, `.`, `%`-encoding, `\`, `//` and capital letters are all
+refused there, because Cloudflare's `^/feedback/` lets `/feedback/../api/setup` through and the
+guard must not depend on how a router would read it.
+
+**Verify**: run `check.sh` with the extra variable (no Access login is needed for this part):
+
+```sh
+FEEDBACK_ORIGIN=https://jelolo.example.com LOGIN_JSON=$PWD/login.json bash deploy/cloudflare/check.sh
+```
+
+Without Access it expects `GET /feedback/widget.js` 200; `OPTIONS /feedback/api/v1/marks` from a
+foreign `Origin` 403 with no `access-control-allow-origin`; and `GET /`, `/api/setup`, `/ws`,
+`/hooks/x`, `/mcp/x` and `/feedback/../api/setup` (sent as written, `curl --path-as-is`) 404.
+
 ### Inviting somebody
 
 The invitation link is built from the address in the browser (`InviteDialog`), so create the

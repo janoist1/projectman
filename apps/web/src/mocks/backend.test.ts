@@ -51,6 +51,18 @@ describe('mock merger setting', () => {
     expect(refused.status).toBe(400);
     expect(errorCode(refused)).toBe('unknown_repo');
   });
+
+  it('stores and clears the project documents of a repository, and refuses an unknown repository', () => {
+    const backend = new MockBackend();
+    const repo = backend.config.project.repos[0]!;
+    const patch = (repoDocs: unknown) =>
+      backend.handle('PATCH', `${base}/config`, { baseVersion: backend.configVersion, repoDocs });
+    expect(patch([{ repo: repo.name, docs: { decisions: 'docs/D.md' } }]).status).toBe(200);
+    expect(backend.config.project.repos[0]?.docs).toEqual({ decisions: 'docs/D.md' });
+    expect(errorCode(patch([{ repo: 'no-such-repo', docs: null }]))).toBe('unknown_repo');
+    expect(patch([{ repo: repo.name, docs: null }]).status).toBe(200);
+    expect(backend.config.project.repos[0]).not.toHaveProperty('docs');
+  });
 });
 
 describe('mock configuration error tolerance', () => {

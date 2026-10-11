@@ -11,6 +11,7 @@ import {
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
+import { RepoDocs } from './project-docs';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -277,6 +278,12 @@ export const RepoConfig = z.object({
    * false: it need not be; absent: `requiresMerge` decides.
    */
   requireMerge: z.boolean().optional(),
+  /**
+   * Where the project documents (decision log, roadmap) live in this repository (PM-388). No default:
+   * absent, the feature is off, so nothing is written to a client's public default branch unasked.
+   * When several repositories have it, the first counts (`projectDocsOf`).
+   */
+  docs: RepoDocs.optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 

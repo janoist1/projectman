@@ -1,4 +1,10 @@
-import { canSeeAllTeamMessages, canSeeTask, canSeeTeamMessage, isCardLink } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  canSeeOperatorSessions,
+  canSeeTask,
+  canSeeTeamMessage,
+  isCardLink,
+} from '@projectman/shared';
 import type {
   InboxItem,
   MemberView,
@@ -99,7 +105,15 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
   if (!isClient(viewer)) return task;
   // The loop mark (PM-261) and the fix round limit hold (PM-262) are the team's, as the rounds of a card
   // are: a client never sees them. Nor the handoff of the card (PM-342).
-  const { loop: _loop, fixLimit: _fixLimit, handoff: _handoff, lastHandoff: _lastHandoff, ...visible } = task;
+  const {
+    loop: _loop,
+    fixLimit: _fixLimit,
+    handoff: _handoff,
+    lastHandoff: _lastHandoff,
+    merge: _merge,
+    merged: _merged,
+    ...visible
+  } = task;
   const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
   if (!hideTheme && !visible.links.some(isCardLink)) return visible;
   const { themeKey: _theme, ...shown } = visible;
@@ -212,9 +226,16 @@ export function canSeeProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
   taskOf?: (taskKey: string) => Task | null | undefined,
+  isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
+  if (event.type === 'operator_signal') return viewer.access === 'owner';
   if (event.type === 'team_message') return canSeeTeamMessage(viewer, event.message);
+  // The Operator's sessions are the owner's and the admin's to see (PM-475).
+  if (!canSeeOperatorSessions(viewer) && isOperatorSession) {
+    if (event.type === 'session_upserted' && isOperatorSession(event.session.id)) return false;
+    if (event.type === 'chat_appended' && isOperatorSession(event.sessionId)) return false;
+  }
   if (!isClient(viewer)) return true;
   switch (event.type) {
     case 'task_upserted':

@@ -151,12 +151,12 @@ owner.`); they do not repeat the guidance of the description.
 Results are short plain text (a roster, a task card with the last 20 timeline events,
 "Updated AR-21: …", …). Errors are tool results with `isError: true`:
 
-| Case                                | Text                                                                   |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)  |
-| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>` |
-| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)   |
-| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)    |
+| Case                                | Text                                                                                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
+| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
+| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
+| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
 
 ## What the handler (domain) should do
 

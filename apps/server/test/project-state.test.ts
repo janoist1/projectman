@@ -12,6 +12,41 @@ const operator = { sessionId: 'ses_operator', projectKey: 'AR', member: 'operato
 const report = (key = 'AR-1') => h.domain.projectState.task('AR', key);
 
 describe('project state from server records', () => {
+  it('uses the common Operator guard to refuse internal reports in guest conversations', async () => {
+    h = await createDomainHarness({
+      adjust: (config) =>
+        config.team.members.push({
+          kind: 'human',
+          handle: 'guest',
+          displayName: 'Guest',
+          access: 'client',
+          roles: [],
+        }),
+    });
+    await h.domain.tasks.create('AR', { title: 'Internal checkout' }, OWNER_ACTOR);
+    const { session } = await h.domain.sessions.ensureSession('AR', 'operator', {
+      type: 'general',
+      with: 'guest',
+    });
+    for (const args of [{}, { taskKey: 'AR-1' }]) {
+      await expect(
+        h.domain.teamTools.getProjectState({ ...operator, sessionId: session.id }, args),
+      ).rejects.toMatchObject({ code: 'forbidden', message: expect.stringContaining('operator_owner_only') });
+    }
+  });
+
+  it('returns an invalid tool refusal for themes and unknown stages', async () => {
+    h = await createDomainHarness();
+    const theme = await h.domain.tasks.create('AR', { title: 'Checkout theme', kind: 'theme' }, OWNER_ACTOR);
+    await expect(h.domain.teamTools.getProjectState(operator, { taskKey: theme.key })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
+    h.repos.tasks.update(task.id, { stageId: 'obsolete' });
+    await expect(h.domain.teamTools.getProjectState(operator, { taskKey: task.key })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+  });
   it('reads fix-limit, senior and loop records without changing them', async () => {
     h = await createDomainHarness();
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
@@ -160,7 +195,10 @@ describe('project state from server records', () => {
     await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);
     await expect(
       h.domain.teamTools.getProjectState({ ...operator, member: 'dev-1' }, {}),
-    ).rejects.toMatchObject({ code: 'operator_only', status: 403 });
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      message: 'operator_only: only the Operator may read project state.',
+    });
     expect(await h.domain.teamTools.getProjectState(operator, {})).toHaveProperty('stages');
     expect(await h.domain.teamTools.getProjectState(operator, { taskKey: 'AR-1' })).toHaveProperty(
       'taskKey',

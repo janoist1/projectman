@@ -13,9 +13,15 @@ import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
 import { createMessageRepository } from './messages';
 import { createCounterRepository, createProjectRepository } from './projects';
+import { createOperatorRequestRepository } from './operator-requests';
+import { createOperatorSignalRepository } from './operator-signals';
+export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
 import { createReviewPinRepository } from './review-pins';
+import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
+export { mergeState, mergedState } from './task-merges';
+export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
 import { createSeniorWaitRepository } from './senior-waits';
 import { createSessionRepository } from './sessions';
@@ -35,6 +41,7 @@ export { LATEST_SCHEMA_VERSION, migrations } from './migrations';
 export type { AttachmentRecord, AttachmentState, StoredAttachment } from './attachments';
 export type { DeferredStartRecord } from './deferred-starts';
 export type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from './member-workspaces';
+export type { OperatorRequestRecord, OperatorStepRecord } from './operator-requests';
 export type { PauseRecord, SessionPauseRecord, SessionPausePatch } from './pauses';
 export type { ReviewPinRecord } from './review-pins';
 export type { TaskCoverRecord } from './task-covers';
@@ -67,11 +74,15 @@ export function createRepositories(db: Db) {
     sessions: createSessionRepository(db),
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
+    taskMerges: createTaskMergeRepository(db),
+    taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),
     taskFixLimits: createTaskFixLimitRepository(db),
     taskHandoffs: createTaskHandoffRepository(db),
     projectFocus: createProjectFocusRepository(db),
+    operatorRequests: createOperatorRequestRepository(db),
+    operatorSignals: createOperatorSignalRepository(db),
     seniorWaits: createSeniorWaitRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),

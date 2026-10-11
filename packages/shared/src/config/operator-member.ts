@@ -1,5 +1,6 @@
 import type { Actor } from '../domain/event';
 import type { MemberHandle } from '../domain/member';
+import type { WorkItemRef } from '../domain/session';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
@@ -27,10 +28,24 @@ export function operatorOf(config: Pick<ProjectConfig, 'team'>): AiMemberConfig 
   return operators.find((m) => !isOnLeave(m)) ?? operators[0] ?? null;
 }
 
-/** Whether `handle` is the team's only Operator: it cannot be retired (it may go on leave). */
+/** Whether `handle` is the team's only Operator: it cannot be retired (nor sent on leave, PM-473). */
 export function isRequiredOperator(config: Pick<ProjectConfig, 'team'>, handle: MemberHandle): boolean {
   const operators = operatorsOf(config);
   return operators.length === 1 && operators[0]!.handle === handle;
+}
+
+/** How long the Operator's conversation with a person who is not an owner stands idle before it closes (PM-475). */
+export const OPERATOR_GUEST_IDLE_CLOSE_MINUTES = 5;
+
+/**
+ * Where the Operator's conversation with `from` runs (PM-475): the owners, the AI members and the system
+ * share the one general conversation; every other person has their own, named by `with`.
+ */
+export function operatorConversationOf(config: Pick<ProjectConfig, 'team'>, from: string): WorkItemRef {
+  const sender = memberOf(config, from);
+  return sender?.kind === 'human' && sender.access !== 'owner'
+    ? { type: 'general', with: from }
+    : { type: 'general' };
 }
 
 /**

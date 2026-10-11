@@ -22,7 +22,7 @@ export interface ConfigStore {
     projectKey: string,
     config: ProjectConfig,
     meta: {
-      author: { name: string; email: string; via?: 'integrator' };
+      author: ConfigAuthor;
       message: string;
       previous?: ProjectConfig;
     },
@@ -31,9 +31,14 @@ export interface ConfigStore {
   /** The configuration as of `version` (migrated and validated), without changing anything. */
   loadVersion(projectKey: string, version: string): Promise<ProjectConfig>;
   /** Restores the project's files as of `version` in a new commit. */
-  revertTo(
-    projectKey: string,
-    version: string,
-    meta: { author: { name: string; email: string; via?: 'integrator' } },
-  ): Promise<{ version: string }>;
+  revertTo(projectKey: string, version: string, meta: { author: ConfigAuthor }): Promise<{ version: string }>;
+}
+
+export interface ConfigAuthor {
+  name: string;
+  email: string;
+  via?: 'integrator';
+  operator?: string;
+  request?: string;
+  approvedBy?: string;
 }

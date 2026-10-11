@@ -17,6 +17,8 @@ interface MessageRow {
   delivered_at: string | null;
   answer: string | null;
   relayed: string | null;
+  operator_request: string | null;
+  operator_signal: string | null;
   via: 'integrator' | null;
   origin: string | null;
   kind: string | null;
@@ -52,6 +54,8 @@ const toMessage = (r: MessageRow): TeamMessage => ({
     : {}),
   ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
   ...(r.relayed ? { relayed: parseJson(r.relayed, { sessionId: '', inReplyTo: '' }) } : {}),
+  ...(r.operator_request ? { operatorRequest: r.operator_request } : {}),
+  ...(r.operator_signal ? { operatorSignal: r.operator_signal } : {}),
 });
 
 export function createMessageRepository(db: Db) {
@@ -64,8 +68,8 @@ export function createMessageRepository(db: Db) {
         AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
         AND seq > (SELECT seq FROM team_messages WHERE id = ?) LIMIT 1`),
     insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     countUnread: db.prepare(
       `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
@@ -130,6 +134,8 @@ export function createMessageRepository(db: Db) {
         m.version ? toJson(m.version) : null,
         m.subject ? toJson(m.subject) : null,
         m.relayed ? toJson(m.relayed) : null,
+        m.operatorRequest ?? null,
+        m.operatorSignal ?? null,
       );
     },
     /**

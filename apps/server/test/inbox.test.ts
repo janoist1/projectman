@@ -7,6 +7,7 @@ import { DomainError } from '../src/domain';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
+import { makeLocalOnly } from './helpers/test-template';
 
 describe('inbox: permission requests', () => {
   let h: DomainHarness;
@@ -154,11 +155,7 @@ describe('inbox: automatic permission decisions', () => {
   let h: DomainHarness;
   let sessionId: string;
   beforeEach(async () => {
-    h = await createDomainHarness({
-      adjust: (config) => {
-        delete config.project.repos[0]!.github;
-      },
-    });
+    h = await createDomainHarness({ adjust: makeLocalOnly });
     const task = await h.domain.tasks.create('AR', { title: 'Example task', repo: 'web' }, OWNER_ACTOR);
     sessionId = (await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'task', taskKey: task.key }))
       .session.id;
@@ -305,7 +302,7 @@ describe('inbox: who decides when the CLI asks (the approver, PM-165)', () => {
   async function start(approver: 'human' | 'ai' | 'none' | undefined, provider?: 'nanogpt') {
     h = await createDomainHarness({
       adjust: (config) => {
-        delete config.project.repos[0]!.github;
+        makeLocalOnly(config);
         const dev = config.team.members.find((m) => m.handle === 'dev-1');
         if (dev?.kind === 'ai') {
           dev.permissionMode = 'auto';

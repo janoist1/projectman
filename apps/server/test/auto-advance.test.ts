@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateRequestOf } from '@projectman/shared';
 import { aiActor } from '../src/domain';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
@@ -129,4 +129,67 @@ describe('automatic stage advance', () => {
     await h.domain.autoAdvance.sweep();
     expect(openDecisions(key)).toHaveLength(1);
   });
+
+  it.each(['done', 'development'])(
+    'discards an automatic move when a human moves the card to %s during its preparation',
+    async (stageId) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          config.pipeline.stages = config.pipeline.stages.filter((stage) => stage.id !== 'release');
+        },
+      });
+      const key = await cardInCodeReview();
+      await settle();
+      let signalPreparing!: () => void;
+      let signalResume!: () => void;
+      const preparing = new Promise<void>((resolve) => {
+        signalPreparing = resolve;
+      });
+      const resume = new Promise<void>((resolve) => {
+        signalResume = resolve;
+      });
+      const moveToStage = h.domain.tasks.moveToStage.bind(h.domain.tasks);
+      const delayed = vi.spyOn(h.domain.tasks, 'moveToStage').mockImplementationOnce(async (...args) => {
+        // Hold the system's move at an async boundary, without relying on machine load or a timer.
+        signalPreparing();
+        await resume;
+        return moveToStage(...args);
+      });
+      try {
+        await approve(key);
+        await preparing;
+        await h.domain.tasks.update('AR', key, { addLabels: ['merge-ok'], stageId }, OWNER_ACTOR);
+        const finished = h.domain.tasks.get('AR', key);
+        const moves = () =>
+          h.domain.timeline
+            .list('AR', { taskKey: key })
+            .filter((event) =>
+              [
+                'task_stage_changed',
+                'task_labels_changed',
+                'task_updated',
+                'task_hand_on_requested',
+              ].includes(event.type),
+            );
+        const timeline = moves();
+        expect(finished).toMatchObject({ stageId, status: stageId === 'done' ? 'done' : 'active' });
+
+        signalResume();
+        // This check queues behind the held one: completion means the stale move has finished too.
+        await h.domain.autoAdvance.check(finished);
+        expect(h.domain.tasks.get('AR', key)).toMatchObject({
+          stageId: finished.stageId,
+          status: finished.status,
+          closedAt: finished.closedAt,
+          stageEnteredAt: finished.stageEnteredAt,
+          labels: finished.labels,
+        });
+        expect(moves()).toEqual(timeline);
+        expect(openDecisions(key)).toEqual([]);
+      } finally {
+        signalResume();
+        delayed.mockRestore();
+      }
+    },
+  );
 });

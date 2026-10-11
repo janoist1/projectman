@@ -70,12 +70,19 @@ const BUILTIN_TOOLS = [
  * The `--tools` list of a session: the built-in set it may use, the same for every role and profile.
  * MCP tools (the team server) are not part of `--tools`.
  */
-export function claudeBuiltinTools(): string[] {
-  return [...BUILTIN_TOOLS];
+export function claudeBuiltinTools(policy?: Pick<SessionPolicy, 'teamToolsOnly'>): string[] {
+  // Team tools alone (PM-475): the team tools are deferred, so ToolSearch is the one built-in tool left.
+  return policy?.teamToolsOnly ? ['ToolSearch'] : [...BUILTIN_TOOLS];
 }
 
+/**
+ * The built-in tools a team-tools-only session is refused outright (PM-475), by name: `--tools` already
+ * leaves them out, and the deny rule holds even if a settings layer or a future CLI version brings one back.
+ */
+const TEAM_TOOLS_ONLY_DENIED = ['Bash', 'Read', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'Agent'] as const;
+
 export function claudeToolRules(
-  policy: Pick<SessionPolicy, 'tools' | 'deniedOperations'> & {
+  policy: Pick<SessionPolicy, 'tools' | 'deniedOperations' | 'teamToolsOnly'> & {
     filesystem?: Pick<
       SessionPolicy['filesystem'],
       'readOnlyPaths' | 'deniedPaths' | 'sessionFolder' | 'sessionFoldersRoot'
@@ -83,6 +90,19 @@ export function claudeToolRules(
     network?: Pick<SessionPolicy['network'], 'deniedHosts'>;
   },
 ) {
+  if (policy.teamToolsOnly) {
+    // Nothing but the team tools: no file, shell or web tool, and no allow rule for a directory
+    // (neither the session folders nor the read-only paths), whatever the rest of the policy says.
+    return {
+      allow: [
+        ...new Set([
+          ...(policy.tools.team.all ? ['mcp__team__*'] : []),
+          ...policy.tools.team.names.map((name) => `mcp__team__${name}`),
+        ]),
+      ],
+      deny: [...TEAM_TOOLS_ONLY_DENIED],
+    };
+  }
   const readOnly = policy.filesystem?.readOnlyPaths ?? [];
   // The session folders (PM-268, PM-333): every member's is read, only its own is changed. No deny
   // rule for the root: a deny beats an allow, and would shut the session's own folder too. A path a

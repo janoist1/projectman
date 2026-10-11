@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isOperator } from '@projectman/shared';
 import type { ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
 import {
@@ -19,7 +20,7 @@ import {
 import { SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { testConfig } from './helpers/test-template';
+import { dropSystemLabelGates, testConfig } from './helpers/test-template';
 
 describe('session orchestrator', () => {
   let h: DomainHarness;
@@ -377,6 +378,7 @@ describe('session orchestrator', () => {
   it('grants reviewers the existing developer worktree and propagates local-only deny rules', async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       delete draft.project.repos[0]!.github;
+      dropSystemLabelGates(draft);
       return 'Use a local-only repository';
     });
     const withRepo = await h.domain.tasks.create('AR', { title: 'Example change', repo: 'web' }, OWNER_ACTOR);
@@ -410,7 +412,8 @@ describe('session orchestrator', () => {
   it('runs readers in their own mode, Auto too, in the read-only sandbox, chats included (PM-167)', async () => {
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       for (const member of draft.team.members) {
-        if (member.kind !== 'ai') continue;
+        // The Operator is fixed (PM-473): its permission mode is not for a test to change.
+        if (member.kind !== 'ai' || isOperator(member)) continue;
         member.permissionMode = 'auto';
         member.approver = 'none';
       }

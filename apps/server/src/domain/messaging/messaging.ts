@@ -2,12 +2,16 @@ import {
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
+  isOperator,
   isProjectManager,
   isRefining,
   isTheme,
   labelDefinition,
   memberOf,
+  operatorOf,
+  ownerHandles,
   messageRoute,
+  operatorConversationOf,
   projectRefines,
   routeFor,
   sameWorkItem,
@@ -31,7 +35,8 @@ import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageRecipient } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
-import { DomainError, invalid } from '../errors';
+import { DomainError, forbidden, invalid, conflict } from '../errors';
+import type { OperatorSignals } from '../operator-signals';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -69,6 +74,10 @@ export interface SendOptions {
    * session on a family card (`place`, step 2). Internal, not a contract.
    */
   ownCard?: boolean;
+  /** The owner's request to the Operator this message is sent during (PM-463). Internal, not a contract. */
+  operatorRequest?: string;
+  operatorSignal?: string;
+  signalActionable?: boolean;
 }
 
 /**
@@ -80,6 +89,10 @@ export interface SendOptions {
  * Humans read theirs in the app. A message never goes to its own sender.
  */
 export class Messaging {
+  private operatorSignals?: OperatorSignals;
+  useOperatorSignals(signals: OperatorSignals): void {
+    this.operatorSignals = signals;
+  }
   /** A card start mapped to the permanent channel still gives the manager its assignment. */
   async projectManagerStart(
     projectKey: string,
@@ -185,6 +198,24 @@ export class Messaging {
         status: 404,
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
+    if (opts.operatorSignal !== undefined) {
+      if (isOperator(memberOf(config, from))) {
+        if (recipients.some((handle) => !ownerHandles(config).includes(handle)))
+          throw invalid('invalid_request', 'signals go only to owners');
+        this.operatorSignals!.presentation(projectKey, opts.operatorSignal);
+      } else if (
+        !ownerHandles(config).includes(from) ||
+        (opts.actor && (opts.actor.kind !== 'human' || opts.actor.handle !== from || opts.actor.via)) ||
+        recipients.length !== 1 ||
+        recipients[0] !== operatorOf(config)?.handle
+      ) {
+        throw conflict(
+          'operator_signal_closed',
+          'only an owner using their own login may accept a signal addressed to the Operator',
+        );
+      }
+    }
+    if (!opts.origin) this.assertMayWriteToOperator(config, from, recipients, opts.actor);
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
@@ -227,33 +258,52 @@ export class Messaging {
       .map((handle) => {
         const hold = this.holdOf(config, task, from, handle, opts);
         if (hold) return { handle, hold, workItem: routeFor(taskKey), running: null };
-        return { handle, hold: null, ...this.place(projectKey, config, handle, workItem, !!opts.ownCard) };
+        return {
+          handle,
+          hold: null,
+          ...this.place(projectKey, config, handle, workItem, !!opts.ownCard, from),
+        };
       });
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
       if (!sameWorkItem(where, routeFor(taskKey))) routes[handle] = where;
-    const message = this.messages.record({
-      projectKey,
-      from,
-      to: recipients,
-      taskKey,
-      body: text,
-      actor: opts.actor ?? humanActor(from),
-      sessionId: opts.sessionId ?? null,
-      humanRecipients: humans,
-      delivered: recipients.every((handle) => humans.includes(handle)),
-      routes,
-      answer: opts.answer,
-      origin: opts.origin,
-      kind: opts.kind ?? 'action',
-      subject: opts.subject,
-      version: task
-        ? {
-            stageId: task.stageId,
-            commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
-            reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
-          }
-        : undefined,
+    const version = task
+      ? {
+          stageId: task.stageId,
+          commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
+          reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
+        }
+      : undefined;
+    const message = this.ctx.unitOfWork(() => {
+      if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
+        this.operatorSignals!.decision(projectKey, opts.operatorSignal, from, true);
+      const recorded = this.messages.record({
+        projectKey,
+        from,
+        to: recipients,
+        taskKey,
+        body: text,
+        actor: opts.actor ?? humanActor(from),
+        sessionId: opts.sessionId ?? null,
+        humanRecipients: humans,
+        delivered: recipients.every((handle) => humans.includes(handle)),
+        routes,
+        answer: opts.answer,
+        origin: opts.origin,
+        kind: opts.kind ?? 'action',
+        subject: opts.subject,
+        operatorRequest: opts.operatorRequest,
+        operatorSignal: opts.operatorSignal,
+        version,
+      });
+      if (opts.operatorSignal !== undefined && isOperator(memberOf(config, from)))
+        this.operatorSignals!.present(
+          projectKey,
+          opts.operatorSignal,
+          recorded.id,
+          opts.signalActionable ?? false,
+        );
+      return recorded;
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
     for (const { handle, workItem: where, running, hold } of placed)
@@ -297,6 +347,18 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    const config = await this.projects.config(projectKey);
+    this.assertMayWriteToOperator(config, from, [session.member], actor);
+    // A person writes into their own conversation with the Operator, not into another person's (PM-475).
+    if (
+      isOperator(memberOf(config, session.member)) &&
+      memberOf(config, from)?.kind === 'human' &&
+      !sameWorkItem(session.workItem, operatorConversationOf(config, from))
+    )
+      throw forbidden(
+        'operator_owner_only',
+        'a person writes to the Operator only in their own conversation',
+      );
     const input = actor.via
       ? formatInjectedTeamMessage(
           from,
@@ -337,6 +399,24 @@ export class Messaging {
       this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
     else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
+  }
+
+  /**
+   * A person writes to the Operator only with their own login (PM-463, PM-475): through the integrator key
+   * it is refused with 403 operator_owner_only. AI members and the system pass: their messages are stored and
+   * reach the Operator as information with the owner's next one, and wake nobody.
+   */
+  private assertMayWriteToOperator(
+    config: ProjectConfig,
+    from: string,
+    recipients: readonly string[],
+    actor?: Actor,
+  ): void {
+    if (!recipients.some((handle) => isOperator(memberOf(config, handle)))) return;
+    const sender = memberOf(config, from);
+    if (sender?.kind !== 'human') return;
+    if (actor?.via)
+      throw forbidden('operator_owner_only', "only a person's own login may write to the Operator");
   }
 
   /** Labels that notify the assignee (e.g. "QA: failed") reach them as a message from whoever set them. */
@@ -481,7 +561,7 @@ export class Messaging {
     if (asker?.kind !== 'ai') return;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
-    const manager = Boolean(isProjectManager(asker));
+    const manager = Boolean(isProjectManager(asker) || isOperator(asker));
     await this.send(
       item.projectKey,
       resolution.by,
@@ -523,8 +603,14 @@ export class Messaging {
     handle: string,
     workItem: WorkItemRef,
     ownCard = false,
+    from?: string,
   ): { workItem: WorkItemRef; running: Session | null } {
-    workItem = sessionWorkItemOf(memberOf(config, handle), workItem);
+    const recipient = memberOf(config, handle);
+    // The Operator has one conversation per person who is not an owner, and one for the others (PM-475).
+    workItem =
+      from !== undefined && isOperator(recipient) && (workItem.type === 'task' || workItem.type === 'general')
+        ? operatorConversationOf(config, from)
+        : sessionWorkItemOf(recipient, workItem);
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };
     // Meant for the work on this card (an analyst check): not for the member's session on a family card.
@@ -557,7 +643,7 @@ export class Messaging {
   ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | 'engine' | null {
     // The project manager runs on the engine too: no engine, no delivery, whatever its other holds are.
     if (this.heldForEngine(config.project.key, handle)) return 'engine';
-    if (isProjectManager(memberOf(config, handle))) return null;
+    if (isProjectManager(memberOf(config, handle)) || isOperator(memberOf(config, handle))) return null;
     if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
@@ -708,7 +794,8 @@ export class Messaging {
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task) return false;
     const config = await this.projects.config(session.projectKey);
-    if (isProjectManager(memberOf(config, session.member))) return false;
+    const member = memberOf(config, session.member);
+    if (isProjectManager(member) || isOperator(member)) return false;
     return (
       this.heldForHandoff(task, session.member) ||
       this.heldForTurn(config, task, session.member, {}) ||
@@ -753,6 +840,9 @@ export class Messaging {
       ...(block ? { noWake: block } : {}),
     };
     if (!running && !wakes) return notWoken;
+    const operator = isOperator(memberOf(config, handle));
+    // The Operator takes what does not wake it (an AI member's message) only with the owner's next one (PM-463).
+    if (operator && !wakes) return notWoken;
     if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
       return {
         delivery: 'after_turn',
@@ -781,7 +871,9 @@ export class Messaging {
         void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
         return { delivery: 'wake' };
       }
-      if (memberOf(config, message.from)?.kind === 'human') this.delivery.deliver(running, message);
+      // The Operator's messages go in as one batch (the owner's and the information waiting with it).
+      if (!operator && memberOf(config, message.from)?.kind === 'human')
+        this.delivery.deliver(running, message);
       else this.delivery.deliverWaiting(running);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }

@@ -21,15 +21,22 @@ export function gateConditionText(condition: GateCondition, labels: readonly Lab
 }
 
 /**
- * Unmet conditions from a `gate_blocked` error (`details.unmet: [{ stageId, condition }]`),
- * as readable texts. Unknown shapes are skipped.
+ * Unmet conditions from a `gate_blocked` error (`details.unmet: [{ stageId, condition }]`) and the
+ * approvals it still needs (`details.approvals: [{ stageId, label }]`: a label only a person may
+ * set), as readable texts. Unknown shapes are skipped.
  */
 export function unmetGateTexts(details: unknown, labels: readonly LabelView[]): string[] {
   if (!details || typeof details !== 'object') return [];
-  const unmet = (details as { unmet?: unknown }).unmet;
-  if (!Array.isArray(unmet)) return [];
-  return unmet.flatMap((entry) => {
-    const parsed = GateCondition.safeParse((entry as { condition?: unknown } | null)?.condition);
+  const { unmet, approvals } = details as { unmet?: unknown; approvals?: unknown };
+  const conditions = (Array.isArray(unmet) ? unmet : []).map(
+    (entry) => (entry as { condition?: unknown } | null)?.condition,
+  );
+  const approved = (Array.isArray(approvals) ? approvals : []).map((entry) => ({
+    type: 'has_label',
+    label: (entry as { label?: unknown } | null)?.label,
+  }));
+  return [...conditions, ...approved].flatMap((condition) => {
+    const parsed = GateCondition.safeParse(condition);
     return parsed.success ? [gateConditionText(parsed.data, labels)] : [];
   });
 }

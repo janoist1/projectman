@@ -3,6 +3,7 @@ import {
   isOpenTask,
   isRefining,
   isSessionAtWork,
+  OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
   SESSION_IDLE_CLOSE_MINUTES,
   stageIndex,
 } from '@projectman/shared';
@@ -119,8 +120,12 @@ export class SessionCloser {
           continue;
         }
         const silent = Math.floor((now - Date.parse(session.lastActivityAt)) / MINUTE_MS);
-        if (silent >= SESSION_IDLE_CLOSE_MINUTES)
-          await this.tryClose(session, { kind: 'idle', idleMinutes: silent });
+        // A guest's conversation with the Operator frees the one place sooner (PM-475).
+        const limit =
+          session.workItem.type === 'general' && session.workItem.with
+            ? OPERATOR_GUEST_IDLE_CLOSE_MINUTES
+            : SESSION_IDLE_CLOSE_MINUTES;
+        if (silent >= limit) await this.tryClose(session, { kind: 'idle', idleMinutes: silent });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not close an idle session');
       }

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
+import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -36,6 +37,7 @@ export const TimelineEventType = z.enum([
   'task_relation_removed',
   'task_theme_changed',
   'task_prerequisite_closed',
+  'task_parts_left',
   'task_note',
   'attachment_added',
   'attachment_deleted',
@@ -58,6 +60,10 @@ export const TimelineEventType = z.enum([
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
+  'task_merge_requested',
+  'task_merge_failed',
+  'task_merged',
+  'task_merge_blocked',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -165,6 +171,18 @@ export interface TimelineEventData {
     reason?: 'member_removed' | 'handover';
     from?: string;
   };
+  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  task_merge_failed: MergeFailure & { mergeId: string };
+  task_merged: TaskMerged & { mergeId?: string };
+  task_merge_blocked: {
+    mergeId: string;
+    repo: string;
+    base: string;
+    reason: MergeBlockReason;
+    message: string;
+    landed: 'nowhere' | 'remote';
+    mergeCommit?: string;
+  };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {
     level: DeveloperLevel;
@@ -216,6 +234,18 @@ export interface TimelineEventData {
    * Recorded on every open card that needed it.
    */
   task_prerequisite_closed: { ref: string; status: string; remaining: string[] };
+  /**
+   * Parts of this card, created by `member` when they broke it down, were left in the first stage (PM-480).
+   * `told`: the system reminded the member once (`messageId`); `alerted`: the owners were told, because
+   * the parts were still left after the member's next turn (`inboxItemId`). The system actor writes both.
+   */
+  task_parts_left: {
+    phase: 'told' | 'alerted';
+    member: string;
+    parts: string[];
+    messageId?: string;
+    inboxItemId?: string;
+  };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };

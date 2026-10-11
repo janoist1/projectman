@@ -289,6 +289,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
+    case 'task_merge_requested':
+      return normal(str(d.base));
+    case 'task_merge_failed':
+      return normal(str(d.reason));
+    case 'task_merged':
+      return normal(str(d.mergeCommit));
+    case 'task_merge_blocked':
+      return normal(str(d.message));
     case 'boundary_changed': {
       const state = BoundaryState.safeParse(d.state);
       const reason = BoundaryAuditReason.safeParse(d.reason);
@@ -356,9 +364,9 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
     case 'task_hand_on_requested':
       return normal(
         t('timeline.events.task_hand_on_requested', {
-          fromStageId: stageName(ctx, str(d.fromStageId)),
-          toStageId: stageName(ctx, str(d.toStageId)),
-          mover: str(d.mover),
+          requestedBy: nameOf(str(d.requestedBy), ctx.members, ctx.myHandle),
+          mover: nameOf(str(d.mover), ctx.members, ctx.myHandle),
+          to: stageName(ctx, str(d.toStageId)),
         }),
       );
     case 'task_stage_changed': {
@@ -488,6 +496,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             : t('timeline.prerequisiteFree')),
       );
     }
+    case 'task_parts_left':
+      return normal(
+        t(
+          str(d.phase) === 'alerted'
+            ? 'timeline.events.parts_left_alerted'
+            : 'timeline.events.parts_left_told',
+          {
+            name: nameOf(str(d.member), ctx.members, ctx.myHandle),
+            parts: strings(d.parts).join(', '),
+          },
+        ),
+      );
     case 'task_note':
       return normal(str(d.text));
     case 'attachment_added':

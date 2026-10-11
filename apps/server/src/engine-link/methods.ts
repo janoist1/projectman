@@ -293,6 +293,22 @@ type ManagerMethods<T> = {
     : never;
 };
 const worktrees = {
+  ensureMergeFix: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text, taskKey: text, commit: mergeText })]),
+    worktreeInfo,
+  ),
+  findMergeFix: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text, taskKey: text })]),
+    worktreeInfo.nullable(),
+  ),
+  removeMergeFix: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text, taskKey: text })]),
+    done,
+  ),
+  listMergeFixes: method(
+    z.tuple([z.strictObject({ project: ProjectConfig, repoName: text })]),
+    z.array(z.strictObject({ taskKey: text, path: text })),
+  ),
   refreshDependencies: method(
     z.tuple([text]),
     z.discriminatedUnion('status', [
@@ -398,6 +414,10 @@ export const methods = {
   'worktree.refreshDependencies': worktrees.refreshDependencies,
   'worktree.head': worktrees.head,
   'worktree.ensureForTask': worktrees.ensureForTask,
+  'worktree.ensureMergeFix': worktrees.ensureMergeFix,
+  'worktree.findMergeFix': worktrees.findMergeFix,
+  'worktree.removeMergeFix': worktrees.removeMergeFix,
+  'worktree.listMergeFixes': worktrees.listMergeFixes,
   'worktree.find': worktrees.find,
   'worktree.status': worktrees.status,
   'worktree.remove': worktrees.remove,

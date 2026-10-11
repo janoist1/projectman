@@ -36,7 +36,7 @@ import { groupMoveToast, groupOutcome } from './groupMove';
 import { canMoveTask, dropStage, moveErrorText, prerequisitesToWarnAbout } from './moveTask';
 import styles from './BoardPage.module.css';
 
-const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked']);
+const inProgress: ReadonlySet<TaskPhase> = new Set(['needs_you', 'working', 'waiting', 'blocked', 'stuck']);
 
 /** How long a card that has just landed is marked. */
 const LANDED_MS = 900;

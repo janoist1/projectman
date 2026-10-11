@@ -1,0 +1,26 @@
+/* One line, ellipsized: the card row is never taller for it. */
+.line {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wrap {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.head {
+  font-weight: 800;
+}
+
+.waiting {
+  font-weight: 600;
+}

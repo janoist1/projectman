@@ -14,10 +14,15 @@ import { flush, planUsage, settle } from './helpers/fakes';
 
 const aiOff = (config: ProjectConfig) => void (config.team.limits.aiEnabled = false);
 
-/** The owner may also record code reviews, so the reviewer can be retired without orphaning the gate. */
+/**
+ * The owner also owns the code review step and may record code reviews, so the reviewer can be
+ * retired without orphaning the step or the gate.
+ */
 const reviewersBesidesCr = (config: ProjectConfig) => {
   for (const label of config.pipeline.labels)
     if (label.group === 'code-review') label.setBy = { duties: ['code_review'], members: ['owner'] };
+  const review = config.pipeline.stages.find((stage) => stage.id === 'code_review')!;
+  review.owners = [...(review.owners ?? []), 'owner'];
 };
 
 /** The keys of the starts SQLite holds, oldest first. */

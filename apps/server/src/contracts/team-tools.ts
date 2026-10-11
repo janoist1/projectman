@@ -26,6 +26,8 @@ import type {
   BoundaryGrant,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
+  OperatorOperation,
+  ConfigChangeRow,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
@@ -91,6 +93,8 @@ export type TaskSummary = Pick<
   priority?: TaskPriority;
   /** The card's place in the project's focus (PM-437); absent when it is not in it. */
   focus?: FocusPlace;
+  /** Who or what the card waits for, in a few words (PM-460); absent on a closed card and a theme. */
+  waitsFor?: string;
 };
 
 /**
@@ -219,6 +223,20 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey?: string },
   ): Promise<TaskStateReport | ProjectStateReport>;
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+  ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -265,7 +283,14 @@ export interface TeamToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
-    args: { to: MemberHandle[]; text: string; taskKey?: string; kind: MessageKind },
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];
@@ -287,6 +312,10 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
   updateTask(
     ctx: ToolContext,
     args: {
@@ -403,12 +432,10 @@ export interface TeamToolsHandler {
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */
 export class TeamToolError extends Error {
-  readonly status: number;
-  readonly code: 'not_found' | 'forbidden' | 'invalid' | 'gate_blocked' | 'operator_only';
-  constructor(code: TeamToolError['code'], message: string) {
+  readonly code: 'not_found' | 'forbidden' | 'invalid' | 'gate_blocked';
+  constructor(code: 'not_found' | 'forbidden' | 'invalid' | 'gate_blocked', message: string) {
     super(message);
     this.code = code;
-    this.status = code === 'forbidden' || code === 'operator_only' ? 403 : 400;
     this.name = 'TeamToolError';
   }
 }

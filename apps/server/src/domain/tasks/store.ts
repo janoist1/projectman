@@ -23,6 +23,7 @@ import type {
   TimelineEvent,
 } from '@projectman/shared';
 import type { TaskPatch } from '../../db';
+import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../context';
 import { requireHuman } from '../access';
 import { invalid, notFound } from '../errors';
@@ -83,6 +84,8 @@ export class TaskStore {
       fixLimit: _____,
       handoff: ______,
       lastHandoff: _______,
+      merge: _merge,
+      merged: _merged,
       handOn: ________,
       ...rest
     } = task;
@@ -93,6 +96,10 @@ export class TaskStore {
     const loop = this.loop(task);
     const fixLimit = this.fixLimit?.(task);
     const handoffs = this.handoffs(task);
+    const openMerge = this.ctx.repos.taskMerges.open(task.projectKey, task.key);
+    const lastMerge = this.ctx.repos.taskMerges.latestMerged(task.projectKey, task.key);
+    const merge = openMerge ? mergeState(openMerge) : undefined;
+    const merged = lastMerge ? mergedState(lastMerge) : undefined;
     const record = this.ctx.repos.taskHandOns.get(task.projectKey, task.key);
     const handOn =
       record && isOpenTask(task)
@@ -114,6 +121,8 @@ export class TaskStore {
       ...(loop ? { loop } : {}),
       ...(fixLimit ? { fixLimit } : {}),
       ...handoffs,
+      ...(merge ? { merge } : {}),
+      ...(merged ? { merged } : {}),
       ...(handOn ? { handOn } : {}),
     };
   }

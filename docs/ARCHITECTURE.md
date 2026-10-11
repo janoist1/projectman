@@ -886,6 +886,38 @@ without a server result also receive instructions to run only targeted tests.
 No machine boundary changes: the check runs where the integrator runs. Dependencies are
 installed only when missing from the working directory.
 
+## Merge (PM-452)
+
+The system requests a merge; only the member selected by `cardMerger` starts it with `merge_task`,
+`POST /tasks/:taskKey/merge`, or the human inbox request. `mergeReadiness` and `mergeRepoOf` in shared
+configuration rules determine readiness and the forward moves that need the approved commit on the
+default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
+pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
+
+`domain/merges.ts` persists requested, queued, running, failed and blocked states in `task_merges`,
+with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
+the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
+runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
+Conflicts and failed checks notify the merger and keep the card in place. Operational failures notify
+the AI merger or create an alert for the human merger. Calling the same tool retries under the same id.
+Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check the ordinary move rules.
+The merger never moves the card itself. Every forward move path checks the default branch before the
+transaction, including approvals and hand-on requests; manual merges discovered there are recorded
+with `via: found` when a persistent handover exists.
+
+Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
+retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
+releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
+Release errors only log a warning. The `_merge` directory is separate from card worktrees and is never
+swept as a closed card; a failed release of a terminal row can leave a checkout for engine-side cleanup.
+
+**Does this work on a remote engine?** Yes: the server owns the durable queue, gates and inbox;
+all git operations, check checkouts, dependency copies and sandbox checks run on the card's engine
+through the existing `merge.*` and `full_test.*` contracts. PR metadata uses the existing application
+GitHub service (the default engine's `github.*` calls in cloud mode); it is independent of local git.
+Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
+as a code-free card. See the machine inventory entry below.
+
 ## Heavy-run queue (PM-332)
 
 Three full test suites at once (2026-10-04) took the load to 81–89 and the swap to 6 GB: every member's vitest
@@ -979,7 +1011,7 @@ workers follow the machine's size.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
-  - Merge on Done: `merge.*` (PM-451, see "Merge on Done").
+  - Member initiated merges: `merge.*` (PM-451, see "Merge").
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1578,10 +1610,32 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
-- **Merge on Done (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
+- **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
+  `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
+  The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
+  a file-changing duty, only while the card is `fixing`. Placement changes when its session
+  restarts after the turn. The checkout starts at the approved commit; the merger merges the
+  recorded conflict base, resolves mechanical conflicts, commits, and submits a resolution note.
+  Git cleanliness and ancestry are checked on the card's engine before queuing the fix head.
+  Assumptions: git and writable worktree storage on that engine, shared git metadata there.
+  **Remote engine:** checkout creation, head/status/ancestry reads and cleanup run on the card's
+  engine through the worktree and merge contracts; only checkout metadata, commit ids and the
+  resolution note cross the boundary. A merger assigned to another engine is refused. The
+  server stores the fix state and resolution attribution; it never edits conflict files.
+  This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
+  with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
+  `MemberWorkspaces` retains its existing work/review choices. The server's shared
+  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
+  Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
+  at startup and periodically. The engine revalidates the canonical fix path under its
+  repository mutex, refuses symlinks and leaves unregistered directories in place.
+
+- **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
-  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`) (PM-451, part 1/3 of PM-448; the server
-  does not call it yet).
+  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
+  (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
+  the server keeps the queue and member authorization, and never receives git credentials.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
@@ -1747,7 +1801,9 @@ open card once after the start. It does not move a card a session works on (an i
 act on closed, blocked or theme cards, and does not ask again after the approvers rejected the request in the same
 stay in the stage until the card's labels change. A person's drop on the board that
 names a place replaces the system's open request, so that the place is kept with the request. It touches no
-machine-dependent part: it is server state only.
+machine-dependent part: it is server state only. Automatic moves carry their source stage and its entry
+time into the write transaction (PM-477); an asynchronous preparation that finishes after the card has
+left that stay is discarded, so it cannot undo a human's move or reopen a finished card.
 
 ### Assignee handoff (PM-342)
 
@@ -1813,17 +1869,17 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 
 **Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
 
-### The Operator (PM-447, PM-462)
+### The Operator (PM-447, PM-462, PM-463, PM-464)
 
 Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;
 handle `operator`, `operator-2`, ... when taken) whom the owner asks to change how the project runs. The project
 manager stays the dispatcher. The human built-in role `operator` keeps its id and duties (`final_decision`,
 `release_approval`, `monitoring`); only its display name is now "Owner" ("Tulajdonos"). The pure rules are in
 `packages/shared/src/config/operator.ts`: `isOperator`, `operatorOf`, `isRequiredOperator` (the only Operator cannot be
-retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI actor without `via`).
+retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an AI actor without `via`).
 
-- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwner` (an owner's own login, not the integrator
-  key): only an owner's message wakes the Operator; any other action message is blocked with `WakeBlock`
+- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwnLogin` (a person's own login, not the
+  integrator key): only a person's message wakes the Operator; any other action message is blocked with `WakeBlock`
   `operator_owner_only`. The server fills the facts in `wakeFactsFor`.
 - **Three levels of a configuration change.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
   compares the end results and returns the rows (`ConfigChangeRow`: area, target, field, before, after, level) and the
@@ -1850,9 +1906,86 @@ retired, `operator_required` 409; it may go on leave), `isOperatorActor` (an AI 
   card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
   `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
   It neither starts work nor contacts an engine.
+- **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
+  manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
+  A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the
+  Operator only in the batch of the owner's next message, marked `[info from <handle>, not an instruction]`
+  (`formatInfoMessage`). The owner through the integrator key gets 403 `operator_owner_only`
+  (`assertMayWriteToOperator`). The owner's message to a busy Operator waits until its turn ends.
+- **A conversation for every person** (PM-475). `operatorConversationOf(config, from)` (shared): the owners share
+  `{ type: 'general' }`, every other human has `{ type: 'general', with: <handle> }` (`WorkItemRef`; `db/sessions`
+  stores `with` in the ref column, empty for the owners', so no migration). A guest conversation only reads and
+  answers: `callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (reads, and `send_message` to that person alone,
+  which is no step; `get_project_state` stays out until it filters by viewer); any other tool is 403
+  `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
+  logged as a `refused` step. Reads use the person's own view (`canSeeTask`, `visibleTaskDetail`,
+  `visibleTimelineEvent`, attachments as `humanActor`; an invisible card is `not_found`), the prompt has no memory and
+  says who it talks with. The session itself has the team tools alone (`SessionPolicy.teamToolsOnly`, set by
+  `buildSessionPolicy`; `default` permission mode): the Claude adapter renders `--tools ToolSearch`, deny rules for
+  Bash, Read, Edit, Write, WebFetch, WebSearch and Agent, only `mcp__team__*` as an allow rule (no session folder,
+  read-only path or command), no `--add-dir`, and `autoAllowBashIfSandboxed: false`; a guest conversation on another
+  CLI (Codex, Gemini, NanoGPT) is refused with `provider_unsupported`. It runs in an empty directory of its own (`guestSessionDir`, made through
+  `preparePortablePaths`, so it works on a remote engine) and its permission requests are refused in `Inbox.decide`
+  without an item. Raw terminal input into an Operator session is the owner's only. Requests are listed by sender, so `GET /operator` gives a person their own
+  (`OperatorChannel.readOnly`). The Operator's sessions are seen by owners and admins only
+  (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
+  conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
+  `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+- **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
+  owner's message, or the owner's answer to the Operator's question, is delivered into its session
+  (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
+  the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
+  batch opens a new request), when a newer one opens, or after `OPERATOR_REQUEST_TTL_MS` (30 minutes, checked when it
+  is looked up).
+- **Write guard** (`TeamToolsService.caller(ctx, tool)`). The Operator calls the reading tools (`OPERATOR_READ_TOOLS`)
+  at any time; every other tool needs an open request (`operator_no_request` 403), and the decisions of other members
+  and hand-overs, and `publish_task_branch` (publishing outside) (`OPERATOR_NEVER_TOOLS`) are never its
+  (`operator_never` 403). The guard hands the request it found on to the step log, so a request expiring between the
+  two cannot leave a write without its step. Its `ask_human` goes to the owners
+  only. Rules live in the one place `caller`; a new tool must name itself there.
+- **Step log** (`operator_steps`, `OperatorSteps.record`). One tool call is one step of the open request, done or
+  refused (`update_task`: `task_move` > `task_labels` > `task_priority` > `task_update`; `create_task`: `task_create`;
+  `send_message` to anyone but an owner: `message`; `attach_file`, `delete_attachment` and `link_pull_request` are
+  `task_update`). A move that waits for a human's approval is `awaiting_approval`. A message sent during a request
+  carries `TeamMessage.operatorRequest`. `GET /api/projects/:key/operator` returns `OperatorChannel` (the manager's
+  channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
+  to an owner, their own to anyone else; PM-475); no new WebSocket event.
 
-**Remote engine:** no machine-dependent part: pure rules, a template and configuration; the inventory below does not
-change.
+- **Operations and approvals** (PM-464, `domain/operator-actions.ts`). `operate` and `start_task` are Operator-only
+  MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
+  `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
+  recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
+  run before inbox closure, require an owner's own login, and are serialized per inbox item. Independent edits
+  preserve proposals; changed rows, ended or restarted sessions, and changed pause identities mark them stale
+  (`operator_approval_stale` 409). Stale items remain open with only `dismiss`. Configuration commits, session
+  ends and pause changes proactively recheck proposals through `BackgroundTasks`, without delaying subsequent
+  event listeners; projects without pending proposals skip this work. Approved/rejected/stale results update the existing step
+  and record a system message without waking the Operator. Configuration history reads `Projectman-Operator`,
+  `Projectman-Request` and `Projectman-Approved-By` trailers, including reverts. Runtime operations reuse session
+  stop and pause/resume; pause freshness is checked inside the existing admission lock.
+  The Operator's Start follows the person's prerequisite override and AI label-setter path, while a fix-limit
+  hold is always refused. When the configured temporary-worker policy permits a hire, Start hires as the system,
+  sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
+  remain approval operations.
+
+- **System signals** (PM-476, migration 50, `domain/operator-signals.ts`). Provider/engine outages,
+  cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
+  create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
+  The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),
+  so startup card events cannot resolve an outage before provider checks finish. An acknowledged alert followed by a restart cannot
+  leave a recovered outage signal unresolved and suppress the next episode of the same outage id.
+  Admission persists refused `operator_signals` starts; notices enter the Operator's general conversation
+  as projectman input, without a team message or an owner request. A persisted `delivered_at` keeps the
+  15-minute project wake interval across restarts. Delivered signals become open when presented or when
+  the turn ends; startup recovers delivered pending rows. Undelivered rows never appear in REST or WS.
+  `send_message` may present a delivered signal to owners without a request; all other writes retain
+  the request guard. Owner acceptance records a visible message and the signal decision atomically,
+  and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
+  Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
+  admission stay on the server, and notice delivery uses the existing engine session boundary.
+
+**Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
+steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.
 
 ## Pause and resume (PM-219, part of PM-198)
 
@@ -1972,6 +2105,23 @@ cancels the old inbox item. A human mover gets a `hand_on` inbox item; a project
 stored system action message through the existing general conversation route. The internal
 `task_hand_on_requested` timeline event records the requester and mover. Uncommitted work refuses
 the request immediately; the review pin is created only by the actual move.
+
+## Merger setting (PM-470, part of PM-448)
+
+Who merges a card's approved work into the default branch is the project's setting, never the
+code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the code review stage
+who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
+picks the code reviewer when a code review stage comes before the merge target, else the developer.
+`RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
+until PM-386). The merge target is the first release stage, else the done stage. The pure rules
+(`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
+`mergeReadiness`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
+the config migration `addMerger` writes the default merger into a valid configuration that has none.
+`PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
+unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
+pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
 
 Inbox resolution checks access and attempts the move as the resolving human before closing the
 item. Refused moves leave it open. Actual movement clears the request and resolves the item if

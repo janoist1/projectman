@@ -40,6 +40,28 @@ const PROJECT_KEY_RE = /^[A-Z][A-Z0-9]{0,9}$/;
 const VERSION_RE = /^[0-9a-f]{4,64}$/i;
 const DEFAULT_COMMITTER: GitIdentity = { name: 'projectman', email: 'projectman@localhost' };
 
+function attributedMessage(
+  message: string,
+  author: { via?: 'integrator'; operator?: string; request?: string; approvedBy?: string },
+): string {
+  const line = (text: string) => text.replace(/[\r\n]+/g, ' ').trim();
+  const trailers = [
+    ...(author.via ? ['Projectman-Via: integrator'] : []),
+    ...(author.operator
+      ? [
+          `Projectman-Operator: ${line(author.operator)}`,
+          `Projectman-Request: ${Array.from(line(author.request ?? ''))
+            .slice(0, 280)
+            .join('')}`,
+        ]
+      : []),
+    ...(author.approvedBy ? [`Projectman-Approved-By: ${line(author.approvedBy)}`] : []),
+  ];
+  // User messages cannot introduce attribution, even without server-generated trailers.
+  const body = message.replace(/\r\n?/g, '\n').replace(/^[\t ]*Projectman-/gim, '> Projectman-');
+  return body + (trailers.length ? `\n\n${trailers.join('\n')}` : '');
+}
+
 const README = `# projectman customization repository
 
 Project configuration (team, roles, pipeline, limits, role instructions) managed by projectman.
@@ -285,11 +307,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         await git(['add', '-A', '--', path]);
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
         return {
-          version: await commit(
-            meta.message + (meta.author.via ? '\n\nProjectman-Via: integrator' : ''),
-            meta.author,
-            [path],
-          ),
+          version: await commit(attributedMessage(meta.message, meta.author), meta.author, [path]),
         };
       });
     },
@@ -311,13 +329,31 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         .filter(Boolean)
         .map((record): ConfigVersionEntry => {
           const [version = '', author = '', at = '', message = ''] = record.split('\x1f');
-          const via = /(?:^|\n)Projectman-Via: integrator\s*$/.test(message);
+          const body = message.trim();
+          const separator = body.lastIndexOf('\n\n');
+          const ending = separator >= 0 ? body.slice(separator + 2) : '';
+          const hasTrailers =
+            ending.length > 0 &&
+            ending
+              .split('\n')
+              .every((line) => /^Projectman-(?:Via|Operator|Request|Approved-By): ?[^\r\n]*$/.test(line));
+          const trailer = (name: string) =>
+            hasTrailers
+              ? ending.match(new RegExp(`(?:^|\\n)Projectman-${name}: ?([^\\r\\n]*)`))?.[1]?.trim()
+              : undefined;
+          const via = trailer('Via') === 'integrator';
+          const operator = trailer('Operator');
+          const request = trailer('Request');
+          const approvedBy = trailer('Approved-By');
           return {
             version,
             author,
             at,
-            message: message.replace(/\n\nProjectman-Via: integrator\s*$/, '').trim(),
+            message: hasTrailers ? body.slice(0, separator).trim() : body,
             ...(via ? { via: 'integrator' } : {}),
+            ...(operator ? { operator } : {}),
+            ...(request !== undefined ? { request } : {}),
+            ...(approvedBy ? { approvedBy } : {}),
           };
         });
     },
@@ -340,11 +376,7 @@ export function createConfigStore(opts: ConfigStoreOptions): GitConfigStore {
         if (!(await hasStagedChanges(path))) return { version: await projectVersion(projectKey) };
         const message = `Revert ${projectKey} configuration to ${commitId.slice(0, 12)}`;
         return {
-          version: await commit(
-            message + (meta.author.via ? '\n\nProjectman-Via: integrator' : ''),
-            meta.author,
-            [path],
-          ),
+          version: await commit(attributedMessage(message, meta.author), meta.author, [path]),
         };
       });
     },

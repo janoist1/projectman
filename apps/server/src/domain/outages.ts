@@ -65,6 +65,7 @@ export class WorkOutages {
   private readonly views = new Map<string, WorkOutage>();
   private readonly projectOutages = new Map<string, Map<string, WorkOutageAlert>>();
   private adopted = false;
+  private evaluated = false;
   private pending: Promise<void> = Promise.resolve();
   private queued = 0;
   private checking = false;
@@ -161,6 +162,12 @@ export class WorkOutages {
 
   forMember(projectKey: string, handle: string): WorkOutage | undefined {
     return this.views.get(memberKey(projectKey, handle));
+  }
+
+  /** Null until the first evaluation; then includes episodes whose owner alert was acknowledged. */
+  activeIds(projectKey: string): ReadonlySet<string> | null {
+    if (!this.evaluated) return null;
+    return new Set(this.projectOutages.get(projectKey)?.keys() ?? []);
   }
 
   forTask(task: Task): WorkOutage | undefined {
@@ -552,6 +559,7 @@ export class WorkOutages {
         }
         if (used) ended = true;
         this.toldFor(key).delete(id);
+        await this.deps.ctx.events.emit('work_outage_ended', { projectKey: key, outageId: id });
       }
       for (const payload of groups.values()) {
         const existing = open.find(({ payload: old }) => old.outage.id === payload.outage.id);
@@ -563,7 +571,7 @@ export class WorkOutages {
         } else if (!this.toldFor(key).has(payload.outage.id)) {
           const owners = ownerHandles(config);
           if (owners.length) {
-            this.deps.inbox.create({
+            const item = this.deps.inbox.create({
               projectKey: key,
               kind: 'alert',
               assignees: owners,
@@ -573,6 +581,11 @@ export class WorkOutages {
               options: [ALERT_SEEN_OPTION],
             });
             this.toldFor(key).add(payload.outage.id);
+            await this.deps.ctx.events.emit('work_outage_started', {
+              projectKey: key,
+              outageId: payload.outage.id,
+              inboxItemId: item.id,
+            });
           }
         }
       }
@@ -596,6 +609,7 @@ export class WorkOutages {
         if (task) this.deps.tasks.publish(task);
       }
     }
+    this.evaluated = true;
     for (const id of this.since.keys())
       if (
         ![...this.failures.values(), ...this.engineFailures.values()].some(

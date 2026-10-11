@@ -1,7 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
+  canSeeOperatorSessions,
   MemberHandle,
+  operatorOf,
   ReadTeamMessagesRequest,
   routes,
   SendMessageRequest,
@@ -13,7 +15,9 @@ import {
 import type { Session, SessionDetail, TeamMessagesView, TeamThreadsView } from '@projectman/shared';
 import { notFound } from '../domain';
 import type { Domain } from '../domain';
+import { forbidden } from '../domain/errors';
 import { canSeeTask, teamMessageParticipant, visibleSession } from '../domain/visibility';
+import type { Viewer } from '../domain/visibility';
 import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
@@ -28,11 +32,18 @@ const MessagesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).optional(),
 });
 
+/** The Operator's sessions are for the owner and the admin only (PM-475): to anyone else they do not exist. */
+function assertMaySeeSession(domain: Domain, viewer: Viewer, sessionId: string): void {
+  if (!canSeeOperatorSessions(viewer) && domain.sessions.isOperatorSession(sessionId))
+    throw notFound('session', sessionId);
+}
+
 export function registerSessionRoutes(app: FastifyInstance, domain: Domain): void {
   /** Session with its chat, parsed from the Claude Code transcript. */
   app.get<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<SessionDetail> => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { internal: true });
+    assertMaySeeSession(domain, access, sessionId);
     const detail = await domain.sessions.detail(key, sessionId);
     return { ...detail, session: visibleSession(access, detail.session, (id) => domain.messages.get(id)) };
   });
@@ -44,6 +55,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   app.patch<SessionParams>(routes.session(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'owner' });
+    assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(UpdateSessionRequest, request.body);
     return domain.sessions.updatePermissions(key, sessionId, body, actorOf(access));
   });
@@ -52,6 +64,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   app.post<SessionParams>(routes.sessionMessages(':key', ':sessionId'), async (request, reply) => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(SendMessageRequest, request.body);
     const message = await domain.messaging.sendToSession(
       key,
@@ -66,6 +79,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
   app.post<SessionParams>(routes.stopSession(':key', ':sessionId'), async (request): Promise<Session> => {
     const { key, sessionId } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });
+    assertMaySeeSession(domain, access, sessionId);
     const body = parseBody(StopSessionRequest, request.body ?? {});
     const stopped = await domain.sessions.stop(key, sessionId, {
       kind: body.purpose ?? 'manual',
@@ -77,13 +91,22 @@ export function registerSessionRoutes(app: FastifyInstance, domain: Domain): voi
 
   app.post<ProjectParams>(routes.sendTeamMessage(':key'), async (request, reply) => {
     const key = request.params.key;
-    const access = await requireAccess(domain, request, key, { messaging: true });
+    // A read-only member talks to the Operator alone (PM-475); the team's other members are not theirs to write to.
+    const access = await requireAccess(domain, request, key);
     const body = parseBody(SendTeamMessageRequest, request.body);
+    if (access.access === 'viewer') {
+      const operator = operatorOf(await domain.projects.config(key));
+      if (!operator || body.to.some((handle) => handle !== operator.handle))
+        throw forbidden('insufficient_access', 'Developer or client access required');
+    }
     if (body.taskKey && !canSeeTask(access, domain.tasks.get(key, body.taskKey)))
       throw notFound('task', body.taskKey);
-    return reply
-      .code(202)
-      .send(await domain.messaging.send(key, access.handle, body, { actor: actorOf(access) }));
+    return reply.code(202).send(
+      await domain.messaging.send(key, access.handle, body, {
+        actor: actorOf(access),
+        operatorSignal: body.operatorSignal,
+      }),
+    );
   });
 
   app.post<{ Params: { key: string; id: string } }>(

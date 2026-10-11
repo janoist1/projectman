@@ -13,7 +13,7 @@ import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain'
 import { isDeferrable } from '../src/domain/admission';
 import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
 import { capturingLogger, planUsage } from './helpers/fakes';
-import { testConfig } from './helpers/test-template';
+import { makeRepoless, testConfig } from './helpers/test-template';
 
 const AT = '2026-09-30T10:00:00.000Z';
 
@@ -457,7 +457,7 @@ describe('admission checks', () => {
     ],
     [
       'admits a developer on a task without a repository when the project has none',
-      { adjust: (config) => void (config.project.repos = []), tasks: [task('AR-1')] },
+      { adjust: makeRepoless, tasks: [task('AR-1')] },
       { handle: 'dev-1', workItem: onTask('AR-1') },
       null,
     ],

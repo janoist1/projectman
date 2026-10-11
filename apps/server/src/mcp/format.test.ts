@@ -86,6 +86,49 @@ describe('formatTaskDetail', () => {
       'The move to review goes to Owner (owner), who moves cards on in this project; the card waits for them. Your work on this stage is done.',
     );
     expect(text).not.toContain('moved to review');
+    task.merge = {
+      id: 'merge_1',
+      repo: 'web',
+      base: 'main',
+      commit: 'approved',
+      branch: 'task/AR-21',
+      toStageId: 'review',
+      merger: 'owner',
+      requestedAt: '2026-10-10T20:00:00Z',
+      state: 'queued',
+      step: 'queued',
+      startedAt: '2026-10-10T20:01:00Z',
+      landed: 'nowhere',
+    };
+    const merging = formatTaskUpdate(task, { stageId: 'review', note: false, moverName: 'Owner' });
+    expect(merging).not.toContain('merge started');
+    expect(merging).toContain('the card waits for them');
+  });
+  it('says why the card stands still in a Waiting line, and none when the detail has no wait (PM-460)', () => {
+    const waitingLine = (detail: Parameters<typeof formatTaskDetail>[0]) =>
+      formatTaskDetail(detail)
+        .split('\n')
+        .find((line) => line.startsWith('Waiting: '));
+    const detail = sampleTaskDetail();
+    expect(waitingLine(detail)).toBeUndefined();
+
+    detail.wait = {
+      reason: 'approval',
+      next: [{ handle: 'owner', kind: 'human' }],
+      toStageId: 'done',
+      labels: ['code-review-ok'],
+      inboxItemId: null,
+      inboxKind: null,
+      startWaiting: null,
+      prerequisites: [],
+      since: '2026-10-10T20:00:00.000Z',
+    };
+    expect(waitingLine(detail)).toBe(
+      'Waiting: waits for the approval code-review-ok of owner (to enter done).',
+    );
+
+    detail.wait = { ...detail.wait, reason: 'prerequisite', next: [], labels: [], prerequisites: ['AR-3'] };
+    expect(waitingLine(detail)).toBe('Waiting: open prerequisite: AR-3.');
   });
   it('shows the open handoff of the card, else the latest one that ended (PM-342)', () => {
     const lineOf = (detail: Parameters<typeof formatTaskDetail>[0]) =>

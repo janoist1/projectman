@@ -15,6 +15,31 @@ function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
 }
 
+describe('mock merger setting', () => {
+  it('stores the merger and the per-repository merge setting like the server', () => {
+    const backend = new MockBackend();
+    const repo = backend.config.project.repos[0]!;
+    const saved = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      merger: { kind: 'developer' },
+      repoMerge: [{ repo: repo.name, requireMerge: false }],
+    });
+    expect(saved.status).toBe(200);
+    expect(backend.config.team.merger).toEqual({ kind: 'developer' });
+    expect(backend.config.project.repos[0]?.requireMerge).toBe(false);
+  });
+
+  it('refuses a repository the project does not have', () => {
+    const backend = new MockBackend();
+    const refused = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      repoMerge: [{ repo: 'no-such-repo', requireMerge: true }],
+    });
+    expect(refused.status).toBe(400);
+    expect(errorCode(refused)).toBe('unknown_repo');
+  });
+});
+
 describe('mock configuration error tolerance', () => {
   it('saves unrelated edits with existing errors and reports only additional errors', () => {
     const backend = new MockBackend();

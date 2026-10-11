@@ -45,11 +45,13 @@ export const hu = {
       refinement: 'kidolgozás, ő következik',
       schedule: 'ütemezés',
       message: 'csapatüzenet',
+      merge: 'beolvasztás',
       mention: '@említés',
       answer: 'válasz a kérdésére',
       conversation: 'beszélgetés',
       fix_limit: 'javítási kör korlátja',
       loop: 'Körbe fut jelzés',
+      operator_signal: 'rendszerjelzés az Operátornak',
       permission_change: 'engedélyváltozás',
       description_changed: 'a leírás megváltozott',
       provider_resume: 'a szolgáltatói keret újra elérhető',
@@ -624,6 +626,7 @@ export const hu = {
     waitsFor: 'Vár erre: {keys}',
     otherGroup: '(másik csoport)',
     stale: 'Régóta áll · {label}',
+    stalePrefix: 'Régóta áll',
     staleAge: '{days} napja áll',
     group: {
       allDone: 'Minden kész',
@@ -761,7 +764,8 @@ export const hu = {
       invitations: 'meghívó létrehozása',
     },
     conflict: 'Közben valaki más is módosította. Frissíts, és próbáld újra.',
-    gateUnmet: 'Még hiányzik: {conditions}',
+    /** The conditions say what is needed themselves ("Kell: …", "Nem lehet rajta: …"). */
+    gateUnmet: '{conditions}.',
     approvalRequested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
     details: 'Részletek',
     code: 'Hibakód: {code}',
@@ -850,12 +854,20 @@ export const hu = {
       handoff_not_open: 'Ezt a kártyát most nem adják át tőled, ezért nem írhatsz átadó jegyzetet.',
       handover_uncommitted:
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
+      merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
+      merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
+      merge_fix_not_allowed: 'Csak a beolvasztó javíthat ütközés miatt sikertelen beolvasztást.',
+      merge_fix_invalid:
+        'A javítás nincs commitolva, vagy hiányzik belőle a jóváhagyott commit vagy az alap.',
+      merge_fix_engine_mismatch: 'A javító munkafának a kártya motorján kell lennie.',
+      task_not_merged: 'A jóváhagyott commit még nincs a fő ágban.',
       attachment_too_large: 'A csatolmány legfeljebb 25 MB lehet.',
       attachment_storage_failed: 'A csatolmányt nem sikerült tárolni vagy olvasni; próbáld újra később.',
       cover_not_an_image: 'Borítóképnek a kártya egyik képét lehet választani.',
       not_stage_owner: 'A felelősnek a munkalépés feladatkörét kell viselnie.',
       missing_duty_holder: 'A folyamat egy szükséges feladatkörének nincs felelőse.',
       recommended_duty_unfilled: 'Egy ajánlott feladatkörnek még nincs felelőse.',
+      merger_unresolved: 'A beolvasztó nem oldható fel: a beállított tag vagy lépés nincs meg.',
       unknown_role: 'Ismeretlen szerep.',
       role_not_for_ai: 'Ezt a szerepet AI-tag nem töltheti be.',
       role_not_for_human: 'Ezt a szerepet ember nem töltheti be.',
@@ -864,9 +876,18 @@ export const hu = {
       role_in_use: 'A szerep még használatban van.',
       project_manager_required:
         'Nem bocsátható el: ő a projekt egyetlen AI Projektmenedzsere. Előbb vegyél fel egy másikat.',
-      operator_required:
-        'Nem bocsátható el: ő a projekt egyetlen Operátora. Küldd szabadságra, vagy előbb vegyél fel egy másikat.',
-      operator_only: 'Ezt az eszközt csak az Operátor használhatja.',
+      operator_required: 'Nem bocsátható el: az Operátor a projekt állandó tagja.',
+      operator_fixed:
+        'Az Operátoron csak a modell, a szolgáltató és az erőfeszítés állítható. Nem küldhető szabadságra, nem bocsátható el, és második Operátor nem vehető fel.',
+      operator_owner_only: 'Ezt csak a projekt tulajdonosa kérheti az Operátortól.',
+      operator_no_request:
+        'Az Operátor csak a tulajdonos nyitott kérésére írhat; most nincs ilyen (a köre véget ért, vagy lejárt).',
+      operator_never:
+        'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
+      operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      operator_signal_closed: 'Ez a jelzés már nem nyitott.',
+      operator_approval_stale:
+        'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',
@@ -1114,6 +1135,7 @@ export const hu = {
         holding: 'Visszatartja: {label}',
         approval: 'Jóváhagyásra vár, utána átkerül',
         uncommitted: 'Mentetlen változás van a munkafájában',
+        notMerged: 'nincs beolvasztva a fő ágba',
         noApprover: 'Senki sem adhatja meg a jóváhagyást: {label}',
         noApproverUnnamed: 'Senki sem adhatja meg a szükséges jóváhagyást',
         skipped: 'Közben megváltozott, nem mozdult',
@@ -1248,6 +1270,162 @@ export const hu = {
       codex_setup_incomplete:
         'Frissítsd a Codexet legalább {minCliVersion} verzióra, vagy a hibában megnevezett konfigurációs fájlból vedd ki a homokozó-beállítást (sandbox_mode, sandbox_workspace_write, default_permissions, permissions, profile, profiles). MCP-beállítási hibánál a felhasználói config.toml mcp_servers neveit kell egyértelművé tenni; a team név a projectmané. Ha a Codex programja tiltott mappában van, telepítsd a hivatalos telepítővel vagy a tiltott mappán kívülre. Javítás után a munka magától elindul.',
     },
+    /**
+     * "Miért áll?" on the card row and in the drawer (PM-461): "{ki} · {mire vár}". `head` is the bold part
+     * (a name, or a title when nobody in particular acts), `short` the rest of the row, `long` the same in a
+     * sentence for the box, `todo` what to do. {name} / {names} are people ("Te" for the viewer).
+     */
+    next: {
+      between: ' · ',
+      you: 'Rád vár',
+      /** Several people: the first two, then how many more. */
+      more: '{names} +{more}',
+      /** The row's title and accessible name. */
+      title: 'Ki: {head} · Mire vár: {waiting} · Teendő: {todo}',
+      noTodo: 'semmi',
+      senior: 'Senior fejlesztő',
+      /** What waits when the start waits: a short sentence per reason (the box adds the long one). */
+      startReasons: {
+        ai_limit_reached: 'túl sok AI dolgozik',
+        plan_usage_paused: 'a {provider}-keret {percent}% fölött szünetel',
+        provider_rate_limited: 'a {provider} korlátot jelzett',
+        disk_low: 'kevés a szabad lemezhely',
+        ai_disabled: 'az AI-munka ki van kapcsolva',
+        team_paused: 'a csapat szünetel',
+        member_at_capacity: 'mással foglalkozik, utána sorra kerül',
+        member_on_leave: 'szabadságon van',
+        repo_required: 'válassz repót',
+        workspace_busy: 'más munkán dolgozik ugyanabban a repóban',
+        workspace_dirty: 'befejezetlen munka van a gépén',
+        workspace_fetch_failed: 'a friss alapágat nem sikerült letölteni',
+        no_free_member: 'mindenki mással foglalkozik',
+        senior_busy: 'mással foglalkozik, utána sorra kerül',
+        label_missing: 'előbb ő dolgozik rajta: {labels}',
+        full_test_pending: 'fut, utána indul az átnézés',
+        handoff_open: 'leadja a munkát',
+        provider_not_logged_in: 'a {provider} nincs bejelentkezve',
+        engine_offline: 'a gép nem csatlakozik',
+        nanogpt_key_missing: 'nincs NanoGPT-kulcs',
+        nanogpt_setup_incomplete: 'hiányos a NanoGPT-beállítás',
+        codex_setup_incomplete: 'hiányos a Codex-beállítás',
+        workspace_codex_config: 'nem engedélyezett beállítás van a munkafa .codex mappájában',
+        prerequisite_open: 'előfeltétel',
+      },
+      /** The bold part when it is not a person. */
+      heads: {
+        start: 'Indulásra vár',
+        freeMember: 'Szabad fejlesztőre vár',
+        fullTest: 'Teljes teszt',
+        prerequisite: 'Előfeltételre vár',
+        done: 'Kész a munka',
+        blocked: 'Elakadt',
+        held: 'Áll',
+        queued: 'Sorra kerül',
+        nobody: 'Senki',
+        refinement: 'Kidolgozás',
+      },
+      /** The short row text per reason; {name} etc. are filled by the code. */
+      short: {
+        prerequisite: '{keys}',
+        inbox: {
+          question: 'válaszol egy kérdésre',
+          permission: 'engedélyt ad',
+          decision: 'dönt',
+          approval: 'jóváhagy',
+          boundary: 'külső műveletet enged',
+          alert: 'figyelmeztetést néz meg',
+          other: 'teendője van',
+        },
+        inboxYou: {
+          question: '{asker} kérdezett',
+          questionNoName: 'kérdés',
+          permission: '{asker} engedélyt kér',
+          permissionNoName: 'engedélykérés',
+          decision: 'döntés',
+          approval: 'jóváhagyás',
+          boundary: 'külső művelet',
+          alert: 'figyelmeztetés',
+          other: 'teendőd van',
+        },
+        handOn: '{mover} viszi tovább',
+        handOnYou: 'kész a munka, vidd tovább',
+        merge: 'beolvasztás a fő ágba',
+        mergeYou: 'olvaszd be a fő ágba',
+        mergeRunning: 'beolvasztás folyamatban',
+        approval: 'jóváhagyás: {from} → {to}',
+        fixLimit: 'dönt {rounds} javítási kör után',
+        fixLimitYou: 'döntés {rounds} javítási kör után',
+        held: 'amíg rajta van: {labels}',
+        blocked: 'az idővonalon áll, miért',
+        labels: '{labels}',
+        queuedHuman: 'továbbviszi innen: {stage}',
+        queuedHumanYou: 'vidd tovább innen: {stage}',
+        partLeft: 'a rész itt maradt: {stage}',
+        partLeftYou: 'vidd tovább a részt: {stage} → {to}',
+        takes: 'sorra veszi',
+        queuedStage: '{stage}',
+        nobody: 'nincs, aki továbbvinné',
+      },
+      /** The box's "Mire vár" sentences that the start text does not already say. */
+      long: {
+        capacity: 'Most egy másik munkán dolgozik. Amint végez, ez a kártya következik.',
+        prerequisite: 'Egy előfeltétel még nincs lezárva: {keys}.',
+        handOn: '{owner} végzett ebben a lépésben: {step}.',
+        handOnNoOwner: 'A munka ebben a lépésben kész: {step}.',
+        merge: 'A kártya jóváhagyott munkáját a fő ágba kell beolvasztani.',
+        mergeRunning: 'A jóváhagyott munka beolvasztása folyamatban van.',
+        approval: 'A következő lépéshez jóváhagyás kell: {labels}.',
+        fixLimit: '{rounds} javítási kör után a kártya áll, és döntés kell.',
+        held: 'A kártya áll, amíg rajta van: {labels}.',
+        blocked: 'A kártya elakadt. Az idővonalon áll, miért.',
+        labels: 'A következő lépéshez ez még hiányzik: {labels}.',
+        queuedHuman: 'A kártya ebben a lépésben áll: {stage}, és valakinek tovább kell vinnie.',
+        partLeft:
+          'A rész a bontás után a kezdő lépésben maradt ({stage}), és senki nem indítja. Aki létrehozta, viszi tovább: {to}, vagy finomításra teszi, ha még nem indítható.',
+        partLeftLabels:
+          'A rész a bontás után a kezdő lépésben maradt ({stage}), és senki nem indítja. Aki létrehozta, viszi tovább: {to}, ehhez még hiányzik: {labels}. Ha még nem indítható, finomításra teszi.',
+        takes: 'A kártya ebben a lépésben áll: {stage}, a felelőse hamarosan sorra veszi.',
+        queuedStage: 'A kártya ennek a lépésnek a sorában áll: {stage}.',
+        nobody:
+          'Nincs, aki ezzel a kártyával tovább tudna lépni: ennek a lépésnek ({stage}) vagy a következő kapunak nincs gazdája.',
+        inbox: 'Egy nyitott tétel vár rá: {kind}.',
+      },
+      todo: {
+        auto: 'Semmit: magától sorra kerül. Ha sürgős, a Csapat oldalon látod, mi foglalja.',
+        nothing: 'Semmit: magától halad.',
+        handOn: 'Semmit: {mover} intézi.',
+        handOnYou: 'Nézd meg, és vidd tovább.',
+        merge: 'Semmit: {merger} olvasztja be a jóváhagyott munkát a fő ágba.',
+        mergeYou: 'Olvaszd be a kártya jóváhagyott munkáját a fő ágba.',
+        mergeRunning: 'Semmit: a beolvasztás magától halad.',
+        approval: 'Döntsd el: jóváhagyod vagy elutasítod.',
+        approvalOther: 'Semmit: {who} jóváhagyására vár.',
+        fixLimit: 'Döntsd el, hogyan menjen tovább.',
+        fixLimitOther: 'Semmit: {who} dönt.',
+        held: 'Vedd le a címkét, ha a várakozás véget ért.',
+        blocked: 'Nézd meg az utolsó jegyzetet, és oldd fel az akadályt, vagy add át másnak.',
+        labels: 'Semmit: {who} intézi.',
+        labelsYou: 'Tedd fel a hiányzó címkét.',
+        queuedHuman: 'Semmit: {who} viszi tovább.',
+        queuedHumanYou: 'Nézd meg, és vidd tovább.',
+        partLeft: 'Semmit: {who} viszi tovább a részt.',
+        partLeftYou:
+          'Tedd fel a hiányzó címkéket, és vidd tovább a részt: {to}. Ha még nem indítható, tedd finomításra, és írd le, mi hiányzik.',
+        takes: 'Semmit: magától sorra kerül.',
+        inboxOther: 'Semmit: {who} intézi.',
+        inboxYou: 'Nyisd meg a tételt, és intézd el.',
+        nobody: 'Állítsd be a lépés gazdáját a Beállítások → Folyamat alatt.',
+        repo: 'Válaszd ki a repót a feladat adatainál.',
+      },
+    },
+    /** A card that stands on an outage (PM-468): the line on the card, and what to do as its tooltip. */
+    stuck: 'Áll: {reason}',
+    stuckTodo: {
+      login: 'Lépj be a szerveren: {command}',
+      loginOnEngine: 'Lépj be a(z) {engine} motor gépén: {command}',
+      settings: 'Add meg a Beállítások → AI-szolgáltatók alatt.',
+      engine: 'Kapcsold be a motor gépét, vagy indítsd újra rajta a projectman motort.',
+    },
     needsYou: 'Rád vár: {what}',
     needsYouDetail: '{kind} ({detail})',
     /**
@@ -1344,6 +1522,25 @@ export const hu = {
     placeholder: 'szöveg',
   },
   task: {
+    /** "Miért áll?" in the drawer (PM-461): who acts next and what the card waits for. */
+    whyBox: {
+      title: 'Miért áll?',
+      who: 'Ki a következő',
+      waiting: 'Mire vár',
+      to: 'Hová lépne',
+      todo: 'Mit kell tenni',
+      kindAi: 'AI-tag',
+      kindHuman: 'ember',
+      /** The "who" row when nobody acts: the system does, or the set-up is missing. */
+      nobodyAuto: 'Senki: magától halad',
+      /** The "who" row of a card that waits for the next free Senior; the kind chip says AI-tag. */
+      nobodySenior: 'Senior fejlesztő: aki elsőként felszabadul',
+      nobodySetup: 'Senki: ezt be kell állítani',
+      nobodyOpen: 'Senki: még nincs, aki ezt elintézné',
+      route: '{from} → {to}',
+      move: 'Tovább: {stage}',
+      moving: 'Továbbviszem…',
+    },
     editTitle: 'Cím szerkesztése',
     editDescription: 'Leírás szerkesztése',
     descriptionNone: 'Nincs még leírás.',
@@ -2006,6 +2203,11 @@ export const hu = {
     needsYou: 'Rád vár',
     paused: 'Szünetel',
     pausing: 'Megáll…',
+    /** An outage keeps the member from working (PM-468); the reason follows (`inbox.alerts.work_outage.reasons`). */
+    cannotWork: 'Nem tud dolgozni',
+    cannotWorkWithReason: 'Nem tud dolgozni: {reason}',
+    /** The bold lead of the phone card's line; the reason follows it in the normal weight. */
+    cannotWorkLead: 'Nem tud dolgozni:',
   },
 
   sessionState: {
@@ -2411,7 +2613,8 @@ export const hu = {
     },
     kinds: {
       permission: 'Engedély',
-      hand_on: 'Továbbadási kérés',
+      hand_on: 'Vidd tovább',
+      merge_request: 'Olvaszd be',
       boundary: 'Külső művelet',
       decision: 'Döntés',
       question: 'Kérdés',
@@ -2419,7 +2622,8 @@ export const hu = {
       alert: 'Figyelmeztetés',
     },
     kindsLower: {
-      hand_on: 'továbbadási kérés',
+      hand_on: 'továbbvitel',
+      merge_request: 'beolvasztás',
       permission: 'engedély',
       boundary: 'külső művelet',
       decision: 'döntés',
@@ -2442,6 +2646,7 @@ export const hu = {
       another_round: 'Még egy kör mehet',
       wait_for_senior: 'Várjon tovább',
       any_developer: 'Kapja meg egy szabad fejlesztő',
+      move: 'Tovább',
     },
     /** A Senior card that has waited too long for a Senior (PM-348/PM-349): wait on, or any free developer. */
     seniorWait: {
@@ -2526,6 +2731,10 @@ export const hu = {
         heading: 'Új kapcsolat, nincs elemző',
         body: 'A(z) {key} kártyán, amelyen dolgoznak, új kapcsolat jött létre ({relations}), amely érintheti a munkát, de nincs elemző, aki megnézné. Érdemes ránézni. A kártyán dolgozó tagok megkapták az értesítést, semmi nem állt meg.',
       },
+      parts_left: {
+        heading: 'Bontás után ottfelejtett részek',
+        body: '{member} lebontotta a(z) {key} kártyát, de a részei ({parts}) a kezdő lépésben maradtak, ezért senki nem indítja őket. {member} egy emlékeztetőt már kapott, a köre után is itt vannak. Érdemes ránézni: vagy továbbviszi őket, vagy te. A felület semmit nem mozgatott.',
+      },
       session_input: {
         heading: 'Egy munkamenet bevitelre vár, és nincs hozzá kérdés',
         body: '{member} munkamenete ({work}) {since} óta, {minutes} perce vár bevitelre a terminálján ({activity}), de nincs hozzá látható kérdés. Amíg így áll, a neki szóló üzenetek nem érnek oda. Érdemes megnyitni a munkamenetet, vagy leállítani és újraindítani.',
@@ -2534,6 +2743,74 @@ export const hu = {
       disk_low: {
         heading: 'Fogy a lemezhely',
         body: 'Már csak {free} szabad hely van a lemezen; a határ {threshold}. Amíg nincs elég hely, új AI-munkamenet nem indul, a futók befejezhetik a lépésüket. Szabadíts fel helyet (régi munkafák, buildek), vagy állítsd a határt a Beállítások → Keretek alatt. Ha újra van elég hely, a figyelmeztetés magától megszűnik.',
+      },
+      /** A provider or an engine that cannot work (PM-468): what broke, what to do, what waits for it. */
+      work_outage: {
+        headings: {
+          not_logged_in: 'A {provider} nincs bejelentkezve',
+          cli_missing: 'A {provider} CLI nincs a gépen',
+          cli_too_old: 'A {provider} CLI túl régi ({cliVersion})',
+          no_key: 'Nincs NanoGPT-kulcs',
+          setup_incomplete: 'Hiányos a {provider}-beállítás',
+          chatgpt_login: 'Hiányos a {provider}-beállítás',
+          engine: 'A(z) {engine} motor nem csatlakozik',
+          engineNone: 'Nincs csatlakozó motor',
+        },
+        /** Added to a provider heading when the problem is on a remote engine. */
+        onEngine: ' a(z) {engine} motoron',
+        body: 'Amíg nem lépsz be, a {provider}-tagok nem tudnak dolgozni: új munka nem indul, és a megválaszolt kérdések sem jutnak el hozzájuk.',
+        bodySetup:
+          'A {provider}-tagok nem tudnak dolgozni, amíg ez nincs rendben: új munka nem indul, és a megválaszolt kérdések sem jutnak el hozzájuk.',
+        bodyEngine:
+          '{since} óta nem csatlakozik. Az AI-tagok ezen a motoron dolgoznak, ezért amíg nem csatlakozik, egyikük sem tud. A tábla, a kártyák és az üzenetek addig is mennek.',
+        bodyEngineNone:
+          'Az AI-tagok motoron dolgoznak, ezért amíg nincs csatlakozó motor, egyikük sem tud. A tábla, a kártyák és az üzenetek addig is mennek.',
+        todo: {
+          label: 'Teendő',
+          login: 'Futtasd a szerveren, és lépj be előfizetéses fiókkal:',
+          loginOnEngine: 'Futtasd a(z) {engine} motor gépén, és lépj be előfizetéses fiókkal:',
+          install: 'Telepítsd vagy frissítsd a(z) {provider} CLI-t, majd lépj be:',
+          installOnEngine:
+            'Telepítsd vagy frissítsd a(z) {provider} CLI-t a(z) {engine} motor gépén, majd lépj be:',
+          settings: 'Add meg itt: Beállítások → AI-szolgáltatók.',
+          openSettings: 'AI-szolgáltatók megnyitása →',
+          engine:
+            'Kapcsold be a motor gépét, vagy indítsd újra rajta a projectman motort. Ha csatlakozik, a munka magától folytatódik.',
+          manage: 'Motorok kezelése →',
+          copy: 'Másolás',
+          copyLabel: 'Parancs másolása: {command}',
+          copied: 'Másolva',
+        },
+        affected: {
+          members: 'Nem tud dolgozni ({count})',
+          cards: 'Vár miatta ({count})',
+          noCards: 'Most egy kártya sem vár, de új munka addig nem indul.',
+          more: '+{count} további',
+          moreMembersLabel: 'Még {count} tag megjelenítése',
+          moreCardsLabel: 'Még {count} kártya megjelenítése',
+          openCard: '{key} megnyitása: {title}',
+        },
+        selfClosing: 'Ha megoldódik, ez a figyelmeztetés magától lezárul, és a várakozó munka elindul.',
+        checkNow: 'Ellenőrzés most',
+        checking: 'Ellenőrzés…',
+        stillFailing: 'Még mindig fennáll · most ellenőrizve',
+        /** The toast when the outage ends by itself; `workStarted` follows when cards waited. */
+        providerBack: 'A {provider} újra használható.',
+        engineBack: 'A(z) {engine} motor újra csatlakozik.',
+        engineBackNone: 'Újra van csatlakozó motor.',
+        workStarted: 'A várakozó munka elindult.',
+        /** Why a member or a card cannot work, in a few words (lower case: it follows a label). */
+        reasons: {
+          not_logged_in: 'a {provider} nincs bejelentkezve',
+          cli_missing: 'a {provider} CLI nincs a gépen',
+          cli_too_old: 'a {provider} CLI túl régi',
+          no_key: 'nincs NanoGPT-kulcs',
+          setup_incomplete: 'hiányos a {provider}-beállítás',
+          chatgpt_login: 'hiányos a {provider}-beállítás',
+          engine: 'a(z) {engine} motor nem csatlakozik',
+          engineNone: 'nincs csatlakozó motor',
+          onEngine: '{reason} ({engine})',
+        },
       },
       refinement: {
         heading: 'Kidolgozás',
@@ -2554,6 +2831,14 @@ export const hu = {
         schedule: 'ütemezett futás',
       },
     },
+    /** "Vidd tovább" (PM-461): the work of a step is done and the viewer is the card mover. */
+    handOn: {
+      text: '{owner} végzett ebben a lépésben: {step}. A következő oszlop: {stage}.',
+      move: 'Tovább: {stage}',
+      open: 'Megnyitom',
+      resolvedMe: 'Továbbvitted: {stage}',
+      resolvedBy: '{name} továbbvitte: {stage}',
+    },
     resolutions: {
       outage_ended: 'Magától megszűnt',
       automatic_allow: 'Szabály szerint engedélyezve',
@@ -2564,6 +2849,7 @@ export const hu = {
       approve: 'Jóváhagyva',
       reject: 'Elutasítva',
       answer: 'Megválaszolva',
+      move: 'Továbbment',
       seen: 'Láttam',
       option: 'Válasz: {label}',
       expired: 'Lejárt',
@@ -2996,13 +3282,16 @@ export const hu = {
       task_cancelled_reason: 'Megszakította a feladatot: {reason}',
       task_cancelled_duplicate: 'Lezárta duplikátumként: {original}',
       task_reopened: 'Újranyitotta a feladatot.',
+      parts_left_told: 'Emlékeztető ment ide: {name}. A bontás után a kezdő lépésben maradt részek: {parts}.',
+      parts_left_alerted:
+        'A tulajdonos értesítve: az emlékeztető ({name}) után is a kezdő lépésben maradt részek: {parts}.',
       theme_closed: 'Lezárta a témát.',
       assignment_previous: '{assignment} Előző felelős: {previous}.',
       task_created_imported: 'Létrehozva (importálva)',
       task_created: 'Létrehozta a feladatot',
       task_updated: 'Módosította: {fields}',
       task_stage_changed: 'Továbbvitte: {from} → {to}',
-      task_hand_on_requested: 'Továbbadásra vár: {fromStageId} → {toStageId}; mozgató: {mover}',
+      task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
       task_stage_changed_branch_moved:
         'Visszaküldte a rendszer: {from} → {to}; az ág elmozdult az átadott commitról ({pinned}) erre: {head}',
@@ -3795,6 +4084,12 @@ export const hu = {
       refinement_step_manual:
         'Egy kidolgozási lépés címkéjét egyetlen AI-tag sem teheti rá, ezért azt embernek kell elvégeznie.',
       duplicate_label: 'A címkék azonosítói nem ismétlődhetnek.',
+      stage_without_owner: 'Egy lépésnek nincs gazdája: a kártya ott elakadna.',
+      work_stage_without_worker: 'Egy munka-lépésben senki nem dolgozna: vegyél fel fejlesztőt.',
+      gate_unreachable: 'Egy kapu olyan címkét kér, amelyet egyik tag sem tehet fel.',
+      mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
+      mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
+      mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

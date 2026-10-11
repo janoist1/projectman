@@ -205,6 +205,21 @@ describe('themes on the timeline (PM-192)', () => {
   });
 });
 
+describe('parts left after a breakdown on the timeline (PM-480)', () => {
+  const left = (phase: string) =>
+    describeEvent(
+      { ...creation, type: 'task_parts_left', data: { phase, member: 'dev-1', parts: ['AC-2', 'AC-3'] } },
+      context,
+    ).text;
+
+  it('says the member was reminded, and later that the owner was told', () => {
+    expect(left('told')).toBe(t('timeline.events.parts_left_told', { name: 'dev-1', parts: 'AC-2, AC-3' }));
+    expect(left('alerted')).toBe(
+      t('timeline.events.parts_left_alerted', { name: 'dev-1', parts: 'AC-2, AC-3' }),
+    );
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;
@@ -292,6 +307,22 @@ describe('repository changes on the timeline', () => {
   it('names only the field when the event does not say what it changed to', () => {
     expect(text({ fields: ['repo'] })).toBe(
       t('timeline.events.task_updated', { fields: t('timeline.fields.repo') }),
+    );
+  });
+});
+
+describe('the hand-on request on the timeline (PM-461)', () => {
+  it('says who finished, who takes the card on and where it goes', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_hand_on_requested',
+      actor: { kind: 'system', handle: null },
+      data: { fromStageId: 'dev', toStageId: 'review', mover: 'kata', requestedBy: 'be-1' },
+    };
+    const { text } = describeEvent(event, context);
+    expect(text).toBe('be-1 végzett; kata viszi tovább ide: review');
+    expect(text).toBe(
+      t('timeline.events.task_hand_on_requested', { requestedBy: 'be-1', mover: 'kata', to: 'review' }),
     );
   });
 });

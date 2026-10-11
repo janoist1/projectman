@@ -192,6 +192,13 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 npm run shots -- scripts/scenarios/card-with-question.mjs
 ```
 
+### PM-468: the outage in the UI
+
+`npm run shots -- scripts/scenarios/work-outage.mjs --widths 1512,390`. The fake Claude CLI is logged
+out (`fakeEnv`) and a message wakes a developer; the scenario waits for the server's outage alert and
+shoots "Rád vár" (the outage card), the roster ("Nem tud dolgozni" with the reason), the board card
+("Áll: …", orange) and the card's drawer (the login box), each at 1512 and 390.
+
 ### PM-287: card priority
 
 Run `npm run shots -- scripts/scenarios/priority.mjs --timeout 300` on the final PM-287 branch.

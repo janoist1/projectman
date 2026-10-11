@@ -1,4 +1,11 @@
-import { isOpenTask, memberOf, quoteOf, sessionWorkItemOf } from '@projectman/shared';
+import {
+  isOpenTask,
+  isOperator,
+  memberOf,
+  operatorConversationOf,
+  quoteOf,
+  sessionWorkItemOf,
+} from '@projectman/shared';
 import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
@@ -16,6 +23,7 @@ import type { AutomaticStart, StartSpec } from './deferred-starts';
  * retried while its messages wait (they stay in SQLite) and its task stays in that stage.
  */
 export class MessageStarts {
+  private readonly ctx: import('../context').DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly admission: Admission;
@@ -23,12 +31,14 @@ export class MessageStarts {
   private readonly delivery: MessageDelivery;
 
   constructor(deps: {
+    ctx: import('../context').DomainContext;
     projects: ProjectService;
     tasks: TaskService;
     admission: Admission;
     messages: MessageService;
     delivery: MessageDelivery;
   }) {
+    this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.admission = deps.admission;
@@ -41,12 +51,19 @@ export class MessageStarts {
     return this.admission.exclusive(async () => {
       const config = await this.projects.config(projectKey);
       const member = requireAiMember(config, handle);
+      // The Operator talks with each person in a conversation of their own (PM-475); only the
+      // owners' one stays outside the capacity.
+      const workItem: WorkItemRef =
+        isOperator(member) && by?.kind === 'human' && by.handle
+          ? operatorConversationOf(config, by.handle)
+          : { type: 'general' };
       return (
         await this.admission.start({
           config,
           member,
-          workItem: { type: 'general' },
+          workItem,
           cause: { kind: 'conversation', by },
+          ...(isOperator(member) && !('with' in workItem) ? { capacity: false } : {}),
         })
       ).session;
     });
@@ -67,7 +84,8 @@ export class MessageStarts {
     return this.startFor(spec.projectKey, spec.handle, spec.workItem, spec.stageId ?? undefined);
   }
 
-  async resumeAfterQuota(session: Session, stageId: string): Promise<void> {
+  /** The task of an interrupted session continues once its provider allows it again (quota, or login). */
+  async resumeAfter(session: Session, stageId: string, after: 'quota' | 'login'): Promise<void> {
     if (session.workItem.type !== 'task') return;
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task || task.status !== 'active' || task.stageId !== stageId || task.assignee !== session.member)
@@ -79,6 +97,7 @@ export class MessageStarts {
         taskKey: task.key,
         handle: session.member,
         stageId,
+        after,
       }),
     );
   }
@@ -89,6 +108,7 @@ export class MessageStarts {
 
   private quotaStartFor(spec: Extract<StartSpec, { kind: 'provider_resume' }>): AutomaticStart {
     const { projectKey, taskKey, handle, stageId } = spec;
+    const after = spec.after ?? 'quota';
     const valid = (task: Task | null): boolean =>
       task?.status === 'active' && task.stageId === stageId && task.assignee === handle;
     const start: AutomaticStart = {
@@ -100,8 +120,8 @@ export class MessageStarts {
       waitsFor: () => handle,
       retry: () => this.admission.attempt(start),
       log: {
-        deferred: 'provider quota task resume deferred',
-        retryFailed: 'provider quota task resume failed',
+        deferred: `provider ${after} task resume deferred`,
+        retryFailed: `provider ${after} task resume failed`,
         fields: () => ({ projectKey, taskKey, member: handle }),
       },
       run: async () => {
@@ -114,7 +134,9 @@ export class MessageStarts {
           member,
           workItem: { type: 'task', taskKey },
           messages: [
-            'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
+            after === 'login'
+              ? 'Your previous turn stopped because the provider login was lost. The login is back; continue your task from where you stopped.'
+              : 'Your previous turn stopped because NanoGPT reached a provider limit. The hold has ended; continue your task from where you stopped.',
           ],
           cause: { kind: 'provider_resume' },
         });
@@ -169,9 +191,14 @@ export class MessageStarts {
         const first = waiting.find((message) => this.messages.wakes(config, message, handle));
         if (!first) return;
         const origin = first.origin;
+        const mergeEvent =
+          origin?.kind === 'note' && first.from === 'system'
+            ? this.ctx.repos.timeline.get(projectKey, origin.eventId)
+            : null;
         const cause: SessionStartCause = {
-          kind:
-            origin?.kind === 'note'
+          kind: mergeEvent?.type.startsWith('task_merge_')
+            ? 'merge'
+            : origin?.kind === 'note'
               ? 'mention'
               : origin?.kind === 'label'
                 ? 'sent_back'
@@ -191,7 +218,17 @@ export class MessageStarts {
           ...(origin?.kind === 'answer' ? { inboxItemId: origin.inboxItemId } : {}),
         };
         await this.delivery.startAndDeliver(projectKey, handle, workItem, (messages) =>
-          this.admission.start({ config, member, workItem, messages, cause }),
+          this.admission.start({
+            config,
+            member,
+            workItem,
+            messages,
+            cause,
+            // The owners' conversation with the Operator never waits behind another person's (PM-475).
+            ...(isOperator(member) && !(workItem.type === 'general' && workItem.with)
+              ? { capacity: false }
+              : {}),
+          }),
         );
       },
     };

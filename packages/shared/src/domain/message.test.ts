@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { TeamMessage } from './message';
 import {
   canSeeAllTeamMessages,
+  canSeeOperatorSessions,
   canSeeTeamMessage,
   cardThreadRecipients,
   isUnreadBy,
+  sameWorkItem,
   threadPeersOf,
 } from './message';
 
@@ -26,6 +28,22 @@ describe('team message visibility', () => {
     expect(canSeeAllTeamMessages({ access: 'admin' })).toBe(true);
     for (const access of ['developer', 'viewer', 'client', 'ai'] as const)
       expect(canSeeAllTeamMessages({ access })).toBe(false);
+  });
+
+  it('lets only an owner and an admin see the Operator’s sessions (PM-475)', () => {
+    expect(canSeeOperatorSessions({ access: 'owner' })).toBe(true);
+    expect(canSeeOperatorSessions({ access: 'admin' })).toBe(true);
+    for (const access of ['developer', 'viewer', 'client', 'ai'] as const)
+      expect(canSeeOperatorSessions({ access })).toBe(false);
+  });
+
+  it('tells the Operator’s conversations apart by the person they are with (PM-475)', () => {
+    const general = { type: 'general' } as const;
+    expect(sameWorkItem(general, { type: 'general' })).toBe(true);
+    expect(sameWorkItem({ type: 'general', with: 'cleo' }, { type: 'general', with: 'cleo' })).toBe(true);
+    expect(sameWorkItem({ type: 'general', with: 'cleo' }, { type: 'general', with: 'dana' })).toBe(false);
+    expect(sameWorkItem({ type: 'general', with: 'cleo' }, general)).toBe(false);
+    expect(sameWorkItem(general, { type: 'general', with: 'cleo' })).toBe(false);
   });
 
   it('shows everyone else only what they sent or got', () => {

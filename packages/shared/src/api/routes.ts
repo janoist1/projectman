@@ -6,6 +6,10 @@
  */
 export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
+  /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
+  operator: (key: string) => `/api/projects/${key}/operator`,
+  dismissOperatorSignal: (key: string, signalId: string) =>
+    `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,
@@ -44,10 +48,12 @@ export const routes = {
 
   templates: () => '/api/templates',
   projects: () => '/api/projects',
+  projectPreview: () => '/api/projects/preview',
   project: (key: string) => `/api/projects/${key}`,
   board: (key: string) => `/api/projects/${key}/board`,
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
+  taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>

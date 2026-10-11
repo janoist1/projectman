@@ -7,6 +7,8 @@ import {
   gateRequestOf,
   handOnRequestOf,
   memberOf,
+  operatorApprovalOf,
+  OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
   routePermissionRequest,
@@ -40,9 +42,12 @@ import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from './session-policy';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId } from './util';
+import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
+const GUEST_CONVERSATION_REFUSAL =
+  'This conversation has the team tools only: you read what the person can see and answer them. Nothing else is allowed, and nobody is asked.';
+
 export const PERMISSION_OPTIONS: InboxOption[] = [
   { id: 'allow', label: 'allow', style: 'primary' },
   { id: 'allow_session', label: 'allow_session', style: 'secondary' },
@@ -135,7 +140,35 @@ export class InboxService {
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
+  private mergeStart?: (item: InboxItem, by: Resolver) => Promise<void>;
+
+  useMergeStart(start: (item: InboxItem, by: Resolver) => Promise<void>): void {
+    this.mergeStart = start;
+  }
+
+  resolveMergeRequest(id: string, by: string): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'merge', by, at, note: null }, at);
+    if (item) this.publish(item);
+  }
+
   private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
+  private readonly resolutionLocks = new KeyedMutex();
+  private operatorDecision?: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>;
+
+  useOperatorDecision(decide: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>): void {
+    this.operatorDecision = decide;
+  }
+
+  staleOperator(id: string, payload: Record<string, unknown>): void {
+    const updated = this.ctx.repos.inbox.updateOperator(
+      id,
+      payload,
+      [OPERATOR_DISMISS_OPTION],
+      isoNow(this.ctx),
+    );
+    if (updated) this.publish(updated);
+  }
 
   useHandOnMove(move: (item: InboxItem, by: Resolver) => Promise<void>): void {
     this.handOnMove = move;
@@ -249,6 +282,15 @@ export class InboxService {
     req: { optionId: string; note?: string },
     by: Resolver,
   ): Promise<InboxItem> {
+    return this.resolutionLocks.run(id, () => this.resolveLocked(projectKey, id, req, by));
+  }
+
+  private async resolveLocked(
+    projectKey: string,
+    id: string,
+    req: { optionId: string; note?: string },
+    by: Resolver,
+  ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
     if (by.via && !['question', 'alert'].includes(item.kind))
       throw forbidden(
@@ -258,6 +300,9 @@ export class InboxService {
       );
     if (item.state !== 'open')
       throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
+    const operator = operatorApprovalOf(item);
+    if (operator?.stale && req.optionId !== 'dismiss')
+      throw conflict('operator_approval_stale', 'the proposal is stale; dismiss it');
     if (!item.options.some((o) => o.id === req.optionId)) {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
@@ -281,6 +326,13 @@ export class InboxService {
     if (item.kind === 'question' && req.optionId === ANSWER_OPTION.id && !note) {
       throw invalid('answer_required', 'a free-text answer needs a note');
     }
+    if (item.kind === 'merge_request') {
+      if (!this.mergeStart) throw conflict('inbox_item_closed', 'the merge request is no longer available');
+      await this.mergeStart(item, by);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    }
     if (item.kind === 'hand_on') {
       if (!handOnRequestOf(item) || !this.handOnMove)
         throw conflict('inbox_item_closed', 'the hand-on request is no longer available');
@@ -289,6 +341,10 @@ export class InboxService {
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
+    }
+    if (operator) {
+      if (!this.operatorDecision) throw forbidden('operator_never', 'Operator decisions are unavailable');
+      await this.operatorDecision(item, by, req.optionId);
     }
     const at = isoNow(this.ctx);
     const resolved = this.ctx.repos.inbox.close(
@@ -576,6 +632,16 @@ export class InboxService {
     // before it gets here; this is the same rule one step further, should one arrive anyway.
     if (this.ctx.repos.sessions.executionProfile(session.id) === 'managed_vm')
       return { behavior: 'deny', message: MANAGED_VM_NO_LOCAL_APPROVAL };
+    // The Operator's conversation with someone who is not an owner has the team tools alone (PM-475):
+    // anything else is refused at once, and never becomes an item for the owner to approve.
+    if (session.workItem.type === 'general' && session.workItem.with !== undefined) {
+      this.refused(session, {
+        toolName: request.toolName,
+        summary: summarizeToolInput(request.toolInput, session.cwd) || request.toolName,
+        by: 'approver_none',
+      });
+      return { behavior: 'deny', message: GUEST_CONVERSATION_REFUSAL };
+    }
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput, session.cwd);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
@@ -631,6 +697,8 @@ export class InboxService {
               cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd,
               role: member.role,
               provider: session.provider,
+              member: session.member,
+              branch: session.branch,
             },
             task,
             toolName: request.toolName,

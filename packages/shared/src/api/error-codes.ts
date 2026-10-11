@@ -4,6 +4,13 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'operator_signal_closed',
+  'merge_not_merger',
+  'merge_not_ready',
+  'merge_fix_not_allowed',
+  'merge_fix_invalid',
+  'merge_fix_engine_mismatch',
+  'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',
   'integrator_not_allowed',
@@ -43,6 +50,7 @@ export const ERROR_CODES = [
   'duplicate_repo',
   'stage_in_use',
   'missing_duty_holder',
+  'merger_unresolved',
   // Members, roles and invitations
   'handle_taken',
   'unknown_member',
@@ -59,7 +67,7 @@ export const ERROR_CODES = [
   'role_in_use',
   'project_manager_required',
   'operator_required',
-  'operator_only',
+  'operator_fixed',
   'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',
@@ -199,6 +207,13 @@ export const ERROR_CODES = [
   'focus_item_unknown',
   'focus_full',
   'focus_task_closed',
+  // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
+  // request of the owner; a tool it never calls.
+  'operator_owner_only',
+  'operator_no_request',
+  'operator_never',
+  'operator_only',
+  'operator_approval_stale',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

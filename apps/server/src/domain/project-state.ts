@@ -7,6 +7,7 @@ import type { TaskService } from './tasks';
 import type { PauseService } from './pause';
 import { LIVE_SESSION_STATES } from './sessions';
 import type { DeferredStarts } from './admission';
+import { invalid } from './errors';
 
 /** Read-only reports over the server's existing work records. */
 export class ProjectState {
@@ -26,8 +27,9 @@ export class ProjectState {
     const { ctx, projects, tasks, pauses } = this.deps;
     const config = await projects.config(projectKey);
     const task = tasks.get(projectKey, taskKey);
+    if (isTheme(task)) throw invalid('invalid_request', 'Project state requires a task, not a theme.');
     const stage = stageOf(config, task.stageId);
-    if (!stage) throw new Error(`Unknown stage: ${task.stageId}`);
+    if (!stage) throw invalid('unknown_stage', `Unknown stage: ${task.stageId}`);
     const next = config.pipeline.stages[config.pipeline.stages.indexOf(stage) + 1];
     const sessions = ctx.repos.sessions.list(projectKey, { taskKey });
     const session = sessions

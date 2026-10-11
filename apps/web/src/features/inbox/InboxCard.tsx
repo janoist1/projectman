@@ -2,9 +2,9 @@ import clsx from 'clsx';
 import { useId, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
-import { BoundaryReason } from '@projectman/shared';
+import { BoundaryReason, alertPayloadOf, handOnRequestOf } from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -32,6 +32,7 @@ import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import styles from './InboxCard.module.css';
+import { OutageAlert, OutageCheck } from './OutageAlert';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { QuestionBody, QuestionChoices, QuestionDetails } from './Question';
 
@@ -58,6 +59,39 @@ export interface InboxCardProps {
   /** Smaller card inside the task drawer. */
   compact?: boolean;
   headingLevel?: 2 | 3;
+  /** Why the last answer was refused (a closed gate on "Tovább"); shown under the buttons. */
+  error?: string | null;
+}
+
+/** The "Vidd tovább" sentence with the next column in bold (PM-461). */
+function HandOnText({
+  item,
+  members,
+  myHandle,
+  pipeline,
+}: {
+  item: InboxItem;
+  members: MemberIndex;
+  myHandle: string | null;
+  pipeline?: PipelineIndex | null;
+}) {
+  const request = handOnRequestOf(item);
+  if (!request) return null;
+  const stageName = (id: string) => pipeline?.stageById.get(id)?.name ?? id;
+  const marker = '\u0000';
+  const params = { step: stageName(request.fromStageId), stage: marker };
+  const text = t('inbox.handOn.text', {
+    ...params,
+    owner: nameOf(request.requestedBy, members, myHandle),
+  });
+  const [before = '', after = ''] = text.split(marker);
+  return (
+    <p className={styles.body}>
+      {before}
+      <strong>{stageName(request.toStageId)}</strong>
+      {after}
+    </p>
+  );
 }
 
 /** One inbox request, including delegated boundary decisions. */
@@ -74,7 +108,9 @@ export function InboxCard({
   mobile = false,
   compact = false,
   headingLevel = 2,
+  error = null,
 }: InboxCardProps) {
+  const handOn = handOnRequestOf(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const choices = withConsequences(
     item,
@@ -95,7 +131,8 @@ export function InboxCard({
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   // The task the request is about: the most useful background of the decision, under the header row.
-  const contextTitle = taskTitle || (gateMove && item.title ? item.title : null);
+  // A "Vidd tovább" item names the card in its own heading.
+  const contextTitle = handOn ? null : taskTitle || (gateMove && item.title ? item.title : null);
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
@@ -108,6 +145,9 @@ export function InboxCard({
   const fixLimitText = fixLimitDecisionText(item, members, myHandle);
   const seniorWaitText = seniorWaitDecisionText(item, members, myHandle);
   const alert = alertText(item, members, myHandle, labels) ?? loopText ?? fixLimitText ?? seniorWaitText;
+  // An outage (a provider or an engine that cannot work, PM-468) has its own body, and "Check now".
+  const alertPayload = item.kind === 'alert' ? alertPayloadOf(item) : null;
+  const outageAlert = alertPayload?.alert === 'work_outage' ? alertPayload : null;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
@@ -132,6 +172,7 @@ export function InboxCard({
     <article
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={item.kind}
+      data-alert={outageAlert ? 'work_outage' : undefined}
     >
       <div className={styles.head}>
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
@@ -187,7 +228,11 @@ export function InboxCard({
           </label>
         </div>
       ) : null}
+      {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
+      {outageAlert ? (
+        <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
+      ) : null}
       {item.body && loopText === null && fixLimitText === null && seniorWaitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
@@ -261,7 +306,25 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : (
+      {assignedToOthers ? null : handOn ? (
+        <div className={clsx(styles.actions, styles.handOnActions)}>
+          <Button
+            variant="primary"
+            size={buttonSize}
+            disabled={pending}
+            onClick={() => onResolve(item, { optionId: 'move' })}
+          >
+            {t('inbox.handOn.move', {
+              stage: pipeline?.stageById.get(handOn.toStageId)?.name ?? handOn.toStageId,
+            })}
+          </Button>
+          {detailsHref ? (
+            <ButtonLink to={detailsHref} variant="secondary" size={buttonSize}>
+              {t('inbox.handOn.open')}
+            </ButtonLink>
+          ) : null}
+        </div>
+      ) : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
           {answering ? (
             <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={pending}>
@@ -290,6 +353,9 @@ export function InboxCard({
               </Button>
             ))
           )}
+          {outageAlert && item.state === 'open' ? (
+            <OutageCheck item={item} size={buttonSize === 'xl' ? 'xl' : 'lg'} />
+          ) : null}
           {allowsFreeAnswer && !answering ? (
             <Button variant="ghost" size={buttonSize} onClick={() => setAnswering(true)} disabled={pending}>
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}
@@ -306,7 +372,12 @@ export function InboxCard({
           ) : null}
         </div>
       )}
-      {detailsHref && mobile ? (
+      {error ? (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      ) : null}
+      {detailsHref && mobile && !handOn ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

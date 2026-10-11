@@ -2,11 +2,13 @@ import path from 'node:path';
 import {
   AttachmentId,
   effectiveRepo,
+  ERROR_CODES,
+  ownerHandles,
   isOpenTask,
+  isOperator,
   isTheme,
   MAX_ATTACHMENT_BYTES,
   memberOf,
-  isOperator,
   needsRepoChoice,
   questionChoices,
   TaskStatus as TaskStatusSchema,
@@ -14,8 +16,11 @@ import {
 } from '@projectman/shared';
 import type {
   Attachment,
+  ErrorCode,
   InboxOption,
   MemberView,
+  OperatorAction,
+  OperatorStepStatus,
   ProjectConfig,
   QuestionOptionInput,
   Session,
@@ -31,6 +36,7 @@ import type {
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
 } from '@projectman/shared';
+import { taskWaitShort } from '../agent-text';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type {
   AttachmentOperations,
@@ -66,16 +72,29 @@ import type { InboxService } from './inbox';
 import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
+import {
+  OPERATOR_GUEST_TOOLS,
+  OPERATOR_NEVER_TOOLS,
+  OPERATOR_READ_TOOLS,
+  OPERATOR_TOOL_ACTIONS,
+} from './operator-requests';
+import type { OperatorRequests, OperatorSteps } from './operator-requests';
+import { canSeeTask, clientCanSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from './visibility';
+import type { Viewer } from './visibility';
+import type { OperatorActions } from './operator-actions';
+import type { OperatorSignals } from './operator-signals';
+import type { TaskStarts } from './admission';
+import type { OperatorOperation } from '@projectman/shared';
 import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
 import type { ProjectState } from './project-state';
 import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
-import type { TaskService } from './tasks';
+import type { TaskService, TaskWaits } from './tasks';
 import { attachmentToolRules } from './session-policy';
 import type { TimelineService } from './timeline';
-import { aiActor, unique } from './util';
+import { aiActor, humanActor, unique } from './util';
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 /** Attachments get_task shows; the rest are paged with list_attachments. */
@@ -150,8 +169,33 @@ function toFileToolError(err: unknown, requested: string): unknown {
   return err;
 }
 
+/** A refused call as the step log keeps it: the named error code, or the nearest one of the tool error. */
+function refusalOf(err: unknown): { code: ErrorCode; message: string } {
+  if (err instanceof DomainError) return { code: err.code, message: err.message };
+  if (err instanceof TeamToolError) {
+    const named = /^([a-z_]+):/.exec(err.message)?.[1];
+    if (named && (ERROR_CODES as readonly string[]).includes(named))
+      return { code: named as ErrorCode, message: err.message };
+    const byTool = {
+      not_found: 'not_found',
+      forbidden: 'unauthorized',
+      invalid: 'invalid_request',
+      gate_blocked: 'gate_blocked',
+    } as const;
+    return { code: byTool[err.code], message: err.message };
+  }
+  return { code: 'internal_error', message: err instanceof Error ? err.message : String(err) };
+}
+
+/** The owners of the project: the people the Operator may report and ask. */
+function isOwner(config: ProjectConfig, handle: string): boolean {
+  return ownerHandles(config).includes(handle);
+}
+
 function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
+  if (err.code === 'operator_signal_closed')
+    return new TeamToolError('invalid', `${err.code}: ${err.message}`);
   if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
   if (err.status === 403) return new TeamToolError('forbidden', err.message);
   if (err.code === 'gate_blocked' || err.code === 'approval_requested') {
@@ -159,6 +203,21 @@ function toToolError(err: unknown): unknown {
   }
   return new TeamToolError('invalid', err.message);
 }
+
+/** A tool's caller and, for the Operator, the owner request the call runs for (null for any other caller). */
+interface CallerWithRequest {
+  config: ProjectConfig;
+  request: ReturnType<OperatorRequests['openFor']>;
+  /** The person the Operator talks with when they are not an owner: it reads what they see and answers them (PM-475). */
+  guest: GuestView | null;
+}
+
+interface GuestView {
+  handle: string;
+  viewer: Viewer;
+}
+
+const OWNER_ONLY = 'operator_owner_only';
 
 /**
  * The team tools behind the MCP server (mcp__team__*): they check the arguments, call the
@@ -170,10 +229,10 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async getProjectState(ctx: ToolContext, args: { taskKey?: string }) {
     return this.guard(async () => {
-      const config = await this.projects.config(ctx.projectKey);
+      const config = await this.caller(ctx, 'get_project_state');
       const member = memberOf(config, ctx.member);
       if (!member || !isOperator(member))
-        throw new TeamToolError('operator_only', 'Only the Operator may read project state.');
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.');
       return args.taskKey
         ? this.projectState.task(ctx.projectKey, this.validTaskKey(ctx, args.taskKey))
         : this.projectState.overview(ctx.projectKey);
@@ -181,7 +240,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest) {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'submit_boundary_request');
       return await this.boundary.submit(
         { projectKey: ctx.projectKey, member: ctx.member, sessionId: ctx.sessionId, taskKey: ctx.taskKey },
         args,
@@ -192,7 +251,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async getBoundaryRequest(ctx: ToolContext, args: { requestId: string }) {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'get_boundary_request');
       return await this.boundary.read(ctx.projectKey, args.requestId, ctx.member);
     } catch (err) {
       throw toToolError(err);
@@ -200,7 +259,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async decideBoundaryRequest(ctx: ToolContext, args: DecideBoundaryRequest & { requestId: string }) {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'decide_boundary_request');
       return await this.boundary.decide(
         ctx.projectKey,
         args.requestId,
@@ -217,7 +276,7 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
   ) {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'decide_permission_request');
       const item = await this.inbox.resolveDelegated(ctx.projectKey, args.requestId, ctx.member, {
         decision: args.decision,
         reason: args.reason,
@@ -245,7 +304,7 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; decision: FixLimitDecision; reason: string },
   ) {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'decide_fix_limit');
       return await this.fixLimit.decide(ctx.member, ctx.projectKey, args.taskKey, args.decision, args.reason);
     } catch (err) {
       throw toToolError(err);
@@ -253,7 +312,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }> {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'hand_off');
       await this.handoffs.recordNote(ctx, this.validTaskKey(ctx, args.taskKey), args.note);
       return { recorded: true };
     } catch (err) {
@@ -262,7 +321,7 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   async listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]> {
     try {
-      await this.caller(ctx);
+      await this.caller(ctx, 'list_network_denials');
       return (this.egress?.recentDenials(ctx) ?? []).map((operation) => ({
         operationId: operation.id,
         destination: `${operation.host}:${operation.port}`,
@@ -277,11 +336,26 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey?: string; commit: string; title?: string; body?: string },
   ) {
+    try {
+      await this.caller(ctx, 'publish_task_branch');
+    } catch (err) {
+      throw toToolError(err);
+    }
     return this.publishing.publish(ctx, args);
   }
   async getRemoteState(ctx: ToolContext, args: { taskKey: string }) {
+    try {
+      await this.caller(ctx, 'get_remote_state');
+    } catch (err) {
+      throw toToolError(err);
+    }
     return this.publishing.remoteState(ctx, { taskKey: this.validTaskKey(ctx, args.taskKey) });
   }
+  private readonly operatorRequests: Pick<OperatorRequests, 'openFor'>;
+  private readonly operatorSteps: Pick<OperatorSteps, 'record'>;
+  private readonly operatorActions: OperatorActions;
+  private readonly operatorSignals: OperatorSignals;
+  private readonly taskStarts: TaskStarts;
   private readonly boundary: BoundaryService;
   private readonly egress: EgressService | null;
   private readonly publishing: PublishingGate;
@@ -290,7 +364,9 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
+  private readonly merges: import('./merges').Merges;
   private readonly tasks: TaskService;
+  private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
@@ -323,7 +399,10 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The questions asked on a card, which get_task lists (PM-249). */
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
+    merges: import('./merges').Merges;
     tasks: TaskService;
+    /** Why cards stand still (PM-460): get_task and list_tasks say it. */
+    taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
     /** The project's focus (PM-437): list_tasks and get_task show a card's place in it. */
     projectFocus: Pick<ProjectFocusService, 'places'>;
     members: MemberService;
@@ -355,8 +434,20 @@ export class TeamToolsService implements TeamToolsHandler {
     ) => Pick<EngineHost, 'sessionFolders' | 'isRealDirectory' | 'openWorkspaceFile'> | undefined;
     /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
     screenshots?: Pick<ScreenshotRuns, 'take' | 'get'>;
+    /** The owner's requests to the Operator (PM-463): its writes need an open one. */
+    operatorRequests: Pick<OperatorRequests, 'openFor'>;
+    /** The Operator's step log (PM-463). */
+    operatorSteps: Pick<OperatorSteps, 'record'>;
+    operatorActions: OperatorActions;
+    operatorSignals: OperatorSignals;
+    taskStarts: TaskStarts;
   }) {
     this.projectState = deps.projectState;
+    this.operatorRequests = deps.operatorRequests;
+    this.operatorSteps = deps.operatorSteps;
+    this.operatorActions = deps.operatorActions;
+    this.operatorSignals = deps.operatorSignals;
+    this.taskStarts = deps.taskStarts;
     this.screenshots = deps.screenshots;
     this.sessionEngine = deps.sessionEngine;
     this.boundary = deps.boundary;
@@ -366,7 +457,9 @@ export class TeamToolsService implements TeamToolsHandler {
     this.sessions = deps.sessions;
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
+    this.merges = deps.merges;
     this.tasks = deps.tasks;
+    this.taskWaits = deps.taskWaits;
     this.projectFocus = deps.projectFocus;
     this.members = deps.members;
     this.messaging = deps.messaging;
@@ -385,7 +478,14 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async sendMessage(
     ctx: ToolContext,
-    args: { to: string[]; text: string; taskKey?: string; kind: 'action' | 'info' },
+    args: {
+      to: string[];
+      text: string;
+      taskKey?: string;
+      kind: 'action' | 'info';
+      signalId?: string;
+      signalActionable?: boolean;
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: string[];
@@ -393,47 +493,100 @@ export class TeamToolsService implements TeamToolsHandler {
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx);
-      // A person's decision or action is asked with ask_human, which lands in their "Rád vár" list; a message
-      // to a person carries information only (PM-445). The whole call is refused, so no half message goes out.
-      if (args.kind === 'action' && args.to.some((handle) => memberOf(config, handle)?.kind === 'human')) {
-        throw new TeamToolError(
-          'invalid',
-          'use_ask_human: a human\'s decision or action is asked with ask_human; send_message to a human carries information only (kind "info"). Nothing was sent: ask the human with ask_human, and message AI members separately.',
-        );
-      }
-      const taskKey = this.taskKeyFor(ctx, args.taskKey);
-      // Humans have it in their messages now; AI recipients get it typed into their session
-      // for the work item as soon as that session is idle (queued, never awaited here).
-      const { message, recipients } = await this.messaging
-        .sendReporting(
-          ctx.projectKey,
-          ctx.member,
-          { to: args.to, text: args.text, taskKey },
-          { actor: aiActor(ctx.member), sessionId: ctx.sessionId, kind: args.kind },
-        )
-        .catch((err: unknown) => {
-          throw toMessageToolError(err);
-        });
-      const routed = (message.receipts ?? []).flatMap((r) =>
-        r.route ? [{ handle: r.handle, workItem: r.route }] : [],
+      const signal = args.signalId !== undefined || args.signalActionable !== undefined;
+      const who = await this.callerWithRequest(
+        ctx,
+        'send_message',
+        signal ? { id: args.signalId, to: args.to } : undefined,
       );
-      return {
-        messageId: message.id,
-        deliveredTo: message.to,
-        recipients,
-        ...(routed.length > 0 ? { routed } : {}),
-      };
+      const { config, guest } = who;
+      // In a guest's conversation the Operator answers that person and nobody else; that is no step (PM-475).
+      if (guest) {
+        const other = args.to.find((handle) => handle !== guest.handle);
+        if (other !== undefined || args.to.length === 0) {
+          this.recordRefusedWrite(who, 'send_message', other);
+          throw new TeamToolError(
+            'forbidden',
+            `${OWNER_ONLY}: in this conversation you answer ${guest.handle} only; a message to anyone else is for the project owner to ask.`,
+          );
+        }
+        if (args.taskKey !== undefined) this.visibleTaskKey(ctx, guest, args.taskKey);
+      }
+      // To the owner the Operator only reports; to anyone else it acts for the request: a step (PM-463).
+      // A message has one step, so with several such recipients it names the first as its `member`.
+      const elsewhere = guest ? undefined : args.to.find((handle) => !isOwner(config, handle));
+      return this.recorded(
+        who,
+        elsewhere !== undefined
+          ? { action: 'message', taskKey: args.taskKey ?? ctx.taskKey ?? null, member: elsewhere }
+          : null,
+        async () => {
+          // A person's decision or action is asked with ask_human, which lands in their "Rád vár" list; a message
+          // to a person carries information only (PM-445). The whole call is refused, so no half message goes out.
+          if (
+            args.kind === 'action' &&
+            args.to.some((handle) => memberOf(config, handle)?.kind === 'human')
+          ) {
+            throw new TeamToolError(
+              'invalid',
+              'use_ask_human: a human\'s decision or action is asked with ask_human; send_message to a human carries information only (kind "info"). Nothing was sent: ask the human with ask_human, and message AI members separately.',
+            );
+          }
+          const taskKey = this.taskKeyFor(ctx, args.taskKey);
+          // Humans have it in their messages now; AI recipients get it typed into their session
+          // for the work item as soon as that session is idle (queued, never awaited here).
+          const { message, recipients } = await this.messaging
+            .sendReporting(
+              ctx.projectKey,
+              ctx.member,
+              { to: args.to, text: args.text, taskKey },
+              {
+                actor: aiActor(ctx.member),
+                sessionId: ctx.sessionId,
+                kind: args.kind,
+                operatorRequest: who.request?.id,
+                operatorSignal: args.signalId,
+                signalActionable: args.signalActionable ?? false,
+              },
+            )
+            .catch((err: unknown) => {
+              throw toMessageToolError(err);
+            });
+          const routed = (message.receipts ?? []).flatMap((r) =>
+            r.route ? [{ handle: r.handle, workItem: r.route }] : [],
+          );
+          return {
+            messageId: message.id,
+            deliveredTo: message.to,
+            recipients,
+            ...(routed.length > 0 ? { routed } : {}),
+          };
+        },
+      );
     });
   }
 
   async listMembers(ctx: ToolContext): Promise<MemberView[]> {
-    return this.guard(async () => this.members.rosterFor(await this.caller(ctx)));
+    return this.guard(async () => {
+      const { config, guest } = await this.callerWithRequest(ctx, 'list_members');
+      return guest ? this.members.rosterForViewer(config, guest.viewer) : this.members.rosterFor(config);
+    });
+  }
+
+  /**
+   * A task key of the caller's project that the guest may see: a card they may not see does not exist
+   * for them (PM-475). Without a guest (any other caller) it is `validTaskKey`.
+   */
+  private visibleTaskKey(ctx: ToolContext, guest: GuestView | null, taskKey: string): string {
+    const key = this.validTaskKey(ctx, taskKey);
+    if (guest && !canSeeTask(guest.viewer, this.tasks.get(ctx.projectKey, key)))
+      throw new TeamToolError('not_found', `Task ${key} does not exist in this project.`);
+    return key;
   }
 
   async listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      const { config, guest } = await this.callerWithRequest(ctx, 'list_tasks');
       const status = args.status ?? 'open';
       const limit = args.limit ?? 50;
       if (status !== 'open' && !TaskStatusSchema.safeParse(status).success) {
@@ -444,18 +597,22 @@ export class TeamToolsService implements TeamToolsHandler {
       }
       const assignee = args.assignee === 'me' ? ctx.member : args.assignee;
       const places = this.projectFocus.places(ctx.projectKey);
-      return this.tasks
+      const cards = this.tasks
         .list(ctx.projectKey)
         .filter(
           (task) =>
+            (!guest || canSeeTask(guest.viewer, task)) &&
             (status === 'open' ? isOpenTask(task) : task.status === status) &&
             // A theme is in no stage (it carries the first one's id because the field is required).
             (args.stage === undefined || (!isTheme(task) && task.stageId === args.stage)) &&
             (assignee === undefined || task.assignee === assignee),
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key))
-        .slice(0, limit)
-        .map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => ({
+        .slice(0, limit);
+      const waits = this.taskWaits.of(config, cards);
+      return cards.map(({ key, title, stageId, status, assignee, labels, updatedAt, kind, priority }) => {
+        const wait = waits.get(key);
+        return {
           key,
           title,
           stageId,
@@ -465,68 +622,134 @@ export class TeamToolsService implements TeamToolsHandler {
           updatedAt,
           ...(kind === 'theme' ? { kind } : {}),
           ...(priority !== null ? { priority } : {}),
-          ...(places.has(key) ? { focus: places.get(key) } : {}),
-        }));
+          // What the team plans and why a card stands still is not shown to a client (PM-475).
+          ...(places.has(key) && guest?.viewer.access !== 'client' ? { focus: places.get(key) } : {}),
+          ...(wait && guest?.viewer.access !== 'client' ? { waitsFor: taskWaitShort(wait) } : {}),
+        };
+      });
     });
   }
 
   async getTask(ctx: ToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail> {
     return this.guard(async () => {
-      const config = await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
-      const detail = this.tasks.detail(ctx.projectKey, taskKey, 50);
-      if (args.eventId !== undefined) {
-        const event = this.timeline.get(ctx.projectKey, args.eventId);
-        if (!event || event.taskKey !== taskKey)
-          throw new TeamToolError('not_found', `${taskKey} has no timeline event ${args.eventId}.`);
-        return { ...detail, event };
-      }
-      const attachments = await this.attachments.list(ctx.projectKey, taskKey, aiActor(ctx.member));
-      // A card shows its theme (its own, or its parent's); a theme shows its cards and how far it is (PM-192).
-      const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
-      const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
-      const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
-      const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
-      return {
-        ...detail,
-        effectiveRepo: effectiveRepo(config, detail.task),
-        ...(focus ? { focus } : {}),
-        repoChoiceNeeded: needsRepoChoice(config, detail.task),
-        relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
-        ...(themeCard
-          ? {
-              theme: {
-                key: themeCard.key,
-                title: themeCard.title,
-                stageId: themeCard.stageId,
-                status: themeCard.status,
-              },
-            }
-          : {}),
-        ...(theme ? { themeCards: theme.cards, themeProgress: theme.progress } : {}),
-        // Who works on the card now and what was asked on it (PM-249), as the brief lists them.
-        workingSessionIds: this.sessions
-          .cardWorkers(ctx.projectKey, detail.task, config)
-          .map((session) => session.id),
-        ...(cardWorkers.length ? { cardWorkers } : {}),
-        cardQuestions: this.cardQuestions.list(ctx.projectKey, taskKey, { limit: QUESTION_LIMIT }),
-        attachments: {
-          attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
-          total: attachments.length,
-          offset: 0,
-        },
-        // The timeline shows excerpts: a message that is on its way says so (PM-180).
-        undeliveredMessageIds: this.ctx.repos.messages.pending(ctx.projectKey, ctx.member).map((m) => m.id),
-        // The caller's own messages on this card that are not typed in for every AI recipient yet (PM-144).
-        pendingSentMessages: this.ctx.repos.messages
-          .pendingFrom(ctx.projectKey, ctx.member, taskKey)
-          .flatMap((m) => {
-            const waiting = (m.receipts ?? []).filter((r) => r.kind === 'ai' && !r.deliveredAt);
-            const handles = m.to.filter((handle) => waiting.some((r) => r.handle === handle));
-            return handles.length > 0 ? [{ messageId: m.id, handles }] : [];
-          }),
-      };
+      const { config, guest } = await this.callerWithRequest(ctx, 'get_task');
+      const taskKey = this.visibleTaskKey(ctx, guest, args.taskKey);
+      const whole = await this.taskToolDetail(ctx, config, taskKey, args.eventId, guest);
+      return guest ? this.taskDetailForGuest(ctx.projectKey, whole, guest.viewer) : whole;
     });
+  }
+
+  /**
+   * The task detail as the guest of the Operator sees it (PM-475), by the rules of the REST detail: a
+   * client's card links lead only to cards they see, and they get the milestones of the timeline only;
+   * what the team does about the card (who works on it, its questions, why it waits) is not theirs.
+   */
+  private taskDetailForGuest(projectKey: string, whole: TaskToolDetail, viewer: Viewer): TaskToolDetail {
+    const canSeeKey = (key: string) => {
+      const other = this.tasks.find(projectKey, key);
+      return !!other && canSeeTask(viewer, other);
+    };
+    const participants = (id: string) => this.ctx.repos.messages.get(id);
+    const { event, ...rest } = whole;
+    const shown = visibleTaskDetail(viewer, rest, canSeeKey, participants);
+    if (event) {
+      const seen = visibleTimelineEvent(viewer, event, participants);
+      if (viewer.access === 'client' && !clientCanSeeTimelineEvent(seen))
+        throw new TeamToolError('not_found', `${shown.task.key} has no timeline event ${event.id}.`);
+      return { ...shown, event: seen };
+    }
+    if (viewer.access !== 'client') return { ...rest, ...shown };
+    const {
+      wait: _wait,
+      focus: _focus,
+      cardWorkers: _workers,
+      workingSessionIds: _working,
+      cardQuestions: _questions,
+      undeliveredMessageIds: _undelivered,
+      pendingSentMessages: _pending,
+      theme,
+      ...open
+    } = rest;
+    return {
+      ...open,
+      ...shown,
+      ...(open.relations ? { relations: open.relations.filter((relation) => canSeeKey(relation.key)) } : {}),
+      ...(theme && canSeeKey(theme.key) ? { theme } : {}),
+      ...(open.themeCards
+        ? {
+            themeCards: open.themeCards
+              .filter((card) => canSeeKey(card.key))
+              .map((card) => ({ ...card, subtasks: card.subtasks.filter((sub) => canSeeKey(sub.key)) })),
+          }
+        : {}),
+    };
+  }
+
+  private async taskToolDetail(
+    ctx: ToolContext,
+    config: ProjectConfig,
+    taskKey: string,
+    eventId: string | undefined,
+    guest: GuestView | null,
+  ): Promise<TaskToolDetail> {
+    const detail = this.tasks.detail(ctx.projectKey, taskKey, 50);
+    if (eventId !== undefined) {
+      const event = this.timeline.get(ctx.projectKey, eventId);
+      if (!event || event.taskKey !== taskKey)
+        throw new TeamToolError('not_found', `${taskKey} has no timeline event ${eventId}.`);
+      return { ...detail, event };
+    }
+    const attachments = await this.attachments.list(
+      ctx.projectKey,
+      taskKey,
+      guest ? humanActor(guest.handle) : aiActor(ctx.member),
+    );
+    // A card shows its theme (its own, or its parent's); a theme shows its cards and how far it is (PM-192).
+    const themeCard = detail.task.themeKey ? this.tasks.find(ctx.projectKey, detail.task.themeKey) : null;
+    const theme = isTheme(detail.task) ? this.tasks.themeOf(ctx.projectKey, taskKey) : null;
+    const cardWorkers = this.sessions.cardWorkersFor(config, detail.task, ctx.member);
+    const focus = this.projectFocus.places(ctx.projectKey).get(taskKey);
+    const wait = this.taskWaits.ofCard(config, detail.task);
+    return {
+      ...detail,
+      ...(wait ? { wait } : {}),
+      effectiveRepo: effectiveRepo(config, detail.task),
+      ...(focus ? { focus } : {}),
+      repoChoiceNeeded: needsRepoChoice(config, detail.task),
+      relations: this.tasks.relationsOf(ctx.projectKey, taskKey),
+      ...(themeCard
+        ? {
+            theme: {
+              key: themeCard.key,
+              title: themeCard.title,
+              stageId: themeCard.stageId,
+              status: themeCard.status,
+            },
+          }
+        : {}),
+      ...(theme ? { themeCards: theme.cards, themeProgress: theme.progress } : {}),
+      // Who works on the card now and what was asked on it (PM-249), as the brief lists them.
+      workingSessionIds: this.sessions
+        .cardWorkers(ctx.projectKey, detail.task, config)
+        .map((session) => session.id),
+      ...(cardWorkers.length ? { cardWorkers } : {}),
+      cardQuestions: this.cardQuestions.list(ctx.projectKey, taskKey, { limit: QUESTION_LIMIT }),
+      attachments: {
+        attachments: attachments.slice(0, ATTACHMENTS_IN_TASK),
+        total: attachments.length,
+        offset: 0,
+      },
+      // The timeline shows excerpts: a message that is on its way says so (PM-180).
+      undeliveredMessageIds: this.ctx.repos.messages.pending(ctx.projectKey, ctx.member).map((m) => m.id),
+      // The caller's own messages on this card that are not typed in for every AI recipient yet (PM-144).
+      pendingSentMessages: this.ctx.repos.messages
+        .pendingFrom(ctx.projectKey, ctx.member, taskKey)
+        .flatMap((m) => {
+          const waiting = (m.receipts ?? []).filter((r) => r.kind === 'ai' && !r.deliveredAt);
+          const handles = m.to.filter((handle) => waiting.some((r) => r.handle === handle));
+          return handles.length > 0 ? [{ messageId: m.id, handles }] : [];
+        }),
+    };
   }
 
   async listAttachments(
@@ -534,15 +757,19 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; offset?: number; limit?: number },
   ): Promise<AttachmentPage> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const { guest } = await this.callerWithRequest(ctx, 'list_attachments');
+      const taskKey = this.visibleTaskKey(ctx, guest, args.taskKey);
       const offset = args.offset ?? 0;
       const limit = args.limit ?? 50;
       if (!Number.isInteger(offset) || offset < 0)
         throw new TeamToolError('invalid', 'offset must be a whole number, 0 or more.');
       if (!Number.isInteger(limit) || limit < 1 || limit > MAX_ATTACHMENT_PAGE)
         throw new TeamToolError('invalid', `limit must be an integer between 1 and ${MAX_ATTACHMENT_PAGE}.`);
-      const all = await this.attachments.list(ctx.projectKey, taskKey, aiActor(ctx.member));
+      const all = await this.attachments.list(
+        ctx.projectKey,
+        taskKey,
+        guest ? humanActor(guest.handle) : aiActor(ctx.member),
+      );
       return { attachments: all.slice(offset, offset + limit), total: all.length, offset };
     });
   }
@@ -552,11 +779,11 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; attachmentId: string },
   ): Promise<LocatedAttachmentForTool> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const { guest } = await this.callerWithRequest(ctx, 'read_attachment');
+      const taskKey = this.visibleTaskKey(ctx, guest, args.taskKey);
       const id = this.validAttachmentId(args.attachmentId);
       const located = await this.attachments
-        .locate(ctx.projectKey, taskKey, id, aiActor(ctx.member))
+        .locate(ctx.projectKey, taskKey, id, guest ? humanActor(guest.handle) : aiActor(ctx.member))
         .catch((err: unknown) => {
           throw toAttachmentToolError(err, taskKey, id);
         });
@@ -590,65 +817,74 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; path: string },
   ): Promise<{ attachment: Attachment }> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
-      const actor = aiActor(ctx.member);
-      await this.attachments.assertCanUpload(ctx.projectKey, taskKey, actor);
-      // The directories are the ones the server started the session with; the caller never names
-      // them. The session folder is the one the server made for this process (it remembers it; the
-      // path is never derived from the id) and counts only while it exists.
-      const session = this.callerSession(ctx);
-      const engine = this.sessionEngine?.(session.id);
-      if (!engine) throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
-      const recorded = engine.sessionFolders?.of(session.id);
-      const folder = recorded && (await engine.isRealDirectory(recorded)) ? recorded : null;
-      const inFolder =
-        folder !== null && path.isAbsolute(args.path) && isWithin(folder, path.resolve(args.path));
-      const place = inFolder
-        ? { name: 'your session folder' }
-        : {
-            name: 'your working directory',
-            ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
-          };
-      const file = await engine
-        .openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
-          maxBytes: MAX_ATTACHMENT_BYTES,
-          place,
-          // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
-          exactRoot: inFolder,
-          sessionId: session.id,
-        })
-        .catch((err: unknown) => {
-          throw toFileToolError(err, args.path);
-        });
-      try {
-        const attachment = await this.attachments.upload({
-          projectKey: ctx.projectKey,
-          taskKey,
-          actor,
-          fileName: file.name,
-          content: file.stream(),
-          beforeCommit: () => file.verifyUnchanged(),
-        });
-        return { attachment };
-      } catch (err) {
-        throw toFileToolError(err, args.path);
-      } finally {
-        await file.close();
-      }
+      const who = await this.callerWithRequest(ctx, 'attach_file');
+      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, () =>
+        this.attachFileOf(ctx, args),
+      );
     });
+  }
+
+  private async attachFileOf(
+    ctx: ToolContext,
+    args: { taskKey: string; path: string },
+  ): Promise<{ attachment: Attachment }> {
+    const taskKey = this.validTaskKey(ctx, args.taskKey);
+    const actor = aiActor(ctx.member);
+    await this.attachments.assertCanUpload(ctx.projectKey, taskKey, actor);
+    // The directories are the ones the server started the session with; the caller never names
+    // them. The session folder is the one the server made for this process (it remembers it; the
+    // path is never derived from the id) and counts only while it exists.
+    const session = this.callerSession(ctx);
+    const engine = this.sessionEngine?.(session.id);
+    if (!engine) throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
+    const recorded = engine.sessionFolders?.of(session.id);
+    const folder = recorded && (await engine.isRealDirectory(recorded)) ? recorded : null;
+    const inFolder =
+      folder !== null && path.isAbsolute(args.path) && isWithin(folder, path.resolve(args.path));
+    const place = inFolder
+      ? { name: 'your session folder' }
+      : {
+          name: 'your working directory',
+          ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
+        };
+    const file = await engine
+      .openWorkspaceFile(inFolder ? folder : session.cwd, args.path, {
+        maxBytes: MAX_ATTACHMENT_BYTES,
+        place,
+        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
+        exactRoot: inFolder,
+        sessionId: session.id,
+      })
+      .catch((err: unknown) => {
+        throw toFileToolError(err, args.path);
+      });
+    try {
+      const attachment = await this.attachments.upload({
+        projectKey: ctx.projectKey,
+        taskKey,
+        actor,
+        fileName: file.name,
+        content: file.stream(),
+        beforeCommit: () => file.verifyUnchanged(),
+      });
+      return { attachment };
+    } catch (err) {
+      throw toFileToolError(err, args.path);
+    } finally {
+      await file.close();
+    }
   }
 
   async takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      await this.caller(ctx, 'take_screenshots');
       return this.screenshotRuns().take(ctx, input);
     });
   }
 
   async getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      await this.caller(ctx, 'get_screenshot_run');
       return this.screenshotRuns().get(ctx, runId);
     });
   }
@@ -664,24 +900,43 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; attachmentId: string },
   ): Promise<{ attachmentId: string; fileName: string | null }> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
-      const id = this.validAttachmentId(args.attachmentId);
-      const actor = aiActor(ctx.member);
-      const fileName =
-        (await this.attachments.list(ctx.projectKey, taskKey, actor)).find((a) => a.id === id)?.fileName ??
-        null;
-      // The same rule as the REST route: the uploader, or a human owner or admin.
-      await this.attachments.delete(ctx.projectKey, taskKey, id, actor).catch((err: unknown) => {
-        if (err instanceof DomainError && err.status === 403)
-          throw new TeamToolError(
-            'forbidden',
-            `You can delete only the attachments you attached yourself; ${id} is someone else's. Ask an ` +
-              'owner or admin if it has to go.',
-          );
-        throw toAttachmentToolError(err, taskKey, id);
+      const who = await this.callerWithRequest(ctx, 'delete_attachment');
+      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, async () => {
+        const taskKey = this.validTaskKey(ctx, args.taskKey);
+        const id = this.validAttachmentId(args.attachmentId);
+        const actor = aiActor(ctx.member);
+        const fileName =
+          (await this.attachments.list(ctx.projectKey, taskKey, actor)).find((a) => a.id === id)?.fileName ??
+          null;
+        // The same rule as the REST route: the uploader, or a human owner or admin.
+        await this.attachments.delete(ctx.projectKey, taskKey, id, actor).catch((err: unknown) => {
+          if (err instanceof DomainError && err.status === 403)
+            throw new TeamToolError(
+              'forbidden',
+              `You can delete only the attachments you attached yourself; ${id} is someone else's. Ask an ` +
+                'owner or admin if it has to go.',
+            );
+          throw toAttachmentToolError(err, taskKey, id);
+        });
+        return { attachmentId: id, fileName };
       });
-      return { attachmentId: id, fileName };
+    });
+  }
+
+  async mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }> {
+    return this.guard(async () => {
+      await this.caller(ctx, 'merge_task');
+      return {
+        task: await this.merges.start(
+          ctx.projectKey,
+          this.validTaskKey(ctx, args.taskKey),
+          aiActor(ctx.member),
+          args,
+        ),
+      };
     });
   }
 
@@ -703,57 +958,82 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
-      // The whole call is one change, all or nothing: title, description, labels and note are
-      // recorded before the stage move, so one call can add "code review ok" and pass the gate.
-      if (args.stageId && !config.pipeline.stages.some((s) => s.id === args.stageId)) {
-        throw new TeamToolError(
-          'invalid',
-          `Unknown stage "${args.stageId}". Stages in pipeline order: ` +
-            `${config.pipeline.stages.map((s) => s.id).join(', ')}.`,
-        );
-      }
-      const title = args.title?.trim();
-      if (args.title !== undefined && !title) throw new TeamToolError('invalid', 'The title is empty.');
-      const description = args.description?.trim();
-      if (args.description !== undefined && !description) {
-        throw new TeamToolError('invalid', 'The description is empty; pass the whole new description.');
-      }
-      try {
-        const task = await this.tasks.update(
-          ctx.projectKey,
-          taskKey,
-          {
-            title,
-            description,
-            repo: args.repo,
-            ...(args.relations ? { relations: args.relations } : {}),
-            ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
-            ...(args.priority !== undefined ? { priority: args.priority } : {}),
-            ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
-            addLabels: args.addLabels,
-            removeLabels: args.removeLabels,
-            note: args.note,
-            stageId: args.stageId,
-          },
-          aiActor(ctx.member),
-          { sessionId: ctx.sessionId },
-        );
-        return { task };
-      } catch (err) {
-        if (err instanceof DomainError && err.code === 'approval_requested') {
-          const { approvers } = err.details as { approvers: string[] };
-          throw new TeamToolError(
-            'gate_blocked',
-            `Moving ${taskKey} to ${args.stageId} needs a human approval. It was requested from ` +
-              `${approvers.join(', ')}; the task moves automatically once they approve. The rest of this ` +
-              'call was recorded.',
-          );
-        }
-        throw err;
-      }
+      const who = await this.callerWithRequest(ctx, 'update_task');
+      const { config } = who;
+      // One call is one step of the Operator's request: the biggest change in it names the step.
+      const action: OperatorAction = args.stageId
+        ? 'task_move'
+        : (args.addLabels?.length ?? 0) + (args.removeLabels?.length ?? 0) > 0
+          ? 'task_labels'
+          : args.priority !== undefined
+            ? 'task_priority'
+            : 'task_update';
+      let awaiting = false;
+      return this.recorded(
+        who,
+        { action, taskKey: args.taskKey },
+        () => this.updateTaskOf(ctx, config, args, () => (awaiting = true)),
+        () => awaiting,
+      );
     });
+  }
+
+  private async updateTaskOf(
+    ctx: ToolContext,
+    config: ProjectConfig,
+    args: Parameters<TeamToolsService['updateTask']>[1],
+    onApproval: () => void,
+  ): Promise<{ task: Task }> {
+    const taskKey = this.validTaskKey(ctx, args.taskKey);
+    // The whole call is one change, all or nothing: title, description, labels and note are
+    // recorded before the stage move, so one call can add "code review ok" and pass the gate.
+    if (args.stageId && !config.pipeline.stages.some((s) => s.id === args.stageId)) {
+      throw new TeamToolError(
+        'invalid',
+        `Unknown stage "${args.stageId}". Stages in pipeline order: ` +
+          `${config.pipeline.stages.map((s) => s.id).join(', ')}.`,
+      );
+    }
+    const title = args.title?.trim();
+    if (args.title !== undefined && !title) throw new TeamToolError('invalid', 'The title is empty.');
+    const description = args.description?.trim();
+    if (args.description !== undefined && !description) {
+      throw new TeamToolError('invalid', 'The description is empty; pass the whole new description.');
+    }
+    try {
+      const task = await this.tasks.update(
+        ctx.projectKey,
+        taskKey,
+        {
+          title,
+          description,
+          repo: args.repo,
+          ...(args.relations ? { relations: args.relations } : {}),
+          ...(args.themeKey !== undefined ? { themeKey: args.themeKey } : {}),
+          ...(args.priority !== undefined ? { priority: args.priority } : {}),
+          ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
+          addLabels: args.addLabels,
+          removeLabels: args.removeLabels,
+          note: args.note,
+          stageId: args.stageId,
+        },
+        aiActor(ctx.member),
+        { sessionId: ctx.sessionId },
+      );
+      return { task };
+    } catch (err) {
+      if (err instanceof DomainError && err.code === 'approval_requested') {
+        const { approvers } = err.details as { approvers: string[] };
+        onApproval();
+        throw new TeamToolError(
+          'gate_blocked',
+          `Moving ${taskKey} to ${args.stageId} needs a human approval. It was requested from ` +
+            `${approvers.join(', ')}; the task moves automatically once they approve. The rest of this ` +
+            'call was recorded.',
+        );
+      }
+      throw err;
+    }
   }
 
   async createTask(
@@ -771,28 +1051,31 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      const title = args.title.trim();
-      if (!title) throw new TeamToolError('invalid', 'The title is empty.');
-      const labels = unique((args.labels ?? []).map((l) => l.trim()).filter(Boolean));
-      // No stage: a new task starts in the pipeline's first (queue) stage, where humans prioritise it.
-      const task = await this.tasks.create(
-        ctx.projectKey,
-        {
-          title,
-          parentKey: args.parentKey,
-          description: args.description?.trim() ?? '',
-          labels,
-          visibility: args.visibility ?? 'internal',
-          ...(args.relations?.length ? { relations: args.relations } : {}),
-          ...(args.kind ? { kind: args.kind } : {}),
-          ...(args.themeKey ? { themeKey: args.themeKey } : {}),
-          ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
-        },
-        aiActor(ctx.member),
-        { sessionId: ctx.sessionId },
-      );
-      return { task };
+      const who = await this.callerWithRequest(ctx, 'create_task');
+      const { config } = who;
+      return this.recorded(who, { action: 'task_create', madeTask: (made) => made.task.key }, async () => {
+        const title = args.title.trim();
+        if (!title) throw new TeamToolError('invalid', 'The title is empty.');
+        const labels = unique((args.labels ?? []).map((l) => l.trim()).filter(Boolean));
+        // No stage: a new task starts in the pipeline's first (queue) stage, where humans prioritise it.
+        const task = await this.tasks.create(
+          ctx.projectKey,
+          {
+            title,
+            parentKey: args.parentKey,
+            description: args.description?.trim() ?? '',
+            labels,
+            visibility: args.visibility ?? 'internal',
+            ...(args.relations?.length ? { relations: args.relations } : {}),
+            ...(args.kind ? { kind: args.kind } : {}),
+            ...(args.themeKey ? { themeKey: args.themeKey } : {}),
+            ...(args.developerLevel ? { developerLevel: args.developerLevel } : {}),
+          },
+          aiActor(ctx.member),
+          { sessionId: ctx.sessionId },
+        );
+        return { task };
+      });
     });
   }
 
@@ -801,34 +1084,36 @@ export class TeamToolsService implements TeamToolsHandler {
     args: { taskKey: string; repo: string; number: number },
   ): Promise<{ task: Task }> {
     return this.guard(async () => {
-      await this.caller(ctx);
-      const taskKey = this.validTaskKey(ctx, args.taskKey);
-      if (!REPO_RE.test(args.repo))
-        throw new TeamToolError('invalid', 'repo must look like "owner/name" (the GitHub repository).');
-      if (!Number.isInteger(args.number) || args.number <= 0)
-        throw new TeamToolError('invalid', 'number must be the positive number of the pull request.');
-      let title: string | undefined;
-      let state: string | undefined;
-      try {
-        const pr = await this.github.getPullRequest(args.repo, args.number);
-        this.tasks.recordPullRequest(pr);
-        title = pr.title;
-        state = pr.state;
-      } catch (err) {
-        this.ctx.logger.warn(
-          { err, repo: args.repo, number: args.number },
-          'could not fetch the pull request',
+      const who = await this.callerWithRequest(ctx, 'link_pull_request');
+      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, async () => {
+        const taskKey = this.validTaskKey(ctx, args.taskKey);
+        if (!REPO_RE.test(args.repo))
+          throw new TeamToolError('invalid', 'repo must look like "owner/name" (the GitHub repository).');
+        if (!Number.isInteger(args.number) || args.number <= 0)
+          throw new TeamToolError('invalid', 'number must be the positive number of the pull request.');
+        let title: string | undefined;
+        let state: string | undefined;
+        try {
+          const pr = await this.github.getPullRequest(args.repo, args.number);
+          this.tasks.recordPullRequest(pr);
+          title = pr.title;
+          state = pr.state;
+        } catch (err) {
+          this.ctx.logger.warn(
+            { err, repo: args.repo, number: args.number },
+            'could not fetch the pull request',
+          );
+        }
+        const task = this.tasks.addLink(
+          ctx.projectKey,
+          taskKey,
+          { kind: 'pull_request', ref: String(args.number), repo: args.repo, title, state },
+          aiActor(ctx.member),
+          ctx.sessionId,
         );
-      }
-      const task = this.tasks.addLink(
-        ctx.projectKey,
-        taskKey,
-        { kind: 'pull_request', ref: String(args.number), repo: args.repo, title, state },
-        aiActor(ctx.member),
-        ctx.sessionId,
-      );
-      if (state !== 'merged' && state !== 'closed') this.githubSync.watch(args.repo, args.number);
-      return { task };
+        if (state !== 'merged' && state !== 'closed') this.githubSync.watch(args.repo, args.number);
+        return { task };
+      });
     });
   }
 
@@ -845,10 +1130,12 @@ export class TeamToolsService implements TeamToolsHandler {
     },
   ): Promise<{ inboxItemId: string }> {
     return this.guard(async () => {
-      const config = await this.caller(ctx);
+      const config = await this.caller(ctx, 'ask_human');
       const question = args.question.trim();
       if (!question) throw new TeamToolError('invalid', 'The question is empty.');
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
+      // The Operator asks only the owners (PM-463): an answer of anyone else would not be a request to it.
+      const operator = isOperator(memberOf(config, ctx.member));
       let assignees: string[];
       if (args.to && args.to.length > 0) {
         const notHuman = args.to.filter((h) => memberOf(config, h)?.kind !== 'human');
@@ -857,9 +1144,15 @@ export class TeamToolsService implements TeamToolsHandler {
             'invalid',
             `ask_human can only ask human members; these are not: ${notHuman.join(', ')}.`,
           );
+        const notOwner = operator ? args.to.filter((h) => !isOwner(config, h)) : [];
+        if (notOwner.length > 0)
+          throw new TeamToolError(
+            'invalid',
+            `operator_owner_only: the Operator asks only the owners; these are not: ${notOwner.join(', ')}.`,
+          );
         assignees = unique(args.to);
       } else {
-        assignees = sponsorOrOwners(config, ctx.member);
+        assignees = operator ? ownerHandles(config) : sponsorOrOwners(config, ctx.member);
       }
       const choices = questionChoices(args.options);
       const recommended = args.recommended?.trim();
@@ -922,7 +1215,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      await this.caller(ctx, 'save_memory');
       const note = args.note.trim();
       if (!note) throw new TeamToolError('invalid', 'The memory note is empty.');
       await this.memory.append(ctx.projectKey, ctx.member, note);
@@ -932,7 +1225,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }> {
     return this.guard(async () => {
-      await this.caller(ctx);
+      await this.caller(ctx, 'set_current_work');
       const session = this.ctx.repos.sessions.get(ctx.sessionId);
       if (
         !session ||
@@ -948,8 +1241,76 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
-  /** The caller must still be an AI member of the project. */
-  private async caller(ctx: ToolContext): Promise<ProjectConfig> {
+  /**
+   * The caller must still be an AI member of the project. The Operator (PM-463) also needs an open
+   * owner request for every tool but the reading ones, and never calls the tools of other members'
+   * decisions; `tool` is the MCP name of the tool being called.
+   */
+  private async caller(ctx: ToolContext, tool: string): Promise<ProjectConfig> {
+    return (await this.callerWithRequest(ctx, tool)).config;
+  }
+
+  async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError('forbidden', 'operator_only: only the Operator may operate.');
+    const caller = await this.callerWithRequest(ctx, 'operate');
+    return this.operatorActions
+      .run(ctx.projectKey, caller.request!.id, args.title, args.operation)
+      .catch((err: unknown) => {
+        if (err instanceof DomainError)
+          throw new TeamToolError(
+            err.status === 403 ? 'forbidden' : 'invalid',
+            `${err.code}: ${err.message}`,
+          );
+        throw err;
+      });
+  }
+
+  async startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+  ) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may start tasks through this tool.',
+      );
+    const caller = await this.callerWithRequest(ctx, 'start_task');
+    return this.recorded<{ task_key: string; session_id: string | null; hired: string | null }>(
+      caller,
+      { action: 'task_start', taskKey: args.taskKey, madeMember: (result) => result.hired },
+      async () => {
+        const operator = memberOf(config, ctx.member)!;
+        const result = await this.taskStarts.start(ctx.projectKey, this.validTaskKey(ctx, args.taskKey), {
+          ...args,
+          startSetters: true,
+          actor: aiActor(ctx.member),
+          author: { name: operator.displayName, email: `${ctx.member}@projectman.local` },
+          sponsor: caller.request!.fromHandle,
+        });
+        return {
+          task_key: result.task.key,
+          session_id: result.session?.id ?? null,
+          hired: result.hired?.handle ?? null,
+        };
+      },
+    ).catch((err: unknown) => {
+      throw toToolError(err);
+    });
+  }
+
+  /**
+   * `caller`, plus the owner request the guard let the Operator's call through on (null for any other
+   * caller and for a reading tool with none open). The step log must use this very request: opening it
+   * again could find it expired between the guard and the write.
+   */
+  private async callerWithRequest(
+    ctx: ToolContext,
+    tool: string,
+    signal?: { id?: string; to: string[] },
+  ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
     if (member?.kind !== 'ai')
@@ -957,7 +1318,127 @@ export class TeamToolsService implements TeamToolsHandler {
         'forbidden',
         `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
       );
-    return config;
+    const operator = isOperator(member);
+    const request = operator ? this.operatorRequests.openFor(ctx.sessionId) : null;
+    const guest = operator ? this.guestOf(ctx, config, request) : null;
+    if (signal) {
+      // Signals are the owners' business: never from a guest conversation, never to anyone else.
+      if (
+        tool !== 'send_message' ||
+        !operator ||
+        guest ||
+        !signal.id ||
+        signal.to.some((handle) => !isOwner(config, handle))
+      )
+        throw new TeamToolError(
+          'invalid',
+          'invalid_request: only the Operator may present signals to owners.',
+        );
+      this.operatorSignals.presentation(ctx.projectKey, signal.id);
+    }
+    if (!operator) return { config, request: null, guest: null };
+    if (guest) {
+      // A conversation with someone who is not an owner only reads and answers (PM-475).
+      if (!OPERATOR_GUEST_TOOLS.has(tool)) {
+        this.recordRefusedWrite({ config, request, guest }, tool);
+        throw new TeamToolError(
+          'forbidden',
+          `${OWNER_ONLY}: ${tool} is not for a conversation with ${guest.handle}.`,
+        );
+      }
+      return { config, request, guest };
+    }
+    if (OPERATOR_NEVER_TOOLS.has(tool))
+      throw new TeamToolError(
+        'forbidden',
+        `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
+      );
+    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal)
+      throw new TeamToolError(
+        'forbidden',
+        `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
+          "There is none (its round is over or it timed out); wait for the owner's next message.",
+      );
+    return { config, request, guest: null };
+  }
+
+  /**
+   * The person the Operator's session talks with when they are not an owner (a `with` conversation, or a
+   * request of someone who is no owner), as their view of the project; null in the owner's conversation.
+   */
+  private guestOf(
+    ctx: ToolContext,
+    config: ProjectConfig,
+    request: ReturnType<OperatorRequests['openFor']>,
+  ): GuestView | null {
+    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
+    const handle =
+      (workItem?.type === 'general' ? workItem.with : undefined) ??
+      (request && !isOwner(config, request.fromHandle) ? request.fromHandle : undefined);
+    if (handle === undefined) return null;
+    const person = memberOf(config, handle);
+    // Someone no longer in the team sees nothing: the narrowest access there is.
+    const access = person?.kind === 'human' ? person.access : 'client';
+    return { handle, viewer: { access, handle } };
+  }
+
+  /** Logs a write the Operator was refused in a guest's conversation as a refused step of its request. */
+  private recordRefusedWrite(who: CallerWithRequest, tool: string, member?: string): void {
+    const action = OPERATOR_TOOL_ACTIONS[tool];
+    if (!action || !who.request) return;
+    this.operatorSteps.record({
+      requestId: who.request.id,
+      action,
+      taskKey: null,
+      member: member && memberOf(who.config, member) ? member : null,
+      status: 'refused',
+      refusal: { code: 'operator_owner_only', message: `${tool} is for the project owner's request` },
+    });
+  }
+
+  /**
+   * Runs the Operator's write and logs it as one step of its open request, done or refused (PM-463).
+   * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
+   */
+  private async recorded<T>(
+    { config, request }: CallerWithRequest,
+    step: {
+      action: OperatorAction;
+      taskKey?: string | null;
+      member?: string | null;
+      /** The task the call made, when the step names it only afterwards. */
+      madeTask?: (result: T) => string;
+      madeMember?: (result: T) => string | null;
+    } | null,
+    run: () => Promise<T>,
+    /** A refusal that is no refusal: the change waits for a human's approval. */
+    awaitsApproval?: (err: unknown) => boolean,
+  ): Promise<T> {
+    if (!step || !request) return run();
+    const target = {
+      action: step.action,
+      taskKey: step.taskKey && TaskKey.safeParse(step.taskKey).success ? step.taskKey : null,
+      member: step.member && memberOf(config, step.member) ? step.member : null,
+    };
+    let result: T;
+    try {
+      result = await run();
+    } catch (err) {
+      this.operatorSteps.record(
+        awaitsApproval?.(err)
+          ? { requestId: request.id, ...target, status: 'awaiting_approval' }
+          : { requestId: request.id, ...target, status: 'refused', refusal: refusalOf(err) },
+      );
+      throw err;
+    }
+    this.operatorSteps.record({
+      requestId: request.id,
+      ...target,
+      ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
+      ...(step.madeMember ? { member: step.madeMember(result) } : {}),
+      status: 'done',
+    });
+    return result;
   }
 
   /** A task key of the caller's project. */

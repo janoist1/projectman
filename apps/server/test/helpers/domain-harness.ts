@@ -10,6 +10,7 @@ import type {
   BoundaryOperationAdapter,
   EngineAttachments,
   EngineDirectory,
+  BranchMerger,
   FullTestExecutor,
   ScreenshotExecutor,
   GithubPublisher,
@@ -29,6 +30,7 @@ import type { ScheduleTimer } from '../../src/domain/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
+import { createLocalEngine, LocalEngineDirectory } from '../../src/domain/engines';
 import {
   capturingLogger,
   createFakeRunnerModule,
@@ -123,6 +125,7 @@ export async function createDomainHarness(
     heavyLockDir?: string;
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
+    merger?: BranchMerger | null;
     engineName?: (id: string) => string | null;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
@@ -165,8 +168,32 @@ export async function createDomainHarness(
         ? join(realpathSync(dir), 'projectman-501-tmp', '0123abcd')
         : undefined;
 
+  const memberWorkspaces = opts.memberWorkspaces
+    ? (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
+        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+      )
+    : undefined;
   const domain: Domain = createDomain({
-    ...(opts.engines ? { engines: opts.engines } : {}),
+    ...(opts.engines
+      ? { engines: opts.engines }
+      : opts.merger !== undefined
+        ? {
+            engines: new LocalEngineDirectory({
+              ...createLocalEngine(
+                {
+                  worktrees,
+                  memberWorkspaces,
+                  workspacesRootDir: memberWorkspaces ? workspacesDir : undefined,
+                  workspacePath: () => workspace,
+                  fullTestExecutor: opts.fullTestExecutor,
+                  claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
+                },
+                log.logger,
+              ),
+              merger: opts.merger ?? undefined,
+            }),
+          }
+        : {}),
     engineName: opts.engineName,
     outageCheckMs: 3_600_000,
     ...(opts.engineAttachments ? { engineAttachments: opts.engineAttachments } : {}),
@@ -199,9 +226,7 @@ export async function createDomainHarness(
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
       ? {
-          memberWorkspaces: (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
-            createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
-          ),
+          memberWorkspaces,
           workspacesRootDir: workspacesDir,
         }
       : {}),

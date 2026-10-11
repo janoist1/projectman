@@ -187,6 +187,49 @@ describe('feedback and the history box (PM-97)', () => {
   });
 });
 
+describe('"Vidd tovább" in the inbox (PM-461)', () => {
+  function handOnProject() {
+    const project = mockProject();
+    project.backend.inbox = project.backend.inbox.filter((item) => item.state !== 'open');
+    project.backend.config.team.cardMover = { kind: 'human', handle: 'owner' };
+    project.backend.moveAs('AC-20', 'code_review', 'be-1');
+    return project;
+  }
+  const move = t('inbox.handOn.move', { stage: 'Code review' });
+
+  it('moves the card on a click and says so, in the toast and in the history', async () => {
+    const project = handOnProject();
+    project.render(
+      <ToastProvider>
+        <InboxPage />
+      </ToastProvider>,
+      '/p/AC/inbox',
+    );
+    fireEvent.click(await screen.findByRole('button', { name: move }));
+    await waitFor(() => expect(project.backend.findTask('AC-20')!.stageId).toBe('code_review'));
+    expect(project.requests.find((request) => request.path.endsWith('/resolve'))?.body).toEqual({
+      optionId: 'move',
+    });
+    expect(
+      (await screen.findAllByText(t('inbox.handOn.resolvedMe', { stage: 'Code review' }))).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it('keeps the item and shows the gate error on the card when the move is refused', async () => {
+    const project = handOnProject();
+    project.backend.config.pipeline.stages.find((stage) => stage.id === 'code_review')!.gate = {
+      conditions: [{ type: 'has_label', label: 'design-review-ok' }],
+    };
+    project.render(<InboxPage />, '/p/AC/inbox');
+    fireEvent.click(await screen.findByRole('button', { name: move }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/^A kapu még nem enged tovább/);
+    expect(alert.closest('article')).toBeTruthy();
+    expect(project.backend.findTask('AC-20')!.stageId).toBe('dev');
+    expect(screen.getByRole('button', { name: move })).toBeTruthy();
+  });
+});
+
 describe('plain-language questions in the inbox', () => {
   const question = plainLanguageQuestion();
 

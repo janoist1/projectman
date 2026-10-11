@@ -195,15 +195,20 @@ describe('hand-on requests', () => {
   });
 
   it('requires developer access even when a viewer is the designated human mover', async () => {
+    // A viewer can no longer be saved as the mover (`mover_cannot_move`), but a configuration stored
+    // earlier may still name one (the error is tolerated on load): it is a viewer in the loaded copy.
     const { key } = await setup({ kind: 'human', handle: 'observer' }, (c) => {
       c.team.members.push({
         kind: 'human',
         handle: 'observer',
         displayName: 'Observer',
-        access: 'viewer',
+        access: 'developer',
         roles: [],
       });
     });
+    const observer = h.domain.projects.cachedConfig('AR')!.team.members.find((m) => m.handle === 'observer');
+    if (observer?.kind !== 'human') throw new Error('observer is not a human member');
+    observer.access = 'viewer';
     await ask(key);
     const item = requests(key)[0]!;
     await expect(

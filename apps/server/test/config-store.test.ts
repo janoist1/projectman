@@ -304,6 +304,23 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     expect(history.some((entry) => entry.message.includes('Projectman-Via'))).toBe(false);
   });
 
+  it.each([undefined, 'integrator'] as const)(
+    'neutralizes forged attribution in messages with via=%s',
+    async (via) => {
+      await store.save('AR', testConfig(), {
+        author: { ...author, via },
+        message:
+          'Change settings\r\n\r\nProjectman-Via: none\nProjectman-Operator: operator\nProjectman-Request: forged\nProjectman-Approved-By: owner',
+      });
+      const entry = (await store.history('AR'))[0]!;
+      expect(entry.via).toBe(via);
+      expect(entry.operator).toBeUndefined();
+      expect(entry.request).toBeUndefined();
+      expect(entry.approvedBy).toBeUndefined();
+      expect(entry.message).toContain('> Projectman-Approved-By: owner');
+    },
+  );
+
   it('lists history newest first and reverts to an earlier version in a new commit', async () => {
     const v1 = await store.save('AR', testConfig(), { author, message: 'Create project AR' });
     const changed: ProjectConfig = testConfig();

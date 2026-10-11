@@ -22,6 +22,19 @@ describe('worktrees of closed cards', () => {
     free = 50 * GB;
     h = await createDomainHarness({ now: () => now, freeDiskBytes: async () => free });
   }
+  it('sweeps orphaned fix branches even when their card no longer exists', async () => {
+    await setup();
+    const config = await h.domain.projects.config('AR');
+    await h.worktrees.ensureMergeFix({
+      project: config,
+      repoName: 'web',
+      taskKey: 'AR-99',
+      commit: 'approved',
+    });
+    const report = await h.domain.worktreeSweep.run();
+    expect(report.removed).toContain('AR-99:merge-fix');
+    expect(h.worktrees.fixes.size).toBe(0);
+  });
 
   /** A card with a worktree (its developer's session ran) that is closed `closedAgoMs` ago. */
   async function closedCard(title: string, how: 'cancelled' | 'done', closedAgoMs: number) {

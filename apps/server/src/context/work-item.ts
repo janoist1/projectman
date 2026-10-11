@@ -7,11 +7,16 @@ import {
   DUTIES,
   dutyMembers,
   effectiveRepo,
+  isMergeFixer,
+  requiresMerge,
   gateLabels,
   isHumanOnlyLabel,
   labelDefinition,
   labelHolders,
   labelSetters,
+  partReadyStage,
+  projectRefines,
+  REFINE_LABEL,
   refinementTurn,
   repoOf,
   resolvedStages,
@@ -120,7 +125,18 @@ const LOCAL_ONLY_DUTY_PROMPTS: Partial<Record<DutyId, string>> = {
 
 /** The prompt fragment of a duty for this work item; see `LOCAL_ONLY_DUTY_PROMPTS`. */
 export function dutyPrompt(input: ContextPackInput, duty: DutyId): string {
+  if (isMergeFixer(input.task?.merge, input.member.handle))
+    return 'You are fixing a mechanical merge conflict in the dedicated writable merge-fix worktree. Follow the Merge fix steps; commit the resolution and submit it with merge_task. Send behavioral conflicts back to the developer with a reason. Never push manually.';
+  if (serverMergeRepo(input) && (duty === 'implementation' || duty === 'docs'))
+    return duty === 'implementation'
+      ? "Implement the task and tests only in its worktree; run checks and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit."
+      : "Write documentation in the task worktree, verify examples and commit on the task's branch. Never merge or push manually: the card merger uses merge_task before the merge target; the gate checks the approved commit.";
   return (localOnlyRepo(input) && LOCAL_ONLY_DUTY_PROMPTS[duty]) || DUTIES[duty].prompt;
+}
+
+function serverMergeRepo(input: ContextPackInput): RepoConfig | null {
+  const repo = input.task ? repoOf(input.project, effectiveRepo(input.project, input.task)) : undefined;
+  return repo && requiresMerge(repo) ? repo : null;
 }
 
 /**
@@ -238,9 +254,11 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
         ...work(where, developerTests(input, c.task)),
         localOnly
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
-          : input.sessionPolicy?.execution?.profile === 'managed_vm'
-            ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
-            : 'Commit, push, open a pull request and attach it with link_pull_request.',
+          : serverMergeRepo(input)
+            ? "Commit the work on the task's own branch. Never merge or push manually: before the merge target, the card merger uses merge_task to merge the approved commit and push it if the base has an upstream."
+            : input.sessionPolicy?.execution?.profile === 'managed_vm'
+              ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
+              : 'Commit, push, open a pull request and attach it with link_pull_request.',
         ...reviewBeforeHandover(c, target),
         handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
       ];
@@ -251,7 +269,9 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
       return [
         localOnly
           ? `${past} Fix what teammates report on the same branch and commit the fixes; never push, because ${LOCAL_ONLY_REASON}. Then ask the reporter for a re-review or a retest with send_message, naming the new commits.`
-          : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
+          : serverMergeRepo(input)
+            ? `${past} Fix what teammates report on the same branch, commit the fixes, and ask the reporter for a re-review or a retest with send_message. Never merge or push manually; before the merge target, the card merger uses merge_task.`
+            : `${past} Fix what teammates report in the same branch and pull request, push, and ask the reporter for a re-review or a retest with send_message.`,
         ...(testsAtMerge(input, c.task) ? [developerTests(input, c.task)] : []),
       ];
     }
@@ -385,7 +405,9 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
     `Send "Blocking" / "Not blocking" findings with file:line to ${author} with send_message; review again when they report a fix.`,
     // After a review a local-only branch is merged by the owner and nobody else.
     `When the review passes, ${lowerFirst(handover(input, s.next))}${
-      localOnly ? ` The owner merges the branch into ${code(localOnly.defaultBranch)}.` : ''
+      localOnly && !requiresMerge(localOnly)
+        ? ` The owner merges the branch into ${code(localOnly.defaultBranch)}.`
+        : ''
     }`,
   ];
 };
@@ -415,11 +437,40 @@ function requirementsWork(): string[] {
 }
 
 /** The work of the technical direction: the same in the queue and in refinement. */
-function technicalWork({ localOnly }: StepContext): string[] {
+function technicalWork(c: StepContext): string[] {
   return [
     'Read the task with get_task and the code it touches; read only, never edit, commit or push.',
     'Add the technical plan to the description with update_task, under its own heading: approach, affected parts, data or API changes, risks, how to test.',
-    `If the work is bigger than one ${localOnly ? 'branch' : 'pull request'}, create the parts with create_task and note the order and dependencies on this task.`,
+    ...partSteps(c),
+  ];
+}
+
+/**
+ * Breaking the work into parts (PM-480). The member who breaks a card down also takes its parts on: in
+ * the same turn they link, order, label and move them, so none stays where nobody starts it. Only a
+ * member who may put `refine` on a card gets the long version (a part that cannot start needs it), in a
+ * project that has refinement and a stage to take the parts to; the others get the short one.
+ */
+function partSteps({ input, task, localOnly }: StepContext): string[] {
+  const unit = localOnly ? 'branch' : 'pull request';
+  const config = input.project;
+  const split = `If the work is bigger than one ${unit}, split it into parts with create_task, each with ${code('parent_key')} set to this task, and give their order as ${code('prerequisite')} relations (add_relations), not as text.`;
+  const target = partReadyStage(config);
+  const refine = labelDefinition(config, REFINE_LABEL);
+  const first = config.pipeline.stages[0];
+  if (
+    !projectRefines(config) ||
+    !target ||
+    !first ||
+    !refine ||
+    !labelSetters(config, refine, task).includes(input.member.handle)
+  )
+    return [split];
+  const labels = config.pipeline.labels;
+  return [
+    split,
+    `In the same turn, take every part out of ${stageLabel(first)}, where nobody starts it. A part that can start: add with update_task the labels the gates up to ${stageLabel(target)} ask for, with their reasons in the note (the plan on this task counts: "plan on ${task.key}"), and move it to ${stageLabel(target)} (${code('stage_id')}). A part that cannot start yet (it needs a requirement, a UI/UX design or a person's decision): add the labels you can set now with their reasons, add ${labelRef(REFINE_LABEL, labels)} and write in its description what it lacks; the refinement hands out the rest.`,
+    'Then note on this task where each part went and why.',
   ];
 }
 
@@ -593,6 +644,11 @@ export function expectedSteps(input: ContextPackInput, s: Situation): string[] {
   const task = input.workItem.type === 'task' ? input.task : null;
   const current = s.current;
   if (!task || !current) return ['Read the task with get_task and ask the sender what is expected of you.'];
+  if (isMergeFixer(task.merge, input.member.handle) && task.merge?.fix)
+    return [
+      `In the merge-fix worktree run git merge ${task.merge.fix.base}. Resolve only mechanical conflicts and commit.`,
+      'Call merge_task with resolution describing what and where you fixed. If behavior is affected, send the card back with update_task and a reason instead.',
+    ];
 
   const notOwner = `You do not own the current stage (${stageLabel(current)}${
     (current.owners ?? []).length > 0 ? `, owners ${codeList(current.owners ?? [])}` : ''

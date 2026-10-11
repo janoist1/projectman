@@ -2,6 +2,7 @@ import {
   alertPayloadOf,
   BoundaryRequest,
   fixLimitDecisionOf,
+  handOnRequestOf,
   loopDecisionOf,
   permissionDelegationOf,
   questionPayloadOf,
@@ -16,6 +17,7 @@ import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
+import { outageHeading, outageOfItem } from './outage';
 import type { PipelineIndex } from './pipeline';
 import { relationKindLabel } from './timeline';
 
@@ -37,6 +39,7 @@ const BUILT_IN_OPTIONS = [
   'another_round',
   'wait_for_senior',
   'any_developer',
+  'move',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -60,9 +63,9 @@ export function inboxHeading(item: InboxItem): string {
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
-    return alert && alert.alert !== 'work_outage'
-      ? t(`inbox.alerts.${alert.alert}.heading`)
-      : t('inbox.alerts.unknown');
+    if (alert?.alert === 'merge_blocked') return t('inbox.alerts.unknown');
+    if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
+    return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
     const tool = permissionTool(item);
@@ -238,6 +241,7 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  if (alert.alert === 'merge_blocked') return alert.message;
   if (alert.alert === 'work_outage') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(
@@ -278,6 +282,12 @@ export function alertText(
       relations: joinNames(
         alert.relations.map((relation) => `${relationKindLabel(relation.kind)} ${relation.key}`),
       ),
+    });
+  if (alert.alert === 'parts_left')
+    return t('inbox.alerts.parts_left.body', {
+      key: alert.taskKey,
+      member: nameOf(alert.member, members, myHandle),
+      parts: alert.parts.join(', '),
     });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
@@ -425,6 +435,8 @@ export function decisionSubject(item: InboxItem): string {
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   if (item.kind === 'question') return inboxHeading(item);
+  const outage = outageOfItem(item);
+  if (outage) return outageHeading(outage);
   return item.title;
 }
 
@@ -543,6 +555,7 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 export function resolutionLabel(item: InboxItem): string {
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
@@ -554,6 +567,28 @@ export function resolutionLabel(item: InboxItem): string {
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
+}
+
+/** A taken-on card in the list of decisions (PM-461): "Továbbvitted: Átnézés" / "Kata továbbvitte: Átnézés". */
+export function handOnResolvedText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+  pipeline: PipelineIndex | null | undefined,
+): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  const by = item.resolution?.by;
+  return by && by !== myHandle
+    ? t('inbox.handOn.resolvedBy', { name: nameOf(by, members, myHandle), stage })
+    : t('inbox.handOn.resolvedMe', { stage });
+}
+
+/** The notice after the viewer took a finished card on (PM-461): "Továbbvitted: Átnézés". */
+export function handOnToast(item: InboxItem, pipeline: PipelineIndex | null | undefined): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  return t('inbox.handOn.resolvedMe', { stage });
 }
 
 /** The short notice after the viewer's own decision went through: "Engedélyezve", "Válasz: B". */

@@ -842,5 +842,109 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
       PRIMARY KEY (project_key, task_key)
     );`,
   },
+  {
+    version: 46,
+    name: 'clear stalled fix limits',
+    sql: `UPDATE task_fix_limits
+          SET hold_phase = NULL, held_at = NULL, decider = NULL, deciders = '[]', reason = NULL, inbox_item_id = NULL
+          WHERE hold_phase IS NOT NULL
+            AND inbox_item_id IS NOT NULL
+            AND (
+              NOT EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id)
+              OR EXISTS (SELECT 1 FROM inbox_items WHERE id = task_fix_limits.inbox_item_id AND state = 'cancelled')
+            );`,
+  },
+  {
+    version: 47,
+    name: 'operator requests and steps',
+    // PM-463: an owner's request to the Operator and what it did for it; changes and refusal are JSON.
+    // operator_request on a message marks one the Operator sent during a request.
+    sql: `CREATE TABLE operator_requests (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('message', 'answer')),
+      message_id TEXT,
+      inbox_item_id TEXT,
+      from_handle TEXT NOT NULL,
+      quote TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    CREATE INDEX operator_requests_project ON operator_requests(project_key, opened_at);
+    CREATE INDEX operator_requests_session ON operator_requests(session_id) WHERE closed_at IS NULL;
+    CREATE TABLE operator_steps (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES operator_requests(id),
+      at TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      task_key TEXT,
+      member TEXT,
+      changes TEXT NOT NULL DEFAULT '[]',
+      config_version TEXT,
+      inbox_item_id TEXT,
+      refusal TEXT
+    );
+    CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
+    ALTER TABLE team_messages ADD COLUMN operator_request TEXT;`,
+  },
+  {
+    version: 48,
+    name: 'member merges and persistent handovers',
+    sql: `CREATE TABLE task_merges (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, task_key TEXT NOT NULL,
+      repo TEXT NOT NULL, base TEXT NOT NULL, "commit" TEXT, branch TEXT,
+      from_stage_id TEXT NOT NULL, to_stage_id TEXT NOT NULL, merger TEXT NOT NULL, requested_at TEXT NOT NULL, started_by TEXT, started_at TEXT,
+      state TEXT NOT NULL CHECK (state IN ('requested','queued','running','failed','blocked','merged','cancelled')),
+      step TEXT, merge_commit TEXT, check_json TEXT, landed TEXT NOT NULL, failure_json TEXT,
+      block_json TEXT, pushed_json TEXT, pull_requests_json TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
+    );
+    CREATE INDEX task_merges_queue ON task_merges(project_key, repo, state, created_at);
+    CREATE UNIQUE INDEX task_merges_open ON task_merges(project_key, task_key)
+      WHERE state IN ('requested','queued','running','failed','blocked');
+    CREATE TABLE task_handovers (
+      project_key TEXT NOT NULL, task_key TEXT NOT NULL, "commit" TEXT NOT NULL,
+      branch TEXT NOT NULL, stage_id TEXT NOT NULL, at TEXT NOT NULL,
+      PRIMARY KEY (project_key, task_key)
+    );
+    INSERT INTO task_handovers SELECT project_key, task_key, commit_id, branch, stage_id, pinned_at FROM task_review_pins;`,
+  },
+  {
+    version: 49,
+    name: 'merge conflict fixes',
+    sql: `DROP INDEX task_merges_queue;
+    DROP INDEX task_merges_open;
+    ALTER TABLE task_merges RENAME TO task_merges_old;
+    CREATE TABLE task_merges (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, task_key TEXT NOT NULL,
+      repo TEXT NOT NULL, base TEXT NOT NULL, "commit" TEXT, branch TEXT,
+      from_stage_id TEXT NOT NULL, to_stage_id TEXT NOT NULL, merger TEXT NOT NULL, requested_at TEXT NOT NULL, started_by TEXT, started_at TEXT,
+      state TEXT NOT NULL CHECK (state IN ('requested','queued','running','failed','blocked','fixing','merged','cancelled')),
+      step TEXT, merge_commit TEXT, check_json TEXT, landed TEXT NOT NULL, failure_json TEXT,
+      block_json TEXT, pushed_json TEXT, pull_requests_json TEXT,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+      fix_json TEXT, resolution_json TEXT
+    );
+    INSERT INTO task_merges SELECT *, NULL, NULL FROM task_merges_old;
+    DROP TABLE task_merges_old;
+    CREATE INDEX task_merges_queue ON task_merges(project_key, repo, state, created_at);
+    CREATE UNIQUE INDEX task_merges_open ON task_merges(project_key, task_key)
+      WHERE state IN ('requested','queued','running','failed','blocked','fixing');`,
+  },
+  {
+    version: 50,
+    name: 'operator signals',
+    sql: `CREATE TABLE operator_signals (
+    id TEXT PRIMARY KEY, project_key TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('outage','nobody','stalled','silent')), case_key TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('pending','open','accepted','dismissed','resolved')),
+    actionable INTEGER NOT NULL DEFAULT 0, task_key TEXT, subject TEXT, inbox_item_id TEXT, message_id TEXT,
+    raised_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT, resolved_at TEXT, delivered_at TEXT
+  );
+  CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
+  ALTER TABLE team_messages ADD COLUMN operator_signal TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

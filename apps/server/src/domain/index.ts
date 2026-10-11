@@ -2,10 +2,13 @@ import {
   canManageInstancePause,
   isOnLeave,
   isOpenTask,
+  OPERATOR_SILENT_WORK_MINUTES,
   isSenior,
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
+  operatorOf,
+  mergeReadiness,
   permissionDelegationOf,
   routeFor,
   seniorWaitMinutesOf,
@@ -59,6 +62,8 @@ import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
+import { OperatorRequests, OperatorSteps } from './operator-requests';
+import { OperatorSignals } from './operator-signals';
 import { ProjectManagerChannels } from './project-manager';
 import { ProjectState } from './project-state';
 export { ProjectState } from './project-state';
@@ -70,8 +75,11 @@ import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { Merges } from './merges';
+import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { InvitationService } from './invitations';
@@ -94,7 +102,7 @@ import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
-import { AutoAdvance, PrerequisiteClosures, TaskService } from './tasks';
+import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
@@ -317,6 +325,7 @@ export interface DomainOptions {
   screenshotExecutor?: ScreenshotExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
+  operatorSignalMs?: number;
   /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
   seniorWaitMs?: number;
   /**
@@ -444,7 +453,9 @@ export function createDomain(opts: DomainOptions) {
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
-  const messages = new MessageService({ ctx, timeline, projects });
+  const operatorRequests = new OperatorRequests({ ctx });
+  const operatorSteps = new OperatorSteps({ ctx });
+  const messages = new MessageService({ ctx, timeline, projects, operatorRequests });
   const tasks = new TaskService({
     ctx,
     timeline,
@@ -453,7 +464,7 @@ export function createDomain(opts: DomainOptions) {
     startWaiting: deferredStarts,
     outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
-    sourceHead: (config, task) => sessions.sourceHead(config, task),
+    sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
     notifyHandOn: async (config, task, request) => {
       const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);
       const to = config.pipeline.stages.find((s) => s.id === request.toStageId);
@@ -491,7 +502,9 @@ export function createDomain(opts: DomainOptions) {
   });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
+  const mergeCards = new MergeCardLock();
   const sessions = new SessionOrchestrator({
+    mergeCards,
     onAuthError: (key, handle, provider, engineId) => {
       void outages.observeAuthError(key, handle, provider, engineId).catch(() => {});
     },
@@ -537,6 +550,7 @@ export function createDomain(opts: DomainOptions) {
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
   const worktreeSweep = new WorktreeSweep({
+    mergeCards,
     ctx,
     projects,
     inbox,
@@ -558,6 +572,10 @@ export function createDomain(opts: DomainOptions) {
     disk,
     engines,
   });
+  // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
+  // the owner's next message opens a new request after this one closed, not before.
+  events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
+  events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
   const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
@@ -681,9 +699,9 @@ export function createDomain(opts: DomainOptions) {
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
-  const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
-  sessions.useQuotaRecovery(planUsage, (session, stageId) =>
-    messageStarts.resumeAfterQuota(session, stageId),
+  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
+  sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
+    messageStarts.resumeAfter(session, stageId, after),
   );
   const schedules = new ScheduleService({
     ctx,
@@ -760,6 +778,27 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  const merges = new Merges({
+    cards: mergeCards,
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    messaging,
+    timeline,
+    engines,
+    github: opts.github,
+    inbox,
+    background,
+    afterMerge: (task) => autoAdvance.check(task),
+  });
+  inbox.useMergeStart(async (item, by) => {
+    if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
+  });
+  tasks.useMerges(merges);
+  events.on('task_cancelled', (task) => {
+    merges.cancel(task.projectKey, task.key);
+  });
   sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
@@ -795,9 +834,107 @@ export function createDomain(opts: DomainOptions) {
         })
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
+  const taskWaits = new TaskWaits({ ctx, members });
+  const operatorSignals = new OperatorSignals({
+    ctx,
+    projects,
+    sessions,
+    admission,
+    delivery,
+    taskWaits,
+    activeOutageIds: (projectKey) => outages.activeIds(projectKey),
+  });
+  messaging.useOperatorSignals(operatorSignals);
+  const finishOperatorSignals = (session: Session) => {
+    const config = projects.cachedConfig(session.projectKey);
+    if (config && session.member === operatorOf(config)?.handle) operatorSignals.finish(session.projectKey);
+  };
+  events.on('session_idle', finishOperatorSignals);
+  events.on('session_ended', finishOperatorSignals);
+  const wakeOperatorSignals = (projectKey: string) =>
+    background.run(
+      () => operatorSignals.deliver(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator signal delivery failed'),
+    );
+  events.on('work_outage_started', ({ projectKey, outageId, inboxItemId }) => {
+    operatorSignals.raise({
+      projectKey,
+      kind: 'outage',
+      caseKey: `outage:${outageId}`,
+      subject: outageId,
+      inboxItemId,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  events.on('work_outage_ended', ({ projectKey, outageId }) =>
+    operatorSignals.resolve(projectKey, `outage:${outageId}`),
+  );
+  events.on('session_input_stalled', ({ projectKey, sessionId, inboxItemId }) => {
+    const session = sessions.find(sessionId);
+    operatorSignals.raise({
+      projectKey,
+      kind: 'stalled',
+      caseKey: `stalled:${sessionId}`,
+      subject: sessionId,
+      inboxItemId,
+      taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  const sessionSignalEnded = (session: Session) => {
+    operatorSignals.resolve(session.projectKey, `stalled:${session.id}`);
+    operatorSignals.resolve(session.projectKey, `silent:${session.id}`);
+  };
+  events.on('session_input_released', sessionSignalEnded);
+  events.on('session_ended', sessionSignalEnded);
+  const unsubscribeSignalActivity = bus.subscribe((event) => {
+    if (event.type === 'session_upserted' || event.type === 'chat_appended') {
+      const id = event.type === 'session_upserted' ? event.session.id : event.sessionId;
+      const session = sessions.find(id);
+      if (
+        event.type === 'chat_appended' ||
+        !session ||
+        session.state !== 'working' ||
+        ctx.now().getTime() - Date.parse(session.lastActivityAt) < OPERATOR_SILENT_WORK_MINUTES * 60_000
+      )
+        operatorSignals.resolve(event.projectKey, `silent:${id}`);
+      if (session?.state !== 'waiting_input') operatorSignals.resolve(event.projectKey, `stalled:${id}`);
+    }
+  });
+  const checkOperatorCards = ({ task }: { task: Task }) => {
+    background.run(
+      () => operatorSignals.sweep(task.projectKey),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'operator signal card check failed'),
+    );
+  };
+  events.on('task_stage_changed', checkOperatorCards);
+  events.on('task_labels_changed', checkOperatorCards);
+  events.on('task_assigned', checkOperatorCards);
+  const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
+  const operatorActions = new OperatorActions(operatorDeps);
+  const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
+  operatorActions.useApprovals(operatorApprovals);
+  inbox.useOperatorDecision((item, by, optionId) => operatorApprovals.apply(item, by, optionId));
+  const recheckOperatorApprovals = ({ projectKey }: { projectKey: string }): void => {
+    if (!operatorApprovals.hasPending(projectKey)) return;
+    background.run(
+      () => operatorApprovals.recheck(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator approval recheck failed'),
+    );
+  };
+  events.on('config_changed', recheckOperatorApprovals);
+  events.on('session_ended', recheckOperatorApprovals);
+  events.on('pause_changed', recheckOperatorApprovals);
   const projectState = new ProjectState({ ctx, projects, tasks, pauses, deferred: deferredStarts });
   const teamTools = new TeamToolsService({
     projectState,
+    merges,
+    operatorRequests,
+    operatorSteps,
+    operatorActions,
+    taskStarts,
+    operatorSignals,
+    taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
@@ -894,6 +1031,8 @@ export function createDomain(opts: DomainOptions) {
         return messageStarts.rebuildQuota(spec);
       case 'loop_notice':
         return loopWatch.rebuild(spec);
+      case 'operator_signals':
+        return operatorSignals.rebuild(spec);
       case 'handoff_takeover':
         return handoffs.rebuild(spec);
     }
@@ -908,6 +1047,25 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => handoffs.sessionEnded(session));
 
   // Configuration changes: runtime state follows the roster.
+  events.on('config_changed', (change) => {
+    background.run(
+      async () => {
+        for (const task of tasks.list(change.projectKey)) {
+          if (!task.merge && !mergeReadiness(change.next, task).ready) continue;
+          try {
+            await merges.reconcile(change.projectKey, task.key);
+          } catch (err) {
+            opts.logger.warn(
+              { err, projectKey: change.projectKey, taskKey: task.key },
+              'could not reconcile a merge request after configuration changed',
+            );
+          }
+        }
+      },
+      (err) =>
+        opts.logger.warn({ err, projectKey: change.projectKey }, 'merge configuration reconciliation failed'),
+    );
+  });
   events.on('config_changed', (change) => tasks.reconcileHandOns(change.next));
   events.on('config_changed', (change) => members.reconcile(change));
   events.on('config_changed', (change) => {
@@ -1022,7 +1180,10 @@ export function createDomain(opts: DomainOptions) {
   const advanceCard = (task: Task | null): void => {
     if (!task) return;
     background.run(
-      () => autoAdvance.check(task),
+      async () => {
+        await merges.reconcile(task.projectKey, task.key);
+        await autoAdvance.check(tasks.get(task.projectKey, task.key));
+      },
       (err) => opts.logger.warn({ err, taskKey: task.key }, 'automatic stage advance failed'),
     );
   };
@@ -1181,6 +1342,26 @@ export function createDomain(opts: DomainOptions) {
   // New relations on a card that is being worked on reach its workers and, when they may change the work, its analyst (PM-421).
   const relationNotices = new RelationNotices({ ctx, projects, tasks, sessions, messaging, inbox });
   events.on('task_relations_added', (added) => relationNotices.added(added));
+  // Parts of a broken-down card left in the first stage: their creator is told once when their turn ends,
+  // the owners when the parts are still left after the next turn (PM-480). Only says; never moves or labels.
+  const leftParts = new LeftParts({ ctx, projects, sessions, messaging, inbox, timeline });
+  const checkLeftParts = (session: Session): void => {
+    background.run(
+      () => leftParts.turnEnded(session),
+      (err) => opts.logger.warn({ err, sessionId: session.id }, 'could not look for left parts'),
+    );
+  };
+  events.on('session_idle', checkLeftParts);
+  events.on('session_ended', checkLeftParts);
+  const partChanged = (task: Task): void => {
+    background.run(
+      () => leftParts.changed(task),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'could not close the left parts alert'),
+    );
+  };
+  events.on('task_stage_changed', (change) => partChanged(change.task));
+  events.on('task_labels_changed', ({ task }) => partChanged(task));
+  events.on('task_cancelled', (task) => partChanged(task));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
@@ -1203,6 +1384,7 @@ export function createDomain(opts: DomainOptions) {
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let operatorSignalTimer: ReturnType<typeof setInterval> | undefined;
   let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -1222,7 +1404,14 @@ export function createDomain(opts: DomainOptions) {
     engineCounters,
     projectState,
     ctx,
-    projectManagerChannels: new ProjectManagerChannels({ ctx, projects, deferred: deferredStarts, pauses }),
+    projectManagerChannels: new ProjectManagerChannels({
+      ctx,
+      projects,
+      deferred: deferredStarts,
+      pauses,
+      operatorRequests,
+      operatorSignals,
+    }),
     bus,
     templates,
     timeline,
@@ -1239,6 +1428,9 @@ export function createDomain(opts: DomainOptions) {
     messages,
     messaging,
     sessionCloser,
+    operatorActions,
+    operatorApprovals,
+    operatorSignals,
     tasks,
     attachments,
     members,
@@ -1258,10 +1450,12 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     reviewWatch,
     fullTests,
+    merges,
     loopWatch,
     seniorWaits,
     fixLimit,
     autoAdvance,
+    taskWaits,
     disk,
     outages,
     worktreeSweep,
@@ -1276,6 +1470,7 @@ export function createDomain(opts: DomainOptions) {
     async start(): Promise<void> {
       await projects.syncFromStore();
       await sessions.reconcileAfterRestart();
+      for (const project of projects.summaries()) operatorSignals.finish(project.key);
       members.reconcileAfterRestart();
       inbox.expireOpenPermissions();
       await boundary.sweep();
@@ -1297,6 +1492,7 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (restoredStarts > 0) retryDeferredStarts();
@@ -1369,6 +1565,15 @@ export function createDomain(opts: DomainOptions) {
         opts.loopWatchMs ?? 60_000,
       );
       loopWatchTimer.unref();
+      operatorSignalTimer = setInterval(
+        () =>
+          background.run(
+            () => operatorSignals.sweep(),
+            (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+          ),
+        opts.operatorSignalMs ?? 60_000,
+      );
+      operatorSignalTimer.unref();
       // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
       seniorWaitTimer = setInterval(
         () =>
@@ -1415,11 +1620,13 @@ export function createDomain(opts: DomainOptions) {
       if (outageTimer) clearInterval(outageTimer);
       unsubscribeOutageKeys?.();
       unsubscribeEngines();
+      unsubscribeSignalActivity();
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       if (loopWatchTimer) clearInterval(loopWatchTimer);
+      if (operatorSignalTimer) clearInterval(operatorSignalTimer);
       if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
@@ -1428,6 +1635,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await merges.stop();
       await screenshotRuns?.stop();
       await outages.stop();
       await background.stop();

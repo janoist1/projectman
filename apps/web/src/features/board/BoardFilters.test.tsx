@@ -98,7 +98,11 @@ describe('the card header', () => {
     const project = mockProject();
     await renderBoard(project);
     const name = project.backend.config.pipeline.labels.find((label) => label.id === 'waiting-answer')!.name;
-    expect(within(cardLink('AC-19')).getAllByText(name)).toHaveLength(1);
+    // The row says it ("Áll · amíg rajta van: …"); no chip is the bare label name.
+    const card = cardLink('AC-19');
+    expect(within(card).queryAllByText(name)).toHaveLength(0);
+    expect(card.querySelectorAll('[title*="Mire vár: amíg rajta van"]')).toHaveLength(1);
+    expect(card.textContent).toContain(name);
   });
 });
 

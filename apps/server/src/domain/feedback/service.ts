@@ -9,10 +9,12 @@ import {
   feedbackMarkRefusal,
   memberOf,
   normalizeFeedbackOrigin,
+  ownerHandles,
   planFeedbackAction,
 } from '@projectman/shared';
 import type {
   Actor,
+  FeedbackForwardedAlert,
   CreateFeedbackMarkRequest,
   CreateTaskFromFeedbackRequest,
   CreateTaskFromFeedbackResponse,
@@ -54,6 +56,8 @@ import type { AttachmentService } from '../attachments';
 
 /** The most marks one list returns. */
 export const MAX_FEEDBACK_LIST = 1000;
+/** The mark text an alert quotes at most. */
+const FORWARD_EXCERPT_LENGTH = 200;
 /** A launch code is good for this long. */
 export const FEEDBACK_LAUNCH_CODE_SECONDS = 120;
 
@@ -99,7 +103,7 @@ export class FeedbackService {
   private readonly tasks: TaskService;
   private readonly attachments: AttachmentService;
   private readonly timeline: TimelineService;
-  private readonly inbox: Pick<InboxService, 'resolveByRule'>;
+  private readonly inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
   private readonly screenshots: FeedbackScreenshotStore;
   private readonly publicBaseUrl: string | null;
   private readonly marks = new KeyedMutex();
@@ -110,7 +114,7 @@ export class FeedbackService {
     tasks: TaskService;
     attachments: AttachmentService;
     timeline: TimelineService;
-    inbox: Pick<InboxService, 'resolveByRule'>;
+    inbox: Pick<InboxService, 'create' | 'resolveByRule'>;
     screenshots: FeedbackScreenshotStore;
     /** The public address of the feedback entrance, when the installation has one. */
     publicBaseUrl?: string | null;
@@ -175,6 +179,50 @@ export class FeedbackService {
   async detail(projectKey: string, markId: string, actor: Actor): Promise<FeedbackMarkDetail> {
     const viewer = await this.viewerOf(projectKey, actor);
     return this.detailOf(this.requireMark(projectKey, markId), viewer);
+  }
+
+  /**
+   * The marks as a processor's tool lists them (PM-512): `todo` the ones that wait for a first
+   * decision (oldest first), `open` also the ones that wait for the owner or a marker's answer,
+   * `all` every mark (latest activity first). `total` counts all that match, `marks` at most `limit`.
+   */
+  async listForProcessor(
+    projectKey: string,
+    actor: Actor,
+    opts: { status: 'todo' | 'open' | 'all'; limit: number },
+  ): Promise<{ marks: FeedbackMarkView[]; total: number }> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    if (!viewer.processor) throw this.refusal('feedback_processor_only');
+    const statuses: readonly string[] =
+      opts.status === 'todo' ? ['new'] : opts.status === 'open' ? ['new', 'waiting_owner', 'handled'] : [];
+    const matching = this.ctx.repos.feedback
+      .listMarks(projectKey, { limit: MAX_FEEDBACK_LIST })
+      .filter((record) => statuses.length === 0 || statuses.includes(record.status));
+    if (opts.status === 'todo') matching.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const view = this.viewContext(viewer, this.ctx.repos.feedback.stats(projectKey, viewer.handle));
+    return {
+      marks: matching.slice(0, opts.limit).map((record) => this.markView(record, view)),
+      total: matching.length,
+    };
+  }
+
+  /** One mark as a processor's tool shows it. */
+  async detailForProcessor(projectKey: string, markId: string, actor: Actor): Promise<FeedbackMarkDetail> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    if (!viewer.processor) throw this.refusal('feedback_processor_only');
+    return this.detailOf(this.requireMark(projectKey, markId), viewer);
+  }
+
+  /** Where the mark's stored screenshot lies on the server's machine, or null when it has none or the file is gone. */
+  async screenshotPath(projectKey: string, markId: string, actor: Actor): Promise<string | null> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    if (!viewer.processor) throw this.refusal('feedback_processor_only');
+    const record = this.requireMark(projectKey, markId);
+    if (!record.screenshot) return null;
+    return this.screenshots.locate(projectKey, record.screenshot).catch((err: unknown) => {
+      this.ctx.logger.warn({ err, mark: markId }, 'feedback screenshot could not be located');
+      return null;
+    });
   }
 
   /** The person has seen the mark's thread up to now. */
@@ -272,6 +320,7 @@ export class FeedbackService {
       if (stored) await this.screenshots.remove(projectKey, stored).catch(() => undefined);
       throw err;
     }
+    await this.ctx.events.emit('feedback_needs_processor', { projectKey, markId: id });
     return this.detail(projectKey, id, { kind: 'human', handle: input.author });
   }
 
@@ -286,14 +335,19 @@ export class FeedbackService {
           reason: viewer.access === 'viewer' ? 'viewer' : 'blocked',
         });
     }
-    return this.marks.run(markId, async () => {
+    const detail = await this.marks.run(markId, async () => {
       const mark = this.requireMark(projectKey, markId);
       const plan = this.plan(mark, 'comment', viewer);
       this.ctx.unitOfWork(() => {
         this.apply(mark, plan, viewer, { type: 'comment', body, data: {} });
       });
-      return this.detailOf(this.requireMark(projectKey, markId), viewer);
+      return {
+        detail: this.detailOf(this.requireMark(projectKey, markId), viewer),
+        wake: plan.wakeProcessor,
+      };
     });
+    if (detail.wake) await this.ctx.events.emit('feedback_needs_processor', { projectKey, markId });
+    return detail.detail;
   }
 
   // ---- deciding ----
@@ -368,6 +422,55 @@ export class FeedbackService {
           actor,
           type: 'feedback_linked',
           data: { markId, created: false },
+        });
+      });
+      return this.detailOf(this.requireMark(projectKey, markId), viewer);
+    });
+  }
+
+  /**
+   * An AI processor passes the mark on to the owners with a `reason`: the mark waits for the owner,
+   * who is told with an alert. The AI does not act on the mark again; a person's answer settles it.
+   */
+  async forward(
+    projectKey: string,
+    markId: string,
+    actor: Actor,
+    request: { reason: string; reply: string },
+  ): Promise<FeedbackMarkDetail> {
+    const viewer = await this.viewerOf(projectKey, actor);
+    return this.marks.run(markId, async () => {
+      const mark = this.requireMark(projectKey, markId);
+      const plan = this.plan(mark, 'forward', viewer);
+      const owners = ownerHandles(viewer.config);
+      this.ctx.unitOfWork(() => {
+        const excerpt = mark.body.replace(/\s+/g, ' ').trim().slice(0, FORWARD_EXCERPT_LENGTH);
+        const payload: FeedbackForwardedAlert = {
+          alert: 'feedback_forwarded',
+          markId,
+          author: mark.author,
+          excerpt,
+          reason: request.reason,
+        };
+        // An installation always has an owner; without one the mark still waits, and the app shows it.
+        const alert =
+          owners.length > 0
+            ? this.inbox.create({
+                projectKey,
+                kind: 'alert',
+                assignees: owners,
+                source: 'system',
+                title: `Feedback needs the owner: ${excerpt || mark.pagePath}`,
+                payload,
+                options: [ALERT_SEEN_OPTION],
+              })
+            : null;
+        this.apply(mark, plan, viewer, {
+          type: 'forwarded',
+          body: request.reason,
+          data: {},
+          reply: request.reply,
+          ...(alert ? { inboxItemId: alert.id } : {}),
         });
       });
       return this.detailOf(this.requireMark(projectKey, markId), viewer);
@@ -565,6 +668,8 @@ export class FeedbackService {
       data: Record<string, unknown>;
       taskKey?: string;
       reply?: string;
+      /** The owners' alert this step opened (a forward). */
+      inboxItemId?: string;
     },
   ): void {
     const { feedback } = this.ctx.repos;
@@ -597,6 +702,7 @@ export class FeedbackService {
       ...(step.taskKey !== undefined ? { taskKey: step.taskKey } : {}),
       ...(plan.clearHanded ? { handedTo: null, handedAt: null, handedMessageId: null } : {}),
       ...(leavesWaiting ? { inboxItemId: null } : {}),
+      ...(step.inboxItemId !== undefined ? { inboxItemId: step.inboxItemId } : {}),
     });
     this.ensureColor(mark.projectKey, viewer.member);
     this.changed(mark.projectKey, mark.id);

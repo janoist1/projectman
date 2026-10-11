@@ -2,9 +2,11 @@ import path from 'node:path';
 import {
   AttachmentId,
   canReadAttachments,
+  canProcessFeedback,
   DEFAULT_AGENT_PROVIDER,
   effectiveRepo,
   ERROR_CODES,
+  LOCAL_ENGINE_ID,
   ownerHandles,
   isOpenTask,
   isOperator,
@@ -21,8 +23,10 @@ import {
   TaskKey,
 } from '@projectman/shared';
 import type {
+  Actor,
   Attachment,
   ErrorCode,
+  FeedbackMarkDetail,
   InboxOption,
   MemberView,
   OperatorAction,
@@ -51,6 +55,9 @@ import type {
   EngineAttachments,
   EngineHost,
   EngineSessionFolders,
+  FeedbackToolList,
+  FeedbackToolMark,
+  FeedbackToolResult,
   GithubService,
   ListTasksInput,
   LocatedAttachmentForTool,
@@ -74,6 +81,8 @@ import { QUESTION_LIMIT } from './card-questions';
 import type { CardQuestions } from './card-questions';
 import type { EgressService } from './egress';
 import { DomainError } from './errors';
+import { engineIdOf } from './engines';
+import type { FeedbackService } from './feedback';
 import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { FixLimitDecision, FixLimitWatch } from './fix-limit';
 import type { HandoffService } from './handoffs';
@@ -225,6 +234,28 @@ function docToolError(err: unknown): unknown {
   return err;
 }
 
+/** The refusals of the feedback tools in words the agent reads: the mark's error code first (`code: message`). */
+function feedbackToolError(err: unknown): unknown {
+  if (err instanceof TeamToolError || !(err instanceof DomainError)) return toToolError(err);
+  if (err.code === 'feedback_mark_not_found')
+    return new TeamToolError('not_found', `${err.code}: ${err.message}`);
+  if (err.code.startsWith('feedback_'))
+    return new TeamToolError(err.status === 403 ? 'forbidden' : 'invalid', `${err.code}: ${err.message}`);
+  return toToolError(err);
+}
+
+/** The access of a team member as a processor sees it next to their mark: a person's access, or `ai`. */
+function feedbackAccessOf(config: ProjectConfig, handle: string): string | null {
+  const member = memberOf(config, handle);
+  if (!member) return null;
+  return member.kind === 'human' ? member.access : 'ai';
+}
+
+/** The state of a mark after a step, as the feedback tools answer. */
+function feedbackResult(mark: Pick<FeedbackMarkDetail, 'id' | 'status' | 'outcome'>): FeedbackToolResult {
+  return { markId: mark.id, status: mark.status, outcome: mark.outcome };
+}
+
 function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
   if (err.code === 'operator_signal_closed')
@@ -251,6 +282,19 @@ interface GuestView {
 }
 
 const OWNER_ONLY = 'operator_owner_only';
+
+/** What the feedback tools use of the feedback service. */
+type FeedbackTools = Pick<
+  FeedbackService,
+  | 'listForProcessor'
+  | 'detailForProcessor'
+  | 'screenshotPath'
+  | 'comment'
+  | 'createTask'
+  | 'link'
+  | 'forward'
+  | 'close'
+>;
 
 /**
  * The team tools behind the MCP server (mcp__team__*): they check the arguments, call the
@@ -419,6 +463,7 @@ export class TeamToolsService implements TeamToolsHandler {
     'reading' | 'source' | 'assertCanUpload' | 'upload' | 'delete'
   >;
   private readonly attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
+  private readonly feedback: FeedbackTools;
   private readonly materializeAttachment: EngineAttachments['materialize'] | undefined;
   private readonly sessionEngine:
     | ((
@@ -467,6 +512,8 @@ export class TeamToolsService implements TeamToolsHandler {
     >;
     /** The attachment directory of a task (`AttachmentStorage.taskDirectory`). */
     attachmentDirectory: (projectKey: string, taskKey: string) => Promise<string>;
+    /** The feedback marks (PM-512): the processors' tools decide them. */
+    feedback: FeedbackTools;
     /**
      * Gives an attachment to the engine the session runs on (PM-315, cloud mode) and names its path
      * there; absent, the path is the stored file's own (the session runs on this machine).
@@ -528,6 +575,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.attachments = deps.attachments;
     this.messageAttachments = deps.messageAttachments;
     this.attachmentDirectory = deps.attachmentDirectory;
+    this.feedback = deps.feedback;
     this.materializeAttachment = deps.materializeAttachment;
   }
 
@@ -950,6 +998,126 @@ export class TeamToolsService implements TeamToolsHandler {
       folders,
       mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS[session.provider ?? DEFAULT_AGENT_PROVIDER],
     };
+  }
+
+  // ---- feedback marks (PM-512, processors only) ----
+
+  async getFeedbackList(
+    ctx: ToolContext,
+    args: { status: 'todo' | 'open' | 'all'; limit: number },
+  ): Promise<FeedbackToolList> {
+    return this.feedbackStep(ctx, async (actor, config) => {
+      const { marks, total } = await this.feedback.listForProcessor(ctx.projectKey, actor, args);
+      const authorAccess: Record<string, string> = {};
+      for (const { author } of marks) {
+        const access = feedbackAccessOf(config, author.handle);
+        if (access) authorAccess[author.handle] = access;
+      }
+      return { status: args.status, total, marks, authorAccess };
+    });
+  }
+
+  async getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark> {
+    return this.feedbackStep(ctx, async (actor, config) => {
+      const mark = await this.feedback.detailForProcessor(ctx.projectKey, args.markId, actor);
+      const authorAccess = feedbackAccessOf(config, mark.author.handle);
+      if (!mark.screenshot) return { mark, authorAccess, screenshot: { kind: 'none' } as const };
+      // The stored file is on the server's machine: only a session that runs there can open it.
+      const session = this.ctx.repos.sessions.get(ctx.sessionId);
+      if (!session || engineIdOf(session) !== LOCAL_ENGINE_ID)
+        return { mark, authorAccess, screenshot: { kind: 'remote' } as const };
+      const path = await this.feedback.screenshotPath(ctx.projectKey, args.markId, actor);
+      return {
+        mark,
+        authorAccess,
+        screenshot: path ? ({ kind: 'local', path } as const) : ({ kind: 'none' } as const),
+      };
+    });
+  }
+
+  async replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult> {
+    return this.feedbackStep(ctx, async (actor) =>
+      feedbackResult(await this.feedback.comment(ctx.projectKey, args.markId, actor, args.body)),
+    );
+  }
+
+  async createTaskFromFeedback(
+    ctx: ToolContext,
+    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+  ): Promise<FeedbackToolResult> {
+    return this.feedbackStep(ctx, async (actor) => {
+      const created = await this.feedback.createTask(ctx.projectKey, args.markId, actor, {
+        title: args.title,
+        description: args.description,
+        ...(args.visibility ? { visibility: args.visibility } : {}),
+        ...(args.reply ? { reply: args.reply } : {}),
+      });
+      return { ...feedbackResult(created.mark), task: created.task };
+    });
+  }
+
+  async linkFeedback(
+    ctx: ToolContext,
+    args: { markId: string; taskKey: string; reply?: string },
+  ): Promise<FeedbackToolResult> {
+    return this.feedbackStep(ctx, async (actor) =>
+      feedbackResult(
+        await this.feedback.link(ctx.projectKey, args.markId, actor, {
+          taskKey: this.validTaskKey(ctx, args.taskKey),
+          ...(args.reply ? { reply: args.reply } : {}),
+        }),
+      ),
+    );
+  }
+
+  async forwardFeedback(
+    ctx: ToolContext,
+    args: { markId: string; reason: string; reply: string },
+  ): Promise<FeedbackToolResult> {
+    return this.feedbackStep(ctx, async (actor) =>
+      feedbackResult(
+        await this.feedback.forward(ctx.projectKey, args.markId, actor, {
+          reason: args.reason,
+          reply: args.reply,
+        }),
+      ),
+    );
+  }
+
+  async closeFeedback(
+    ctx: ToolContext,
+    args: { markId: string; reply?: string },
+  ): Promise<FeedbackToolResult> {
+    return this.feedbackStep(ctx, async (actor) =>
+      feedbackResult(await this.feedback.close(ctx.projectKey, args.markId, actor, args.reply)),
+    );
+  }
+
+  /**
+   * A feedback tool: only an AI member that processes feedback calls it (the Operator and the other roles
+   * get `feedback_processor_only`), and the refusals of the mark's rules come with their code in the message.
+   */
+  private async feedbackStep<T>(
+    ctx: ToolContext,
+    run: (actor: Actor, config: ProjectConfig) => Promise<T>,
+  ): Promise<T> {
+    try {
+      const config = await this.projects.config(ctx.projectKey);
+      const member = memberOf(config, ctx.member);
+      if (member?.kind !== 'ai')
+        throw new TeamToolError(
+          'forbidden',
+          `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
+        );
+      if (!canProcessFeedback(config, member))
+        throw new TeamToolError(
+          'forbidden',
+          'feedback_processor_only: only a member with the feedback processing duty may use the feedback tools.',
+        );
+      return await run(aiActor(ctx.member), config);
+    } catch (err) {
+      throw feedbackToolError(err);
+    }
   }
 
   async attachFile(

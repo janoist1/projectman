@@ -55,6 +55,7 @@ export interface AppHarnessOptions {
     | 'appVersion'
     | 'claudeTmpRoots'
     | 'feedbackPublicUrl'
+    | 'feedbackWidgetFile'
   >;
 }
 

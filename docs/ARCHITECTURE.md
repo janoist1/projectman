@@ -555,7 +555,7 @@ claude | codex ── transcript JSONL ────────────▶ r
   starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
   messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
   file storage, content check, file names); feedback marks (`feedback/`: the service, the
-  screenshot store; PM-506); inbox; invitations; the board; GitHub
+  screenshot store, the widget service with the tool's sessions and limits; PM-506, PM-509); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler; domain events.
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
@@ -1044,6 +1044,24 @@ workers follow the machine's size.
   and reads the image as the card's attachment (`read_attachment`, PM-315) after
   `create_task_from_feedback`. In the hybrid mode the `feedback` folder is carried
   with the other data (`HYBRID_CLOUD_ENTRIES`) and the public entrance belongs to the cloud server.
+
+  **The public widget API (PM-509)** — `apps/server/src/api/feedback-widget.ts`,
+  `apps/server/src/domain/feedback/widget.ts`, routes `routes.feedbackWidgetScript()`
+  (`/feedback/widget.js`) and `routes.feedbackWidgetApi()` (`/feedback/api/v1`). Outside `/api`, so
+  its own guard applies: an `onRequest` hook checks the `Origin` (the address of some project's
+  surface, else 403 `feedback_origin_not_allowed`), answers the CORS preflight (no credentials,
+  `no-store`, `Vary: Origin`) and checks the bearer session on every request (401
+  `feedback_session_invalid`), all before the body is read. `POST /sessions` swaps a single-use launch
+  code for a session (30 days sliding, 90 days at most; token kept as a hash); marks, comments, the
+  list (`?since` cursor) and the read mark are limited per session and hour (30 marks, 120 comments,
+  in memory) and per project and day (500 marks, from the database), answering 429 with `Retry-After`.
+  The widget sees only its surface's marks and never the environment, screenshot or forward reason.
+  `/feedback` is a server prefix, so an unknown path there is a JSON 404, not the web app. The script is
+  `apps/feedback-widget/dist/widget.js` under the install directory (`feedbackWidgetFile` in
+  `index.ts`; 404 until it is built, a later card). The caller is a browser on the customer's page and
+  the public address of the server (`PROJECTMAN_FEEDBACK_PUBLIC_URL`) is the only machine assumption.
+  **Remote engine:** nothing runs on an engine; the API, its sessions and limits live on the server, and
+  the engine is not involved. Security notes: `docs/SECURITY.md` "The feedback tool's public API".
 
 - **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),
   `apps/server/test/live-*.test.ts`. Two macOS LaunchAgents (`com.projectman.live` for the server,

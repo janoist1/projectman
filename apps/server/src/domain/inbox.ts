@@ -24,6 +24,7 @@ import type {
   InboxResolutionRule,
   InboxState,
   ProjectConfig,
+  ResolveInboxRequest,
   Session,
   TimelineEventData,
 } from '@projectman/shared';
@@ -142,6 +143,15 @@ export class InboxService {
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
   private mergeStart?: (item: InboxItem, by: Resolver) => Promise<void>;
+  private questionAnswer?: (
+    item: InboxItem,
+    attachmentIds: readonly string[],
+    close: () => InboxItem,
+  ) => Promise<InboxItem | null>;
+
+  useQuestionAnswer(answer: NonNullable<InboxService['questionAnswer']>): void {
+    this.questionAnswer = answer;
+  }
 
   useMergeStart(start: (item: InboxItem, by: Resolver) => Promise<void>): void {
     this.mergeStart = start;
@@ -306,22 +316,19 @@ export class InboxService {
    * A human picks an option. Only assignees may resolve; owners may also answer permission
    * requests and questions, but gate decisions belong to the named approvers only.
    */
-  async resolve(
-    projectKey: string,
-    id: string,
-    req: { optionId: string; note?: string },
-    by: Resolver,
-  ): Promise<InboxItem> {
+  async resolve(projectKey: string, id: string, req: ResolveInboxRequest, by: Resolver): Promise<InboxItem> {
     return this.resolutionLocks.run(id, () => this.resolveLocked(projectKey, id, req, by));
   }
 
   private async resolveLocked(
     projectKey: string,
     id: string,
-    req: { optionId: string; note?: string },
+    req: ResolveInboxRequest,
     by: Resolver,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
+    if (req.attachmentIds !== undefined && item.kind !== 'question')
+      throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
     if (by.via && !['question', 'alert'].includes(item.kind))
       throw forbidden(
         'owner_approval_required',
@@ -353,7 +360,12 @@ export class InboxService {
       throw forbidden('not_an_assignee', 'only the assignees may resolve this item');
     }
     const note = req.note?.trim() ? req.note.trim() : null;
-    if (item.kind === 'question' && req.optionId === ANSWER_OPTION.id && !note) {
+    if (
+      item.kind === 'question' &&
+      req.optionId === ANSWER_OPTION.id &&
+      !note &&
+      !req.attachmentIds?.length
+    ) {
       throw invalid('answer_required', 'a free-text answer needs a note');
     }
     if (item.kind === 'merge_request') {
@@ -386,38 +398,54 @@ export class InboxService {
       await this.operatorDecision(item, by, req.optionId);
     }
     const at = isoNow(this.ctx);
-    const resolved = this.ctx.repos.inbox.close(
-      id,
-      'resolved',
-      { optionId: req.optionId, by: by.handle, at, note, ...(by.via ? { via: by.via } : {}) },
+    const resolution = {
+      optionId: req.optionId,
+      by: by.handle,
       at,
-    );
-    if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-    this.publish(resolved);
+      note,
+      ...(by.via ? { via: by.via } : {}),
+    };
+    const close = (): InboxItem => {
+      const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+      this.publish(resolved);
 
-    if (resolved.kind === 'permission') {
-      this.timeline.append({
-        projectKey,
-        taskKey: resolved.taskKey,
-        sessionId: resolved.sessionId,
-        actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
-        type: 'permission_resolved',
-        data: {
-          inboxItemId: id,
-          decision: req.optionId === 'deny' ? 'deny' : 'allow',
-          optionId: req.optionId,
-        },
-      });
-    } else if (resolved.kind === 'question') {
-      this.timeline.append({
-        projectKey,
-        taskKey: resolved.taskKey,
-        sessionId: resolved.sessionId,
-        actor: humanActor(by.handle),
-        type: 'question_answered',
-        data: { inboxItemId: id, answer: answerText(resolved) },
-      });
-    }
+      if (resolved.kind === 'permission') {
+        this.timeline.append({
+          projectKey,
+          taskKey: resolved.taskKey,
+          sessionId: resolved.sessionId,
+          actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
+          type: 'permission_resolved',
+          data: {
+            inboxItemId: id,
+            decision: req.optionId === 'deny' ? 'deny' : 'allow',
+            optionId: req.optionId,
+          },
+        });
+      } else if (resolved.kind === 'question') {
+        this.timeline.append({
+          projectKey,
+          taskKey: resolved.taskKey,
+          sessionId: resolved.sessionId,
+          actor: humanActor(by.handle),
+          type: 'question_answered',
+          data: { inboxItemId: id, answer: answerText(resolved) },
+        });
+      }
+      return resolved;
+    };
+    const answered =
+      item.kind === 'question' && this.questionAnswer
+        ? await this.questionAnswer(
+            { ...item, state: 'resolved', resolution },
+            req.attachmentIds ?? [],
+            close,
+          )
+        : null;
+    if (!answered && req.attachmentIds?.length)
+      throw invalid('invalid_request', 'only AI questions accept attachments', { field: 'attachmentIds' });
+    const resolved = answered ?? this.ctx.unitOfWork(close);
 
     this.waiters.get(id)?.(resolved);
     await this.ctx.events.emit('inbox_resolved', resolved);

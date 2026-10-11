@@ -114,7 +114,7 @@ import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } 
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
-import { FeedbackNotices, FeedbackScreenshotStore, FeedbackService } from './feedback';
+import { FeedbackNotices, FeedbackScreenshotStore, FeedbackService, FeedbackWidgetService } from './feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
@@ -202,7 +202,8 @@ export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
-export { FeedbackService } from './feedback';
+export { FeedbackService, FeedbackWidgetService } from './feedback';
+export type { FeedbackWidgetSession } from './feedback';
 export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
@@ -529,6 +530,7 @@ export function createDomain(opts: DomainOptions) {
     screenshots: new FeedbackScreenshotStore(opts.feedbackDir),
     publicBaseUrl: opts.feedbackPublicUrl ?? null,
   });
+  const feedbackWidget = new FeedbackWidgetService({ ctx, projects, feedback });
   const messageAttachments = new MessageAttachmentService({
     ctx,
     projects,
@@ -1131,6 +1133,8 @@ export function createDomain(opts: DomainOptions) {
 
   // The handoff follows what happens to the old member, the receiver and the card meanwhile.
   events.on('config_changed', (change) => handoffs.configChanged(change.projectKey, change.next));
+  // A member who may no longer mark, or a surface that is gone, ends the tool's sessions for good (PM-509).
+  events.on('config_changed', (change) => feedbackWidget.configChanged(change));
   events.on('task_cancelled', (task) => handoffs.taskClosed(task));
   events.on('task_stage_changed', (change) => {
     if (change.task.status === 'done') handoffs.taskClosed(change.task, change.actor);
@@ -1238,7 +1242,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
-  events.on('inbox_resolved', (item) => (item.kind === 'question' ? messaging.answer(item) : undefined));
+  inbox.useQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   // The card's other workers learn what was answered, so they do not ask it again (PM-249).
   events.on('inbox_resolved', (item) =>
     item.kind === 'question' ? messaging.answeredNotice(item) : undefined,
@@ -1526,6 +1530,7 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     attachments,
     feedback,
+    feedbackWidget,
     messageAttachments,
     members,
     roles,

@@ -1,4 +1,7 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAppHarness } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
@@ -16,8 +19,8 @@ describe('the feedback widget public entrance', () => {
     h = undefined;
   });
 
-  async function start(feedbackPublicUrl: string | undefined): Promise<number> {
-    h = await createAppHarness({ app: { feedbackPublicUrl } });
+  async function start(feedbackPublicUrl: string | undefined, feedbackWidgetFile?: string): Promise<number> {
+    h = await createAppHarness({ app: { feedbackPublicUrl, feedbackWidgetFile } });
     await h.app.listen({ host: '127.0.0.1', port: 0 });
     return (h.app.server.address() as AddressInfo).port;
   }
@@ -68,6 +71,34 @@ describe('the feedback widget public entrance', () => {
       },
     });
     expect(upgrade.status).toBe(404);
+  });
+
+  it('serves the widget script and reaches the widget API on the public hostname', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pm-entrance-'));
+    try {
+      const file = join(dir, 'widget.js');
+      writeFileSync(file, '(function(){})();\n');
+      const port = await start(`https://${PUBLIC_HOST}`, file);
+      const script = await rawRequest(port, '/feedback/widget.js?v=1', { host: PUBLIC_HOST });
+      expect(script.status).toBe(200);
+      expect(script.body).toBe('(function(){})();\n');
+      // The API answers itself (its own session check), not the guard's route-not-found.
+      const list = await rawRequest(port, '/feedback/api/v1/marks', {
+        host: PUBLIC_HOST,
+        headers: { Origin: 'https://shop.example.com' },
+      });
+      expect(list.status).toBe(403);
+      expect(JSON.parse(list.body).error.code).toBe('feedback_origin_not_allowed');
+      const preflight = await rawRequest(port, '/feedback/api/v1/marks', {
+        host: PUBLIC_HOST,
+        method: 'OPTIONS',
+        headers: { Origin: 'https://other.example.com', 'Access-Control-Request-Method': 'POST' },
+      });
+      expect(preflight.status).toBe(403);
+      expect(preflight.headers['access-control-allow-origin']).toBeUndefined();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('keeps the application hostname unchanged', async () => {

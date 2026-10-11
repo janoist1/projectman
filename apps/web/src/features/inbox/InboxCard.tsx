@@ -41,6 +41,7 @@ import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails } from './Question';
+import { QuestionAttachments } from './QuestionAttachments';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
   primary: 'primary',
@@ -380,6 +381,7 @@ export function InboxCard({
         )
       ) : null}
       {extras.details ? <QuestionDetails text={extras.details} /> : null}
+      <QuestionAttachments item={item} projectKey={item.projectKey} />
       {code ? (
         <div className={styles.codeWrap}>
           {tool ? (

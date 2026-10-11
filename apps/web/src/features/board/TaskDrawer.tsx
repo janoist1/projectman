@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
+  alertPayloadOf,
   canSeeTeamMessage,
   cardWorkerSessions,
   developerLevelOf,
@@ -54,6 +55,7 @@ import type { CardSize } from './cardSize';
 import { useDrawerBase, withQueryParam } from './drawerBase';
 import { nextStepLine } from './NextStep';
 import { RefineButton } from './RefineButton';
+import { MergeBox } from './MergeBox';
 import { SignalBox } from './SignalBox';
 import { WhyBox } from './WhyBox';
 import { primarySession } from './taskModel';
@@ -245,6 +247,8 @@ export function TaskDrawer() {
   const inbox = useInbox(key);
   const resolve = useResolveInbox(key, myHandle);
   const toast = useToast();
+  // The merge box sends the card back to the developers: the move panel opens at the work stage.
+  const [sendBack, setSendBack] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const drawerBase = useDrawerBase();
   const close = () => navigate(drawerBase.close);
@@ -321,6 +325,14 @@ export function TaskDrawer() {
   const myItems = openItemsFor(inbox.data?.items, myHandle).filter(
     (item) => item.taskKey === taskKey && !(item.kind === 'hand_on' && item.id === handOnId),
   );
+
+  // A merge's inbox item stands in place of the box only while the merge is requested; once it failed or
+  // stopped, the box carries the steps and the buttons, and the item stays on the "Rád vár" page (PM-453).
+  const isMergeItem = (item: (typeof myItems)[number]) =>
+    item.kind === 'merge_request' || alertPayloadOf(item)?.alert === 'merge_blocked';
+  const mergeState = task?.merge?.state;
+  const shownItems =
+    mergeState && mergeState !== 'requested' ? myItems.filter((item) => !isMergeItem(item)) : myItems;
 
   const body = (() => {
     // Until there is a head, the close button stands alone above the state: behind the large window
@@ -407,6 +419,7 @@ export function TaskDrawer() {
             members={members}
             labels={labels}
             inboxItems={inbox.data?.items}
+            config={config}
           />
         ) : null}
         <SignalBox
@@ -418,9 +431,17 @@ export function TaskDrawer() {
           decidingLoop={myItems.some((item) => loopDecisionOf(item))}
           decidingFixLimit={myItems.some((item) => fixLimitDecisionOf(item))}
         />
-        {myItems.length > 0 ? (
+        <MergeBox
+          task={task}
+          members={members}
+          myHandle={myHandle}
+          config={config}
+          asked={myItems.some(isMergeItem)}
+          onSendBack={() => setSendBack((count) => count + 1)}
+        />
+        {shownItems.length > 0 ? (
           <section className={drawer.section}>
-            {myItems.map((item) => (
+            {shownItems.map((item) => (
               <InboxCard
                 key={item.id}
                 item={item}
@@ -502,6 +523,8 @@ export function TaskDrawer() {
               task={task}
               pipeline={pipeline}
               tasks={board.data?.tasks ?? []}
+              config={config}
+              sendBack={sendBack}
             />
           ) : null}
         </div>

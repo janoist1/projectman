@@ -1,9 +1,8 @@
 import clsx from 'clsx';
 import { useMemo, useState } from 'react';
-import { InboxKind } from '@projectman/shared';
-import { operatorApprovalOf } from '@projectman/shared';
+import { InboxKind, handOnRequestOf, operatorApprovalOf } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
-import { useBoard, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
+import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
@@ -29,6 +28,7 @@ import {
   resolutionNote,
   resolverName,
 } from '../../lib/inbox';
+import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { moveErrorText } from '../board/moveTask';
@@ -158,10 +158,11 @@ function RecentDecisions({
 
 /** Everything that waits for the viewer, by kind. */
 export function InboxPage() {
-  const { key, myHandle, isOwner } = useProject();
+  const { key, myHandle, isOwner, can } = useProject();
   const isMobile = useIsMobile();
   const inbox = useInbox(key);
   const board = useBoard(key);
+  const config = useConfig(key, can.readConfig).data?.config;
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
   const revoke = useRevokeBoundary(key);
@@ -247,7 +248,17 @@ export function InboxPage() {
               error={
                 // A refused "Tovább" says why on its card (the gate), not in a toast.
                 item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
-                  ? moveErrorText(resolve.error, board.data?.labels ?? [])
+                  ? moveErrorText(
+                      resolve.error,
+                      board.data?.labels ?? [],
+                      refusalFactsOf({
+                        task: board.data?.tasks.find((task) => task.key === item.taskKey),
+                        config,
+                        members,
+                        myHandle,
+                        target: pipeline?.stageById.get(handOnRequestOf(item)?.toStageId ?? '')?.name ?? '',
+                      }),
+                    )
                   : null
               }
               stale={

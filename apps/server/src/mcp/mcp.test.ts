@@ -4,6 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ToolContext } from '../contracts';
+import { TeamToolError } from '../contracts';
 import { createMcpModule, TEAM_TOOL_NAMES } from './index';
 import { createFakeTeamToolsHandler, devContext, qaContext, type FakeTeamToolsHandler } from './testing';
 
@@ -413,6 +414,24 @@ describe('attachment tools', () => {
 /* ---------- tools ---------- */
 
 describe('team tools', () => {
+  it('get_project_state forwards the optional task key and preserves Operator refusals', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+    const overview = await call(client, 'get_project_state', {});
+    expect(text(overview)).toContain('Cards by stage:');
+    await call(client, 'get_project_state', { task_key: 'AR-21' });
+    expect(h.handler.calls).toEqual([
+      { method: 'getProjectState', ctx: devContext, args: {} },
+      { method: 'getProjectState', ctx: devContext, args: { taskKey: 'AR-21' } },
+    ]);
+    h.handler.failNext(
+      'getProjectState',
+      new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.'),
+    );
+    const refused = await call(client, 'get_project_state', {});
+    expect(refused.isError).toBe(true);
+    expect(text(refused)).toContain('Error [forbidden]: operator_only:');
+  });
   it('send_message passes the caller context and defaults the task to the session task', async () => {
     const h = await startServer();
     const client = await connect(h, 'token-dev');

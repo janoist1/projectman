@@ -23,8 +23,15 @@ export function groupOutcome(result: BoardMoveResult): { moved: string[]; held: 
   };
 }
 
+/** The name of the member who merges a card, for the viewer; null when nobody is known. */
+export type MergerNameOf = (taskKey: string) => string | null;
+
 /** Why a card stayed, in a few words. */
-export function heldReason(item: BoardGroupItem, labels: readonly LabelView[]): string {
+export function heldReason(
+  item: BoardGroupItem,
+  labels: readonly LabelView[],
+  mergerOf?: MergerNameOf,
+): string {
   switch (item.outcome) {
     case 'moved':
       return '';
@@ -33,7 +40,10 @@ export function heldReason(item: BoardGroupItem, labels: readonly LabelView[]): 
     case 'skipped':
       return t('board.groupMove.reason.skipped');
     case 'blocked': {
-      if (item.code === 'task_not_merged') return t('board.groupMove.reason.notMerged');
+      if (item.code === 'task_not_merged') {
+        const merger = mergerOf?.(item.taskKey);
+        return merger ? t('task.merge.refused.group', { merger }) : t('board.groupMove.reason.notMerged');
+      }
       if (item.code === 'handover_uncommitted') return t('board.groupMove.reason.uncommitted');
       if (item.code === 'no_approver') {
         const label = item.approvals[0]?.label;
@@ -66,8 +76,10 @@ export function groupMoveToast(input: {
   columnName: string;
   projectKey: string;
   labels: readonly LabelView[];
+  /** Names the merger of a card held back for its merge. */
+  mergerOf?: MergerNameOf;
 }): GroupMoveToast {
-  const { result, parentKey, columnName, projectKey, labels } = input;
+  const { result, parentKey, columnName, projectKey, labels, mergerOf } = input;
   const { moved, held } = groupOutcome(result);
   const children = moved.filter((key) => key !== parentKey).length;
   const parentMoved = moved.includes(parentKey);
@@ -82,7 +94,7 @@ export function groupMoveToast(input: {
 
   const lines: ToastItem[] = held.slice(0, MAX_LINES).map((item) => ({
     key: item.taskKey,
-    text: heldReason(item, labels),
+    text: heldReason(item, labels, mergerOf),
     to: `/p/${projectKey}/tasks/${item.taskKey}`,
   }));
   if (held.length > MAX_LINES)

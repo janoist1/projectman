@@ -320,7 +320,7 @@ answers, nothing more:
   `OPERATOR_GUEST_TOOLS` only (`get_task`, `list_tasks`, `list_members`, `list_attachments`,
   `read_attachment`, and `send_message` to that person alone). Every other tool gets 403
   `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
-  among them until it filters by viewer (PM-465).
+  among them until a separate task adds a viewer filter.
 - **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
   `canSeeTask` / `visibleTaskDetail` / `humanActor`, so a client sees only what is shared with them.
 - **No other way to data.** The session starts with the team tools alone (`SessionPolicy.teamToolsOnly`).

@@ -56,7 +56,7 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
 /**
  * The team tools the Operator may call in a conversation with someone who is not an owner (PM-475):
  * it reads what that person can see and answers them (`send_message`, to them only).
- * `get_project_state` is left out on purpose: it comes back together with a viewer filter (PM-465).
+ * `get_project_state` is left out on purpose: guest access needs a viewer filter in a separate task.
  */
 export const OPERATOR_GUEST_TOOLS: ReadonlySet<string> = new Set([
   'get_task',

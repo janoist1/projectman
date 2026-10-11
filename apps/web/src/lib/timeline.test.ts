@@ -678,3 +678,25 @@ describe('the handoff rows (PM-342)', () => {
     );
   });
 });
+
+describe('the merge event with a fixed conflict (PM-471)', () => {
+  const merged = (data: Record<string, unknown>) =>
+    describeEvent(
+      {
+        ...creation,
+        type: 'task_merged',
+        data: { base: 'main', commit: 'a'.repeat(40), mergeCommit: 'b'.repeat(40), via: 'tool', ...data },
+      },
+      context,
+    );
+
+  it('keeps what the merger wrote about the conflict for its own fold', () => {
+    const note = 'Kept both imports in **board.ts**.';
+    expect(merged({ resolution: { note, commit: 'c'.repeat(40) } }).resolution).toBe(note);
+  });
+
+  it('has no resolution when there is none or it is blank', () => {
+    expect(merged({}).resolution).toBeUndefined();
+    expect(merged({ resolution: { note: '  ', commit: 'c' } }).resolution).toBeUndefined();
+  });
+});

@@ -4,6 +4,7 @@ import { joinNames, t } from '../i18n/t';
 import { labelName } from './labels';
 import { nameOf } from './members';
 import type { MemberIndex } from './members';
+import { failureKind } from './merge';
 import { nextStage } from './pipeline';
 import type { PipelineIndex } from './pipeline';
 
@@ -235,20 +236,54 @@ export function deriveNext(task: Task, wait: TaskWait, ctx: TaskNextContext): Ta
     }
 
     case 'merge': {
-      const running = task.merge?.state === 'queued' || task.merge?.state === 'running';
+      const merge = task.merge;
+      // A queued or running merge goes on by itself, and a conflict being fixed (PM-471) is the merger's
+      // work in progress: the card's own line and the merge box say so.
+      if (merge?.state === 'queued' || merge?.state === 'running' || merge?.state === 'fixing') return null;
+      const merger = names || t('taskStatus.next.heads.nobody');
+      const toStageId = wait.toStageId;
+      if (merge?.state === 'failed') {
+        const conflict = failureKind(merge) === 'conflict';
+        return build({
+          head: merger,
+          you: meNext,
+          waiting: t(
+            meNext
+              ? conflict
+                ? 'taskStatus.next.short.mergeConflictYou'
+                : 'taskStatus.next.short.mergeCheckFailedYou'
+              : conflict
+                ? 'taskStatus.next.short.mergeConflict'
+                : 'taskStatus.next.short.mergeCheckFailed',
+          ),
+          long: t('taskStatus.next.long.mergeFailed'),
+          todo: meNext
+            ? t('taskStatus.next.todo.mergeFailedYou')
+            : t('taskStatus.next.todo.mergeFailed', { merger }),
+          tone: meNext ? 'needs' : 'neutral',
+          toStageId,
+        });
+      }
+      if (merge?.state === 'blocked') {
+        return build({
+          head: merger,
+          you: meNext,
+          waiting: t(meNext ? 'taskStatus.next.short.mergeBlockedYou' : 'taskStatus.next.short.mergeBlocked'),
+          long: t('taskStatus.next.long.mergeBlocked'),
+          todo: meNext
+            ? t('taskStatus.next.todo.mergeBlockedYou')
+            : t('taskStatus.next.todo.mergeBlocked', { merger }),
+          tone: meNext ? 'needs' : 'blocked',
+          toStageId,
+        });
+      }
       return build({
-        head: names || t('taskStatus.next.heads.nobody'),
-        you: meNext && !running,
-        waiting: running
-          ? t('taskStatus.next.short.mergeRunning')
-          : t(meNext ? 'taskStatus.next.short.mergeYou' : 'taskStatus.next.short.merge'),
-        long: t(running ? 'taskStatus.next.long.mergeRunning' : 'taskStatus.next.long.merge'),
-        todo: running
-          ? t('taskStatus.next.todo.mergeRunning')
-          : meNext
-            ? t('taskStatus.next.todo.mergeYou')
-            : t('taskStatus.next.todo.merge', { merger: names || t('taskStatus.next.heads.nobody') }),
-        toStageId: wait.toStageId,
+        head: merger,
+        you: meNext,
+        waiting: t(meNext ? 'taskStatus.next.short.mergeYou' : 'taskStatus.next.short.merge'),
+        long: t('taskStatus.next.long.merge'),
+        todo: meNext ? t('taskStatus.next.todo.mergeYou') : t('taskStatus.next.todo.merge', { merger }),
+        toStageId,
       });
     }
 

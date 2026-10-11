@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { useDismiss } from '../lib/hooks';
 import { Button } from './Button';
@@ -22,6 +22,7 @@ export function Popover({
   size = 'md',
   align = 'left',
   className,
+  openRequest,
   children,
 }: {
   /** The button's text; with `iconOnly` its accessible name. */
@@ -37,9 +38,14 @@ export function Popover({
    */
   align?: 'left' | 'right' | 'row';
   className?: string;
+  /** A number that grows each time something else asks for the panel to open (a button elsewhere on the card). */
+  openRequest?: number;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (openRequest) setOpen(true);
+  }, [openRequest]);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   const refs = useMemo(() => [wrapRef], []);

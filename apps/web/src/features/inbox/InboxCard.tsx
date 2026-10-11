@@ -33,6 +33,7 @@ import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
 import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
 import styles from './InboxCard.module.css';
+import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
 import { OutageAlert, OutageCheck } from './OutageAlert';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
 import { QuestionBody, QuestionChoices, QuestionDetails } from './Question';
@@ -153,6 +154,8 @@ export function InboxCard({
   // An outage (a provider or an engine that cannot work, PM-468) has its own body, and "Check now".
   const alertPayload = item.kind === 'alert' ? alertPayloadOf(item) : null;
   const outageAlert = alertPayload?.alert === 'work_outage' ? alertPayload : null;
+  // The merge request and the alert of a stopped merge (PM-453) tell and act through the card's merge words.
+  const mergeItem = item.kind === 'merge_request' || alertPayload?.alert === 'merge_blocked';
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
@@ -291,11 +294,12 @@ export function InboxCard({
         </div>
       ) : null}
       {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
+      {mergeItem ? <MergeInboxBody item={item} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
       {outageAlert ? (
         <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
       ) : null}
-      {item.body && loopText === null && fixLimitText === null && seniorWaitText === null ? (
+      {item.body && !mergeItem && loopText === null && fixLimitText === null && seniorWaitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
         ) : (
@@ -368,7 +372,15 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : handOn ? (
+      {assignedToOthers ? null : mergeItem ? (
+        <MergeInboxActions
+          item={item}
+          size={buttonSize}
+          pending={pending}
+          detailsHref={detailsHref}
+          onResolve={onResolve}
+        />
+      ) : handOn ? (
         <div className={clsx(styles.actions, styles.handOnActions)}>
           <Button
             variant="primary"
@@ -439,7 +451,7 @@ export function InboxCard({
           {error}
         </p>
       ) : null}
-      {detailsHref && mobile && !handOn ? (
+      {detailsHref && mobile && !handOn && !mergeItem ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

@@ -4,6 +4,7 @@ import {
   fixLimitDecisionOf,
   handOnRequestOf,
   loopDecisionOf,
+  mergeRequestOf,
   permissionDelegationOf,
   questionPayloadOf,
   seniorWaitDecisionOf,
@@ -41,6 +42,7 @@ const BUILT_IN_OPTIONS = [
   'any_developer',
   'move',
   'dismiss',
+  'merge',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -59,12 +61,17 @@ export function optionLabel(option: InboxOption): string {
  */
 export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'boundary') return t('boundary.heading');
+  const merge = mergeRequestOf(item);
+  if (merge)
+    return t(merge.failure ? 'inbox.mergeRequest.failedTitle' : 'inbox.mergeRequest.title', {
+      key: merge.taskKey,
+    });
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
-    if (alert?.alert === 'merge_blocked') return t('inbox.alerts.unknown');
+    if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
     if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
@@ -242,7 +249,8 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
-  if (alert.alert === 'merge_blocked') return alert.message;
+  // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
+  if (alert.alert === 'merge_blocked') return null;
   if (alert.alert === 'work_outage') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(

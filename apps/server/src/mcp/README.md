@@ -72,6 +72,10 @@ tests use the SDK's own client, which behaves the same way here):
 | `get_screenshot_run` | `run_id` (1–64 chars)                                                                                                                         | `getScreenshotRun(ctx, runId)`                                                                          |
 | `hand_off`           | `task_key`, `note` (1–`HANDOFF_NOTE_MAX` chars)                                                                                               | `handOff(ctx, { taskKey, note })`                                                                       |
 
+- `get_project_state { task_key? }` (PM-465) is a read-only Operator tool, available without an open owner request.
+  A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
+  Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
+  Guest conversations cannot call it until a separate task provides a viewer filter.
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the
@@ -151,12 +155,12 @@ owner.`); they do not repeat the guidance of the description.
 Results are short plain text (a roster, a task card with the last 20 timeline events,
 "Updated AR-21: …", …). Errors are tool results with `isError: true`:
 
-| Case                                | Text                                                                   |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)  |
-| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>` |
-| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)   |
-| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)    |
+| Case                                | Text                                                                                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
+| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
+| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
+| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
 
 ## What the handler (domain) should do
 

@@ -512,6 +512,8 @@ export const hu = {
   },
 
   common: {
+    /** The vowels that take "az" instead of "a" as the definite article (`withArticle`). */
+    vowels: 'aáeéiíoóöőuúüű',
     you: 'Te',
     youInitials: 'TE',
     close: 'Bezárás',

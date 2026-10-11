@@ -1,4 +1,4 @@
-const VOWELS = 'aáeéiíoóöőuúüű';
+import { t } from '../i18n/t';
 
 /**
  * The Hungarian definite article for a role's name: "az" before a vowel, "a" before anything else
@@ -6,5 +6,5 @@ const VOWELS = 'aáeéiíoóöőuúüű';
  */
 export function withArticle(name: string): string {
   const first = name.trim().charAt(0).toLowerCase();
-  return `${first && VOWELS.includes(first) ? 'az' : 'a'} ${name}`;
+  return `${first && t('common.vowels').includes(first) ? 'az' : 'a'} ${name}`;
 }

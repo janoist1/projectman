@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import { z } from 'zod';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { PermissionDecision, ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { DENY_DEFAULT, type HookPayload } from '../../hook-payload';
@@ -178,6 +179,7 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
       presetSessionId: false,
       sessionPermissionRules: false,
       readiness: 'screen',
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.codex,
     },
     timing: CODEX_TIMING,
     inputTools: CODEX_INPUT_TOOLS,

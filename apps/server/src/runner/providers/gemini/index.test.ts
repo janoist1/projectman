@@ -6,6 +6,8 @@ describe('Gemini adapter', () => {
   it('fails closed and injects member instructions on invocation only', async () => {
     const adapter = createGeminiAdapter({ bin: 'unused', logger: silentLogger() });
     expect(adapter.capabilities.toolGate).toBe('pre_tool_use');
+    // The CLI has no place for an image in an MCP tool result (PM-518).
+    expect(adapter.capabilities.mcpImageResults).toBe(false);
     expect(adapter.turnStartOutput!(geminiSpec())).toEqual({
       injectSteps: [{ ephemeralMessage: 'Member instructions' }],
     });

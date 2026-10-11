@@ -1,4 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
+import { PROVIDER_MCP_IMAGE_RESULTS } from '../../../contracts';
 import type { ProviderStatus } from '../../../contracts';
 import { resolveCommand, runQuietly } from '../../cli';
 import { parseClaudeAuthStatus } from '../login';
@@ -163,6 +164,7 @@ export function createClaudeAdapter(opts: ClaudeAdapterOptions): ProviderAdapter
       presetSessionId: true,
       sessionPermissionRules: true,
       readiness: 'session_start',
+      mcpImageResults: PROVIDER_MCP_IMAGE_RESULTS.claude,
     },
     timing: CLAUDE_TIMING,
     inputTools: CLAUDE_INPUT_TOOLS,

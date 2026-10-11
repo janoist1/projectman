@@ -89,7 +89,7 @@ function TaskRow({ taskKey, title, href }: { taskKey: string; title: string | nu
     </span>
   );
   return (
-    <p className={styles.task}>
+    <p className={clsx(styles.task, styles.taskRow)}>
       {href ? (
         <Link
           to={href}

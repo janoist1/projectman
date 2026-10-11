@@ -87,6 +87,12 @@
 }
 
 /* The card row of an item with a card (PM-501): the key, then the title; the two-line cut is on the whole row. */
+.taskRow {
+  /* The cut is on `.taskText`: the row itself must not clip the focus ring and the finger's target. */
+  display: block;
+  overflow: visible;
+}
+
 .taskText {
   display: -webkit-box;
   -webkit-box-orient: vertical;

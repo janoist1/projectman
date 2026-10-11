@@ -20,7 +20,7 @@ import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
-import type { ControlPause, ControlSocket } from './control';
+import type { ControlPause, ControlRelease, ControlSocket } from './control';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
@@ -193,6 +193,11 @@ export interface BuildAppOptions {
   /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
   setupCode?: string;
   appVersion?: string;
+  /**
+   * The project and repository that are this instance itself (`PROJECTMAN_RELEASE_TARGET`, PM-491):
+   * its releases are proposed, approved and deployed. Absent: releases are off.
+   */
+  releaseTarget?: { projectKey: string; repo: string };
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
@@ -540,6 +545,8 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
+      appVersion: options.appVersion ?? 'dev',
+      ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
       runtimeBoundary,
       ...(boundaryConfig
@@ -734,6 +741,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           false,
         ).pause,
     };
+    // The release watcher (PM-493) reads the approved release and reports on the same socket.
+    const controlRelease: ControlRelease = {
+      appVersion: () => domain.releases.appVersion(),
+      next: () => domain.releases.next(),
+      claim: (releaseId, previousCommit) => domain.releases.claim(releaseId, previousCommit),
+      report: (releaseId, report) => domain.releases.report(releaseId, report),
+    };
     let controlSocket: ControlSocket | undefined;
     app.addHook('onReady', async () => {
       await domain.start();
@@ -742,6 +756,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         controlSocket = await startControlSocket({
           path: join(home, CONTROL_SOCKET_NAME),
           pause: controlPause,
+          release: controlRelease,
           log: log.child({ module: 'control' }),
         });
       }

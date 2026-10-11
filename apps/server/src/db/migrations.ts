@@ -946,5 +946,64 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;
   ALTER TABLE team_messages ADD COLUMN operator_signal TEXT;`,
   },
+  {
+    version: 51,
+    name: 'releases',
+    sql: `CREATE TABLE releases (
+      id TEXT PRIMARY KEY, project_key TEXT NOT NULL, repo TEXT NOT NULL, task_key TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('proposed','approved','rejected','deploying','failed','live','published')),
+      "commit" TEXT NOT NULL, base_commit TEXT, tasks_json TEXT NOT NULL, summary TEXT NOT NULL,
+      proposed_by TEXT NOT NULL, proposed_at TEXT NOT NULL, decided_by TEXT, decided_at TEXT,
+      deploy_started_at TEXT, previous_commit TEXT, live_at TEXT,
+      tag TEXT, url TEXT, published_at TEXT,
+      failure_json TEXT, publish_error TEXT, updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX releases_open ON releases(project_key) WHERE state IN ('proposed','approved','deploying');
+    CREATE INDEX releases_project ON releases(project_key, proposed_at);`,
+  },
+  {
+    version: 52,
+    name: 'doc writes',
+    sql: `CREATE TABLE doc_writes (
+    id TEXT PRIMARY KEY,
+    project_key TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    base TEXT NOT NULL,
+    base_commit TEXT NOT NULL,
+    edits TEXT NOT NULL,
+    message TEXT NOT NULL,
+    author TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    step_id TEXT NOT NULL,
+    engine_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('queued','running','published','stale','failed')),
+    commit_sha TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX doc_writes_open ON doc_writes(project_key) WHERE state IN ('queued','running');`,
+  },
+  {
+    version: 53,
+    name: 'decision offers',
+    sql: `CREATE TABLE decision_offers (
+      project_key TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      verdict TEXT NOT NULL CHECK (verdict IN ('recorded','declined','skipped')),
+      decision TEXT,
+      request_id TEXT NOT NULL,
+      decided_at TEXT NOT NULL,
+      PRIMARY KEY (project_key, item_id)
+    );
+    CREATE TABLE decision_candidate_state (
+      project_key TEXT PRIMARY KEY,
+      since TEXT NOT NULL,
+      listed_at TEXT
+    );
+    INSERT INTO decision_candidate_state (project_key, since, listed_at)
+      SELECT DISTINCT project_key, strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL FROM inbox_items;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

@@ -62,9 +62,12 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
   const hosts = new Map<EngineId, EngineHost>();
   /** The runs of the screenshot executors waiting for their `screenshot_started`. */
   const started = new Map<string, () => void>();
+  /** The runs of the full-test executors waiting for their `full_test_started`. */
+  const fullStarted = new Map<string, () => void>();
 
   hub.onEvent((_id, event) => {
     if (event.kind === 'screenshot_started') started.get(event.runId)?.();
+    if (event.kind === 'full_test_started') fullStarted.get(event.runId)?.();
   });
   // A folder the cloud made for a session that is not in the engine's `hello` is gone with the process.
   hub.onConnect(({ id, hello }) => {
@@ -181,8 +184,10 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         // The engine's own sandbox answers at the run; here only whether it can be reached at all.
         return hub.link(id) ? { ok: true } : { ok: false, reason: 'engine_offline' };
       },
-      async run(spec, signal) {
+      async run(spec, signal, onStarted) {
         const startedAt = now();
+        // An older engine never sends `full_test_started`: the caller stays at its waiting step.
+        if (onStarted) fullStarted.set(spec.runId, onStarted);
         const cancel = () => {
           call('full_test.cancel', { runId: spec.runId }, { timeoutMs: CANCEL_TIMEOUT_MS }).catch(() => {});
         };
@@ -201,6 +206,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
             outputTail: '',
           };
         } finally {
+          fullStarted.delete(spec.runId);
           signal.removeEventListener('abort', cancel);
         }
       },
@@ -268,6 +274,9 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       },
       push: (ref, input) => merge('merge.push', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
       advance: (ref, input) => merge('merge.advance', { ref, ...input }, MERGE_WAIT_MS),
+      // A read of a base fetches its upstream first.
+      readFile: (ref, input) => merge('merge.read_file', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      commitFiles: (ref, input) => merge('merge.commit_files', { ref, ...input }, MERGE_WAIT_MS),
     };
 
     return {

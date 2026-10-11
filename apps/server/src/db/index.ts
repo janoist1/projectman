@@ -8,6 +8,10 @@ import { createFullTestRunRepository } from './full-test-runs';
 import { createInvitationRepository } from './invitations';
 import type { Db } from './database';
 import { createDeferredStartRepository } from './deferred-starts';
+import { createDecisionOfferRepository } from './decision-offers';
+export type { DecisionCandidateState, DecisionOfferRecord, DecisionVerdict } from './decision-offers';
+import { createDocWriteRepository } from './doc-writes';
+export type { DocWriteEdit, DocWritePatch, DocWriteRecord, DocWriteState } from './doc-writes';
 import { createMemberWorkspaceRepository } from './member-workspaces';
 import { createInboxRepository } from './inbox';
 import { createMemberStateRepository } from './member-state';
@@ -18,6 +22,7 @@ import { createOperatorSignalRepository } from './operator-signals';
 export type { OperatorSignalRecord } from './operator-signals';
 import { createPauseRepository } from './pauses';
 import { createProjectFocusRepository } from './project-focus';
+import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
 export { mergeState, mergedState } from './task-merges';
@@ -75,6 +80,7 @@ export function createRepositories(db: Db) {
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
     taskMerges: createTaskMergeRepository(db),
+    releases: createReleaseRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),
     taskLoops: createTaskLoopRepository(db),
@@ -86,6 +92,8 @@ export function createRepositories(db: Db) {
     seniorWaits: createSeniorWaitRepository(db),
     pauses: createPauseRepository(db),
     fullTestRuns: createFullTestRunRepository(db),
+    docWrites: createDocWriteRepository(db),
+    decisionOffers: createDecisionOfferRepository(db),
     schedules: createScheduleRepository(db),
     deferredStarts: createDeferredStartRepository(db),
     memberWorkspaces: createMemberWorkspaceRepository(db),

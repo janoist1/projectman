@@ -1,10 +1,12 @@
 import { z } from 'zod';
+import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
 import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
+import { ReleaseStep } from './release';
 import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
 import { TaskKey } from './task';
@@ -29,8 +31,28 @@ export const InboxKind = z.enum([
   'alert',
   'hand_on',
   'merge_request',
+  /** The approval of a proposed release of the instance itself (PM-491); see `ReleaseApprovalPayload`. */
+  'release',
 ]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+/**
+ * `payload.release` of a `release` item: the release an owner approves or rejects. The options are
+ * `approve` (primary) and `reject` (danger); a note is optional.
+ */
+export const ReleaseApprovalPayload = z.object({
+  releaseId: z.string(),
+  commit: z.string(),
+  baseCommit: z.string().nullable(),
+  tasks: z.array(z.object({ key: TaskKey, title: z.string() })),
+  summary: z.string(),
+});
+export type ReleaseApprovalPayload = z.infer<typeof ReleaseApprovalPayload>;
+export function releaseApprovalOf(item: Pick<InboxItem, 'kind' | 'payload'>): ReleaseApprovalPayload | null {
+  if (item.kind !== 'release') return null;
+  const parsed = ReleaseApprovalPayload.safeParse(item.payload.release);
+  return parsed.success ? parsed.data : null;
+}
 
 export const MergeRequestPayload = z.object({
   taskKey: TaskKey,
@@ -399,7 +421,20 @@ export const WorkOutageAlert = z.object({
 });
 export type WorkOutageAlert = z.infer<typeof WorkOutageAlert>;
 
+/** `release_failed` (PM-491): the deploy of release `releaseId` failed in `step`; `rolledBack`: the previous commit runs again. */
+export const ReleaseFailedAlert = z.object({
+  alert: z.literal('release_failed'),
+  releaseId: z.string(),
+  taskKey: TaskKey,
+  commit: z.string(),
+  step: ReleaseStep,
+  message: z.string(),
+  rolledBack: z.boolean(),
+});
+export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  ReleaseFailedAlert,
   WorkOutageAlert,
   MergeBlockedAlert,
   SessionTokensAlert,
@@ -420,6 +455,23 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
   const parsed = AlertPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
 }
+
+/** At most this many files on one question (PM-498). */
+export const MAX_QUESTION_ATTACHMENTS = 6;
+
+/** A file a question names (PM-498): a snapshot taken when it was asked, so it still shows after a deletion. */
+export const QuestionAttachment = z.object({
+  id: AttachmentId,
+  /** The card the file is on: the question's card or its parent. */
+  taskKey: TaskKey,
+  fileName: z.string(),
+  size: z.number().int().nonnegative(),
+  mediaType: z.string(),
+  preview: AttachmentPreview,
+  /** When the file was deleted from its card after the question was asked; absent while it is there. */
+  goneAt: z.string().optional(),
+});
+export type QuestionAttachment = z.infer<typeof QuestionAttachment>;
 
 /**
  * `payload` of a `question` item, written by the `ask_human` team tool. The question is also the
@@ -444,6 +496,8 @@ export const QuestionPayload = z.object({
    * off when the last such question closes; absent when a person had put it on, or it was not set.
    */
   autoLabel: z.boolean().optional(),
+  /** The files the question names (PM-498); absent on older questions and on questions without files. */
+  attachments: z.array(QuestionAttachment).optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -451,6 +505,41 @@ export type QuestionPayload = z.infer<typeof QuestionPayload>;
 export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {
   const parsed = QuestionPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The files a question names, or an empty list when the item is not a question, has none, or the
+ * field is unreadable. The field is parsed on its own so one bad entry does not make the whole
+ * question unreadable.
+ */
+export function questionAttachmentsOf(item: Pick<InboxItem, 'kind' | 'payload'>): QuestionAttachment[] {
+  if (item.kind !== 'question') return [];
+  const raw = (item.payload as Record<string, unknown> | null | undefined)?.attachments;
+  const parsed = z.array(QuestionAttachment).safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
+/**
+ * A copy of a question payload in which the named file is marked deleted at `at`. Null when the
+ * payload has no such file or it is already marked. The server and the web's test backend both
+ * call this.
+ */
+export function withQuestionAttachmentGone(
+  payload: Record<string, unknown>,
+  attachmentId: string,
+  at: string,
+): Record<string, unknown> | null {
+  const list = payload.attachments;
+  if (!Array.isArray(list)) return null;
+  let changed = false;
+  const next = list.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const record = entry as Record<string, unknown>;
+    if (record.id !== attachmentId || record.goneAt !== undefined) return entry;
+    changed = true;
+    return { ...record, goneAt: at };
+  });
+  return changed ? { ...payload, attachments: next } : null;
 }
 
 /**

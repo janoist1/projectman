@@ -2,6 +2,7 @@ import {
   alertPayloadOf,
   BoundaryRequest,
   fixLimitDecisionOf,
+  gateRequestOf,
   handOnRequestOf,
   loopDecisionOf,
   mergeRequestOf,
@@ -9,7 +10,7 @@ import {
   questionPayloadOf,
   seniorWaitDecisionOf,
 } from '@projectman/shared';
-import type { InboxItem, InboxOption, LabelView, WorkItemRef } from '@projectman/shared';
+import type { InboxItem, InboxOption, LabelView, Task, WorkItemRef } from '@projectman/shared';
 import { formatStamp, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
@@ -298,6 +299,18 @@ export function alertText(
       member: nameOf(alert.member, members, myHandle),
       parts: alert.parts.join(', '),
     });
+  if (alert.alert === 'release_failed')
+    return t('inbox.alerts.release_failed.body', {
+      key: alert.taskKey,
+      commit: alert.commit.slice(0, 8),
+      step: alert.step,
+      message: alert.message,
+      rollback: t(
+        alert.rolledBack
+          ? 'inbox.alerts.release_failed.rolledBack'
+          : 'inbox.alerts.release_failed.notRolledBack',
+      ),
+    });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
       member: nameOf(item.source, members, myHandle),
@@ -432,6 +445,68 @@ export function gateMoveText(
         to,
       })
     : t('inbox.gateMove', { from, to });
+}
+
+/**
+ * "Jóváhagyás után X beolvasztja a main ágba, és a kártya átkerül ide: Kész." under an approval a merge
+ * follows (PM-484); null when the request names no merge (older requests, no merger).
+ */
+export function gateThenMergeText(
+  item: InboxItem,
+  pipeline: PipelineIndex | null | undefined,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const gate = item.kind === 'decision' ? gateRequestOf(item) : null;
+  if (!gate?.merge) return null;
+  const params = {
+    base: gate.merge.base,
+    to: pipeline?.stageById.get(gate.toStageId)?.name ?? gate.toStageId,
+  };
+  return gate.merge.merger === myHandle
+    ? t('inbox.gateThenMergeYou', params)
+    : t('inbox.gateThenMerge', { ...params, merger: nameOf(gate.merge.merger, members, myHandle) });
+}
+
+/** What a question that asks for an approval tells the reader (PM-484): the answer sets no label. */
+export type ApprovalHint =
+  | { kind: 'jump'; label: string; gateItemId: string }
+  | { kind: 'others'; label: string; approvers: string[] }
+  | { kind: 'none'; label: string; taskKey: string }
+  | { kind: 'done'; label: string };
+
+/**
+ * Which of the four notes an open question gets: the label is already on the card (`done`), the approval
+ * request waits for the viewer (`jump`) or for others (`others`), or there is none open (`none`). `label` is
+ * the label id; the card shows its name. Null when the question asks for no approval.
+ */
+export function approvalHintOf(
+  item: InboxItem,
+  ctx: {
+    task: Pick<Task, 'labels'> | undefined;
+    items: readonly InboxItem[];
+    myHandle: string | null;
+  },
+): ApprovalHint | null {
+  if (item.kind !== 'question' || item.state !== 'open') return null;
+  const label = questionPayloadOf(item)?.approvalLabel;
+  if (!label) return null;
+  if (ctx.task?.labels.includes(label)) return { kind: 'done', label };
+  const requests = openItems(ctx.items).filter(
+    (other) =>
+      other.kind === 'decision' && other.taskKey === item.taskKey && gateRequestOf(other)?.label === label,
+  );
+  const mine = requests.find((other) => isAssignedTo(other, ctx.myHandle));
+  if (mine) return { kind: 'jump', label, gateItemId: mine.id };
+  if (requests.length > 0) {
+    return { kind: 'others', label, approvers: [...new Set(requests.flatMap((other) => other.assignees))] };
+  }
+  return { kind: 'none', label, taskKey: item.taskKey ?? '' };
+}
+
+/** The id of an item's card in the page, for a link that scrolls to it. */
+export function inboxItemDomId(itemId: string): string {
+  return `inbox-item-${itemId}`;
 }
 
 /** Short text of what was decided, for history lists. */

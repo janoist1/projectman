@@ -208,6 +208,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async proposeRelease(ctx, args) {
+      await enter('proposeRelease', ctx, args);
+      const commit = args.commit ?? '0'.repeat(40);
+      const tasks = [{ key: 'FAKE-1', title: 'A merged card' }];
+      return args.preview
+        ? { commit, baseCommit: null, tasks }
+        : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
+    },
     async submitBoundaryRequest(ctx, args) {
       await enter('submitBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
@@ -219,6 +227,31 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
       return { task_key: args.taskKey, session_id: null, hired: null };
+    },
+    async readProjectDoc(ctx, args) {
+      await enter('readProjectDoc', ctx, args);
+      return {
+        doc: args.doc,
+        repo: 'fake',
+        path: 'docs/DECISIONS.md',
+        commit: '0'.repeat(40),
+        exists: true,
+        total_lines: 0,
+        from_line: args.fromLine ?? 1,
+        text: '',
+      };
+    },
+    async writeProjectDocs(ctx, args) {
+      await enter('writeProjectDocs', ctx, args);
+      return { write_id: 'dw_fake', state: 'running' };
+    },
+    async listDecisionCandidates(ctx, args) {
+      await enter('listDecisionCandidates', ctx, args);
+      return { candidates: [], more: false };
+    },
+    async markDecisionCandidates(ctx, args) {
+      await enter('markDecisionCandidates', ctx, args);
+      return { marked: args.items.length };
     },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);

@@ -2,8 +2,9 @@
 
 What comes next and what waits for the owner. Cards (`PM-nn`) live on the "PM" board of the
 owner's instance; this file names them so that the plan and the board stay in step. Why we go
-this way: [VISION.md](VISION.md); decisions taken: [DECISIONS.md](DECISIONS.md). The integrating
-session updates this file with every release (decision 35).
+this way: [VISION.md](VISION.md); decisions taken: [DECISIONS.md](DECISIONS.md). The Operator
+updates this file at the owner's request, together with decisions that change the plan, and
+before a release after the owner's yes (decision 50).
 
 Last reviewed: 2026-10-06, after the board triage (decisions 36–40). Live: v2026.10.6.
 

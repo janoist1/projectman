@@ -186,7 +186,7 @@ describe.skipIf(!status.installed)('npm run shots with a browser', () => {
       const out = join(temp(), 'out');
       const file = scenario(`${askQuestion}
   await step('open the card', async () => {
-    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
+    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
     await page.waitForFunction((text) => document.body.innerText.includes(text), ${JSON.stringify(QUESTION)});
     await shoot(page, 'card');
   });`);

@@ -14,7 +14,7 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 
 const drawer = (
   <Routes>
-    <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+    <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
   </Routes>
 );
 
@@ -382,7 +382,7 @@ describe('task drawer labels', () => {
 describe('task drawer comments', () => {
   it('filters autocomplete by handle and name, selects with arrows and Enter, and sends', async () => {
     const project = mockProject();
-    project.render(drawer, '/p/AC/tasks/AC-20');
+    project.render(drawer, '/p/AC/tasks/AC-20/timeline');
     const input = await screen.findByLabelText(t('task.comments.label'));
     fireEvent.change(input, { target: { value: 'Hello @', selectionStart: 7 } });
     const list = screen.getByRole('listbox', { name: t('task.comments.members') });
@@ -602,14 +602,15 @@ describe('task drawer layout', () => {
       'article',
     )!;
     const properties = screen.getByRole('region', { name: t('task.labels.title') });
-    const timeline = screen.getByRole('heading', { name: t('task.timeline') });
     const follows = (a: Node, b: Node) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(decision, properties)).toBe(true);
     const open = await screen.findByRole('link', { name: t('task.openSession') });
     expect(follows(decision, open)).toBe(true);
     expect(follows(open, properties)).toBe(true);
-    expect(follows(properties, timeline)).toBe(true);
+    // The timeline and the attachments have views of their own (PM-487): the card ends with its numbers.
+    expect(screen.queryByRole('heading', { name: t('task.timeline') })).toBeNull();
+    expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
     // The move panel opens inside the row of the session buttons (the row it is positioned by), so
     // it stays within the drawer wherever the button wraps to.
     fireEvent.click(screen.getByRole('button', { name: t('task.move.open') }));

@@ -137,6 +137,35 @@ describe('the merge box in the drawer (PM-453)', () => {
     expect(project.backend.findTask('AC-27')!.merge).toBeUndefined();
   });
 
+  it('shows the wait for the machine’s test queue in the check’s row, then the check running', async () => {
+    const project = mergeProject();
+    project.backend.config.project.repos.forEach((repo) => {
+      repo.reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 };
+    });
+    withoutMergeItems(project.backend);
+    startMerge(project.backend);
+    project.backend.advanceMerge('AC-27');
+    project.backend.advanceMerge('AC-27');
+    expect(project.backend.findTask('AC-27')!.merge?.step).toBe('check_waiting');
+    const view = project.render(drawer, route);
+    const waiting = await mergeBox();
+    expect(
+      within(waiting).getByText(t('task.merge.running.checkWaiting', { check: 'npm test' })),
+    ).toBeTruthy();
+    expect(within(waiting).queryByText(t('task.merge.running.check', { check: 'npm test' }))).toBeNull();
+    expect(waiting.textContent).toContain(t('task.merge.running.active'));
+
+    project.backend.advanceMerge('AC-27');
+    expect(project.backend.findTask('AC-27')!.merge?.step).toBe('checking');
+    view.unmount();
+    project.render(drawer, route);
+    const checking = await mergeBox();
+    expect(within(checking).getByText(t('task.merge.running.check', { check: 'npm test' }))).toBeTruthy();
+    expect(
+      within(checking).queryByText(t('task.merge.running.checkWaiting', { check: 'npm test' })),
+    ).toBeNull();
+  });
+
   it('shows a conflict with the files and offers to merge again or send the card back', async () => {
     const project = mergeProject();
     project.backend.setMergeOutcome('AC-27', 'conflict');

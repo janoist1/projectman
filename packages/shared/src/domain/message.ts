@@ -110,11 +110,12 @@ export function canSeeTeamMessage(viewer: TaskViewer, message: Pick<TeamMessage,
   );
 }
 
-export type CardThreadRecipientBasis = 'workers' | 'assignee' | 'stage_owners' | 'none';
+export type CardThreadRecipientBasis = 'workers' | 'assignee' | 'stage_owners' | 'project_manager' | 'none';
 
 /**
  * Who a message written on a card's thread goes to by default (PM-249): the members working on the card,
- * else its assignee, else its stage's owners; never the writer, only members who may get messages.
+ * else its assignee, else its stage's owners, else the project manager (PM-488), who passes it on; never
+ * the writer, only members who may get messages.
  */
 export function cardThreadRecipients(input: {
   /** Members of `cardWorkerSessions(...)`, in its order. */
@@ -122,6 +123,8 @@ export function cardThreadRecipients(input: {
   assignee: string | null;
   /** The resolved owners of the card's stage (`BoardView.stages`). */
   stageOwners: readonly string[];
+  /** The project manager (`projectManagerAmong`), the last fallback (PM-488); null: there is none. */
+  projectManager: string | null;
   writer: string;
   /** An active member of the project (not retired) other than a client. */
   canReceive: (handle: string) => boolean;
@@ -135,6 +138,8 @@ export function cardThreadRecipients(input: {
   if (assignee.length > 0) return { basis: 'assignee', to: assignee };
   const owners = usable(input.stageOwners);
   if (owners.length > 0) return { basis: 'stage_owners', to: owners };
+  const projectManager = usable(input.projectManager ? [input.projectManager] : []);
+  if (projectManager.length > 0) return { basis: 'project_manager', to: projectManager };
   return { basis: 'none', to: [] };
 }
 

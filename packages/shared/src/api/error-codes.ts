@@ -214,6 +214,24 @@ export const ERROR_CODES = [
   'operator_never',
   'operator_only',
   'operator_approval_stale',
+  // The Operator's documents (PM-495): not set up; an edit that does not apply (422); a log line that would
+  // change; no change at all; the file moved on since it was read; a write already waits or runs (409);
+  // the write did not go up (409).
+  'docs_not_configured',
+  'docs_edit_not_found',
+  'docs_edit_ambiguous',
+  'docs_not_append_only',
+  'docs_unchanged',
+  'docs_stale',
+  'docs_write_pending',
+  'docs_write_failed',
+  // The release of the instance (PM-491): not set up for this project, one is open already, nothing new
+  // to release, the commit is no recorded merge, the release is not in the state the step needs.
+  'release_not_configured',
+  'release_open',
+  'release_empty',
+  'release_commit_unknown',
+  'release_state_conflict',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

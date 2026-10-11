@@ -1,3 +1,4 @@
+import { attachmentPreviewOf } from '@projectman/shared';
 import { getLocale, roleViews, standardLabel, standardLabelsFor } from '@projectman/templates';
 import type {
   Actor,
@@ -1778,6 +1779,69 @@ export function plainLanguageQuestion(overrides: Partial<InboxItem> = {}): Inbox
     state: 'open',
     resolution: null,
     createdAt: minutesAgo(5),
+    ...overrides,
+  };
+}
+
+/**
+ * The files `attachmentQuestion` names, as the cards hold them: an image, a HTML and a PDF of the
+ * question's own card (AC-22), a PDF of its parent (AC-20) and one that was deleted since. Tests
+ * that delete a file put the entry into `MockBackend.attachments` first.
+ */
+export const attachmentQuestionFiles = [
+  {
+    id: 'att_aq0000image1',
+    taskKey: 'AC-22',
+    fileName: 'kosar-hiba.png',
+    size: 84_200,
+    mediaType: 'image/png',
+  },
+  {
+    id: 'att_aq0000html01',
+    taskKey: 'AC-22',
+    fileName: 'jelentes.html',
+    size: 12_400,
+    mediaType: 'text/html',
+  },
+  {
+    id: 'att_aq0000pdf001',
+    taskKey: 'AC-22',
+    fileName: 'merespecifikacio.pdf',
+    size: 1_250_000,
+    mediaType: 'application/pdf',
+  },
+  {
+    id: 'att_aq0000pdf002',
+    taskKey: 'AC-20',
+    fileName: 'szerzodes-vazlat.pdf',
+    size: 310_000,
+    mediaType: 'application/pdf',
+  },
+  {
+    id: 'att_aq0000gone01',
+    taskKey: 'AC-22',
+    fileName: 'regi-terv.png',
+    size: 45_000,
+    mediaType: 'image/png',
+    goneAt: minutesAgo(2),
+  },
+] as const;
+
+/**
+ * An open question that names files (PM-498): an image, a HTML and a PDF of its own card, a PDF of
+ * the parent card and a file that was deleted since. Not part of the default inbox; tests put it
+ * into `MockBackend.inbox`.
+ */
+export function attachmentQuestion(overrides: Partial<InboxItem> = {}): InboxItem {
+  return {
+    ...plainLanguageQuestion({ id: 'inb_q_attachments' }),
+    payload: {
+      ...plainLanguageQuestion().payload,
+      attachments: attachmentQuestionFiles.map((file) => ({
+        ...file,
+        preview: attachmentPreviewOf(file.mediaType),
+      })),
+    },
     ...overrides,
   };
 }

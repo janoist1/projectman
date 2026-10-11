@@ -1,7 +1,7 @@
 import { chmodSync, existsSync, unlinkSync } from 'node:fs';
 import net from 'node:net';
 import { ControlRequest } from '@projectman/shared';
-import type { ControlResponse, PauseRequest, PauseStatus } from '@projectman/shared';
+import type { ControlResponse, PauseRequest, PauseStatus, Release, ReleaseReport } from '@projectman/shared';
 
 /** The instance's pause, as the control socket drives it (the app composes this from the domain). */
 export interface ControlPause {
@@ -9,6 +9,19 @@ export interface ControlPause {
   resume(): Promise<PauseStatus | null>;
   force(): Promise<PauseStatus | null>;
   status(): PauseStatus | null;
+}
+
+/**
+ * The instance's releases, as the release watcher drives them (PM-491; the app composes this from the
+ * domain). Every method refuses with `release_not_configured` when the instance is not set up to release.
+ */
+export interface ControlRelease {
+  /** The commit the answering server runs. */
+  appVersion(): string;
+  /** The release the watcher has something to do with, if any. */
+  next(): Release | null;
+  claim(releaseId: string, previousCommit: string | null): Release;
+  report(releaseId: string, report: ReleaseReport): Promise<Release>;
 }
 
 export interface ControlLog {
@@ -45,7 +58,11 @@ function answers(path: string): Promise<boolean> {
 
 const failure = (code: string, message: string): ControlResponse => ({ ok: false, error: { code, message } });
 
-async function respond(pause: ControlPause, line: string): Promise<ControlResponse> {
+async function respond(
+  pause: ControlPause,
+  release: ControlRelease | undefined,
+  line: string,
+): Promise<ControlResponse> {
   let raw: unknown;
   try {
     raw = JSON.parse(line);
@@ -61,23 +78,43 @@ async function respond(pause: ControlPause, line: string): Promise<ControlRespon
     );
   }
   const request = parsed.data;
+  // The watcher tells a restarted server by the commit it runs: every answer carries it.
+  const version = release ? { appVersion: release.appVersion() } : {};
   switch (request.op) {
     case 'pause':
       return {
         ok: true,
         pause: await pause.pause({ reason: request.reason, forceAfterMs: request.forceAfterMs }),
+        ...version,
       };
     case 'resume':
-      return { ok: true, pause: await pause.resume() };
+      return { ok: true, pause: await pause.resume(), ...version };
     case 'force':
-      return { ok: true, pause: await pause.force() };
+      return { ok: true, pause: await pause.force(), ...version };
     case 'status':
-      return { ok: true, pause: pause.status() };
+      return { ok: true, pause: pause.status(), ...version };
+    case 'release_next':
+    case 'release_claim':
+    case 'release_report': {
+      if (!release) return failure('release_not_configured', 'this instance does not release');
+      const result =
+        request.op === 'release_next'
+          ? release.next()
+          : request.op === 'release_claim'
+            ? release.claim(request.releaseId, request.previousCommit)
+            : await release.report(request.releaseId, request.report);
+      return { ok: true, pause: pause.status(), release: result, ...version };
+    }
   }
 }
 
 /** The protocol on one connection: a request per line in, a response per line out, in order. */
-export function serveControlConnection(connection: net.Socket, pause: ControlPause, log: ControlLog): void {
+export function serveControlConnection(
+  connection: net.Socket,
+  pause: ControlPause,
+  log: ControlLog,
+  release?: ControlRelease,
+): void {
   connection.on('error', () => connection.destroy());
   connection.setTimeout(IDLE_MS, () => connection.destroy());
   connection.setEncoding('utf8');
@@ -87,7 +124,7 @@ export function serveControlConnection(connection: net.Socket, pause: ControlPau
     chain = chain.then(async () => {
       let response: ControlResponse;
       try {
-        response = await respond(pause, line);
+        response = await respond(pause, release, line);
       } catch (err) {
         const code =
           typeof (err as { code?: unknown }).code === 'string'
@@ -127,8 +164,10 @@ export async function startControlSocket(options: {
   path: string;
   pause: ControlPause;
   log: ControlLog;
+  /** The release watcher's operations (PM-491); absent: the socket only pauses. */
+  release?: ControlRelease;
 }): Promise<ControlSocket> {
-  const { path, pause, log } = options;
+  const { path, pause, log, release } = options;
   const none: ControlSocket = { close: async () => undefined };
   if (Buffer.byteLength(path) > maxSocketPathBytes()) {
     log.error({ path }, 'the control socket path is too long for a socket; it is not opened');
@@ -146,7 +185,7 @@ export async function startControlSocket(options: {
   const server = net.createServer((connection) => {
     connections.add(connection);
     connection.on('close', () => connections.delete(connection));
-    serveControlConnection(connection, pause, log);
+    serveControlConnection(connection, pause, log, release);
   });
 
   try {

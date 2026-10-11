@@ -26,6 +26,19 @@ export function projectManagerOf(config: Pick<ProjectConfig, 'team'>): AiMemberC
   return managers.find((m) => !isOnLeave(m)) ?? managers[0] ?? null;
 }
 
+/**
+ * The project manager among member views (`MemberView`): the same choice as `projectManagerOf`; a temp or
+ * retired one never counts (PM-488).
+ */
+export function projectManagerAmong<
+  M extends { kind: string; role: string; temp: boolean; onLeave?: boolean; status?: string },
+>(members: Iterable<M>): M | null {
+  const managers = [...members].filter(
+    (m) => m.kind === 'ai' && m.role === PROJECT_MANAGER_ROLE && !m.temp && m.status !== 'retired',
+  );
+  return managers.find((m) => !m.onLeave) ?? managers[0] ?? null;
+}
+
 /** Whether `handle` is the team's only AI project manager: it cannot be retired or lose the role. */
 export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, handle: string): boolean {
   const managers = projectManagersOf(config);

@@ -890,6 +890,17 @@ export const hu = {
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_approval_stale:
         'A jóváhagyás elavult, mert közben megváltozott az érintett állapot. Zárd le, és kérj új javaslatot az Operátortól.',
+      docs_not_configured:
+        'A döntésnapló vagy a roadmap nincs beállítva: add meg a fájl helyét a tároló beállításaiban.',
+      docs_edit_not_found: 'A cserélendő szöveg nincs a fájlban; olvasd újra a fájlt, és pontosan másold ki.',
+      docs_edit_ambiguous:
+        'A cserélendő szöveg többször szerepel a fájlban; adj hozzá több környező szöveget.',
+      docs_not_append_only:
+        'A döntésnaplóba csak új sor kerülhet: meglévő sor nem módosulhat és nem tűnhet el.',
+      docs_unchanged: 'A cserék után egyik fájl sem változna.',
+      docs_stale: 'A fájl közben megváltozott; olvasd újra, és mutasd meg a tulajdonosnak az új szöveget.',
+      docs_write_pending: 'A projektben már van sorban álló vagy futó dokumentumírás.',
+      docs_write_failed: 'A dokumentumok írása nem ment fel; az üzenet megnevezi az okot.',
       project_manager_move_refused:
         'A Projektmenedzser csak egy induló kártyát tehet munkába; minden más áthelyezést a tulajdonos végez.',
       builtin_role: 'A beépített szerep nem módosítható.',
@@ -918,6 +929,11 @@ export const hu = {
       no_free_member: 'Most nincs szabad fejlesztő.',
       senior_busy: 'A kártya a Seniorra vár.',
       inbox_item_closed: 'Ezt már elintézték.',
+      release_not_configured: 'Ez a példány nincs kiadásra beállítva.',
+      release_open: 'Már van egy folyamatban lévő kiadás.',
+      release_empty: 'Nincs mit kiadni: nincs új beolvasztott kártya.',
+      release_commit_unknown: 'Ez a commit nem egy kártya beolvasztásának eredménye.',
+      release_state_conflict: 'A kiadás állapota ezt most nem engedi.',
       not_an_outage_alert: 'Ez nem kiesési figyelmeztetés.',
       handle_taken: 'Ez az azonosító már foglalt.',
       member_at_capacity: 'Ennek a tagnak most nincs szabad kapacitása.',
@@ -1255,6 +1271,7 @@ export const hu = {
       steps: {
         queued: 'sorra vár',
         merging: 'összefésülés',
+        check_waiting: 'a teszt sorra vár',
         checking: 'ellenőrzés fut',
         pushing: 'felküldés',
         finishing: 'lezárás',
@@ -1629,6 +1646,8 @@ export const hu = {
       label: 'A kártya nézetei',
       card: 'Kártya',
       thread: 'Beszélgetés',
+      attachments: 'Csatolmányok',
+      timeline: 'Idővonal',
     },
     /** The card's conversation: every team message written about the card (PM-273). */
     thread: {
@@ -1651,9 +1670,11 @@ export const hu = {
       working: 'A kártyán dolgoznak',
       others: 'Többi tag',
       default: {
-        workers: 'A kártyán épp dolgozók.',
-        assignee: 'Most senki nem dolgozik rajta, ezért a felelősének.',
-        stageOwners: 'Most senki nem dolgozik rajta, ezért a szakasz gazdáinak.',
+        workers: 'A kártyán épp dolgozók kapják meg.',
+        assignee: 'Most senki nem dolgozik rajta, ezért a felelőse kapja meg.',
+        stageOwners: 'Most senki nem dolgozik rajta, ezért a szakasz gazdái kapják meg.',
+        projectManager:
+          'Most senki nem foglalkozik vele, ezért a projektmenedzser kapja meg, és ő továbbítja a megfelelő tagnak.',
         none: 'Válaszd ki, kinek írsz.',
       },
       edited: 'Te választottad.',
@@ -1765,6 +1786,7 @@ export const hu = {
         by: '{who} indította.',
         merge: 'Összefésülés: {commit} → {base}',
         check: 'Ellenőrzés: {check}',
+        checkWaiting: 'A teljes teszt a gép tesztsorára vár: {check}',
         checkUnknown: 'Ellenőrzés',
         push: 'Felküldés a GitHubra',
         done: 'kész',
@@ -2559,10 +2581,12 @@ export const hu = {
     steps: {
       label: 'Lépések',
       done: 'Megtettem',
+      queued: 'Sorban áll',
       awaiting: 'Jóváhagyásodra vár',
       refused: 'Nem tettem meg',
       iconDone: 'Megtörtént',
       iconAwaiting: 'Jóváhagyásra vár',
+      iconQueued: 'Sorban áll',
       iconRefused: 'Nem tettem meg',
       approved: 'Jóváhagytad',
       rejected: 'Elvetetted',
@@ -2587,6 +2611,8 @@ export const hu = {
         session_stop: 'Munkamenet leállítása',
         project_pause: 'A projekt szüneteltetése',
         project_resume: 'A projekt szünetének feloldása',
+        docs_write: 'Döntésnapló vagy roadmap írása',
+        decision_offer: 'Döntésjelöltek jelölése',
       },
     },
     change: {
@@ -2636,6 +2662,7 @@ export const hu = {
         color: 'szín',
         order: 'sorrend',
         schemaVersion: 'sémaverzió',
+        docs: 'dokumentumok helye',
       },
     },
     approval: {
@@ -2809,6 +2836,8 @@ export const hu = {
     openPdf: 'PDF megnyitása',
     openPdfLabel: '{fileName} megnyitása új lapon',
     previewOf: 'A csatolmány előnézete: {fileName}',
+    imageFailed: 'A kép nem tölthető be.',
+    imageFailedHint: 'Lehet, hogy közben törölték a kártyáról.',
     queued: 'Sorban áll',
     uploading: 'Feltöltés…',
     uploadingLabel: '{fileName} feltöltése',
@@ -3029,6 +3058,7 @@ export const hu = {
       question: 'Kérdés',
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
+      release: 'Kiadás',
     },
     kindsLower: {
       hand_on: 'továbbvitel',
@@ -3039,6 +3069,7 @@ export const hu = {
       question: 'kérdés',
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
+      release: 'kiadás',
     },
     options: {
       allow: 'Engedélyezem',
@@ -3130,6 +3161,13 @@ export const hu = {
           '{member} munkamenete megállt: NanoGPT: korlát, a keret állapotára vár. A szolgáltató üzenete: {message}',
       },
       unknown: 'Figyelmeztetés',
+      /** The release watcher reported a failure (PM-491). */
+      release_failed: {
+        heading: 'Elbukott a kiadás',
+        body: 'A(z) {key} kiadás ({commit}) elbukott ebben a lépésben: {step}. {rollback} A hiba: {message}',
+        rolledBack: 'Az előző változat fut tovább.',
+        notRolledBack: 'Nézd meg, melyik változat fut.',
+      },
       session_tokens: {
         heading: 'Sok tokent használ egy munkamenet',
         body: '{member} munkamenete ({work}, indult: {started}) {counted} tokent használt; a figyelmeztetési határ {limit} token. A munkamenet fut tovább, nem állt meg.',
@@ -3314,8 +3352,23 @@ export const hu = {
       untitled: 'Válaszra vár',
       /** Abbreviations whose full stop does not end a sentence (the heading of a question), space-separated. */
       abbreviations: 'pl kb stb ill vö ún ld dr db sz ti max min ford',
+      /** A question that asks for an approval (PM-484): the answer sets no label. */
+      notApproval: {
+        text: 'Ez kérdés, nem jóváhagyás: a válaszodtól nem kerül fel a {label} címke.',
+        jump: 'Ugrás a jóváhagyáshoz',
+        others: 'A jóváhagyást {names} adhatja meg.',
+        none: 'Nincs nyitott jóváhagyási kérés; a címkét a kártyán teheted fel.',
+        openCard: 'Kártya megnyitása →',
+        done: 'Már rajta van a kártyán: {label}.',
+      },
     },
     details: 'Megnyitás',
+    /** The card row of an item (PM-501): a link that opens the card's drawer over the inbox. */
+    card: {
+      openLabel: '{key} kártya megnyitása: {title}',
+      /** While the board loads (or fails), the title is not known: no dangling ": ". */
+      openLabelKey: '{key} kártya megnyitása',
+    },
     tool: 'Eszköz: {tool}',
     /** A long command of a permission request is folded after four lines. */
     commandFull: 'Teljes parancs',
@@ -3324,10 +3377,22 @@ export const hu = {
     gateMove: 'Továbblépés: {from} → {to}',
     /** The decision names what it approves (PM-445); older requests carry no label and read `gateMove`. */
     gateApproval: 'Jóváhagyás: {label} · {from} → {to}',
+    /** Under an approval that a merge follows (PM-484): one click is enough. */
+    gateThenMerge: 'Jóváhagyás után {merger} beolvasztja a {base} ágba, és a kártya átkerül ide: {to}.',
+    gateThenMergeYou: 'Jóváhagyás után te olvasztod be a {base} ágba, és a kártya átkerül ide: {to}.',
     answerLabel: 'Válaszod',
     answerPlaceholder: 'Írd ide a válaszod…',
     answerSubmit: 'Válasz küldése',
     answerOwn: 'Saját válasz',
+    /** The files a question names (PM-498): tiles that open or download them. */
+    attachments: {
+      title: 'Csatolmányok a válaszhoz',
+      gone: 'már nem elérhető',
+      goneLabel: '{fileName}: már nem elérhető, a kártyáról törölték',
+      goneTitle: 'A fájlt a kérdés óta törölték a kártyáról.',
+      /** The end of a tile's label when the file is on the parent card. */
+      fromCard: ', a {key} kártyáról',
+    },
     answerRequired: 'Írj választ, vagy válassz egy lehetőséget.',
     recent: 'Mostanában döntöttél',
     resolveFailed: 'Nem ment át a döntés. Próbáld újra.',
@@ -3731,6 +3796,16 @@ export const hu = {
       merge_failed_check: 'elbukott az ellenőrzés ({check})',
       merge_failed_check_unnamed: 'elbukott az ellenőrzés',
       task_merge_blocked: 'A beolvasztás elakadt: {reason}',
+      release_changed: 'A kiadás állapota: {state} ({commit})',
+      release_state: {
+        proposed: 'javasolva',
+        approved: 'jóváhagyva',
+        rejected: 'elutasítva',
+        deploying: 'telepítés folyamatban',
+        failed: 'elbukott',
+        live: 'él',
+        published: 'közzétéve',
+      },
       merge_target_unknown: 'a következő lépés',
       task_stage_changed_pinned: 'Továbbvitte: {from} → {to}; átadott commit: {commit}',
       task_stage_changed_branch_moved:

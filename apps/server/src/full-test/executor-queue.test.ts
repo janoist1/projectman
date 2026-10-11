@@ -100,6 +100,44 @@ describe('the full test executor in the heavy-run queue', () => {
     );
   });
 
+  it('reports the start only once it holds the lock', async () => {
+    const other = await hold('a member run');
+    const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+    const onStarted = vi.fn(async () => (await readHeavyQueue(dir)).holder?.label);
+    const seen: Promise<string | undefined>[] = [];
+    const running = executor.run(spec, new AbortController().signal, () => seen.push(onStarted()));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(onStarted).not.toHaveBeenCalled();
+    await other.release();
+    await running;
+    expect(onStarted).toHaveBeenCalledTimes(1);
+    expect(await seen[0]).toBe('server full test PM-1-checkout');
+  });
+
+  it('reports the start at once without a queue, or when the queue is unavailable', async () => {
+    const without = vi.fn();
+    await createFullTestExecutor({ logger, tmpDir: NO_TMP }).run(spec, new AbortController().signal, without);
+    expect(without).toHaveBeenCalledTimes(1);
+    const unavailable = vi.fn();
+    await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: '/tmp/heavy' }).run(
+      spec,
+      new AbortController().signal,
+      unavailable,
+    );
+    expect(unavailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('never reports the start of a run stopped while it waited', async () => {
+    const other = await hold('a member run');
+    const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+    const controller = new AbortController();
+    const onStarted = vi.fn();
+    setTimeout(() => controller.abort(), 100);
+    await executor.run(spec, controller.signal, onStarted);
+    expect(onStarted).not.toHaveBeenCalled();
+    await other.release();
+  });
+
   it('does not queue at all without a folder', async () => {
     const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP });
     const result = await executor.run(spec, new AbortController().signal);

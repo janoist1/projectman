@@ -37,6 +37,8 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_screenshot_run',
   'list_network_denials',
   'get_project_state',
+  'read_project_doc',
+  'list_decision_candidates',
 ]);
 
 /**
@@ -51,6 +53,7 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'hand_off',
   'publish_task_branch',
   'merge_task',
+  'propose_release',
 ]);
 
 /**
@@ -80,6 +83,8 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   link_pull_request: 'task_update',
   start_task: 'task_start',
   operate: 'config_change',
+  write_project_docs: 'docs_write',
+  mark_decision_candidates: 'decision_offer',
 };
 
 export interface OpenOperatorRequest {

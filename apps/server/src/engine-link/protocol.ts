@@ -137,6 +137,7 @@ export const EngineEvent = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('refused'), info: RefusedInfo }),
   z.strictObject({ kind: z.literal('github_changed'), watchId: text, change: PullRequest }),
   z.strictObject({ kind: z.literal('screenshot_started'), runId: text }),
+  z.strictObject({ kind: z.literal('full_test_started'), runId: text }),
 ]);
 export type EngineEvent = z.infer<typeof EngineEvent>;
 export const Hello = z.strictObject({

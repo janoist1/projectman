@@ -995,10 +995,14 @@ describe('system prompt', () => {
       expect(pm).toContain("Never do another role's work: no code, no requirement, no plan, no review.");
       expect(pm).toContain('Only propose what needs the owner: stopping a session');
       expect(pm).toContain('never decide permission or boundary requests, never release');
-      for (const handle of ['code-review', 'fe-1'])
-        expect(roleOf(builder.build(input({ project, handle })).appendSystemPrompt)).not.toContain(
-          'You are the project manager',
-        );
+      expect(pm).toContain(
+        "A person's message on a card's conversation comes to you when nobody else is on the card",
+      );
+      for (const handle of ['code-review', 'fe-1']) {
+        const other = roleOf(builder.build(input({ project, handle })).appendSystemPrompt);
+        expect(other).not.toContain('You are the project manager');
+        expect(other).not.toContain("A person's message on a card's conversation comes to you");
+      }
     });
 
     it('tells the project manager to move cards when selected as the card mover', () => {
@@ -1124,6 +1128,30 @@ describe('system prompt', () => {
         'Nor the rest of yourself: you cannot be retired or sent on leave, there is only one of you, and your name, instructions, capacity and schedule are fixed.',
       );
       expect(operator).not.toContain('anything about yourself');
+    });
+
+    it('gives the rules of the decision log and the roadmap only to a project with docs (PM-496)', () => {
+      const withDocs = buildProject();
+      withDocs.project.repos[0]!.docs = { decisions: 'docs/DECISIONS.md', roadmap: 'docs/ROADMAP.md' };
+      const rules = roleOf(
+        builder.build(input({ project: withDocs, handle: 'operator' })).appendSystemPrompt,
+      );
+      for (const line of [
+        "Record a decision only when the owner states it as a decision in the owners' conversation, says to note it down, or says yes to an offered candidate; never in a guest conversation, never on your own.",
+        'Before writing, show the owner the entry exactly as it will be written; then write it with write_project_docs on the commit you read.',
+        "An entry has the next number after the last one in the file, the owner's own words (quote, do not paraphrase), the date, the card key, and a reference to the earlier decision it refines or replaces; the earlier entry keeps its text and gets a note.",
+        'When a recorded decision changes the plan, update the roadmap in the same write. Compare the roadmap with the board and update it when the owner asks.',
+        "When there are candidates, offer them in your answer to the owner's message; record the ones the owner says yes to, and mark them with mark_decision_candidates (declined: never offer again; skipped: not a decision).",
+        'On docs_stale, read the file again and show the owner the new text before writing.',
+      ])
+        expect(rules).toContain(line);
+      // The rules come before the report line, and nobody but the Operator gets them.
+      expect(rules.indexOf('mark_decision_candidates')).toBeLessThan(rules.indexOf('After every request'));
+      expect(
+        roleOf(builder.build(input({ project: withDocs, handle: 'fe-1' })).appendSystemPrompt),
+      ).not.toContain('mark_decision_candidates');
+      expect(operatorPrompt('en')).not.toContain('write_project_docs');
+      expect(operatorPrompt('en')).not.toContain('mark_decision_candidates');
     });
 
     it('writes the labels of the report in the language of the project', () => {
@@ -1720,6 +1748,53 @@ describe('expected steps', () => {
         repo.name === 'app',
       );
     }
+  });
+
+  describe('where the project merges and the full test runs at the merge (PM-386)', () => {
+    const mergeStep =
+      "the merge step (the merger's `merge_task`) runs the full check (`custom-check --all`) on the merge result before the default branch moves";
+    const mergingProject = () => {
+      const project = buildProject();
+      const repo = project.project.repos[0]!;
+      repo.fullTestAtMerge = true;
+      repo.requireMerge = true;
+      repo.reviewTest = { command: 'custom-check --all', maxWorkers: 2, timeoutMinutes: 15 };
+      return project;
+    };
+
+    it('tells the developer the merge step runs the full check', () => {
+      const project = mergingProject();
+      const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+      const steps = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(steps).toContain(`Do not run the whole test suite: ${mergeStep}.`);
+      expect(steps).not.toContain('the integrator or merge step');
+    });
+
+    it('tells the reviewer the merge step runs the full check', () => {
+      const project = mergingProject();
+      const source = input({ project, handle: 'code-review', task: makeTask({ stageId: 'code_review' }) });
+      const steps = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(steps).toContain(`Do not run the whole test suite: ${mergeStep}. Run only targeted tests`);
+      expect(steps).not.toContain('the integrator or merge step');
+    });
+
+    it('names the check without a command when the repository has none', () => {
+      const project = mergingProject();
+      delete project.project.repos[0]!.reviewTest;
+      const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+      expect(doneSteps(builder.build(source).appendSystemPrompt)).toContain(
+        "the merge step (the merger's `merge_task`) runs the full check on the merge result before the default branch moves.",
+      );
+    });
+
+    it('keeps the integrator wording where an outside integrator merges', () => {
+      const project = mergingProject();
+      project.project.repos[0]!.requireMerge = false;
+      const source = input({ project, handle: 'fe-1', task: makeTask({ stageId: 'dev', assignee: 'fe-1' }) });
+      const steps = doneSteps(builder.build(source).appendSystemPrompt);
+      expect(steps).toContain('the integrator or merge step runs the full check once');
+      expect(steps).not.toContain('the merge step (the merger');
+    });
   });
 
   it('keeps the server review test first and falls back to merge testing when unavailable', () => {

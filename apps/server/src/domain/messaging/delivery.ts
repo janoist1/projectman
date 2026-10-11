@@ -8,6 +8,7 @@ import {
 import type { Session, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../context';
+import type { DecisionCandidates } from '../decision-candidates';
 import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../sessions';
 import type { ProjectService } from '../projects';
 import { senderResultLabelFor, staleReasonFor } from './staleness';
@@ -27,6 +28,7 @@ export class MessageDelivery {
   private readonly projects: ProjectService;
   private readonly flushing = new Set<string>();
   private readonly messages: MessageService;
+  private readonly decisionCandidates: Pick<DecisionCandidates, 'unseen'>;
   private messageHolds?: (session: Session) => Promise<boolean>;
   /** Messages being typed, by message and recipient. */
   private readonly claims = new Set<string>();
@@ -54,7 +56,9 @@ export class MessageDelivery {
     sessions: SessionOrchestrator;
     projects: ProjectService;
     messages: MessageService;
+    decisionCandidates: Pick<DecisionCandidates, 'unseen'>;
   }) {
+    this.decisionCandidates = deps.decisionCandidates;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.projects = deps.projects;
@@ -329,6 +333,13 @@ export class MessageDelivery {
       if (candidate.length + MESSAGE_SEPARATOR.length > MAX_FIRST_INPUT_CHARS) break;
       messages.push(message);
       text = candidate;
+    }
+    // The Operator's own conversation with an owner also learns of answers that may be decisions (PM-496).
+    if (messages.length && operator && workItem.type === 'general' && workItem.with === undefined) {
+      const unseen = this.decisionCandidates.unseen(projectKey, config);
+      const line = `${unseen} owner answers on cards since you last looked may be decisions: list_decision_candidates.`;
+      const withLine = `${text}${MESSAGE_SEPARATOR}${line}`;
+      if (unseen > 0 && withLine.length + MESSAGE_SEPARATOR.length <= MAX_FIRST_INPUT_CHARS) text = withLine;
     }
     return { text, messages };
   }

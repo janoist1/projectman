@@ -113,10 +113,17 @@ export function createOperatorRequestRepository(db: Db) {
     steps(requestId: string): OperatorStepRecord[] {
       return (statements.stepsOf.all(requestId) as StepRow[]).map(toStep);
     },
-    updateStep(id: string, status: OperatorStepStatus, configVersion: string | null = null): void {
+    /** Sets a step's status; `refusal` (when given) says why a step ended without doing its work. */
+    updateStep(
+      id: string,
+      status: OperatorStepStatus,
+      configVersion: string | null = null,
+      refusal?: { code: string; message: string },
+    ): void {
       db.prepare(
-        'UPDATE operator_steps SET status = ?, config_version = COALESCE(?, config_version) WHERE id = ?',
-      ).run(status, configVersion, id);
+        `UPDATE operator_steps SET status = ?, config_version = COALESCE(?, config_version),
+         refusal = COALESCE(?, refusal) WHERE id = ?`,
+      ).run(status, configVersion, refusal ? toJson(refusal) : null, id);
     },
   };
 }

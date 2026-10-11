@@ -30,10 +30,11 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
     log(
       `signed in as ${me.email}: ${JSON.stringify(me.projects.map(({ key, access }) => ({ key, access })))}`,
     );
-    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
+    // The question is in the card's timeline, which has its own tab of the drawer.
+    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
     await page.waitForFunction((text) => document.body.innerText.includes(text), QUESTION);
     log(await snapshot(page));
-    // The question is in the card's timeline, below the fold: the highlight scrolls it into view.
+    // The highlight scrolls the question into view.
     await shoot(page, 'card-question', {
       widths: [1512, 390],
       highlight: `text=${QUESTION} >> visible=true`,

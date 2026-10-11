@@ -557,6 +557,49 @@ describe('the order of the reasons', () => {
     expect(result?.reason).toBe('approval');
     expect(handles(result)).toEqual(['owner']);
   });
+
+  describe('a question that asks for an approval (PM-484)', () => {
+    const older = '2026-10-09T09:00:00.000Z';
+    const newer = '2026-10-09T11:00:00.000Z';
+    const asking = (createdAt: string) =>
+      item({
+        id: 'inb_q',
+        createdAt,
+        payload: { question: 'Jóváhagyod?', approvalLabel: 'approved' },
+      });
+    const gate = (createdAt: string) => gateItem(['owner'], { id: 'inb_gate', createdAt });
+    const stuck = card({ stageId: 'merge' });
+
+    it.each([
+      ['the question is newer', newer, older],
+      ['the question is older', older, newer],
+    ])('the open gate request wins, whichever is newer: %s', (_name, questionAt, gateAt) => {
+      for (const viewer of ['owner', null]) {
+        const result = wait(stuck, { openItems: [asking(questionAt), gate(gateAt)], viewer });
+        expect(result).toMatchObject({
+          reason: 'approval',
+          labels: ['approved'],
+          inboxItemId: 'inb_gate',
+          inboxKind: 'decision',
+        });
+      }
+    });
+
+    it('stays an inbox wait when there is no gate request for that label', () => {
+      const result = wait(stuck, { openItems: [asking(newer)], viewer: 'owner' });
+      expect(result).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_q' });
+    });
+
+    it('a question for another label does not give way', () => {
+      const other = item({
+        id: 'inb_q',
+        createdAt: newer,
+        payload: { question: 'Jóváhagyod?', approvalLabel: 'other-label' },
+      });
+      const result = wait(stuck, { openItems: [other, gate(older)], viewer: 'owner' });
+      expect(result).toMatchObject({ reason: 'inbox', inboxItemId: 'inb_q' });
+    });
+  });
 });
 
 describe('where the rules are not known', () => {

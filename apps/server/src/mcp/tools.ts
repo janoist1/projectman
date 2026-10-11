@@ -7,6 +7,7 @@ import {
   DEVELOPER_LEVEL_REASON_MAX,
   DeveloperLevel,
   HANDOFF_NOTE_MAX,
+  MAX_QUESTION_ATTACHMENTS,
   MemberHandle,
   questionChoices,
   StageId,
@@ -19,6 +20,7 @@ import {
   WORK_DOING_SUMMARY_MAX,
   WorkDoing,
   OperatorOperation,
+  ProjectDoc,
 } from '@projectman/shared';
 import type { DeveloperLevelRequest } from '@projectman/shared';
 import { z } from 'zod';
@@ -54,6 +56,10 @@ import {
 
 export const TEAM_TOOL_NAMES = [
   'operate',
+  'read_project_doc',
+  'write_project_docs',
+  'list_decision_candidates',
+  'mark_decision_candidates',
   'start_task',
   'submit_boundary_request',
   'get_boundary_request',
@@ -68,6 +74,7 @@ export const TEAM_TOOL_NAMES = [
   'get_project_state',
   'list_tasks',
   'merge_task',
+  'propose_release',
   'update_task',
   'create_task',
   'link_pull_request',
@@ -242,6 +249,117 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     input: { title: z.string().trim().min(1).max(120), operation: OperatorOperation },
     async run({ ctx, args, handler }) {
       return JSON.stringify(await handler.operate(ctx, args));
+    },
+  }),
+  defineTool({
+    name: 'read_project_doc',
+    title: 'Read a project document',
+    readOnly: true,
+    description:
+      "Only the Operator, not in guest conversations; needs no open owner request. Read the decision log (decisions) or the roadmap (roadmap) as it is on the head of the project's default branch, fresh from the remote. The answer names the commit it was read at: pass it as base_commit to write_project_docs. A long file is read in parts with from_line and line_count; total_lines says how long it is. exists false: the file is not in the repository yet (the first write creates it).",
+    input: {
+      doc: ProjectDoc,
+      from_line: z.number().int().min(1).optional().describe('First line to return, from 1 (default 1).'),
+      line_count: z
+        .number()
+        .int()
+        .min(1)
+        .max(2000)
+        .optional()
+        .describe('How many lines to return, at most 2000 (default 2000).'),
+    },
+    async run({ ctx, args, handler }) {
+      const read = await handler.readProjectDoc(ctx, {
+        doc: args.doc,
+        fromLine: args.from_line,
+        lineCount: args.line_count,
+      });
+      return JSON.stringify(read);
+    },
+  }),
+  defineTool({
+    name: 'write_project_docs',
+    title: 'Write the project documents',
+    readOnly: false,
+    description:
+      "Only the Operator, in the owner's own conversation, during an open owner request. Replace text in the decision log and the roadmap as ONE commit on the default branch, pushed to its remote. base_commit is the commit read_project_doc returned; edits are applied in order. Each edit replaces old_text, which must occur exactly once in the file, with new_text; an empty old_text appends new_text at the end of the file. The decision log is append-only: no existing line may change or go, so a decision is added, never rewritten. Show the owner the text before you write it. Refused when a file changed since base_commit (docs_stale: read it again), when an old_text is not found or is ambiguous, or when nothing changes. The write runs in the repository's merge slot: it may answer queued (it runs after the merge that holds the slot, and you are told how it ended with the owner's next message) or running (not finished within 60 seconds; the same). message is the commit subject: one line, English.",
+    input: {
+      base_commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/, 'A full 40-character commit id, as read_project_doc returned it.'),
+      message: z
+        .string()
+        .trim()
+        .min(1)
+        .max(200)
+        .regex(/^[^\r\n]+$/, 'One line.'),
+      edits: z
+        .array(
+          z.strictObject({
+            doc: ProjectDoc,
+            old_text: z
+              .string()
+              .max(20000)
+              .describe('The text to replace, exactly as in the file; empty appends at the end of the file.'),
+            new_text: z.string().min(1).max(20000),
+          }),
+        )
+        .min(1)
+        .max(20),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(
+        await handler.writeProjectDocs(ctx, {
+          baseCommit: args.base_commit,
+          message: args.message,
+          edits: args.edits,
+        }),
+      );
+    },
+  }),
+  defineTool({
+    name: 'list_decision_candidates',
+    title: 'List the owners’ answers that may be decisions',
+    readOnly: true,
+    description:
+      'Only the Operator, not in guest conversations; needs no open owner request. The questions an owner answered on cards since you last looked, which they have not given a verdict on yet, the earliest answer first. Offer them to the owner in your answer to their message; the call counts as a look, so the same answers come back only if you did not mark them. Refused with docs_not_configured when the project has no decision log. more true: there are further candidates, call again after marking these.',
+    input: {
+      limit: z.number().int().min(1).max(50).optional().describe('How many to return, 1–50 (default 20).'),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.listDecisionCandidates(ctx, { limit: args.limit }));
+    },
+  }),
+  defineTool({
+    name: 'mark_decision_candidates',
+    title: 'Mark the offered decision candidates',
+    readOnly: false,
+    description:
+      "Only the Operator, in the owner's own conversation, during an open owner request. Record what the owner said about the candidates you offered: recorded (they said yes and the entry is in the decision log; decision is its number, 1–10 characters), declined (they said no: never offer it again) or skipped (not a decision). All or nothing: one unknown item_id refuses the whole call with not_found. An item already marked can be marked again when the owner asks.",
+    input: {
+      items: z
+        .array(
+          z
+            .strictObject({
+              item_id: z.string().min(1).max(100),
+              verdict: z.enum(['recorded', 'declined', 'skipped']),
+              decision: z
+                .string()
+                .trim()
+                .min(1)
+                .max(10)
+                .optional()
+                .describe('The decision log entry number; only with recorded.'),
+            })
+            .refine((item) => item.decision === undefined || item.verdict === 'recorded', {
+              message: 'decision goes only with the verdict recorded.',
+            }),
+        )
+        .min(1)
+        .max(50),
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(await handler.markDecisionCandidates(ctx, { items: args.items }));
     },
   }),
   defineTool({
@@ -550,6 +668,51 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       if (task.merge?.state === 'fixing' && task.merge.fix)
         return `fixing mergeId=${task.merge.id}. End this turn so your session restarts in the merge-fix worktree. There run git merge ${task.merge.fix.base}, resolve only mechanical conflicts, commit, then call merge_task with resolution describing what and where you fixed. For a behavioral conflict, send the card back with update_task and a reason.`;
       return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
+    },
+  }),
+
+  defineTool({
+    name: 'propose_release',
+    title: 'Propose a release',
+    readOnly: false,
+    description:
+      "Propose releasing this instance's default branch (or the merge commit `commit`) to the owners. Only a member " +
+      "with the deployment duty may call it. It makes a release card and an approval request in the owners' " +
+      'inbox; nothing is deployed until an owner approves, and the release watcher deploys it. The release has ' +
+      'the merged cards between the last release and the commit. Only one release is open at a time. With ' +
+      '`preview: true` nothing is recorded: the result lists the commit and the cards, so you can write the ' +
+      'summary. Without it your session ends after the call: the owner decides and the watcher continues, so ' +
+      'do nothing more afterwards.',
+    input: {
+      title: z.string().min(1).max(200).describe('The release card title, e.g. "Release 2026.10.11".'),
+      summary: z
+        .string()
+        .min(1)
+        .max(4000)
+        .describe(
+          'English markdown: what the release changes, as short bullets with the card keys. It becomes the text of the GitHub release.',
+        ),
+      commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/)
+        .optional()
+        .describe('A merge commit of a merged card; default: the head of the default branch.'),
+      preview: z
+        .boolean()
+        .optional()
+        .describe('Only list the commit and the cards of the release; record nothing (default false).'),
+    },
+    async run({ ctx, args, handler }) {
+      const result = await handler.proposeRelease(ctx, {
+        title: args.title,
+        summary: args.summary,
+        commit: args.commit,
+        preview: args.preview ?? false,
+      });
+      const cards = result.tasks.map((task) => `${task.key} ${task.title}`).join('\n');
+      const head = `commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}\n${cards}`;
+      if (!result.releaseId) return `preview (nothing recorded)\n${head}`;
+      return `releaseId=${result.releaseId} taskKey=${result.taskKey}\n${head}\nThe owners were asked. End your turn: your session ends now.`;
     },
   }),
 
@@ -912,7 +1075,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'one plain sentence that names the decision in everyday words, and keep it short. Describe each ' +
       'option by what happens if it is picked, not by technical names, and always recommend one option ' +
       'with a one-sentence reason. Put code, file names and technical reasoning into details; the inbox ' +
-      'shows it folded.',
+      'shows it folded. When the answer needs a look at a file of the card or its parent, name it in ' +
+      'attachments instead of describing where to find it.',
     input: {
       question: z
         .string()
@@ -988,6 +1152,15 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .describe(
           'Handles of the humans to ask. Omit to ask the humans responsible for the task or project.',
         ),
+      attachments: z
+        .array(AttachmentId)
+        .min(1)
+        .max(MAX_QUESTION_ATTACHMENTS)
+        .optional()
+        .describe(
+          "Ids (att_…) of the files the human needs to look at to answer, on the question's card or its " +
+            'parent (list_attachments gives them). They show on the question as files to open. At most 6.',
+        ),
     },
     check(args, issue) {
       const labels = questionChoices(args.options).map((choice) => choice.label);
@@ -1009,7 +1182,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const taskKey = args.task_key ?? ctx.taskKey;
       const to = args.to ? unique(args.to) : undefined;
-      const { inboxItemId, approvalLabel } = await handler.askHuman(ctx, {
+      const { inboxItemId, approvalLabel, attachments } = await handler.askHuman(ctx, {
         question: args.question,
         ...(args.options ? { options: args.options } : {}),
         ...(args.recommended ? { recommended: args.recommended } : {}),
@@ -1017,6 +1190,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(args.details ? { details: args.details } : {}),
         ...(taskKey ? { taskKey } : {}),
         ...(to ? { to } : {}),
+        ...(args.attachments ? { attachmentIds: unique(args.attachments) } : {}),
       });
       return formatQuestionAsked(
         inboxItemId,
@@ -1026,6 +1200,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           recommended: args.recommended,
         },
         approvalLabel,
+        attachments,
       );
     },
   }),

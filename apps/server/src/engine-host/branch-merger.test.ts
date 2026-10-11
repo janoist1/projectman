@@ -570,6 +570,169 @@ describe('advance', () => {
   });
 });
 
+describe('readFile', () => {
+  it('reads a file at a commit, and null for a file that is not there', async () => {
+    const { merger, repo } = fixture({ withRemote: false });
+    write(repo, 'docs/log.md', 'Döntés ✓\n');
+    const head = commit(repo, 'docs');
+    expect(await merger.readFile(REF, { at: { commit: head }, path: 'docs/log.md' })).toEqual({
+      commit: head,
+      text: 'Döntés ✓\n',
+    });
+    expect(await merger.readFile(REF, { at: { commit: head }, path: 'docs/none.md' })).toEqual({
+      commit: head,
+      text: null,
+    });
+    expect(await merger.readFile(REF, { at: { commit: head }, path: 'docs/log.md/deeper' })).toMatchObject({
+      text: null,
+    });
+  });
+
+  it('reads the head of the base after fetching its upstream, else the local branch', async () => {
+    const { merger, repo, remote } = fixture();
+    const old = git(repo, 'rev-parse', 'HEAD');
+    const other = path.join(root, `clone-${counter}`);
+    execFileSync('git', ['clone', '-q', remote, other]);
+    git(other, 'config', 'user.name', 'Other');
+    git(other, 'config', 'user.email', 'other@example.test');
+    write(other, 'a.txt', 'remote one\n');
+    const remoteHead = commit(other, 'remote work');
+    git(other, 'push', '-q', 'origin', 'main');
+    expect(await merger.readFile(REF, { at: { base: 'main' }, path: 'a.txt' })).toEqual({
+      commit: remoteHead,
+      text: 'remote one\n',
+    });
+    expect(git(repo, 'rev-parse', 'main')).toBe(old); // the local branch is not moved
+    const local = fixture({ withRemote: false });
+    expect(await local.merger.readFile(REF, { at: { base: 'main' }, path: 'a.txt' })).toMatchObject({
+      text: 'one\n',
+    });
+  });
+
+  it('refuses a bad path, a file over 1 MiB, a binary file, a directory and an unknown commit', async () => {
+    const { merger, repo } = fixture({ withRemote: false });
+    write(repo, 'big.txt', 'x'.repeat(1024 * 1024 + 1));
+    write(repo, 'edge.txt', 'x'.repeat(1024 * 1024));
+    writeFileSync(path.join(repo, 'bin.dat'), Buffer.from([0xff, 0xfe, 0x00, 0x41]));
+    write(repo, 'nul.txt', 'a\0b');
+    write(repo, 'dir/inner.txt', 'in\n');
+    symlinkSync('a.txt', path.join(repo, 'link'));
+    const head = commit(repo, 'files');
+    const at = { commit: head };
+    for (const bad of ['/abs', '../x', 'a/../b', '.git/config', 'a\\b', '', 'a//b', './a'])
+      await expect(merger.readFile(REF, { at, path: bad })).rejects.toMatchObject({ code: 'invalid_input' });
+    for (const file of ['big.txt', 'bin.dat', 'nul.txt', 'dir', 'link'])
+      await expect(merger.readFile(REF, { at, path: file })).rejects.toMatchObject({
+        code: 'invalid_input',
+      });
+    expect((await merger.readFile(REF, { at, path: 'edge.txt' })).text).toHaveLength(1024 * 1024);
+    await expect(
+      merger.readFile(REF, { at: { commit: 'a'.repeat(40) }, path: 'a.txt' }),
+    ).rejects.toMatchObject({ code: 'unknown_object' });
+    await expect(merger.readFile(REF, { at: { commit: 'main' }, path: 'a.txt' })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    await expect(merger.readFile(REF, { at: { base: '-x' }, path: 'a.txt' })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+  });
+});
+
+describe('commitFiles', () => {
+  it('sets an existing and a new file in a commit whose parent is onto, touching no ref, index or working tree', async () => {
+    const { merger, repo } = fixture();
+    write(repo, 'docs/log.md', 'old\n');
+    chmodSync(path.join(repo, 'docs/log.md'), 0o755);
+    const onto = commit(repo, 'docs');
+    write(repo, 'a.txt', 'dirty edit\n'); // unstaged work stays
+    write(repo, 'staged.txt', 'staged\n');
+    git(repo, 'add', 'staged.txt');
+    const before = {
+      refs: git(repo, 'for-each-ref'),
+      status: git(repo, 'status', '--porcelain'),
+      index: git(repo, 'ls-files', '--stage'),
+      head: git(repo, 'rev-parse', 'HEAD'),
+      tree: readFileSync(path.join(repo, 'a.txt'), 'utf8'),
+    };
+    const result = await merger.commitFiles(REF, {
+      onto,
+      files: [
+        { path: 'docs/log.md', text: 'new\n' },
+        { path: 'docs/roadmap.md', text: 'plan\n' },
+      ],
+      message: 'Update the project documents',
+    });
+    expect(result.changed).toEqual(['docs/log.md', 'docs/roadmap.md']);
+    expect(git(repo, 'rev-parse', `${result.commit}^`)).toBe(onto);
+    expect(git(repo, 'show', `${result.commit}:docs/log.md`)).toBe('new');
+    expect(git(repo, 'show', `${result.commit}:docs/roadmap.md`)).toBe('plan');
+    expect(git(repo, 'show', `${result.commit}:a.txt`)).toBe('one'); // the rest of the tree is onto's
+    expect(git(repo, 'ls-tree', result.commit, 'docs/log.md')).toMatch(/^100755 /); // the mode is kept
+    expect(git(repo, 'ls-tree', result.commit, 'docs/roadmap.md')).toMatch(/^100644 /);
+    expect(git(repo, 'log', '-1', '--format=%s%n%an <%ae>', result.commit)).toBe(
+      'Update the project documents\nMerge Owner <owner@example.test>',
+    );
+    expect({
+      refs: git(repo, 'for-each-ref'),
+      status: git(repo, 'status', '--porcelain'),
+      index: git(repo, 'ls-files', '--stage'),
+      head: git(repo, 'rev-parse', 'HEAD'),
+      tree: readFileSync(path.join(repo, 'a.txt'), 'utf8'),
+    }).toEqual(before);
+    expect(existsSync(path.join(repo, 'docs/roadmap.md'))).toBe(false);
+  });
+
+  it('lists nothing as changed for a file whose text is already there', async () => {
+    const { merger, repo } = fixture({ withRemote: false });
+    const onto = git(repo, 'rev-parse', 'HEAD');
+    const result = await merger.commitFiles(REF, {
+      onto,
+      files: [
+        { path: 'a.txt', text: 'one\n' },
+        { path: 'new.md', text: '' },
+      ],
+      message: 'Same',
+    });
+    expect(result.changed).toEqual(['new.md']);
+    const same = await merger.commitFiles(REF, {
+      onto,
+      files: [{ path: 'a.txt', text: 'one\n' }],
+      message: 'S',
+    });
+    expect(same.changed).toEqual([]);
+  });
+
+  it('refuses without an identity, a bad file set, a bad message, a bad commit and a path over a directory', async () => {
+    const { merger, repo } = fixture({ withRemote: false });
+    const onto = git(repo, 'rev-parse', 'HEAD');
+    const ok = { path: 'a.txt', text: 'x' };
+    const refused = (input: Parameters<BranchMerger['commitFiles']>[1], code = 'invalid_input') =>
+      expect(merger.commitFiles(REF, input)).rejects.toMatchObject({ code });
+    await refused({ onto, files: [], message: 'm' });
+    await refused({
+      onto,
+      files: [ok, { path: 'b.txt', text: 'y' }, { path: 'c.txt', text: 'z' }],
+      message: 'm',
+    });
+    await refused({ onto, files: [ok, ok], message: 'm' });
+    await refused({ onto, files: [{ path: '../x', text: 'y' }], message: 'm' });
+    await refused({ onto, files: [{ path: '.git/hooks/x', text: 'y' }], message: 'm' });
+    await refused({ onto, files: [{ path: 'a.txt', text: 'a\0b' }], message: 'm' });
+    await refused({ onto, files: [{ path: 'a.txt', text: 'x'.repeat(1024 * 1024 + 1) }], message: 'm' });
+    await refused({ onto, files: [ok], message: ' ' });
+    await refused({ onto: 'main', files: [ok], message: 'm' });
+    await refused({ onto: 'a'.repeat(40), files: [ok], message: 'm' }, 'unknown_object');
+    const bare = fixture({ withRemote: false, identity: false });
+    await expect(
+      bare.merger.commitFiles(REF, { onto: git(bare.repo, 'rev-parse', 'HEAD'), files: [ok], message: 'm' }),
+    ).rejects.toMatchObject({ code: 'no_identity' });
+    write(repo, 'dir/x.txt', 'x\n');
+    const withDir = commit(repo, 'dir');
+    await refused({ onto: withDir, files: [{ path: 'dir', text: 'file' }], message: 'm' });
+    await refused({ onto: withDir, files: [{ path: 'a.txt/inner', text: 'x' }], message: 'm' }); // a.txt is a file
+  });
+});
+
 describe('input checks', () => {
   it('accepts commit ids, merge ids and messages only in their shape', () => {
     expect(isCommitId('a'.repeat(40))).toBe(true);

@@ -309,7 +309,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       const controller = new AbortController();
       fullRuns.set(spec.runId, controller);
       try {
-        return await engine.fullTestExecutor.run(spec, controller.signal);
+        return await engine.fullTestExecutor.run(spec, controller.signal, () =>
+          deps.emit({ kind: 'full_test_started', runId: spec.runId }),
+        );
       } finally {
         fullRuns.delete(spec.runId);
       }
@@ -437,6 +439,12 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'merge.advance'({ ref, ...input }) {
       return merger().advance(ref, input);
+    },
+    async 'merge.read_file'({ ref, ...input }) {
+      return merger().readFile(ref, input);
+    },
+    async 'merge.commit_files'({ ref, ...input }) {
+      return merger().commitFiles(ref, input);
     },
     async 'machine.snapshot'() {
       return probe.machine();

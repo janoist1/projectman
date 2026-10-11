@@ -159,6 +159,9 @@ Documentation map:
   `task_covers`; `coverAttachmentId(attachments, choice)` applies it: hidden → none, even after a
   new upload, until an image is pinned; a pinned image that is gone falls back to the first image,
   and deleting the pinned file removes the row with it. No timeline event, no team tool.
+  **Files on a question** (PM-498): an `ask_human` question names at most 6 files
+  (`MAX_QUESTION_ATTACHMENTS`) of its card or its parent; the inbox item keeps a snapshot of them
+  (`QuestionAttachment`) and marks each with `goneAt` when the file is deleted (`InboxService.attachmentGone`).
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
@@ -877,17 +880,18 @@ the configured full command on the handed-over commit, PTY tests included. Other
 for targeted tests while working and one full test and type check on the handed-over commit.
 A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
 or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
-workspaces, including at hand-over and in fix rounds. This is an instruction policy; it does not
-execute a merge test or add a pipeline step. An external integrator can check the card before it
-enters the default branch, using the heavy-run queue for a full run. In PM, the merger uses
-`merge_task`; the server runs `npm run merge-test` in the full test sandbox, in the machine's
-heavy-run queue, before the default branch moves (decision 40, PM-386).
-Other projects retain their existing default (absent or false). The two settings are independent:
-`fullTestAtMerge` does not disable `reviewTest`, and an available server review test retains
-precedence in the developer's instructions. Setting both requests two full checks per card,
-one before review and one before merge. To check only at merge, omit `reviewTest`. Reviewers
-without a server result also receive instructions to run only targeted tests.
-No machine boundary changes: the check runs where the integrator runs. Dependencies are
+workspaces, including at hand-over and in fix rounds. In PM, the merger uses `merge_task`; the
+server runs `npm run merge-test` in the full test sandbox, in the machine's heavy-run queue,
+before the default branch moves (decision 40, PM-386). Other projects retain their existing default
+(absent or false). With `fullTestAtMerge: true` the
+repository's `reviewTest` runs only at the merge (PM-386, PM-489): `reviewTestBeforeReview` is false, so
+`reviewTestOf` finds no test, nothing is queued or held before review and the context carries no
+`serverFullTest`. The merge step (`Merges`, "Merge (PM-452)") runs the command once on the merge result
+before the default branch moves; a repository that merges but names no `reviewTest` blocks its merge
+(`check_unavailable`). Where `requiresMerge` is true the context says the merge step runs the full check;
+where an outside integrator merges (`fullTestAtMerge` without `requireMerge`) it keeps the integrator
+wording. Reviewers without a server result receive instructions to run only targeted tests.
+No machine boundary changes: the check runs where the integrator or the merge runs. Dependencies are
 installed only when missing from the working directory.
 
 ## Merge (PM-452)
@@ -902,7 +906,16 @@ pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.
 with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
 the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
 runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
-Conflicts and failed checks notify the merger and keep the card in place. Operational failures notify
+The check goes through two steps (PM-489): `check_waiting` while the full test waits for the machine's
+heavy-run queue (PM-332), then `checking` when the executor reports that the run holds the lock
+(`FullTestExecutor.run`'s `onStarted`; on a remote engine the `full_test_started` event, sent by the
+`full_test.run` handler like `screenshot_started`). An engine that does not send the event leaves the step at
+`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A repository with
+`fullTestAtMerge` and no `reviewTest` blocks (`check_unavailable`): nothing merges unchecked.
+`task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
+already in the default branch stays a system event.
+Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger
+to send the card back (a fix round) if the card caused it, or to retry once and then ask a human. Operational failures notify
 the AI merger or create an alert for the human merger. Calling the same tool retries under the same id.
 Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check the ordinary move rules.
 The merger never moves the card itself. Every forward move path checks the default branch before the
@@ -921,6 +934,22 @@ through the existing `merge.*` and `full_test.*` contracts. PR metadata uses the
 GitHub service (the default engine's `github.*` calls in cloud mode); it is independent of local git.
 Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
 as a code-free card. See the machine inventory entry below.
+
+`BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
+(PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
+the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
+repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
+
+**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`domain/doc-writes.ts`)
+writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
+repository while `DocWrites.busy` says a write runs there, and a merge's `finally` calls `docWrites.pump()`
+before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
+for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.useDocWrites` ties the two (as
+`useFullTests` does). At most one write is open (`queued` or `running`) per project (unique index
+`doc_writes_open`). Its git work is the engine's (`prepare`, `readFile`, `commitFiles`, `checkoutConflicts`,
+`push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
+new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
+`published` when the remote already has that commit (the local branch is advanced), otherwise `queued` again.
 
 ## Heavy-run queue (PM-332)
 
@@ -1025,8 +1054,9 @@ workers follow the machine's size.
   - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
-  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
-  - Member initiated merges: `merge.*` (PM-451, see "Merge").
+  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
+    `full_test_started` event when the run got its turn in the queue (PM-489).
+  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -1522,6 +1552,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
+  Release flow (PM-491, `domain/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
+  reports on this same local socket, so it must run on the server's host; the instance's repository is on
+  the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
+  (see "Release of the instance"); no new boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
@@ -1672,7 +1706,15 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
   engine's user's git credentials for the push, and macOS APFS for the cheap dependency copy (a plain copy
-  elsewhere).
+  elsewhere). Two more calls serve the Operator's project documents (PM-494, PM-388): `merge.read_file`
+  (`cat-file` of one file at a commit, or at the head of the base after the fetch of its upstream; a path
+  that fails `isRepoFilePath`, a file over 1 MiB or one that is not UTF-8 text is refused) and
+  `merge.commit_files` (a commit on `onto` with one or two files set, built in a temporary index file
+  with `hash-object`, `update-index`, `write-tree` and `commit-tree`: no ref, index or working tree is
+  touched). The engine limit bounds both like the other `merge.*` calls (the repository must be
+  registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
+  without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
+  machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
@@ -1929,6 +1971,39 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
+- **Operator documents (PM-495, PM-388).** `read_project_doc { doc, from_line?, line_count? }` is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool): the decision log or roadmap at the fresh head of the default branch,
+  read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
+  `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
+  own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
+  otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
+  The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
+  `domain/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
+  `docs_not_append_only`, `docs_unchanged`), then the write is queued (`doc_writes`, one open per project:
+  409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
+  "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
+  `running`; a write that ends without a waiting call updates its step (`done`, `stale` or `refused`, with the
+  refusal: `updateStep(…, refusal)`) and sends the Operator an English `info` system message, read with the owner's
+  next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
+  trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
+  the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`domain/decision-candidates.ts`) finds the
+  questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
+  the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
+listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 20) is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool) and answers `{ candidates, more }`, the earliest answer first; the
+  question is cut to 2000 characters; 409 `docs_not_configured` when the project has no decision log. The call sets
+  `listed_at`. `mark_decision_candidates { items: [{ item_id, verdict, decision? }] }` is Operator-only, in the
+  owners' own conversation with an open request (`OPERATOR_TOOL_ACTIONS` maps it to `decision_offer`, "Döntésjelöltek
+  jelölése"); the verdict is `recorded` (with the decision number), `declined` or `skipped`. It is all or nothing:
+  an unknown item or one that is not a candidate refuses the whole call (`not_found`); a later mark overwrites the
+  earlier one. Migration 53 adds `decision_offers` (one verdict per project and item) and `decision_candidate_state`
+  (per project: `since`, set to the migration's time for projects with inbox items, and `listed_at`), so the answers
+  from before the feature are never offered. `MessageDelivery.batch()` appends one line to the Operator's input in
+  the owners' conversation, "N owner answers on cards since you last looked may be decisions:
+  list_decision_candidates.", when the project has a decision log and there are candidates answered after the later
+  of `since` and `listed_at`; the line is not stored. Remote engine: only server-side data and prompt text change;
+  no new machine-dependent part.
 - **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
   manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
   A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the
@@ -2065,7 +2140,48 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   no login: whoever may open the file may pause the team, like whoever may stop the service. A file nobody
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
-  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)).
+  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)). Since PM-491 it also takes `release_next`,
+  `release_claim` and `release_report`, the release watcher's operations (see "Release of the instance").
+
+## Release of the instance (PM-491, part of PM-387)
+
+The release flow of projectman's own instance, on the server; the watcher that deploys (PM-493) and the
+screens (PM-492) come in their own cards.
+
+- **Target.** `PROJECTMAN_RELEASE_TARGET=<project key>/<repository>` (read in `index.ts`, `parseReleaseTarget`;
+  `DomainOptions.releaseTarget`) names the project and repository that are the instance itself. Without it
+  every release operation is refused (`release_not_configured`). `appVersion` (`resolveAppVersion`) is the
+  commit the server runs; the control socket tells it in every answer, so the watcher knows a restart happened.
+- **Record.** `releases` (migration 51, `db/releases.ts`, contract `packages/shared/src/domain/release.ts`):
+  `proposed` → `approved` → `deploying` → `live` → `published`, or `rejected` / `failed`. A partial unique
+  index (`releases_open`) allows one release in `proposed`, `approved` or `deploying` for a project. A release has
+  a theme card (kind `theme`); its timeline holds `release_changed` for every change, and `ReleaseService`
+  (`domain/releases.ts`) is the only writer.
+- **Contents.** Only a commit a recorded merge of a card left on the default branch can be released
+  (`task_merges`, state `merged`; `release_commit_unknown` otherwise). The cards are those whose merge commit is
+  an ancestor of the release commit and not of the base: the last release that went live, else the running
+  version when that is a commit id. The ancestry questions go to the engine that holds the repository
+  (`BranchMerger.isAncestor`, the head through `BranchMerger.prepare`).
+- **Proposal.** `propose_release` (MCP) is for the holder of the `deployment` duty. It makes the theme card, the
+  record and an inbox item of kind `release` for the holders of the `release_approval` duty (else the owners),
+  and `preview: true` records nothing. The Devops session ends after the call.
+- **Approval.** Only a person decides, in the Rád vár: AI members (`ai_approval_forbidden`) and integrator keys
+  (`owner_approval_required`) cannot, and the owner bypass does not apply to a `release` item, so only its
+  assignees can. A rejection ends the release card and may carry a reason (`note` of `release_changed`); a
+  second decision is `inbox_item_closed`. The release card is a theme that the domain closes without a person
+  (`TaskService.closeThemeBySystem`, architect's decision): on reject, on failure and on publishing alike it
+  ends `cancelled`, because a theme is never `done` (reopening goes from `cancelled` only); the outcome is the
+  release record and its `release_changed` events.
+- **Watcher.** `release_next` returns the oldest release that is approved, deploying, or live without a tag.
+  `release_claim` (approved → deploying) records `previousCommit`, where a rollback goes. `release_report` takes
+  `live` (only while the server runs the release's commit), `failed` (cancels the card, alert `release_failed`
+  to the approvers), `published` (tag and URL; the card is closed) or `publish_failed` (alert once). An
+  operation out of order is `release_state_conflict`. The watcher's operations act on the target project only.
+
+Does this work on a remote engine? The records, the approval and the socket are the server's. Only
+`BranchMerger.isAncestor` / `prepare` cross the server/engine boundary, as they do for the merge (PM-452); the
+instance's repository is on the engine the project uses (`LOCAL_ENGINE_ID` for now). Deploying, restarting and
+publishing are the watcher's (PM-493) and act on the machine the server runs on; the control socket stays local.
 
 ## The machine and the sessions (PM-320, part of PM-300)
 
@@ -2136,8 +2252,8 @@ code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the
 who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
 picks the code reviewer when a code review stage comes before the merge target, else the developer.
 `RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
-target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, so the PM project merges nothing
-until PM-386). The merge target is the first release stage, else the done stage. The pure rules
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, an outside integrator merging; the
+owner switches the PM project over as PM-386 plans). The merge target is the first release stage, else the done stage. The pure rules
 (`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
 `mergeReadiness`, `moveMerge`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
 The order of a move (PM-484): the merge waits for the same approval the move waits for (`mergeReadiness`

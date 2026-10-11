@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   alertPayloadOf,
   canSeeTeamMessage,
@@ -17,6 +17,7 @@ import type { Task, TimelineEvent } from '@projectman/shared';
 import {
   useBoard,
   useConfig,
+  useAttachments,
   useInbox,
   useLabels,
   useResolveInbox,
@@ -37,7 +38,7 @@ import { startWaitingHint } from '../../lib/taskState';
 import { joinNames, t } from '../../i18n/t';
 import { errorMessage, isApprovalRequested, isGateBlocked } from '../../lib/errors';
 import { unmetGateTexts } from '../../lib/gates';
-import { decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
+import { approvalHintOf, decisionToast, openItemIds, openItemsFor } from '../../lib/inbox';
 import { closureTexts, sessionClosure, sessionStatus } from '../../lib/sessions';
 import { isTaskClosed } from '../../lib/taskState';
 import { isApiError } from '../../api/client';
@@ -214,6 +215,9 @@ function StartPanel({
 /** The large window has two columns from this width on: its own 1040px (the window is 64px narrower than the screen). */
 const WIDE_QUERY = '(min-width: 1104px)';
 
+/** The views of the open card (PM-487): the sub-paths of its route, `card` being none. */
+type CardView = 'card' | 'thread' | 'attachments' | 'timeline';
+
 /**
  * The open card (PM-283): the quick view is the drawer on the right of the board, the large window (`?size=large`)
  * floats in the middle of it over a backdrop, and a phone always has the drawer. The same component and the same
@@ -223,6 +227,8 @@ export function TaskDrawer() {
   const { taskKey = '', '*': subPath } = useParams();
   const { key, myHandle, can, me } = useProject();
   const [searchParams, setSearchParams] = useSearchParams();
+  // A link to one event of the timeline (#timeline-<id>) scrolls the timeline to that row itself.
+  const eventLink = useLocation().hash.startsWith('#timeline-');
   const mobile = useIsMobile();
   const size: CardSize = !mobile && searchParams.get(SIZE_PARAM) === 'large' ? 'large' : 'quick';
   const twoColumns = useMediaQuery(WIDE_QUERY) && size === 'large';
@@ -258,20 +264,42 @@ export function TaskDrawer() {
   const entry = model?.byKey.get(taskKey);
   // The card's conversation (PM-273): a view of the same open card (`/thread`), not a page. A theme has none.
   const hasThread = Boolean(task && !isTheme(task) && entry);
-  const thread = hasThread && subPath === 'thread';
+  // The views of the open card (PM-487) are sub-paths of it; an unknown one, and a theme's `/thread`, is the card.
+  // An older link to one event (`/tasks/KEY#timeline-<id>`, shared before the timeline had a view) opens the timeline.
+  const view: CardView =
+    subPath === 'attachments' || subPath === 'timeline'
+      ? subPath
+      : subPath === 'thread' && hasThread
+        ? 'thread'
+        : !subPath && eventLink
+          ? 'timeline'
+          : 'card';
+  const thread = view === 'thread';
   const taskMessages = useTaskMessages(key, taskKey, hasThread);
   const messageCount = taskMessages.data?.messages.length ?? 0;
+  // The same query (and so the same request) as the list of the Attachments view.
+  const attachmentList = useAttachments(key, taskKey, Boolean(access && myHandle));
+  const attachmentCount = attachmentList.data?.attachments.length ?? 0;
   const cardScroll = useRef(0);
-  const switchView = (view: 'card' | 'thread') =>
-    navigate(withCardSize(drawerBase.card(taskKey, view === 'thread' ? 'thread' : undefined), size), {
+  const viewsRef = useRef<HTMLDivElement>(null);
+  const switchView = (next: CardView) =>
+    navigate(withCardSize(drawerBase.card(taskKey, next === 'card' ? undefined : next), size), {
       replace: true,
     });
+  // Files dropped or pasted show the Attachments view, so the upload and its failure are in sight.
+  const showAttachments = () => {
+    if (view !== 'attachments') switchView('attachments');
+  };
   // The whole open card takes files: they join the same queue as the files chosen in its list.
   const uploads = useUploadQueue();
   const canAttach = useCanAttach();
   const fileDrop = useFileDrop({
     allowed: task ? canAttach(task) : false,
-    onFiles: (files) => task && uploads.add(task.key, files),
+    onFiles: (files) => {
+      if (!task) return;
+      uploads.add(task.key, files);
+      showAttachments();
+    },
     isolate: true,
   });
   useDocumentTitle(task ? `${task.key} ${task.title}` : taskKey, board.data?.project.name);
@@ -311,13 +339,41 @@ export function TaskDrawer() {
   // message a link led to), and the card is at the start when it is shown again.
   useEffect(() => {
     cardScroll.current = 0;
-    if (scrollRef.current && !thread) scrollRef.current.scrollTop = 0;
+    if (scrollRef.current && (view === 'card' || view === 'attachments')) scrollRef.current.scrollTop = 0;
   }, [size]);
 
-  // Hiding the card's sections shortens the scroll box and so moves it: showing them puts it back.
+  // Hiding the card's sections shortens the scroll box and so moves it: the card is put back where it was, the
+  // attachments open at their start, and the timeline at its end (the latest event, the next step, the comment box).
+  const timelineEnd = view === 'timeline' && !detail.isPending && !eventLink;
+  const timelineStick = useRef(true);
   useLayoutEffect(() => {
-    if (!thread && scrollRef.current) scrollRef.current.scrollTop = cardScroll.current;
-  }, [thread]);
+    const box = scrollRef.current;
+    if (!box || thread) return;
+    if (view === 'timeline' && eventLink) return;
+    if (timelineEnd) timelineStick.current = true;
+    box.scrollTop =
+      view === 'card' ? cardScroll.current : view === 'attachments' ? 0 : timelineEnd ? box.scrollHeight : 0;
+  }, [view, thread, timelineEnd, eventLink]);
+
+  // The timeline stays at its end while its content still grows (the comment box, the next step, a resize of the
+  // window), until the reader scrolls away from the end.
+  useEffect(() => {
+    const box = scrollRef.current;
+    if (!box || !timelineEnd || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (timelineStick.current) box.scrollTop = box.scrollHeight;
+    });
+    observer.observe(box);
+    for (const child of Array.from(box.children)) observer.observe(child);
+    return () => observer.disconnect();
+  }, [timelineEnd, twoColumns]);
+
+  // On a narrow phone the row of views scrolls: the open view stays in it.
+  useEffect(() => {
+    viewsRef.current
+      ?.querySelector('[aria-pressed="true"]')
+      ?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [view]);
 
   const openIds = useMemo(() => openItemIds(inbox.data?.items), [inbox.data]);
   // The "Miért áll?" box carries the button of the viewer's hand-on item (PM-461): no card of it as well.
@@ -410,7 +466,7 @@ export function TaskDrawer() {
     // reads the left one first and the right one (`side`) last, and moves the groups, not the sections:
     // a group keeps its place under the scroll box, so what is typed in it is not lost.
     const signals = (
-      <div key="signals" className={styles.group} hidden={thread}>
+      <div key="signals" className={styles.group} hidden={view !== 'card'}>
         {entry && !theme ? (
           <WhyBox
             task={task}
@@ -462,6 +518,7 @@ export function TaskDrawer() {
                   )
                 }
                 detailsHref={item.sessionId ? `/p/${key}/sessions/${item.sessionId}` : null}
+                approvalHint={approvalHintOf(item, { task, items: inbox.data?.items ?? [], myHandle })}
               />
             ))}
           </section>
@@ -474,7 +531,7 @@ export function TaskDrawer() {
         ? t(`providerSettings.loginCommands.${task.startWaiting.provider ?? 'claude'}`)
         : null;
     const side = (
-      <div key="side" className={clsx(styles.group, styles.side)} hidden={thread && !twoColumns}>
+      <div key="side" className={clsx(styles.group, styles.side)} hidden={view !== 'card' && !twoColumns}>
         {task.outage ? (
           // The card stands on an outage (PM-468), a start or a continuation: the header says why, this what to do.
           // The state has no `next` then, so the "Miért áll?" box is not shown beside it.
@@ -552,17 +609,29 @@ export function TaskDrawer() {
       </div>
     );
     const content = (
-      <div key="content" className={styles.group} hidden={thread}>
+      <div key="content" className={styles.group} hidden={view !== 'card'}>
         <TaskDescription key={`description:${task.key}`} task={task} className={styles.description} />
 
         {theme && model ? (
           <ThemeCards task={task} tasks={cards} pipeline={pipeline} byKey={model.byKey} />
         ) : null}
-
-        <TaskAttachments key={`attachments:${task.key}`} task={task} members={members} />
-
+      </div>
+    );
+    const attachments = (
+      <div key="attachments" className={styles.group} hidden={view !== 'attachments'}>
+        <TaskAttachments
+          key={`attachments:${task.key}`}
+          task={task}
+          members={members}
+          onPasted={showAttachments}
+        />
+      </div>
+    );
+    const timeline = (
+      <div key="timeline" className={styles.group} hidden={view !== 'timeline'}>
         <section className={drawer.section}>
-          <h3 className={drawer.sectionTitle}>{t('task.timeline')}</h3>
+          {/* The tab names the section: the title stays for the screen readers. */}
+          <h3 className={clsx(drawer.sectionTitle, 'visually-hidden')}>{t('task.timeline')}</h3>
           {detail.isPending ? (
             <LoadingState compact />
           ) : detail.isError ? (
@@ -584,7 +653,7 @@ export function TaskDrawer() {
       </div>
     );
     const more = (
-      <div key="more" className={styles.group} hidden={thread}>
+      <div key="more" className={styles.group} hidden={view !== 'card'}>
         {sessions.length > 0 ? (
           <section className={drawer.section}>
             <h3 className={drawer.sectionTitle}>{t('task.sessions')}</h3>
@@ -634,6 +703,7 @@ export function TaskDrawer() {
             size={size}
             onToggleSize={toggleSize}
             onClose={close}
+            rule={false}
           />
         ) : (
           <TaskHeader
@@ -647,40 +717,55 @@ export function TaskDrawer() {
             size={size}
             onToggleSize={toggleSize}
             onClose={close}
-            rule={!hasThread}
+            rule={false}
           />
         )}
 
-        {hasThread ? (
-          <div className={styles.views}>
-            <SegmentedControl
-              className={styles.switch}
-              size="sm"
-              label={t('task.view.label')}
-              value={thread ? 'thread' : 'card'}
-              onChange={switchView}
-              options={[
-                { value: 'card', label: t('task.view.card') },
-                {
-                  value: 'thread',
-                  label: t('task.view.thread'),
-                  count: messageCount > 0 ? messageCount : undefined,
-                },
-              ]}
-            />
-          </div>
-        ) : null}
+        <div ref={viewsRef} className={styles.views}>
+          <SegmentedControl
+            className={styles.switch}
+            size="sm"
+            label={t('task.view.label')}
+            value={view}
+            onChange={switchView}
+            options={[
+              { value: 'card', label: t('task.view.card') },
+              // A theme has no conversation. A count is shown only when there is something to count.
+              ...(hasThread
+                ? [
+                    {
+                      value: 'thread' as const,
+                      label: t('task.view.thread'),
+                      count: messageCount > 0 ? messageCount : undefined,
+                    },
+                  ]
+                : []),
+              {
+                value: 'attachments',
+                label: t('task.view.attachments'),
+                count: attachmentCount > 0 ? attachmentCount : undefined,
+              },
+              { value: 'timeline', label: t('task.view.timeline') },
+            ]}
+          />
+        </div>
 
         <div
           ref={scrollRef}
           className={clsx(styles.scroll, thread && styles.conversation)}
           onScroll={(event) => {
-            if (!thread) cardScroll.current = event.currentTarget.scrollTop;
+            const box = event.currentTarget;
+            if (view === 'card') cardScroll.current = box.scrollTop;
+            if (view === 'timeline') {
+              timelineStick.current = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+            }
           }}
         >
-          {/* Both views stay in the tree: what is typed in the hidden one (a message, a description) is kept. */}
+          {/* All views stay in the tree: what is typed in a hidden one (a message, a comment, a description) is kept. */}
           {[
-            ...(twoColumns ? [signals, content, more, side] : [signals, side, content, more]),
+            ...(twoColumns
+              ? [signals, content, attachments, timeline, more, side]
+              : [signals, side, content, attachments, timeline, more]),
             hasThread ? (
               <div key="thread" className={styles.thread} hidden={!thread}>
                 <TaskThread

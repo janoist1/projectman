@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   AttachmentId,
+  canReadAttachments,
   effectiveRepo,
   ERROR_CODES,
   ownerHandles,
@@ -23,6 +24,7 @@ import type {
   OperatorAction,
   OperatorStepStatus,
   ProjectConfig,
+  QuestionAttachment,
   QuestionOptionInput,
   Session,
   Task,
@@ -49,6 +51,7 @@ import type {
   LocatedAttachmentForTool,
   MemberMemoryStore,
   NetworkDenial,
+  ProposedRelease,
   ScreenshotRun,
   SentMessageRecipient,
   TakeScreenshotsInput,
@@ -85,7 +88,11 @@ import type { Viewer } from './visibility';
 import type { OperatorActions } from './operator-actions';
 import type { OperatorSignals } from './operator-signals';
 import type { TaskStarts } from './admission';
-import type { OperatorOperation } from '@projectman/shared';
+import type { OperatorOperation, ProjectDoc } from '@projectman/shared';
+import type { ProjectDocRead, ProjectDocWrite } from '../contracts';
+import { docLines } from './doc-edits';
+import type { DecisionCandidates } from './decision-candidates';
+import type { DocWrites } from './doc-writes';
 import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
 import type { ProjectState } from './project-state';
@@ -193,6 +200,20 @@ function isOwner(config: ProjectConfig, handle: string): boolean {
   return ownerHandles(config).includes(handle);
 }
 
+/** The most lines read_project_doc returns in one call. */
+const MAX_DOC_LINES = 2000;
+
+/** A refusal of the document tools in words the agent reads: the error code first (`code: message`). */
+function docToolError(err: unknown): unknown {
+  if (err instanceof TeamToolError) return err;
+  if (err instanceof DomainError)
+    return new TeamToolError(
+      err.status === 403 ? 'forbidden' : 'invalid',
+      (ERROR_CODES as readonly string[]).includes(err.code) ? `${err.code}: ${err.message}` : err.message,
+    );
+  return err;
+}
+
 function toToolError(err: unknown): unknown {
   if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
   if (err.code === 'operator_signal_closed')
@@ -227,6 +248,8 @@ const OWNER_ONLY = 'operator_owner_only';
  */
 export class TeamToolsService implements TeamToolsHandler {
   private readonly projectState: ProjectState;
+  private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
+  private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
   async getProjectState(ctx: ToolContext, args: { taskKey?: string }) {
     return this.guard(async () => {
@@ -366,6 +389,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly merges: import('./merges').Merges;
+  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
   private readonly tasks: TaskService;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
@@ -401,6 +425,8 @@ export class TeamToolsService implements TeamToolsHandler {
     cardQuestions: Pick<CardQuestions, 'list'>;
     projects: ProjectService;
     merges: import('./merges').Merges;
+    /** The instance's releases (PM-491): propose_release. */
+    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
     tasks: TaskService;
     /** Why cards stand still (PM-460): get_task and list_tasks say it. */
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
@@ -442,8 +468,14 @@ export class TeamToolsService implements TeamToolsHandler {
     operatorActions: OperatorActions;
     operatorSignals: OperatorSignals;
     taskStarts: TaskStarts;
+    /** The Operator's project documents (PM-495): `read_project_doc` and `write_project_docs`. */
+    docWrites: Pick<DocWrites, 'read' | 'request'>;
+    /** The owners' answers that may be decisions (PM-496). */
+    decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {
     this.projectState = deps.projectState;
+    this.docWrites = deps.docWrites;
+    this.decisionCandidates = deps.decisionCandidates;
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
     this.operatorActions = deps.operatorActions;
@@ -459,6 +491,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.cardQuestions = deps.cardQuestions;
     this.projects = deps.projects;
     this.merges = deps.merges;
+    this.releases = deps.releases;
     this.tasks = deps.tasks;
     this.taskWaits = deps.taskWaits;
     this.projectFocus = deps.projectFocus;
@@ -941,6 +974,41 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
+  async proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease> {
+    return this.guard(async () => {
+      await this.caller(ctx, 'propose_release');
+      try {
+        if (args.preview) {
+          const candidate = await this.releases.preview(ctx.projectKey, ctx.member, args.commit);
+          return { commit: candidate.commit, baseCommit: candidate.baseCommit, tasks: candidate.tasks };
+        }
+        const { release, candidate } = await this.releases.propose(ctx.projectKey, ctx.member, {
+          title: args.title,
+          summary: args.summary,
+          commit: args.commit,
+        });
+        return {
+          releaseId: release.id,
+          taskKey: release.taskKey,
+          commit: release.commit,
+          baseCommit: release.baseCommit,
+          tasks: candidate.tasks,
+        };
+      } catch (err) {
+        // The agent reads the code: it says what to do (wait for the open release, nothing to release).
+        if (err instanceof DomainError && err.code.startsWith('release_'))
+          throw new TeamToolError(
+            err.status === 403 ? 'forbidden' : 'invalid',
+            `${err.code}: ${err.message}`,
+          );
+        throw err;
+      }
+    });
+  }
+
   async updateTask(
     ctx: ToolContext,
     args: {
@@ -1128,8 +1196,9 @@ export class TeamToolsService implements TeamToolsHandler {
       recommended?: string;
       recommendationReason?: string;
       details?: string;
+      attachmentIds?: string[];
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string }> {
+  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }> {
     return this.guard(async () => {
       const config = await this.caller(ctx, 'ask_human');
       const question = args.question.trim();
@@ -1192,6 +1261,14 @@ export class TeamToolsService implements TeamToolsHandler {
             assignees,
           })
         : null;
+      // The files are checked before the label is claimed: a refusal leaves no waiting label behind.
+      const attachments = this.questionAttachments(
+        config,
+        ctx.projectKey,
+        task,
+        assignees,
+        args.attachmentIds,
+      );
       const autoLabel = await this.openQuestionLabel.claim(ctx.projectKey, taskKey, ctx.member, question);
       const item = this.inbox.create({
         projectKey: ctx.projectKey,
@@ -1209,6 +1286,7 @@ export class TeamToolsService implements TeamToolsHandler {
           ...(reason ? { recommendationReason: reason } : {}),
           ...(details ? { details } : {}),
           ...(autoLabel ? { autoLabel } : {}),
+          ...(attachments.length > 0 ? { attachments } : {}),
         },
         options,
       });
@@ -1220,8 +1298,72 @@ export class TeamToolsService implements TeamToolsHandler {
         type: 'question_asked',
         data: { inboxItemId: item.id, question },
       });
-      return { inboxItemId: item.id, ...(approvalLabel ? { approvalLabel } : {}) };
+      return {
+        inboxItemId: item.id,
+        ...(approvalLabel ? { approvalLabel } : {}),
+        ...(attachments.length > 0 ? { attachments } : {}),
+      };
     });
+  }
+
+  /**
+   * The files a question names (PM-498), as snapshots in the order given and without repeats. Only
+   * ready files of the question's card or its parent qualify, and every asked person must be able
+   * to open each of them. Throws before anything is written.
+   */
+  private questionAttachments(
+    config: ProjectConfig,
+    projectKey: string,
+    task: Task | null,
+    assignees: string[],
+    ids: string[] | undefined,
+  ): QuestionAttachment[] {
+    const wanted = unique(ids ?? []);
+    if (wanted.length === 0) return [];
+    if (!task)
+      throw new TeamToolError(
+        'invalid',
+        'attachments_need_card: files can be named only on a question about a card; give task_key or ask without attachments.',
+      );
+    const parent = task.parentKey ? this.tasks.find(projectKey, task.parentKey) : null;
+    const allowed = [task, ...(parent ? [parent] : [])];
+    const scope = parent ? `${task.key} or its parent ${parent.key}` : task.key;
+    const found: QuestionAttachment[] = [];
+    for (const id of wanted) {
+      const row = this.ctx.repos.attachments.get(id);
+      if (!row || row.projectKey !== projectKey || row.state !== 'ready')
+        throw new TeamToolError(
+          'not_found',
+          `attachment_unknown: ${id} is not a file of ${scope}; list_attachments gives the ids.`,
+        );
+      if (!allowed.some((card) => card.key === row.taskKey))
+        throw new TeamToolError(
+          'invalid',
+          `attachment_other_card: ${id} is on ${row.taskKey}; a question can name only the files of ${scope}.`,
+        );
+      found.push({
+        id: row.id,
+        taskKey: row.taskKey,
+        fileName: row.fileName,
+        size: row.size,
+        mediaType: row.mediaType,
+        preview: row.preview,
+      });
+    }
+    // Everyone asked must be able to open every file; only a client asked about an internal card can fail.
+    for (const handle of assignees) {
+      const person = memberOf(config, handle);
+      const viewer = { access: person?.kind === 'human' ? person.access : ('client' as const), handle };
+      for (const card of allowed) {
+        if (!found.some((file) => file.taskKey === card.key)) continue;
+        if (!canReadAttachments(viewer, card))
+          throw new TeamToolError(
+            'invalid',
+            `attachment_not_visible: ${handle} cannot open the files of ${card.key}; ask without them or ask someone who sees the card.`,
+          );
+      }
+    }
+    return found;
   }
 
   async saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }> {
@@ -1276,6 +1418,162 @@ export class TeamToolsService implements TeamToolsHandler {
           );
         throw err;
       });
+  }
+
+  async readProjectDoc(
+    ctx: ToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead> {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may read the project documents.',
+      );
+    await this.callerWithRequest(ctx, 'read_project_doc');
+    try {
+      const read = await this.docWrites.read(ctx.projectKey, ctx.member, args.doc);
+      const lines = docLines(read.text ?? '');
+      const from = args.fromLine ?? 1;
+      return {
+        doc: args.doc,
+        repo: read.repo.name,
+        path: read.path,
+        commit: read.commit,
+        exists: read.text !== null,
+        total_lines: lines.length,
+        from_line: from,
+        text: lines.slice(from - 1, from - 1 + (args.lineCount ?? MAX_DOC_LINES)).join('\n'),
+      };
+    } catch (err) {
+      throw docToolError(err);
+    }
+  }
+
+  async writeProjectDocs(
+    ctx: ToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite> {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may write the project documents.',
+      );
+    const caller = await this.callerWithRequest(ctx, 'write_project_docs');
+    const request = this.inOwnerConversation(ctx, caller, 'write_project_docs');
+    let outcome: Awaited<ReturnType<DocWrites['request']>>;
+    try {
+      outcome = await this.docWrites.request({
+        projectKey: ctx.projectKey,
+        author: ctx.member,
+        requestedBy: request.fromHandle,
+        requestId: request.id,
+        baseCommit: args.baseCommit,
+        message: args.message,
+        edits: args.edits,
+      });
+    } catch (err) {
+      // A write that was never queued has no step of its own: the refusal is the step.
+      this.operatorSteps.record({
+        requestId: request.id,
+        action: 'docs_write',
+        taskKey: null,
+        member: null,
+        status: 'refused',
+        refusal: refusalOf(err),
+      });
+      throw docToolError(err);
+    }
+    switch (outcome.state) {
+      case 'published':
+        return {
+          write_id: outcome.id,
+          state: 'published',
+          commit: outcome.commit,
+          paths: outcome.paths,
+          ...(outcome.warning
+            ? {
+                warning:
+                  'The default branch is up, but the local checkout could not follow it; tell the owner.',
+              }
+            : {}),
+        };
+      case 'queued':
+        return { write_id: outcome.id, state: 'queued', waiting_for: outcome.waitingFor };
+      case 'running':
+        return { write_id: outcome.id, state: 'running' };
+      case 'stale':
+        throw new TeamToolError(
+          'invalid',
+          'docs_stale: a file changed since the commit you read. Read it again with read_project_doc and show the owner the new text.',
+        );
+      case 'failed':
+        throw new TeamToolError('invalid', `docs_write_failed: ${outcome.failure}: ${outcome.message}`);
+    }
+  }
+
+  /**
+   * The documents are the owners' business: the request the call runs for, when it is in the owner's own
+   * conversation (no `with`, no card); otherwise the call is refused and logged as a refused step.
+   */
+  private inOwnerConversation(
+    ctx: ToolContext,
+    caller: CallerWithRequest,
+    tool: string,
+  ): NonNullable<CallerWithRequest['request']> {
+    const request = caller.request!;
+    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
+    if (
+      workItem?.type !== 'general' ||
+      workItem.with !== undefined ||
+      !isOwner(caller.config, request.fromHandle)
+    ) {
+      this.recordRefusedWrite(caller, tool);
+      throw new TeamToolError(
+        'forbidden',
+        `${OWNER_ONLY}: ${tool} is for the owner's own conversation with you.`,
+      );
+    }
+    return request;
+  }
+
+  async listDecisionCandidates(ctx: ToolContext, args: { limit?: number }) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may list the decision candidates.',
+      );
+    await this.callerWithRequest(ctx, 'list_decision_candidates');
+    try {
+      return this.decisionCandidates.list(ctx.projectKey, config, args.limit);
+    } catch (err) {
+      throw docToolError(err);
+    }
+  }
+
+  async markDecisionCandidates(
+    ctx: ToolContext,
+    args: { items: { item_id: string; verdict: 'recorded' | 'declined' | 'skipped'; decision?: string }[] },
+  ) {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may mark the decision candidates.',
+      );
+    const caller = await this.callerWithRequest(ctx, 'mark_decision_candidates');
+    const request = this.inOwnerConversation(ctx, caller, 'mark_decision_candidates');
+    return this.recorded<{ marked: number }>(caller, { action: 'decision_offer' }, async () => ({
+      marked: this.decisionCandidates.mark(ctx.projectKey, config, request.id, args.items),
+    })).catch((err: unknown) => {
+      throw toToolError(err);
+    });
   }
 
   async startTask(

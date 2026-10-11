@@ -15,10 +15,11 @@ import { OperatorApprovalActions, OperatorApprovalBody, useOperatorDecision } fr
 import { OperatorChanges } from './OperatorChanges';
 import styles from './OperatorSteps.module.css';
 
-type Group = 'done' | 'awaiting' | 'refused';
+type Group = 'done' | 'queued' | 'awaiting' | 'refused';
 
 const GROUP_OF: Record<OperatorStep['status'], Group> = {
   done: 'done',
+  queued: 'queued',
   approved: 'done',
   awaiting_approval: 'awaiting',
   rejected: 'refused',
@@ -26,13 +27,20 @@ const GROUP_OF: Record<OperatorStep['status'], Group> = {
   refused: 'refused',
 };
 
-const ICON_OF: Record<Group, IconName> = { done: 'check', awaiting: 'clock', refused: 'close' };
+const ICON_OF: Record<Group, IconName> = {
+  done: 'check',
+  queued: 'clock',
+  awaiting: 'clock',
+  refused: 'close',
+};
 
 /** The words behind a group's icon, for screen readers: the icon alone never carries the state. */
 function iconLabel(group: Group): string {
   switch (group) {
     case 'done':
       return t('operator.steps.iconDone');
+    case 'queued':
+      return t('operator.steps.iconQueued');
     case 'awaiting':
       return t('operator.steps.iconAwaiting');
     case 'refused':
@@ -163,7 +171,9 @@ export function OperatorSteps({
   }, [members, myHandle]);
   if (request.steps.length === 0) return null;
 
-  const groups: { group: Group; steps: OperatorStep[] }[] = (['done', 'awaiting', 'refused'] as const)
+  const groups: { group: Group; steps: OperatorStep[] }[] = (
+    ['done', 'queued', 'awaiting', 'refused'] as const
+  )
     .map((group) => ({ group, steps: request.steps.filter((step) => GROUP_OF[step.status] === group) }))
     .filter((entry) => entry.steps.length > 0);
 

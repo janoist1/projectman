@@ -8,6 +8,12 @@ const icons = {
       <path d="M12 7v6M12 17h.01" />
     </>
   ),
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M5.6 5.6l12.8 12.8" />
+    </>
+  ),
   activity: <path d="M2 12h5l3-8 4 16 3-8h5" />,
   logo: (
     <>

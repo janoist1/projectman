@@ -70,7 +70,7 @@ export { ProjectState } from './project-state';
 import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
-import { createDomainContext, defaultTemplateRegistry } from './context';
+import { createDomainContext, defaultTemplateRegistry, isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
@@ -78,7 +78,11 @@ import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { DecisionCandidates } from './decision-candidates';
+import { DocWrites } from './doc-writes';
 import { Merges } from './merges';
+import { ReleaseService } from './releases';
+import type { ReleaseTarget } from './releases';
 import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
@@ -201,8 +205,17 @@ export { ProviderKeys } from './provider-keys';
 export type { NanogptKeyCheck } from './provider-keys';
 export { createNanogptKeyCheck } from './nanogpt-key-check';
 
+export type { ReleaseTarget } from './releases';
+
 export interface DomainOptions {
   nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
+  /**
+   * The project and repository that are this instance itself (PM-491): its releases are proposed,
+   * approved and deployed. Absent: releases are off (`release_not_configured`).
+   */
+  releaseTarget?: ReleaseTarget;
+  /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
+  appVersion?: string;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
   runtimeBoundary?: RuntimeBoundary;
@@ -492,6 +505,7 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     timeline,
     storage: opts.attachmentStorage,
+    onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
   });
   const members = new MemberService({
     ctx,
@@ -577,7 +591,8 @@ export function createDomain(opts: DomainOptions) {
   // the owner's next message opens a new request after this one closed, not before.
   events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
   events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
-  const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
+  const decisionCandidates = new DecisionCandidates({ ctx });
+  const delivery = new MessageDelivery({ ctx, sessions, messages, projects, decisionCandidates });
   const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
   events.on('session_idle', (session) => pmReplyRelay.finish(session));
   events.on('session_ended', (session) => pmReplyRelay.finish(session));
@@ -793,9 +808,24 @@ export function createDomain(opts: DomainOptions) {
     background,
     afterMerge: (task) => autoAdvance.check(task),
   });
+  const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
+  merges.useDocWrites(docWrites);
   inbox.useMergeStart(async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
   });
+  const releases = new ReleaseService({
+    ctx,
+    projects,
+    tasks,
+    inbox,
+    timeline,
+    engines,
+    target: opts.releaseTarget ?? null,
+    appVersion: () => opts.appVersion ?? 'dev',
+    // The instance's own repository is on the machine the server runs on.
+    engineId: () => LOCAL_ENGINE_ID,
+  });
+  inbox.useReleaseDecision((item, by, optionId, note) => releases.decide(item, by, optionId, note));
   tasks.useMerges(merges);
   events.on('task_cancelled', (task) => {
     merges.cancel(task.projectKey, task.key);
@@ -941,7 +971,10 @@ export function createDomain(opts: DomainOptions) {
   });
   const teamTools = new TeamToolsService({
     projectState,
+    docWrites,
+    decisionCandidates,
     merges,
+    releases,
     operatorRequests,
     operatorSteps,
     operatorActions,
@@ -1464,6 +1497,9 @@ export function createDomain(opts: DomainOptions) {
     reviewWatch,
     fullTests,
     merges,
+    docWrites,
+    decisionCandidates,
+    releases,
     loopWatch,
     seniorWaits,
     fixLimit,
@@ -1505,6 +1541,8 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      // The Operator's document writes the last server left are resumed before the merges queue starts.
+      await docWrites.init();
       await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
@@ -1648,6 +1686,7 @@ export function createDomain(opts: DomainOptions) {
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await docWrites.stop();
       await merges.stop();
       await screenshotRuns?.stop();
       await outages.stop();

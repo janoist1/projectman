@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { gateRequestOf, InboxOption, questionChoices, questionPayloadOf } from './inbox';
+import {
+  gateRequestOf,
+  InboxOption,
+  questionAttachmentsOf,
+  questionChoices,
+  questionPayloadOf,
+  withQuestionAttachmentGone,
+} from './inbox';
 
 const request = {
   requestId: 'gat_1',
@@ -46,6 +53,57 @@ describe('questionPayloadOf', () => {
   it('has none on other items, and refuses an unreadable one', () => {
     expect(questionPayloadOf({ payload: { toolName: 'Bash' } })).toBeNull();
     expect(questionPayloadOf({ payload: { question: 'Ok?', details: 42 } })).toBeNull();
+  });
+});
+
+const shot = {
+  id: 'att_abcdefghij1',
+  taskKey: 'AR-1',
+  fileName: 'shot.png',
+  size: 120,
+  mediaType: 'image/png',
+  preview: 'image',
+};
+const spec = { ...shot, id: 'att_abcdefghij2', taskKey: 'AR-9', fileName: 'spec.pdf', preview: 'pdf' };
+
+describe('questionAttachmentsOf', () => {
+  const question = (payload: Record<string, unknown>, kind = 'question') =>
+    questionAttachmentsOf({ kind, payload } as never);
+
+  it('reads the files of a question in order, with the deletion mark', () => {
+    const gone = { ...spec, goneAt: '2026-10-11T10:00:00.000Z' };
+    expect(question({ question: 'Ok?', attachments: [shot, gone] })).toEqual([shot, gone]);
+  });
+
+  it('has none on an older question, on another kind of item, and when the field is unreadable', () => {
+    expect(question({ question: 'Ok?', options: ['Yes'] })).toEqual([]);
+    expect(question({ question: 'Ok?', attachments: [shot] }, 'alert')).toEqual([]);
+    expect(question({ question: 'Ok?', attachments: 'shot.png' })).toEqual([]);
+    expect(question({ question: 'Ok?', attachments: [shot, { id: 'nope' }] })).toEqual([]);
+  });
+
+  it('does not make the question itself unreadable when a file entry is bad', () => {
+    const payload = { question: 'Ok?', attachments: [{ id: 'nope' }] };
+    expect(questionPayloadOf({ payload })).toBeNull();
+    expect(question(payload)).toEqual([]);
+  });
+});
+
+describe('withQuestionAttachmentGone', () => {
+  const at = '2026-10-11T10:00:00.000Z';
+  const payload = { question: 'Ok?', attachments: [shot, spec] };
+
+  it('marks the named file only and leaves the original untouched', () => {
+    const next = withQuestionAttachmentGone(payload, shot.id, at);
+    expect(next).toEqual({ question: 'Ok?', attachments: [{ ...shot, goneAt: at }, spec] });
+    expect(payload.attachments[0]).toEqual(shot);
+  });
+
+  it('gives null for a file the question does not name, or one that is marked already', () => {
+    expect(withQuestionAttachmentGone(payload, 'att_zzzzzzzzzz9', at)).toBeNull();
+    expect(withQuestionAttachmentGone({ question: 'Ok?' }, shot.id, at)).toBeNull();
+    const marked = withQuestionAttachmentGone(payload, shot.id, at)!;
+    expect(withQuestionAttachmentGone(marked, shot.id, '2026-10-12T00:00:00.000Z')).toBeNull();
   });
 });
 

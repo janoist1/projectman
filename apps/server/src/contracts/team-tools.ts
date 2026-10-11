@@ -9,6 +9,7 @@ import type {
   RelationsChange,
   TaskRelation,
   MemberView,
+  QuestionAttachment,
   QuestionOptionInput,
   Task,
   TaskDetail,
@@ -28,10 +29,59 @@ import type {
   DecideBoundaryRequest,
   OperatorOperation,
   ConfigChangeRow,
+  ProjectDoc,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
 import type { ProjectStateReport, TaskStateReport } from './project-state';
+
+/** What read_project_doc answers: the lines asked for of a project document at one commit. */
+export interface ProjectDocRead {
+  doc: ProjectDoc;
+  repo: string;
+  path: string;
+  /** The commit the text was read at: the `base_commit` of a write. */
+  commit: string;
+  exists: boolean;
+  total_lines: number;
+  from_line: number;
+  text: string;
+}
+
+/** An owner's answer on a card that may be a decision (PM-496). */
+export interface DecisionCandidate {
+  item_id: string;
+  task_key: string | null;
+  task_title: string | null;
+  asked_by: string | null;
+  asked_at: string;
+  /** Title and body of the question, at most 2000 characters. */
+  question: string;
+  /** `option` is the text of the option that was chosen. */
+  answer: { option: string | null; note: string | null };
+  answered_by: string;
+  answered_at: string;
+  via_integrator: boolean;
+}
+
+/** The owner's verdict on one candidate; `decision` (the entry number) goes with `recorded` only. */
+export interface DecisionMark {
+  item_id: string;
+  verdict: 'recorded' | 'declined' | 'skipped';
+  decision?: string;
+}
+
+/** What list_decision_candidates answers (PM-496). */
+export interface DecisionCandidatesList {
+  candidates: DecisionCandidate[];
+  more: boolean;
+}
+
+/** What write_project_docs answers. */
+export type ProjectDocWrite =
+  | { write_id: string; state: 'published'; commit: string; paths: string[]; warning?: string }
+  | { write_id: string; state: 'queued'; waiting_for: string }
+  | { write_id: string; state: 'running' };
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -218,6 +268,18 @@ export interface ScreenshotRun {
   outputTail?: string;
 }
 
+/**
+ * What propose_release answers (PM-491): the commit and the cards of the release. In preview
+ * mode nothing was recorded, so there is no release id and no card.
+ */
+export interface ProposedRelease {
+  releaseId?: string;
+  taskKey?: string;
+  commit: string;
+  baseCommit: string | null;
+  tasks: { key: string; title: string }[];
+}
+
 export interface TeamToolsHandler {
   getProjectState(
     ctx: ToolContext,
@@ -237,6 +299,36 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
   ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
+  /**
+   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
+   * Only the Operator; needs no open request.
+   */
+  readProjectDoc(
+    ctx: ToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /**
+   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
+   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
+   */
+  writeProjectDocs(
+    ctx: ToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
+  /**
+   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
+   * Operator, not in guest conversations; needs no open request. Counts as a look.
+   */
+  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
+  /**
+   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
+   * Operator, in the owner's own conversation, during an open owner request.
+   */
+  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -316,6 +408,14 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
   ): Promise<{ task: Task }>;
+  /**
+   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
+   * branch's head (or `commit`); `preview` only lists what the release would contain.
+   */
+  proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
   updateTask(
     ctx: ToolContext,
     args: {
@@ -393,8 +493,10 @@ export interface TeamToolsHandler {
       recommended?: string;
       recommendationReason?: string;
       details?: string;
+      /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
+      attachmentIds?: string[];
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string }>;
+  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.

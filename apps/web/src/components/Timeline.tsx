@@ -200,7 +200,7 @@ export function Timeline({
                         className={styles.external}
                         aria-label={`${link.label} ${t('inbox.release.newTab')}`}
                       >
-                        {link.label}
+                        {link.label} <span aria-hidden="true">↗</span>
                       </a>
                     </>
                   ) : null}

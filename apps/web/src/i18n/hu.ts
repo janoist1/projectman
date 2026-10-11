@@ -3825,7 +3825,7 @@ export const hu = {
         livePublishError:
           'Élesben fut, de a tag és a GitHub release nem készült el; a rendszer újrapróbálja.',
         published: 'Kiadva: {tag}',
-        githubRelease: 'GitHub release ↗',
+        githubRelease: 'GitHub release',
         /** An unknown state (an older or a newer build wrote it). */
         unknown: 'A kiadás állapota megváltozott: {commit}.',
       },

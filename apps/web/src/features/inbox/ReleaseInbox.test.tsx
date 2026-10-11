@@ -339,9 +339,11 @@ describe('the release rows in the Timeline component (PM-492)', () => {
       />,
     );
     expect(screen.getByText('Várjuk meg a PM-490-et.')).toBeTruthy();
+    // The arrow is decoration: the name is the label and "opens in a new tab", without the arrow.
     const link = screen.getByRole('link', {
-      name: new RegExp(t('timeline.events.release_changed.githubRelease').replace('↗', '').trim()),
+      name: `${t('timeline.events.release_changed.githubRelease')} ${t('inbox.release.newTab')}`,
     });
+    expect(link.getAttribute('aria-label')).not.toContain('↗');
     expect(link.getAttribute('href')).toBe('https://github.com/acme/webshop/releases/tag/v1.4.0');
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');

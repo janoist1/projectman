@@ -59,8 +59,9 @@ it(
       },
       { timeout: 15_000 },
     );
+    const requestId = 'opr_member_start';
     domain.ctx.repos.operatorRequests.insert({
-      id: 'opr_member_start',
+      id: requestId,
       projectKey: 'AR',
       sessionId: operator.id,
       source: 'message',
@@ -99,8 +100,9 @@ it(
       },
       { timeout: 15_000 },
     );
-    const request = domain.ctx.repos.operatorRequests.latest('AR', 1)[0]!;
-    expect(domain.ctx.repos.operatorRequests.steps(request.id)).toMatchObject([
+    // Replies may open newer Operator requests; this start belongs to the request captured at the call.
+    expect(domain.messages.get(result.messageId)?.operatorRequest).toBe(requestId);
+    expect(domain.ctx.repos.operatorRequests.steps(requestId)).toMatchObject([
       { action: 'task_start', taskKey: null, member: 'devops', status: 'done' },
     ]);
   },

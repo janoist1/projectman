@@ -436,7 +436,8 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
   the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.gemini`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and
+  `~/.codex`, `~/.gemini`, `~/.npmrc`, `~/.aws`, `~/.cloudflared` (the owner's AWS and Cloudflare
+  logins, PM-533); the rest of `~/.claude` stays open: saved tool outputs and
   the plan mode's plan file are there) and the sensitive parts of the app home (database, cookie
   secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
   `providers`); `WebFetch` may not reach

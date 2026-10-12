@@ -13,8 +13,9 @@ should confirm still goes to them as a question.
 - **All source code is English**: identifiers, comments, file and folder names, commit
   messages, test names, log messages, error codes.
 - The UI language is Hungarian, but Hungarian text lives **only** in locale files:
-  `apps/web/src/i18n/hu.ts` (UI) and `packages/templates/src/locales/hu.ts` (default
-  display names in templates). Components use `t('some.key')`; never hardcode UI text.
+  `apps/web/src/i18n/hu.ts` (UI), `apps/feedback-widget/src/i18n/hu.ts` (the embeddable
+  feedback widget's own text) and `packages/templates/src/locales/hu.ts` (default display
+  names in templates). Components use `t('some.key')`; never hardcode UI text.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the
   agent to communicate in the project's language.
 
@@ -74,6 +75,7 @@ These rules apply to every member, including Codex:
 | web        | `apps/web/**`                                                                                                                             |
 | github     | `apps/server/src/github/**`                                                                                                               |
 | context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                               |
+| widget     | `apps/feedback-widget/**`                                                                                                                 |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its

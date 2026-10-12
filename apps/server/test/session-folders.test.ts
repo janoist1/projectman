@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -502,6 +503,32 @@ describe('session folders (PM-268)', () => {
       expect(readFileSync(path).equals(content)).toBe(true);
       expect(readdirSync(outside)).toEqual(['precious']);
       expect(readdirSync(folders.root).filter((entry) => entry.startsWith('.trash-'))).toEqual([]);
+    });
+
+    it('is not stopped by a FIFO or a link to a device at the name, and replaces it (PM-523)', async () => {
+      const name = 'msa_1-plan.pdf';
+      execFileSync('mkfifo', [join(dir, name)]);
+      const first = await put(name);
+      expect(lstatSync(first.path).isFile()).toBe(true);
+      expect(readFileSync(first.path).equals(content)).toBe(true);
+
+      rmSync(first.path);
+      symlinkSync('/dev/zero', join(dir, name));
+      const second = await put(name);
+      expect(lstatSync(second.path).isFile()).toBe(true);
+      expect(readFileSync(second.path).equals(content)).toBe(true);
+    }, 10_000);
+
+    it('replaces a file of the same size but other bytes, and does not hash more than the size', async () => {
+      const name = 'msa_1-plan.pdf';
+      writeFileSync(join(dir, name), Buffer.alloc(content.length, 1));
+      const same = await put(name);
+      expect(readFileSync(same.path).equals(content)).toBe(true);
+
+      rmSync(same.path);
+      writeFileSync(join(dir, name), Buffer.alloc(content.length + 4096, 1));
+      const longer = await put(name);
+      expect(readFileSync(longer.path).equals(content)).toBe(true);
     });
 
     it('never touches a `message-attachments` link the agent keeps in its folder (PM-523)', async () => {

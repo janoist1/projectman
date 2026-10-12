@@ -1,13 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  constants,
-  createReadStream,
-  createWriteStream,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-} from 'node:fs';
+import { chmodSync, constants, createWriteStream, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { link, lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -29,10 +21,34 @@ const TMP_NAME = /^[0-9a-f]{12}$/;
 
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
-async function sha256Of(file: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
-  return hash.digest('hex');
+/**
+ * Whether `file`, which the agent can write, is a regular file with exactly the size and checksum of
+ * `source` (PM-523). It is opened without following a link and without blocking (a FIFO opens at
+ * once and is refused by `fstat`), and everything is read through that one descriptor, at most
+ * `size + 1` bytes: a name swapped for a FIFO or a link to a device, or a file that keeps growing,
+ * cannot stop the server's read or keep it hashing. Anything that is not that file is `false`.
+ */
+async function isSameFile(file: string, source: { size: number; sha256: string }): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return false;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== source.size) return false;
+    const hash = createHash('sha256');
+    let bytes = 0;
+    for await (const chunk of handle.createReadStream({ start: 0, end: source.size, autoClose: false })) {
+      bytes += (chunk as Buffer).length;
+      if (bytes > source.size) return false;
+      hash.update(chunk as Buffer);
+    }
+    return bytes === source.size && hash.digest('hex') === source.sha256;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
 }
 
 /**
@@ -361,21 +377,15 @@ export class SessionFolders implements EngineSessionFolders {
       await copyChecked(source, staged);
       await assertOwnDirectory(folder, true);
       const dest = path.join(folder, name);
-      const there = await lstat(dest).catch((err: unknown) => {
-        if (code(err) === 'ENOENT') return undefined;
-        throw err;
-      });
-      if (there) {
-        if (there.isFile() && (await sha256Of(dest)) === source.sha256) return { path: dest };
-        // The slow check above is over: what is there now is moved out of the agent's reach by its
-        // name alone (a link moves as a link), and only then removed.
-        const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
-        try {
-          await rename(dest, trash);
-        } catch (err) {
-          if (code(err) !== 'ENOENT') throw err;
-        }
+      if (await isSameFile(dest, source)) return { path: dest };
+      // The slow check above is over: what is there now (nothing, mostly) is moved out of the agent's
+      // reach by its name alone (a link moves as a link), and only then removed.
+      const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
+      try {
+        await rename(dest, trash);
         await rm(trash, { recursive: true, force: true });
+      } catch (err) {
+        if (code(err) !== 'ENOENT') throw err;
       }
       await link(staged, dest);
       return { path: dest };

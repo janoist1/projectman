@@ -690,10 +690,12 @@ hostile input. The boundary:
   or replace it. It is checked once (a real directory of the server's user) and its path is never
   re-resolved from a name the agent controls, other than the last element.
 - The last element is safe by itself: `link` fails for an existing name and never follows a link. A
-  name that is not the same file (the SHA-256 is compared only when `lstat` shows a regular file) is
-  renamed into the root as a `.trash-*` entry and removed there, so a link or a
-  directory the agent keeps changing is moved as itself, never walked in its place. No recursive
-  removal runs on a path in the agent's folder.
+  name that is not the same file is renamed into the root as a `.trash-*` entry and removed there, so
+  a link or a directory the agent keeps changing is moved as itself, never walked in its place. No
+  recursive removal runs on a path in the agent's folder. The "same file" check opens the name with
+  `O_NOFOLLOW|O_NONBLOCK`, takes `fstat` of that descriptor (a regular file of the expected size) and
+  reads at most `size + 1` bytes through it, so a FIFO, a link to a device or a file that keeps
+  growing cannot stop or stretch the server's read.
 - The content is staged in the root, checked against the size and checksum, and hard-linked in, so
   the agent never sees a half-written file and the file is made exclusively (0600).
 - What this does not cover: the agent can delete or replace the file after the call, and it can

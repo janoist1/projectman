@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "aws": {
+    "profile": "i",
+    "region": "eu-west-1",
+    "availabilityZone": "eu-west-1a",
+    "instanceName": "projectman-cloud",
+    "bundleId": "small_3_0",
+    "blueprintId": "ubuntu_24_04",
+    "databaseBucket": "CHANGE-ME-projectman-db",
+    "backupBucket": "CHANGE-ME-projectman-backup"
+  },
+  "repository": {
+    "url": "https://github.com/janoist1/projectman.git"
+  },
+  "cloudflare": {
+    "zone": "example.com",
+    "hostname": "board.example.com",
+    "feedbackHostname": "feedback.example.com"
+  },
+  "access": {
+    "emails": ["owner@example.com"],
+    "sessionDuration": "24h",
+    "integratorServiceToken": false
+  },
+  "route53": {}
+}

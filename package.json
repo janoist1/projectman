@@ -25,6 +25,7 @@
     "migrate": "node --import tsx scripts/migrate/cli.ts",
     "engine": "node --import tsx scripts/engine/cli.ts",
     "live": "node --import tsx scripts/live/cli.ts",
+    "cloud": "node --import tsx scripts/cloud/cli.ts",
     "release-test": "node --import tsx scripts/live/cli.ts release-test",
     "start": "npm run start -w @projectman/server",
     "typecheck": "node --import tsx scripts/heavy/cli.ts npm run typecheck --workspaces --if-present",

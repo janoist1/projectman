@@ -33,7 +33,7 @@ export const MergeFailure = z.object({
   files: z.array(z.string()).max(50).optional(),
   command: z.string().optional(),
   runId: z.string().optional(),
-  /** At most the last 40 lines. */
+  /** The failure report of the check by workspace (blocks and totals, PM-554); older rows hold the last 40 lines. */
   outputTail: z.string().max(8000).optional(),
 });
 export type MergeFailure = z.infer<typeof MergeFailure>;

@@ -558,7 +558,7 @@ export function failureMessage(input: {
   const { task, from, to, command, run, failedFiles, outputTail, defaultBranch } = input;
   const output =
     outputTail.length > MESSAGE_OUTPUT_CHARS
-      ? outputTail.startsWith('⎯')
+      ? outputTail.startsWith('⎯') || outputTail.startsWith('## ')
         ? `${outputTail.slice(0, MESSAGE_OUTPUT_CHARS)}\n…`
         : `…\n${outputTail.slice(-MESSAGE_OUTPUT_CHARS)}`
       : outputTail;

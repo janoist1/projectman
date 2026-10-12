@@ -864,10 +864,15 @@ export class Merges {
               at: isoNow(ctx),
               command: repo.reviewTest.command,
               runId,
-              outputTail: result.outputTail.split('\n').slice(-40).join('\n').slice(-8000),
+              outputTail: result.outputTail.slice(0, 8000),
             });
           if (result.outcome === 'error')
-            return this.block(row, 'check_error', 'the merge check could not run', result.outputTail);
+            return this.block(
+              row,
+              'check_error',
+              `the merge check could not run${result.reason ? ` (${result.reason})` : ''}`,
+              result.outputTail.slice(0, 8000),
+            );
         }
       }
       if (!this.continue(row, running)) return;
@@ -1069,7 +1074,7 @@ export class Merges {
           : row.state === 'failed'
             ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${row.failure!.files?.join('\n') ?? row.failure!.outputTail ?? ''}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
             : row.state === 'blocked'
-              ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}. Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
+              ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}.${row.block!.reason === 'check_error' && row.block!.detail ? `\n${row.block!.detail}\n` : ''} Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
               : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
     await this.deps.messaging.send(
       row.projectKey,

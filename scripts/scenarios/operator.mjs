@@ -59,9 +59,10 @@ export default async ({ instance, open, shoot, step: scene, log }) => {
       async (route) => {
         const response = await route.fetch();
         const body = await response.json();
-        const signals = state.readOnly === false || body.readOnly === false ? state.signals : [];
+        const signals = state.readOnly !== null || body.readOnly === false ? state.signals : [];
         json(route, response.status(), {
           ...body,
+          readOnly: state.readOnly ?? body.readOnly,
           requests: state.requests.length ? state.requests : body.requests,
           signals,
           openSignals: signals.filter((signal) => signal.state === 'open').length,
@@ -85,6 +86,20 @@ export default async ({ instance, open, shoot, step: scene, log }) => {
       async (route) => {
         if (route.request().method() === 'POST' && state.sendFails)
           return json(route, 502, failure('internal', 'The message could not be sent'));
+        if (route.request().method() === 'POST') {
+          const input = route.request().postDataJSON();
+          const signal = state.signals.find((signal) => signal.id === input.operatorSignal);
+          if (signal) {
+            signal.state = 'accepted';
+            signal.decidedAt = new Date().toISOString();
+            signal.decidedBy = owner;
+            const accepted = message(`msg_accept_${signal.id}`, owner, operator.handle, input.text, {
+              operatorSignal: signal.id,
+            });
+            state.messages.push(accepted);
+            return json(route, 202, accepted);
+          }
+        }
         return route.fallback();
       },
     );
@@ -110,6 +125,17 @@ export default async ({ instance, open, shoot, step: scene, log }) => {
       (route) => {
         if (state.dismiss === 'closed')
           return json(route, 409, failure('operator_signal_closed', 'The signal is no longer open'));
+        if (state.dismiss === 'failed')
+          return json(route, 502, failure('internal', 'The decision could not be sent'));
+        const signal = state.signals.find((signal) =>
+          route.request().url().includes(`/${signal.id}/dismiss`),
+        );
+        if (signal) {
+          signal.state = 'dismissed';
+          signal.decidedAt = new Date().toISOString();
+          signal.decidedBy = owner;
+          return json(route, 200, signal);
+        }
         return route.fallback();
       },
     );
@@ -359,6 +385,82 @@ export default async ({ instance, open, shoot, step: scene, log }) => {
     await page.getByRole('button', { name: 'Most ne' }).first().click();
     await page.getByRole('alert').first().waitFor();
     await shoot(page, 'c-signal-409', { widths: WIDTHS });
+    state.dismiss = 'ok';
+  });
+
+  await step_('c2. grouped owner decisions', async () => {
+    const base = {
+      state: 'open',
+      messageId: 'msg_summary',
+      subject: null,
+      inboxItemId: null,
+      raisedAt: minutesAgo(15),
+      decidedBy: null,
+      decidedAt: null,
+      resolvedAt: null,
+    };
+    const reset = () => {
+      state.readOnly = false;
+      state.dismiss = 'ok';
+      state.signals = [
+        { ...base, id: 'ops_sum1', kind: 'nobody', taskKey: 'AC-1', actionable: true },
+        {
+          ...base,
+          id: 'ops_sum2',
+          kind: 'stalled',
+          taskKey: 'AC-2',
+          actionable: true,
+          raisedAt: minutesAgo(12),
+        },
+        {
+          ...base,
+          id: 'ops_sum3',
+          kind: 'outage',
+          taskKey: null,
+          actionable: false,
+          inboxItemId: 'inb_outage',
+        },
+      ];
+      state.messages = [
+        message(
+          'msg_summary',
+          operator.handle,
+          owner,
+          '**Megtettem**\n\nEllenőriztem a táblát és elindítottam a szabad fejlesztőt.\n\n**Döntés kell**\n\nHárom dologhoz kell a szavad, lent soronként dönthetsz.',
+        ),
+      ];
+    };
+    reset();
+    const page = await openWith('/p/AC');
+    await openPanel(page);
+    const card = page.locator('[data-signal-list]');
+    await card.waitFor();
+    await shoot(page, 'c2-summary-open', { widths: WIDTHS });
+    await card.getByRole('button', { name: 'Igen, intézd' }).first().click();
+    await card.getByRole('status').waitFor();
+    await shoot(page, 'c2-summary-accepted', { widths: WIDTHS });
+    await card.getByRole('button', { name: 'Most ne' }).first().click();
+    await card.getByRole('button', { name: 'Most ne' }).last().click();
+    await card.getByRole('button').waitFor({ state: 'detached' });
+    await shoot(page, 'c2-summary-settled', { widths: WIDTHS });
+    for (const mode of ['failed', 'closed']) {
+      reset();
+      state.dismiss = mode;
+      const errorPage = await openWith('/p/AC');
+      await openPanel(errorPage);
+      await errorPage.locator('[data-signal-list]').getByRole('button', { name: 'Most ne' }).first().click();
+      await errorPage.getByRole('alert').first().waitFor();
+      await shoot(errorPage, `c2-summary-${mode}`, { widths: WIDTHS });
+    }
+    reset();
+    state.readOnly = true;
+    state.signals[0].state = 'accepted';
+    state.signals[0].decidedAt = minutesAgo(1);
+    const readPage = await openWith('/p/AC');
+    await openPanel(readPage);
+    await readPage.locator('[data-signal-list]').waitFor();
+    await shoot(readPage, 'c2-summary-read-only', { widths: WIDTHS });
+    state.readOnly = null;
     state.dismiss = 'ok';
   });
 

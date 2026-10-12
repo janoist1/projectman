@@ -15,6 +15,7 @@ import { ProjectLayout } from '../../app/ProjectLayout';
 import { ToastProvider } from '../../components/Toast';
 import { t } from '../../i18n/t';
 import { mockProject } from '../../test/mockProject';
+import { operatorSummaryFixture } from '../../mocks/fixtures';
 import { TaskDrawer } from '../board/TaskDrawer';
 import { InboxPage } from '../inbox/InboxPage';
 import { HistorySection } from '../settings/sections/HistorySection';
@@ -506,6 +507,74 @@ describe('the steps of a request', () => {
 describe('a signal the Operator raised', () => {
   const presenting = (project: Project, body = 'A kártyát most senki nem viheti.') =>
     project.backend.sendTeamMessage('operator', ['owner'], 'AC-20', body);
+
+  it('groups decisions, orders actionable signals first and keeps rows in place after acceptance', async () => {
+    const project = mockProject();
+    const message = presenting(project, operatorSummaryFixture('summary').body);
+    project.backend.operatorSignals = operatorSummaryFixture(message.id).signals;
+    renderLayout(project);
+    fireEvent.click(await button());
+    const group = await screen.findByRole('heading', { name: new RegExp(t('operator.signal.group')) });
+    const card = group.closest('article')!;
+    const rows = () => [...card.querySelectorAll('li')];
+    expect(rows().map((row) => row.getAttribute('data-signal-id'))).toEqual([
+      'sig_first',
+      'sig_later',
+      'sig_out',
+    ]);
+    const accept = within(rows()[0]! as HTMLElement).getByRole('button', {
+      name: t('operator.signal.accept'),
+    });
+    expect(accept.getAttribute('aria-describedby')).toBe(rows()[0]!.querySelector('h4')!.id);
+    fireEvent.click(accept);
+    await waitFor(() =>
+      expect(posted(project, '/messages')[0]?.body).toMatchObject({ operatorSignal: 'sig_first' }),
+    );
+    await within(card).findByText(new RegExp(t('operator.signal.accepted')));
+    expect(rows().map((row) => row.getAttribute('data-signal-id'))).toEqual([
+      'sig_first',
+      'sig_later',
+      'sig_out',
+    ]);
+    expect(group.textContent).toContain(t('operator.signal.groupCount', { count: 2 }));
+    expect(document.activeElement).toBe(
+      within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.accept') }),
+    );
+    fireEvent.click(
+      within(rows()[2]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
+    );
+    await waitFor(() => expect(posted(project, '/operator/signals/sig_out/dismiss')).toHaveLength(1));
+    await within(card).findByText(new RegExp(t('operator.signal.dismissed')));
+    fireEvent.click(
+      within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
+    );
+    await waitFor(() => expect(card.getAttribute('data-state')).toBe('resolved'));
+    expect(group.textContent).toBe(t('operator.signal.group'));
+    expect(document.activeElement).toBe(group);
+    expect(within(card).queryByRole('button')).toBeNull();
+  });
+
+  it('keeps a failed decision on its row while other rows remain actionable', async () => {
+    const project = mockProject();
+    const message = presenting(project);
+    project.backend.operatorSignals = operatorSummaryFixture(message.id).signals;
+    renderLayout(project);
+    fireEvent.click(await button());
+    const group = await screen.findByRole('heading', { name: new RegExp(t('operator.signal.group')) });
+    const rows = [...group.closest('article')!.querySelectorAll('li')];
+    project.backend.operatorSignals.find((s) => s.id === 'sig_first')!.state = 'resolved';
+    fireEvent.click(
+      within(rows[0]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
+    );
+    expect(await within(rows[0]! as HTMLElement).findByRole('alert')).toHaveProperty(
+      'textContent',
+      t('operator.signal.closed'),
+    );
+    expect(within(rows[1]! as HTMLElement).queryByRole('alert')).toBeNull();
+    expect(
+      within(rows[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.accept') }),
+    ).toHaveProperty('disabled', false);
+  });
 
   it('says yes with a visible message that names the signal', async () => {
     const project = mockProject();

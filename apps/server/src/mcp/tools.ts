@@ -589,6 +589,17 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         .boolean()
         .optional()
         .describe('Operator only: whether accepting this signal authorizes a proposed action.'),
+      signal_ids: z
+        .array(z.string().min(1))
+        .min(1)
+        .max(20)
+        .optional()
+        .describe('Operator only: delivered signals awaiting owner decisions, presented in one message.'),
+      actionable_signal_ids: z
+        .array(z.string().min(1))
+        .max(20)
+        .optional()
+        .describe('Operator only: the subset of signal_ids whose acceptance authorizes an action.'),
       attachments: z
         .array(z.string().trim().min(1).max(MAX_PATH_CHARS))
         .min(1)
@@ -617,6 +628,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         text: args.text,
         signalId: args.signal_id,
         signalActionable: args.signal_actionable,
+        signalIds: args.signal_ids,
+        actionableSignalIds: args.actionable_signal_ids,
         ...(args.attachments ? { attachments: unique(args.attachments) } : {}),
         ...(taskKey ? { taskKey } : {}),
       });

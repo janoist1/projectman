@@ -3,6 +3,24 @@ import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it('forwards multiple signals and validates list bounds', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'send_message')!;
+    const handler = createFakeTeamToolsHandler();
+    const input = {
+      to: ['owner'],
+      kind: 'info',
+      text: 'Summary',
+      signal_ids: ['a', 'b'],
+      actionable_signal_ids: ['b'],
+    };
+    await tool.run({ ctx: devContext, args: tool.inputSchema.parse(input), handler });
+    expect(handler.calls[0]).toMatchObject({ args: { signalIds: ['a', 'b'], actionableSignalIds: ['b'] } });
+    expect(tool.inputSchema.safeParse({ ...input, signal_ids: [] }).success).toBe(false);
+    expect(
+      tool.inputSchema.safeParse({ ...input, signal_ids: Array.from({ length: 21 }, (_, i) => String(i)) })
+        .success,
+    ).toBe(false);
+  });
   it('forwards optional signal presentation arguments without changing ordinary message calls', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'send_message')!;
     const handler = createFakeTeamToolsHandler();

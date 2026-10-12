@@ -84,6 +84,7 @@ export interface SendOptions {
   operatorRequest?: string;
   operatorSignal?: string;
   signalActionable?: boolean;
+  operatorSignals?: { id: string; actionable: boolean }[];
   /** Runs synchronously in the message transaction, before binding files or recording the message. */
   beforeRecord?: () => void;
   /**
@@ -236,12 +237,28 @@ export class Messaging {
         status: 404,
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
-    if (opts.operatorSignal !== undefined) {
-      if (isOperator(memberOf(config, from))) {
-        if (recipients.some((handle) => !ownerHandles(config).includes(handle)))
-          throw invalid('invalid_request', 'signals go only to owners');
-        this.operatorSignals!.presentation(projectKey, opts.operatorSignal);
-      } else if (
+    const operator = isOperator(memberOf(config, from));
+    const signals =
+      opts.operatorSignals ??
+      (operator && opts.operatorSignal !== undefined
+        ? [{ id: opts.operatorSignal, actionable: opts.signalActionable ?? false }]
+        : []);
+    if (
+      opts.operatorSignals !== undefined &&
+      (!operator ||
+        opts.operatorSignal !== undefined ||
+        signals.length === 0 ||
+        signals.length > 20 ||
+        new Set(signals.map((s) => s.id)).size !== signals.length)
+    )
+      throw invalid('invalid_request', 'invalid signal presentation arguments');
+    if (signals.length > 0) {
+      if (recipients.some((handle) => !ownerHandles(config).includes(handle)))
+        throw invalid('invalid_request', 'signals go only to owners');
+      for (const signal of signals) this.operatorSignals!.presentation(projectKey, signal.id);
+    }
+    if (opts.operatorSignal !== undefined && !operator) {
+      if (
         !ownerHandles(config).includes(from) ||
         (opts.actor && (opts.actor.kind !== 'human' || opts.actor.handle !== from || opts.actor.via)) ||
         recipients.length !== 1 ||
@@ -343,16 +360,11 @@ export class Messaging {
         kind: opts.kind ?? 'action',
         subject: opts.subject,
         operatorRequest: opts.operatorRequest,
-        operatorSignal: opts.operatorSignal,
+        operatorSignal: operator ? (signals.length === 1 ? signals[0]!.id : undefined) : opts.operatorSignal,
         version,
       });
-      if (opts.operatorSignal !== undefined && isOperator(memberOf(config, from)))
-        this.operatorSignals!.present(
-          projectKey,
-          opts.operatorSignal,
-          recorded.id,
-          opts.signalActionable ?? false,
-        );
+      for (const signal of signals)
+        this.operatorSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
       return recorded;
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();

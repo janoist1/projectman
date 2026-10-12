@@ -8,6 +8,7 @@ import type {
   InboxOption,
   MemberView,
   PlanUsage,
+  OperatorSignal,
   ProjectConfig,
   ProjectSummary,
   RoleView,
@@ -29,6 +30,35 @@ import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
 
 export const PROJECT_KEY = 'AC';
 export const OWNER = 'owner';
+
+/** A summary with three independent owner decisions (PM-549), opt-in for UI examples and tests. */
+export function operatorSummaryFixture(messageId: string): { body: string; signals: OperatorSignal[] } {
+  const base = {
+    state: 'open' as const,
+    subject: null,
+    inboxItemId: null,
+    messageId,
+    raisedAt: '2026-10-10T08:00:00.000Z',
+    decidedBy: null,
+    decidedAt: null,
+    resolvedAt: null,
+  };
+  return {
+    body: '**Megtettem**\n\nEllenőriztem a táblát és elindítottam a szabad fejlesztőt.\n\n**Döntés kell**\n\nHárom dologhoz kell a szavad, lent soronként dönthetsz.',
+    signals: [
+      { ...base, id: 'sig_out', kind: 'outage', actionable: false, taskKey: null, inboxItemId: 'inbox_1' },
+      {
+        ...base,
+        id: 'sig_later',
+        kind: 'stalled',
+        actionable: true,
+        taskKey: 'AC-20',
+        raisedAt: '2026-10-10T09:00:00.000Z',
+      },
+      { ...base, id: 'sig_first', kind: 'nobody', actionable: true, taskKey: 'AC-20' },
+    ],
+  };
+}
 
 export const mockUser = {
   userId: 'usr_owner',

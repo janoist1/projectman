@@ -2791,6 +2791,8 @@ export const hu = {
       },
     },
     signal: {
+      group: 'Döntés kell',
+      groupCount: '{count} nyitott',
       raised: 'Magától szóltam · {time}',
       noMessage: 'Jelzés · {time}',
       accept: 'Igen, intézd',

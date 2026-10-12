@@ -117,6 +117,25 @@ describe('the feedback settings', () => {
     expect(await screen.findByText('https://admin.acme.test')).toBeTruthy();
   });
 
+  it('keeps the blocked markers when a surface is added', async () => {
+    const p = seeded();
+    p.backend.config.project.feedback = {
+      surfaces: p.backend.config.project.feedback?.surfaces ?? [],
+      blockedMarkers: ['kata'],
+    };
+    await section(p);
+    fireEvent.change(screen.getByLabelText(t('settings.feedback.surfaces.nameLabel')), {
+      target: { value: 'Admin' },
+    });
+    fireEvent.change(screen.getByLabelText(t('settings.feedback.surfaces.originLabel')), {
+      target: { value: 'https://admin.acme.test' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: t('settings.feedback.surfaces.add') }));
+    await waitFor(() => expect(patches(p)).toHaveLength(1));
+    await waitFor(() => expect(p.backend.config.project.feedback?.surfaces).toHaveLength(2));
+    expect(p.backend.config.project.feedback?.blockedMarkers).toEqual(['kata']);
+  });
+
   it('removes a surface only after a confirmation', async () => {
     const p = seeded();
     await section(p);
@@ -142,6 +161,9 @@ describe('the feedback settings', () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(patches(p)).toHaveLength(1));
     expect((patches(p)[0]!.body as { feedback: unknown }).feedback).toEqual({ blockedMarkers: ['kata'] });
+    // The saved configuration keeps the surfaces the request left out.
+    expect(p.backend.config.project.feedback?.blockedMarkers).toEqual(['kata']);
+    expect(p.backend.config.project.feedback?.surfaces).toHaveLength(1);
     await waitFor(() =>
       expect(
         (

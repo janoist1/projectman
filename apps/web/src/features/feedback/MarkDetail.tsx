@@ -76,7 +76,7 @@ function Composer({ mark }: { mark: FeedbackMarkDetail }) {
       {
         onSuccess: () => setBody(''),
         // The text stays in the box: the person can send it again.
-        onError: (error) => toast.show(errorMessage(error), 'error'),
+        onError: () => toast.show(t('feedback.composer.sendFailed'), 'error'),
       },
     );
   };
@@ -200,7 +200,10 @@ function Opened({
                 size="md"
                 loading={reopen.isPending}
                 onClick={() =>
-                  reopen.mutate(undefined, { onError: (error) => toast.show(errorMessage(error), 'error') })
+                  reopen.mutate(undefined, {
+                    onSuccess: () => toast.show(t('feedback.actions.reopened')),
+                    onError: (error) => toast.show(errorMessage(error), 'error'),
+                  })
                 }
               >
                 {t('feedback.actions.reopen')}

@@ -101,5 +101,5 @@ export function markerInitials(name: string): string {
 export function titleFromBody(body: string): string {
   const line = body.trim().split(/\r?\n/)[0] ?? '';
   const sentence = line.split(/(?<=[.!?])\s/)[0] ?? line;
-  return sentence.slice(0, 120).trim();
+  return sentence.slice(0, 200).trim();
 }

@@ -3913,6 +3913,7 @@ export const hu = {
     attachmentAdded: 'Csatolmány hozzáadva: {fileName}',
     feedbackCreated: 'A kártya egy jelölésből készült',
     feedbackLinked: 'Egy jelölés ehhez a kártyához lett kötve',
+    openMark: 'Megnyitom',
     /** The words before the file's link on the timeline row. */
     attachmentAddedLead: 'Csatolmány hozzáadva:',
     attachmentDeleted: 'Csatolmány törölve: {fileName}',
@@ -4509,8 +4510,10 @@ export const hu = {
       link: 'Kártyához kötöm',
       linkAnother: 'Másik kártyához kötöm',
       close: 'Lezárom',
+      reopened: 'Újranyitottad a jelölést.',
     },
     composer: {
+      sendFailed: 'Nem sikerült elküldeni. A szöveget megtartottuk.',
       processor: 'Válasz {name} jelölésére…',
       member: 'Hozzászólok…',
       processorHint: 'A válasz azonnal megjelenik a weboldalon, a jelölésnél.',

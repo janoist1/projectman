@@ -519,6 +519,12 @@ function useFeedbackMutation<
         client.invalidateQueries({ queryKey: queryKeys.taskDetails(key) }),
       ]);
     },
+    // The mark moved on under the person (a card was made, it was closed): the open view reads it again.
+    onError: (error) => {
+      if (isApiError(error) && error.status === 409) {
+        void client.invalidateQueries({ queryKey: queryKeys.feedback(key) });
+      }
+    },
   });
 }
 

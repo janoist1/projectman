@@ -190,6 +190,14 @@ export function Timeline({
                   ) : (
                     (renderText?.(event) ?? text)
                   )}
+                  {event.type === 'feedback_linked' && typeof event.data.markId === 'string' ? (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <Link to={`/p/${event.projectKey}/feedback/${event.data.markId}`}>
+                        {t('timeline.openMark')}
+                      </Link>
+                    </>
+                  ) : null}
                   {link ? (
                     <>
                       <span aria-hidden="true"> · </span>

@@ -176,6 +176,36 @@ export class ReleaseService {
     };
   }
 
+  /**
+   * The work merged on the release repository after the running or latest live release, without git (PM-545).
+   * Null: this instance does not release the project, a release is open, the base is not known or nothing is
+   * left to release. It never throws or writes and calls neither git nor an engine: the sweep asks every minute.
+   * The order of `finished_at` is the order of the default branch, as merges run one after the other per repository.
+   */
+  unreleased(
+    projectKey: string,
+  ): { base: string; count: number; oldestAt: string; taskKeys: string[] } | null {
+    const { ctx, target } = this.deps;
+    if (!target || target.projectKey !== projectKey || ctx.repos.releases.open(projectKey)) return null;
+    const running = this.deps.appVersion();
+    const base =
+      ctx.repos.releases.latestLive(projectKey)?.commit ?? (COMMIT_ID.test(running) ? running : null);
+    if (!base) return null;
+    const landed = ctx.repos.taskMerges.mergedOf(projectKey, target.repo).flatMap((row) => {
+      const id = this.landed(row);
+      return id ? [{ taskKey: row.taskKey, commit: id, at: row.finishedAt ?? row.updatedAt }] : [];
+    });
+    const at = landed.findLastIndex((entry) => entry.commit === base);
+    const left = at < 0 ? [] : landed.slice(at + 1);
+    if (left.length === 0) return null;
+    return {
+      base,
+      count: left.length,
+      oldestAt: left[0]!.at,
+      taskKeys: [...new Set(left.map((entry) => entry.taskKey))],
+    };
+  }
+
   /** The members who hold the deployment duty: only they may propose a release. */
   private proposers(config: ProjectConfig): string[] {
     return dutyMembers(config, 'deployment').map((member) => member.handle);

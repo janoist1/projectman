@@ -2280,6 +2280,21 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
   Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
   admission stay on the server, and notice delivery uses the existing engine session boundary.
+  Five board kinds (PM-547, migration 56) join the four, raised and closed by the same sweep from
+  `OperatorSignals.boardCases` (`pending()` rechecks a signal against it before waking the Operator):
+  `idle` (`idle:<task>:<stage>`; a work or step card whose `TaskWaits` reason is `assignee`, or `queued`
+  with an AI step owner, held by an AI member who is not on leave, with no activity for
+  `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),
+  `merge_waiting` (`merge_waiting:<task>`; a `requested` merge an AI merger has not started for
+  `OPERATOR_MERGE_WAIT_MINUTES` = 30), `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked`
+  merge with an AI merger, at once; a person as merger gets the inbox item instead), `unreleased`
+  (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
+  the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
+  open release) and `ready_waiting` (one per project; a card in a later queue stage ready for a work stage
+  whose AI owner is free, not on leave, not temporary, under its capacity, with the parallel AI limit not
+  reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
+  if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
+  team is paused. All data comes from the server's database and configuration: no machine-dependent part.
 
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.

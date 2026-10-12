@@ -567,6 +567,25 @@ describe('a signal the Operator raised', () => {
     expect(screen.getByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeTruthy();
   });
 
+  it('shows the board kinds (PM-547) by their own title and text', async () => {
+    const project = mockProject();
+    project.backend.operatorSignals = [
+      signal({ id: 'sig_1', kind: 'idle' }),
+      signal({ id: 'sig_2', kind: 'merge_waiting' }),
+      signal({ id: 'sig_3', kind: 'merge_blocked' }),
+      signal({ id: 'sig_4', kind: 'unreleased', taskKey: null }),
+      signal({ id: 'sig_5', kind: 'ready_waiting', taskKey: null }),
+    ];
+    renderLayout(project);
+    fireEvent.click(await button());
+    expect(await screen.findByRole('heading', { name: 'AC-20: senki nem dolgozik rajta' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: beolvasztásra vár' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: elakadt a beolvasztás' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Kiadásra váró munka' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Indítható kártyák várnak' })).toBeTruthy();
+    expect(screen.getByText(t('operator.signal.bodies.ready_waiting'))).toBeTruthy();
+  });
+
   it('says on the card that the signal is no longer open, without a toast', async () => {
     const project = mockProject();
     project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];

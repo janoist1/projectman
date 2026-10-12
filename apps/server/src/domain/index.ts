@@ -926,6 +926,7 @@ export function createDomain(opts: DomainOptions) {
     delivery,
     taskWaits,
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
+    releases,
   });
   messaging.useOperatorSignals(operatorSignals);
   const finishOperatorSignals = (session: Session) => {

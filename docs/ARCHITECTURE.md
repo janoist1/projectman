@@ -1042,6 +1042,19 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  that creates and maintains the cloud board on AWS Lightsail: `preflight` and `aws` (PM-534: the machine,
+  the firewall, the two S3 buckets, the two IAM users and their access keys), later the machine part
+  (PM-535), Cloudflare (PM-536) and the DNS move (PM-537). It calls the `aws` CLI v2 with argv (profile and
+  region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
+  assumptions: the `aws` CLI v2 with the profile `i` on the owner's Mac, later `ssh`/`scp`, and the secrets
+  store `~/.config/projectman/cloud/` (directory 700, files 600, symbolic links and wider modes refused;
+  `config.json`, `cloudflare-token`, `cloud.env`), which sits under `~/.config/projectman`, a path the AI
+  sessions' sandboxes deny. No state file: resources are found by name. **Remote engine:** nothing runs on
+  an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
+  `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
+
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/domain/feedback/{service,screenshots}.ts`, `apps/server/src/api/feedback.ts`,
   `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family

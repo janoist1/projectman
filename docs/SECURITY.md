@@ -84,7 +84,9 @@ tenants into separate OS accounts or machines.
     password from `/proc/<pid>/environ` of the other processes and delete or read the backups.
     The Access application of the engine covers the path `/engine` (the link and the file
     transfers) with the engine's own service token only; that token is never put on the
-    whole-hostname application, which would reach `/api`.
+    whole-hostname application, which would reach `/api`. The one service token on the
+    whole-hostname application is the integrator's, off by default (see "Public entrance
+    through Cloudflare", point 2).
 
 - NanoGPT keys are a narrow exception to subscription-only providers (PM-319, owner
   decision 1; PM-328). The server stores the key only in
@@ -979,7 +981,10 @@ profile cannot be activated (its report check stays `unverified`).
 ### Public entrance through Cloudflare (PM-200, PM-210)
 
 The Cloudflare variant of points 2 and 3, for the live instance on the owner's Mac (set-up and
-verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)):
+verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare)) and for the cloud
+board (PM-532, PM-536: `npm run cloud -- edge`, `publish` and `check` create and verify the same
+settings through the Cloudflare API; see "Cloudflare" and "Verification" in [AWS.md](AWS.md)). On the
+cloud board the one service is `127.0.0.1:4700`, not `4800`; the rest below holds for both:
 
 1. HTTPS ends at Cloudflare; `cloudflared` reaches the app over loopback and the edge sends
    `X-Forwarded-Proto: https`, so cookies are Secure. The Host is preserved (no `httpHostHeader`
@@ -991,8 +996,11 @@ verification: [DEPLOY.md](DEPLOY.md), [deploy/cloudflare](../deploy/cloudflare))
    weaker reason. `check.sh` verifies the Secure cookie, both origin cases and
    the refusal of `POST /api/setup` against the real entrance.
 2. The Access application covers the whole hostname with one Allow policy of **exact email
-   addresses**. "Emails ending in", "Everyone" and service-token or bypass policies are not
-   allowed. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
+   addresses**. "Emails ending in", "Everyone" and bypass policies are not allowed, and neither
+   is a service token, with one exception: the cloud board's `access.integratorServiceToken`
+   (off by default, for the integrator's smoke test) puts a second policy, `<N>-integrator-service`
+   (non-identity, that one token), on the whole-hostname application; the engine's token is
+   never there. The tunnel's `originRequest.access` makes `cloudflared` check the Access token (team
    name and AUD tag) too. Login is by Google or a one-time code, with a stated session length.
 3. The tunnel answers 404 for `/hooks` and `/mcp` and for everything but the one hostname. The
    only service is `127.0.0.1:4800`; the development ports are not served.
@@ -1008,9 +1016,13 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
 6. The tunnel's credentials file, its token and the account certificate stay at mode 600 outside
    every repository and are never put into text, notes or messages. The Cloudflare account has a
    passkey or hardware key.
-
 7. The marking widget has its own hostname on the same tunnel, outside Access (PM-513, next
    subsection).
+8. The Cloudflare API token of `npm run cloud` (`cloudflare.tokenFile`, mode 600, outside every
+   repository) is sent only in the `Authorization: Bearer` header, never in an argument, a log
+   line or a note (the report masks it). Its rights (the list is in [AWS.md](AWS.md), "The
+   Cloudflare token") include Zone and Access edit, so it is as strong as the account itself: give
+   it an expiry, keep it to the listed rights, and remove it when `edge` and `publish` are done.
 
 **Residual risks** (known when the owner chose this entrance, PM-200; they do not go away):
 
@@ -1030,6 +1042,11 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
   reaches the same port through a loopback proxy and can send its own `cf-connecting-ip`, so it
   can pick its own address and get a fresh per-client budget each time (the shared cap of 50
   still holds); turn `tailscale serve` off, or accept that.
+- **A leaked integrator service token passes Access to the whole board**, `/api` included (cloud
+  board, `access.integratorServiceToken` on). The board's own login stays: the token gets the
+  visitor past Access, not past the sign-in. Defences: leave the setting off (switching it off
+  makes `edge` delete the policy, the token and its file), or issue a new secret with
+  `npm run cloud -- edge --rotate-integrator-token`.
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`.

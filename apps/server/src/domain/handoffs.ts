@@ -649,7 +649,9 @@ export class HandoffService {
       stillValid: (task) =>
         task !== null && task.status === 'active' && task.stageId === stageId && task.assignee === handle,
       waitsFor: () => handle,
-      retry: () => this.admission.attempt(start),
+      retry: async () => {
+        await this.admission.attempt(start);
+      },
       log: {
         deferred: 'handoff takeover deferred',
         retryFailed: 'handoff takeover retry failed',

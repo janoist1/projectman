@@ -266,10 +266,27 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       "Operator only, in the owners' conversation or a system-signal turn; unavailable in guest conversations. Read why a card is waiting, or the project overview: stages, live and idle sessions, waiting starts, pauses and open owner inbox items. This read needs no open owner request. Explain the result to the owner in the project language.",
     readOnly: true,
-    input: { task_key: TaskKey.optional().describe('A card in this project; omit for the overview.') },
+    input: {
+      task_key: TaskKey.optional().describe(
+        'A card in this project; omit for the overview. Not together with message_id.',
+      ),
+      message_id: z
+        .string()
+        .min(1)
+        .max(64)
+        .optional()
+        .describe(
+          'A team message of this project (the id send_message answered with): what became of it for each recipient. Not together with task_key.',
+        ),
+    },
     async run({ ctx, args, handler }) {
+      if (args.task_key && args.message_id)
+        throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
       return formatProjectState(
-        await handler.getProjectState(ctx, args.task_key ? { taskKey: args.task_key } : {}),
+        await handler.getProjectState(
+          ctx,
+          args.message_id ? { messageId: args.message_id } : args.task_key ? { taskKey: args.task_key } : {},
+        ),
       );
     },
   }),

@@ -7,14 +7,18 @@ import {
   sessionWorkItemOf,
 } from '@projectman/shared';
 import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
+import type { WakeStart } from '../../contracts';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
+import { isoNow } from '../context';
+import { DomainError } from '../errors';
 import type { MessageDelivery, MessageService } from '../messaging';
 import type { ProjectService } from '../projects';
+import { LIVE_SESSION_STATES } from '../sessions';
 import type { SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
 import { unique } from '../util';
-import type { Admission } from './admission';
+import type { Admission, AttemptOutcome } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 
 /**
@@ -29,6 +33,8 @@ export class MessageStarts {
   private readonly admission: Admission;
   private readonly messages: MessageService;
   private readonly delivery: MessageDelivery;
+  /** The last failed wake-up per start key since the server started (PM-543); a success clears it. */
+  private readonly failures = new Map<string, { code: string; at: string }>();
 
   constructor(deps: {
     ctx: import('../context').DomainContext;
@@ -74,9 +80,61 @@ export class MessageStarts {
    * starts or resumes through admission, then the messages are typed in (once each). A session
    * takes the waiting messages, in full, in its first input.
    */
-  async wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<void> {
+  async wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart> {
+    try {
+      const outcome = await this.attemptWake(projectKey, handle, workItem);
+      if (outcome.kind === 'deferred') return { state: 'waiting', reason: outcome.waiting.reason };
+      // The attempt ran: the member has a live session on this path, or nothing was started.
+      const config = await this.projects.config(projectKey);
+      const session = this.ctx.repos.sessions.findByWorkItem(
+        projectKey,
+        handle,
+        sessionWorkItemOf(memberOf(config, handle), workItem),
+      );
+      return session && LIVE_SESSION_STATES.includes(session.state)
+        ? { state: 'started', sessionId: session.id }
+        : { state: 'failed', code: 'not_started' };
+    } catch (err) {
+      this.ctx.logger.warn({ err, projectKey, member: handle }, 'team message session start failed');
+      return { state: 'failed', code: errorCodeOf(err) };
+    }
+  }
+
+  /** One admission attempt of the wake-up; a failure is remembered (`lastFailure`) and thrown. */
+  private async attemptWake(
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+  ): Promise<AttemptOutcome> {
     await this.projects.config(projectKey);
-    await this.admission.attempt(this.startFor(projectKey, handle, workItem));
+    const start = this.startFor(projectKey, handle, workItem);
+    try {
+      const outcome = await this.admission.attempt(start);
+      if (outcome.kind === 'done') this.failures.delete(start.key);
+      return outcome;
+    } catch (err) {
+      this.failures.set(start.key, { code: errorCodeOf(err), at: isoNow(this.ctx) });
+      throw err;
+    }
+  }
+
+  /**
+   * The last failed wake-up of the member's start on `workItem` since the server started, or null
+   * (PM-543). A success clears it; it is not stored.
+   */
+  lastFailure(
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+  ): { code: string; at: string } | null {
+    return this.failures.get(this.wakeKey(projectKey, handle, workItem)) ?? null;
+  }
+
+  /** The key of the member's wake-up on `workItem` in the deferred starts (`DeferredStarts`). */
+  wakeKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
+    const config = this.projects.cachedConfig(projectKey);
+    const wi = encodeWorkItem(sessionWorkItemOf(config ? memberOf(config, handle) : undefined, workItem));
+    return `message:${projectKey}:${handle}:${wi.type}:${wi.ref}`;
   }
 
   /** A wake-up that was deferred when the server stopped, made again from what was stored. */
@@ -118,7 +176,9 @@ export class MessageStarts {
       spec: () => spec,
       stillValid: valid,
       waitsFor: () => handle,
-      retry: () => this.admission.attempt(start),
+      retry: async () => {
+        await this.admission.attempt(start);
+      },
       log: {
         deferred: `provider ${after} task resume deferred`,
         retryFailed: `provider ${after} task resume failed`,
@@ -154,12 +214,11 @@ export class MessageStarts {
   ): AutomaticStart {
     const config = this.projects.cachedConfig(projectKey);
     workItem = sessionWorkItemOf(config ? memberOf(config, handle) : undefined, workItem);
-    const wi = encodeWorkItem(workItem);
     const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
     /** The task's stage when the wake-up was tried: a move makes a waiting wake-up obsolete. */
     let triedIn = stageId;
     return {
-      key: `message:${projectKey}:${handle}:${wi.type}:${wi.ref}`,
+      key: this.wakeKey(projectKey, handle, workItem),
       projectKey,
       taskKey,
       spec: () => ({ kind: 'message_wake', projectKey, handle, workItem, stageId: triedIn ?? null }),
@@ -174,7 +233,9 @@ export class MessageStarts {
         );
       },
       waitsFor: () => handle,
-      retry: () => this.wake(projectKey, handle, workItem),
+      retry: async () => {
+        await this.attemptWake(projectKey, handle, workItem);
+      },
       log: {
         deferred: 'team message start deferred',
         retryFailed: 'team message start retry failed',
@@ -233,4 +294,9 @@ export class MessageStarts {
       },
     };
   }
+}
+
+/** The code a failed start is reported with: the DomainError's, else `start_failed` (PM-543). */
+function errorCodeOf(err: unknown): string {
+  return err instanceof DomainError ? err.code : 'start_failed';
 }

@@ -46,6 +46,9 @@ import {
   waitingOf,
 } from './rules';
 
+/** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
+export type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
+
 export interface AdmissionRequest {
   config: ProjectConfig;
   /** The AI member that would work; none for a temp worker yet to be hired (the default provider runs it). */
@@ -326,11 +329,12 @@ export class Admission {
   /**
    * One attempt of an automatic start, alone among admission decisions. A refusal that can
    * clear keeps the start, with why it waits, for the retry loop; other failures propagate.
-   * Its task is published again when why it waits changed.
+   * Its task is published again when why it waits changed. Says what became of the attempt (PM-543):
+   * `done` (the start ran, or no longer applies) or `deferred` with why it waits.
    */
-  async attempt(start: AutomaticStart): Promise<void> {
-    await this.exclusive(() =>
-      this.publishingWaitingChanges(start.taskKey, async () => {
+  async attempt(start: AutomaticStart): Promise<AttemptOutcome> {
+    return this.exclusive(() =>
+      this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
         // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
         const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
@@ -355,10 +359,11 @@ export class Admission {
               },
               start.log.deferred,
             );
-          return;
+          return { kind: 'deferred', waiting };
         }
         // The start happened, or it no longer applies.
         this.deferred.drop(start.key);
+        return { kind: 'done' };
       }),
     );
   }
@@ -500,11 +505,11 @@ export class Admission {
     return task && task.projectKey === start.projectKey ? task : null;
   }
 
-  private async publishingWaitingChanges(taskKey: string | null, fn: () => Promise<void>): Promise<void> {
+  private async publishingWaitingChanges<T>(taskKey: string | null, fn: () => Promise<T>): Promise<T> {
     const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
     const before = task ? JSON.stringify(this.deferred.waitingFor(task)) : undefined;
     try {
-      await fn();
+      return await fn();
     } finally {
       const latest = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
       if (latest && before !== JSON.stringify(this.deferred.waitingFor(latest))) this.tasks.publish(latest);

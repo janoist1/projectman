@@ -161,11 +161,32 @@ export default async ({ instance, open, shoot, step, log }) => {
       card: sharedCard,
       thread: [entry('fbe_5', 'card_created', PM, null, 60 * 24 * 3 - 30, sharedCard)],
     }),
+    {
+      ...mark('fbm_aaaaaaaaaa06', BENCE, 'A kosár ikon nem frissül, amíg újra nem töltöm az oldalt.', {
+        path: '/kosar',
+        minutes: 60 * 24 * 6,
+        status: 'closed',
+        outcome: 'answered',
+        thread: [
+          entry(
+            'fbe_6',
+            'comment',
+            PM,
+            'Ez a legutóbbi frissítéssel javult, nálam már azonnal frissül.',
+            60 * 24 * 5,
+          ),
+          entry('fbe_7', 'closed', PM, null, 60 * 24 * 5),
+        ],
+      }),
+      closedAt: ago(60 * 24 * 5),
+    },
   ];
   // What the client Kata sees of the same marks: her own and Bence's, the internal card without key and title.
+  const hideCard = (card) => (card?.visible && card.visibility === 'internal' ? { visible: false } : card);
   const hide = (item) => ({
     ...item,
-    card: item.card?.visible && item.card.visibility === 'internal' ? { visible: false } : item.card,
+    card: hideCard(item.card),
+    thread: item.thread.map((entry) => ({ ...entry, card: hideCard(entry.card) })),
   });
   const clientMarks = owner.map(hide);
 
@@ -220,14 +241,14 @@ export default async ({ instance, open, shoot, step, log }) => {
           configured: true,
           canMark: true,
           canProcess: !asClient,
-          todo: 2,
+          todo: 3,
           unreadReplies: asClient ? 1 : 0,
         });
       const id = tail.slice(1);
       const found = marks.find((item) => item.id === id);
       return found ? json(detail(found, !asClient)) : json({ error: 'not_found' }, 404);
     });
-    await page.context().route(/\/api\/projects\/AC\/inbox$/, async (route) => {
+    await page.context().route(/\/api\/projects\/AC\/inbox(\?.*)?$/, async (route) => {
       if (!inboxStub || route.request().method() !== 'GET') return route.fallback();
       const response = await route.fetch();
       const body = await response.json();
@@ -268,6 +289,35 @@ export default async ({ instance, open, shoot, step, log }) => {
     await shoot(page, 'c-waiting-owner', { widths: WIDTHS });
   });
 
+  await step('c2. working, linked to an internal card, closed (processor view)', async () => {
+    const working = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa02?f=all' });
+    await working.getByText('A pm most nézi').first().waitFor();
+    await shoot(working, 'c2-working', { widths: WIDTHS });
+    const linked = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa04?f=all' });
+    await linked.getByText(internalCard.title).first().waitFor();
+    await shoot(linked, 'c3-linked-internal', { widths: WIDTHS });
+    const closed = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa06?f=all' });
+    await closed.getByRole('button', { name: 'Újranyitom' }).waitFor();
+    await shoot(closed, 'c4-closed', { widths: WIDTHS });
+    const none = await open({ path: '/p/AC/feedback?f=all&by=pm' });
+    await none.getByText('Ehhez a szűréshez nincs jelölés.').waitFor();
+    await shoot(none, 'c5-filter-empty', { widths: WIDTHS });
+  });
+
+  // Kata is a member from here on: the dialogs know her mark is a client's.
+  const client = await instance.invite({
+    project: 'AC',
+    email: 'kata@acme.test',
+    name: 'Kata Nagy',
+    access: 'client',
+  });
+  // The server hands out the handle: the marks of Kata carry it from here on.
+  const invited = (await instance.api('/api/projects/AC/config')).config.team.members.find(
+    (member) => member.displayName === 'Kata Nagy',
+  );
+  if (!invited) throw new Error('The invited client is not in the team.');
+  KATA.handle = invited.handle;
+
   await step('d, e. the dialogs', async () => {
     const page = await open({ path: '/p/AC/feedback/fbm_aaaaaaaaaa01' });
     await page.getByRole('button', { name: 'Új kártya' }).click();
@@ -277,6 +327,9 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByRole('button', { name: 'Kártyához kötöm' }).click();
     await page.getByRole('dialog', { name: 'Kötés meglévő kártyához' }).waitFor();
     await shoot(page, 'e-link-card', { widths: WIDTHS });
+    await page.getByRole('option', { name: new RegExp(internalCard.key) }).click();
+    await page.getByText('csak annyit lát').first().waitFor();
+    await shoot(page, 'e-link-card-chosen', { widths: WIDTHS });
     await page.keyboard.press('Escape');
     await page.getByRole('button', { name: 'Lezárom' }).click();
     await page.getByRole('dialog', { name: 'Jelölés lezárása' }).waitFor();
@@ -284,12 +337,6 @@ export default async ({ instance, open, shoot, step, log }) => {
   });
 
   await step('f. the client sees the internal card as "Feladatba került"', async () => {
-    const client = await instance.invite({
-      project: 'AC',
-      email: 'kata@acme.test',
-      name: 'Kata Nagy',
-      access: 'client',
-    });
     asClient = true;
     const page = await open({ as: client, path: '/p/AC/feedback/fbm_aaaaaaaaaa04?f=all' });
     await install(page);
@@ -349,7 +396,7 @@ export default async ({ instance, open, shoot, step, log }) => {
       publicBaseUrl: 'https://projectman.acme.test',
       surfaces: [{ ...SURFACE, lastMarkAt: ago(60 * 5) }],
       markers: [
-        { ...KATA, access: 'developer', blocked: false, activeSessions: 2, lastMarkAt: ago(22) },
+        { ...KATA, access: 'developer', blocked: false, activeSessions: 1, lastMarkAt: ago(22) },
         { ...BENCE, access: 'developer', blocked: true, activeSessions: 0, lastMarkAt: null },
         {
           handle: 'vera',
@@ -368,6 +415,8 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByRole('heading', { name: 'Felületek' }).waitFor();
     await page.getByLabel('Cím', { exact: true }).fill('https://acme.test/admin');
     await page.getByLabel('Név', { exact: true }).fill('Admin');
+    await page.getByRole('button', { name: 'Hozzáadom' }).click();
+    await page.getByText('Csak a cím kell, útvonal nélkül').waitFor();
     await shoot(page, 'k-settings-error', { widths: WIDTHS, fullPage: true });
     settingsStub = null;
   });

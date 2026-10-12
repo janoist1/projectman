@@ -50,6 +50,27 @@ it(
     );
     expect(ownerMessage.recipients[0]!.start?.state).toBe('started');
     const operator = domain.sessions.list('AR', { member: 'operator' })[0]!;
+    // The fake CLI finishes the owner's turn itself. Open a request fixture after that turn,
+    // so the tool call does not race the Stop hook that closes the original request.
+    await vi.waitFor(
+      () => {
+        expect(domain.sessions.get('AR', operator.id).state).toBe('idle');
+        expect(domain.ctx.repos.operatorRequests.openOfSession(operator.id)).toEqual([]);
+      },
+      { timeout: 15_000 },
+    );
+    domain.ctx.repos.operatorRequests.insert({
+      id: 'opr_member_start',
+      projectKey: 'AR',
+      sessionId: operator.id,
+      source: 'message',
+      messageId: ownerMessage.message.id,
+      inboxItemId: null,
+      fromHandle: 'owner',
+      quote: 'Check the engine with Devops.',
+      openedAt: new Date().toISOString(),
+    });
+    expect(domain.ctx.repos.operatorRequests.openOfSession(operator.id)).toHaveLength(1);
     const text = 'Inspect the engine readiness without a card.';
     const result = await domain.teamTools.startMember(
       {

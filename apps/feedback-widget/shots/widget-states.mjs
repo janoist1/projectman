@@ -275,6 +275,8 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     });
   };
   const boot = async (page, { code = true, ready = true } = {}) => {
+    // A goto that only changes the hash would not reload the page, so leave it first.
+    await page.goto('about:blank');
     await page.goto(`${pageUrl}${code ? `#pm-feedback=${CODE}` : ''}`);
     if (ready) await widgetReady(page);
     await settle(page);

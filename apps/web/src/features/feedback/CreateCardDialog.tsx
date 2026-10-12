@@ -113,7 +113,14 @@ function CreateCardForm({
         <Button type="button" variant="secondary" size="md" onClick={onClose}>
           {t('common.cancel')}
         </Button>
-        <Button type="submit" form={formId} size="md" loading={create.isPending} disabled={!ready}>
+        <Button
+          type="submit"
+          form={formId}
+          variant="primary"
+          size="md"
+          loading={create.isPending}
+          disabled={!ready}
+        >
           {t('feedback.create.submit')}
         </Button>
       </DialogActions>

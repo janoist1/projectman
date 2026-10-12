@@ -90,17 +90,19 @@ export function FeedbackPage() {
   const inDetail = isMobile && markId !== undefined;
   const surfaces = data?.surfaces ?? [];
 
-  const subtitle = data
-    ? canProcess
-      ? t('feedback.summary.processor', {
-          fresh: marks.filter((mark) => mark.status === 'new').length,
-          waiting: marks.filter((mark) => mark.status === 'waiting_owner').length,
-        })
-      : t('feedback.summary.member', {
-          open: marks.filter((mark) => mark.status !== 'closed').length,
-          replies: summary.data?.unreadReplies ?? 0,
-        })
-    : undefined;
+  // Nothing is set up yet and nothing was marked: a count of zeros says nothing.
+  const subtitle =
+    data && !(surfaces.length === 0 && marks.length === 0)
+      ? canProcess
+        ? t('feedback.summary.processor', {
+            fresh: marks.filter((mark) => mark.status === 'new').length,
+            waiting: marks.filter((mark) => mark.status === 'waiting_owner').length,
+          })
+        : t('feedback.summary.member', {
+            open: marks.filter((mark) => mark.status !== 'closed').length,
+            replies: summary.data?.unreadReplies ?? 0,
+          })
+      : undefined;
 
   const header = (
     <PageHeader title={t('feedback.title')} subtitle={subtitle} hideTitleOnPhone className={styles.header}>

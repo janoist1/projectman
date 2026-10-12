@@ -48,7 +48,7 @@ function CloseForm({ mark, onClose }: { mark: FeedbackMarkDetail; onClose: () =>
         <Button type="button" variant="secondary" size="md" onClick={onClose}>
           {t('common.cancel')}
         </Button>
-        <Button type="submit" form={formId} size="md" loading={close.isPending}>
+        <Button type="submit" form={formId} variant="primary" size="md" loading={close.isPending}>
           {t('feedback.close.submit')}
         </Button>
       </DialogActions>

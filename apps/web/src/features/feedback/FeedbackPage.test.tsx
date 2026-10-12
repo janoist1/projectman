@@ -142,6 +142,8 @@ describe('the states of the page', () => {
     expect(await screen.findByText(t('feedback.notConfigured.ownerTitle'))).toBeTruthy();
     const link = screen.getByRole('link', { name: t('feedback.notConfigured.setUp') });
     expect(link.getAttribute('href')).toBe('/p/AC/settings/feedback');
+    // A line of zero counts says nothing before anything is set up.
+    expect(screen.queryByText(t('feedback.summary.processor', { fresh: 0, waiting: 0 }))).toBeNull();
   });
 
   it('tells a client it is not switched on, without a way to set it up', async () => {

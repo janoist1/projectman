@@ -162,7 +162,14 @@ function LinkCardForm({
         <Button type="button" variant="secondary" size="md" onClick={onClose}>
           {t('common.cancel')}
         </Button>
-        <Button type="submit" form={formId} size="md" loading={link.isPending} disabled={!chosenTask}>
+        <Button
+          type="submit"
+          form={formId}
+          variant="primary"
+          size="md"
+          loading={link.isPending}
+          disabled={!chosenTask}
+        >
           {t('feedback.link.submit')}
         </Button>
       </DialogActions>

@@ -1755,7 +1755,7 @@ export const hu = {
     },
     /** The drawer's "Jelölésekből" row (PM-511): the feedback marks that led to the card. */
     feedback: {
-      title: 'Jelölésekből',
+      title: 'Jelölések',
       count: '{count} jelölés',
       more: '+ még {count}',
     },
@@ -4519,7 +4519,7 @@ export const hu = {
       viewer: 'Megtekintőként csak olvashatod a szálat.',
     },
     reply: {
-      label: 'Válasz a jelölőnek (nem kötelező)',
+      label: 'Válasz a jelölőnek',
     },
     visibility: {
       shared: 'Megosztott',

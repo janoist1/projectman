@@ -275,6 +275,7 @@ function SurfacesBlock({
               </Button>
               <Button
                 type="button"
+                variant="danger"
                 size="md"
                 loading={feedback.pending}
                 onClick={() =>
@@ -319,6 +320,7 @@ function LogoutDialog({ marker, onClose }: { marker: MarkerRow | null; onClose: 
             </Button>
             <Button
               type="button"
+              variant="danger"
               size="md"
               loading={logout.isPending}
               onClick={() =>

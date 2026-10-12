@@ -9,7 +9,10 @@
  *   a. not set up yet (owner)             b. the list with a mark open (owner), light and dark
  *   c. a mark waiting for the owner       d. "Új kártya" dialog         e. "Kártyához kötöm" dialog
  *   f. the client's view: a mark that went into an internal card ("Feladatba került", no key)
- *   g. Beállítások → Visszajelző eszköz   h. the card drawer's "Jelölésekből" row
+ *   g. Beállítások → Visszajelző eszköz   h. the card drawer's "Jelölések" row
+ *   e2. "Lezárom" dialog  i. the launch menu, two surfaces  j. empty and failed list
+ *   k. settings with a failing surface and the markers (browser on, blocked, viewer)
+ *   l. a forwarded mark waiting in the inbox  m. the phone's account menu with the badge
  *
  *   npm run shots -- scripts/scenarios/feedback-page.mjs [--widths 1512,390]
  */
@@ -166,9 +169,17 @@ export default async ({ instance, open, shoot, step, log }) => {
   });
   const clientMarks = owner.map(hide);
 
+  /** What the list answers with: the surfaces on show and whether the read works at all. */
+  let surfaces = [SURFACE];
+  let listMode = 'normal';
+  /** A hand-built settings view (members with browsers, a blocked one, a viewer); null: the real server answers. */
+  let settingsStub = null;
+  /** Inbox items to add to the inbox read (the forwarded mark); null: the real server answers. */
+  let inboxStub = null;
+
   const view = (marks, processor) => ({
     marks: marks.map(({ thread, ...item }) => ({ ...item, commentCount: thread.length })),
-    surfaces: [SURFACE],
+    surfaces,
     markers: [KATA, BENCE].map(({ handle, name, color }) => ({ handle, name, color })),
     canProcess: processor,
     canMark: true,
@@ -195,12 +206,14 @@ export default async ({ instance, open, shoot, step, log }) => {
       const json = (body, status = 200) =>
         route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
       if (request.method() === 'POST') return route.fulfill({ status: 204 });
-      if (tail === '/settings') return route.fallback();
+      if (tail === '/settings') return settingsStub ? json(settingsStub) : route.fallback();
       if (tail === '' && url.searchParams.has('task')) {
         const task = url.searchParams.get('task');
         const own = marks.filter((item) => item.card?.visible && item.card.key === task);
         return json({ ...view(own, !asClient) });
       }
+      if (tail === '' && listMode === 'error') return json({ error: 'internal_error' }, 500);
+      if (tail === '' && listMode === 'empty') return json(view([], !asClient));
       if (tail === '') return json(view(marks, !asClient));
       if (tail === '/summary')
         return json({
@@ -213,6 +226,12 @@ export default async ({ instance, open, shoot, step, log }) => {
       const id = tail.slice(1);
       const found = marks.find((item) => item.id === id);
       return found ? json(detail(found, !asClient)) : json({ error: 'not_found' }, 404);
+    });
+    await page.context().route(/\/api\/projects\/AC\/inbox$/, async (route) => {
+      if (!inboxStub || route.request().method() !== 'GET') return route.fallback();
+      const response = await route.fetch();
+      const body = await response.json();
+      return route.fulfill({ response, json: { ...body, items: [...inboxStub, ...body.items] } });
     });
   };
 
@@ -258,6 +277,10 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByRole('button', { name: 'Kártyához kötöm' }).click();
     await page.getByRole('dialog', { name: 'Kötés meglévő kártyához' }).waitFor();
     await shoot(page, 'e-link-card', { widths: WIDTHS });
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Lezárom' }).click();
+    await page.getByRole('dialog', { name: 'Jelölés lezárása' }).waitFor();
+    await shoot(page, 'e2-close', { widths: WIDTHS });
   });
 
   await step('f. the client sees the internal card as "Feladatba került"', async () => {
@@ -289,7 +312,105 @@ export default async ({ instance, open, shoot, step, log }) => {
     const page = await open({ path: `/p/AC/tasks/${first.key}` });
     await install(page);
     await page.reload();
-    await page.getByText('Jelölésekből').first().waitFor();
-    await shoot(page, 'h-card-row', { widths: WIDTHS, highlight: 'text=Jelölésekből >> visible=true' });
+    const row = 'section[aria-label="Jelölések"] >> visible=true';
+    await page.locator(row).waitFor();
+    await shoot(page, 'h-card-row', { widths: WIDTHS, highlight: row });
+  });
+
+  await step('i. the launch menu with two surfaces', async () => {
+    surfaces = [SURFACE, { id: 'e5f6a7b8', name: 'Admin', origin: 'https://admin.acme.test' }];
+    const page = await open({ path: '/p/AC/feedback' });
+    await install(page);
+    await page.reload();
+    await page.getByRole('button', { name: /Jelölés az oldalon/ }).click();
+    await page.getByText('Melyik felületet nyissuk meg?').waitFor();
+    await shoot(page, 'i-launch-menu', { widths: WIDTHS });
+    surfaces = [SURFACE];
+  });
+
+  await step('j. empty and failed list', async () => {
+    listMode = 'empty';
+    const empty = await open({ path: '/p/AC/feedback' });
+    await install(empty);
+    await empty.reload();
+    await empty.getByRole('heading', { name: 'Még nincs jelölés' }).waitFor();
+    await shoot(empty, 'j-empty', { widths: WIDTHS });
+    listMode = 'error';
+    const failed = await open({ path: '/p/AC/feedback' });
+    await install(failed);
+    await failed.reload();
+    await failed.getByText('Nem sikerült betölteni a jelöléseket.').waitFor();
+    await shoot(failed, 'j-error', { widths: WIDTHS });
+    listMode = 'normal';
+  });
+
+  await step('k. settings: a failing surface and who may mark', async () => {
+    settingsStub = {
+      publicBaseUrl: 'https://projectman.acme.test',
+      surfaces: [{ ...SURFACE, lastMarkAt: ago(60 * 5) }],
+      markers: [
+        { ...KATA, access: 'developer', blocked: false, activeSessions: 2, lastMarkAt: ago(22) },
+        { ...BENCE, access: 'developer', blocked: true, activeSessions: 0, lastMarkAt: null },
+        {
+          handle: 'vera',
+          name: 'Vera Tóth',
+          color: 5,
+          access: 'viewer',
+          blocked: false,
+          activeSessions: 0,
+          lastMarkAt: null,
+        },
+      ],
+    };
+    const page = await open({ path: '/p/AC/settings/feedback' });
+    await install(page);
+    await page.reload();
+    await page.getByRole('heading', { name: 'Felületek' }).waitFor();
+    await page.getByLabel('Cím', { exact: true }).fill('https://acme.test/admin');
+    await page.getByLabel('Név', { exact: true }).fill('Admin');
+    await shoot(page, 'k-settings-error', { widths: WIDTHS, fullPage: true });
+    settingsStub = null;
+  });
+
+  await step('l. the owner has a forwarded mark waiting in the inbox', async () => {
+    inboxStub = [
+      {
+        id: 'inb_fb',
+        projectKey: 'AC',
+        kind: 'alert',
+        assignees: ['owner'],
+        source: 'pm',
+        sessionId: null,
+        taskKey: null,
+        title: 'A server alert',
+        body: null,
+        payload: {
+          alert: 'feedback_forwarded',
+          markId: 'fbm_aaaaaaaaaa03',
+          author: 'kata',
+          excerpt: 'Az összehasonlító táblázat mobilon szétesik. Lehetne belőle kártyás nézet?',
+          reason: 'Új felületi elem, ami az ütemezést érinti; árat és határidőt nem ígérhetek rá.',
+        },
+        options: [{ id: 'seen', label: 'seen', style: 'primary' }],
+        state: 'open',
+        resolution: null,
+        createdAt: ago(60 * 25),
+      },
+    ];
+    const page = await open({ path: '/p/AC/inbox' });
+    await install(page);
+    await page.reload();
+    await page.getByRole('heading', { name: 'Jelölés, ami a döntésedre vár' }).waitFor();
+    await shoot(page, 'l-inbox-forwarded', { widths: WIDTHS });
+    inboxStub = null;
+  });
+
+  await step('m. the phone: the account menu with the Jelölések item and badge', async () => {
+    const page = await open({ path: '/p/AC', width: 390 });
+    await install(page);
+    await page.reload();
+    await page.getByRole('button', { name: /^Fiók:/ }).click();
+    await page.getByRole('link', { name: /Jelölések/ }).waitFor();
+    await shoot(page, 'm-phone-account-menu', { widths: [390] });
   });
 };

@@ -1177,6 +1177,11 @@ workers follow the machine's size.
   `resolveAppVersion` reads the installation checkout's git HEAD, falling back to `dev`.
   The override must match `[A-Za-z0-9._+-]{1,64}`. This assumes a git checkout when no override is
   supplied; packaged cloud and engine builds should set the same version explicitly.
+  `resolveAppTag` (`engine-link/version.ts`, PM-541, PM-542) reads the release tag on the same checkout's HEAD
+  (`git tag --points-at HEAD`, first tag matching `RELEASE_TAG_PATTERN`; `createAppTagReader` remembers only a found
+  tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
+  on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
+  `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
@@ -2144,6 +2149,16 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
   card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
   `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
+- **Release facts (PM-542).** The overview also carries `release` (`ReleaseService.overview`: the running version,
+  commit and tag, the latest live and the open release, the last ten merges of cards into the release repository,
+  newest first; null when the instance does not release the project), the deferred starts that have no card
+  (`taskKey` null, e.g. a wake-up for a message) and the undelivered team messages per AI member. The read-only
+  tool `check_release { commit? }` (Operator only, no open request, not in guest conversations) is the rehearsal of
+  `propose_release`: `ReleaseService.check` makes the same checks in the same order (target, open release,
+  candidate) and answers the candidate or the refusal with the code and message `propose` would give, plus the
+  members with the deployment duty; it records nothing. The Operator never proposes a release itself. On a remote
+  engine the running version and tag come from the server's own installation; the candidate's ancestry questions go
+  to the engine that holds the repository, and an offline engine gives the `engine_offline` refusal.
   `TaskStateReport.wait` comes from `TaskWaits.ofCard` (PM-460, viewer null) and is worded first by
   `describeTaskWait`. Task and overview reports include active system signals (PM-476) through
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.

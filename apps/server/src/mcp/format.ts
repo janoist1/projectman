@@ -45,6 +45,8 @@ import type {
   TaskToolDetail,
   TaskStateReport,
   ProjectStateReport,
+  ReleaseCheckResult,
+  ReleaseStateReport,
 } from '../contracts';
 import { MESSAGE_IMAGE_MAX_SIDE } from '../contracts';
 
@@ -143,6 +145,7 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
   }
   return [
     `Pause: project ${report.paused.project}; instance ${report.paused.instance}.`,
+    `Operator watch: ${report.operatorWatch}.`,
     'Cards by stage:',
     ...report.stages.map((s) => `- ${s.stageId}: ${s.count}`),
     'Live and idle sessions:',
@@ -151,15 +154,52 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
     ),
     'Waiting starts:',
     ...report.waitingStarts.map(
-      (s) => `- ${s.taskKey}, ${s.member ?? 'none'}: ${s.reason} — ${waitingExplanations[s.reason]}`,
+      (s) =>
+        `- ${s.taskKey ?? 'general'}, ${s.member ?? 'none'}: ${s.reason} — ${waitingExplanations[s.reason]}`,
     ),
+    'Undelivered team messages:',
+    ...report.waitingMessages.map((m) => `- ${m.member}: ${m.count}, the oldest sent ${m.oldestAt}`),
     'Open owner inbox items:',
     ...report.openOwnerItems.map(
       (i) => `- ${i.id} (${i.kind}), task ${i.taskKey ?? 'none'}: ${oneLine(i.title, 200)}`,
     ),
     'Signals:',
     ...report.signals.map(signalLine),
+    ...releaseLines(report.release),
   ].join('\n');
+}
+
+const shortCommit = (commit: string) => commit.slice(0, 8);
+
+function releaseLines(release: ReleaseStateReport | null): string[] {
+  if (!release) return ['Release: this instance does not release this project.'];
+  const { running, latestLive, open } = release;
+  return [
+    'Release:',
+    `- running: version ${running.version}; commit ${running.commit ?? 'unknown'}; tag ${running.tag ?? 'none'}`,
+    latestLive
+      ? `- latest live release: ${latestLive.id}, card ${latestLive.taskKey}, commit ${latestLive.commit}, tag ${latestLive.tag ?? 'none'}, live since ${latestLive.liveAt ?? 'unknown'}`
+      : '- latest live release: none',
+    open
+      ? `- open release: ${open.id}, card ${open.taskKey}, ${open.state}, commit ${open.commit}, proposed by ${open.proposedBy}`
+      : '- open release: none',
+    'Latest merges into the default branch, newest first:',
+    ...release.recentMerges.map(
+      (m) =>
+        `- ${m.taskKey} ${oneLine(m.title, 120)}: commit ${m.commit ? shortCommit(m.commit) : 'unknown'}, ${m.at ?? 'unknown time'}, by ${m.by ?? 'unknown'}`,
+    ),
+  ];
+}
+
+/** check_release: either the refusal propose_release would give, or the candidate; nothing was recorded. */
+export function formatReleaseCheck(check: ReleaseCheckResult): string {
+  const proposers = check.proposers.join(', ') || 'none';
+  if (check.refusal)
+    return `Release check: would be refused — ${check.refusal.code}: ${check.refusal.message}. Proposers (deployment duty): ${proposers}. Nothing was recorded.`;
+  const candidate = check.candidate;
+  if (!candidate) return 'Release check: no result. Nothing was recorded.';
+  const cards = candidate.tasks.map((task) => `${task.key} ${oneLine(task.title, 120)}`).join('; ');
+  return `Release check passed: commit ${candidate.commit}, base ${candidate.baseCommit ?? 'unknown'}, ${candidate.tasks.length} cards (${cards}); proposers: ${proposers}. Nothing was recorded.`;
 }
 
 function signalLine(signal: OperatorSignal): string {

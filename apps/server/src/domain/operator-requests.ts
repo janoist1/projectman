@@ -38,6 +38,7 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'get_screenshot_run',
   'list_network_denials',
   'get_project_state',
+  'check_release',
   'read_project_doc',
   'list_decision_candidates',
 ]);

@@ -3,6 +3,7 @@ import { FeedbackConfig } from '../domain/feedback';
 import { normalizeFeedbackOrigin } from '../domain/feedback-origin';
 import { Pipeline } from '../domain/pipeline';
 import { RepoDocs } from './project-docs';
+import { OperatorWatch } from './operator-watch';
 import {
   AutoCompactWindowTokens,
   MaxConcurrentAi,
@@ -60,6 +61,7 @@ export const PatchConfigRequest = z
     roleOverrides: ProjectConfig.shape.team.shape.roleOverrides,
     roles: ProjectConfig.shape.team.shape.roles.removeDefault().optional(),
     releaseFourEyes: z.boolean().optional(),
+    operatorWatch: OperatorWatch.nullable().optional(),
     cardMover: ProjectConfig.shape.team.shape.cardMover,
     merger: ProjectConfig.shape.team.shape.merger,
     /** Per repository: whether a card's work must be merged (`requireMerge`); null removes the explicit value. */
@@ -119,6 +121,9 @@ export function unknownPatchRepo(
 }
 
 export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigRequest): ProjectConfig {
+  const team = { ...config.team };
+  if (patch.operatorWatch === null) delete team.operatorWatch;
+  else if (patch.operatorWatch !== undefined) team.operatorWatch = patch.operatorWatch;
   const { maxConcurrentAi, warnAboveSessionTokens, autoCompactWindowTokens, ...limitChanges } =
     patch.limits ?? {};
   const limits: TeamLimits = {
@@ -184,7 +189,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
           : config.project.repos,
     },
     team: {
-      ...config.team,
+      ...team,
       ...(patch.cardMover !== undefined ? { cardMover: patch.cardMover } : {}),
       ...(patch.merger !== undefined ? { merger: patch.merger } : {}),
       ...(patch.roleOverrides !== undefined ? { roleOverrides: patch.roleOverrides } : {}),

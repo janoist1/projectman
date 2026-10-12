@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { BranchMerger } from '../contracts';
+import { newId } from '../domain/util';
 import {
   classifyPush,
   createLocalBranchMerger,
@@ -321,6 +322,16 @@ describe('checkoutForCheck and releaseCheck', () => {
     expect(existsSync(expected)).toBe(false);
     expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain('mrg_first0001');
     await merger.releaseCheck(REF, { mergeId: 'mrg_first0001' }); // releasing again is fine
+  });
+
+  it('accepts the id the domain makes for a merge (newId), not only a hand-written one (PM-551)', async () => {
+    const { merger, repo, worktreesRoot } = fixture({ withRemote: false });
+    const head = git(repo, 'rev-parse', 'HEAD');
+    const mergeId = newId('merge');
+    const made = await merger.checkoutForCheck(REF, { mergeId, mergeCommit: head, depsFrom: null });
+    expect(made.path).toBe(path.join(realpathSync(worktreesRoot), MERGE_CHECK_DIR, mergeId));
+    await merger.releaseCheck(REF, { mergeId });
+    expect(existsSync(made.path)).toBe(false);
   });
 
   it('does not copy dependencies through a link the merged tree tracks, out of the checkout', async () => {
@@ -741,6 +752,10 @@ describe('input checks', () => {
     expect(isCommitId('a'.repeat(39))).toBe(false);
     expect(isMergeId('mrg_abcdefgh1')).toBe(true);
     expect(isMergeId('mrg_short')).toBe(false);
+    expect(isMergeId('merge_abcdefgh1')).toBe(true);
+    expect(isMergeId('merge_short')).toBe(false);
+    expect(isMergeId('other_abcdefgh1')).toBe(false);
+    for (let i = 0; i < 50; i++) expect(isMergeId(newId('merge'))).toBe(true);
     expect(isMergeId('../x')).toBe(false);
     expect(isMergeId('')).toBe(false);
     expect(isMergeMessage('Merge PM-1')).toBe(true);

@@ -12,6 +12,7 @@ import type { Point, Rect, Resolution } from './anchor';
 import { ApiFailure, createApi } from './api';
 import type { Api } from './api';
 import { isWellFormedCode, takeLaunchParams } from './code';
+import { safeHttpUrl } from './links';
 import type { LaunchParams } from './code';
 import { collectEnvironment } from './environment';
 import { t } from './i18n';
@@ -636,8 +637,10 @@ export function createController(deps: Deps): Controller {
     const mark = state.marks[markId];
     if (!mark) return;
     if (!isOnThisPage(mark)) {
+      const url = safeHttpUrl(mark.pageUrl);
+      if (!url) return;
       storage.setPendingMark(scope, markId);
-      win.location.assign(mark.pageUrl);
+      win.location.assign(url);
       return;
     }
     const resolution = resolutionOf(mark);

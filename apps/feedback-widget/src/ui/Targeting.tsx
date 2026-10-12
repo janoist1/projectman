@@ -17,6 +17,19 @@ const rectOf = (a: Point, b: Point): Rect => ({
   height: Math.abs(a.y - b.y),
 });
 
+/** The server refuses an area narrower than this on either side: a thin drag is widened to it. */
+const atLeastMin = (rect: Rect): Rect => ({
+  ...rect,
+  width: Math.max(rect.width, MIN_AREA),
+  height: Math.max(rect.height, MIN_AREA),
+});
+
+/** The pointer can leave the window while it is captured: the anchor stays inside the viewport. */
+const clampToViewport = (point: Point): Point => ({
+  x: Math.min(Math.max(point.x, 0), window.innerWidth),
+  y: Math.min(Math.max(point.y, 0), window.innerHeight),
+});
+
 const toBox = (box: DOMRect): Rect => ({ x: box.left, y: box.top, width: box.width, height: box.height });
 
 /**
@@ -114,7 +127,7 @@ export function Targeting({ controller, mode }: { controller: Controller; mode: 
     };
   }, []);
 
-  const pointOf = (event: PointerEvent): Point => ({ x: event.clientX, y: event.clientY });
+  const pointOf = (event: PointerEvent): Point => clampToViewport({ x: event.clientX, y: event.clientY });
 
   const onMove = (event: PointerEvent): void => {
     const at = pointOf(event);
@@ -149,7 +162,7 @@ export function Targeting({ controller, mode }: { controller: Controller; mode: 
       const rect = rectOf(drag.from, at);
       setDrag(null);
       if (rect.width < MIN_AREA && rect.height < MIN_AREA) controller.chooseTarget(pointTarget(at));
-      else controller.chooseTarget(areaTarget(rect));
+      else controller.chooseTarget(areaTarget(atLeastMin(rect)));
       return;
     }
     if (mode === 'point') {

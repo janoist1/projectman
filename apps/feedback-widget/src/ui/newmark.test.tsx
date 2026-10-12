@@ -185,6 +185,60 @@ describe('the new-mark card', () => {
     target.remove();
   });
 
+  describe('the area drag', () => {
+    async function drag(from: [number, number], to: [number, number]) {
+      window.localStorage.setItem(
+        sessionKey({ apiOrigin: API, projectKey: 'PM' }),
+        JSON.stringify(session()),
+      );
+      const server = fakeServer({
+        'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
+      });
+      controller = createController({
+        win: window,
+        base: API,
+        projectKey: 'PM',
+        fetchImpl: server.fetchImpl,
+        capture: (async () => null) as never,
+      });
+      await act(async () => {
+        render(<App controller={controller} />, container);
+        await controller.start();
+        await flush();
+        controller.finishWelcome();
+        controller.beginMode('area');
+        await flush();
+      });
+      const overlay = container.querySelector('.target');
+      const fire = (type: string, at: [number, number]) =>
+        act(async () => {
+          overlay?.dispatchEvent(new MouseEvent(type, { bubbles: true, clientX: at[0], clientY: at[1] }));
+          await flush();
+        });
+      await fire('pointerdown', from);
+      await fire('pointermove', to);
+      await fire('pointerup', to);
+      return controller.getState().draft?.target;
+    }
+
+    it('widens a thin drag to the smallest area the server accepts', async () => {
+      const target = await drag([100, 100], [300, 102]);
+      expect(target?.kind).toBe('area');
+      expect(target?.anchor.rect).toMatchObject({ x: 100, y: 100, width: 200, height: 4 });
+    });
+
+    it('keeps the anchor inside the viewport when the pointer leaves the window', async () => {
+      const target = await drag([50, 60], [-80, -30]);
+      expect(target?.kind).toBe('area');
+      expect(target?.anchor.rect).toMatchObject({ x: 0, y: 0, width: 50, height: 60 });
+    });
+
+    it('marks a point when the drag is tiny on both sides', async () => {
+      const target = await drag([100, 100], [101, 101]);
+      expect(target?.kind).toBe('point');
+    });
+  });
+
   it('does not disable send on an empty text: it moves to the field instead and requests nothing', async () => {
     await openCardWith(pointTarget());
     const send = container.querySelector<HTMLButtonElement>('.btn.primary');

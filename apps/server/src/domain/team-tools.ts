@@ -588,6 +588,8 @@ export class TeamToolsService implements TeamToolsHandler {
       kind: 'action' | 'info';
       signalId?: string;
       signalActionable?: boolean;
+      signalIds?: string[];
+      actionableSignalIds?: string[];
       /** Paths of files of the caller's session folder or working directory (PM-520). */
       attachments?: string[];
     },
@@ -598,11 +600,24 @@ export class TeamToolsService implements TeamToolsHandler {
     routed?: { handle: string; workItem: WorkItemRef }[];
   }> {
     return this.guard(async () => {
-      const signal = args.signalId !== undefined || args.signalActionable !== undefined;
+      const legacy = args.signalId !== undefined || args.signalActionable !== undefined;
+      const batch = args.signalIds !== undefined || args.actionableSignalIds !== undefined;
+      const ids = batch ? (args.signalIds ?? []) : args.signalId !== undefined ? [args.signalId] : [];
+      const actionable = args.actionableSignalIds ?? [];
+      if (
+        (legacy && batch) ||
+        ((legacy || batch) && ids.length === 0) ||
+        ids.length > 20 ||
+        new Set(ids).size !== ids.length ||
+        new Set(actionable).size !== actionable.length ||
+        actionable.some((id) => !ids.includes(id))
+      )
+        throw new TeamToolError('invalid', 'invalid_request: invalid signal presentation arguments.');
+      const signal = legacy || batch;
       const who = await this.callerWithRequest(
         ctx,
         'send_message',
-        signal ? { id: args.signalId, to: args.to } : undefined,
+        signal ? { ids, to: args.to } : undefined,
       );
       const { config, guest } = who;
       // In a guest's conversation the Operator answers that person and nobody else; that is no step (PM-475).
@@ -663,8 +678,12 @@ export class TeamToolsService implements TeamToolsHandler {
                 sessionId: ctx.sessionId,
                 kind: args.kind,
                 operatorRequest: who.request?.id,
-                operatorSignal: args.signalId,
-                signalActionable: args.signalActionable ?? false,
+                operatorSignals: signal
+                  ? ids.map((id) => ({
+                      id,
+                      actionable: batch ? actionable.includes(id) : (args.signalActionable ?? false),
+                    }))
+                  : undefined,
               },
             )
             .catch(async (err: unknown) => {
@@ -1944,7 +1963,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private async callerWithRequest(
     ctx: ToolContext,
     tool: string,
-    signal?: { id?: string; to: string[] },
+    signal?: { ids: string[]; to: string[] },
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
@@ -1962,14 +1981,14 @@ export class TeamToolsService implements TeamToolsHandler {
         tool !== 'send_message' ||
         !operator ||
         guest ||
-        !signal.id ||
+        signal.ids.length === 0 ||
         signal.to.some((handle) => !isOwner(config, handle))
       )
         throw new TeamToolError(
           'invalid',
           'invalid_request: only the Operator may present signals to owners.',
         );
-      this.operatorSignals.presentation(ctx.projectKey, signal.id);
+      for (const id of signal.ids) this.operatorSignals.presentation(ctx.projectKey, id);
     }
     if (!operator) return { config, request: null, guest: null };
     if (guest) {

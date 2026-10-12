@@ -15,7 +15,7 @@ import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { MessageDelivery } from './messaging';
 import type { TaskWaits } from './tasks';
-import { conflict } from './errors';
+import { conflict, invalid } from './errors';
 import { newId } from './util';
 
 type SignalInput = {
@@ -86,9 +86,9 @@ export class OperatorSignals {
 
   presentation(projectKey: string, id: string): OperatorSignalRecord {
     const signal = this.deps.ctx.repos.operatorSignals.get(id);
+    if (!signal || signal.projectKey !== projectKey)
+      throw invalid('invalid_request', 'unknown signal in this project');
     if (
-      !signal ||
-      signal.projectKey !== projectKey ||
       signal.resolvedAt ||
       signal.messageId ||
       !signal.deliveredAt ||

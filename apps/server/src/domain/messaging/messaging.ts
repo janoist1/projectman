@@ -11,6 +11,8 @@ import {
   operatorOf,
   ownerHandles,
   messageRoute,
+  messageWakeBlock,
+  messageWakes,
   operatorConversationOf,
   projectRefines,
   routeFor,
@@ -32,7 +34,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
-import type { EngineDirectory, SentMessageRecipient } from '../../contracts';
+import type { EngineDirectory, SentMessageRecipient, WakeStart } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import type { DomainContext } from '../context';
 import { DomainError, forbidden, invalid, conflict } from '../errors';
@@ -46,7 +48,10 @@ import type { TaskService } from '../tasks';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
-import { recipientHasCardRole, wakeBlockFor, wakesFor } from './staleness';
+import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
+
+/** How long a send that asks for the start's result (`awaitWake`) waits for it before it answers "starting" (PM-543). */
+export const WAKE_REPLY_WAIT_MS = 5000;
 
 export interface SendOptions {
   origin?: TeamMessage['origin'];
@@ -82,6 +87,17 @@ export interface SendOptions {
   operatorSignals?: { id: string; actionable: boolean }[];
   /** Runs synchronously in the message transaction, before binding files or recording the message. */
   beforeRecord?: () => void;
+  /**
+   * The send waits (at most `WAKE_REPLY_WAIT_MS`) for the wake-up of each recipient that gets no running
+   * session's input, and reports what became of it (`SentMessageRecipient.start`, PM-543). Without it the
+   * wake-up goes on in the background (`message_waiting`) and the send is not slowed. Internal, not a contract.
+   */
+  awaitWake?: boolean;
+}
+
+/** What the send needs to wake a recipient and learn the result (`MessageStarts.wake`). */
+export interface MessageWaker {
+  wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart>;
 }
 
 /**
@@ -157,6 +173,18 @@ export class Messaging {
     this.messages = deps.messages;
     this.delivery = deps.delivery;
     this.refinement = deps.refinement;
+  }
+
+  private waker: MessageWaker | undefined;
+  private wakeReplyWaitMs = WAKE_REPLY_WAIT_MS;
+
+  /**
+   * Binds the session starts (PM-543): a send with `awaitWake` calls them directly instead of emitting
+   * `message_waiting`. They are built after this class. `replyWaitMs` is for tests.
+   */
+  useMessageStarts(waker: MessageWaker, replyWaitMs = WAKE_REPLY_WAIT_MS): void {
+    this.waker = waker;
+    this.wakeReplyWaitMs = replyWaitMs;
   }
 
   /** Binds the fix round limit (PM-262); it sends messages itself, so it is built after this class. */
@@ -340,6 +368,9 @@ export class Messaging {
       return recorded;
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
+    // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
+    const awaited: { handle: string; workItem: WorkItemRef }[] = [];
+    const waker = opts.awaitWake ? this.waker : undefined;
     for (const { handle, workItem: where, running, hold } of placed)
       decided.set(
         handle,
@@ -353,8 +384,18 @@ export class Messaging {
               running,
               message,
               opts.untilInput === true && opts.kind === 'info',
+              waker ? () => awaited.push({ handle, workItem: where }) : undefined,
             ),
       );
+    if (waker) {
+      const starts = await Promise.all(
+        awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
+      );
+      awaited.forEach(({ handle }, index) => {
+        const entry = decided.get(handle);
+        if (entry) decided.set(handle, { ...entry, start: starts[index]! });
+      });
+    }
     return {
       message,
       recipients: recipients.map((handle) => ({
@@ -867,7 +908,35 @@ export class Messaging {
     });
   }
 
-  /** A running recipient gets the message typed in; otherwise it waits for a wake-up. Returns what was decided. */
+  /**
+   * The wake-up of one recipient, and its result: `starting` when it is not decided within the wait
+   * (the start goes on), `failed` when it could not even be tried (PM-543).
+   */
+  private async awaitStart(
+    waker: MessageWaker,
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+  ): Promise<WakeStart> {
+    const start = waker.wake(projectKey, handle, workItem).catch((err: unknown): WakeStart => ({
+      state: 'failed',
+      code: err instanceof DomainError ? err.code : 'start_failed',
+    }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<WakeStart>((resolve) => {
+      timer = setTimeout(() => resolve({ state: 'starting' }), this.wakeReplyWaitMs);
+    });
+    try {
+      return await Promise.race([start, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * A running recipient gets the message typed in; otherwise it waits for a wake-up. Returns what was decided.
+   * `onWake` takes the wake-up from the `message_waiting` event: the caller starts it (PM-543).
+   */
   private deliverOrWake(
     config: ProjectConfig,
     projectKey: string,
@@ -876,12 +945,26 @@ export class Messaging {
     running: Session | null,
     message: TeamMessage,
     untilInput = false,
+    onWake?: () => void,
   ): Omit<SentMessageRecipient, 'handle'> {
-    const wakes = wakesFor(this.ctx, config, message, handle);
-    const block = wakes ? null : wakeBlockFor(this.ctx, config, message, handle);
+    const wake = () =>
+      onWake
+        ? onWake()
+        : void this.ctx.events.emit('message_waiting', {
+            projectKey,
+            handle,
+            workItem,
+            messageId: message.id,
+          });
+    const stale = staleReasonFor(this.ctx, config, message, handle);
+    const facts = wakeFactsFor(this.ctx, config, message, handle);
+    const wakes = messageWakes(message, facts, stale);
+    const block = wakes ? null : messageWakeBlock(message, facts, stale);
     const notWoken: Omit<SentMessageRecipient, 'handle'> = {
       delivery: 'next_input',
       ...(block ? { noWake: block } : {}),
+      ...(!wakes && !block && (message.kind ?? 'action') === 'info' ? { info: true as const } : {}),
+      ...(!wakes && stale ? { stale } : {}),
     };
     if (!running && !wakes) return notWoken;
     const operator = isOperator(memberOf(config, handle));
@@ -912,7 +995,7 @@ export class Messaging {
       } catch (err) {
         if (!(err instanceof DomainError) || err.code !== 'provider_rate_limited') throw err;
         if (!wakes) return notWoken;
-        void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+        wake();
         return { delivery: 'wake' };
       }
       // The Operator's messages go in as one batch (the owner's and the information waiting with it).
@@ -921,7 +1004,7 @@ export class Messaging {
       else this.delivery.deliverWaiting(running);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }
-    void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+    wake();
     return { delivery: 'wake' };
   }
 }

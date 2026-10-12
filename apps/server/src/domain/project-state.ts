@@ -1,14 +1,28 @@
-import { conditionHolds, isOpenTask, isTheme, ownerHandles, stageOf, startBlock } from '@projectman/shared';
+import {
+  conditionHolds,
+  isOpenTask,
+  isTheme,
+  memberOf,
+  messageRoute,
+  messageWakeBlock,
+  operatorWatchOf,
+  ownerHandles,
+  sessionWorkItemOf,
+  stageOf,
+  startBlock,
+} from '@projectman/shared';
 import type { Session } from '@projectman/shared';
-import type { ProjectStateReport, TaskStateReport } from '../contracts';
+import type { MessageStateReport, ProjectStateReport, TaskStateReport } from '../contracts';
 import type { DomainContext } from './context';
 import type { ProjectService } from './projects';
 import type { TaskService, TaskWaits } from './tasks';
 import type { OperatorSignals } from './operator-signals';
 import type { PauseService } from './pause';
+import type { ReleaseService } from './releases';
 import { LIVE_SESSION_STATES } from './sessions';
-import type { DeferredStarts } from './admission';
-import { invalid } from './errors';
+import type { DeferredStarts, MessageStarts } from './admission';
+import { invalid, notFound } from './errors';
+import { staleReasonFor, wakeFactsFor } from './messaging';
 
 /** Read-only reports over the server's existing work records. */
 export class ProjectState {
@@ -20,6 +34,8 @@ export class ProjectState {
     deferred: DeferredStarts;
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
+    messageStarts: Pick<MessageStarts, 'wakeKey' | 'lastFailure'>;
+    releases: Pick<ReleaseService, 'overview'>;
   };
 
   constructor(deps: ProjectState['deps']) {
@@ -75,22 +91,83 @@ export class ProjectState {
     };
   }
 
+  /**
+   * What became of one team message for each recipient (PM-543), from today's facts: the live session, the
+   * admission deferral and the last failed start on the route, and why the message wakes nobody.
+   */
+  async message(projectKey: string, messageId: string): Promise<MessageStateReport> {
+    const { ctx, projects, tasks, deferred, messageStarts } = this.deps;
+    const config = await projects.config(projectKey);
+    const message = ctx.repos.messages.get(messageId);
+    if (!message || message.projectKey !== projectKey) throw notFound('message', messageId);
+    const info = (message.kind ?? 'action') === 'info';
+    return {
+      messageId: message.id,
+      from: message.from,
+      taskKey: message.taskKey,
+      kind: info ? 'info' : 'action',
+      sentAt: message.createdAt,
+      recipients: message.to.map((handle) => {
+        const member = memberOf(config, handle);
+        const route = messageRoute(message, handle);
+        const base = {
+          handle,
+          deliveredAt: message.receipts?.find((r) => r.handle === handle)?.deliveredAt ?? null,
+          route,
+        };
+        if (member?.kind !== 'ai')
+          return {
+            ...base,
+            human: member?.kind === 'human',
+            session: null,
+            waiting: null,
+            lastStartFailure: null,
+            noWake: null,
+            stale: null,
+          };
+        const live = ctx.repos.sessions.findByWorkItem(projectKey, handle, sessionWorkItemOf(member, route));
+        const key = messageStarts.wakeKey(projectKey, handle, route);
+        const entry = deferred.list().find(({ start }) => start.key === key);
+        const card = route.type === 'task' ? tasks.find(projectKey, route.taskKey) : null;
+        const stale = staleReasonFor(ctx, config, message, handle);
+        return {
+          ...base,
+          human: false,
+          session:
+            live && LIVE_SESSION_STATES.includes(live.state)
+              ? { id: live.id, state: live.state, since: live.lastActivityAt }
+              : null,
+          waiting:
+            entry && entry.start.stillValid(card ?? null)
+              ? { reason: entry.waiting.reason, since: entry.waiting.since }
+              : null,
+          lastStartFailure: messageStarts.lastFailure(projectKey, handle, route),
+          noWake: info
+            ? ('info' as const)
+            : messageWakeBlock(message, wakeFactsFor(ctx, config, message, handle), stale),
+          stale,
+        };
+      }),
+    };
+  }
+
   async overview(projectKey: string): Promise<ProjectStateReport> {
     const { ctx, projects, tasks, pauses } = this.deps;
     const config = await projects.config(projectKey);
     const cards = tasks.list(projectKey).filter((t) => !isTheme(t));
     const pause = pauses.projectView(projectKey);
     const owners = ownerHandles(config);
-    const waitingStarts = this.deps.deferred
+    const waitingStarts: ProjectStateReport['waitingStarts'] = this.deps.deferred
       .list()
       .filter(
         ({ start }) =>
           start.projectKey === projectKey &&
-          start.taskKey !== null &&
-          start.stillValid(cards.find((t) => t.key === start.taskKey) ?? null),
+          start.stillValid(
+            start.taskKey === null ? null : (cards.find((t) => t.key === start.taskKey) ?? null),
+          ),
       )
       .map(({ start, waiting }) => ({
-        taskKey: start.taskKey!,
+        taskKey: start.taskKey,
         member: waiting.member ?? null,
         reason: waiting.reason,
       }));
@@ -102,8 +179,20 @@ export class ProjectState {
           reason: card.startWaiting.reason,
         });
     }
+    const waitingMessages: ProjectStateReport['waitingMessages'] = [];
+    for (const member of config.team.members) {
+      if (member.kind !== 'ai') continue;
+      const pending = ctx.repos.messages.pending(projectKey, member.handle);
+      if (pending.length === 0) continue;
+      waitingMessages.push({
+        member: member.handle,
+        count: pending.length,
+        oldestAt: pending.map((m) => m.createdAt).sort()[0]!,
+      });
+    }
     return {
       paused: { project: !!pause.project, instance: !!pause.instance },
+      operatorWatch: operatorWatchOf(config),
       signals: this.deps.operatorSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
@@ -121,6 +210,8 @@ export class ProjectState {
         .list(projectKey, { state: 'open' })
         .filter((item) => item.assignees.some((handle) => owners.includes(handle)))
         .map((item) => ({ id: item.id, kind: item.kind, taskKey: item.taskKey, title: item.title })),
+      release: await this.deps.releases.overview(projectKey),
+      waitingMessages,
     };
   }
 }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { priorityRefusal } from '../domain/task';
 import { integratorConfigRefusal } from './integrator';
+import { applyConfigPatch, PatchConfigRequest } from './edit';
+import { OPERATOR_WATCH_LEVELS, operatorWatchOf } from './operator-watch';
+import { ownerOnlyChanges } from './owner-only';
 import {
   ConfigChangeRow,
   OPERATOR_ROLE,
@@ -496,6 +499,46 @@ describe('operatorFixedChange (PM-473)', () => {
 });
 
 describe('operatorConfigVerdict', () => {
+  it('defaults to report, patches and clears the watch level without mutating the input', () => {
+    const previous = config();
+    expect(operatorWatchOf(previous)).toBe('report');
+    const patch = (operatorWatch: unknown) => PatchConfigRequest.parse({ baseVersion: 'v1', operatorWatch });
+    const next = applyConfigPatch(previous, patch('unblock'));
+    expect(next.team.operatorWatch).toBe('unblock');
+    expect(previous.team).not.toHaveProperty('operatorWatch');
+    expect(applyConfigPatch(next, PatchConfigRequest.parse({ baseVersion: 'v1' })).team.operatorWatch).toBe(
+      'unblock',
+    );
+    const cleared = applyConfigPatch(next, patch(null));
+    expect(cleared.team).not.toHaveProperty('operatorWatch');
+    expect(operatorWatchOf(cleared)).toBe('report');
+    expect(next.team.operatorWatch).toBe('unblock');
+    expect(() => patch('unknown')).toThrow();
+  });
+
+  it.each(OPERATOR_WATCH_LEVELS)('requires approval for a team watch field set to %s', (level) => {
+    const previous = config();
+    const next = structuredClone(previous);
+    next.team.operatorWatch = level;
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+      level: 'approval',
+      changes: [
+        {
+          area: 'project',
+          target: null,
+          field: 'operatorWatch',
+          before: null,
+          after: level,
+          level: 'approval',
+        },
+      ],
+    });
+    expect(ownerOnlyChanges(previous, next)).toEqual(level === 'report' ? [] : ['operator_watch']);
+    expect(integratorConfigRefusal(previous, next)).toBe(level === 'report' ? null : 'owner_settings');
+    const cleared = structuredClone(next);
+    delete cleared.team.operatorWatch;
+    expect(ownerOnlyChanges(next, cleared)).toEqual(level === 'report' ? [] : ['operator_watch']);
+  });
   it('no change is now, with no rows', () => {
     expect(verdict(() => {}).result).toEqual({ level: 'now', changes: [] });
   });

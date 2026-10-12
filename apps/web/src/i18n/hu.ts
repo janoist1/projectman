@@ -2770,6 +2770,8 @@ export const hu = {
       decidedApproved: 'Jóváhagytad · {time}',
       decidedRejected: 'Elvetetted · {time}',
       consequences: {
+        operator_watch:
+          'A már kiadott jelzések nem változnak; az Operátor a következő ébredésétől e szerint lép jelzésre.',
         network: 'A futó munkamenetek nem változnak; a hálózati szabály az újonnan indulókra érvényes.',
         permission_mode: 'A futó munkamenetek nem változnak; az engedélymód az újonnan indulókra érvényes.',
         pipeline: 'A kártyák helye nem változik, a szabály a következő mozgatástól érvényes.',
@@ -2807,12 +2809,22 @@ export const hu = {
         nobody: '{key}: senki nem viheti',
         stalled: '{key}: válaszra vár a munkamenet',
         silent: '{key}: a munkamenet nem ad jelet',
+        idle: '{key}: senki nem dolgozik rajta',
+        merge_waiting: '{key}: beolvasztásra vár',
+        merge_blocked: '{key}: elakadt a beolvasztás',
+        unreleased: 'Kiadásra váró munka',
+        ready_waiting: 'Indítható kártyák várnak',
       },
       bodies: {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
         nobody: 'A kártyát most egy tag sem viheti a beállítások szerint.',
         stalled: 'A munkamenet egy ideje bemenetre vár.',
         silent: 'A munkamenet dolgozik, de egy ideje nem ad jelet.',
+        idle: 'A kártyának van felelőse, de fél órája nem fut rajta munka.',
+        merge_waiting: 'A beolvasztást fél órája kérték, de a beolvasztó még nem kezdte el.',
+        merge_blocked: 'A beolvasztás ütközés, elbukott ellenőrzés vagy hiba miatt áll.',
+        unreleased: 'A fő ágon egy napnál régebben beolvasztott munka vár kiadásra.',
+        ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
       },
     },
   },
@@ -3590,6 +3602,7 @@ export const hu = {
         pause: 'szünet miatt',
         handed_off: 'a munkát leadta',
         handoff_timeout: 'lejárt a leadás ideje',
+        merge_running: 'a beolvasztás a szerveren fut',
       },
       short: {
         step_done: 'lépés kész',
@@ -3600,6 +3613,7 @@ export const hu = {
         pause: 'szünet',
         handed_off: 'leadva',
         handoff_timeout: 'leadás lejárt',
+        merge_running: 'beolvasztás fut',
       },
     },
     tabs: {

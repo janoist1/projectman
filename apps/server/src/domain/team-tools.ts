@@ -65,6 +65,7 @@ import type {
   MemberMemoryStore,
   NetworkDenial,
   ProposedRelease,
+  ReleaseCheckResult,
   ScreenshotRun,
   SentMessageRecipient,
   WorkspaceFile,
@@ -306,12 +307,17 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
   private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
-  async getProjectState(ctx: ToolContext, args: { taskKey?: string }) {
+  async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.guard(async () => {
       const config = await this.caller(ctx, 'get_project_state');
       const member = memberOf(config, ctx.member);
       if (!member || !isOperator(member))
         throw new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.');
+      if (args.messageId !== undefined) {
+        if (args.taskKey !== undefined)
+          throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
+        return this.projectState.message(ctx.projectKey, args.messageId);
+      }
       return args.taskKey
         ? this.projectState.task(ctx.projectKey, this.validTaskKey(ctx, args.taskKey))
         : this.projectState.overview(ctx.projectKey);
@@ -444,7 +450,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly merges: import('./merges').Merges;
-  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
+  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
   private readonly tasks: TaskService;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
@@ -486,7 +492,7 @@ export class TeamToolsService implements TeamToolsHandler {
     projects: ProjectService;
     merges: import('./merges').Merges;
     /** The instance's releases (PM-491): propose_release. */
-    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
+    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
     tasks: TaskService;
     /** Why cards stand still (PM-460): get_task and list_tasks say it. */
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
@@ -598,6 +604,7 @@ export class TeamToolsService implements TeamToolsHandler {
     deliveredTo: string[];
     recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
+    operator: boolean;
   }> {
     return this.guard(async () => {
       const legacy = args.signalId !== undefined || args.signalActionable !== undefined;
@@ -620,6 +627,7 @@ export class TeamToolsService implements TeamToolsHandler {
         signal ? { ids, to: args.to } : undefined,
       );
       const { config, guest } = who;
+      const operator = isOperator(memberOf(config, ctx.member));
       // In a guest's conversation the Operator answers that person and nobody else; that is no step (PM-475).
       if (guest) {
         const other = args.to.find((handle) => handle !== guest.handle);
@@ -684,6 +692,8 @@ export class TeamToolsService implements TeamToolsHandler {
                       actionable: batch ? actionable.includes(id) : (args.signalActionable ?? false),
                     }))
                   : undefined,
+                // The Operator is told what became of waking each recipient (PM-543); others' sends stay quick.
+                ...(operator ? { awaitWake: true } : {}),
               },
             )
             .catch(async (err: unknown) => {
@@ -697,6 +707,7 @@ export class TeamToolsService implements TeamToolsHandler {
             messageId: message.id,
             deliveredTo: message.to,
             recipients,
+            operator,
             ...(routed.length > 0 ? { routed } : {}),
           };
         },
@@ -1351,6 +1362,16 @@ export class TeamToolsService implements TeamToolsHandler {
           );
         throw err;
       }
+    });
+  }
+
+  async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
+    return this.guard(async () => {
+      const config = await this.caller(ctx, 'check_release');
+      const member = memberOf(config, ctx.member);
+      if (!member || !isOperator(member))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may check a release.');
+      return this.releases.check(ctx.projectKey, args.commit);
     });
   }
 

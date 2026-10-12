@@ -1177,6 +1177,11 @@ workers follow the machine's size.
   `resolveAppVersion` reads the installation checkout's git HEAD, falling back to `dev`.
   The override must match `[A-Za-z0-9._+-]{1,64}`. This assumes a git checkout when no override is
   supplied; packaged cloud and engine builds should set the same version explicitly.
+  `resolveAppTag` (`engine-link/version.ts`, PM-541, PM-542) reads the release tag on the same checkout's HEAD
+  (`git tag --points-at HEAD`, first tag matching `RELEASE_TAG_PATTERN`; `createAppTagReader` remembers only a found
+  tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
+  on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
+  `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
@@ -2144,6 +2149,16 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
   card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
   `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
+- **Release facts (PM-542).** The overview also carries `release` (`ReleaseService.overview`: the running version,
+  commit and tag, the latest live and the open release, the last ten merges of cards into the release repository,
+  newest first; null when the instance does not release the project), the deferred starts that have no card
+  (`taskKey` null, e.g. a wake-up for a message) and the undelivered team messages per AI member. The read-only
+  tool `check_release { commit? }` (Operator only, no open request, not in guest conversations) is the rehearsal of
+  `propose_release`: `ReleaseService.check` makes the same checks in the same order (target, open release,
+  candidate) and answers the candidate or the refusal with the code and message `propose` would give, plus the
+  members with the deployment duty; it records nothing. The Operator never proposes a release itself. On a remote
+  engine the running version and tag come from the server's own installation; the candidate's ancestry questions go
+  to the engine that holds the repository, and an offline engine gives the `engine_offline` refusal.
   `TaskStateReport.wait` comes from `TaskWaits.ofCard` (PM-460, viewer null) and is worded first by
   `describeTaskWait`. Task and overview reports include active system signals (PM-476) through
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
@@ -2265,6 +2280,21 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
   Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
   admission stay on the server, and notice delivery uses the existing engine session boundary.
+  Five board kinds (PM-547, migration 56) join the four, raised and closed by the same sweep from
+  `OperatorSignals.boardCases` (`pending()` rechecks a signal against it before waking the Operator):
+  `idle` (`idle:<task>:<stage>`; a work or step card whose `TaskWaits` reason is `assignee`, or `queued`
+  with an AI step owner, held by an AI member who is not on leave, with no activity for
+  `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),
+  `merge_waiting` (`merge_waiting:<task>`; a `requested` merge an AI merger has not started for
+  `OPERATOR_MERGE_WAIT_MINUTES` = 30), `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked`
+  merge with an AI merger, at once; a person as merger gets the inbox item instead), `unreleased`
+  (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
+  the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
+  open release) and `ready_waiting` (one per project; a card in a later queue stage ready for a work stage
+  whose AI owner is free, not on leave, not temporary, under its capacity, with the parallel AI limit not
+  reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
+  if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
+  team is paused. All data comes from the server's database and configuration: no machine-dependent part.
 
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.

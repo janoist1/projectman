@@ -79,6 +79,12 @@ export type TaskMergeState = z.infer<typeof TaskMergeState>;
 export function isMergeFixer(merge: TaskMergeState | null | undefined, member: string): boolean {
   return merge?.state === 'fixing' && merge.merger === member && merge.fix?.by === member;
 }
+
+/** The member started the card's merge and the server queued or runs it: the member has nothing to do until its result (PM-552). */
+export function isMergeRunningFor(merge: TaskMergeState | null | undefined, member: string): boolean {
+  return merge?.merger === member && (merge.state === 'queued' || merge.state === 'running');
+}
+
 export const TaskMerged = z.object({
   resolution: z.object({ note: z.string().max(2000), commit: z.string() }).optional(),
   via: z.enum(['tool', 'found']),

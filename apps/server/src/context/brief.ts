@@ -116,7 +116,9 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
         `Repository: ${merge.repo}; base: ${merge.base}; approved commit: ${merge.commit ?? task.reviewPin?.commit ?? 'read by merge_task'}.`,
         fixing
           ? 'State: fixing. Follow the Merge fix steps above.'
-          : `State: ${merge.state}. Use merge_task to start or retry. For a conflict failure call merge_task with fix_conflict; otherwise send the card back with update_task and explain why.`,
+          : merge.state === 'queued' || merge.state === 'running'
+            ? `State: ${merge.state}. The server runs the merge; do not wait for it: end your turn. Your session closes and the result arrives as a team message.`
+            : `State: ${merge.state}. Use merge_task to start or retry. For a conflict failure call merge_task with fix_conflict; otherwise send the card back with update_task and explain why.`,
         ...(merge.failure ? [JSON.stringify(merge.failure)] : []),
         ...(merge.block ? [JSON.stringify(merge.block)] : []),
       ].join('\n'),

@@ -33,6 +33,7 @@ describe('what closes a session', () => {
     'fix_limit_reassign',
     'handed_off',
     'handoff_timeout',
+    'merge_running',
   ];
   it.each(closing)('counts %s of an exited session', (kind) => {
     expect(sessionClosure({ state: 'exited', lastStop: { kind } })).toEqual({ kind });
@@ -107,6 +108,12 @@ describe('the texts of a closed session', () => {
     expect(text({ kind: 'handed_off', taskKey: 'PM-1' }).event).toContain('a munkát leadta');
     expect(text({ kind: 'handoff_timeout', taskKey: 'PM-1' }).list).toBe('Lezárva · leadás lejárt');
     expect(text({ kind: 'handoff_timeout', taskKey: 'PM-1' }).event).toContain('lejárt a leadás ideje');
+  });
+
+  it('words the closure of a member whose merge the server runs (PM-552)', () => {
+    const stop: SessionStop = { kind: 'merge_running', taskKey: 'PM-1' };
+    expect(text(stop).list).toBe('Lezárva · beolvasztás fut');
+    expect(text(stop).event).toContain('a beolvasztás a szerveren fut (PM-1)');
   });
 
   it('names who stopped it: another member, nobody, or the viewer', () => {

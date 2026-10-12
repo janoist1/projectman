@@ -225,6 +225,18 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         ? { commit, baseCommit: null, tasks }
         : { releaseId: 'rel_fake', taskKey: 'FAKE-2', commit, baseCommit: null, tasks };
     },
+    async checkRelease(ctx, args) {
+      await enter('checkRelease', ctx, args);
+      return {
+        candidate: {
+          commit: args.commit ?? '0'.repeat(40),
+          baseCommit: null,
+          tasks: [{ key: 'FAKE-1', title: 'A merged card' }],
+        },
+        refusal: null,
+        proposers: ['devops'],
+      };
+    },
     async submitBoundaryRequest(ctx, args) {
       await enter('submitBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'No protected operation adapter in this transport fake.');
@@ -314,6 +326,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
         messageId,
         deliveredTo: args.to,
         recipients: args.to.map((handle) => ({ handle, delivery: 'typed_now' as const })),
+        operator: false,
       };
     },
 
@@ -334,11 +347,14 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('getProjectState', ctx, args);
       return {
         paused: { project: false, instance: false },
+        operatorWatch: 'report',
         stages: [],
         sessions: [],
         waitingStarts: [],
         openOwnerItems: [],
         signals: [],
+        release: null,
+        waitingMessages: [],
       };
     },
     async getTask(ctx, args) {

@@ -89,6 +89,13 @@ tests use the SDK's own client, which behaves the same way here):
   A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
   Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
   Guest conversations cannot call it until a separate task provides a viewer filter.
+  The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
+  open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
+  undelivered team messages per AI member.
+- `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
+  not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
+  candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
+  deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
 - `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
   (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
   the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text

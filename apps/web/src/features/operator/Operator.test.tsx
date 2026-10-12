@@ -636,6 +636,25 @@ describe('a signal the Operator raised', () => {
     expect(screen.getByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' })).toBeTruthy();
   });
 
+  it('shows the board kinds (PM-547) by their own title and text', async () => {
+    const project = mockProject();
+    project.backend.operatorSignals = [
+      signal({ id: 'sig_1', kind: 'idle' }),
+      signal({ id: 'sig_2', kind: 'merge_waiting' }),
+      signal({ id: 'sig_3', kind: 'merge_blocked' }),
+      signal({ id: 'sig_4', kind: 'unreleased', taskKey: null }),
+      signal({ id: 'sig_5', kind: 'ready_waiting', taskKey: null }),
+    ];
+    renderLayout(project);
+    fireEvent.click(await button());
+    expect(await screen.findByRole('heading', { name: 'AC-20: senki nem dolgozik rajta' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: beolvasztásra vár' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'AC-20: elakadt a beolvasztás' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Kiadásra váró munka' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Indítható kártyák várnak' })).toBeTruthy();
+    expect(screen.getByText(t('operator.signal.bodies.ready_waiting'))).toBeTruthy();
+  });
+
   it('says on the card that the signal is no longer open, without a toast', async () => {
     const project = mockProject();
     project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'nobody' })];
@@ -696,6 +715,35 @@ describe('the approval in Rád vár', () => {
     rendered(project);
     expect(await screen.findByRole('button', { name: t('operator.approval.stop') })).toBeTruthy();
     expect(screen.getByRole('button', { name: t('operator.approval.pause') })).toBeTruthy();
+  });
+
+  it('shows the watch level change and its consequence before approval', async () => {
+    const project = mockProject();
+    project.backend.inbox.push(
+      approvalItem('stp_watch', {
+        action: 'config_change',
+        operation: { op: 'config_patch', patch: { operatorWatch: 'unblock' } },
+        changes: [
+          {
+            area: 'project',
+            target: null,
+            field: 'operatorWatch',
+            before: null,
+            after: 'unblock',
+            level: 'approval',
+          },
+        ],
+        consequence: 'operator_watch',
+      }),
+    );
+    rendered(project);
+    const consequence = await screen.findByText(t('operator.approval.consequences.operator_watch'));
+    const card = consequence.closest('article')!;
+    expect(within(card).getByText('unblock')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
+    await waitFor(() =>
+      expect(posted(project, '/inbox/inb_stp_watch/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
+    );
   });
 
   it('rejects without changing anything', async () => {

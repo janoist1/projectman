@@ -66,6 +66,33 @@ it('gives the merger conflict-fix instructions instead of another review', () =>
   expect(pack.initialMessage).not.toContain('AI members must never merge or push manually');
 });
 
+it.each(['queued', 'running'] as const)(
+  'tells the merger not to wait while the server has the merge %s (PM-552)',
+  (state) => {
+    const project = buildProject();
+    project.project.repos[0]!.requireMerge = true;
+    const task = makeTask({
+      stageId: 'dev',
+      merge: {
+        id: 'm',
+        repo: 'web',
+        base: 'main',
+        merger: 'fe-1',
+        toStageId: 'done',
+        requestedAt: 'now',
+        state,
+        landed: 'nowhere',
+        commit: 'approved',
+      },
+    });
+    const pack = builder.build(input({ project, handle: 'fe-1', task }));
+    expect(pack.initialMessage).toContain(
+      `State: ${state}. The server runs the merge; do not wait for it: end your turn.`,
+    );
+    expect(pack.initialMessage).not.toContain('Use merge_task to start or retry');
+  },
+);
+
 it('explains member initiated merging and forbids manual git merging or pushing', () => {
   const project = buildProject();
   project.project.repos[0]!.requireMerge = true;

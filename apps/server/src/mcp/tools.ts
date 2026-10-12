@@ -41,6 +41,7 @@ import {
   formatMembers,
   formatMessageAttachment,
   formatProjectState,
+  formatReleaseCheck,
   formatPublished,
   formatQuestionAsked,
   formatRemoteState,
@@ -82,6 +83,7 @@ export const TEAM_TOOL_NAMES = [
   'list_tasks',
   'merge_task',
   'propose_release',
+  'check_release',
   'update_task',
   'create_task',
   'link_pull_request',
@@ -266,10 +268,27 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     description:
       "Operator only, in the owners' conversation or a system-signal turn; unavailable in guest conversations. Read why a card is waiting, or the project overview: stages, live and idle sessions, waiting starts, pauses and open owner inbox items. This read needs no open owner request. Explain the result to the owner in the project language.",
     readOnly: true,
-    input: { task_key: TaskKey.optional().describe('A card in this project; omit for the overview.') },
+    input: {
+      task_key: TaskKey.optional().describe(
+        'A card in this project; omit for the overview. Not together with message_id.',
+      ),
+      message_id: z
+        .string()
+        .min(1)
+        .max(64)
+        .optional()
+        .describe(
+          'A team message of this project (the id send_message answered with): what became of it for each recipient. Not together with task_key.',
+        ),
+    },
     async run({ ctx, args, handler }) {
+      if (args.task_key && args.message_id)
+        throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
       return formatProjectState(
-        await handler.getProjectState(ctx, args.task_key ? { taskKey: args.task_key } : {}),
+        await handler.getProjectState(
+          ctx,
+          args.message_id ? { messageId: args.message_id } : args.task_key ? { taskKey: args.task_key } : {},
+        ),
       );
     },
   }),
@@ -727,7 +746,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       });
       if (task.merge?.state === 'fixing' && task.merge.fix)
         return `fixing mergeId=${task.merge.id}. End this turn so your session restarts in the merge-fix worktree. There run git merge ${task.merge.fix.base}, resolve only mechanical conflicts, commit, then call merge_task with resolution describing what and where you fixed. For a behavioral conflict, send the card back with update_task and a reason.`;
-      return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
+      const state = task.merge?.state ?? 'merged';
+      const mergeId = `${state} mergeId=${task.merge?.id ?? ''}`;
+      if (state === 'queued' || state === 'running')
+        return `${mergeId}. The server runs the merge and its full check. Do not wait for it: end your turn now. Your session closes, and a failure or a block wakes you with a team message.`;
+      return mergeId;
     },
   }),
 
@@ -773,6 +796,29 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       const head = `commit=${result.commit} baseCommit=${result.baseCommit ?? 'none'}\n${cards}`;
       if (!result.releaseId) return `preview (nothing recorded)\n${head}`;
       return `releaseId=${result.releaseId} taskKey=${result.taskKey}\n${head}\nThe owners were asked. End your turn: your session ends now.`;
+    },
+  }),
+
+  defineTool({
+    name: 'check_release',
+    title: 'Check a release',
+    readOnly: true,
+    description:
+      'Only the Operator; it only reads. The preview of propose_release: it runs the same checks (a release already ' +
+      'in progress, the merged cards between the last release and the commit) and answers either the commit and ' +
+      'the cards a release would have, or the refusal propose_release would give now, with the same code and ' +
+      'message. It records nothing. The release is proposed by the member with the deployment duty, not by the ' +
+      'Operator: the result lists who that is. `commit` is a merge commit of a merged card; default: the head of ' +
+      'the default branch. Explain the result to the owner in the project language.',
+    input: {
+      commit: z
+        .string()
+        .regex(/^[0-9a-f]{40}$/)
+        .optional()
+        .describe('A merge commit of a merged card; default: the head of the default branch.'),
+    },
+    async run({ ctx, args, handler }) {
+      return formatReleaseCheck(await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}));
     },
   }),
 

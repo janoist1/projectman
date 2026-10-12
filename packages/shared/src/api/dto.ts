@@ -139,7 +139,25 @@ export const OperatorRequestView = z.object({
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
 export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
-export const OperatorSignalKind = z.enum(['outage', 'nobody', 'stalled', 'silent']);
+/** A card held by an AI member with no work running for this long is idle (PM-547). */
+export const OPERATOR_IDLE_MINUTES = 30;
+/** A merge the merger has not started for this long is waiting. */
+export const OPERATOR_MERGE_WAIT_MINUTES = 30;
+/** Work merged and not released for this long is waiting for a release. */
+export const OPERATOR_UNRELEASED_HOURS = 24;
+/** Startable cards and free capacity together for this long wake the Operator. */
+export const OPERATOR_READY_WAITING_MINUTES = 30;
+export const OperatorSignalKind = z.enum([
+  'outage',
+  'nobody',
+  'stalled',
+  'silent',
+  'idle',
+  'merge_waiting',
+  'merge_blocked',
+  'unreleased',
+  'ready_waiting',
+]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
 export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
 export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
@@ -492,6 +510,7 @@ export const OperatorConsequence = z.enum([
   'member_other',
   'locations',
   'review_test',
+  'operator_watch',
   'fix_limit',
   'session_stop',
   'project_pause',

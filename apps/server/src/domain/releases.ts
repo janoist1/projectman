@@ -1,6 +1,7 @@
 import { ALERT_SEEN_OPTION, dutyMembers, releaseApprovalOf, releaseApprovers } from '@projectman/shared';
 import type {
   EngineId,
+  ErrorCode,
   InboxItem,
   ProjectConfig,
   Release,
@@ -8,12 +9,12 @@ import type {
   ReleaseReport,
   TaskKey,
 } from '@projectman/shared';
-import type { BranchMerger, EngineDirectory } from '../contracts';
+import type { BranchMerger, EngineDirectory, ReleaseStateReport } from '../contracts';
 import type { MergeRecord } from '../db';
 import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { conflict, forbidden, notFound } from './errors';
+import { conflict, DomainError, forbidden, notFound } from './errors';
 import type { InboxService, Resolver } from './inbox';
 import { DECISION_OPTIONS } from './inbox';
 import type { ProjectService } from './projects';
@@ -35,6 +36,16 @@ export interface ReleaseCandidate {
   tasks: { key: TaskKey; title: string }[];
 }
 
+/** What `ReleaseService.check` answers (PM-542): the rehearsal of a proposal, which records nothing. */
+export interface ReleaseCheck {
+  /** The candidate, when the check passed. */
+  candidate: ReleaseCandidate | null;
+  /** The refusal `propose` would give now, with the same code and message. */
+  refusal: { code: ErrorCode; message: string } | null;
+  /** The members with the deployment duty: they may propose the release. */
+  proposers: string[];
+}
+
 export interface ProposeReleaseInput {
   title: string;
   summary: string;
@@ -52,11 +63,16 @@ type Deps = {
   target: ReleaseTarget | null;
   /** The commit the running server was started from (`resolveAppVersion`); not always a commit id. */
   appVersion: () => string;
+  /** The release tag on the running build's commit (`createAppTagReader`); null when unknown. Never rejects. */
+  appTag: () => Promise<string | null>;
   /** The engine that holds the instance's repository. */
   engineId: (projectKey: string) => EngineId;
 };
 
 const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** How many of the latest merges the overview lists. */
+const RECENT_MERGES = 10;
 
 /**
  * The release of the instance itself (PM-387, PM-491): the Devops proposes, an owner approves in the
@@ -160,16 +176,133 @@ export class ReleaseService {
     };
   }
 
+  /**
+   * The work merged on the release repository after the running or latest live release, without git (PM-545).
+   * Null: this instance does not release the project, a release is open, the base is not known or nothing is
+   * left to release. It never throws or writes and calls neither git nor an engine: the sweep asks every minute.
+   * The order of `finished_at` is the order of the default branch, as merges run one after the other per repository.
+   */
+  unreleased(
+    projectKey: string,
+  ): { base: string; count: number; oldestAt: string; taskKeys: string[] } | null {
+    const { ctx, target } = this.deps;
+    if (!target || target.projectKey !== projectKey || ctx.repos.releases.open(projectKey)) return null;
+    const running = this.deps.appVersion();
+    const base =
+      ctx.repos.releases.latestLive(projectKey)?.commit ?? (COMMIT_ID.test(running) ? running : null);
+    if (!base) return null;
+    const landed = ctx.repos.taskMerges.mergedOf(projectKey, target.repo).flatMap((row) => {
+      const id = this.landed(row);
+      return id ? [{ taskKey: row.taskKey, commit: id, at: row.finishedAt ?? row.updatedAt }] : [];
+    });
+    const at = landed.findLastIndex((entry) => entry.commit === base);
+    const left = at < 0 ? [] : landed.slice(at + 1);
+    if (left.length === 0) return null;
+    return {
+      base,
+      count: left.length,
+      oldestAt: left[0]!.at,
+      taskKeys: [...new Set(left.map((entry) => entry.taskKey))],
+    };
+  }
+
+  /** The members who hold the deployment duty: only they may propose a release. */
+  private proposers(config: ProjectConfig): string[] {
+    return dutyMembers(config, 'deployment').map((member) => member.handle);
+  }
+
   /** Whoever holds the deployment duty may propose; a release already in progress refuses another. */
   private requireProposer(config: ProjectConfig, projectKey: string, by: string): void {
-    if (!dutyMembers(config, 'deployment').some((member) => member.handle === by))
+    if (!this.proposers(config).includes(by))
       throw forbidden('insufficient_access', 'only a member with the deployment duty may propose a release');
+    this.requireNoOpenRelease(projectKey);
+  }
+
+  /** One release at a time: a release in progress refuses another. */
+  private requireNoOpenRelease(projectKey: string): void {
     const open = this.deps.ctx.repos.releases.open(projectKey);
     if (open)
       throw conflict('release_open', `release ${open.id} is ${open.state}`, {
         id: open.id,
         state: open.state,
       });
+  }
+
+  /**
+   * The rehearsal of a proposal (PM-542): the refusal `propose` would give now, with the same code and message,
+   * or the candidate. It checks the target, the open release and the candidate, and instead of whether the
+   * caller holds the deployment duty it lists who does. It writes nothing. A failure that is no refusal of a
+   * release (`release_*`, `engine_offline`) is thrown.
+   */
+  async check(projectKey: string, commit?: string): Promise<ReleaseCheck> {
+    const proposers = async () => this.proposers(await this.deps.projects.config(projectKey));
+    try {
+      this.requireTarget(projectKey);
+      this.requireNoOpenRelease(projectKey);
+      const candidate = await this.candidate(projectKey, commit);
+      return { candidate, refusal: null, proposers: await proposers() };
+    } catch (err) {
+      if (
+        !(err instanceof DomainError) ||
+        !(err.code.startsWith('release_') || err.code === 'engine_offline')
+      )
+        throw err;
+      const configured = this.deps.target?.projectKey === projectKey;
+      return {
+        candidate: null,
+        refusal: { code: err.code, message: err.message },
+        proposers: configured ? await proposers() : [],
+      };
+    }
+  }
+
+  /**
+   * What the Operator reads about the release of the instance (PM-542): the running build, the last release that
+   * went live, the one in progress and the latest merges. Null when this instance does not release the project.
+   * It never throws.
+   */
+  async overview(projectKey: string): Promise<ReleaseStateReport | null> {
+    const { ctx, target } = this.deps;
+    if (!target || target.projectKey !== projectKey) return null;
+    const version = this.deps.appVersion();
+    const commit = COMMIT_ID.test(version) ? version : null;
+    const latest = ctx.repos.releases.latestLive(projectKey);
+    const open = ctx.repos.releases.open(projectKey);
+    let tag: string | null = null;
+    if (commit && latest?.commit === commit) tag = latest.tag;
+    if (!tag) tag = await this.deps.appTag().catch(() => null);
+    return {
+      running: { version, commit, tag },
+      latestLive: latest
+        ? {
+            id: latest.id,
+            taskKey: latest.taskKey,
+            tag: latest.tag,
+            commit: latest.commit,
+            liveAt: latest.liveAt,
+          }
+        : null,
+      open: open
+        ? {
+            id: open.id,
+            taskKey: open.taskKey,
+            state: open.state as 'proposed' | 'approved' | 'deploying',
+            commit: open.commit,
+            proposedBy: open.proposedBy,
+          }
+        : null,
+      recentMerges: ctx.repos.taskMerges
+        .mergedOf(projectKey, target.repo)
+        .slice(-RECENT_MERGES)
+        .reverse()
+        .map((row) => ({
+          taskKey: row.taskKey,
+          title: ctx.repos.tasks.get(row.taskKey)?.title ?? row.taskKey,
+          commit: this.landed(row),
+          at: row.finishedAt ?? null,
+          by: row.merger ?? null,
+        })),
+    };
   }
 
   /** The candidate the same checks as a proposal, with no record made. */

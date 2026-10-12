@@ -513,6 +513,8 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.projectman/logs',
         '/Users/anna/.projectman/customization',
         '/Users/anna/.projectman/memory',
+        // Message files follow recipient visibility; sessions get authorized copies (PM-524).
+        '/Users/anna/.projectman/message-attachments',
         // The control socket pauses the whole team (PM-219): not for the members.
         '/Users/anna/.projectman/control.sock',
         // The Gemini CLI's login, and the secret store and the providers' CLI homes (PM-324).
@@ -525,6 +527,7 @@ describe('provider-neutral session policy', () => {
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.
     expect(deniedPaths).not.toContain('/Users/anna/.projectman');
+    expect(deniedPaths).not.toContain('/Users/anna/.projectman/attachments');
     // The member's own saved tool outputs and the plan mode's plan file stay reachable.
     expect(deniedPaths).not.toContain('/Users/anna/.claude');
     for (const permissionMode of ['default', 'acceptEdits', 'auto', 'plan', undefined]) {
@@ -553,6 +556,9 @@ describe('provider-neutral session policy', () => {
           'Read(//Users/anna/.gemini/**)',
           'Read(//Users/anna/.projectman/secrets/**)',
           'Edit(//Users/anna/.projectman/providers/**)',
+          'Read(//Users/anna/.projectman/message-attachments)',
+          'Read(//Users/anna/.projectman/message-attachments/**)',
+          'Edit(//Users/anna/.projectman/message-attachments/**)',
           'WebFetch(domain:localhost)',
           'WebFetch(domain:127.0.0.1)',
         ]),
@@ -574,6 +580,7 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.gemini',
         '/Users/anna/.projectman/secrets',
         '/Users/anna/.projectman/providers',
+        '/Users/anna/.projectman/message-attachments',
       ]),
     );
   });

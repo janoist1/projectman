@@ -534,6 +534,8 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     'logs',
     'customization',
     'memory',
+    // Message files follow recipient visibility; authorized copies go to session folders (PM-524).
+    'message-attachments',
     'github-publish',
     'spool',
     // The release watcher's journal, lock and database backups (PM-493): the backups hold all data.

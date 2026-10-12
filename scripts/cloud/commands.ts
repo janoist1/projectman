@@ -1,5 +1,8 @@
 import path from 'node:path';
 import { awsPreflight, runAws } from './aws';
+import { runCheck } from './cloudflare-check';
+import { runPublish } from './cloudflare-publish';
+import { cloudflarePreflight, runEdge } from './cloudflare';
 import { defaultConfigPath, expandHome, loadConfig } from './config';
 import type { CloudContext } from './context';
 import type { CloudDeps } from './deps';
@@ -36,19 +39,26 @@ commands:
                                      fill an empty machine with the package of \`npm run migrate -- hybrid package\`, then deploy
   pull-data --to <new dir> [--dry-run]
                                      copy the stopped board's data to a new directory on this computer
+  edge [--dry-run] [--rotate-engine-token] [--rotate-integrator-token]
+                                     set up Cloudflare: zone, edge settings, Access, service tokens, tunnel
+  publish [--feedback] [--dry-run]   point the hostname at the tunnel (after the checks); --feedback: the feedback hostname too
+  check --login-json <file>          verify the public board: Access, edge, origin rules, the engine's doors
 options:
   --config <file>                    the configuration (default ~/.config/projectman/cloud/config.json)
   --dry-run                          only read; print what would change
   --rotate-keys                      replace the IAM access keys (the machine needs a deploy afterwards)
+  --rotate-engine-token              replace the secret of the engine's service token (the engine needs the new file)
+  --rotate-integrator-token          replace the secret of the integrator's service token
 exit status: 0 done, 1 failed, 2 refused (a precondition is missing or the state is dangerous), 64 bad usage
 `;
 
-type Flag = 'dry-run' | 'rotate-keys';
-type ValueOption = 'ref' | 'lines' | 'from' | 'to';
+type Flag = 'dry-run' | 'rotate-keys' | 'rotate-engine-token' | 'rotate-integrator-token' | 'feedback';
+type ValueOption = 'ref' | 'lines' | 'from' | 'to' | 'login-json';
 
 interface Invocation {
   dryRun: boolean;
   rotateKeys: boolean;
+  flags: ReadonlySet<Flag>;
   values: Partial<Record<ValueOption, string>>;
 }
 
@@ -68,9 +78,10 @@ function logLines(value: string | undefined): number {
   return Number(value);
 }
 
-/** The checks `preflight` runs one after the other; the Cloudflare part is added by a later card. */
+/** The checks `preflight` runs one after the other. */
 const PREFLIGHT_CHECKS: { name: string; run(context: CloudContext): Promise<void> }[] = [
   { name: 'aws', run: awsPreflight },
+  { name: 'cloudflare', run: cloudflarePreflight },
 ];
 
 async function preflight(context: CloudContext): Promise<void> {
@@ -167,6 +178,29 @@ export const COMMANDS: Record<string, CommandSpec> = {
     run: (context, invocation) =>
       runPullData(context, { to: invocation.values.to!, dryRun: invocation.dryRun }),
   },
+  edge: {
+    summary: 'set up the Cloudflare side',
+    flags: ['dry-run', 'rotate-engine-token', 'rotate-integrator-token'],
+    run: (context, invocation) =>
+      runEdge(context, {
+        dryRun: invocation.dryRun,
+        rotateEngineToken: invocation.flags.has('rotate-engine-token'),
+        rotateIntegratorToken: invocation.flags.has('rotate-integrator-token'),
+      }),
+  },
+  publish: {
+    summary: 'make the board reachable',
+    flags: ['dry-run', 'feedback'],
+    run: (context, invocation) =>
+      runPublish(context, { dryRun: invocation.dryRun, feedback: invocation.flags.has('feedback') }),
+  },
+  check: {
+    summary: 'verify the public board',
+    flags: [],
+    values: ['login-json'],
+    required: ['login-json'],
+    run: (context, invocation) => runCheck(context, { loginJson: invocation.values['login-json']! }),
+  },
 };
 
 interface Parsed {
@@ -232,6 +266,7 @@ export async function runCloud(argv: readonly string[], deps: CloudDeps): Promis
     await COMMANDS[parsed.command]!.run(context, {
       dryRun: parsed.flags.has('dry-run'),
       rotateKeys: parsed.flags.has('rotate-keys'),
+      flags: parsed.flags,
       values: parsed.values,
     });
     return 0;

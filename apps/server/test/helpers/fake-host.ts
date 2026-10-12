@@ -90,6 +90,8 @@ export class FakeMachine {
   rehearsalCode = 0;
   logText = 'line one\nline two\n';
   hangOn: string | null = null;
+  /** What the board answers the feedback hostname with (`guard-check`): the guard works when both are 404. */
+  guardCodes = { plain: '404', port: '404' };
 
   private pollsSinceStart = 0;
 
@@ -199,6 +201,9 @@ export class FakeMachine {
       case 'send-data':
         if (this.running) return refuse('the board is running');
         return done('tar stream');
+      case 'guard-check':
+        if (!this.running) return refuse('the board is not running');
+        return done(JSON.stringify(this.guardCodes));
       default:
         return { code: 2, stdout: '', stderr: `host.sh: unknown subcommand ${subcommand}\n` };
     }

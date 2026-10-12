@@ -41,6 +41,7 @@ export const HOST_SUBCOMMANDS = [
   'seed-check',
   'receive-data',
   'send-data',
+  'guard-check',
 ] as const;
 export type HostSubcommand = (typeof HOST_SUBCOMMANDS)[number];
 

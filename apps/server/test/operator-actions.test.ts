@@ -534,11 +534,49 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     const task = await h.domain.tasks.create('AR', { title: 'Write', stageId: 'ready' }, OWNER_ACTOR);
     const first = await h.domain.teamTools.startTask(ctx, { taskKey: task.key, assignee: 'dev-1' });
     expect(first.session_id).toBeTruthy();
+    expect(first.assignee).toBe('dev-1');
     expect(h.domain.tasks.get('AR', task.key).stageId).toBe('development');
     await h.domain.sessions.stop('AR', first.session_id!);
     const second = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
     expect(second.session_id).toBeTruthy();
     expect(h.domain.sessions.isRunning(second.session_id!)).toBe(true);
+  });
+
+  it('names a refused leave start and records no waiting start', async () => {
+    await setup(false, (config) => {
+      (memberOf(config, 'dev-1') as AiMemberConfig).onLeave = true;
+    });
+    const task = await h.domain.tasks.create('AR', { title: 'Write', stageId: 'ready' }, OWNER_ACTOR);
+    await expect(
+      h.domain.teamTools.startTask(ctx, { taskKey: task.key, assignee: 'dev-1' }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('member_on_leave') });
+    expect(h.domain.tasks.get('AR', task.key)).toMatchObject({ stageId: 'ready', assignee: null });
+    expect(h.domain.tasks.get('AR', task.key).startWaiting).toBeUndefined();
+    const request = h.repos.operatorRequests.latest('AR', 1)[0]!;
+    expect(h.repos.operatorRequests.steps(request.id).at(-1)).toMatchObject({
+      action: 'task_start',
+      status: 'refused',
+      refusal: { code: 'member_on_leave' },
+    });
+  });
+
+  it('reports which Senior the card waits for without assigning a developer', async () => {
+    await setup(false, (config) => {
+      (memberOf(config, 'dev-2') as AiMemberConfig).senior = true;
+    });
+    const busy = await h.domain.tasks.create('AR', { title: 'Busy', stageId: 'ready' }, OWNER_ACTOR);
+    await h.domain.teamTools.startTask(ctx, { taskKey: busy.key, assignee: 'dev-2' });
+    const task = await h.domain.tasks.create(
+      'AR',
+      {
+        title: 'Senior work',
+        stageId: 'ready',
+        developerLevel: { level: 'senior', reason: 'Runner changes' },
+      },
+      OWNER_ACTOR,
+    );
+    const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
+    expect(result).toMatchObject({ assignee: null, session_id: null, senior_wait: { seniors: ['dev-2'] } });
   });
 
   it('honors the explicit prerequisite override only for the owner-requested Operator start', async () => {
@@ -582,6 +620,8 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     const task = await h.domain.tasks.create('AR', { title: 'Screen', stageId: 'ready' }, OWNER_ACTOR);
     const result = await h.domain.teamTools.startTask(ctx, { taskKey: task.key });
     expect(result.session_id).toBeNull();
+    expect(result.awaiting).toEqual({ labels: ['design-ok'], members: ['des'] });
+    expect(result.assignee).toBeNull();
     expect(h.domain.sessions.list('AR', { taskKey: task.key }).map((s) => s.member)).toEqual(['des']);
     expect(h.domain.tasks.get('AR', task.key).startWaiting).toMatchObject({
       reason: 'label_missing',

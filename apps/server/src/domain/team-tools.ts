@@ -68,6 +68,7 @@ import type {
   ReleaseCheckResult,
   ScreenshotRun,
   SentMessageRecipient,
+  MemberStartResult,
   WorkspaceFile,
   TakeScreenshotsInput,
   TaskSummary,
@@ -1934,7 +1935,7 @@ export class TeamToolsService implements TeamToolsHandler {
         'operator_only: only the Operator may start tasks through this tool.',
       );
     const caller = await this.callerWithRequest(ctx, 'start_task');
-    return this.recorded<{ task_key: string; session_id: string | null; hired: string | null }>(
+    return this.recorded<Awaited<ReturnType<TeamToolsHandler['startTask']>>>(
       caller,
       { action: 'task_start', taskKey: args.taskKey, madeMember: (result) => result.hired },
       async () => {
@@ -1950,11 +1951,59 @@ export class TeamToolsService implements TeamToolsHandler {
           task_key: result.task.key,
           session_id: result.session?.id ?? null,
           hired: result.hired?.handle ?? null,
+          assignee: result.task.assignee,
+          ...(result.awaiting ? { awaiting: result.awaiting } : {}),
+          ...(result.seniorWait ? { senior_wait: result.seniorWait } : {}),
         };
       },
     ).catch((err: unknown) => {
+      if (err instanceof DomainError) {
+        const converted = toToolError(err) as TeamToolError;
+        throw new TeamToolError(converted.code, `${err.code}: ${converted.message}`);
+      }
       throw toToolError(err);
     });
+  }
+
+  async startMember(ctx: ToolContext, args: { member: string; text: string }): Promise<MemberStartResult> {
+    const config = await this.projects.config(ctx.projectKey);
+    if (!isOperator(memberOf(config, ctx.member)))
+      throw new TeamToolError(
+        'forbidden',
+        'operator_only: only the Operator may start members through this tool.',
+      );
+    const who = await this.callerWithRequest(ctx, 'start_member');
+    return this.recorded<MemberStartResult>(
+      who,
+      { action: 'task_start', taskKey: null, member: args.member },
+      async () => {
+        const member = memberOf(config, args.member);
+        if (!member) throw new TeamToolError('not_found', `Unknown team member: ${args.member}.`);
+        if (member.kind === 'human')
+          throw new TeamToolError(
+            'invalid',
+            `not_ai_member: ${args.member} is a person; ask them with ask_human.`,
+          );
+        if (isOperator(member)) throw new TeamToolError('invalid', 'cannot_start_self');
+        const { message, recipients } = await this.messaging
+          .sendReporting(
+            ctx.projectKey,
+            ctx.member,
+            { to: [member.handle], text: args.text, taskKey: null },
+            {
+              actor: aiActor(ctx.member),
+              sessionId: ctx.sessionId,
+              kind: 'action',
+              operatorRequest: who.request!.id,
+              awaitWake: true,
+            },
+          )
+          .catch((err: unknown) => {
+            throw toMessageToolError(err);
+          });
+        return { messageId: message.id, recipient: recipients[0]! };
+      },
+    );
   }
 
   /**

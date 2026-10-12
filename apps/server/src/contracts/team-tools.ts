@@ -375,6 +375,13 @@ export interface ReleaseCheckResult {
   proposers: string[];
 }
 
+/** What became of the Operator's start of a member on work without a card (PM-541). */
+export interface MemberStartResult {
+  messageId: string;
+  /** The member's line as send_message gives it, with `start` (PM-543). */
+  recipient: SentMessageRecipient;
+}
+
 export interface TeamToolsHandler {
   getProjectState(
     ctx: ToolContext,
@@ -393,7 +400,18 @@ export interface TeamToolsHandler {
   startTask(
     ctx: ToolContext,
     args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
-  ): Promise<{ task_key: string; session_id: string | null; hired: string | null }>;
+  ): Promise<{
+    task_key: string;
+    session_id: string | null;
+    hired: string | null;
+    /** The card's assignee after the start. */
+    assignee: string | null;
+    /** Gate labels and the members started to set them (PM-236). */
+    awaiting?: { labels: string[]; members: string[] };
+    /** Seniors the card waits for, without an assigned developer (PM-348). */
+    senior_wait?: { seniors: string[] };
+  }>;
+  startMember(ctx: ToolContext, args: { member: string; text: string }): Promise<MemberStartResult>;
   /**
    * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
    * Only the Operator; needs no open request.

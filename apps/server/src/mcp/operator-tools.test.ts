@@ -131,6 +131,7 @@ describe('Operator MCP tools', () => {
       task_key: 'AR-1',
       session_id: null,
       hired: null,
+      assignee: 'dev-1',
     });
     expect(handler.calls[0]).toMatchObject({
       method: 'startTask',
@@ -138,5 +139,21 @@ describe('Operator MCP tools', () => {
       args: { taskKey: 'AR-1', assignee: 'dev-1', despitePrerequisites: true },
     });
     expect(tool.inputSchema.safeParse({ task_key: 'invalid' }).success).toBe(false);
+  });
+
+  it('validates start_member and reports the member delivery in one line', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'start_member')!;
+    expect(tool.annotations.readOnlyHint).toBe(false);
+    const handler = createFakeTeamToolsHandler();
+    const args = tool.inputSchema.parse({ member: 'dev-1', text: 'Check the engine.' });
+    const output = toolOutputText(await tool.run({ ctx: devContext, args, handler }));
+    expect(output).toContain('dev-1: typed into their session now.');
+    expect(output).toContain('Message msg_fake');
+    expect(output).toContain('general conversation');
+    expect(output).not.toContain('\n');
+    expect(handler.calls[0]).toMatchObject({ method: 'startMember', ctx: devContext, args });
+    expect(tool.inputSchema.safeParse({ ...args, text: '' }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ ...args, text: 'x'.repeat(20001) }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ ...args, text: 'x'.repeat(20000) }).success).toBe(true);
   });
 });

@@ -43,6 +43,7 @@ import type {
   ScreenshotFailure,
   ScreenshotRun,
   SentMessageRecipient,
+  MemberStartResult,
   TaskToolDetail,
   TaskStateReport,
   ProjectStateReport,
@@ -747,6 +748,10 @@ export function formatSentMessage(result: {
       );
   }
   return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
+}
+
+export function formatMemberStart(result: MemberStartResult): string {
+  return `${recipientLine(result.recipient, null, true)} Message ${result.messageId}: the text is in the member's general conversation.`;
 }
 
 const staleExplanations: Record<StaleReason, string> = {

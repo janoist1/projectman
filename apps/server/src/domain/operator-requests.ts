@@ -85,6 +85,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   delete_attachment: 'task_update',
   link_pull_request: 'task_update',
   start_task: 'task_start',
+  start_member: 'task_start',
   operate: 'config_change',
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',

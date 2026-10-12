@@ -323,10 +323,12 @@ describe('write_project_docs (PM-495)', () => {
         () => operatorSessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'cleo'),
         { what: 'the Operator conversation with cleo' },
       );
+      const request = await waitFor(() => h.repos.operatorRequests.openOfSession(session.id)[0], {
+        what: 'the open Operator request from cleo',
+      });
       expect(await refusal(write(toolOf(session)))).toMatch(/^operator_owner_only:/);
       expect(merger.commitFiles).not.toHaveBeenCalled();
-      const [request] = h.repos.operatorRequests.openOfSession(session.id);
-      expect(stepsOf(request!.id)).toMatchObject([
+      expect(stepsOf(request.id)).toMatchObject([
         { action: 'docs_write', status: 'refused', refusal: { code: 'operator_owner_only' } },
       ]);
     });

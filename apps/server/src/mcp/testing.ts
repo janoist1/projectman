@@ -247,7 +247,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     },
     async startTask(ctx, args) {
       await enter('startTask', ctx, args);
-      return { task_key: args.taskKey, session_id: null, hired: null };
+      return { task_key: args.taskKey, session_id: null, hired: null, assignee: args.assignee ?? null };
+    },
+    async startMember(ctx, args) {
+      await enter('startMember', ctx, args);
+      return { messageId: 'msg_fake', recipient: { handle: args.member, delivery: 'typed_now' } };
     },
     async readProjectDoc(ctx, args) {
       await enter('readProjectDoc', ctx, args);

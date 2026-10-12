@@ -39,6 +39,7 @@ import {
   formatLinkedPullRequest,
   formatLocatedAttachment,
   formatMembers,
+  formatMemberStart,
   formatMessageAttachment,
   formatProjectState,
   formatReleaseCheck,
@@ -69,6 +70,7 @@ export const TEAM_TOOL_NAMES = [
   'list_decision_candidates',
   'mark_decision_candidates',
   'start_task',
+  'start_member',
   'submit_boundary_request',
   'get_boundary_request',
   'decide_boundary_request',
@@ -419,7 +421,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Start work on a task',
     readOnly: false,
     description:
-      'Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply.',
+      'Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused).',
     input: {
       task_key: TaskKey,
       assignee: MemberHandle.optional(),
@@ -433,6 +435,17 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           despitePrerequisites: args.despite_prerequisites,
         }),
       );
+    },
+  }),
+  defineTool({
+    name: 'start_member',
+    title: 'Start a member on work without a card',
+    readOnly: false,
+    description:
+      'Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task.',
+    input: { member: MemberHandle, text: z.string().min(1).max(20000) },
+    async run({ ctx, args, handler }) {
+      return formatMemberStart(await handler.startMember(ctx, { member: args.member, text: args.text }));
     },
   }),
   defineTool({

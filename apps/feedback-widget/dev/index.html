@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="hu">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minta webshop – jelölő tesztoldal</title>
+    <!--
+      Test page for the feedback widget (PM-510). It stands in for a customer's site.
+      1. Run a development instance (`npm run dev`, server on :4700) and this page (`npm run dev -w @projectman/feedback-widget`, :5174).
+      2. In the project's Settings → Feedback add http://127.0.0.1:5174 as a surface.
+      3. Open the page from the Jelölések page of the project in the app. The widget starts from the code in the address.
+      The page and the server are on different origins, as on a real site: the widget API refuses requests without an Origin.
+    -->
+    <style>
+      body {
+        margin: 0;
+        font-family: Georgia, serif;
+        color: #2b2418;
+        background: #fbf7ef;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        padding: 18px 28px;
+        border-bottom: 1px solid #eadfcb;
+      }
+      header b {
+        font-size: 20px;
+      }
+      nav {
+        display: flex;
+        gap: 16px;
+        font-size: 14px;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      .hero {
+        display: flex;
+        gap: 28px;
+        padding: 28px;
+      }
+      .hero .img {
+        flex: none;
+        width: 420px;
+        height: 280px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, #f1ece2, #d9c7a7);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 30px;
+      }
+      p {
+        line-height: 1.6;
+        max-width: 440px;
+      }
+      .btn-cart {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 12px 22px;
+        border: 0;
+        border-radius: 10px;
+        background: #2b2418;
+        color: #fff;
+        font:
+          600 14px system-ui,
+          sans-serif;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 16px;
+        padding: 0 28px 120px;
+      }
+      .card {
+        padding: 16px;
+        border: 1px solid #eadfcb;
+        border-radius: 12px;
+        background: #fff;
+      }
+      footer {
+        padding: 40px 28px 160px;
+        border-top: 1px solid #eadfcb;
+        color: #6b5d45;
+      }
+      @media (max-width: 700px) {
+        nav {
+          display: none;
+        }
+        .hero {
+          flex-direction: column;
+          padding: 18px;
+        }
+        .hero .img {
+          width: 100%;
+          height: 200px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <b>Minta Műhely</b>
+      <nav>
+        <a href="/dev/index.html">Kezdőlap</a>
+        <a href="/dev/index.html?oldal=termekek">Termékek</a>
+        <a href="/dev/index.html?oldal=kapcsolat">Kapcsolat</a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <div class="img" role="img" aria-label="Termékfotó helye"></div>
+        <div>
+          <h1 id="hero-title">Kézzel készült kerámia bögre</h1>
+          <p>Minden darab egyedi, a máz kézzel készül. Mosogatógépben is mosható, mikróban is melegíthető.</p>
+          <button class="btn-cart" id="add-to-cart">Kosárba teszem</button>
+        </div>
+      </section>
+      <section class="grid">
+        <article class="card">
+          <h2>Tál</h2>
+          <p>Mély, levesnek és salátának is jó.</p>
+        </article>
+        <article class="card">
+          <h2>Kancsó</h2>
+          <p>Egy liter, csöpögésmentes csőr.</p>
+        </article>
+        <article class="card">
+          <h2>Tányér</h2>
+          <p>Huszonhat centi, sütőálló.</p>
+        </article>
+        <article class="card">
+          <h2>Csésze</h2>
+          <p>Kisebb, eszpresszóhoz.</p>
+        </article>
+      </section>
+    </main>
+    <footer>Szállítás: 2–3 munkanap. Kapcsolat: minta@example.com</footer>
+
+    <!-- In production the tag points at the projectman server's /feedback/widget.js; here Vite serves the source and data-api names the server. -->
+    <script type="module" src="/src/main.ts" data-project="PM" data-api="http://127.0.0.1:4700"></script>
+  </body>
+</html>

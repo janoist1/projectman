@@ -19,7 +19,7 @@
     "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:server": "npm run dev -w @projectman/server",
     "dev:web": "npm run dev -w @projectman/web",
-    "build": "npm run build -w @projectman/web && npm run build -w @projectman/server",
+    "build": "npm run build -w @projectman/web && npm run build -w @projectman/feedback-widget && npm run build -w @projectman/server",
     "smoke:prod": "node scripts/smoke-prod.mjs",
     "control": "node --import tsx scripts/control/cli.ts",
     "migrate": "node --import tsx scripts/migrate/cli.ts",

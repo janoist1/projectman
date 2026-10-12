@@ -32,7 +32,8 @@ Documentation map:
    (PM-328, PM-329). The app never collects or stores subscription login credentials.
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
-   (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by
+   (`apps/web/src/i18n/hu.ts`, `apps/feedback-widget/src/i18n/hu.ts`,
+   `packages/templates/src/locales/hu.ts`). Data written by
    people and agents (task titles, notes, messages, label names) is in the project's language.
 3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
@@ -564,6 +565,22 @@ claude | codex ── transcript JSONL ────────────▶ r
 terminal, inbox, messages, settings) with `api/` (typed client, queries, websocket cache),
 `features/`, `components/`, `lib/` and `i18n/`; `mocks/` is the in-memory fake backend behind
 the UI tests.
+
+**Feedback widget** (`apps/feedback-widget/src`, PM-510): the embeddable marking tool, built as one
+IIFE script (`dist/widget.js`, Vite library build, CSS inlined, at most 100 kB gzip: the build
+fails over it) that the server serves at `/feedback/widget.js` (PM-509). Preact in a Shadow DOM
+host, `@medv/finder` for selectors, `modern-screenshot` for the picture. It is not part of the web
+app and shares nothing with it at run time; from `packages/shared` it takes types only (`import
+type`: a value import would bundle zod). Modules: `controller.ts` (all state and flows: launch
+code, session, refresh, targeting, sending; no markup), `api.ts` (the public widget API client),
+`storage.ts` (the session token in `localStorage`, keyed by API origin and project key), `code.ts`
+(reads and removes the launch code from the address), `anchor.ts` (the pure anchor lookup and the
+list grouping), `selector.ts`, `screenshot.ts`, `environment.ts`, `ui/` (Preact views), `i18n/`
+(the widget's own Hungarian text), `styles.css` (inside the shadow root). `dev/index.html` is the
+test page: `npm run dev -w @projectman/feedback-widget` serves it on `127.0.0.1:5174`, a different
+origin from the server, as on a customer's site. Remote engine: the widget runs in the visitor's
+browser and talks to the server's public API only, so no machine-dependent part is added; the
+server only reads the built file (`feedbackWidgetFile`, PM-509).
 
 Pure rules (label refusal and label changes, gates, duty resolution, invariants, owner-only
 changes) belong in `packages/shared`, so the server and the web's test fake use the same code.

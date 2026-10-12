@@ -346,7 +346,10 @@ export function createController(deps: Deps): Controller {
       const kept = state.threads[markId];
       set({
         marks: state.marks[markId]
-          ? { ...state.marks, [markId]: { ...toView(detail), unread: detail.unread && !readHere.has(markId) } }
+          ? {
+              ...state.marks,
+              [markId]: { ...toView(detail), unread: detail.unread && !readHere.has(markId) },
+            }
           : state.marks,
         threads: {
           ...state.threads,

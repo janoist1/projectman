@@ -61,7 +61,10 @@ export function useIsPhone(): boolean {
  * A dialog's focus: it moves in when the dialog opens (to `initial`, else the dialog) and goes back to
  * where it was when the dialog closes (the pin or the launcher that opened it).
  */
-export function useDialogFocus(root: RefObject<HTMLElement | null>, initial?: () => HTMLElement | null): void {
+export function useDialogFocus(
+  root: RefObject<HTMLElement | null>,
+  initial?: () => HTMLElement | null,
+): void {
   useLayoutEffect(() => {
     const node = root.current;
     const rootNode = node?.getRootNode() as ShadowRoot | Document | undefined;

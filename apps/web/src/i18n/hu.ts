@@ -3588,6 +3588,7 @@ export const hu = {
         pause: 'szünet miatt',
         handed_off: 'a munkát leadta',
         handoff_timeout: 'lejárt a leadás ideje',
+        merge_running: 'a beolvasztás a szerveren fut',
       },
       short: {
         step_done: 'lépés kész',
@@ -3598,6 +3599,7 @@ export const hu = {
         pause: 'szünet',
         handed_off: 'leadva',
         handoff_timeout: 'leadás lejárt',
+        merge_running: 'beolvasztás fut',
       },
     },
     tabs: {

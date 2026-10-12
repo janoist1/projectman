@@ -96,6 +96,9 @@ export const SessionStopKind = z.enum([
   'handed_off',
   /** The member did not write a handoff note in time. */
   'handoff_timeout',
+  // PM-552
+  /** The member started the card's merge, which the server runs; its failure or block wakes the member with a message. */
+  'merge_running',
 ]);
 export type SessionStopKind = z.infer<typeof SessionStopKind>;
 
@@ -107,7 +110,7 @@ export const SessionStop = z.object({
   note: z.string().trim().min(1).max(200).optional(),
   /** PM-274: restart. */
   restartFor: z.enum(['permission', 'description', 'new_round']).optional(),
-  /** step_done, sent_back, card_done, task_cancelled. */
+  /** step_done, sent_back, card_done, task_cancelled, merge_running. */
   taskKey: TaskKey.optional(),
   /** step_done: the stage the card moved to (none for a refinement step); sent_back: where it went back to. */
   stageId: z.string().optional(),

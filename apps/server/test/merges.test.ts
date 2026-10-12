@@ -369,6 +369,148 @@ describe('member initiated merge', () => {
       placement: { kind: 'task_worktree', mergeFix: { branch: 'merge-fix/AR-1' } },
     });
   });
+  describe('while the merge runs on the server (PM-552)', () => {
+    type Built = Awaited<ReturnType<BranchMerger['build']>>;
+    const sessionOf = (member: string) => h!.domain.sessions.list('AR', { member, taskKey: 'AR-1' })[0]!;
+    const lastStop = (id: string) => h!.repos.sessions.get(id)?.lastStop;
+    /** The turn ends. A message that waited is typed in first, and its round ends too. */
+    async function endTurn(id: string) {
+      for (let round = 0; round < 3 && h!.runner.isRunning(id); round++) {
+        h!.runner.setState(id, 'working');
+        h!.runner.setState(id, 'idle');
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+    /** The merger's session has a conversation and its turn is running; the merge waits at the gate. */
+    async function runningMerge() {
+      await setup();
+      const session = sessionOf('dev-1');
+      h!.runner.setState(session.id, 'working');
+      h!.runner.emit({ type: 'transcript_path', sessionId: session.id, path: `/tmp/${session.id}.jsonl` });
+      const gate = deferred<Built>();
+      merger.build.mockReturnValueOnce(gate.promise);
+      await start();
+      await vi.waitFor(() => expect(['queued', 'running']).toContain(row()?.state));
+      return { session, gate };
+    }
+
+    it('closes the idle session of the merger, keeps its conversation and wakes it for a failure', async () => {
+      const { session, gate } = await runningMerge();
+      // It works until the turn ends.
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(h!.runner.isRunning(session.id)).toBe(true);
+
+      await endTurn(session.id);
+      expect(h!.runner.isRunning(session.id)).toBe(false);
+      expect(lastStop(session.id)).toEqual({ kind: 'merge_running', taskKey: 'AR-1' });
+      expect(h!.repos.sessions.get(session.id)?.claudeSessionId).toBe(session.claudeSessionId);
+
+      const starts = h!.runner.started.filter((s) => s.sessionId === session.id).length;
+      gate.resolve({ ok: false, conflict: ['a.ts'] });
+      await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+      await vi.waitFor(() =>
+        expect(h!.runner.started.filter((s) => s.sessionId === session.id)).toHaveLength(starts + 1),
+      );
+      expect(h!.runner.lastStarted()).toMatchObject({ sessionId: session.id, resume: true });
+    });
+
+    it('does not start a session for a merge that went in', async () => {
+      const { session, gate } = await runningMerge();
+      await endTurn(session.id);
+      expect(h!.runner.isRunning(session.id)).toBe(false);
+      const starts = h!.runner.started.length;
+      gate.resolve({ ok: true, mergeCommit: 'merged-ok', changed: ['a.ts'] });
+      await merged();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(h!.runner.started).toHaveLength(starts);
+    });
+
+    it('closes an idle session at the sweep, without a quarter of an hour of silence', async () => {
+      await setup();
+      const session = sessionOf('dev-1');
+      h!.runner.setState(session.id, 'working');
+      h!.runner.setState(session.id, 'idle');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(h!.runner.isRunning(session.id)).toBe(true);
+      const gate = deferred<Built>();
+      merger.build.mockReturnValueOnce(gate.promise);
+      await start();
+      await vi.waitFor(() => expect(['queued', 'running']).toContain(row()?.state));
+      // The message that waited is typed in at the first round; the next one closes the session.
+      await vi.waitFor(async () => {
+        await h!.domain.sessionCloser.sweep();
+        expect(h!.runner.isRunning(session.id)).toBe(false);
+      });
+      expect(lastStop(session.id)).toEqual({ kind: 'merge_running', taskKey: 'AR-1' });
+      gate.resolve({ ok: true, mergeCommit: 'merged-ok', changed: [] });
+      await merged();
+    });
+
+    it("leaves another member's session on the card open", async () => {
+      const { session, gate } = await runningMerge();
+      const other = (await h!.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' }))
+        .session;
+      h!.runner.setState(other.id, 'working');
+      h!.runner.setState(other.id, 'idle');
+      await endTurn(session.id);
+      expect(h!.runner.isRunning(session.id)).toBe(false);
+      await h!.domain.sessionCloser.sweep();
+      expect(h!.runner.isRunning(other.id)).toBe(true);
+      expect(lastStop(other.id)).toBeUndefined();
+      gate.resolve({ ok: true, mergeCommit: 'merged-ok', changed: [] });
+      await merged();
+    });
+
+    it('keeps the session of a merger whose merge failed open', async () => {
+      await setup();
+      const session = sessionOf('dev-1');
+      merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+      h!.runner.setState(session.id, 'working');
+      await start();
+      await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+      h!.runner.setState(session.id, 'idle');
+      await h!.domain.sessionCloser.sweep();
+      expect(h!.runner.isRunning(session.id)).toBe(true);
+      expect(lastStop(session.id)).toBeUndefined();
+    });
+
+    it('stops the merge-fix session with the same reason once the resolution is in', async () => {
+      await setup({
+        remote: false,
+        adjust(config) {
+          config.team.merger = { kind: 'member', handle: 'cr' };
+          const member = config.team.members.find((m) => m.handle === 'cr')!;
+          if (member.kind === 'ai') {
+            member.role = 'lead_developer';
+            member.permissionMode = 'auto';
+          }
+        },
+      });
+      const session = (await h!.domain.sessions.ensureSession('AR', 'cr', { type: 'task', taskKey: 'AR-1' }))
+        .session;
+      h!.runner.setState(session.id, 'working');
+      merger.build.mockResolvedValueOnce({ ok: false, conflict: ['a.ts'] });
+      await start('AR-1', aiActor('cr'));
+      await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+      const before = h!.runner.started.length;
+      await fix({ fixConflict: true }, aiActor('cr'));
+      h!.runner.setState(session.id, 'idle');
+      await vi.waitFor(() => expect(h!.runner.started.length).toBe(before + 1));
+
+      const tree = [...h!.worktrees.fixes.values()][0]!;
+      h!.worktrees.heads.get(tree.path)!.commit = 'resolved';
+      merger.isAncestor.mockResolvedValue(true);
+      const gate = deferred<Built>();
+      merger.build.mockReturnValueOnce(gate.promise);
+      h!.runner.setState(session.id, 'working');
+      await fix({ resolution: 'Resolve adjacent imports in a.ts' }, aiActor('cr'));
+      h!.runner.setState(session.id, 'idle');
+      await vi.waitFor(() => expect(h!.runner.isRunning(session.id)).toBe(false));
+      expect(lastStop(session.id)).toEqual({ kind: 'merge_running', taskKey: 'AR-1' });
+      gate.resolve({ ok: true, mergeCommit: 'merged-ok', changed: [] });
+      await merged();
+    });
+  });
   afterEach(async () => {
     await h?.cleanup();
     h = undefined;

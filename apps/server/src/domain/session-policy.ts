@@ -522,6 +522,10 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     '.codex',
     '.gemini',
     '.npmrc',
+    // The owner's cloud logins (PM-533): the AWS CLI's keys and SSO/CLI caches, the Cloudflare tunnel
+    // certificate and Access tokens. Whole directories.
+    '.aws',
+    '.cloudflared',
   ];
   // `logs` is not created by the server itself: the owner's live home has it (the process logs of
   // `npm start`). A name that does not exist denies nothing.

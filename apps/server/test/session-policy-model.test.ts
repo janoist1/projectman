@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
 import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
+import { decideToolCall } from '../src/runner/tool-decision';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
@@ -508,6 +510,9 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.claude.json',
         '/Users/anna/.codex',
         '/Users/anna/.npmrc',
+        // The AWS CLI's keys and caches and the Cloudflare tunnel certificate and Access tokens (PM-533).
+        '/Users/anna/.aws',
+        '/Users/anna/.cloudflared',
         '/Users/anna/.projectman/db.sqlite*',
         '/Users/anna/.projectman/secret',
         '/Users/anna/.projectman/logs',
@@ -554,6 +559,9 @@ describe('provider-neutral session policy', () => {
           'Edit(//Users/anna/.projectman/db.sqlite*)',
           'Read(//Users/anna/.projectman/secret/**)',
           'Read(//Users/anna/.gemini/**)',
+          'Read(//Users/anna/.aws/**)',
+          'Read(//Users/anna/.cloudflared/**)',
+          'Edit(//Users/anna/.cloudflared/**)',
           'Read(//Users/anna/.projectman/secrets/**)',
           'Edit(//Users/anna/.projectman/providers/**)',
           'Read(//Users/anna/.projectman/message-attachments)',
@@ -578,11 +586,60 @@ describe('provider-neutral session policy', () => {
     expect(sandbox.denyRead).toEqual(
       expect.arrayContaining([
         '/Users/anna/.gemini',
+        '/Users/anna/.aws',
+        '/Users/anna/.cloudflared',
         '/Users/anna/.projectman/secrets',
         '/Users/anna/.projectman/providers',
         '/Users/anna/.projectman/message-attachments',
       ]),
     );
+  });
+
+  it('keeps the AWS and Cloudflare logins unreadable on every provider (PM-533)', () => {
+    const home = '/Users/anna';
+    const deniedPaths = sensitivePaths({ userHome: home, appHome: `${home}/.projectman` });
+    const files = [`${home}/.aws/credentials`, `${home}/.cloudflared/x.json`];
+    const p = buildSessionPolicy({
+      config: testConfig(),
+      role: 'developer',
+      task: { repo: 'web' },
+      placement: development().placement,
+      deniedPaths,
+    });
+    // Claude: the permission rules for the file tools, and the decision of the hook for every tool.
+    const deny = buildSettings({
+      hookUrl: 'http://fake/hooks',
+      permissionTimeoutMs: 1000,
+      allowedTools: [],
+      policy: p,
+    }).permissions.deny;
+    for (const file of files) {
+      const dir = path.dirname(file);
+      expect(deny).toEqual(expect.arrayContaining([`Read(/${dir}/**)`, `Edit(/${dir}/**)`]));
+      // The Gemini hook and the Claude permission hook share the decision.
+      expect(decideToolCall(p, { category: 'read', paths: [file] }, { home })).toEqual({
+        decision: 'deny',
+        reason: 'denied_path',
+      });
+      expect(decideToolCall(p, { category: 'edit', paths: [file] }, { home })).toEqual({
+        decision: 'deny',
+        reason: 'denied_path',
+      });
+    }
+    // The shell's sandbox of Claude closes the same directories.
+    const sandbox = sessionSandbox(p, { userHome: home, appHome: `${home}/.projectman` })!;
+    expect(sandbox.denyRead).toEqual(expect.arrayContaining([`${home}/.aws`, `${home}/.cloudflared`]));
+    // Codex: both directories are denied in the permission profile.
+    const codex = codexOverrides(
+      buildCodexArgs({
+        spec: spec(p, false),
+        realCwd: source,
+        hookUrl: 'http://fake/hooks',
+        permissionTimeoutMs: 1000,
+      }).args,
+    ).get('permissions.projectman');
+    expect(codex).toContain(`"${home}/.aws"="deny"`);
+    expect(codex).toContain(`"${home}/.cloudflared"="deny"`);
   });
 
   it.each([false, true])('renders semantic grants on both providers with resume=%s', (resume) => {

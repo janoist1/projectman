@@ -9,6 +9,7 @@ import {
   LOCAL_ENGINE_ID,
   effectiveRepo,
   isMergeFixer,
+  isMergeRunningFor,
   effectiveSessionPermissions,
   handoffBlocksStart,
   isOnLeave,
@@ -3114,7 +3115,13 @@ export class SessionOrchestrator {
         if (!task) return;
         const placement = this.processMergeFixes.get(current.id);
         if (!isMergeFixer(task.merge, current.member)) {
-          if (placement) await this.stop(current.projectKey, current.id);
+          if (placement) {
+            // The resolution is in and the server runs the merge now: the same reason the closer gives (PM-552).
+            const stop: SessionStop | undefined = isMergeRunningFor(task.merge, current.member)
+              ? { kind: 'merge_running', taskKey: task.key }
+              : undefined;
+            await this.stop(current.projectKey, current.id, stop);
+          }
           return;
         }
         if (placement?.branch === task.merge!.fix!.branch && placement.cwd === current.cwd) return;

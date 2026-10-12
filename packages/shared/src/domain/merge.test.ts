@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { isMergeFixer, MergeFailure, TaskMergeState, TaskMerged } from './merge';
+import { isMergeFixer, isMergeRunningFor, MergeFailure, TaskMergeState, TaskMerged } from './merge';
 
 describe('member merge contracts', () => {
+  it('has the merger waiting only while the server queues or runs the merge', () => {
+    const merge = TaskMergeState.parse({
+      id: 'm',
+      repo: 'web',
+      base: 'main',
+      toStageId: 'done',
+      merger: 'lead',
+      requestedAt: 'now',
+      state: 'queued',
+      landed: 'nowhere',
+    });
+    expect(isMergeRunningFor(merge, 'lead')).toBe(true);
+    expect(isMergeRunningFor({ ...merge, state: 'running' }, 'lead')).toBe(true);
+    expect(isMergeRunningFor(merge, 'other')).toBe(false);
+    for (const state of ['requested', 'failed', 'blocked', 'fixing'] as const)
+      expect(isMergeRunningFor({ ...merge, state }, 'lead')).toBe(false);
+    expect(isMergeRunningFor(null, 'lead')).toBe(false);
+    expect(isMergeRunningFor(undefined, 'lead')).toBe(false);
+  });
   it('allows only the nominated merger to fix a conflict', () => {
     const merge = TaskMergeState.parse({
       id: 'm',

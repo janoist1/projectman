@@ -716,7 +716,11 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       });
       if (task.merge?.state === 'fixing' && task.merge.fix)
         return `fixing mergeId=${task.merge.id}. End this turn so your session restarts in the merge-fix worktree. There run git merge ${task.merge.fix.base}, resolve only mechanical conflicts, commit, then call merge_task with resolution describing what and where you fixed. For a behavioral conflict, send the card back with update_task and a reason.`;
-      return `${task.merge?.state ?? 'merged'} mergeId=${task.merge?.id ?? ''}`;
+      const state = task.merge?.state ?? 'merged';
+      const mergeId = `${state} mergeId=${task.merge?.id ?? ''}`;
+      if (state === 'queued' || state === 'running')
+        return `${mergeId}. The server runs the merge and its full check. Do not wait for it: end your turn now. Your session closes, and a failure or a block wakes you with a team message.`;
+      return mergeId;
     },
   }),
 

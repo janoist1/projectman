@@ -30,6 +30,11 @@ describe('merge_task', () => {
     });
     expect(result).toContain('queued');
     expect(result).toContain('merge-1');
+    // The server runs the merge: the member does not wait for it (PM-552).
+    expect(result).toContain('Do not wait for it: end your turn now.');
+    expect(result).toContain('wakes you with a team message');
+    task.merge = { ...task.merge, state: 'blocked' };
+    expect(await tool.run({ ctx, handler, args: { task_key: 'AR-21' } })).toBe('blocked mergeId=merge-1');
   });
   it('bounds resolution notes and returns the restart and fix instructions', async () => {
     const tool = TEAM_TOOLS.find((tool) => tool.name === 'merge_task')!;

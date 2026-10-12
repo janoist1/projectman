@@ -242,8 +242,8 @@ export class HostWorld extends CloudWorld {
   interruptDuring: string | null = null;
 
   /** A world whose AWS side is ready: configuration, the secrets and a running machine. */
-  static ready(): HostWorld {
-    const world = new HostWorld();
+  static ready<T extends HostWorld>(this: new () => T): T {
+    const world = new this();
     world.aws.addInstance({
       ports: [
         {

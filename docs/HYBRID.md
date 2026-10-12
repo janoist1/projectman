@@ -134,6 +134,12 @@ image's default command.
 The image runs a **token-managed** tunnel (`cloudflared tunnel run` with `TUNNEL_TOKEN`): the
 ingress is set in the Cloudflare dashboard, not in a config file as in the PM-200 guide on the Mac.
 
+**On Lightsail (`docs/AWS.md`) none of the steps below is done by hand:** `npm run cloud -- edge`
+makes the tunnel, its ingress (with the `/hooks` and `/mcp` 404 rules and the audience check), the
+Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `cloud.env`;
+`npm run cloud -- publish` makes the DNS record and `check` verifies the result. The list below is
+what those commands do, for a host that is not Lightsail (Fly.io) and for reading.
+
 1. Zero Trust → Networks → Tunnels → create a tunnel, choose Docker, and copy the **token** only
    (it becomes `TUNNEL_TOKEN`).
 2. Add a public hostname, for example `projectman.example.com`, with the service

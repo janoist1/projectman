@@ -2,31 +2,51 @@ import { chmodSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
-import { ACCOUNT, CloudWorld } from './helpers/fake-aws';
+import { ACCOUNT } from './helpers/fake-aws';
+import { CloudflareWorld } from './helpers/fake-cloudflare';
 
-/** `npm run cloud -- preflight`, the AWS part (PM-534). */
+/** `npm run cloud -- preflight`: the AWS part (PM-534) and the Cloudflare part (PM-536). */
 
-let world: CloudWorld;
+let world: CloudflareWorld;
 beforeEach(() => {
-  world = new CloudWorld();
+  world = new CloudflareWorld();
   world.writeConfig();
+  world.writeToken();
 });
 afterEach(() => world.cleanup());
 
 const preflight = () => runCloud(['preflight'], world.deps());
 
+const AWS_LINES = (secretsDir: string) => [
+  'ok aws-cli: aws-cli/2.17.1',
+  `ok aws-login: profile i, account ${ACCOUNT} (arn:aws:iam::${ACCOUNT}:user/i)`,
+  'ok aws-region: eu-west-1, eu-west-1a',
+  'ok aws-bundle: small_3_0',
+  'ok aws-blueprint: ubuntu_24_04',
+  `ok secrets-store: ${secretsDir} (directory 700, files 600)`,
+];
+
 describe('preflight', () => {
   it('passes, prints the account and changes nothing', async () => {
     expect(await preflight()).toBe(0);
     expect(world.lines).toEqual([
-      'ok aws-cli: aws-cli/2.17.1',
-      `ok aws-login: profile i, account ${ACCOUNT} (arn:aws:iam::${ACCOUNT}:user/i)`,
-      'ok aws-region: eu-west-1, eu-west-1a',
-      'ok aws-bundle: small_3_0',
-      'ok aws-blueprint: ubuntu_24_04',
-      `ok secrets-store: ${world.secretsDir} (directory 700, files 600)`,
+      ...AWS_LINES(world.secretsDir),
+      'ok cloudflare-token: active',
+      'ok cloudflare-account: Owner account',
+      'ok cloudflare-zero-trust: team janoist1',
+      'ok cloudflare-tunnel: Account / Cloudflare Tunnel / Edit',
+      'ok cloudflare-access-apps: Account / Access: Apps and Policies / Edit',
+      'ok cloudflare-access-policies: Account / Access: Apps and Policies / Edit',
+      'ok cloudflare-service-tokens: Account / Access: Service Tokens / Edit',
+      'ok cloudflare-identity-providers: Account / Access: Organizations, Identity Providers, and Groups / Edit',
+      'ok cloudflare-zones: Zone / Zone / Edit (all zones from the account)',
+      'skipped cloudflare-dns: the zone example.com does not exist yet (edge creates it)',
+      'skipped cloudflare-zone-settings: the zone example.com does not exist yet (edge creates it)',
+      'skipped cloudflare-transform-rules: the zone example.com does not exist yet (edge creates it)',
+      'note: a reading call proves a right to read only; edge names the right when a change is refused (docs/AWS.md)',
     ]);
     expect(world.aws.mutations()).toEqual([]);
+    expect(world.cf.mutations()).toEqual([]);
   });
 
   it('exits 2 when the aws CLI is version 1', async () => {
@@ -74,7 +94,7 @@ describe('preflight', () => {
     expect(await preflight()).toBe(2);
     expect(world.output).toContain('FAIL secrets-store');
     expect(world.output).toContain('must be 700');
-    expect(world.lines.filter((line) => line.startsWith('ok '))).toHaveLength(5);
+    expect(world.lines.filter((line) => line.startsWith('ok aws-'))).toHaveLength(5);
   });
 
   it('checks the Cloudflare token file too', async () => {
@@ -83,5 +103,68 @@ describe('preflight', () => {
     chmodSync(token, 0o644);
     expect(await preflight()).toBe(2);
     expect(world.output).toContain('cloudflare-token has mode 644');
+  });
+});
+
+describe('preflight, the Cloudflare part', () => {
+  const cloudflareLines = () => world.lines.filter((line) => /cloudflare-/.test(line));
+
+  it('probes the zone rights too when the zone exists', async () => {
+    world.cf.addZone('example.com');
+    expect(await preflight()).toBe(0);
+    expect(cloudflareLines().slice(-4)).toEqual([
+      'ok cloudflare-zones: Zone / Zone / Edit (all zones from the account)',
+      'ok cloudflare-dns: Zone / DNS / Edit',
+      'ok cloudflare-zone-settings: Zone / Zone Settings / Edit',
+      'ok cloudflare-transform-rules: Zone / Transform Rules / Edit',
+    ]);
+    expect(world.cf.mutations()).toEqual([]);
+  });
+
+  it('exits 2 without a token file, and asks Cloudflare nothing', async () => {
+    const { rmSync } = await import('node:fs');
+    rmSync(path.join(world.secretsDir, 'cloudflare-token'));
+    expect(await preflight()).toBe(2);
+    expect(world.output).toContain('FAIL cloudflare-token');
+    expect(world.output).toContain('skipped cloudflare-account: the token check failed');
+    expect(world.cf.calls).toEqual([]);
+  });
+
+  it('exits 2 for a token that is not active', async () => {
+    world.cf.tokenStatus = 'expired';
+    expect(await preflight()).toBe(2);
+    expect(world.output).toContain('FAIL cloudflare-token: the API token is expired');
+  });
+
+  it('exits 2 for a token that Cloudflare does not accept', async () => {
+    world.cf.expectedToken = 'another-token-0123456789';
+    expect(await preflight()).toBe(2);
+    expect(world.output).toContain('FAIL cloudflare-token');
+    expect(world.output).not.toContain('cf-api-token-value');
+  });
+
+  it('exits 2 when the account is not chosen and the token sees two', async () => {
+    world.cf.accounts.push({ id: 'b'.repeat(32), name: 'Other' });
+    expect(await preflight()).toBe(2);
+    expect(world.output).toContain('FAIL cloudflare-account: the API token sees 2 accounts');
+    expect(world.output).toContain('skipped cloudflare-zero-trust');
+  });
+
+  it('exits 2 and describes the manual step when Zero Trust is not turned on', async () => {
+    world.cf.organization = null;
+    expect(await preflight()).toBe(2);
+    expect(world.output).toContain('FAIL cloudflare-zero-trust: this account has no Zero Trust organization');
+    expect(world.output).toContain('docs/AWS.md');
+    expect(world.output).toContain('ok cloudflare-tunnel');
+  });
+
+  it.each([
+    ['cloudflare-tunnel', /\/cfd_tunnel/, 'Account / Cloudflare Tunnel / Edit'],
+    ['cloudflare-service-tokens', /\/service_tokens/, 'Account / Access: Service Tokens / Edit'],
+    ['cloudflare-zones', /^\/zones$/, 'Zone / Zone / Edit (all zones from the account)'],
+  ])('names the right that is missing for %s', async (step, pattern, right) => {
+    world.cf.denied = [pattern];
+    expect(await preflight()).toBe(2);
+    expect(world.output).toContain(`FAIL ${step}: the API token lacks the right "${right}"`);
   });
 });

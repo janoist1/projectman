@@ -96,7 +96,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
   });
 
   it('changes and clears the watch level only after owner approval', async () => {
-    await setup();
+    await setup(true);
     for (const level of ['unblock', null] as const) {
       const before = await h.domain.projects.config('AR');
       const result = await operate({ op: 'config_patch', patch: { operatorWatch: level } });
@@ -106,11 +106,24 @@ describe('Operator actions and owner approvals (PM-464)', () => {
         changes: [{ area: 'project', field: 'operatorWatch', level: 'approval', after: level }],
       });
       expect(await h.domain.projects.config('AR')).toEqual(before);
+      expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(before.team.operatorWatch);
       await resolve(result.inbox_item_id!);
       const config = await h.domain.projects.config('AR');
       expect(operatorWatchOf(config)).toBe(level ?? 'report');
+      expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(level ?? undefined);
       if (level === null) expect(config.team).not.toHaveProperty('operatorWatch');
     }
+    h = await restartDomainHarness(h);
+    expect(operatorWatchOf(await h.domain.projects.config('AR'))).toBe('report');
+  });
+
+  it('keeps the approved watch level in project state after a server restart', async () => {
+    await setup(true);
+    const result = await operate({ op: 'config_patch', patch: { operatorWatch: 'unblock' } });
+    await resolve(result.inbox_item_id!);
+    h = await restartDomainHarness(h);
+    expect((await h.domain.projectState.overview('AR')).operatorWatch).toBe('unblock');
+    expect((await h.domain.projects.config('AR')).team.operatorWatch).toBe('unblock');
   });
   it.each(['config_changed', 'session_ended', 'pause_changed'] as const)(
     'does not hold later %s listeners while an approval recheck is pending',

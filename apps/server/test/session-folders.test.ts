@@ -11,7 +11,6 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -425,12 +424,12 @@ describe('session folders (PM-268)', () => {
     const put = (name = 'msa_1-plan.pdf', sessionId = 'ses_one', from = source) =>
       folders.materializeFile(sessionId, { name, source: from });
 
-    it('copies the file to `message-attachments/<name>`, the folder 0700 and the file 0600', async () => {
+    it('links the file straight into the folder, 0600, with no subfolder', async () => {
       const { path } = await put();
-      expect(path).toBe(join(dir, 'message-attachments', 'msa_1-plan.pdf'));
+      expect(path).toBe(join(dir, 'msa_1-plan.pdf'));
       expect(readFileSync(path).equals(content)).toBe(true);
       expect(mode(path)).toBe(0o600);
-      expect(mode(join(dir, 'message-attachments'))).toBe(0o700);
+      expect(readdirSync(dir)).toEqual(['msa_1-plan.pdf']);
       // The source stays, and no staging name is left beside the folders.
       expect(existsSync(source.path)).toBe(true);
       expect(readdirSync(folders.root).filter((entry) => entry.startsWith('.part-'))).toEqual([]);
@@ -465,14 +464,14 @@ describe('session folders (PM-268)', () => {
       symlinkSync(source.path, link);
       await expect(put('a.pdf', 'ses_one', { ...source, path: link })).rejects.toThrow();
       await expect(put('a.pdf', 'ses_one', { ...source, path: base })).rejects.toThrow();
-      expect(existsSync(join(dir, 'message-attachments', 'a.pdf'))).toBe(false);
+      expect(existsSync(join(dir, 'a.pdf'))).toBe(false);
       expect(readdirSync(folders.root).filter((entry) => entry.startsWith('.part-'))).toEqual([]);
     });
 
     it('takes only a plain name', async () => {
       for (const name of ['', '.', '..', '../x', 'a/b', 'a\\b', 'x\0y', 'x'.repeat(256)])
         await expect(put(name), JSON.stringify(name)).rejects.toThrow(/plain file name/);
-      expect(existsSync(join(dir, 'message-attachments'))).toBe(false);
+      expect(readdirSync(dir)).toEqual([]);
     });
 
     it('writes into the session’s own folder only, and refuses a session without one', async () => {
@@ -480,20 +479,47 @@ describe('session folders (PM-268)', () => {
       const other = folders.allocate('ses_two');
       await folders.make('ses_two', other);
       const { path } = await put('a.pdf', 'ses_two');
-      expect(path).toBe(join(other, 'message-attachments', 'a.pdf'));
-      expect(existsSync(join(dir, 'message-attachments'))).toBe(false);
+      expect(path).toBe(join(other, 'a.pdf'));
+      expect(readdirSync(dir)).toEqual([]);
     });
 
-    it('refuses a `message-attachments` that is a link or a file, and a folder that became a link', async () => {
+    it('removes a link or a folder of that name as itself, never what it points at (PM-523)', async () => {
       const outside = join(base, 'outside');
       mkdirSync(outside);
-      symlinkSync(outside, join(dir, 'message-attachments'));
-      await expect(put()).rejects.toThrow();
-      expect(readdirSync(outside)).toEqual([]);
-      unlinkSync(join(dir, 'message-attachments'));
-      writeFileSync(join(dir, 'message-attachments'), 'a file');
-      await expect(put()).rejects.toThrow();
+      writeFileSync(join(outside, 'precious'), 'keep');
+      const name = 'msa_1-plan.pdf';
 
+      symlinkSync(outside, join(dir, name));
+      const { path } = await put(name);
+      expect(lstatSync(path).isFile()).toBe(true);
+      expect(readdirSync(outside)).toEqual(['precious']);
+
+      rmSync(path);
+      mkdirSync(join(dir, name));
+      symlinkSync(outside, join(dir, name, 'inner'));
+      await put(name);
+      expect(lstatSync(path).isFile()).toBe(true);
+      expect(readFileSync(path).equals(content)).toBe(true);
+      expect(readdirSync(outside)).toEqual(['precious']);
+      expect(readdirSync(folders.root).filter((entry) => entry.startsWith('.trash-'))).toEqual([]);
+    });
+
+    it('never touches a `message-attachments` link the agent keeps in its folder (PM-523)', async () => {
+      // The layout before PM-523 had this subfolder; the agent swapping it for a link was the attack.
+      const outside = join(base, 'outside');
+      mkdirSync(outside);
+      writeFileSync(join(outside, 'precious'), 'keep');
+      writeFileSync(join(outside, 'msa_1-plan.pdf'), 'keep too');
+      symlinkSync(outside, join(dir, 'message-attachments'));
+      const { path } = await put();
+      expect(path).toBe(join(dir, 'msa_1-plan.pdf'));
+      expect(readdirSync(outside).sort()).toEqual(['msa_1-plan.pdf', 'precious']);
+      expect(readFileSync(join(outside, 'msa_1-plan.pdf'), 'utf8')).toBe('keep too');
+    });
+
+    it('refuses a folder that became a link', async () => {
+      const outside = join(base, 'outside');
+      mkdirSync(outside);
       const swapped = folders.allocate('ses_three');
       await folders.make('ses_three', swapped);
       rmSync(swapped, { recursive: true, force: true });

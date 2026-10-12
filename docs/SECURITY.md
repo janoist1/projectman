@@ -675,6 +675,30 @@ do not apply: nothing here uses a cookie).
   script off the browser (curl) with a stolen token can send any `Origin` it likes: the token,
   not the `Origin`, is the credential there. The in-memory hourly limits are per server process.
 
+## Files the server puts into a session folder (PM-518, PM-523)
+
+`SessionFolders.materializeFile` (`engine-host/session-folders.ts`; the local and every remote
+engine run it) copies a message attachment into the session's own folder, as the server's user,
+outside the agent's sandbox. The agent writes inside its folder, so the folder's contents are
+hostile input. The boundary:
+
+- The target is `<folder>/<name>`, directly in the folder the registry recorded for the session. There
+  is no subdirectory: a directory inside the folder could be renamed away and replaced by a link
+  between the server's check and its use, and the server would then write and remove through the link
+  (PM-523: a `LaunchAgents` plist or any file the sandbox forbids, and any file deleted).
+- The folder itself is made in the folders root, which no sandbox writes, so the agent cannot rename
+  or replace it. It is checked once (a real directory of the server's user) and its path is never
+  re-resolved from a name the agent controls, other than the last element.
+- The last element is safe by itself: `link` fails for an existing name and never follows a link. A
+  name that is not the same file (the SHA-256 is compared only when `lstat` shows a regular file) is
+  renamed into the root as a `.trash-*` entry and removed there, so a link or a
+  directory the agent keeps changing is moved as itself, never walked in its place. No recursive
+  removal runs on a path in the agent's folder.
+- The content is staged in the root, checked against the size and checksum, and hard-linked in, so
+  the agent never sees a half-written file and the file is made exclusively (0600).
+- What this does not cover: the agent can delete or replace the file after the call, and it can
+  fill the folder; both stay inside its own folder.
+
 ## Findings
 
 | Severity | Finding                                                                                                                  | Status                                                                                                                                                                                                                                                                                         |

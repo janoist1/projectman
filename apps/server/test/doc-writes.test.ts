@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { BranchMerger, ToolContext } from '../src/contracts';
+import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
@@ -318,9 +319,10 @@ describe('write_project_docs (PM-495)', () => {
     it('refuses a conversation with someone who is not an owner', async () => {
       const merger = (await setup())!;
       await say('cleo', 'Please change the log');
-      const session = operatorSessions().find(
-        (s) => s.workItem.type === 'general' && s.workItem.with === 'cleo',
-      )!;
+      const session = await waitFor(
+        () => operatorSessions().find((s) => s.workItem.type === 'general' && s.workItem.with === 'cleo'),
+        { what: 'the Operator conversation with cleo' },
+      );
       expect(await refusal(write(toolOf(session)))).toMatch(/^operator_owner_only:/);
       expect(merger.commitFiles).not.toHaveBeenCalled();
       const [request] = h.repos.operatorRequests.openOfSession(session.id);

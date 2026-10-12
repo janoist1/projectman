@@ -63,6 +63,7 @@ function consequenceOf(operation: OperatorOperation, changes: ConfigChangeRow[])
     return 'review_test';
   if (changes.some((r) => r.area === 'repos' || r.field === 'workspacePath')) return 'locations';
   if (changes.some((r) => r.field.toLowerCase().includes('fix'))) return 'fix_limit';
+  if (changes.some((r) => r.field === 'operatorWatch')) return 'operator_watch';
   if (changes.some((r) => r.area === 'member')) return 'member_other';
   return changes.some((r) => r.area === 'project') ? 'project' : 'other';
 }

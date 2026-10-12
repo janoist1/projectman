@@ -12,6 +12,24 @@ const operator = { sessionId: 'ses_operator', projectKey: 'AR', member: 'operato
 const report = (key = 'AR-1') => h.domain.projectState.task('AR', key);
 
 describe('project state from server records', () => {
+  it.each([undefined, 'report', 'unblock', 'drive'] as const)(
+    'reports the watch level %s through get_project_state',
+    async (level) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          config.team.operatorWatch = level;
+        },
+      });
+      expect(await h.domain.teamTools.getProjectState(operator, {})).toHaveProperty(
+        'operatorWatch',
+        level ?? 'report',
+      );
+      const tool = TEAM_TOOLS.find((t) => t.name === 'get_project_state')!;
+      expect(await tool.run({ ctx: operator, args: {}, handler: h.domain.teamTools })).toContain(
+        `Operator watch: ${level ?? 'report'}.`,
+      );
+    },
+  );
   it('reports the shared TaskWait result before other reasons', async () => {
     h = await createDomainHarness();
     const task = await h.domain.tasks.create('AR', { title: 'Checkout' }, OWNER_ACTOR);

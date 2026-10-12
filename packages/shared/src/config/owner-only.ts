@@ -6,6 +6,7 @@ import {
 } from '../domain/member';
 import { BUILT_IN_ROLE_IDS } from '../domain/role';
 import { canonical } from './canonical';
+import { operatorWatchOf } from './operator-watch';
 import { dutyMembers, roleBundle } from './duties';
 import { stageApprovers } from './gates';
 import { labelDefinition, labelHolders } from './labels';
@@ -25,7 +26,8 @@ import type { AiMemberConfig, ProjectConfig } from './schema';
  * - `permissions`: an AI member's permission mode or approver (who answers when the CLI asks), or
  *   a new AI member that starts with other than the defaults;
  * - `review_test`: a repository's full test, `reviewTest` (the shell command the server runs in the
- *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538).
+ *   full test sandbox) or `fullTestAtMerge` (when it runs) (PM-538);
+ * - `operator_watch`: how much the Operator does on its own on a system signal (PM-548).
  */
 export type OwnerOnlyChange =
   | 'locations'
@@ -34,7 +36,8 @@ export type OwnerOnlyChange =
   | 'release_approvers'
   | 'owners'
   | 'permissions'
-  | 'review_test';
+  | 'review_test'
+  | 'operator_watch';
 
 /** The owner-only changes from `previous` to `next`, in the order above; empty when there are none. */
 export function ownerOnlyChanges(
@@ -51,6 +54,7 @@ export function ownerOnlyChanges(
   if (ownersSignature(previous) !== ownersSignature(next)) changes.push('owners');
   if (permissionsChanged(previous, next)) changes.push('permissions');
   if (reviewTestSignature(previous) !== reviewTestSignature(next)) changes.push('review_test');
+  if (operatorWatchOf(previous) !== operatorWatchOf(next)) changes.push('operator_watch');
   return changes;
 }
 

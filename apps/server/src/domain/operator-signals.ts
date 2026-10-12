@@ -3,10 +3,20 @@ import {
   operatorOf,
   OperatorSignal,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
+  aiLimitReached,
+  isOnLeave,
   isWorkPaused,
+  memberOf,
+  stageIndex,
+  stageOf,
+  stageOwners,
+  OPERATOR_IDLE_MINUTES,
+  OPERATOR_MERGE_WAIT_MINUTES,
+  OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SILENT_WORK_MINUTES,
+  OPERATOR_UNRELEASED_HOURS,
 } from '@projectman/shared';
-import type { OperatorSignalKind } from '@projectman/shared';
+import type { OperatorSignalKind, ProjectConfig, Stage, Task, TaskWait } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../db';
 import type { DomainContext } from './context';
 import { isoNow } from './context';
@@ -15,6 +25,7 @@ import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { MessageDelivery } from './messaging';
 import type { TaskWaits } from './tasks';
+import type { ReleaseService } from './releases';
 import { conflict } from './errors';
 import { newId } from './util';
 
@@ -26,6 +37,15 @@ type SignalInput = {
   subject?: string | null;
   inboxItemId?: string | null;
 };
+
+/** The kinds raised and closed from the board's facts (PM-547), not from an event. */
+const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
+  'idle',
+  'merge_waiting',
+  'merge_blocked',
+  'unreleased',
+  'ready_waiting',
+]);
 
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
@@ -39,6 +59,7 @@ export class OperatorSignals {
     delivery: MessageDelivery;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
+    releases: Pick<ReleaseService, 'unreleased'>;
   }) {
     this.deps = privateDeps;
   }
@@ -50,6 +71,7 @@ export class OperatorSignals {
     delivery: MessageDelivery;
     taskWaits: TaskWaits;
     activeOutageIds: (projectKey: string) => ReadonlySet<string> | null;
+    releases: Pick<ReleaseService, 'unreleased'>;
   };
 
   raise(input: SignalInput): OperatorSignalRecord {
@@ -177,11 +199,18 @@ export class OperatorSignals {
           taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
         });
       }
+      for (const input of this.boardCases(config, cards).values()) {
+        active.add(input.caseKey);
+        this.raise(input);
+      }
       const outages = this.deps.activeOutageIds(key);
       for (const signal of this.deps.ctx.repos.operatorSignals.list(key)) {
         if (signal.kind === 'outage' && outages !== null && !outages.has(signal.subject ?? ''))
           this.resolve(key, signal.caseKey);
-        if ((signal.kind === 'nobody' || signal.kind === 'silent') && !active.has(signal.caseKey))
+        if (
+          (signal.kind === 'nobody' || signal.kind === 'silent' || BOARD_KINDS.has(signal.kind)) &&
+          !active.has(signal.caseKey)
+        )
           this.resolve(key, signal.caseKey);
         if (
           signal.kind === 'stalled' &&
@@ -219,10 +248,22 @@ export class OperatorSignals {
 
   private pending(projectKey: string): OperatorSignalRecord[] {
     const { ctx, projects, taskWaits } = this.deps;
+    let board: Map<string, SignalInput> | undefined;
     return ctx.repos.operatorSignals.list(projectKey).filter((s) => {
       if (s.state !== 'pending' || s.resolvedAt || s.deliveredAt) return false;
       let valid = true;
-      if (s.kind === 'nobody') {
+      if (BOARD_KINDS.has(s.kind)) {
+        const config = projects.cachedConfig(projectKey);
+        board ??= config ? this.boardCases(config, ctx.repos.tasks.list(projectKey)) : new Map();
+        valid = board.has(s.caseKey);
+        // Free capacity is raised at once but wakes the Operator only if it lasts (PM-547).
+        if (
+          valid &&
+          s.kind === 'ready_waiting' &&
+          ctx.now().getTime() - Date.parse(s.raisedAt) < OPERATOR_READY_WAITING_MINUTES * 60_000
+        )
+          return false;
+      } else if (s.kind === 'nobody') {
         const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
         const config = projects.cachedConfig(projectKey);
         valid =
@@ -243,6 +284,121 @@ export class OperatorSignals {
       if (!valid) this.resolve(projectKey, s.caseKey);
       return valid;
     });
+  }
+  /**
+   * The cases of the board kinds that hold now (PM-547), read from the cards, merges, sessions and releases
+   * only; the sweep raises and closes by it and `pending` checks a signal against it before waking anyone.
+   */
+  private boardCases(config: ProjectConfig, cards: readonly Task[]): Map<string, SignalInput> {
+    const { ctx, taskWaits, admission, sessions, releases } = this.deps;
+    const projectKey = config.project.key;
+    const now = ctx.now().getTime();
+    const found = new Map<string, SignalInput>();
+    const add = (input: Omit<SignalInput, 'projectKey'>) =>
+      found.set(input.caseKey, { projectKey, ...input });
+    const works = config.team.limits.aiEnabled && !isWorkPaused(ctx.repos.pauses.open(), projectKey);
+    const aiMember = (handle: string) => {
+      const member = memberOf(config, handle);
+      return member?.kind === 'ai' ? member : null;
+    };
+    const waits = taskWaits.of(config, cards);
+
+    if (works) {
+      const activeAt = new Map<string, number>();
+      for (const session of ctx.repos.sessions.list(projectKey)) {
+        if (session.workItem.type !== 'task') continue;
+        const at = Math.max(
+          Date.parse(session.lastActivityAt),
+          session.endedAt ? Date.parse(session.endedAt) : 0,
+        );
+        activeAt.set(session.workItem.taskKey, Math.max(activeAt.get(session.workItem.taskKey) ?? 0, at));
+      }
+      for (const task of cards) {
+        const wait = waits.get(task.key);
+        const stage = stageOf(config, task.stageId);
+        if (!wait || !stage || (stage.kind !== 'work' && stage.kind !== 'step')) continue;
+        const holders = this.idleHolders(config, stage, wait);
+        const idleSince = Math.max(Date.parse(wait.since), activeAt.get(task.key) ?? 0);
+        if (holders.length === 0 || now - idleSince < OPERATOR_IDLE_MINUTES * 60_000) continue;
+        add({
+          kind: 'idle',
+          caseKey: `idle:${task.key}:${task.stageId}`,
+          taskKey: task.key,
+          subject: holders.join(','),
+        });
+      }
+      for (const row of ctx.repos.taskMerges.list('requested')) {
+        if (
+          row.projectKey !== projectKey ||
+          row.startedAt ||
+          !aiMember(row.merger) ||
+          now - Date.parse(row.requestedAt) < OPERATOR_MERGE_WAIT_MINUTES * 60_000
+        )
+          continue;
+        add({
+          kind: 'merge_waiting',
+          caseKey: `merge_waiting:${row.taskKey}`,
+          taskKey: row.taskKey,
+          subject: row.merger,
+        });
+      }
+    }
+
+    for (const state of ['failed', 'blocked'] as const)
+      for (const row of ctx.repos.taskMerges.list(state)) {
+        if (row.projectKey !== projectKey || !aiMember(row.merger)) continue;
+        add({
+          kind: 'merge_blocked',
+          caseKey: `merge_blocked:${row.taskKey}`,
+          taskKey: row.taskKey,
+          subject: row.failure?.reason ?? row.block?.reason ?? state,
+        });
+      }
+
+    const unreleased = releases.unreleased(projectKey);
+    if (unreleased && now - Date.parse(unreleased.oldestAt) >= OPERATOR_UNRELEASED_HOURS * 3_600_000)
+      add({
+        kind: 'unreleased',
+        caseKey: `unreleased:${unreleased.base}`,
+        taskKey: null,
+        subject: String(unreleased.taskKeys.length),
+      });
+
+    if (works && !aiLimitReached(config, sessions.busyCount())) {
+      const free = new Set<string>();
+      for (const task of cards) {
+        const index = stageIndex(config.pipeline, task.stageId);
+        const next = config.pipeline.stages[index + 1];
+        if (index <= 0 || next?.kind !== 'work' || stageOf(config, task.stageId)?.kind !== 'queue') continue;
+        if (waits.get(task.key)?.reason !== 'ready') continue;
+        for (const handle of stageOwners(config, next)) {
+          const member = aiMember(handle);
+          if (
+            member &&
+            !isOnLeave(member) &&
+            !member.temp &&
+            admission.memberLoad(config, handle) < member.capacity
+          )
+            free.add(handle);
+        }
+      }
+      if (free.size > 0)
+        add({ kind: 'ready_waiting', caseKey: 'ready_waiting', taskKey: null, subject: [...free].join(',') });
+    }
+    return found;
+  }
+
+  /** The AI members, not on leave, that hold an idle card: its assignee, or the owners of the step it stands in. */
+  private idleHolders(config: ProjectConfig, stage: Stage, wait: TaskWait): string[] {
+    const available = (handles: readonly string[]) =>
+      handles.filter((handle) => {
+        const member = memberOf(config, handle);
+        return member?.kind === 'ai' && !isOnLeave(member);
+      });
+    if (wait.reason === 'assignee') return available(wait.next.map((entry) => entry.handle));
+    if (wait.reason !== 'queued') return [];
+    if (wait.next.length > 0) return available(wait.next.map((entry) => entry.handle));
+    return stage.kind === 'step' ? available(stageOwners(config, stage)) : [];
   }
   private due(projectKey: string): boolean {
     const last = this.deps.ctx.repos.operatorSignals

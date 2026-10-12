@@ -163,11 +163,16 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
 }
 
 function signalLine(signal: OperatorSignal): string {
-  const explanations = {
+  const explanations: Record<OperatorSignal['kind'], string> = {
     outage: 'A provider or engine outage needs attention.',
     nobody: 'Nobody can take the card on.',
     stalled: 'The session is stalled.',
     silent: 'The working session has been silent too long.',
+    idle: 'The card has an AI holder, but no work has run on it for a while.',
+    merge_waiting: 'The merge was requested, but the merger has not started it.',
+    merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
+    unreleased: 'Work merged on the default branch has waited a long time for a release.',
+    ready_waiting: 'Startable cards wait while a developer has free capacity.',
   };
   return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }

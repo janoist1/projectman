@@ -241,6 +241,33 @@ describe('the tunnel', () => {
     expect((world.cf.configs.get(tunnel.id)!.ingress as unknown[]).length).toBe(4);
   });
 
+  it('removes an origin setting that was added at the top of the tunnel configuration', async () => {
+    expect(await edge()).toBe(0);
+    const tunnel = world.cf.tunnels[0]!;
+    const stored = world.cf.configs.get(tunnel.id)!;
+    world.cf.configs.set(tunnel.id, { ...stored, originRequest: { httpHostHeader: '127.0.0.1:4700' } });
+    world.lines.length = 0;
+    expect(await edge()).toBe(0);
+    expect(world.output).toContain('updated tunnel-config');
+    const after = world.cf.configs.get(tunnel.id)!;
+    expect(after.originRequest).toBeUndefined();
+    expect(JSON.stringify(after)).not.toContain('httpHostHeader');
+  });
+
+  it('lets the empty defaults of a tunnel configuration through', async () => {
+    expect(await edge()).toBe(0);
+    const tunnel = world.cf.tunnels[0]!;
+    const stored = world.cf.configs.get(tunnel.id)!;
+    world.cf.configs.set(tunnel.id, {
+      ...stored,
+      originRequest: {},
+      'warp-routing': { enabled: false },
+    });
+    world.lines.length = 0;
+    expect(await edge()).toBe(0);
+    expect(world.output).toContain('unchanged tunnel-config');
+  });
+
   it('refuses a tunnel that is configured from a file', async () => {
     world.cf.tunnels.push({
       id: 'tun-local',

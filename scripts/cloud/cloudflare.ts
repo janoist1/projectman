@@ -989,6 +989,23 @@ function normalizeIngress(rules: readonly unknown[]): unknown[] {
   });
 }
 
+/**
+ * What else the tunnel configuration holds besides the ingress. A top-level `originRequest` applies to every
+ * rule that has none of its own (an `httpHostHeader` there would reach the main rule), so anything meaningful
+ * counts as a difference; only the empty defaults Cloudflare returns by itself are let through.
+ */
+function foreignConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
+  const rest: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(config)) {
+    if (key === 'ingress') continue;
+    if (value === null || value === undefined) continue;
+    if (key === 'originRequest' && typeof value === 'object' && Object.keys(value).length === 0) continue;
+    if (key === 'warp-routing' && sameJson(value, { enabled: false })) continue;
+    rest[key] = value;
+  }
+  return rest;
+}
+
 async function ensureTunnelConfig(state: EdgeState, tunnel: Tunnel | null): Promise<void> {
   const { config } = state.context;
   await runStep(state, 'tunnel-config', async () => {
@@ -1002,7 +1019,10 @@ async function ensureTunnelConfig(state: EdgeState, tunnel: Tunnel | null): Prom
       (await withRight(RIGHT_TUNNEL, () => state.api.getOrNull(path))) ?? {},
       'tunnel configuration',
     );
-    if (sameJson(normalizeIngress(current.config?.ingress ?? []), normalizeIngress(ingress)))
+    if (
+      sameJson(normalizeIngress(current.config?.ingress ?? []), normalizeIngress(ingress)) &&
+      Object.keys(foreignConfigKeys(current.config ?? {})).length === 0
+    )
       return { status: 'unchanged', detail: `${ingress.length} ingress rules` };
     if (state.options.dryRun) return dry('put the ingress right');
     await withRight(RIGHT_TUNNEL, () => state.api.put(path, { config: { ingress } }));

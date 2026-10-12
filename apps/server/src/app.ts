@@ -54,6 +54,7 @@ import {
 import { freeBytesOf } from './engine-host';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
+import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
 import { assertHomeMayStart } from './instance';
 import { createMcpModule } from './mcp';
 import { createReadinessBoundary, createRunnerModule, ManagedVmUnavailableError } from './runner';
@@ -430,6 +431,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   let repos: Repositories | null = null;
   try {
+    // The widget's public hostname serves only its own paths (PM-513). Registered first, so it runs
+    // before the cookie, auth and every other hook, and a bad address stops the start.
+    if (options.feedbackPublicUrl)
+      registerFeedbackHostGuard(app, parseFeedbackPublicUrl(options.feedbackPublicUrl));
     await app.register(fastifyCookie, { secret: loadOrCreateSecret(home) });
     await app.register(fastifyWebsocket, {
       options: { maxPayload: options.engineMode === 'cloud' ? ENGINE_MAX_FRAME_BYTES : 1024 * 1024 },

@@ -13,6 +13,11 @@
 # It is read by curl only; the script never prints it. The origin defaults to
 # https://chopper.istvan.io.
 #
+# FEEDBACK_ORIGIN (optional, e.g. https://jelolo.example.com) adds the checks of the marking
+# widget's public entrance (PM-513), which has no Access application: they carry neither the Access
+# token nor a login.
+#   FEEDBACK_ORIGIN=https://jelolo.example.com LOGIN_JSON=... deploy/cloudflare/check.sh
+#
 # What it leaves behind: nothing. The Access token goes to a mode-600 header file in a temporary
 # directory (not onto a command line), the cookie jar and the header dumps live there too, the
 # projectman session it creates is logged out at the end, and the directory is removed when the
@@ -196,6 +201,42 @@ if [ "$login_ok" -eq 0 ]; then
     2??) pass 'the script logged its session out' ;;
     *) fail "the script's session could not be logged out (HTTP $code); log it out in the app" ;;
   esac
+fi
+
+# The marking widget's public entrance (PM-506, PM-513), when FEEDBACK_ORIGIN names it. It has no
+# Access application, so none of these requests carries the Access token or a login.
+if [ -n "${FEEDBACK_ORIGIN:-}" ]; then
+  feedback_origin="${FEEDBACK_ORIGIN%/}"
+  echo
+  echo "== The widget's public entrance, without Access ($feedback_origin) =="
+  # No Access token header here, unlike acurl above.
+  fcurl() { curl -sS --max-time 15 "$@"; }
+
+  code=$(fcurl -o "$tmp/widget.body" -w '%{http_code}' "$feedback_origin/feedback/widget.js")
+  if [ "$code" = 200 ]; then
+    pass 'GET /feedback/widget.js is 200'
+  else
+    fail "GET /feedback/widget.js is not 200 (HTTP $code)"
+  fi
+
+  # A page that is not one of the instance's surfaces is refused, and gets no CORS grant.
+  code=$(fcurl -o /dev/null -D "$tmp/preflight.headers" -w '%{http_code}' -X OPTIONS \
+    -H "Origin: $foreign_origin" -H 'Access-Control-Request-Method: POST' \
+    "$feedback_origin/feedback/api/v1/marks")
+  if [ "$code" = 403 ]; then pass 'OPTIONS /feedback/api/v1/marks from a foreign Origin is 403'; else fail "OPTIONS /feedback/api/v1/marks from a foreign Origin is not 403 (HTTP $code)"; fi
+  if has_header "$tmp/preflight.headers" 'access-control-allow-origin:'; then
+    fail 'the refused preflight carries an access-control-allow-origin header'
+  else
+    pass 'the refused preflight carries no access-control-allow-origin header'
+  fi
+
+  # Everything else is not served on this hostname: the tunnel's 404 rule, and behind it the server's
+  # host guard. The last path is sent as written (--path-as-is): Cloudflare's ^/feedback/ rule lets it
+  # through, so only the server can refuse it.
+  for path in / /api/setup /ws /hooks/x /mcp/x /feedback/../api/setup; do
+    code=$(fcurl --path-as-is -o /dev/null -w '%{http_code}' "$feedback_origin$path")
+    if [ "$code" = 404 ]; then pass "GET $path is 404"; else fail "GET $path is not 404 (HTTP $code)"; fi
+  done
 fi
 
 echo

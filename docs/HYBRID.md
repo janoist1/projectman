@@ -159,6 +159,24 @@ ingress is set in the Cloudflare dashboard, not in a config file as in the PM-20
 Access is the first lock, projectman's login the second: the engine link also needs its own
 machine key, and the integrator its bearer key. A service token alone gets nowhere in projectman.
 
+### The marking widget's public hostname (PM-513)
+
+The marking widget on a customer's page cannot pass Access, so it needs a hostname without it
+(the reasoning and the checks: [DEPLOY.md](DEPLOY.md) step 7, [SECURITY.md](SECURITY.md) "The
+widget's public hostname"). On the token-managed tunnel the same thing is done in the dashboard:
+
+1. Add a **second public hostname**, for example `jelolo.example.com`, with the path `^/feedback/`
+   and the service `http://127.0.0.1:4700`. Again **no HTTP Host header override**: the server's
+   host guard reads the original `Host`. Add no rule for that hostname without the path: the
+   guard answers 404 to everything outside `/feedback/widget.js` and `/feedback/api/v1/*`, and the
+   tunnel answers 404 to a hostname with no matching rule.
+2. Add **no Access application** for it. The application of step 3 covers `projectman.example.com`
+   only, and nothing in this hostname's paths gives access to the application.
+3. The server needs `PROJECTMAN_FEEDBACK_PUBLIC_URL=https://jelolo.example.com` (hostname only). The
+   image does not set it: whoever installs it gives it as a variable next to the others
+   (`fly secrets`/`[env]` for Fly), and a wrong value stops the server at start. Without it
+   there is no host guard; do not publish the hostname before the variable is set.
+
 ## First setup, remotely
 
 A new installation has no owner. From a browser through the tunnel the server cannot tell you from

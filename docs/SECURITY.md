@@ -954,6 +954,9 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
    every repository and are never put into text, notes or messages. The Cloudflare account has a
    passkey or hardware key.
 
+7. The marking widget has its own hostname on the same tunnel, outside Access (PM-513, next
+   subsection).
+
 **Residual risks** (known when the owner chose this entrance, PM-200; they do not go away):
 
 - **Cloudflare sees all traffic in clear.** TLS ends at its edge, so it can read the terminal
@@ -975,3 +978,39 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`.
+
+### The widget's public hostname (PM-506, PM-513)
+
+The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
+its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
+The Access application of the application's hostname is not weakened and no Bypass policy is
+added. What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
+their session, origin and limit rules are in "The feedback tool's public API".
+
+1. **The tunnel passes only `^/feedback/`** on that hostname, and answers 404 to the rest of it
+   (`deploy/cloudflare/config.example.yml`). Like the application's rules it has no
+   `httpHostHeader`.
+2. **The server's host guard is the second lock** (`src/http/feedback-host-guard.ts`, registered
+   as the first `onRequest` hook, before the auth hook). It is on when
+   `PROJECTMAN_FEEDBACK_PUBLIC_URL` is set to a non-loopback address. For a request whose `Host`
+   (lower-case, with its port, without a trailing dot) is that address, anything outside the
+   list gets the same 404 an unknown server route gets, so a wrong or missing tunnel rule does
+   not expose `/api`, `/ws`, `/hooks`, `/mcp` or the web app there. A websocket upgrade is
+   refused and its socket closed.
+3. **The list is strict and read from the raw request target**, the text before the `?`, with no
+   decoding and no normalization: exactly `/feedback/widget.js`, or `/feedback/api/v1/` followed by
+   segments of `[A-Za-z0-9_-]` separated by single `/`. `..`, `.`, `%`-encoding, `\`, `//`, a
+   trailing `/` and other letter case are all outside it. The reason is that Cloudflare's
+   `^/feedback/` rule passes `/feedback/../api/setup` on, and a router may read such a path
+   differently from the way the proxy did. `app.inject` normalizes URLs, so the tests write the
+   raw request to a socket.
+4. **A wrong `PROJECTMAN_FEEDBACK_PUBLIC_URL` stops the server at start**: `https` is required
+   (`http` only on a loopback host), and no user name, path, query or `#`.
+5. The guard keys on the `Host` header, so it guards the tunnel's traffic, not local callers: a
+   process on the machine can send any `Host` to the loopback port, and it is already the machine's
+   own user. Requests for the application's hostname are not changed by the guard.
+
+**Residual risks.** The guard protects the public hostname, not the application's hostname: if the
+tunnel's rules for the application's hostname were lost, Access would still be the lock there, as
+before. The widget's token on the customer's page is the risk described in "The feedback tool's
+public API" (XSS on that site). Cloudflare sees this traffic in clear like the rest.

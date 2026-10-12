@@ -202,6 +202,8 @@ export interface BuildAppOptions {
   /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
   setupCode?: string;
   appVersion?: string;
+  /** The release tag on the running build's commit (`createAppTagReader`, PM-542); absent: no tag known. */
+  appTag?: () => Promise<string | null>;
   /**
    * The project and repository that are this instance itself (`PROJECTMAN_RELEASE_TARGET`, PM-491):
    * its releases are proposed, approved and deployed. Absent: releases are off.
@@ -575,6 +577,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
 
     const domain = createDomain({
       appVersion: options.appVersion ?? 'dev',
+      ...(options.appTag ? { appTag: options.appTag } : {}),
       ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
       engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
       runtimeBoundary,

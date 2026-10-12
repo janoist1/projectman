@@ -345,6 +345,17 @@ export interface ProposedRelease {
   tasks: { key: string; title: string }[];
 }
 
+/**
+ * What check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
+ * propose_release would give now. Nothing is recorded.
+ */
+export interface ReleaseCheckResult {
+  candidate: { commit: string; baseCommit: string | null; tasks: { key: string; title: string }[] } | null;
+  refusal: { code: string; message: string } | null;
+  /** The members with the deployment duty: they may propose the release. */
+  proposers: string[];
+}
+
 export interface TeamToolsHandler {
   getProjectState(
     ctx: ToolContext,
@@ -486,6 +497,8 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { title: string; summary: string; commit?: string; preview?: boolean },
   ): Promise<ProposedRelease>;
+  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
+  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
   updateTask(
     ctx: ToolContext,
     args: {

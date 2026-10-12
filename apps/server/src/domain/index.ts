@@ -223,6 +223,8 @@ export interface DomainOptions {
   releaseTarget?: ReleaseTarget;
   /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
   appVersion?: string;
+  /** The release tag on the running build's commit (PM-542); absent: none. */
+  appTag?: () => Promise<string | null>;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
   runtimeBoundary?: RuntimeBoundary;
@@ -860,6 +862,7 @@ export function createDomain(opts: DomainOptions) {
     engines,
     target: opts.releaseTarget ?? null,
     appVersion: () => opts.appVersion ?? 'dev',
+    appTag: opts.appTag ?? (async () => null),
     // The instance's own repository is on the machine the server runs on.
     engineId: () => LOCAL_ENGINE_ID,
   });
@@ -1013,6 +1016,7 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     taskWaits,
     operatorSignals,
+    releases,
   });
   const teamTools = new TeamToolsService({
     projectState,

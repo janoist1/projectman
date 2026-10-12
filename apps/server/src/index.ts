@@ -15,7 +15,7 @@ import { createServerLogStream, serverLogFile } from './logging/server-log';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './domain';
-import { resolveAppVersion } from './engine-link';
+import { createAppTagReader, resolveAppVersion } from './engine-link';
 import { EngineConfigError } from './engine-link/engine-config';
 
 /**
@@ -169,6 +169,7 @@ async function configFromEnv(
     app: {
       engineMode,
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
+      appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
       ...(releaseTarget ? { releaseTarget } : {}),
       modules: machineFixture
         ? {

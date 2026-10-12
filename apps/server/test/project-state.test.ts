@@ -3,6 +3,7 @@ import { createDomainHarness, OWNER_ACTOR, type DomainHarness } from './helpers/
 import { flush, planUsage } from './helpers/fakes';
 import { TEAM_TOOLS } from '../src/mcp';
 import { formatProjectState } from '../src/mcp/format';
+import { waitFor } from '../src/runner/test-helpers';
 
 let h: DomainHarness;
 afterEach(async () => {
@@ -249,6 +250,34 @@ describe('project state from server records', () => {
     expect((await report()).openQuestions).toEqual([]);
     expect((await report()).session).toBeNull();
     expect((await h.domain.projectState.overview('AR')).openOwnerItems).toEqual([]);
+  });
+
+  it('has no release block when this instance does not release the project', async () => {
+    h = await createDomainHarness();
+    const overview = await h.domain.projectState.overview('AR');
+    expect(overview.release).toBeNull();
+    expect(formatProjectState(overview)).toContain('Release: this instance does not release this project.');
+  });
+
+  it('reports the starts without a card and the undelivered messages of the AI members', async () => {
+    h = await createDomainHarness({ adjust: (c) => void (c.team.limits.aiEnabled = false) });
+    expect((await h.domain.projectState.overview('AR')).waitingMessages).toEqual([]);
+    const first = await h.domain.messaging.send('AR', 'owner', {
+      to: ['dev-1'],
+      text: 'First general note.',
+    });
+    await h.domain.messaging.send('AR', 'owner', { to: ['dev-1'], text: 'Second general note.' });
+    await waitFor(async () =>
+      (await h.domain.projectState.overview('AR')).waitingStarts.find((s) => s.taskKey === null),
+    );
+    const overview = await h.domain.projectState.overview('AR');
+    expect(overview.waitingStarts).toEqual([{ taskKey: null, member: 'dev-1', reason: 'ai_disabled' }]);
+    expect(overview.waitingMessages).toEqual([
+      { member: 'dev-1', count: 2, oldestAt: h.repos.messages.get(first.id)!.createdAt },
+    ]);
+    const text = formatProjectState(overview);
+    expect(text).toContain('- general, dev-1: ai_disabled');
+    expect(text).toContain('- dev-1: 2, the oldest sent');
   });
 
   it('allows the Operator to read without an owner request and refuses other callers', async () => {

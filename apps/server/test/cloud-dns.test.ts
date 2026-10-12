@@ -370,6 +370,27 @@ describe('DNS commands', () => {
     expect(await run('verify')).toBe(1);
     expect(world.output).toContain('Cloudflare name server does not answer for the pending zone');
   });
+  it('warns for a pending nonapex alias with CNAME answers and permits the verified switch', async () => {
+    world.cf.zones[0]!.status = 'pending';
+    sources = [{ Name: 'alias.example.com.', Type: 'A', AliasTarget: { DNSName: 'elb.test.' } }];
+    answers = (_name, type, server) => {
+      if (['192.0.2.1', '192.0.2.2'].includes(server)) return type === 'CNAME' ? ['ELB.TEST.'] : [];
+      return ['192.0.2.100'];
+    };
+    expect(await run('verify')).toBe(0);
+    expect(world.output).toContain('WARN alias alias.example.com A');
+    expect(world.output).not.toContain('does not answer for the pending zone');
+    expect(await run('switch')).toBe(0);
+    expect(awsCalls.filter((call) => call[7] === 'update-domain-nameservers')).toHaveLength(1);
+  });
+  it('still refuses an alias when pending authorities provide neither address nor CNAME', async () => {
+    world.cf.zones[0]!.status = 'pending';
+    sources = [{ Name: 'alias.example.com.', Type: 'A', AliasTarget: { DNSName: 'elb.test.' } }];
+    answers = (_name, _type, server) => (['192.0.2.1', '192.0.2.2'].includes(server) ? [] : ['192.0.2.100']);
+    expect(await run('switch')).toBe(2);
+    expect(world.output).toContain('does not answer for the pending zone');
+    expect(awsCalls.some((call) => call[7] === 'update-domain-nameservers')).toBe(false);
+  });
   it('shows public delegation, DNSSEC, auto-renew, and requests activation', async () => {
     world.cf.zones[0]!.status = 'pending';
     ds = ['123 13 2 digest'];

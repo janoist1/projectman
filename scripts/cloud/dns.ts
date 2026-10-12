@@ -337,7 +337,10 @@ export async function runDnsVerify(context: CloudContext): Promise<void> {
     let unavailable = false;
     for (const authority of addresses) {
       try {
-        const answers = normalizedAnswers(type, await context.deps.resolve(name, type, [authority.ip]));
+        let answers = normalizedAnswers(type, await context.deps.resolve(name, type, [authority.ip]));
+        // A DNS-only alias may return a CNAME rather than a flattened address at Cloudflare.
+        if (!answers.length && source.AliasTarget && authority.cloudflare && ['A', 'AAAA'].includes(type))
+          answers = normalizedAnswers('CNAME', await context.deps.resolve(name, 'CNAME', [authority.ip]));
         if (!answers.length && authority.cloudflare && zone.status === 'pending') {
           context.report.line(
             `FAIL ${name} ${type}: the Cloudflare name server does not answer for the pending zone (${authority.name}); use dns plan with every record same as fallback evidence`,

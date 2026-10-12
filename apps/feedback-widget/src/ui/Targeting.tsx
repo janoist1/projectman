@@ -1,4 +1,4 @@
-import { useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { Controller, Mode, Target } from '../controller';
 import { snippetOf } from '../anchor';
 import type { Point, Rect } from '../anchor';
@@ -102,6 +102,17 @@ export function Targeting({ controller, mode }: { controller: Controller; mode: 
   const [hover, setHover] = useState<Rect | null>(null);
   const [drag, setDrag] = useState<{ from: Point; to: Point } | null>(null);
   const moved = useRef(false);
+
+  // The frame is in viewport coordinates: a scroll or a resize leaves it on the wrong element.
+  useEffect(() => {
+    const forget = (): void => setHover(null);
+    window.addEventListener('scroll', forget, true);
+    window.addEventListener('resize', forget);
+    return () => {
+      window.removeEventListener('scroll', forget, true);
+      window.removeEventListener('resize', forget);
+    };
+  }, []);
 
   const pointOf = (event: PointerEvent): Point => ({ x: event.clientX, y: event.clientY });
 

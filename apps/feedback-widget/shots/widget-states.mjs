@@ -354,7 +354,8 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await cancelCard(app);
   });
   await step('new mark card: picture, waiting, none, errors', async () => {
-    await startMark(app, 'Pont', { x: 600, y: 420 });
+    // x stays inside 390 px: the same page point has to be on the screen at the phone width too.
+    await startMark(app, 'Pont', { x: 300, y: 420 });
     await app.locator('textarea').fill('Ez a rész lemarad a képernyő szélén.');
     await app
       .waitForSelector('[role="dialog"] img', { timeout: 15000 })
@@ -372,7 +373,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await app.evaluate(() => {
       window.__shotSlow = true;
     });
-    await startMark(app, 'Pont', { x: 600, y: 420 });
+    await startMark(app, 'Pont', { x: 300, y: 420 });
     await app.locator('textarea').fill('Ez a rész lemarad a képernyő szélén.');
     await settle(app);
     await shoot(app, 'widget-new-image-wait', { widths: [1512, 390] });
@@ -382,7 +383,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       window.__shotSlow = false;
       window.__shotFails = true;
     });
-    await startMark(app, 'Pont', { x: 600, y: 420 });
+    await startMark(app, 'Pont', { x: 300, y: 420 });
     await app.locator('textarea').fill('Ez a rész lemarad a képernyő szélén.');
     await settle(app, 1500);
     await shoot(app, 'widget-new-image-failed', { widths: [1512, 390] });

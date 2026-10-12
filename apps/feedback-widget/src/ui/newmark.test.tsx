@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'preact';
 import { act } from 'preact/test-utils';
 import { createController } from '../controller';
@@ -123,6 +123,66 @@ describe('the new-mark card', () => {
     const field = container.querySelector('textarea');
     expect(field?.getAttribute('aria-label')).toBe(field?.getAttribute('placeholder'));
     expect(field?.getAttribute('aria-label')).not.toBe(container.querySelector('h2')?.textContent);
+  });
+
+  it('scrolls the page on a phone so the marked place shows above the sheet', async () => {
+    const width = window.innerWidth;
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    window.innerWidth = 390;
+    try {
+      await openCardWith(pointTarget());
+      expect(scrollBy).toHaveBeenCalled();
+      expect(scrollBy.mock.calls[0]?.[0]).toMatchObject({ top: expect.any(Number) });
+    } finally {
+      window.innerWidth = width;
+      scrollBy.mockRestore();
+    }
+  });
+
+  it('does not scroll the page on a wide screen', async () => {
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+    await openCardWith(pointTarget());
+    expect(scrollBy).not.toHaveBeenCalled();
+    scrollBy.mockRestore();
+  });
+
+  it('forgets the element frame when the page scrolls or resizes', async () => {
+    window.localStorage.setItem(sessionKey({ apiOrigin: API, projectKey: 'PM' }), JSON.stringify(session()));
+    const server = fakeServer({
+      'GET /marks': () => reply(200, { marks: [], markers: [], cursor: 'c', me: session().me }),
+    });
+    controller = createController({
+      win: window,
+      base: API,
+      projectKey: 'PM',
+      fetchImpl: server.fetchImpl,
+      capture: (async () => null) as never,
+    });
+    const target = document.createElement('section');
+    target.getBoundingClientRect = () => new DOMRect(10, 20, 100, 50);
+    document.body.append(target);
+    const under = vi.spyOn(document, 'elementFromPoint').mockReturnValue(target);
+    await act(async () => {
+      render(<App controller={controller} />, container);
+      await controller.start();
+      await flush();
+      controller.finishWelcome();
+      controller.beginMode('element');
+      await flush();
+    });
+    const overlay = container.querySelector('.target');
+    await act(async () => {
+      overlay?.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 30, clientY: 40 }));
+      await flush();
+    });
+    expect(container.querySelector('.target-frame')).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new Event('resize'));
+      await flush();
+    });
+    expect(container.querySelector('.target-frame')).toBeNull();
+    under.mockRestore();
+    target.remove();
   });
 
   it('does not disable send on an empty text: it moves to the field instead and requests nothing', async () => {

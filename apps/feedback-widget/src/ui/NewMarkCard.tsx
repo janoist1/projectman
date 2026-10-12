@@ -1,4 +1,4 @@
-import { useRef } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
 import type { Controller, Draft, State } from '../controller';
 import { COUNTER_FROM, MAX_BODY } from '../controller';
 import { t } from '../i18n';
@@ -6,7 +6,7 @@ import { tipOfTarget } from './place';
 import { CloseButton, Dialog } from './Dialog';
 import { Avatar, colorVar } from './common';
 import { useViewTick } from './hooks';
-import { cardPlace } from './layout';
+import { cardPlace, revealScroll } from './layout';
 
 /** The new-mark card: what was marked, the text, the screenshot switch and the send row. */
 export function NewMarkCard({
@@ -21,6 +21,7 @@ export function NewMarkCard({
   phone: boolean;
 }) {
   const field = useRef<HTMLTextAreaElement>(null);
+  const root = useRef<HTMLDivElement>(null);
   const person = state.me ?? state.session?.me ?? null;
   const length = draft.body.length;
   const over = length > MAX_BODY;
@@ -29,6 +30,16 @@ export function NewMarkCard({
     width: window.innerWidth,
     height: window.innerHeight,
   });
+
+  // On a phone the sheet covers the bottom of the page: scroll so the draft marker shows above it.
+  const shotStatus = draft.shot.status;
+  useEffect(() => {
+    const sheet = root.current;
+    const found = controller.viewportOf(draft.target);
+    if (!phone || !sheet || !found) return;
+    const delta = revealScroll(found.y, sheet.getBoundingClientRect().top);
+    if (delta !== 0) window.scrollBy({ top: delta, behavior: 'auto' });
+  }, [controller, draft.target, phone, shotStatus]);
 
   const send = (): void => {
     if (over || draft.body.trim() === '') {
@@ -48,6 +59,7 @@ export function NewMarkCard({
       kind="card new"
       place={place}
       phone={phone}
+      rootRef={root}
       initialFocus={() => field.current}
     >
       <div class="bar" style={{ '--pc': colorVar(person) }} aria-hidden="true" />

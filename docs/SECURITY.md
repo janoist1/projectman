@@ -248,6 +248,35 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   secrets. Authentication records are not broadcast. Markdown builds escaped React
   elements, permits HTTP(S) links only, and uses `noopener noreferrer`.
 
+### Message attachments (PM-516, PM-518, PM-520, PM-524)
+
+Message files live in `PROJECTMAN_HOME/message-attachments/<projectKey>/<id>`, in 0700
+directories with 0600 files, separate from task attachments. Before sending, only the uploader
+can see a file. After sending, access follows `canSeeTeamMessage`: the sender, recipients and
+project owners/admins can see it. Unknown, deleted or invisible files return `not_found`.
+In an Operator guest conversation, `read_message_attachment` checks the guest's visibility.
+An hourly sweep, also run at startup, deletes unsent uploads older than 24 hours.
+
+The `attachments` paths of `send_message` use the same file reader as `attach_file`: only
+regular files inside the recorded working directory or the calling process's own session
+folder, with the same symlink, hard-link and unchanged-handle checks described above. The
+server uploads them and binds them to the message when sending; a refused send removes the
+unsent files, with the sweep as fallback.
+
+`read_message_attachment` returns a bounded image or small UTF-8 text as MCP content. When
+that cannot represent the file (for example a PDF or large text), or the provider cannot show
+an MCP image, a session with its own folder receives an authorized copy at
+`<session folder>/message-attachments/<id>-<sanitized name>`. The server identifies the session
+from its MCP token and checks visibility again before obtaining the source. Its engine
+materializes the file only in that session's recorded folder, checking size and SHA-256;
+a remote engine receives it through a single-use download token. Guest Operator sessions have
+no folder and receive content only. If materialization fails, the tool returns without a path.
+
+The entire app-home `message-attachments` directory is in `sensitivePaths`: member file tools
+and sandboxed shell commands cannot read the shared store directly and bypass message
+visibility. Authorized copies in session folders remain readable. This is a sandbox policy
+restriction, subject to the host-user trust boundary described in the threat model.
+
 ### Codex project configuration (PM-357)
 
 Codex trusts the workspace and bypasses hook trust for projectman's own hooks. Its project

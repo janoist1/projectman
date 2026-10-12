@@ -1542,6 +1542,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   reached only through the protected REST routes and the team tool. A session never gets a path into
   that store: `read_message_attachment` returns the content itself (an image, a small text), and for
   what the content cannot show (PM-518) a copy in the caller's own session folder (below).
+  `domain/session-policy.ts` includes the entire store in `sensitivePaths` (PM-524), denying
+  direct file-tool and sandboxed shell access on the machine that hosts a session; authorized
+  copies in its session folder remain readable. Remote engines use the same policy for their
+  local app home and receive authorized files through the existing transfer boundary below.
   The unsent uploads older than 24 hours are removed by an hourly sweep and at startup.
   **Remote engine:** the server (cloud) keeps the files and the database. The tool call reaches the
   server as `mcp.relay`, and an image travels back in the MCP result

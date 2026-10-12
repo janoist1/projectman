@@ -111,7 +111,10 @@ describe('Operator actions and owner approvals (PM-464)', () => {
       const config = await h.domain.projects.config('AR');
       expect(operatorWatchOf(config)).toBe(level ?? 'report');
       expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(level ?? undefined);
-      if (level === null) expect(config.team).not.toHaveProperty('operatorWatch');
+      if (level === null) {
+        expect(config.team).not.toHaveProperty('operatorWatch');
+        expect((await h.configStore.load('AR')).config.team).not.toHaveProperty('operatorWatch');
+      }
     }
     h = await restartDomainHarness(h);
     expect(operatorWatchOf(await h.domain.projects.config('AR'))).toBe('report');
@@ -125,6 +128,7 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect((await h.domain.projectState.overview('AR')).operatorWatch).toBe('unblock');
     expect((await h.domain.projects.config('AR')).team.operatorWatch).toBe('unblock');
   });
+
   it.each(['config_changed', 'session_ended', 'pause_changed'] as const)(
     'does not hold later %s listeners while an approval recheck is pending',
     async (event) => {

@@ -69,7 +69,7 @@ describe('ConfigStore (customization repository)', () => {
       expect(cleared.version).not.toBe(changed.version);
       expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
       const reloaded = await store.load('AR');
-      expect(reloaded.config.team.operatorWatch).toBeUndefined();
+      expect(reloaded.config.team).not.toHaveProperty('operatorWatch');
       expect(operatorWatchOf(reloaded.config)).toBe('report');
     },
   );

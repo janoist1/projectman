@@ -7,13 +7,13 @@ import type { FullTestErrorReason } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../contracts';
 import { acquireHeavyLock, HeavyLockError } from './heavy-lock';
 import type { HeavyLock } from './heavy-lock';
-import { failedFiles, outputTail } from './output';
+import { failedFiles, failureReport } from './output';
 import { runSandboxed, srtCli } from './run-sandboxed';
 import type { SandboxedEnd } from './run-sandboxed';
 import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHORT_ROOT } from './sandbox';
 import type { RunPaths } from './sandbox';
 
-export { failedFiles, outputTail, stripAnsi } from './output';
+export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
 export { acquireHeavyLock, defaultHeavyLockDir, HeavyLockError, readHeavyQueue } from './heavy-lock';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
 export { runSandboxed, srtCli } from './run-sandboxed';
@@ -84,7 +84,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
     exitCode,
     durationMs: Date.now() - started,
     failedFiles: [],
-    outputTail: outputTail(output),
+    outputTail: failureReport(output),
   });
 
   return {
@@ -186,7 +186,7 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
         exitCode: ended.exitCode,
         durationMs,
         failedFiles: failedFiles(ended.output),
-        outputTail: outputTail(ended.output),
+        outputTail: failureReport(ended.output),
       };
     } catch (err) {
       logger.warn({ err, runId: spec.runId }, 'the full test run failed to start');

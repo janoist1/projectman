@@ -651,7 +651,8 @@ describe('member initiated merge', () => {
       else {
         await vi.waitFor(() => expect(row()?.state).toBe('failed'));
         expect(row()?.failure?.outputTail?.length).toBeLessThanOrEqual(8000);
-        expect(row()?.failure?.outputTail?.split('\n').length).toBeLessThanOrEqual(40);
+        // The executor's report is kept from its start (PM-554), not cut to its last lines.
+        expect(row()?.failure?.outputTail).toBe(output.slice(0, 8000));
         expect(task().stageId).toBe('code_review');
         expect(merger.push).not.toHaveBeenCalled();
       }

@@ -12,6 +12,7 @@ import {
   LOCAL_PUBLISHING_OPERATIONS,
   managedVmPermissions,
   placementReadsOnly,
+  usesCodexCli,
 } from '@projectman/shared';
 import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
 import {
@@ -662,6 +663,30 @@ export function attachmentToolRules(dir: string | null): { allow: string[]; deny
   const paths = dir ? directoryRulePaths(dir) : null;
   if (!paths) return { allow: [], deny: [] };
   return { allow: paths.map((p) => `Read(${p})`), deny: paths.map((p) => `Edit(${p})`) };
+}
+
+/**
+ * What a session of the legacy profile does with its own folder (PM-268, PM-339, PM-522): `write` when
+ * the session (its sandbox or its file tools) writes it, `read` when only the server puts files there
+ * and the session reads them. The caller leaves out the managed VM (and a session without a folder
+ * root), which gets none.
+ */
+export type SessionFolderAccess = 'write' | 'read';
+
+export function sessionFolderAccess(input: {
+  provider: AgentProvider;
+  sandbox: SessionPolicy['permissions']['sandbox'];
+  /** The engine has a safe temporary root (`EngineSessionFolders.tmpRoot`). */
+  tmpRoot: boolean;
+}): SessionFolderAccess | null {
+  const { provider, sandbox, tmpRoot } = input;
+  // Claude Code's own sandbox and file tools write it; Gemini's file tools do (its hook gates them).
+  if (provider === 'claude' || provider === 'gemini') return 'write';
+  if (!usesCodexCli(provider)) return null;
+  if (sandbox === 'read-only') return 'read';
+  // Without the short TMPDIR root the shared `/tmp` stays writable: no folder either.
+  if (sandbox === 'workspace-write') return tmpRoot ? 'write' : null;
+  return null;
 }
 
 /**

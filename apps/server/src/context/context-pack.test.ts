@@ -29,7 +29,7 @@ import type {
   HandoffTakeover,
   SessionPolicy,
 } from '../contracts';
-import { commandVerdict, readableRootsFor, sessionSandbox } from '../domain';
+import { commandVerdict, readableRootsFor, sessionSandbox, withSessionFolders } from '../domain';
 import { buildSessionPolicy } from '../../test/helpers/session-policy';
 import { createContextPackBuilder } from './context-pack';
 import { stageLabel } from './format';
@@ -3064,8 +3064,95 @@ describe("the CLI's own sandbox (PM-167)", () => {
     ).appendSystemPrompt;
     expect(prompt).toContain('# Commands that run without asking');
     expect(prompt).not.toContain('# Your sandbox');
-    // No folder in its sandbox (a read-only one has none): no folder text.
+    // No folder in the policy (the managed VM, or no safe temporary root): no folder text.
     expect(prompt).not.toContain('# Your session folder');
+  });
+
+  it('tells a read-only Codex or NanoGPT reader that the server puts files in its folder (PM-522)', () => {
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const policy = withSessionFolders(readerPolicy, { own: folder, root: '/tmp/projectman-sessions/abc123' });
+    expect(policy.permissions.sandbox).toBe('read-only');
+    for (const provider of ['codex', 'nanogpt'] as const) {
+      const member: AiMemberConfig = { ...aiMember(project, 'code-review'), provider };
+      const prompt = builder.build(
+        input({
+          project,
+          member,
+          handle: 'code-review',
+          task,
+          sessionPolicy: policy,
+          sandbox: sessionSandbox(policy, { ...sandboxPaths, sessionDir: folder })!,
+        }),
+      ).appendSystemPrompt;
+      const text = section(prompt, '# Your session folder');
+      expect(text).toContain(`Your session folder: \`${folder}\` (\`$PROJECTMAN_SESSION_DIR\`)`);
+      expect(text).toContain('the server puts files there for you');
+      expect(text).toContain('`read_message_attachment`');
+      expect(text).toContain('`view_image`');
+      expect(text).toContain('Your sandbox does not write it');
+      expect(text).not.toContain('`attach_file`');
+      expect(text).not.toContain('$TMPDIR');
+      expect(text).not.toContain('take_screenshots` tool');
+    }
+  });
+
+  it('tells a writing NanoGPT developer its session folder and its own TMPDIR (PM-522)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'nanogpt' };
+    const developerPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'acceptEdits',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+      deniedPaths: ['/home/anna/.ssh', '/pm/secret'],
+    });
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const tmpDir = '/tmp/projectman-501-tmp/0123abcd/ses_1.abcdef';
+    const policy = withSessionFolders(developerPolicy, {
+      own: folder,
+      root: '/tmp/projectman-sessions/abc123',
+    });
+    const prompt = builder.build(
+      input({
+        project,
+        member,
+        handle: 'fe-1',
+        task,
+        sessionPolicy: policy,
+        sandbox: sessionSandbox(policy, { ...sandboxPaths, sessionDir: folder, tmpDir })!,
+      }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Your session folder');
+    expect(text).toContain('`attach_file`');
+    expect(text).toContain('`view_image`');
+    expect(text).toContain(`\`$TMPDIR\` (\`${tmpDir}\`) is your own, deleted with the session`);
+  });
+
+  it('tells a Gemini member its session folder: file tools, view_file, no screenshots (PM-522)', () => {
+    const member: AiMemberConfig = { ...aiMember(project, 'fe-1'), provider: 'gemini' };
+    const folder = '/tmp/projectman-sessions/abc123/ses_1.0123456789abcdef';
+    const developerPolicy = buildSessionPolicy({
+      config: project,
+      role: 'developer',
+      task,
+      permissionMode: 'acceptEdits',
+      placement: { kind: 'task_worktree', path: '/pm/worktrees/AR/AR-21-app', gitDir: '/src/app/.git' },
+    });
+    const policy = withSessionFolders(developerPolicy, {
+      own: folder,
+      root: '/tmp/projectman-sessions/abc123',
+    });
+    const prompt = builder.build(
+      input({ project, member, handle: 'fe-1', task, sessionPolicy: policy }),
+    ).appendSystemPrompt;
+    const text = section(prompt, '# Your session folder');
+    expect(text).toContain(`Your session folder: \`${folder}\` (\`$PROJECTMAN_SESSION_DIR\`)`);
+    expect(text).toContain('with your file tools');
+    expect(text).toContain('`view_file`');
+    expect(text).toContain('`attach_file`');
+    expect(text).toContain('There is no screenshot tool for you');
+    expect(text).not.toContain('`view_image`');
+    expect(text).not.toContain('$TMPDIR');
   });
 
   it('tells a Codex developer its session folder and its own TMPDIR (PM-339)', () => {

@@ -123,7 +123,7 @@ describe('the session folder of a session (PM-268)', () => {
     expectFolderRules(dir);
   });
 
-  it('gives a Codex member no folder and no variable', async () => {
+  it('gives a read-only Codex member a folder to read, with the variable but no browsers (PM-522)', async () => {
     h = await withFolders((config) => {
       const dev = config.team.members.find((m) => m.handle === 'dev-1');
       if (dev?.kind === 'ai') dev.provider = 'codex';
@@ -131,11 +131,11 @@ describe('the session folder of a session (PM-268)', () => {
     await h.domain.tasks.create('AR', { title: 'Login page', repo: 'web' }, OWNER_ACTOR);
     await h.domain.sessions.ensureSession('AR', 'dev-1', task);
     const spec = h.runner.lastStarted();
-    expect(spec.sandbox?.env ?? {}).not.toHaveProperty('PROJECTMAN_SESSION_DIR');
+    const dir = folderOf();
+    expect(spec.sandbox?.env).toMatchObject({ PROJECTMAN_SESSION_DIR: dir });
     expect(spec.sandbox?.env ?? {}).not.toHaveProperty('PLAYWRIGHT_BROWSERS_PATH');
-    expect(spec.policy!.filesystem).not.toHaveProperty('sessionFolder');
-    expect(spec.policy!.filesystem).not.toHaveProperty('sessionFoldersRoot');
-    expect(readdirSync(h.sessionFoldersDir!)).toEqual([]);
+    expect(spec.policy!.filesystem).toMatchObject({ sessionFolder: dir });
+    expect(readdirSync(h.sessionFoldersDir!)).toHaveLength(1);
   });
 
   it('sets nothing without a configured root', async () => {

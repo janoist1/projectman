@@ -387,18 +387,20 @@ export function buildCodexArgs(input: CodexArgsInput): CodexCommandLine {
     );
   }
   // Every command sees them, also one run outside the sandbox after a question.
-  // The session folder and the browsers belong to a writing sandbox: a read-only one has no folder.
-  const folderVariables = ['PROJECTMAN_SESSION_DIR', 'PLAYWRIGHT_BROWSERS_PATH'];
+  // The browsers belong to a writing sandbox. A read-only one still names the session folder (PM-522):
+  // the server puts files there, and the sandbox reads it without writing it.
+  const writeOnlyVariables = ['PLAYWRIGHT_BROWSERS_PATH'];
   const shellEnv = {
     ...Object.fromEntries(
-      Object.entries(portable?.env ?? {}).filter(([name]) => writes || !folderVariables.includes(name)),
+      Object.entries(portable?.env ?? {}).filter(([name]) => writes || !writeOnlyVariables.includes(name)),
     ),
     ...(tmpDir ? { TMPDIR: tmpDir } : {}),
   };
   for (const [name, value] of Object.entries(shellEnv))
     if (TOML_BARE_KEY.test(name)) c(`shell_environment_policy.set.${name}`, value);
-  // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's images.
-  if (writes && portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
+  // The built-in image viewer (not a sandboxed command, so it asks nothing) opens the session folder's
+  // images; it respects the denied paths, and the read-only profile reads the folder (PM-522).
+  if (portable?.env['PROJECTMAN_SESSION_DIR']) c('tools.view_image', true);
   if (managed) args.push('--sandbox', permissions.sandbox);
   args.push('--ask-for-approval', permissions.approval);
   args.push('--model', modelForProvider(input.provider?.id ?? 'codex', spec.model));

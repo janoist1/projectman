@@ -502,8 +502,11 @@ server logs the reason and runs on (the sweep must never empty a directory someb
 the predictable path at; a symbolic link in it is removed as a link). Every Claude session of the
 instance reads every member's folder below the root, and writes only its own (PM-333, the owner's
 decision): nothing secret goes into a session folder. Another instance's root (another home hash)
-is not opened. Codex and the
-managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
+is not opened. Since PM-522 a Gemini, a NanoGPT and a Codex session get one too: a writing
+Codex or NanoGPT sandbox writes it (with its own `TMPDIR`; NanoGPT's shared `/tmp` is closed as
+Codex's), a read-only one only reads it (the server puts message files there), and Gemini writes
+it with its file tools under the hook gate. A Codex or NanoGPT sandbox that writes without a
+safe tmp root, and the managed VM profile, get none. Playwright's browsers directory is read-only for every sandbox
 (`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 
 **A Claude developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
@@ -729,6 +732,12 @@ hostile input. The boundary:
   the agent never sees a half-written file and the file is made exclusively (0600).
 - What this does not cover: the agent can delete or replace the file after the call, and it can
   fill the folder; both stay inside its own folder.
+- Which sessions have a folder (PM-522): also Gemini, NanoGPT and read-only Codex. A read-only Codex
+  or NanoGPT sandbox cannot write its folder at all (the server is the only writer there); a writing
+  NanoGPT sandbox writes it as a Codex one does. Gemini has no OS sandbox (owner decision T4), so
+  its folder is written by its file tools under the pre-tool-use hook's gate (its own folder
+  outside plan mode; another member's folder asks), and its commands, which run unsandboxed, can
+  write there like anywhere else they may. The folder stays hostile input for all of them.
 
 ## Findings
 

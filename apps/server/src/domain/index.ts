@@ -186,6 +186,7 @@ export * from './session-policy';
 export {
   describeSandbox,
   describeSessionFolder,
+  describeReadOnlySessionFolder,
   describeSessionTmpDir,
   describeUnattendedCommands,
   preApprovedPrefixes,

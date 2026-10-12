@@ -709,19 +709,31 @@ describe('buildCodexArgs', () => {
         expect(c.has(`${SET}.TMPDIR`)).toBe(false);
       });
 
-      it('sets none of it in a read-only sandbox', () => {
+      it('only names and reads the folder in a read-only sandbox (PM-522): no write entry, no tmp, no browsers', () => {
         const c = build({ policy: withPolicy('read-only'), sandbox: withFolder });
         for (const key of [
           'sandbox_workspace_write.writable_roots',
           'sandbox_workspace_write.exclude_slash_tmp',
           'sandbox_workspace_write.exclude_tmpdir_env_var',
           `${SET}.TMPDIR`,
-          `${SET}.PROJECTMAN_SESSION_DIR`,
           `${SET}.PLAYWRIGHT_BROWSERS_PATH`,
-          'tools.view_image',
         ])
           expect(c.has(key), key).toBe(false);
+        const profile = c.get('permissions.projectman') ?? '';
+        expect(profile).not.toContain(tomlValue(folder));
+        expect(profile).not.toContain(tomlValue(tmpDir));
+        expect(profile).not.toContain(':tmpdir');
+        expect(profile).not.toContain(':slash_tmp');
+        expect(profile).not.toContain('"write"');
+        expect(c.get(`${SET}.PROJECTMAN_SESSION_DIR`)).toBe(tomlValue(folder));
+        expect(c.get('tools.view_image')).toBe('true');
         expect(c.get(ENV_KEY)).toBe(tomlValue(lockDir));
+      });
+
+      it('sets no folder variable and no viewer in a read-only sandbox without a folder', () => {
+        const c = build({ policy: withPolicy('read-only'), sandbox });
+        expect(c.has(`${SET}.PROJECTMAN_SESSION_DIR`)).toBe(false);
+        expect(c.has('tools.view_image')).toBe(false);
       });
 
       it('sets none of it in the managed VM', () => {

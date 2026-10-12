@@ -27,6 +27,7 @@ import {
   sessionWorkItemOf,
   stageOf,
   stageOwners,
+  usesCodexCli,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -110,6 +111,7 @@ import {
   guestSessionDir,
   memberSandboxDir,
   sensitivePaths,
+  sessionFolderAccess,
   sessionSandbox,
   usesWorktree,
   withSessionFolders,
@@ -1909,18 +1911,28 @@ export class SessionOrchestrator {
         ? await this.prepareMemberSandboxDir(engine, appHome, projectKey, member.handle)
         : undefined;
     const excludesFile = paths.gitExcludesFile;
-    // A Claude session of the legacy profile gets its own folder and the browsers (PM-268), a Codex
-    // session its own folder when its sandbox writes (PM-339): a read-only Codex sandbox takes no
-    // writable root, and the mode changes only with a restart. Codex also needs the short TMPDIR
-    // root: without it the shared `/tmp` stays open, so no folder either. The managed VM neither.
-    const codexWrites =
-      provider === 'codex' && policy.permissions.sandbox === 'workspace-write' && !!folders?.tmpRoot;
-    const ownFolders = !vm && !this.managed && (provider === 'claude' || codexWrites);
+    // A session of the legacy profile gets its own folder (`sessionFolderAccess`, PM-268, PM-339,
+    // PM-522): Claude Code's sandbox and a writing Codex or NanoGPT sandbox write it (with the browsers);
+    // a read-only Codex or NanoGPT sandbox only reads what the server puts there, and Gemini's file
+    // tools write it under the hook's gate. The mode changes only with a restart. A Codex CLI sandbox
+    // also needs the short TMPDIR root: without it the shared `/tmp` stays open, so no folder either.
+    // The managed VM gets none.
+    const folderAccess =
+      !vm && !this.managed
+        ? sessionFolderAccess({
+            provider,
+            sandbox: policy.permissions.sandbox,
+            tmpRoot: !!folders?.tmpRoot,
+          })
+        : null;
+    const codexWrites = usesCodexCli(provider) && folderAccess === 'write';
+    // The sandbox itself writes the folder (and so gets the browsers and the screenshot scope).
+    const sandboxWritesFolder = provider === 'claude' || codexWrites;
     // A new path at every start: what an earlier run left running cannot use or pre-empt it.
-    const sessionDir = ownFolders && folders ? folders.allocate(sessionId) : undefined;
+    const sessionDir = folderAccess && folders ? folders.allocate(sessionId) : undefined;
     const tmpDir = (codexWrites || claudeOwnTmp) && sessionDir ? folders?.allocateTmp(sessionId) : undefined;
     const tmpBase = folders?.tmpRoot ? path.dirname(folders.tmpRoot) : undefined;
-    const browsersDir = ownFolders ? (paths.browsersDir ?? undefined) : undefined;
+    const browsersDir = sandboxWritesFolder ? (paths.browsersDir ?? undefined) : undefined;
     const sandbox =
       vm || this.managed
         ? undefined
@@ -2033,7 +2045,8 @@ export class SessionOrchestrator {
     // The temporary directory is not made by `preparePortablePaths`: a recursive mkdir takes a path
     // that exists (a link). `make` makes it new, with the folder.
     await this.preparePortablePaths(engine, sandbox?.portable?.allowWrite);
-    if (sessionFolder && sandbox && policy.access === 'task_worktree') {
+    // Only where the sandbox writes the folder: a read-only Codex or NanoGPT sandbox and Gemini take no screenshots.
+    if (sandboxWritesFolder && sessionFolder && sandbox && policy.access === 'task_worktree') {
       const browsers = sandbox.env?.[BROWSERS_PATH_VARIABLE];
       this.screenshotScopes.set(sessionId, {
         cwd,

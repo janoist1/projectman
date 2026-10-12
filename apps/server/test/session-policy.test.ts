@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AI_BUILT_IN_ROLE_IDS, BUILT_IN_ROLE_IDS } from '@projectman/shared';
+import type { AgentProvider } from '@projectman/shared';
 import { testConfig, testTemplate } from './helpers/test-template';
 import { aiRoleDefaults } from '@projectman/templates';
 import {
@@ -11,10 +12,12 @@ import {
   commandVerdict,
   readableRootsFor,
   READ_ONLY_REVIEW_TOOLS,
+  sessionFolderAccess,
   sessionPolicyFor,
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
 } from '../src/domain';
+import type { SessionFolderAccess } from '../src/domain';
 
 describe('role session policy', () => {
   it('allows only the pinned base merge and routine commits in a nominated merge-fix session', () => {
@@ -2475,5 +2478,29 @@ describe('buildSessionPolicy', () => {
       outboundNetwork: false,
     });
     expect(allowlist.network.outbound).toBe('allowlist');
+  });
+});
+
+describe('sessionFolderAccess (PM-522)', () => {
+  type Sandbox = 'read-only' | 'workspace-write' | 'danger-full-access';
+  // [provider, sandbox, tmpRoot, access]
+  const table: (readonly [AgentProvider, Sandbox, boolean, SessionFolderAccess | null])[] = [
+    ...(['claude', 'gemini'] as const).flatMap((provider) =>
+      (['read-only', 'workspace-write', 'danger-full-access'] as const).flatMap((sandbox) =>
+        [true, false].map((tmpRoot) => [provider, sandbox, tmpRoot, 'write' as const] as const),
+      ),
+    ),
+    ...(['codex', 'nanogpt'] as const).flatMap((provider) => [
+      [provider, 'workspace-write', true, 'write'] as const,
+      [provider, 'workspace-write', false, null] as const,
+      [provider, 'read-only', true, 'read'] as const,
+      [provider, 'read-only', false, 'read'] as const,
+      [provider, 'danger-full-access', true, null] as const,
+      [provider, 'danger-full-access', false, null] as const,
+    ]),
+  ];
+
+  it.each(table)('%s, %s sandbox, tmpRoot %s: %s', (provider, sandbox, tmpRoot, access) => {
+    expect(sessionFolderAccess({ provider, sandbox, tmpRoot })).toBe(access);
   });
 });

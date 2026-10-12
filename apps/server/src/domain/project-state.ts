@@ -5,6 +5,7 @@ import {
   memberOf,
   messageRoute,
   messageWakeBlock,
+  operatorWatchOf,
   ownerHandles,
   sessionWorkItemOf,
   stageOf,
@@ -17,6 +18,7 @@ import type { ProjectService } from './projects';
 import type { TaskService, TaskWaits } from './tasks';
 import type { OperatorSignals } from './operator-signals';
 import type { PauseService } from './pause';
+import type { ReleaseService } from './releases';
 import { LIVE_SESSION_STATES } from './sessions';
 import type { DeferredStarts, MessageStarts } from './admission';
 import { invalid, notFound } from './errors';
@@ -33,6 +35,7 @@ export class ProjectState {
     taskWaits: Pick<TaskWaits, 'ofCard'>;
     operatorSignals: Pick<OperatorSignals, 'active'>;
     messageStarts: Pick<MessageStarts, 'wakeKey' | 'lastFailure'>;
+    releases: Pick<ReleaseService, 'overview'>;
   };
 
   constructor(deps: ProjectState['deps']) {
@@ -154,16 +157,17 @@ export class ProjectState {
     const cards = tasks.list(projectKey).filter((t) => !isTheme(t));
     const pause = pauses.projectView(projectKey);
     const owners = ownerHandles(config);
-    const waitingStarts = this.deps.deferred
+    const waitingStarts: ProjectStateReport['waitingStarts'] = this.deps.deferred
       .list()
       .filter(
         ({ start }) =>
           start.projectKey === projectKey &&
-          start.taskKey !== null &&
-          start.stillValid(cards.find((t) => t.key === start.taskKey) ?? null),
+          start.stillValid(
+            start.taskKey === null ? null : (cards.find((t) => t.key === start.taskKey) ?? null),
+          ),
       )
       .map(({ start, waiting }) => ({
-        taskKey: start.taskKey!,
+        taskKey: start.taskKey,
         member: waiting.member ?? null,
         reason: waiting.reason,
       }));
@@ -175,8 +179,20 @@ export class ProjectState {
           reason: card.startWaiting.reason,
         });
     }
+    const waitingMessages: ProjectStateReport['waitingMessages'] = [];
+    for (const member of config.team.members) {
+      if (member.kind !== 'ai') continue;
+      const pending = ctx.repos.messages.pending(projectKey, member.handle);
+      if (pending.length === 0) continue;
+      waitingMessages.push({
+        member: member.handle,
+        count: pending.length,
+        oldestAt: pending.map((m) => m.createdAt).sort()[0]!,
+      });
+    }
     return {
       paused: { project: !!pause.project, instance: !!pause.instance },
+      operatorWatch: operatorWatchOf(config),
       signals: this.deps.operatorSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,
@@ -194,6 +210,8 @@ export class ProjectState {
         .list(projectKey, { state: 'open' })
         .filter((item) => item.assignees.some((handle) => owners.includes(handle)))
         .map((item) => ({ id: item.id, kind: item.kind, taskKey: item.taskKey, title: item.title })),
+      release: await this.deps.releases.overview(projectKey),
+      waitingMessages,
     };
   }
 }

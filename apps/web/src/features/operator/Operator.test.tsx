@@ -629,6 +629,35 @@ describe('the approval in Rád vár', () => {
     expect(screen.getByRole('button', { name: t('operator.approval.pause') })).toBeTruthy();
   });
 
+  it('shows the watch level change and its consequence before approval', async () => {
+    const project = mockProject();
+    project.backend.inbox.push(
+      approvalItem('stp_watch', {
+        action: 'config_change',
+        operation: { op: 'config_patch', patch: { operatorWatch: 'unblock' } },
+        changes: [
+          {
+            area: 'project',
+            target: null,
+            field: 'operatorWatch',
+            before: null,
+            after: 'unblock',
+            level: 'approval',
+          },
+        ],
+        consequence: 'operator_watch',
+      }),
+    );
+    rendered(project);
+    const consequence = await screen.findByText(t('operator.approval.consequences.operator_watch'));
+    const card = consequence.closest('article')!;
+    expect(within(card).getByText('unblock')).toBeTruthy();
+    fireEvent.click(within(card).getByRole('button', { name: t('operator.approval.approve') }));
+    await waitFor(() =>
+      expect(posted(project, '/inbox/inb_stp_watch/resolve')[0]?.body).toEqual({ optionId: 'approve' }),
+    );
+  });
+
   it('rejects without changing anything', async () => {
     const project = mockProject();
     project.backend.inbox.push(approvalItem('stp_1'));

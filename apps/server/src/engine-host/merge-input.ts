@@ -8,8 +8,11 @@ import { isRepoFilePath } from '@projectman/shared';
 
 /** A commit id, SHA-1 or SHA-256. */
 export const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
-/** The id of one merge of a card (`mrg_` and 8 to 40 lowercase letters or digits). */
-export const MERGE_ID = /^mrg_[a-z0-9]{8,40}$/;
+/**
+ * The id of one merge of a card: `merge_` (what the domain's `newId('merge')` makes, and what stored rows
+ * carry) or `mrg_`, then 8 to 40 lowercase letters or digits.
+ */
+export const MERGE_ID = /^(?:merge|mrg)_[a-z0-9]{8,40}$/;
 export const MERGE_MESSAGE_MAX = 2000;
 /** The largest file `readFile` returns and `commitFiles` writes (PM-494). */
 export const DOC_FILE_MAX_BYTES = 1024 * 1024;

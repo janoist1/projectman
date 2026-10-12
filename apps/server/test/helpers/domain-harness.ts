@@ -131,6 +131,8 @@ export async function createDomainHarness(
     releaseTarget?: { projectKey: string; repo: string };
     /** The commit the server runs (PM-491); default `dev`. */
     appVersion?: string;
+    /** The release tag of the running build (PM-542); absent: none. */
+    appTag?: () => Promise<string | null>;
     engineName?: (id: string) => string | null;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
@@ -203,6 +205,7 @@ export async function createDomainHarness(
         : {}),
     engineName: opts.engineName,
     ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
+    ...(opts.appTag ? { appTag: opts.appTag } : {}),
     // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
     get appVersion() {
       return runningVersion.value;

@@ -13,6 +13,7 @@ import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
 import { RepoDocs } from './project-docs';
+import { OperatorWatch } from './operator-watch';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -311,6 +312,7 @@ export const ProjectConfig = z.object({
     feedback: FeedbackConfig.optional(),
   }),
   team: z.object({
+    operatorWatch: OperatorWatch.optional(),
     cardMover: CardMover.optional(),
     /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
     merger: Merger.optional(),

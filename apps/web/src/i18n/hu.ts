@@ -2770,6 +2770,8 @@ export const hu = {
       decidedApproved: 'Jóváhagytad · {time}',
       decidedRejected: 'Elvetetted · {time}',
       consequences: {
+        operator_watch:
+          'A már kiadott jelzések nem változnak; az Operátor a következő ébredésétől e szerint lép jelzésre.',
         network: 'A futó munkamenetek nem változnak; a hálózati szabály az újonnan indulókra érvényes.',
         permission_mode: 'A futó munkamenetek nem változnak; az engedélymód az újonnan indulókra érvényes.',
         pipeline: 'A kártyák helye nem változik, a szabály a következő mozgatástól érvényes.',

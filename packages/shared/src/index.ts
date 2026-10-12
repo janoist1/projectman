@@ -60,6 +60,7 @@ export * from './config/lookup';
 export * from './config/leave';
 export * from './config/project-manager';
 export * from './config/operator';
+export * from './config/operator-watch';
 export * from './config/repos';
 export * from './config/owner-only';
 export * from './config/integrator';

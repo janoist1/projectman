@@ -65,6 +65,7 @@ import type {
   MemberMemoryStore,
   NetworkDenial,
   ProposedRelease,
+  ReleaseCheckResult,
   ScreenshotRun,
   SentMessageRecipient,
   WorkspaceFile,
@@ -449,7 +450,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly projects: ProjectService;
   private readonly projectFocus: Pick<ProjectFocusService, 'places'>;
   private readonly merges: import('./merges').Merges;
-  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
+  private readonly releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
   private readonly tasks: TaskService;
   private readonly taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
   private readonly members: MemberService;
@@ -491,7 +492,7 @@ export class TeamToolsService implements TeamToolsHandler {
     projects: ProjectService;
     merges: import('./merges').Merges;
     /** The instance's releases (PM-491): propose_release. */
-    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose'>;
+    releases: Pick<import('./releases').ReleaseService, 'preview' | 'propose' | 'check'>;
     tasks: TaskService;
     /** Why cards stand still (PM-460): get_task and list_tasks say it. */
     taskWaits: Pick<TaskWaits, 'of' | 'ofCard'>;
@@ -1342,6 +1343,16 @@ export class TeamToolsService implements TeamToolsHandler {
           );
         throw err;
       }
+    });
+  }
+
+  async checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult> {
+    return this.guard(async () => {
+      const config = await this.caller(ctx, 'check_release');
+      const member = memberOf(config, ctx.member);
+      if (!member || !isOperator(member))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may check a release.');
+      return this.releases.check(ctx.projectKey, args.commit);
     });
   }
 

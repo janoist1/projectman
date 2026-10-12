@@ -279,6 +279,10 @@ ol {
 .pin.pop {
   animation: pop 0.32s ease-out;
 }
+.pin.draft {
+  pointer-events: none;
+  animation: pop 0.32s ease-out;
+}
 .pin-head {
   position: relative;
   display: grid;
@@ -311,10 +315,11 @@ ol {
   transform: rotate(45deg);
   box-shadow: 0 0 0 2px #fff;
 }
+/* The head is turned by -45deg, so the middle of its right edge is the top right corner on screen. */
 .pin-head .changed {
   position: absolute;
-  right: -9px;
-  top: -9px;
+  right: -8px;
+  top: calc(50% - 8px);
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -351,8 +356,11 @@ ol {
   border-radius: 4px;
   pointer-events: none;
 }
-.frame.closed {
+.frame.closed,
+.frame.draft {
   border-style: dashed;
+}
+.frame.closed {
   opacity: 0.6;
 }
 .outline {
@@ -507,7 +515,7 @@ ol {
 }
 .what {
   display: flex;
-  gap: 8px;
+  gap: 5px;
   align-items: baseline;
   padding: 0 14px 8px;
   font-size: 12px;
@@ -986,7 +994,8 @@ ol {
     white-space: normal;
     border-radius: 16px;
   }
-  .hint-esc {
+  .hint-esc,
+  .hotkey {
     display: none;
   }
   .notice {

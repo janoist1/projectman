@@ -1,11 +1,67 @@
 import { useState } from 'preact/hooks';
-import type { Controller, State } from '../controller';
+import type { Controller, Draft, State } from '../controller';
 import { tipOf } from '../anchor';
 import { t } from '../i18n';
 import { Avatar, colorVar, personName } from './common';
 import { useViewTick } from './hooks';
 
 const ARIA_TEXT = 80;
+
+/**
+ * What a new mark marks, drawn on the page in the marker's colour while its card is open: a pin with the
+ * monogram for a point, a dashed frame for an area, an outline for an element.
+ */
+export function DraftPin({
+  controller,
+  state,
+  draft,
+}: {
+  controller: Controller;
+  state: State;
+  draft: Draft;
+}) {
+  useViewTick(true);
+  const person = state.me ?? state.session?.me ?? null;
+  const scroll = { x: window.scrollX, y: window.scrollY };
+  const resolution = controller.resolutionOf(draft.target);
+  const tip = tipOf(resolution, draft.target.anchor, scroll);
+  if (!person || !tip || resolution.place !== 'located') return null;
+  const color = { '--pc': colorVar(person) };
+  const box = resolution.element?.getBoundingClientRect() ?? null;
+  return (
+    <div class="pins" aria-hidden="true">
+      {resolution.rect && (
+        <div
+          class="frame draft"
+          style={{
+            left: `${resolution.rect.x}px`,
+            top: `${resolution.rect.y}px`,
+            width: `${resolution.rect.width}px`,
+            height: `${resolution.rect.height}px`,
+            ...color,
+          }}
+        />
+      )}
+      {box && (
+        <div
+          class="outline"
+          style={{
+            left: `${box.left + scroll.x}px`,
+            top: `${box.top + scroll.y}px`,
+            width: `${box.width}px`,
+            height: `${box.height}px`,
+            ...color,
+          }}
+        />
+      )}
+      <div class="pin draft" style={{ left: `${tip.x}px`, top: `${tip.y}px`, ...color }}>
+        <span class="pin-head">
+          <Avatar person={person} />
+        </span>
+      </div>
+    </div>
+  );
+}
 
 /** The marks of this page as pins at their document coordinates (they scroll with the page). */
 export function Pins({ controller, state }: { controller: Controller; state: State }) {

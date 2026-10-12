@@ -7,6 +7,9 @@
 // built widget on the instance's own address and answers the widget API itself (page.route), so every state
 // can be shown without a second origin and without the real data.
 import { readFileSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const here = new URL('.', import.meta.url);
 const WIDGET_JS = readFileSync(new URL('../dist/widget.js', here), 'utf8');
@@ -203,6 +206,17 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     (url) => url.pathname === '/feedback/widget.js',
     (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: WIDGET_JS }),
   );
+  // Requests that never answer, so that a state that waits (the picture, the start) can be shot.
+  const hung = [];
+  const release = async () => {
+    await Promise.all(hung.splice(0).map((route) => route.abort().catch(() => undefined)));
+  };
+  await app.route(
+    (url) => url.pathname === '/feedback/hang.svg',
+    (route) => {
+      hung.push(route);
+    },
+  );
   await app.route(
     (url) => url.pathname.startsWith(`${API}/`),
     async (route) => {
@@ -211,6 +225,10 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
       const method = request.method();
       if (path === '/sessions' && method === 'POST') {
         if (server.exchange === 'down') return route.abort('failed');
+        if (server.exchange === 'hang') {
+          hung.push(route);
+          return undefined;
+        }
         if (server.exchange === 'bad') return failure(route, 401, 'feedback_code_invalid');
         return reply(route, 201, sessionResponse);
       }
@@ -259,8 +277,9 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     Object.defineProperty(HTMLImageElement.prototype, 'src', {
       ...srcSetter,
       set(value) {
-        if (window.__shotSlow && String(value).startsWith('data:image/svg')) return;
-        srcSetter.set.call(this, value);
+        // A request that never answers keeps the picture really pending (a missing src would end it at once).
+        const slow = window.__shotSlow && String(value).startsWith('data:image/svg');
+        srcSetter.set.call(this, slow ? `${location.origin}/feedback/hang.svg?${Math.random()}` : value);
       },
     });
   });
@@ -358,6 +377,7 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await settle(app);
     await shoot(app, 'widget-new-image-wait', { widths: [1512, 390] });
     await cancelCard(app);
+    await release();
     await app.evaluate(() => {
       window.__shotSlow = false;
       window.__shotFails = true;
@@ -455,6 +475,26 @@ export default async ({ instance, open, shoot: takeShots, step, log }) => {
     await boot(app, { ready: false });
     await settle(app, 800);
     await shoot(app, 'widget-start-error', { widths: [1512, 390] });
+
+    // Turning on: the code exchange has not answered yet.
+    await clearBrowser(app);
+    server.exchange = 'hang';
+    await boot(app, { ready: false });
+    await settle(app, 800);
+    // The runner's shoot waits up to 10 s for the network to go idle, which is as long as the widget
+    // waits for the exchange: it would show the timeout error. Take these two images directly.
+    const outDir = join(process.env.PROJECTMAN_SESSION_DIR ?? tmpdir(), 'shots', 'widget-states');
+    await mkdir(outDir, { recursive: true });
+    for (const [width, height] of [
+      [1512, 982],
+      [390, 844],
+    ]) {
+      await app.setViewportSize({ width, height });
+      await app.waitForTimeout(500);
+      await app.screenshot({ path: join(outDir, `widget-activating-${width}.png`), animations: 'disabled' });
+    }
+    await app.setViewportSize({ width: 1512, height: 982 });
+    await release();
     normal();
   });
 };

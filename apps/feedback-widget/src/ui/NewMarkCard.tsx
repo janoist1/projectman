@@ -5,6 +5,7 @@ import { t } from '../i18n';
 import { tipOfTarget } from './place';
 import { CloseButton, Dialog } from './Dialog';
 import { Avatar, colorVar } from './common';
+import { useViewTick } from './hooks';
 import { cardPlace } from './layout';
 
 /** The new-mark card: what was marked, the text, the screenshot switch and the send row. */
@@ -23,13 +24,14 @@ export function NewMarkCard({
   const person = state.me ?? state.session?.me ?? null;
   const length = draft.body.length;
   const over = length > MAX_BODY;
-  const place = cardPlace(tipOfTarget(draft.target), {
+  useViewTick(true); // the card follows the marked place when the page scrolls
+  const place = cardPlace(controller.viewportOf(draft.target) ?? tipOfTarget(draft.target), {
     width: window.innerWidth,
     height: window.innerHeight,
   });
 
   const send = (): void => {
-    if (over) {
+    if (over || draft.body.trim() === '') {
       field.current?.focus();
       return;
     }
@@ -55,8 +57,8 @@ export function NewMarkCard({
         <CloseButton label={t('new.cancelAria')} onClick={() => controller.cancelDraft()} />
       </header>
       <p class="what">
-        <span class="kind">{t(`kind.${draft.target.kind}`)}</span>
-        <span class="what-label">{draft.target.label}</span>
+        {draft.target.kind === 'element' && <span>{t('new.whatElement')}</span>}
+        <span class={draft.target.kind === 'element' ? 'what-label' : undefined}>{draft.target.label}</span>
       </p>
       <textarea
         ref={field}
@@ -64,7 +66,7 @@ export function NewMarkCard({
         rows={4}
         value={draft.body}
         placeholder={t('new.placeholder')}
-        aria-label={t('new.title')}
+        aria-label={t('new.placeholder')}
         aria-invalid={over ? 'true' : undefined}
         onInput={(event) => controller.setBody((event.currentTarget as HTMLTextAreaElement).value)}
         onKeyDown={(event) => {
@@ -122,12 +124,7 @@ export function NewMarkCard({
         <button type="button" class="btn ghost" onClick={() => controller.cancelDraft()}>
           {t('new.cancel')}
         </button>
-        <button
-          type="button"
-          class="btn primary"
-          disabled={draft.sending || draft.body.trim() === ''}
-          onClick={send}
-        >
+        <button type="button" class="btn primary" disabled={draft.sending} onClick={send}>
           {t(sendLabel)}
         </button>
       </footer>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CARD_WIDTH, cardPlace, clamp01 } from './layout';
+import { CARD_WIDTH, cardPlace, clamp01, pinClearance, revealScroll } from './layout';
 
 const VIEWPORT = { width: 1200, height: 800 };
 
@@ -26,6 +26,39 @@ describe('cardPlace', () => {
   it('goes above the launcher when there is no mark place or no room on either side', () => {
     expect(cardPlace(null, VIEWPORT).aboveLauncher).toBe(true);
     expect(cardPlace({ x: 200, y: 300 }, { width: 400, height: 800 }).aboveLauncher).toBe(true);
+  });
+});
+
+describe('pinClearance', () => {
+  it('grows with the name and stays between the plain gap and a cap', () => {
+    expect(pinClearance('')).toBe(22);
+    expect(pinClearance('Szabó Béla')).toBeGreaterThan(pinClearance(''));
+    expect(pinClearance('x'.repeat(200))).toBe(140);
+  });
+
+  it('keeps a card clear of the open pin name label, on both sides', () => {
+    const name = 'Projektmenedzser (AI)';
+    const half = (name.length * 6.6 + 16) / 2;
+    const right = cardPlace({ x: 300, y: 300 }, VIEWPORT, pinClearance(name));
+    expect(right.left).toBeGreaterThanOrEqual(300 + half);
+    const left = cardPlace({ x: 1150, y: 300 }, VIEWPORT, pinClearance(name));
+    expect(left.left + CARD_WIDTH).toBeLessThanOrEqual(1150 - half);
+  });
+});
+
+describe('revealScroll', () => {
+  it('is zero when the pin already shows above the sheet', () => {
+    expect(revealScroll(300, 500)).toBe(0);
+  });
+
+  it('scrolls down by how far the pin sits under the sheet', () => {
+    expect(revealScroll(600, 500)).toBe(116);
+    expect(revealScroll(500, 500)).toBe(16);
+  });
+
+  it('scrolls up when the pin is above the viewport', () => {
+    expect(revealScroll(10, 500)).toBeLessThan(0);
+    expect(revealScroll(76, 500)).toBe(0);
   });
 });
 

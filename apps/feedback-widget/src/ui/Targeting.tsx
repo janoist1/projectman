@@ -51,7 +51,7 @@ function elementTarget(element: Element, click: Point): Target {
       pagePoint,
       rect: null,
     },
-    label: t('new.whatElement', { selector: describeElement(element) }),
+    label: describeElement(element),
     viewportRect: toBox(box),
     viewportPoint: click,
   };

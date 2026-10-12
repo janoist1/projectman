@@ -39,7 +39,7 @@ const OFFLINE_AFTER = 2;
 export interface Target {
   kind: FeedbackMarkKind;
   anchor: FeedbackAnchor;
-  /** What was marked, for the card header ("Elem: button.btn-cart"). */
+  /** What was marked, for the card ("Pont az oldalon"; for an element its short selector, "button.btn-cart"). */
   label: string;
   /** The marked place in viewport coordinates, for the screenshot's highlight. */
   viewportRect: Rect | null;
@@ -144,9 +144,9 @@ export interface Controller {
   finishWelcome(): void;
   /** One step back: card → panel → menu → mode. Returns whether something was closed. */
   escape(): boolean;
-  resolutionOf(mark: FeedbackMarkView): Resolution;
+  resolutionOf(mark: { anchor: FeedbackAnchor }): Resolution;
   isOnThisPage(mark: FeedbackMarkView): boolean;
-  viewportOf(mark: FeedbackMarkView): Point | null;
+  viewportOf(mark: { anchor: FeedbackAnchor }): Point | null;
   /** The projectman Feedback page, with the mark selected when given. */
   appLink(markId?: string): string | null;
 }
@@ -233,10 +233,10 @@ export function createController(deps: Deps): Controller {
   });
   const scroll = (): Point => ({ x: win.scrollX, y: win.scrollY });
 
-  const resolutionOf = (mark: FeedbackMarkView): Resolution =>
+  const resolutionOf = (mark: { anchor: FeedbackAnchor }): Resolution =>
     resolveAnchor(mark.anchor, win.document, docSize());
   const isOnThisPage = (mark: FeedbackMarkView): boolean => isSamePage(mark.pageUrl, win.location);
-  const viewportOf = (mark: FeedbackMarkView): Point | null => {
+  const viewportOf = (mark: { anchor: FeedbackAnchor }): Point | null => {
     const tip = tipOf(resolutionOf(mark), mark.anchor, scroll());
     return tip ? { x: tip.x - win.scrollX, y: tip.y - win.scrollY } : null;
   };

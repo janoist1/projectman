@@ -5,7 +5,7 @@ import { Menu } from './Menu';
 import { NewMarkCard } from './NewMarkCard';
 import { Help, Notice, Welcome } from './Notices';
 import { Panel } from './Panel';
-import { Pins } from './Pins';
+import { DraftPin, Pins } from './Pins';
 import { Targeting } from './Targeting';
 import { ThreadCard } from './ThreadCard';
 import { useControllerState, useIsPhone } from './hooks';
@@ -39,7 +39,10 @@ export function App({ controller }: { controller: Controller }) {
       {state.phase === 'ready' && (
         <>
           {state.card?.type === 'new' && state.draft && (
-            <NewMarkCard controller={controller} state={state} draft={state.draft} phone={phone} />
+            <>
+              <DraftPin controller={controller} state={state} draft={state.draft} />
+              <NewMarkCard controller={controller} state={state} draft={state.draft} phone={phone} />
+            </>
           )}
           {showMarks && state.card?.type === 'thread' && (
             <ThreadCard

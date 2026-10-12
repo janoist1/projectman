@@ -24,7 +24,7 @@ export const hu = {
   'target.page': 'Az egész oldalról írok',
 
   'new.title': 'Új jelölés',
-  'new.whatElement': 'Elem: {selector}',
+  'new.whatElement': 'Elem:',
   'new.whatPoint': 'Pont az oldalon',
   'new.whatArea': 'Terület az oldalon',
   'new.whatPage': 'Az egész oldal',

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AwsCli } from './aws-cli';
+import { AwsCallError, AwsCli } from './aws-cli';
 import { cloudflareApi, findZone, resolveAccount, shape } from './cloudflare';
 import { sameJson } from './cloudflare-api';
 import type { Json } from './cloudflare-api';
@@ -444,13 +444,27 @@ function reportDomain(context: CloudContext, domain: z.output<typeof domainSchem
 
 /** Delegation changes are explicit, and forward changes require verification in this very run. */
 export async function runDnsSwitch(context: CloudContext, options: { back: boolean; dryRun: boolean }) {
-  const domain = await domainDetail(context);
+  let domain: z.output<typeof domainSchema>;
+  try {
+    domain = await domainDetail(context);
+  } catch (error) {
+    if (error instanceof AwsCallError && error.awsCode?.startsWith('AccessDenied'))
+      throw refused(`the AWS profile lacks route53domains:GetDomainDetail (${error.message})`);
+    throw refused(
+      `cannot read the domain through Route 53 Domains; changing delegation is a manual step at the registrar (${(error as Error).message})`,
+    );
+  }
   reportDomain(context, domain);
-  const targets = options.back
+  const rawTargets = options.back
     ? (await sourceZone(context)).servers
     : (await dnsZone(context)).zone.name_servers;
-  if (!targets?.length || (!options.back && targets.length !== 2))
+  if (!rawTargets?.length || (!options.back && rawTargets.length < 2))
     throw refused('the target name servers are missing');
+  const targets = rawTargets.map(dnsName);
+  if (options.back)
+    context.report.line(
+      'WARN records changed in Cloudflare since the move are not present in Route 53; review them before rolling back',
+    );
   if (
     sameJson(targets.map(dnsName).sort(), domain.Nameservers.map((server) => dnsName(server.Name)).sort())
   ) {
@@ -469,7 +483,7 @@ export async function runDnsSwitch(context: CloudContext, options: { back: boole
     }
   }
   context.report.line(
-    `${options.dryRun ? 'dry-run: would update' : 'update'} domain name servers: ${targets.join(', ')}`,
+    `${options.dryRun ? 'dry-run: would set name servers to' : 'update domain name servers:'} ${targets.join(', ')}`,
   );
   if (options.dryRun) return;
   const result = await domainsCli(context).callAs(
@@ -479,7 +493,7 @@ export async function runDnsSwitch(context: CloudContext, options: { back: boole
       '--domain-name',
       context.config.cloudflare.zone,
       '--nameservers',
-      JSON.stringify(targets.map((Name) => ({ Name }))),
+      ...targets.map((name) => `Name=${name}`),
     ],
     z.object({ OperationId: z.string() }),
   );

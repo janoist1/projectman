@@ -418,8 +418,8 @@ resolving their IPs first with the system resolver. Nonalias differences exit 1.
 because providers can flatten them to different addresses.
 If a Cloudflare authority does not answer for the pending zone, verification prints a specific error and
 exits 1. In that case `dns plan` with **every imported record `same`**, no `different`, `create` or `REFUSE`,
-is fallback evidence of API contents, but it is not a green authoritative verification. Stop before changing
-delegation and have the owner decide how to proceed; do not treat the error as permission to switch.
+is fallback evidence of API contents, but it is not a green authoritative verification. Wait, then run
+`dns verify` again; delegation cannot change until it is green. There is no manual override.
 
 Keep the Route 53 hosted zone for **at least one week** as a rollback path (about USD 0.50/month).
 To roll back, run `npm run cloud -- dns switch --back --dry-run`, then `dns switch --back`
@@ -433,6 +433,10 @@ If the registrar already has that exact set it reports `unchanged`. Otherwise it
 DNSSEC keys or public DS records, runs `dns verify` again in the same invocation, and refuses (exit 2)
 unless it is green. There is no override. `--back` targets the retained Route 53 delegation set and
 does not require verification against Cloudflare. `--dry-run` performs checks but never submits an update.
+The rollback warns that records changed in Cloudflare since the move are not copied back to Route 53.
+If the domain cannot be read through Route 53 Domains, `switch` refuses (exit 2): missing permission
+names `route53domains:GetDomainDetail`; another registrar requires a manual delegation step there,
+with the same green verification prerequisite.
 Renewal disabled or expiration within 30 days produces a warning. `dns status` treats an unavailable
 registrar API as a warning and still reports Cloudflare activation.
 

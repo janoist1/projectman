@@ -50,7 +50,9 @@ const dependencies = (): CloudDeps => {
           };
           break;
         case 'update-domain-nameservers':
-          registeredServers = (JSON.parse(args.at(-1)!) as { Name: string }[]).map((server) => server.Name);
+          registeredServers = args
+            .slice(args.indexOf('--nameservers') + 1)
+            .map((value) => value.replace(/^Name=/, ''));
           value = { OperationId: 'operation-1' };
           break;
         default:
@@ -462,9 +464,10 @@ describe('registrar switch', () => {
     const updates = awsCalls.filter((call) => call[7] === 'update-domain-nameservers');
     expect(updates).toHaveLength(1);
     expect(updates[0]!.slice(0, 4)).toEqual(['--profile', 'i', '--region', 'us-east-1']);
-    expect(JSON.parse(updates[0]!.at(-1)!)).toEqual([
-      { Name: 'ada.ns.cloudflare.com' },
-      { Name: 'bob.ns.cloudflare.com' },
+    expect(updates[0]!.slice(-3)).toEqual([
+      '--nameservers',
+      'Name=ada.ns.cloudflare.com',
+      'Name=bob.ns.cloudflare.com',
     ]);
     awsCalls.length = 0;
     dnsCalls.length = 0;
@@ -497,6 +500,37 @@ describe('registrar switch', () => {
     expect(registeredServers).toEqual(['ns1.aws.test', 'ns2.aws.test', 'ns3.aws.test', 'ns4.aws.test']);
     expect(dnsCalls).toEqual([]);
     expect(world.cf.calls).toEqual([]);
+    expect(world.output).toContain('WARN records changed in Cloudflare');
+  });
+  it.each(['AccessDenied', 'AccessDeniedException', 'InvalidInput'])(
+    'refuses registrar read failure %s with exit 2',
+    async (code) => {
+      const deps = dependencies(),
+        original = deps.run;
+      deps.run = async (command, args, options) =>
+        args[7] === 'get-domain-detail'
+          ? {
+              code: 1,
+              stdout: '',
+              stderr: `An error occurred (${code}) when calling GetDomainDetail: unavailable`,
+            }
+          : original(command, args, options);
+      expect(await runCloud(['dns', 'switch'], deps)).toBe(2);
+      expect(world.output).toContain(
+        code.startsWith('AccessDenied') ? 'route53domains:GetDomainDetail' : 'manual step at the registrar',
+      );
+      expect(awsCalls.some((call) => call[7] === 'update-domain-nameservers')).toBe(false);
+    },
+  );
+  it('preserves exit 1 for an update failure', async () => {
+    const deps = dependencies(),
+      original = deps.run;
+    deps.run = async (command, args, options) =>
+      args[7] === 'update-domain-nameservers'
+        ? { code: 1, stdout: '', stderr: 'update failed' }
+        : original(command, args, options);
+    expect(await runCloud(['dns', 'switch'], deps)).toBe(1);
+    expect(world.output).toContain('update failed');
   });
   it('treats an unavailable registrar status as a warning', async () => {
     const deps = dependencies();

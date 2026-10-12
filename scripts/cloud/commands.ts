@@ -144,7 +144,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
       const zone = await findZone(api, context.config, account.id);
       if (zone?.status !== 'active') {
         context.report.line(
-          'Next: dns plan, dns import, dns verify, dns switch; dns status until active, then up again (docs/AWS.md)',
+          'Next: dns plan, dns import, dns verify, dns switch --dry-run, dns switch; dns status until active, then up again (docs/AWS.md)',
         );
         return;
       }

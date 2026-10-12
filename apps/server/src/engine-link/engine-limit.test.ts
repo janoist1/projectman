@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EnginePaths, MachineProbe, ProcessRecord } from '../contracts';
+import { newId } from '../domain/util';
 import { createEngineLimit } from './engine-limit';
 import type { EngineLimit } from './engine-limit';
 import type { ResolvedEngineConfig } from './engine-config';
@@ -818,7 +819,7 @@ describe('engine local limit', () => {
     const ref = { projectKey: 'PM', repo: 'projectman' };
     const sha = 'a'.repeat(40);
     const other = 'b'.repeat(40);
-    const mergeId = 'mrg_abcdefgh1';
+    const mergeId = newId('merge'); // what the domain makes, not a hand-written id (PM-551)
     const merging = (overrides: Partial<ResolvedEngineConfig> = {}) =>
       make({
         repos: [

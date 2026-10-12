@@ -1,0 +1,523 @@
+import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runCloud } from '../../../scripts/cloud/commands';
+import { parseTags } from '../../../scripts/cloud/machine';
+import { HostWorld, SHA_NEW, SHA_NEWEST, SHA_OLD } from './helpers/fake-host';
+
+/** `npm run cloud -- deploy | rollback | status | logs | ssh | stop | start | rehearse | seed | pull-data` (PM-535). */
+
+const REPO_URL = 'https://github.com/janoist1/projectman.git';
+
+let world: HostWorld;
+beforeEach(() => {
+  world = HostWorld.ready();
+});
+afterEach(() => world.cleanup());
+
+const run = (...argv: string[]) => runCloud(argv, world.deps());
+const subcommands = () => world.hostCalls.map((call) => call.subcommand);
+const starts = () => world.hostCalls.filter((call) => call.subcommand === 'start').map((call) => call.args);
+const everything = () => `${world.output}\n${world.errors.join('\n')}`;
+
+describe('deploy', () => {
+  it('builds and starts the newest release tag (numerically, the peeled commit) and waits for health', async () => {
+    expect(await run('deploy')).toBe(0);
+    expect(world.gitCalls[0]).toEqual(['ls-remote', '--tags', REPO_URL]);
+    expect(world.machine.built).toEqual([{ sha: SHA_NEWEST, url: REPO_URL }]);
+    expect(starts()).toEqual([[SHA_NEWEST, 'v2026.10.12']]);
+    expect(subcommands().slice(0, 4)).toEqual(['bootstrap', 'receive-env', 'status', 'build']);
+    expect(world.output).toContain(`ok ref: v2026.10.12 (${SHA_NEWEST})`);
+    expect(world.output).toContain('ok health: v2026.10.12 is healthy');
+    expect(world.machine.current()?.sha).toBe(SHA_NEWEST);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('orders release tags by number, not by text: v2026.10.11.4 is later than v2026.10.9 and v2026.9.30', async () => {
+    world.tags = [
+      { name: 'v2026.10.9', sha: 'd'.repeat(40) },
+      { name: 'v2026.10.11.4', sha: 'e'.repeat(40) },
+      { name: 'v2026.10.11', sha: 'a'.repeat(40) },
+      { name: 'v2026.9.30', sha: 'f'.repeat(40) },
+      { name: 'v1', sha: '1'.repeat(40) },
+    ];
+    expect(await run('deploy', '--dry-run')).toBe(0);
+    expect(world.output).toContain(`ok ref: v2026.10.11.4 (${'e'.repeat(40)})`);
+  });
+
+  it('parses annotated and lightweight tags', () => {
+    expect(
+      parseTags(
+        [
+          `${'a'.repeat(40)}\trefs/tags/v1`,
+          `${'b'.repeat(40)}\trefs/tags/v2`,
+          `${'c'.repeat(40)}\trefs/tags/v2^{}`,
+          'garbage',
+        ].join('\n'),
+      ),
+    ).toEqual([
+      { name: 'v1', sha: 'a'.repeat(40) },
+      { name: 'v2', sha: 'c'.repeat(40) },
+    ]);
+  });
+
+  it('takes --ref as a tag or as a commit id, and the commit id becomes the ref name', async () => {
+    expect(await run('deploy', '--ref', 'v2026.9.30')).toBe(0);
+    expect(starts()).toEqual([['f'.repeat(40), 'v2026.9.30']]);
+    world.hostCalls.length = 0;
+    world.machine.built.length = 0;
+    expect(await run('deploy', '--ref', SHA_OLD)).toBe(0);
+    expect(starts()).toEqual([[SHA_OLD, SHA_OLD]]);
+  });
+
+  it('refuses a tag that does not exist, a malformed --ref, and a repository without release tags', async () => {
+    expect(await run('deploy', '--ref', 'v9.9.9')).toBe(2);
+    expect(world.output).toContain('has no tag v9.9.9');
+    expect(await run('deploy', '--ref', 'a b;rm')).toBe(2);
+    world.tags = [{ name: 'latest', sha: SHA_OLD }];
+    expect(await run('deploy')).toBe(2);
+    expect(everything()).toContain('has no release tag');
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('fails (1) when the tags cannot be read', async () => {
+    world.lsRemoteFails = true;
+    expect(await run('deploy')).toBe(1);
+    expect(everything()).toContain('git ls-remote');
+    expect(world.hostCalls).toHaveLength(0);
+  });
+
+  it('sends cloud.env on the standard input only, never in an argument, and never prints a secret', async () => {
+    expect(await run('deploy')).toBe(0);
+    const received = world.hostCalls.find((call) => call.subcommand === 'receive-env')!;
+    expect(received.input).toContain('LITESTREAM_SECRET_ACCESS_KEY=fakeSecretDb/');
+    expect(received.args).toEqual([]);
+    for (const call of world.hostCalls) {
+      expect(call.remote).not.toContain('fakeSecretDb');
+      expect(call.remote).not.toContain('tunnel-token-value');
+      expect(call.sshArgs.join(' ')).not.toContain('fakeSecret');
+    }
+    expect(everything()).not.toContain('fakeSecret');
+    expect(everything()).not.toContain('tunnel-token-value');
+    expect(everything()).not.toContain('fake-restic-password');
+    expect(world.machine.envText).toBe(received.input);
+  });
+
+  it('sends the systemd unit to bootstrap on the standard input', async () => {
+    expect(await run('deploy')).toBe(0);
+    const bootstrap = world.hostCalls.find((call) => call.subcommand === 'bootstrap')!;
+    expect(bootstrap.input).toContain('[Service]');
+    expect(bootstrap.input).toContain('ExecStart=/usr/bin/docker run');
+  });
+
+  it('refuses without cloud.env, before touching anything', async () => {
+    const { rmSync } = await import('node:fs');
+    rmSync(world.envFile);
+    expect(await run('deploy')).toBe(2);
+    expect(everything()).toContain('run `npm run cloud -- aws` first');
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('refuses a cloud.env that lacks the bucket keys', async () => {
+    writeFileSync(world.envFile, 'TUNNEL_TOKEN=abcdefghijkl\n', { mode: 0o600 });
+    expect(await run('deploy')).toBe(2);
+    expect(everything()).toContain('has no LITESTREAM_BUCKET');
+  });
+
+  it('notes a missing TUNNEL_TOKEN but goes on', async () => {
+    world.writeEnv('');
+    expect(await run('deploy')).toBe(0);
+    expect(world.output).toContain('cloud.env has no TUNNEL_TOKEN yet');
+  });
+
+  it('--dry-run reads only: no ssh, no firewall change', async () => {
+    expect(await run('deploy', '--dry-run')).toBe(0);
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+    expect(world.output).toContain('skipped deploy: dry-run: would open the SSH port');
+  });
+
+  it('goes back to the previous image when the new one never becomes healthy, and warns about the migration', async () => {
+    world.machine.preload(SHA_OLD, 'v2026.10.11.4');
+    world.machine.unhealthyShas.add(SHA_NEWEST);
+    expect(await run('deploy')).toBe(1);
+    expect(starts()).toEqual([
+      [SHA_NEWEST, 'v2026.10.12'],
+      [SHA_OLD, 'v2026.10.11.4'],
+    ]);
+    expect(world.machine.current()?.sha).toBe(SHA_OLD);
+    expect(world.output).toContain('did not become healthy in 180 s');
+    expect(world.output).toContain('line two');
+    expect(world.output).toContain('going back to v2026.10.11.4');
+    expect(world.output).toContain('ok health: v2026.10.11.4 is healthy again');
+    // The time the old board stopped before the new one started: the point to restore the database to.
+    expect(world.output).toContain('restore the database to 2026-10-12T12:');
+    expect(world.output).toContain('Litestream replica');
+    expect(world.output).toContain('docs/AWS.md');
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('fails without a rollback when there is no earlier image', async () => {
+    world.machine.unhealthyShas.add(SHA_NEWEST);
+    expect(await run('deploy')).toBe(1);
+    expect(starts()).toEqual([[SHA_NEWEST, 'v2026.10.12']]);
+    expect(world.output).toContain('there is no earlier image to go back to');
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('does not go back to the same image', async () => {
+    world.machine.preload(SHA_NEWEST, 'v2026.10.12');
+    world.machine.unhealthyShas.add(SHA_NEWEST);
+    expect(await run('deploy')).toBe(1);
+    expect(starts()).toHaveLength(1);
+  });
+
+  it('fails when the build fails, and starts nothing', async () => {
+    world.machine.failures.set('build', { code: 1, stdout: '', stderr: 'docker build failed\n' });
+    expect(await run('deploy')).toBe(1);
+    expect(starts()).toHaveLength(0);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('the build output goes to the terminal (inherit), the long timeouts are set', async () => {
+    const stdio: (string | undefined)[] = [];
+    const deps = world.deps();
+    const base = deps.run;
+    deps.run = (command, args, options) => {
+      if (command === 'ssh' && args[args.length - 1]!.includes("'build'")) stdio.push(options?.stdio);
+      return base(command, args, options);
+    };
+    expect(await runCloud(['deploy'], deps)).toBe(0);
+    expect(stdio).toEqual(['inherit']);
+  });
+});
+
+describe('rollback', () => {
+  it('starts the previous image and prints the migration warning with the stop time', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.12', { sha: SHA_OLD, ref: 'v2026.10.11.4' });
+    world.machine.deploy!.lastStoppedAt = '2026-10-12T09:30:00.000Z';
+    expect(await run('rollback')).toBe(0);
+    expect(starts()).toEqual([[SHA_OLD, 'v2026.10.11.4']]);
+    expect(world.machine.deploy!.previous?.sha).toBe(SHA_NEW);
+    expect(world.output).toContain('restore the database to 2026-10-12T09:30:00.000Z');
+    expect(world.output).toContain('ok health: v2026.10.11.4 is healthy');
+  });
+
+  it('refuses when there is no previous image', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.12');
+    expect(await run('rollback')).toBe(2);
+    expect(everything()).toContain('no previous image');
+    expect(starts()).toHaveLength(0);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('exits 1 when the previous image is unhealthy as well', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.12', { sha: SHA_OLD, ref: 'v2026.10.11.4' });
+    world.machine.unhealthyShas.add(SHA_OLD);
+    expect(await run('rollback')).toBe(1);
+    expect(world.output).toContain('did not become healthy');
+  });
+
+  it('--dry-run does not connect', async () => {
+    expect(await run('rollback', '--dry-run')).toBe(0);
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+});
+
+describe('status, logs, ssh', () => {
+  it('prints the machine, the unit, the container, the history, the disk and the memory', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.12', { sha: SHA_OLD, ref: 'v2026.10.11.4' });
+    expect(await run('status')).toBe(0);
+    expect(world.output).toContain('ok machine: projectman-cloud: running');
+    expect(world.output).toContain('unit: active');
+    expect(world.output).toContain(`container: running, healthy, projectman-cloud:${SHA_NEW}`);
+    expect(world.output).toContain('current: v2026.10.12 (bbbbbbbbbbbb)');
+    expect(world.output).toContain('previous: v2026.10.11.4 (aaaaaaaaaaaa)');
+    expect(world.output).toContain('last stopped: never recorded');
+    expect(world.output).toContain('data: 1.0 MiB, free disk: 12.0 GiB');
+    expect(world.output).toContain('swap 0 B of 2.0 GiB');
+  });
+
+  it('says so when the machine is not running, without connecting', async () => {
+    world.aws.instance!.state = 'stopped';
+    expect(await run('status')).toBe(0);
+    expect(world.output).toContain('ok machine: projectman-cloud: stopped');
+    expect(world.output).toContain('skipped host: the machine is stopped');
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('refuses when the machine does not exist', async () => {
+    world.aws.instance = null;
+    expect(await run('status')).toBe(2);
+    expect(everything()).toContain('there is no machine projectman-cloud');
+  });
+
+  it('logs prints the lines, 200 by default and --lines otherwise', async () => {
+    expect(await run('logs')).toBe(0);
+    expect(world.hostCalls[0]!.args).toEqual(['200']);
+    expect(world.output).toContain('line one');
+    world.hostCalls.length = 0;
+    expect(await run('logs', '--lines', '15')).toBe(0);
+    expect(world.hostCalls[0]!.args).toEqual(['15']);
+  });
+
+  it('logs refuses a bad --lines as bad usage', async () => {
+    for (const bad of ['0', '-1', 'ten', '10001', '1e3']) {
+      expect(await run('logs', '--lines', bad)).toBe(64);
+    }
+    expect(world.hostCalls).toHaveLength(0);
+  });
+
+  it('ssh opens an interactive shell with the same safe options', async () => {
+    expect(await run('ssh')).toBe(0);
+    expect(world.shells).toHaveLength(1);
+    expect(world.shells[0]).toContain('StrictHostKeyChecking=yes');
+    expect(world.shells[0]![world.shells[0]!.length - 1]).toBe('ubuntu@203.0.113.7');
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('ssh ignores the exit status of the last command typed in the shell', async () => {
+    const deps = world.deps({
+      run: async (command, args, options) => {
+        if (command === 'ssh') return { code: 1, stdout: '', stderr: '' };
+        return world.deps().run(command, args, options);
+      },
+    });
+    expect(await runCloud(['ssh'], deps)).toBe(0);
+  });
+
+  it('ssh fails when ssh itself cannot connect (status 255)', async () => {
+    const deps = world.deps({
+      run: async (command, args, options) => {
+        if (command === 'ssh') return { code: 255, stdout: '', stderr: 'no route' };
+        return world.deps().run(command, args, options);
+      },
+    });
+    expect(await runCloud(['ssh'], deps)).toBe(1);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+});
+
+describe('stop, start, rehearse', () => {
+  it('stop stops the board; start brings the current image back and waits for health', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.12');
+    expect(await run('stop')).toBe(0);
+    expect(world.machine.running).toBe(false);
+    expect(world.machine.deploy!.lastStoppedAt).not.toBeNull();
+    expect(await run('start')).toBe(0);
+    expect(world.machine.running).toBe(true);
+    expect(starts()).toEqual([[SHA_NEW, 'v2026.10.12']]);
+    expect(world.output).toContain('ok health: v2026.10.12 is healthy');
+  });
+
+  it('start refuses when nothing was ever deployed', async () => {
+    expect(await run('start')).toBe(2);
+    expect(everything()).toContain('nothing has been deployed yet');
+  });
+
+  it('start prints the log and exits 1 when the board does not become healthy', async () => {
+    world.machine.preload(SHA_NEW, 'v2026.10.12');
+    world.machine.unhealthyShas.add(SHA_NEW);
+    expect(await run('start')).toBe(1);
+    expect(world.output).toContain('line two');
+  });
+
+  it('stop and start --dry-run do not connect', async () => {
+    expect(await run('stop', '--dry-run')).toBe(0);
+    expect(await run('start', '--dry-run')).toBe(0);
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('rehearse passes only on REHEARSAL PASSED', async () => {
+    expect(await run('rehearse')).toBe(0);
+    expect(world.output).toContain('ok rehearse: REHEARSAL PASSED');
+    world.machine.rehearsalOutput = 'it went fine, honestly\n';
+    expect(await run('rehearse')).toBe(1);
+    world.machine.rehearsalOutput = 'REHEARSAL FAILED: restore\n';
+    world.machine.rehearsalCode = 1;
+    expect(await run('rehearse')).toBe(1);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+});
+
+describe('seed', () => {
+  let source: string;
+  beforeEach(() => {
+    source = mkdtempSync(path.join(world.home, 'package-'));
+    writeFileSync(path.join(source, 'db.sqlite'), 'sqlite');
+    mkdirSync(path.join(source, 'secrets'));
+    world.aws.addBucket('acme-projectman-db');
+    world.aws.addBucket('acme-projectman-backup');
+  });
+
+  it('refuses when a bucket does not exist yet', async () => {
+    world.aws.buckets.delete('acme-projectman-backup');
+    expect(await run('seed', '--from', source)).toBe(2);
+    expect(everything()).toContain('acme-projectman-backup does not exist');
+    expect(world.hostCalls).toHaveLength(0);
+  });
+
+  it('uploads the package into the empty data directory, then deploys', async () => {
+    expect(await run('seed', '--from', source)).toBe(0);
+    expect(subcommands().slice(0, 4)).toEqual(['bootstrap', 'seed-check', 'receive-data', 'bootstrap']);
+    expect(world.pipes).toHaveLength(1);
+    expect(world.pipes[0]!.from).toMatchObject({ command: 'tar', args: ['-C', source, '-c', '.'] });
+    expect(world.pipes[0]!.from.env).toEqual({ COPYFILE_DISABLE: '1' });
+    expect(world.pipes[0]!.to.command).toBe('ssh');
+    expect(world.machine.receivedData).toContain('tar -C');
+    expect(starts()).toEqual([[SHA_NEWEST, 'v2026.10.12']]);
+    expect(world.output).toContain('the instance on the Mac must be stopped');
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('needs --from', async () => {
+    expect(await run('seed')).toBe(64);
+  });
+
+  it('refuses a source that is missing, is a file, or has no db.sqlite', async () => {
+    expect(await run('seed', '--from', path.join(world.home, 'nope'))).toBe(2);
+    expect(await run('seed', '--from', path.join(source, 'db.sqlite'))).toBe(2);
+    const empty = mkdtempSync(path.join(world.home, 'empty-'));
+    expect(await run('seed', '--from', empty)).toBe(2);
+    expect(everything()).toContain('has no db.sqlite');
+    expect(world.hostCalls).toHaveLength(0);
+  });
+
+  it('refuses a source that holds what the cloud must not get (the machine key, the CLI homes)', async () => {
+    writeFileSync(path.join(source, 'engine.key'), 'key');
+    expect(await run('seed', '--from', source)).toBe(2);
+    expect(everything()).toContain('engine.key');
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('refuses when a bucket is not empty, before connecting', async () => {
+    world.aws.buckets.get('acme-projectman-db')!.objects = 3;
+    expect(await run('seed', '--from', source)).toBe(2);
+    expect(everything()).toContain('acme-projectman-db is not empty');
+    expect(world.hostCalls).toHaveLength(0);
+    world.aws.buckets.get('acme-projectman-db')!.objects = 0;
+    world.aws.buckets.get('acme-projectman-backup')!.objects = 1;
+    expect(await run('seed', '--from', source)).toBe(2);
+    expect(everything()).toContain('acme-projectman-backup is not empty');
+    expect(world.aws.mutations()).toEqual([]);
+  });
+
+  it('refuses when the board is running on the machine, and uploads nothing', async () => {
+    world.machine.preload(SHA_OLD, 'v2026.10.11.4');
+    expect(await run('seed', '--from', source)).toBe(2);
+    expect(everything()).toContain('the board is running');
+    expect(world.pipes).toHaveLength(0);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('refuses when the data directory on the machine is not empty', async () => {
+    world.machine.dataEmpty = false;
+    expect(await run('seed', '--from', source)).toBe(2);
+    expect(everything()).toContain('is not empty');
+    expect(world.pipes).toHaveLength(0);
+  });
+
+  it('fails (1) and does not deploy when the upload fails', async () => {
+    world.pipeCode = 2;
+    expect(await run('seed', '--from', source)).toBe(1);
+    expect(everything()).toContain('the upload failed');
+    expect(world.machine.built).toHaveLength(0);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('--dry-run checks the files and the buckets and then stops before connecting', async () => {
+    expect(await run('seed', '--from', source, '--dry-run')).toBe(0);
+    expect(world.hostCalls).toHaveLength(0);
+    expect(world.pipes).toHaveLength(0);
+    expect(world.aws.mutations()).toEqual([]);
+    expect(world.output).toContain('skipped seed: dry-run');
+  });
+});
+
+describe('pull-data', () => {
+  let target: string;
+  beforeEach(() => {
+    target = path.join(world.home, 'copy');
+    world.machine.preload(SHA_NEW, 'v2026.10.12');
+    world.machine.running = false;
+  });
+
+  it('copies the stopped board data into a new directory with mode 700', async () => {
+    expect(await run('pull-data', '--to', target)).toBe(0);
+    expect(existsSync(path.join(target, 'db.sqlite'))).toBe(true);
+    expect(statSync(target).mode & 0o777).toBe(0o700);
+    expect(world.pipes[0]!.from.command).toBe('ssh');
+    expect(world.pipes[0]!.to).toMatchObject({ command: 'tar', args: ['-x', '-p', '-f', '-', '-C', target] });
+    expect(world.output).toContain('ok check-entries');
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('needs --to', async () => {
+    expect(await run('pull-data')).toBe(64);
+  });
+
+  it('refuses a directory that exists, a missing parent and a git work tree', async () => {
+    mkdirSync(target);
+    expect(await run('pull-data', '--to', target)).toBe(2);
+    expect(everything()).toContain('already exists');
+    expect(await run('pull-data', '--to', path.join(world.home, 'no', 'such', 'copy'))).toBe(2);
+    const tree = path.join(world.home, 'work');
+    mkdirSync(path.join(tree, '.git'), { recursive: true });
+    expect(await run('pull-data', '--to', path.join(tree, 'data'))).toBe(2);
+    expect(everything()).toContain('inside the git work tree');
+    expect(world.hostCalls).toHaveLength(0);
+  });
+
+  it('refuses while the board is running, and creates nothing', async () => {
+    world.machine.running = true;
+    expect(await run('pull-data', '--to', target)).toBe(2);
+    expect(everything()).toContain('stop it first');
+    expect(existsSync(target)).toBe(false);
+    expect(world.pipes).toHaveLength(0);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('removes the partial copy when the download fails', async () => {
+    world.pipeCode = 2;
+    expect(await run('pull-data', '--to', target)).toBe(1);
+    expect(everything()).toContain('the download failed');
+    expect(existsSync(target)).toBe(false);
+    expect(world.firewallIsClosed()).toBe(true);
+  });
+
+  it('names what the way back would refuse in the copy', async () => {
+    const deps = world.deps();
+    const pipe = deps.pipe;
+    deps.pipe = async (from, to) => {
+      const result = await pipe(from, to);
+      writeFileSync(path.join(target, 'strange-file'), 'x');
+      return result;
+    };
+    expect(await runCloud(['pull-data', '--to', target], deps)).toBe(0);
+    expect(world.output).toContain('note: strange-file in the copy');
+  });
+
+  it('--dry-run connects nowhere and creates nothing', async () => {
+    expect(await run('pull-data', '--to', target, '--dry-run')).toBe(0);
+    expect(world.hostCalls).toHaveLength(0);
+    expect(existsSync(target)).toBe(false);
+    expect(world.aws.mutations()).toEqual([]);
+  });
+});
+
+describe('the command line', () => {
+  it('rejects options a command does not have', async () => {
+    expect(await run('status', '--dry-run')).toBe(64);
+    expect(await run('deploy', '--lines', '5')).toBe(64);
+    expect(await run('logs', '--ref', 'v1')).toBe(64);
+    expect(await run('deploy', '--ref')).toBe(64);
+    expect(await run('deploy', '--ref', '--dry-run')).toBe(64);
+    expect(world.hostCalls).toHaveLength(0);
+  });
+});

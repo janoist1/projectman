@@ -1,13 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import sharp from 'sharp';
@@ -63,11 +54,10 @@ describe('message attachment in the session folder (PM-518)', () => {
     const reading = await read(file.id);
 
     expect(reading.content).toEqual({ kind: 'none', reason: 'type' });
-    const expected = join(folder, 'message-attachments', `${file.id}-plan.pdf`);
+    const expected = join(folder, `${file.id}-plan.pdf`);
     expect(reading.file).toEqual({ path: expected });
     expect(readFileSync(expected).equals(bytes)).toBe(true);
     expect(lstatSync(expected).mode & 0o777).toBe(0o600);
-    expect(lstatSync(join(folder, 'message-attachments')).mode & 0o777).toBe(0o700);
   });
 
   it('gives the same path for the same file when it is read again', async () => {
@@ -75,7 +65,7 @@ describe('message attachment in the session folder (PM-518)', () => {
     const first = await read(file.id);
     const second = await read(file.id);
     expect(second.file).toEqual(first.file);
-    expect(readdirSync(join(folder, 'message-attachments'))).toEqual([`${file.id}-plan.pdf`]);
+    expect(readdirSync(folder).filter((entry) => entry.startsWith('msa_'))).toEqual([`${file.id}-plan.pdf`]);
   });
 
   it('does not hand a text or an image the claude way a file: the content shows it', async () => {
@@ -85,7 +75,7 @@ describe('message attachment in the session folder (PM-518)', () => {
     const reading = await read(image.id);
     expect(reading.content.kind).toBe('image');
     expect(reading.file).toBeUndefined();
-    expect(existsSync(join(folder, 'message-attachments'))).toBe(false);
+    expect(readdirSync(folder).filter((entry) => entry.startsWith('msa_'))).toEqual([]);
   });
 
   it('puts an image into the folder for a provider whose CLI does not show MCP images', async () => {
@@ -113,7 +103,7 @@ describe('message attachment in the session folder (PM-518)', () => {
 
     const reading = await read(file.id);
     expect(reading.file!.path.startsWith(`${folder}/`)).toBe(true);
-    expect(existsSync(join(otherFolder, 'message-attachments'))).toBe(false);
+    expect(readdirSync(otherFolder).filter((entry) => entry.startsWith('msa_'))).toEqual([]);
     expect(started.session!.id).not.toBe(dev.sessionId);
   });
 
@@ -131,26 +121,24 @@ describe('message attachment in the session folder (PM-518)', () => {
     const reading = await read(file.id, { ...dev, member: 'dev-2' }).catch((err: unknown) => err);
     // dev-2 is not a recipient of the message: not found, and nothing written.
     expect(reading).toMatchObject({ code: 'not_found' });
-    expect(existsSync(join(folder, 'message-attachments'))).toBe(false);
+    expect(readdirSync(folder).filter((entry) => entry.startsWith('msa_'))).toEqual([]);
   });
 
-  it('keeps the reading when the folder subdirectory is a symlink, and writes nothing through it', async () => {
+  it('keeps the file and writes nothing through a link the agent put at its name', async () => {
     const file = await sendFile(pdfBytes(), 'plan.pdf');
     const elsewhere = join(h.dir, 'elsewhere');
     mkdirSync(elsewhere);
-    symlinkSync(elsewhere, join(folder, 'message-attachments'));
+    symlinkSync(elsewhere, join(folder, `${file.id}-plan.pdf`));
     const reading = await read(file.id);
-    expect(reading.content).toEqual({ kind: 'none', reason: 'type' });
-    expect(reading.file).toBeUndefined();
+    expect(reading.file).toEqual({ path: join(folder, `${file.id}-plan.pdf`) });
+    expect(lstatSync(reading.file!.path).isFile()).toBe(true);
     expect(readdirSync(elsewhere)).toEqual([]);
   });
 
   it('replaces a file of the same name that holds other bytes', async () => {
     const bytes = pdfBytes();
     const file = await sendFile(bytes, 'plan.pdf');
-    const target = join(folder, 'message-attachments');
-    mkdirSync(target, { mode: 0o700 });
-    const stale = join(target, `${file.id}-plan.pdf`);
+    const stale = join(folder, `${file.id}-plan.pdf`);
     writeFileSync(stale, 'something else');
     const reading = await read(file.id);
     expect(reading.file).toEqual({ path: stale });

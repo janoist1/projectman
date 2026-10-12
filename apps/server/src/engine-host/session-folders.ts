@@ -1,13 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  constants,
-  createReadStream,
-  createWriteStream,
-  lstatSync,
-  mkdirSync,
-  realpathSync,
-} from 'node:fs';
+import { chmodSync, constants, createWriteStream, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { link, lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
 import { Transform } from 'node:stream';
@@ -27,15 +19,36 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A session's temporary directory name (`allocateTmp`); not a `.trash-*` name. */
 const TMP_NAME = /^[0-9a-f]{12}$/;
 
-/** The subfolder of a session's folder that holds the message attachments it was given (PM-518). */
-export const SESSION_FILES_DIR = 'message-attachments';
-
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
 
-async function sha256Of(file: string): Promise<string> {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(file)) hash.update(chunk as Buffer);
-  return hash.digest('hex');
+/**
+ * Whether `file`, which the agent can write, is a regular file with exactly the size and checksum of
+ * `source` (PM-523). It is opened without following a link and without blocking (a FIFO opens at
+ * once and is refused by `fstat`), and everything is read through that one descriptor, at most
+ * `size + 1` bytes: a name swapped for a FIFO or a link to a device, or a file that keeps growing,
+ * cannot stop the server's read or keep it hashing. Anything that is not that file is `false`.
+ */
+async function isSameFile(file: string, source: { size: number; sha256: string }): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return false;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== source.size) return false;
+    const hash = createHash('sha256');
+    let bytes = 0;
+    for await (const chunk of handle.createReadStream({ start: 0, end: source.size, autoClose: false })) {
+      bytes += (chunk as Buffer).length;
+      if (bytes > source.size) return false;
+      hash.update(chunk as Buffer);
+    }
+    return bytes === source.size && hash.digest('hex') === source.sha256;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
 }
 
 /**
@@ -334,13 +347,21 @@ export class SessionFolders implements EngineSessionFolders {
   }
 
   /**
-   * A file of the server's storage into the session's folder, `<folder>/message-attachments/<name>`
-   * (PM-518). Only the folder this registry recorded for the session is written, never a path the
-   * caller names: a session the registry does not know (not started here, already ended) is refused.
-   * The content is copied to a name in the root, which no session reaches, checked against the size and
-   * checksum, and then linked into place, so the file the agent sees is complete and made exclusively
-   * (0600, never through a link). The subfolder is made 0700 and must be a real directory; a file
-   * already there with the same checksum stays as the answer, anything else of that name is replaced.
+   * A file of the server's storage into the session's folder, `<folder>/<name>` (PM-518, PM-523).
+   * Only the folder this registry recorded for the session is written, never a path the caller names:
+   * a session the registry does not know (not started here, already ended) is refused. The content is
+   * copied to a name in the root, which no session reaches, checked against the size and checksum,
+   * and then linked into place, so the file the agent sees is complete and made exclusively (0600,
+   * never through a link).
+   *
+   * The file goes straight into the session folder and there is no subfolder: the agent writes inside
+   * the folder, so a directory in it could be renamed away and replaced by a link between the check
+   * and the use, and the server (outside the sandbox) would write and remove through that link. The
+   * folder itself lives in the root, which the agent cannot write, so it cannot be swapped, and its
+   * last element is safe by itself: `link` refuses an existing name (a link included, it is never
+   * followed) and a name that is not the same file is renamed into the root and removed there, so the
+   * agent's own entry (a link, or a folder it keeps changing) is never walked in its place. A file
+   * already there with the same checksum stays as the answer.
    */
   async materializeFile(
     sessionId: string,
@@ -355,19 +376,16 @@ export class SessionFolders implements EngineSessionFolders {
     try {
       await copyChecked(source, staged);
       await assertOwnDirectory(folder, true);
-      const dir = path.join(folder, SESSION_FILES_DIR);
-      await mkdir(dir, { mode: 0o700 }).catch((err: unknown) => {
-        if (code(err) !== 'EEXIST') throw err;
-      });
-      await assertOwnDirectory(dir, true);
-      const dest = path.join(dir, name);
-      const there = await lstat(dest).catch((err: unknown) => {
-        if (code(err) === 'ENOENT') return undefined;
-        throw err;
-      });
-      if (there) {
-        if (there.isFile() && (await sha256Of(dest)) === source.sha256) return { path: dest };
-        await rm(dest, { recursive: true, force: true });
+      const dest = path.join(folder, name);
+      if (await isSameFile(dest, source)) return { path: dest };
+      // The slow check above is over: what is there now (nothing, mostly) is moved out of the agent's
+      // reach by its name alone (a link moves as a link), and only then removed.
+      const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
+      try {
+        await rename(dest, trash);
+        await rm(trash, { recursive: true, force: true });
+      } catch (err) {
+        if (code(err) !== 'ENOENT') throw err;
       }
       await link(staged, dest);
       return { path: dest };

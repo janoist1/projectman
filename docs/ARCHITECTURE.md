@@ -1557,8 +1557,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the
   content of a message file is `none` (a PDF, a binary, a text too big), or an image for a provider
   whose CLI shows no image in an MCP tool result, the server has the caller's engine put a copy at
-  `<session folder>/message-attachments/<id>-<name>` (0600 in a 0700 directory, the same path for the
-  same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
+  `<session folder>/<id>-<name>` (0600, straight in the folder with no subdirectory since PM-523, see
+  SECURITY.md; the same path for the same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
   target is its own folder only, and a guest conversation of the Operator (no folder, `teamToolsOnly`)
   gets none. A failure (engine offline or older, no folder, a disk error) is logged and the tool
   answers as before, without a path. `mcpImageResults` per provider: claude and codex true (Claude Code

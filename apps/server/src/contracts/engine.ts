@@ -79,7 +79,7 @@ export interface EngineSessionFolders {
   sweep(keep: (sessionId: string) => boolean): Promise<string[]>;
   releaseTmpRoot(): Promise<void>;
   /**
-   * Puts a file into the session's own folder, `<folder>/message-attachments/<name>` (PM-518), and
+   * Puts a file into the session's own folder, `<folder>/<name>` (PM-518, PM-523), and
    * names its path there: a message attachment the session's agent opens with its own tools.
    * `source` is the stored file on the server's machine with its size and SHA-256; a remote engine
    * fetches it with a single-use download token, a local one copies it. The file is made exclusively

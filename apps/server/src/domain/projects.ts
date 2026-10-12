@@ -107,6 +107,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   release_approvers: 'only an owner may change the release approvers',
   owners: 'only an owner may change who is an owner',
   permissions: 'only an owner may change the permission mode or the approver of an AI member',
+  review_test: 'only an owner may change the full test of a repository',
 };
 
 /** The card mover a create request names; absent means the worker. */

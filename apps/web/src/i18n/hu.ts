@@ -2778,6 +2778,8 @@ export const hu = {
         member_retire: 'A tag futó munkamenetei leállnak, a munkáját a csapat veszi át.',
         member_other: 'A tag futó munkamenetei nem változnak.',
         locations: 'A futó munkamenetek nem változnak; az új helyet az újonnan indulók használják.',
+        review_test:
+          'A már futó tesztek nem változnak; az új beállítás a következő teljes teszttől érvényes.',
         fix_limit: 'A már zajló javítási körök nem változnak.',
         session_stop: 'A munkamenet leáll; a kártya a megszokott módon folytatható.',
         project_pause: 'A futó munkamenetek befejezik az aktuális lépésüket, újak nem indulnak.',

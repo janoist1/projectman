@@ -40,10 +40,16 @@ const pointTarget = (): Target => ({
   viewportPoint: { x: 100, y: 200 },
 });
 
-const shot = { upload: { mediaType: 'image/jpeg' as const, dataBase64: 'AAAA' }, preview: 'data:image/jpeg;base64,AAAA' };
+const shot = {
+  upload: { mediaType: 'image/jpeg' as const, dataBase64: 'AAAA' },
+  preview: 'data:image/jpeg;base64,AAAA',
+};
 
 let controllers: Controller[] = [];
-function build(routes: Record<string, Handler>, options: { capture?: () => Promise<typeof shot | null> } = {}) {
+function build(
+  routes: Record<string, Handler>,
+  options: { capture?: () => Promise<typeof shot | null> } = {},
+) {
   const server = fakeServer(routes);
   const controller = createController({
     win: window,
@@ -168,7 +174,9 @@ describe('ending', () => {
 
   it('clears the storage on logout even when the request fails', async () => {
     window.localStorage.setItem(KEY, JSON.stringify(session()));
-    const { controller, server } = build(okRoutes({ 'DELETE /sessions/current': () => failure(500, 'boom') }));
+    const { controller, server } = build(
+      okRoutes({ 'DELETE /sessions/current': () => failure(500, 'boom') }),
+    );
     await controller.start();
     await flush();
     await controller.logout();
@@ -234,7 +242,12 @@ describe('sending a mark', () => {
     controller.setBody('  Looks off  ');
     await controller.sendMark();
     const call = server.calls.find((c) => c.method === 'POST' && c.path === '/marks');
-    expect(call?.body).toMatchObject({ kind: 'point', body: 'Looks off', pageUrl: PAGE, screenshot: shot.upload });
+    expect(call?.body).toMatchObject({
+      kind: 'point',
+      body: 'Looks off',
+      pageUrl: PAGE,
+      screenshot: shot.upload,
+    });
     const state = controller.getState();
     expect(state.marks.fbm_new0000000?.body).toBe('Looks off');
     expect(state).toMatchObject({ card: null, draft: null });
@@ -246,22 +259,30 @@ describe('sending a mark', () => {
     controller.setBody('x');
     controller.setShotEnabled(false);
     await controller.sendMark();
-    expect(server.calls.find((c) => c.path === '/marks' && c.method === 'POST')?.body).toMatchObject({ screenshot: null });
+    expect(server.calls.find((c) => c.path === '/marks' && c.method === 'POST')?.body).toMatchObject({
+      screenshot: null,
+    });
   });
 
   it('sends without a screenshot when none could be made', async () => {
-    const { controller, server } = await ready({ 'POST /marks': () => reply(201, detail()) }, async () => null);
+    const { controller, server } = await ready(
+      { 'POST /marks': () => reply(201, detail()) },
+      async () => null,
+    );
     expect(controller.getState().draft?.shot.status).toBe('failed');
     controller.setBody('x');
     await controller.sendMark();
-    expect(server.calls.find((c) => c.path === '/marks' && c.method === 'POST')?.body).toMatchObject({ screenshot: null });
+    expect(server.calls.find((c) => c.path === '/marks' && c.method === 'POST')?.body).toMatchObject({
+      screenshot: null,
+    });
     expect(controller.getState().flash).toContain('képernyőkép nem készült el');
   });
 
   it('retries without the picture when the server rejects it', async () => {
     let attempts = 0;
     const { controller, server } = await ready({
-      'POST /marks': () => (++attempts === 1 ? failure(413, 'feedback_screenshot_too_large') : reply(201, detail())),
+      'POST /marks': () =>
+        ++attempts === 1 ? failure(413, 'feedback_screenshot_too_large') : reply(201, detail()),
     });
     controller.setBody('x');
     await controller.sendMark();
@@ -304,7 +325,9 @@ describe('sending a mark', () => {
 
   it('sends a whole-page mark with an empty anchor', async () => {
     window.localStorage.setItem(KEY, JSON.stringify(session()));
-    const { controller, server } = build(okRoutes({ 'POST /marks': () => reply(201, detail({ kind: 'page' })) }));
+    const { controller, server } = build(
+      okRoutes({ 'POST /marks': () => reply(201, detail({ kind: 'page' })) }),
+    );
     await controller.start();
     await flush();
     controller.choosePage();

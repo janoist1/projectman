@@ -37,7 +37,12 @@ export function Launcher({ controller, state }: { controller: Controller; state:
               {t(`mode.${mode}`)}
             </button>
           ))}
-          <button type="button" class="mode off" aria-label={t('mode.cancel')} onClick={() => controller.cancelMode()}>
+          <button
+            type="button"
+            class="mode off"
+            aria-label={t('mode.cancel')}
+            onClick={() => controller.cancelMode()}
+          >
             <span aria-hidden="true">✕</span>
           </button>
         </div>

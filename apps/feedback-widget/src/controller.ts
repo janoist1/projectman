@@ -106,7 +106,6 @@ export interface Deps {
   projectKey: string;
   fetchImpl?: typeof fetch;
   refreshMs?: number;
-  now?: () => number;
   capture?: typeof captureScreenshot;
 }
 
@@ -197,7 +196,6 @@ const placeOf = (win: Window): string => `${win.location.pathname}${win.location
 export function createController(deps: Deps): Controller {
   const { win, projectKey } = deps;
   const scope: storage.Scope = { apiOrigin: deps.base, projectKey };
-  const now = deps.now ?? (() => Date.now());
   const capture = deps.capture ?? captureScreenshot;
 
   let state: State = { ...initialState(storage.isHidden(scope)), place: placeOf(win) };
@@ -220,6 +218,7 @@ export function createController(deps: Deps): Controller {
   let refreshAgain: 'none' | 'incremental' | 'full' = 'none';
   let timer: ReturnType<typeof setInterval> | null = null;
   let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  const readHere = new Set<string>();
   let pendingLaunch: LaunchParams | null = null;
   let pendingOpen: string | null = null;
   let shotPromise: Promise<{ upload: FeedbackScreenshotUpload; preview: string } | null> | null = null;
@@ -346,10 +345,17 @@ export function createController(deps: Deps): Controller {
       const detail = await api.detail(markId);
       const kept = state.threads[markId];
       set({
-        marks: state.marks[markId] ? { ...state.marks, [markId]: toView(detail) } : state.marks,
+        marks: state.marks[markId]
+          ? { ...state.marks, [markId]: { ...toView(detail), unread: detail.unread && !readHere.has(markId) } }
+          : state.marks,
         threads: {
           ...state.threads,
-          [markId]: { status: 'ready', detail, sending: kept?.sending ?? false, sendError: kept?.sendError ?? false },
+          [markId]: {
+            status: 'ready',
+            detail,
+            sending: kept?.sending ?? false,
+            sendError: kept?.sendError ?? false,
+          },
         },
       });
     } catch (error) {
@@ -366,7 +372,14 @@ export function createController(deps: Deps): Controller {
 
   /** A detail carries everything a list entry does; the list entry drops the thread. */
   function toView(detail: FeedbackMarkDetail): FeedbackMarkView {
-    const { thread: _thread, environment: _environment, screenshot: _screenshot, canProcess: _p, canComment: _c, ...view } = detail;
+    const {
+      thread: _thread,
+      environment: _environment,
+      screenshot: _screenshot,
+      canProcess: _p,
+      canComment: _c,
+      ...view
+    } = detail;
     return view;
   }
 
@@ -517,7 +530,14 @@ export function createController(deps: Deps): Controller {
   function choosePage(): void {
     openDraft({
       kind: 'page',
-      anchor: { kind: 'page', selector: null, textSnippet: null, elementOffset: null, pagePoint: null, rect: null },
+      anchor: {
+        kind: 'page',
+        selector: null,
+        textSnippet: null,
+        elementOffset: null,
+        pagePoint: null,
+        rect: null,
+      },
       label: t('new.whatPage'),
       viewportRect: null,
       viewportPoint: null,
@@ -528,7 +548,8 @@ export function createController(deps: Deps): Controller {
     if (state.draft) set({ draft: { ...state.draft, ...patch } });
   };
 
-  const setBody = (body: string): void => updateDraft({ body, error: state.draft?.sending ? state.draft.error : null });
+  const setBody = (body: string): void =>
+    updateDraft({ body, error: state.draft?.sending ? state.draft.error : null });
   const setShotEnabled = (enabled: boolean): void => {
     if (state.draft?.shot.status === 'failed') return;
     updateDraft({ shotEnabled: enabled });
@@ -557,6 +578,8 @@ export function createController(deps: Deps): Controller {
       screenshot = result?.upload ?? null;
       withoutShot = result === null;
     }
+    // A failed picture also switches the switch off, so the branch above was skipped.
+    if (state.draft?.shot.status === 'failed') withoutShot = true;
 
     const request = {
       pageUrl: pageUrl(),
@@ -572,7 +595,10 @@ export function createController(deps: Deps): Controller {
         detail = await api.createMark({ ...request, screenshot });
       } catch (error) {
         const code = error instanceof ApiFailure ? error.code : null;
-        if (screenshot && (code === 'feedback_screenshot_invalid' || code === 'feedback_screenshot_too_large')) {
+        if (
+          screenshot &&
+          (code === 'feedback_screenshot_invalid' || code === 'feedback_screenshot_too_large')
+        ) {
           withoutShot = true;
           detail = await api.createMark({ ...request, screenshot: null });
         } else throw error;
@@ -623,12 +649,17 @@ export function createController(deps: Deps): Controller {
         : { card: null, panel: { tab: 'here', markId } as Panel }),
     });
     if (mark.unread) {
+      // The thread answer may still say "unread" while the read request is on its way.
+      readHere.add(markId);
       void api.markRead(markId).then(
         () => {
           const latest = state.marks[markId];
           if (latest) set({ marks: { ...state.marks, [markId]: { ...latest, unread: false } } });
         },
-        (error: unknown) => void onFailure(error),
+        (error: unknown) => {
+          readHere.delete(markId);
+          void onFailure(error);
+        },
       );
     }
     void loadThread(markId);
@@ -667,19 +698,30 @@ export function createController(deps: Deps): Controller {
       const detail = await api.comment(markId, text);
       set({
         marks: { ...state.marks, [markId]: toView(detail) },
-        threads: { ...state.threads, [markId]: { status: 'ready', detail, sending: false, sendError: false } },
+        threads: {
+          ...state.threads,
+          [markId]: { status: 'ready', detail, sending: false, sendError: false },
+        },
       });
       return true;
     } catch (error) {
       if (onFailure(error)) return false;
       const kept = state.threads[markId];
-      if (kept) set({ threads: { ...state.threads, [markId]: { ...kept, sending: false, sendError: true } } });
+      if (kept)
+        set({ threads: { ...state.threads, [markId]: { ...kept, sending: false, sendError: true } } });
       return false;
     }
   }
 
   const openPanel = (): void =>
-    set({ panel: { tab: 'here', markId: null }, card: null, draft: null, menuOpen: false, mode: null, helpOpen: false });
+    set({
+      panel: { tab: 'here', markId: null },
+      card: null,
+      draft: null,
+      menuOpen: false,
+      mode: null,
+      helpOpen: false,
+    });
   const closePanel = (): void => set({ panel: null });
   const setTab = (tab: 'here' | 'all'): void => {
     if (state.panel) set({ panel: { tab, markId: null } });

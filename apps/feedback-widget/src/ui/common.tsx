@@ -13,7 +13,11 @@ export const paletteVariables = (): string =>
 /** A human is a round avatar in their colour, an AI member a dark square. Text only: never markup. */
 export function Avatar({ person }: { person: FeedbackPerson }) {
   return (
-    <span class={`av${person.kind === 'ai' ? ' ai' : ''}`} style={{ '--pc': colorVar(person) }} aria-hidden="true">
+    <span
+      class={`av${person.kind === 'ai' ? ' ai' : ''}`}
+      style={{ '--pc': colorVar(person) }}
+      aria-hidden="true"
+    >
       {monogramOf(person)}
     </span>
   );

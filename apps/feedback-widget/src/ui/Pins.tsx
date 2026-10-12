@@ -26,8 +26,12 @@ export function Pins({ controller, state }: { controller: Controller; state: Sta
         const closed = mark.status === 'closed';
         const active = activeId === mark.id || hot === mark.id;
         const text = mark.body.length > ARIA_TEXT ? `${mark.body.slice(0, ARIA_TEXT)}…` : mark.body;
-        const label = t(resolution.changed ? 'pin.ariaChanged' : 'pin.aria', { name: mark.author.name, text });
-        const outline = resolution.element && hot === mark.id ? resolution.element.getBoundingClientRect() : null;
+        const label = t(resolution.changed ? 'pin.ariaChanged' : 'pin.aria', {
+          name: mark.author.name,
+          text,
+        });
+        const outline =
+          resolution.element && hot === mark.id ? resolution.element.getBoundingClientRect() : null;
         return (
           <div key={mark.id} class="pin-wrap">
             {mark.anchor.kind === 'area' && resolution.rect && (

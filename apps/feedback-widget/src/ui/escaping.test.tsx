@@ -4,18 +4,7 @@ import { act } from 'preact/test-utils';
 import { createController } from '../controller';
 import type { Controller } from '../controller';
 import { safeHttpUrl } from '../links';
-import {
-  API,
-  PAGE,
-  detail,
-  fakeServer,
-  flush,
-  mark,
-  person,
-  reply,
-  session,
-  setUrl,
-} from '../test/helpers';
+import { API, PAGE, detail, fakeServer, flush, mark, person, reply, session, setUrl } from '../test/helpers';
 import { sessionKey } from '../storage';
 import { App } from './App';
 
@@ -78,9 +67,9 @@ describe('text from the page and from people is rendered as text', () => {
     const root: ParentNode = container;
     // The views use <b> and <i> themselves; what must never appear is an element made from the text.
     const injected = (): string[] =>
-      [...root.querySelectorAll('b, i')].map((element) => element.textContent ?? '').filter((text) =>
-        ['bold', 'Eve', 'Mallory'].includes(text),
-      );
+      [...root.querySelectorAll('b, i')]
+        .map((element) => element.textContent ?? '')
+        .filter((text) => ['bold', 'Eve', 'Mallory'].includes(text));
 
     await act(async () => {
       controller.openMark(ID, { scroll: false });

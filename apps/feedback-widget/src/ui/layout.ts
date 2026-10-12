@@ -28,7 +28,10 @@ export function cardPlace(tip: Point | null, viewport: { width: number; height: 
   const right = tip.x + GAP;
   const left = right + CARD_WIDTH <= viewport.width - MARGIN ? right : tip.x - GAP - CARD_WIDTH;
   if (left < MARGIN) return aboveLauncher();
-  const top = Math.min(Math.max(MARGIN, tip.y - 60), Math.max(MARGIN, viewport.height - CARD_HEIGHT_GUESS - MARGIN));
+  const top = Math.min(
+    Math.max(MARGIN, tip.y - 60),
+    Math.max(MARGIN, viewport.height - CARD_HEIGHT_GUESS - MARGIN),
+  );
   return { left, top, aboveLauncher: false };
 }
 

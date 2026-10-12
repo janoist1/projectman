@@ -83,7 +83,12 @@ function areaTarget(rect: Rect): Target {
       textSnippet: null,
       elementOffset: null,
       pagePoint: null,
-      rect: { x: rect.x + window.scrollX, y: rect.y + window.scrollY, width: rect.width, height: rect.height },
+      rect: {
+        x: rect.x + window.scrollX,
+        y: rect.y + window.scrollY,
+        width: rect.width,
+        height: rect.height,
+      },
     },
     label: t('new.whatArea'),
     viewportRect: rect,

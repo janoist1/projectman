@@ -23,7 +23,10 @@ export function NewMarkCard({
   const person = state.me ?? state.session?.me ?? null;
   const length = draft.body.length;
   const over = length > MAX_BODY;
-  const place = cardPlace(tipOfTarget(draft.target), { width: window.innerWidth, height: window.innerHeight });
+  const place = cardPlace(tipOfTarget(draft.target), {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
 
   const send = (): void => {
     if (over) {
@@ -38,7 +41,13 @@ export function NewMarkCard({
   const sendLabel = draft.sending ? 'new.sending' : draft.error ? 'new.retry' : 'new.send';
 
   return (
-    <Dialog label={t('new.title')} kind="card new" place={place} phone={phone} initialFocus={() => field.current}>
+    <Dialog
+      label={t('new.title')}
+      kind="card new"
+      place={place}
+      phone={phone}
+      initialFocus={() => field.current}
+    >
       <div class="bar" style={{ '--pc': colorVar(person) }} aria-hidden="true" />
       <header class="card-head">
         {person && <Avatar person={person} />}
@@ -67,7 +76,9 @@ export function NewMarkCard({
       />
       <p class={`counter${over ? ' bad' : ''}`} aria-live="polite">
         {length >= COUNTER_FROM &&
-          (over ? t('new.tooLong', { count: length - MAX_BODY }) : t('new.remaining', { count: MAX_BODY - length }))}
+          (over
+            ? t('new.tooLong', { count: length - MAX_BODY })
+            : t('new.remaining', { count: MAX_BODY - length }))}
       </p>
       <div class="shot">
         <label class="switch">
@@ -101,7 +112,9 @@ export function NewMarkCard({
       </div>
       {draft.error && (
         <p class="err" role="alert">
-          {draft.error.kind === 'rate' ? t('new.rateLimited', { minutes: draft.error.minutes }) : t('new.error')}
+          {draft.error.kind === 'rate'
+            ? t('new.rateLimited', { minutes: draft.error.minutes })
+            : t('new.error')}
         </p>
       )}
       <footer class="card-foot">

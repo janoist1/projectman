@@ -11,7 +11,15 @@ const TEXT = {
 } as const satisfies Record<NoticeKind, string>;
 
 /** Why the widget is off (or could not start): a short message with the one action that fits. */
-export function Notice({ controller, kind, phone }: { controller: Controller; kind: NoticeKind; phone: boolean }) {
+export function Notice({
+  controller,
+  kind,
+  phone,
+}: {
+  controller: Controller;
+  kind: NoticeKind;
+  phone: boolean;
+}) {
   return (
     <div class={`notice${phone ? ' sheet' : ''}`} role={kind === 'startError' ? 'alert' : 'status'}>
       <p>{t(TEXT[kind])}</p>
@@ -36,13 +44,27 @@ export function Notice({ controller, kind, phone }: { controller: Controller; ki
 }
 
 /** The first time in a browser: what the marker is and that the name is shown to the team. */
-export function Welcome({ controller, state, phone }: { controller: Controller; state: State; phone: boolean }) {
+export function Welcome({
+  controller,
+  state,
+  phone,
+}: {
+  controller: Controller;
+  state: State;
+  phone: boolean;
+}) {
   const start = useRef<HTMLButtonElement>(null);
   const full = (state.me ?? state.session?.me)?.name ?? '';
   // Hungarian names put the family name first, so the greeting uses the last word.
   const given = full.trim().split(/\s+/).pop() ?? '';
   return (
-    <Dialog label={t('welcome.title', { name: given })} kind="welcome" phone={phone} modal initialFocus={() => start.current}>
+    <Dialog
+      label={t('welcome.title', { name: given })}
+      kind="welcome"
+      phone={phone}
+      modal
+      initialFocus={() => start.current}
+    >
       <h2>{t('welcome.title', { name: given })}</h2>
       <p>{t('welcome.body')}</p>
       <ul>
@@ -70,4 +92,3 @@ export function Help({ controller, phone }: { controller: Controller; phone: boo
     </Dialog>
   );
 }
-

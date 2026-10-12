@@ -17,7 +17,8 @@ const elementAnchor = (overrides: Partial<FeedbackAnchor> = {}): FeedbackAnchor 
 
 describe('anchor lookup', () => {
   beforeEach(() => {
-    document.body.innerHTML = '<main><button id="buy">  Buy   now </button><p class="dup">a</p><p class="dup">b</p></main>';
+    document.body.innerHTML =
+      '<main><button id="buy">  Buy   now </button><p class="dup">a</p><p class="dup">b</p></main>';
   });
 
   it('finds an element mark by its unique selector and unchanged text', () => {
@@ -28,7 +29,12 @@ describe('anchor lookup', () => {
 
   it('flags the mark as changed when the element text no longer holds the snippet', () => {
     const resolution = resolveAnchor(elementAnchor({ textSnippet: 'Add to cart' }), document, SIZE);
-    expect(resolution).toMatchObject({ place: 'located', changed: true, element: null, point: { x: 300, y: 400 } });
+    expect(resolution).toMatchObject({
+      place: 'located',
+      changed: true,
+      element: null,
+      point: { x: 300, y: 400 },
+    });
   });
 
   it('falls back to the saved coordinate when the selector matches nothing', () => {
@@ -49,15 +55,26 @@ describe('anchor lookup', () => {
   });
 
   it('is lost when neither the element nor the coordinate is on the page', () => {
-    const resolution = resolveAnchor(elementAnchor({ selector: '#gone', pagePoint: { x: 300, y: 9000 } }), document, SIZE);
+    const resolution = resolveAnchor(
+      elementAnchor({ selector: '#gone', pagePoint: { x: 300, y: 9000 } }),
+      document,
+      SIZE,
+    );
     expect(resolution).toEqual({ place: 'lost' });
   });
 
   it('places a point mark at its coordinate and an area mark at its rectangle', () => {
-    expect(resolveAnchor(pointAnchor(10, 20), document, SIZE)).toMatchObject({ place: 'located', point: { x: 10, y: 20 } });
+    expect(resolveAnchor(pointAnchor(10, 20), document, SIZE)).toMatchObject({
+      place: 'located',
+      point: { x: 10, y: 20 },
+    });
     const rect = { x: 50, y: 60, width: 200, height: 100 };
     const area: FeedbackAnchor = { ...pointAnchor(), kind: 'area', pagePoint: null, rect };
-    expect(resolveAnchor(area, document, SIZE)).toMatchObject({ place: 'located', rect, point: { x: 50, y: 60 } });
+    expect(resolveAnchor(area, document, SIZE)).toMatchObject({
+      place: 'located',
+      rect,
+      point: { x: 50, y: 60 },
+    });
   });
 
   it('keeps a whole-page mark off the page', () => {

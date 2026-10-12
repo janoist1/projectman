@@ -9,7 +9,10 @@ function fakeWindow(href: string) {
     location.href = new URL(url, location.href).href;
   });
   return {
-    win: { location, history: { state: { keep: true }, replaceState } } as unknown as Pick<Window, 'location' | 'history'>,
+    win: { location, history: { state: { keep: true }, replaceState } } as unknown as Pick<
+      Window,
+      'location' | 'history'
+    >,
     location,
     replaceState,
   };
@@ -27,7 +30,9 @@ describe('takeLaunchParams', () => {
   });
 
   it('reads the code and the mark id and keeps the rest of the address', () => {
-    const { win, location } = fakeWindow(`http://shop.test/page?a=1#pm-feedback=${CODE}&pm-feedback-mark=${MARK}`);
+    const { win, location } = fakeWindow(
+      `http://shop.test/page?a=1#pm-feedback=${CODE}&pm-feedback-mark=${MARK}`,
+    );
     expect(takeLaunchParams(win)).toEqual({ code: CODE, markId: MARK });
     expect(location.href).toBe('http://shop.test/page?a=1');
   });

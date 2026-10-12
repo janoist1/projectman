@@ -27,6 +27,9 @@ export const colorOf = (person: Pick<FeedbackPerson, 'color'> | null): string =>
 export function monogramOf(person: Pick<FeedbackPerson, 'name' | 'handle' | 'kind'>): string {
   if (person.kind === 'ai') return person.handle.slice(0, 2).toUpperCase();
   const words = person.name.trim().split(/\s+/).filter(Boolean);
-  const letters = words.length > 1 ? `${words[0]?.[0] ?? ''}${words[words.length - 1]?.[0] ?? ''}` : (words[0] ?? '?').slice(0, 2);
+  const letters =
+    words.length > 1
+      ? `${words[0]?.[0] ?? ''}${words[words.length - 1]?.[0] ?? ''}`
+      : (words[0] ?? '?').slice(0, 2);
   return letters.toUpperCase();
 }

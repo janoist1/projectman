@@ -110,7 +110,9 @@ export function createApi(options: ApiOptions): Api {
     exchange: async (code) =>
       json(await send('POST', '/sessions', { code }, { authed: false, timeout: exchangeTimeoutMs })),
     list: async (since) =>
-      json(await send('GET', `/marks${since === null ? '' : `?since=${encodeURIComponent(since)}`}`, undefined)),
+      json(
+        await send('GET', `/marks${since === null ? '' : `?since=${encodeURIComponent(since)}`}`, undefined),
+      ),
     detail: async (markId) => json(await send('GET', `/marks/${encodeURIComponent(markId)}`, undefined)),
     createMark: async (request) => json(await send('POST', '/marks', request)),
     comment: async (markId, body) =>

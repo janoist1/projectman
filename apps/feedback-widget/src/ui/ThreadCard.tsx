@@ -21,9 +21,17 @@ export function ThreadCard({
   useViewTick(true); // the card follows its pin when the page scrolls
   const mark = state.marks[markId];
   if (!mark) return null;
-  const place = cardPlace(controller.viewportOf(mark), { width: window.innerWidth, height: window.innerHeight });
+  const place = cardPlace(controller.viewportOf(mark), {
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
   return (
-    <Dialog label={t('thread.titleOf', { name: personName(mark.author) })} kind="card" place={place} phone={phone}>
+    <Dialog
+      label={t('thread.titleOf', { name: personName(mark.author) })}
+      kind="card"
+      place={place}
+      phone={phone}
+    >
       <header class="card-head">
         <h2>{t('thread.titleOf', { name: personName(mark.author) })}</h2>
         <CloseButton label={t('thread.close')} onClick={() => controller.closeCard()} />

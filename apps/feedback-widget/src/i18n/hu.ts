@@ -44,7 +44,8 @@ export const hu = {
   'new.tooLong': '{count} karakterrel hosszabb a megengedettnél',
   'new.sent': 'Elküldve. A válasz itt jelenik meg, a jelölésnél.',
   'new.error': 'Nem sikerült elküldeni. A szöveget megtartottuk, próbáld újra.',
-  'new.rateLimited': 'Most túl sok jelölés érkezett. Próbáld újra {minutes} perc múlva; a szöveget megtartottuk.',
+  'new.rateLimited':
+    'Most túl sok jelölés érkezett. Próbáld újra {minutes} perc múlva; a szöveget megtartottuk.',
   'new.cancelAria': 'Mégse',
 
   'thread.close': 'Bezárás',

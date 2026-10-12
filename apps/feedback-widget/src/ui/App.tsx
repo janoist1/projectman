@@ -42,7 +42,13 @@ export function App({ controller }: { controller: Controller }) {
             <NewMarkCard controller={controller} state={state} draft={state.draft} phone={phone} />
           )}
           {showMarks && state.card?.type === 'thread' && (
-            <ThreadCard key={state.card.markId} controller={controller} state={state} markId={state.card.markId} phone={phone} />
+            <ThreadCard
+              key={state.card.markId}
+              controller={controller}
+              state={state}
+              markId={state.card.markId}
+              phone={phone}
+            />
           )}
           {state.panel && <Panel controller={controller} state={state} phone={phone} />}
           {state.menuOpen && <Menu controller={controller} state={state} phone={phone} />}

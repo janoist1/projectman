@@ -13,7 +13,15 @@ const byActivity = (a: FeedbackMarkView, b: FeedbackMarkView): number => {
   return closed !== 0 ? closed : b.lastActivityAt.localeCompare(a.lastActivityAt);
 };
 
-function Row({ controller, mark, showPage }: { controller: Controller; mark: FeedbackMarkView; showPage: boolean }) {
+function Row({
+  controller,
+  mark,
+  showPage,
+}: {
+  controller: Controller;
+  mark: FeedbackMarkView;
+  showPage: boolean;
+}) {
   const now = Date.now();
   return (
     <li>
@@ -70,7 +78,15 @@ function Group({
   );
 }
 
-export function Panel({ controller, state, phone }: { controller: Controller; state: State; phone: boolean }) {
+export function Panel({
+  controller,
+  state,
+  phone,
+}: {
+  controller: Controller;
+  state: State;
+  phone: boolean;
+}) {
   const panel = state.panel;
   if (!panel) return null;
   const all = Object.values(state.marks);
@@ -113,8 +129,18 @@ export function Panel({ controller, state, phone }: { controller: Controller; st
               <p class="empty">{t(panel.tab === 'here' ? 'panel.empty' : 'panel.emptyAll')}</p>
             ) : panel.tab === 'here' ? (
               <>
-                <Group title={t('panel.pageGroup')} marks={groups.page} controller={controller} showPage={false} />
-                <Group title={t('panel.marksGroup')} marks={groups.pinned} controller={controller} showPage={false} />
+                <Group
+                  title={t('panel.pageGroup')}
+                  marks={groups.page}
+                  controller={controller}
+                  showPage={false}
+                />
+                <Group
+                  title={t('panel.marksGroup')}
+                  marks={groups.pinned}
+                  controller={controller}
+                  showPage={false}
+                />
                 <Group
                   title={t('panel.lostGroup')}
                   hint={t('panel.lostHint')}

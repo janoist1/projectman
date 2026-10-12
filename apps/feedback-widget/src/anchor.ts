@@ -72,9 +72,16 @@ export function resolveAnchor(anchor: FeedbackAnchor, root: ParentNode, size: Do
     case 'element': {
       const element = anchor.selector ? findElement(anchor.selector, root) : null;
       const textMatches =
-        element !== null && (anchor.textSnippet === null || collapse(element.textContent ?? '').includes(anchor.textSnippet));
+        element !== null &&
+        (anchor.textSnippet === null || collapse(element.textContent ?? '').includes(anchor.textSnippet));
       if (element && textMatches) {
-        return { place: 'located', changed: false, element, point: anchor.pagePoint ?? { x: 0, y: 0 }, rect: null };
+        return {
+          place: 'located',
+          changed: false,
+          element,
+          point: anchor.pagePoint ?? { x: 0, y: 0 },
+          rect: null,
+        };
       }
       const point = anchor.pagePoint;
       if (!point || !insideDocument(point, size)) return { place: 'lost' };

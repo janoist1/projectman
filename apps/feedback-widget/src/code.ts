@@ -57,7 +57,11 @@ export function takeLaunchParams(win: Place): LaunchParams | null {
 
   const search = fromSearch.rest ? `?${fromSearch.rest}` : '';
   const fragment = `${routePart}${fromHash.rest ? `?${fromHash.rest}` : ''}`;
-  win.history.replaceState(win.history.state, '', `${url.pathname}${search}${fragment ? `#${fragment}` : ''}`);
+  win.history.replaceState(
+    win.history.state,
+    '',
+    `${url.pathname}${search}${fragment ? `#${fragment}` : ''}`,
+  );
 
   if (code === null) return null;
   return { code, markId: mark !== null && MARK_FORMAT.test(mark) ? mark : null };

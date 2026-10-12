@@ -26,7 +26,9 @@ function Message({ entry, now }: { entry: FeedbackThreadEntry; now: number }) {
           <b>{personName(entry.actor)}</b>
           <time dateTime={entry.createdAt}>{messageTime(entry.createdAt, now)}</time>
         </p>
-        {event && <p class="msg-event">{t(`thread.event.${entry.type as Exclude<typeof entry.type, 'comment'>}`)}</p>}
+        {event && (
+          <p class="msg-event">{t(`thread.event.${entry.type as Exclude<typeof entry.type, 'comment'>}`)}</p>
+        )}
         {entry.body && <p class="msg-body">{entry.body}</p>}
         {entry.card && <CardLine card={entry.card} />}
       </div>
@@ -34,7 +36,17 @@ function Message({ entry, now }: { entry: FeedbackThreadEntry; now: number }) {
   );
 }
 
-function Reply({ controller, markId, sending, error }: { controller: Controller; markId: string; sending: boolean; error: boolean }) {
+function Reply({
+  controller,
+  markId,
+  sending,
+  error,
+}: {
+  controller: Controller;
+  markId: string;
+  sending: boolean;
+  error: boolean;
+}) {
   const [text, setText] = useState('');
   const field = useRef<HTMLTextAreaElement>(null);
   const over = text.length > MAX_BODY;
@@ -143,7 +155,12 @@ export function ThreadBody({
         <p class="note closed-note">{t('thread.closed')}</p>
       ) : (
         detail?.canComment && (
-          <Reply controller={controller} markId={mark.id} sending={open?.sending ?? false} error={open?.sendError ?? false} />
+          <Reply
+            controller={controller}
+            markId={mark.id}
+            sending={open?.sending ?? false}
+            error={open?.sendError ?? false}
+          />
         )
       )}
     </div>

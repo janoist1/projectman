@@ -29,7 +29,10 @@ export function osOf(userAgent: string): string {
   return 'unknown';
 }
 
-type Win = Pick<Window, 'innerWidth' | 'innerHeight' | 'scrollX' | 'scrollY' | 'devicePixelRatio' | 'navigator'>;
+type Win = Pick<
+  Window,
+  'innerWidth' | 'innerHeight' | 'scrollX' | 'scrollY' | 'devicePixelRatio' | 'navigator'
+>;
 
 /** What the browser looked like when the mark was made (the processor reads it with the mark). */
 export function collectEnvironment(win: Win): FeedbackEnvironment {

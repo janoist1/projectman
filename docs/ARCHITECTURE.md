@@ -1046,7 +1046,12 @@ workers follow the machine's size.
   `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
-  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and later the DNS move (PM-537). It calls the `aws` CLI v2 with argv (profile and
+  (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
+  `scripts/cloud/dns.ts`: Route 53 read/import, authoritative verification using `CloudDeps.resolve`
+  with name-server IPs resolved locally first, public delegation/DS through Cloudflare and Google DoH,
+  Route 53 Domains registration status and explicit `dns switch [--back]` in `us-east-1`, and `up`
+  orchestration). Forward switching requires successful verification in the same run and no DNSSEC
+  keys or public DS; rollback targets the retained AWS delegation set. It calls the `aws` CLI v2 with argv (profile and
   region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
   assumptions: the `aws` CLI v2 with the profile `i` on the owner's Mac, later `ssh`/`scp`, and the secrets
   store `~/.config/projectman/cloud/` (directory 700, files 600, symbolic links and wider modes refused;

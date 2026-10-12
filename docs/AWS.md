@@ -6,8 +6,7 @@ S3 buckets for the backups, and Cloudflare (tunnel and Access) in front. You run
 your own Mac with one command, `npm run cloud -- <command>`, with your own logins. No member of the
 team, human or AI, gets an AWS or Cloudflare secret: the commands are yours to run.
 
-The guide grows with the cards of the plan (PM-534 to PM-537). A chapter marked **(planned)** is
-written by the card named there; this file holds its heading so the order stays.
+The CLI and this guide cover the four parts of PM-532 (PM-534 to PM-537).
 
 ## Overview and cost
 
@@ -30,26 +29,33 @@ runs one writer to the database, which Litestream needs.
 
 ## The owner's manual steps
 
-Short and in order. Every step that can be done by a command is done by one; these cannot.
+Short and in order: account setup, local credentials, and commands that the owner runs.
 
-1. **AWS CLI v2 and the login.** Install the CLI (`brew install awscli`) and sign in with the profile
-   `i` (`aws configure --profile i`, or `aws configure sso --profile i`). Check:
-   `aws --version` (2.x) and `aws sts get-caller-identity --profile i`.
-2. **The rights of the profile.** The profile creates a Lightsail machine, S3 buckets and IAM users, so
-   it needs an administrator's rights, or at least: `lightsail:*`, the S3 actions `CreateBucket`,
-   `ListBucket`, `GetBucketVersioning`, `Get`/`PutBucketPublicAccessBlock`, `Get`/`PutEncryptionConfiguration`,
-   `Get`/`PutLifecycleConfiguration`, and the IAM actions `CreateUser`, `TagUser`, `GetUser`,
-   `PutUserPolicy`, `GetUserPolicy`, `ListUserPolicies`, `ListAttachedUserPolicies`, `CreateAccessKey`,
-   `ListAccessKeys`, `DeleteAccessKey`. `npm run cloud -- preflight` names what is missing.
-3. **The configuration file** (next chapter). Choose two bucket names nobody else has (S3 names are
-   global), for example `<yourname>-projectman-db`.
-4. **The Cloudflare account and its API token** (PM-536; the name servers are PM-537). Sign up for
-   Cloudflare Free, turn on Zero Trust once (dashboard → Zero Trust → choose a team name and the
-   Free plan; Cloudflare may ask for a payment method, the Free plan is not charged), and create an API token with the rights
-   of "The Cloudflare token" below. Save it as `~/.config/projectman/cloud/cloudflare-token` (mode
-   600, the token and nothing else). `npm run cloud -- preflight` names a right that is missing.
-5. **Save the restic password.** `npm run cloud -- aws` creates `RESTIC_PASSWORD` in `cloud.env`. Copy
-   it into your password manager at once: without it the restic backups cannot be read.
+1. **Cloudflare account:** protect it with a passkey (or two-factor authentication) and save recovery codes.
+2. **Zero Trust:** choose the team name and the Free plan in the dashboard.
+3. **API token:** use the rights in "The Cloudflare token" below, with about 90 days of validity;
+   save only the token in `~/.config/projectman/cloud/cloudflare-token`, mode 600.
+4. **AWS login:** install CLI v2 (`brew install awscli`) and sign in as profile `i` with MFA/passkey.
+   Do this only after PM-533 is released: AI sessions must be denied access to `~/.aws`.
+   Check `aws --version` and `aws sts get-caller-identity --profile i`.
+5. **Configuration:** fill `config.json` from `deploy/aws/config.example.json`, including unique bucket names.
+6. **DNS delegation:** run `dns switch` as in "DNS move" below, only after green `dns verify`. The domain is managed
+   through **Route 53 Domains**, even though RDAP names Gandi as the underlying registrar.
+   Check automatic renewal: the owner's recorded expiration is **2026-11-19**; `dns status` reads the current value.
+7. **First setup:** use the one-time code in `logs`; when moving an existing board, use `seed` (PM-318).
+8. **Public checks:** `brew install cloudflared`, `cloudflared access login https://<hostname>`,
+   then create the mode-600 `login.json` described in "Verification" for `check`.
+9. **Backup password:** copy `RESTIC_PASSWORD` from `cloud.env` into your password manager after `aws`.
+10. **Engine:** set `linkHeadersFile` to `~/.config/projectman/cloud/engine-access-token.json`
+    as in [HYBRID.md](HYBRID.md).
+11. **Later:** manually delete the old Route 53 hosted zone after keeping the rollback window.
+
+The AWS profile needs `lightsail:*`, the S3 actions `CreateBucket`, `ListBucket`, `GetBucketVersioning`,
+`Get`/`PutBucketPublicAccessBlock`, `Get`/`PutEncryptionConfiguration`, `Get`/`PutLifecycleConfiguration`,
+and IAM `CreateUser`, `TagUser`, `GetUser`, `PutUserPolicy`, `GetUserPolicy`, `ListUserPolicies`,
+`ListAttachedUserPolicies`, `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`.
+DNS also needs `route53:ListHostedZonesByName`, `route53:GetHostedZone`, `route53:ListResourceRecordSets`,
+`route53domains:GetDomainDetail` and `route53domains:UpdateDomainNameservers`.
 
 Run `npm run cloud -- preflight`, then `npm run cloud -- aws --dry-run` (it only reads and prints what
 it would change), then `npm run cloud -- aws`.
@@ -380,10 +386,68 @@ same SSH connection as the other machine commands. A remote engine reads its ser
 `engine-access-token.json`, through the engine's `linkHeadersFile` (copy it there by your own means).
 `docs/ARCHITECTURE.md` lists the entries.
 
-## DNS move (planned: PM-537)
+## DNS move (PM-537)
 
-Moving the zone from Route 53 to Cloudflare (`dns plan|import|verify|status`) and the final list of
-manual steps.
+Move the **whole zone**, including mail (SES MX, DKIM and verification TXT) and site verification.
+The commands only read the Route 53 hosted zone; the explicit `switch` updates registrar delegation.
+All imported records are DNS-only (`proxied: false`);
+`publish` later adds the tunnel records separately. Cloudflare's automatic scan is disabled by `edge`.
+
+1. `npm run cloud -- edge`: creates the full zone and prints its two assigned name servers.
+2. `npm run cloud -- dns plan`, then `npm run cloud -- dns import`, then
+   `npm run cloud -- dns verify`. `plan` only reads and prints `create`, `same`, `different`,
+   `skip` or `REFUSE` per record. A refusal exits 2 and prevents every import write.
+   `import --dry-run` previews writes; `--update` explicitly allows PATCH of differing records.
+   Nothing is deleted. Cloudflare-only records are listed as warnings, except published tunnel CNAMEs.
+3. **Only after green verification**, `npm run cloud -- dns switch --dry-run`, then
+   `npm run cloud -- dns switch`. DNSSEC must be disabled first if `dns status` reports a DS record or registrar keys.
+4. `npm run cloud -- dns status` until Cloudflare reports `active`. It reads delegation and DS
+   through Cloudflare and Google DoH, reports registrar name servers, DNSSEC key count, registration expiry and auto-renew, and requests an
+   activation check for a pending zone. Both public resolver answers are printed; allow cached delegation to expire.
+5. `npm run cloud -- publish`, then `check`. Test **SES receiving and DKIM** after the change.
+
+Mapping: A/AAAA make one record per address; CNAME and delegated subdomain NS lose the trailing dot;
+MX preserves priority; TXT quoted chunks are decoded and joined with no separator; SRV preserves
+priority/weight/port/target; CAA preserves flags/tag/value. Apex NS/SOA are skipped. Aliases become
+CNAMEs (matching A+AAAA aliases produce one); Cloudflare flattens the apex. Names are lowercase,
+with Route 53 octal escapes decoded. TTL is clamped to 60–86400 seconds; a TTL difference counts as
+`different`. Routing policies, health checks, unsupported types and occupied publish hostnames are refused.
+
+`verify` compares sorted responses from **both Cloudflare authorities and all four Route 53 authorities**,
+resolving their IPs first with the system resolver. Nonalias differences exit 1. Alias differences only warn,
+because providers can flatten them to different addresses.
+If a Cloudflare authority does not answer for the pending zone, verification prints a specific error and
+exits 1. In that case `dns plan` with **every imported record `same`**, no `different`, `create` or `REFUSE`,
+is fallback evidence of API contents, but it is not a green authoritative verification. Stop before changing
+delegation and have the owner decide how to proceed; do not treat the error as permission to switch.
+
+Keep the Route 53 hosted zone for **at least one week** as a rollback path (about USD 0.50/month).
+To roll back, run `npm run cloud -- dns switch --back --dry-run`, then `dns switch --back`
+to restore its four awsdns name servers in Route 53 Domains, then check public delegation
+and mail delivery again. Never delete that zone during the move. It can be deleted manually later.
+
+### Explicit delegation switch
+
+`dns switch [--back] [--dry-run]` reads Route 53 Domains first, then the target name servers.
+If the registrar already has that exact set it reports `unchanged`. Otherwise it refuses registrar
+DNSSEC keys or public DS records, runs `dns verify` again in the same invocation, and refuses (exit 2)
+unless it is green. There is no override. `--back` targets the retained Route 53 delegation set and
+does not require verification against Cloudflare. `--dry-run` performs checks but never submits an update.
+Renewal disabled or expiration within 30 days produces a warning. `dns status` treats an unavailable
+registrar API as a warning and still reports Cloudflare activation.
+
+The update is asynchronous: the command prints its operation ID; poll `dns status` afterwards.
+The registrar API calls use `us-east-1` irrespective of the Lightsail region, as required by the
+[AWS CLI reference](https://docs.aws.amazon.com/cli/latest/reference/route53domains/update-domain-nameservers.html).
+
+### `up`
+
+`npm run cloud -- up [--login-json <file>] [--dry-run]` runs `preflight` → `aws` → `edge` → `deploy`.
+If the zone is active it continues with `publish`, then `check` when a login file is supplied.
+A pending zone prints `dns plan`, `dns import`, `dns verify`, `dns switch` and stops before publish.
+It never changes delegation implicitly.
+The first failure stops the sequence with that command's exit status. Dry-run passes through the provisioning
+steps without writes and skips the live login check.
 
 ## Verification
 

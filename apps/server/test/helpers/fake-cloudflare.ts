@@ -197,6 +197,11 @@ export class FakeCloudflare {
         : this.fail(404, 12130, 'access.api.error.not_enabled: Access is not enabled for this account');
 
     // zones
+    if ((m = match(/^\/zones\/([^/]+)$/)) && method === 'GET') {
+      const zone = this.zones.find((zone) => zone.id === m![1]);
+      return zone ? this.ok(zone) : this.fail(404, 7003, 'zone not found');
+    }
+    if (match(/^\/zones\/([^/]+)\/activation_check$/) && method === 'PUT') return this.ok({});
     if (route === '/zones' && method === 'GET') {
       const wanted = query.name;
       return this.list(

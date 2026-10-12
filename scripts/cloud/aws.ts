@@ -243,6 +243,12 @@ export async function awsPreflight(context: CloudContext): Promise<void> {
         return { status: 'ok', detail: config.aws.blueprintId };
       });
     }
+    if (!identified)
+      for (const step of ['aws-region', 'aws-bundle', 'aws-blueprint'])
+        context.report.step('skipped', step, 'the login failed');
+  } else {
+    for (const step of ['aws-login', 'aws-region', 'aws-bundle', 'aws-blueprint'])
+      context.report.step('skipped', step, 'the aws CLI check failed');
   }
 
   await check('secrets-store', async () => {
@@ -780,12 +786,18 @@ async function ensureKey(
     const known = knownId ? listed.find((key) => key.AccessKeyId === knownId) : undefined;
     const usable = known?.Status === 'Active' && Boolean(env.get(user.secretName));
     if (!options.rotateKeys) {
-      if (usable) return { status: 'unchanged', detail: 'the key in cloud.env is active' };
+      // An extra key next to the known one (for example left behind by an interrupted run) is unknown too.
+      const strangers = listed.filter((key) => key.AccessKeyId !== knownId);
+      if (usable && strangers.length === 0)
+        return { status: 'unchanged', detail: 'the key in cloud.env is active' };
       if (listed.length > 0)
         throw refused(
-          `${name} has ${listed.length} access key(s) that cloud.env does not hold as an active key, ` +
-            'and a secret key cannot be read back from AWS. Nothing is changed; run with --rotate-keys to replace ' +
-            'its keys (then the machine needs a deploy)',
+          usable
+            ? `${name} has ${strangers.length} access key(s) besides the one in cloud.env. ` +
+                'Nothing is changed; run with --rotate-keys to replace its keys (then the machine needs a deploy)'
+            : `${name} has ${listed.length} access key(s) that cloud.env does not hold as an active key, ` +
+                'and a secret key cannot be read back from AWS. Nothing is changed; run with --rotate-keys to replace ' +
+                'its keys (then the machine needs a deploy)',
         );
       if (options.dryRun)
         return { status: 'skipped', detail: 'dry-run: would create a key and write it to cloud.env' };

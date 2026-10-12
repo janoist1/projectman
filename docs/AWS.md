@@ -62,6 +62,8 @@ message.
 | `cloudflare-token` | the Cloudflare API token (PM-536)                         | you                                               |
 | `cloud.env`        | the container's environment, docker env-file format       | `npm run cloud` (below)                           |
 
+`npm run` starts the command in the repository root, so give `--config` an absolute path (a relative one is resolved from the root).
+
 The directory is mode 700 and the files 600. A command refuses (exit 2) a wider mode and every
 symbolic link, and `preflight` names the file. A file is written to a 600 temporary file and
 renamed, so a crash never leaves half a file. There is no state file: every resource is found by its

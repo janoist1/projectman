@@ -310,6 +310,22 @@ describe('aws: the access keys', () => {
     expect(world.aws.users.get('projectman-cloud-litestream')!.keys).toHaveLength(1);
   });
 
+  it('refuses a stranger key next to the known one, and rotation removes both', async () => {
+    expect(await run()).toBe(0);
+    const known = world.aws.users.get('projectman-cloud-litestream')!.keys[0]!;
+    world.aws.addKey('projectman-cloud-litestream');
+    world.aws.clearCalls();
+    expect(await run()).toBe(2);
+    expect(world.output).toContain('FAIL access-key projectman-cloud-litestream');
+    expect(world.output).toContain('besides the one in cloud.env');
+    expect(world.aws.mutations()).toEqual([]);
+    expect(await run('--rotate-keys')).toBe(0);
+    const keys = world.aws.users.get('projectman-cloud-litestream')!.keys;
+    expect(keys).toHaveLength(1);
+    expect(keys[0]!.id).not.toBe(known.id);
+    expect(envValues().get('LITESTREAM_ACCESS_KEY_ID')).toBe(keys[0]!.id);
+  });
+
   it('refuses a key that cloud.env holds but AWS has made inactive', async () => {
     expect(await run()).toBe(0);
     world.aws.users.get('projectman-cloud-restic')!.keys[0]!.status = 'Inactive';

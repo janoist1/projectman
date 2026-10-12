@@ -756,6 +756,7 @@ export function createDomain(opts: DomainOptions) {
   handOver.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
+  messaging.useMessageStarts(messageStarts);
   sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
     messageStarts.resumeAfter(session, stageId, after),
   );
@@ -1017,6 +1018,7 @@ export function createDomain(opts: DomainOptions) {
     deferred: deferredStarts,
     taskWaits,
     operatorSignals,
+    messageStarts,
     releases,
   });
   const teamTools = new TeamToolsService({
@@ -1473,9 +1475,12 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
     background.run(
-      () => messageStarts.wake(projectKey, handle, workItem),
+      async () => {
+        // A failed start is logged (warn) and remembered by `wake` itself.
+        await messageStarts.wake(projectKey, handle, workItem);
+      },
       (err) =>
-        opts.logger.info({ err, projectKey, member: handle, messageId }, 'team message session start failed'),
+        opts.logger.warn({ err, projectKey, member: handle, messageId }, 'team message session start failed'),
     );
   });
 

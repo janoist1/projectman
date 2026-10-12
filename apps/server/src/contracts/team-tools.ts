@@ -30,6 +30,8 @@ import type {
   WorkItemRef,
   BoundaryRequest,
   BoundaryGrant,
+  StaleReason,
+  TaskStartWaiting,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
   OperatorOperation,
@@ -38,7 +40,7 @@ import type {
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
-import type { ProjectStateReport, TaskStateReport } from './project-state';
+import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
 /** What read_project_doc answers: the lines asked for of a project document at one commit. */
 export interface ProjectDocRead {
@@ -106,6 +108,17 @@ export type SentMessageHold =
   /** The card is being handed over from the recipient (PM-342): the receiver gets the message. */
   | 'handoff';
 
+/** What became of waking the recipient (PM-543; only with delivery 'wake'). */
+export type WakeStart =
+  /** The session started or continued, and the message is in it. */
+  | { state: 'started'; sessionId: string }
+  /** It was not decided while the send waited; the start goes on in the background. */
+  | { state: 'starting' }
+  /** Admission put the start off (a leave, a pause, no capacity…); it is retried. */
+  | { state: 'waiting'; reason: TaskStartWaiting['reason'] }
+  /** The start stopped with an error (the DomainError code, else `start_failed`; `not_started`: it ran but no live session exists). */
+  | { state: 'failed'; code: string };
+
 /** What happens to a sent team message for one recipient, decided when it is sent (PM-144). */
 export interface SentMessageRecipient {
   handle: MemberHandle;
@@ -120,6 +133,12 @@ export interface SentMessageRecipient {
   waitingPermission?: { inboxItemId: string; deciders: string[]; since: string };
   /** Only with delivery 'next_input' (PM-426): why the message starts no session for the recipient. */
   noWake?: WakeBlock;
+  /** Only with delivery 'next_input' (PM-543): the message is kind info, so it starts nothing. */
+  info?: true;
+  /** Only with delivery 'next_input' (PM-543): the message was stale when sent (e.g. 'card_closed'), so it wakes nobody. */
+  stale?: StaleReason;
+  /** Only with delivery 'wake', and only when the send waited for the start (`awaitWake`). */
+  start?: WakeStart;
 }
 
 export interface ToolContext {
@@ -359,8 +378,8 @@ export interface ReleaseCheckResult {
 export interface TeamToolsHandler {
   getProjectState(
     ctx: ToolContext,
-    args: { taskKey?: string },
-  ): Promise<TaskStateReport | ProjectStateReport>;
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
   operate(
     ctx: ToolContext,
     args: { title: string; operation: OperatorOperation },
@@ -471,6 +490,8 @@ export interface TeamToolsHandler {
     recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
+    operator: boolean;
   }>;
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;

@@ -7,6 +7,7 @@ import type {
   TimelineEvent,
   WorkItemRef,
   OperatorSignal,
+  StaleReason,
 } from '@projectman/shared';
 import {
   cardQuestionLines,
@@ -45,6 +46,8 @@ import type {
   TaskToolDetail,
   TaskStateReport,
   ProjectStateReport,
+  MessageStateReport,
+  WakeStart,
   ReleaseCheckResult,
   ReleaseStateReport,
 } from '../contracts';
@@ -94,7 +97,10 @@ const waitingExplanations: Record<NonNullable<TaskStateReport['startWaiting']>['
 };
 
 /** State codes stay English; the Operator explains them in the project's language. */
-export function formatProjectState(report: TaskStateReport | ProjectStateReport): string {
+export function formatProjectState(
+  report: TaskStateReport | ProjectStateReport | MessageStateReport,
+): string {
+  if ('messageId' in report) return formatMessageState(report);
   if ('taskKey' in report) {
     const lines = [
       `${report.taskKey}: ${oneLine(report.title, 200)} · stage ${report.stageId} (${report.stageKind}) · assignee ${report.assignee ?? 'none'} · labels ${report.labels.join(', ') || 'none'}`,
@@ -167,6 +173,34 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
     ...report.signals.map(signalLine),
     ...releaseLines(report.release),
   ].join('\n');
+}
+
+/** One team message and, per recipient, the facts of what became of it (PM-543). */
+function formatMessageState(report: MessageStateReport): string {
+  const where = (route: WorkItemRef): string =>
+    route.type === 'task' ? `card ${route.taskKey}` : route.type === 'general' ? 'general chat' : route.type;
+  const lines = [
+    `Message ${report.messageId} from ${report.from}${report.taskKey ? ` about ${report.taskKey}` : ''}, kind ${report.kind}, sent ${report.sentAt}.`,
+  ];
+  for (const r of report.recipients) {
+    const facts = [
+      r.human ? 'a person, reads it in the app' : `route ${where(r.route)}`,
+      r.deliveredAt ? `delivered ${r.deliveredAt}` : 'not delivered yet',
+    ];
+    if (r.session) facts.push(`session ${r.session.id} ${r.session.state} since ${r.session.since}`);
+    else if (!r.human) facts.push('no live session on that route');
+    if (r.waiting)
+      facts.push(
+        `start waiting since ${r.waiting.since}: ${r.waiting.reason}, ${waitingExplanations[r.waiting.reason]}`,
+      );
+    if (r.lastStartFailure)
+      facts.push(`last start failed (${r.lastStartFailure.code}) at ${r.lastStartFailure.at}`);
+    if (r.stale) facts.push(`stale (${r.stale}): it starts nothing`);
+    if (r.noWake === 'info') facts.push('kind info: it starts nothing');
+    else if (r.noWake) facts.push(`starts nothing: ${r.noWake}`);
+    lines.push(`- ${r.handle}: ${facts.join('; ')}.`);
+  }
+  return lines.join('\n');
 }
 
 const shortCommit = (commit: string) => commit.slice(0, 8);
@@ -681,6 +715,8 @@ export function formatSentMessage(result: {
   /** Recipients that get it somewhere else than on the message's own card. */
   routed?: { handle: string; workItem: WorkItemRef }[];
   taskKey: string | null;
+  /** The sender is the Operator (PM-543): no line sends it to a person. */
+  operator?: boolean;
 }): string {
   const about = result.taskKey ? ` about ${result.taskKey}` : '';
   const missing = result.requested.filter((h) => !result.deliveredTo.includes(h));
@@ -690,7 +726,15 @@ export function formatSentMessage(result: {
       : `Message ${result.messageId}${about} was not delivered to anyone.`;
   const parts = [sent];
   if (missing.length > 0) parts.push(`Not delivered to: ${missing.join(', ')}.`);
-  const lines = result.recipients.map((r) => `\n- ${recipientLine(r, result.taskKey)}`);
+  const lines = result.recipients.map(
+    (r) => `\n- ${recipientLine(r, result.taskKey, result.operator === true)}`,
+  );
+  // The Operator can read the outcome of a start that was not decided yet (PM-543).
+  if (
+    result.operator &&
+    result.recipients.some((r) => r.start?.state === 'starting' || r.start?.state === 'waiting')
+  )
+    parts.push(`Read later what became of it with get_project_state message_id ${result.messageId}.`);
   const routed: string[] = [];
   for (const { handle, workItem } of result.routed ?? []) {
     if (workItem.type === 'general')
@@ -705,10 +749,23 @@ export function formatSentMessage(result: {
   return parts.join(' ') + lines.join('') + (routed.length > 0 ? `\n${routed.join(' ')}` : '');
 }
 
-/** What happens to a sent message for one recipient, as the sender is told (PM-144). `taskKey` is the card it is about. */
-function recipientLine(
-  { handle, delivery, hold, waitingPermission, noWake }: SentMessageRecipient,
+const staleExplanations: Record<StaleReason, string> = {
+  card_closed: 'is closed',
+  stage_moved: 'has moved to another stage since',
+  superseded: 'has a newer message from the same sender',
+  sender_result: "already has the sender's result",
+  result_recorded: 'already has a result for that commit',
+  permission_closed: 'is decided',
+};
+
+/**
+ * What happens to a sent message for one recipient, as the sender is told (PM-144, PM-543). `taskKey` is the
+ * card it is about; `operator`: the sender is the Operator, who is never sent to a person for it.
+ */
+export function recipientLine(
+  { handle, delivery, hold, waitingPermission, noWake, info, stale, start }: SentMessageRecipient,
   taskKey: string | null,
+  operator = false,
 ): string {
   if (waitingPermission)
     return `${handle}: waiting for a permission decision since ${formatTimestamp(waitingPermission.since)} (decides: ${waitingPermission.deciders.join(', ')}). Your message waits and reaches them in one input with the others when their turn ends after the decision; do not resend it or ask about it.`;
@@ -716,9 +773,17 @@ function recipientLine(
   switch (delivery) {
     case 'next_input':
       if (noWake === 'no_card_role')
-        return `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
+        return operator
+          ? `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), so this starts nothing. They get it the next time they work on ${card}.`
+          : `${handle}: not started: they have no role on ${card} (not its assignee or a reviewer, and they have not worked on it), and a message from an AI member starts only members with a role there. They get it the next time they work on ${card}. If they really must act now, ask a person to bring them in.`;
       if (noWake === 'operator_owner_only')
-        return `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
+        return operator
+          ? `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them.`
+          : `${handle}: not started: the Operator works only when the owner asks, and a message from anyone else starts nothing. They get it the next time the owner talks to them. If it really must reach the owner, ask a person to relay it.`;
+      if (stale)
+        return `${handle}: not started: ${card} ${staleExplanations[stale]}, so this message is out of date and starts nothing. They get it with their next input.`;
+      if (info)
+        return `${handle}: not started: a message of kind info starts nothing. They get it with their next input.`;
       return `${handle}: they get it with their next input; it starts nothing.`;
     case 'inbox':
       return `${handle}: a person; they read it in the app.`;
@@ -727,6 +792,7 @@ function recipientLine(
     case 'after_turn':
       return `${handle}: their session is busy; it gets the full text when its current turn ends. Do not resend it.`;
     case 'wake':
+      if (start) return wakeStartLine(handle, start);
       return `${handle}: no session of theirs is running; one starts or resumes with the full text (it may wait for a free slot, a usage limit or a pause). Do not resend it.`;
     case 'held':
       switch (hold) {
@@ -746,6 +812,22 @@ function recipientLine(
         default:
           return `${handle}: held: their session restarts first (a new review round or permission mode); they get it in its first input.`;
       }
+  }
+}
+
+/** What became of waking one recipient, when the send waited for it (PM-543). */
+function wakeStartLine(handle: string, start: WakeStart): string {
+  switch (start.state) {
+    case 'started':
+      return `${handle}: started: their session ${start.sessionId} runs and has the full text. Do not resend it.`;
+    case 'starting':
+      return `${handle}: starting: the start did not finish within the wait and goes on in the background; the full text is in the session's first input. Do not resend it.`;
+    case 'waiting':
+      return `${handle}: not started yet: ${start.reason}, ${waitingExplanations[start.reason]} The start is retried; the message waits for it. Do not resend it.`;
+    case 'failed':
+      return start.code === 'not_started'
+        ? `${handle}: not started: the start ran but no session of theirs is live. The message is stored; they get it with their next start. Do not resend it.`
+        : `${handle}: the start failed (${start.code}). The message is stored; they get it with their next start. Do not resend it.`;
   }
 }
 

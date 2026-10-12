@@ -307,12 +307,17 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
   private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
-  async getProjectState(ctx: ToolContext, args: { taskKey?: string }) {
+  async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.guard(async () => {
       const config = await this.caller(ctx, 'get_project_state');
       const member = memberOf(config, ctx.member);
       if (!member || !isOperator(member))
         throw new TeamToolError('forbidden', 'operator_only: only the Operator may read project state.');
+      if (args.messageId !== undefined) {
+        if (args.taskKey !== undefined)
+          throw new TeamToolError('invalid', 'Give either task_key or message_id, not both.');
+        return this.projectState.message(ctx.projectKey, args.messageId);
+      }
       return args.taskKey
         ? this.projectState.task(ctx.projectKey, this.validTaskKey(ctx, args.taskKey))
         : this.projectState.overview(ctx.projectKey);
@@ -597,6 +602,7 @@ export class TeamToolsService implements TeamToolsHandler {
     deliveredTo: string[];
     recipients: SentMessageRecipient[];
     routed?: { handle: string; workItem: WorkItemRef }[];
+    operator: boolean;
   }> {
     return this.guard(async () => {
       const signal = args.signalId !== undefined || args.signalActionable !== undefined;
@@ -606,6 +612,7 @@ export class TeamToolsService implements TeamToolsHandler {
         signal ? { id: args.signalId, to: args.to } : undefined,
       );
       const { config, guest } = who;
+      const operator = isOperator(memberOf(config, ctx.member));
       // In a guest's conversation the Operator answers that person and nobody else; that is no step (PM-475).
       if (guest) {
         const other = args.to.find((handle) => handle !== guest.handle);
@@ -666,6 +673,8 @@ export class TeamToolsService implements TeamToolsHandler {
                 operatorRequest: who.request?.id,
                 operatorSignal: args.signalId,
                 signalActionable: args.signalActionable ?? false,
+                // The Operator is told what became of waking each recipient (PM-543); others' sends stay quick.
+                ...(operator ? { awaitWake: true } : {}),
               },
             )
             .catch(async (err: unknown) => {
@@ -679,6 +688,7 @@ export class TeamToolsService implements TeamToolsHandler {
             messageId: message.id,
             deliveredTo: message.to,
             recipients,
+            operator,
             ...(routed.length > 0 ? { routed } : {}),
           };
         },

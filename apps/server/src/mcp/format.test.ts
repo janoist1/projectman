@@ -120,9 +120,38 @@ describe('formatProjectState', () => {
       operatorWatch: 'report',
       stages: [{ stageId: 'dev', count: 2 }],
       sessions: [{ id: 'ses_1', member: 'dev-1', taskKey: 'AR-21', state: 'idle', since: '2026-10-10' }],
-      waitingStarts: [{ taskKey: 'AR-22', member: 'cr', reason: 'member_on_leave' }],
+      waitingStarts: [
+        { taskKey: 'AR-22', member: 'cr', reason: 'member_on_leave' },
+        { taskKey: null, member: 'dev-2', reason: 'member_on_leave' },
+      ],
       openOwnerItems: [{ id: 'q_1', kind: 'question', taskKey: 'AR-21', title: 'Choose checkout' }],
+      waitingMessages: [{ member: 'dev-2', count: 3, oldestAt: '2026-10-10T08:00:00.000Z' }],
+      release: {
+        running: { version: 'a'.repeat(40), commit: 'a'.repeat(40), tag: 'v2026.10.11' },
+        latestLive: {
+          id: 'rel_1',
+          taskKey: 'AR-30',
+          tag: 'v2026.10.11',
+          commit: 'a'.repeat(40),
+          liveAt: '2026-10-11T09:00:00.000Z',
+        },
+        open: null,
+        recentMerges: [
+          {
+            taskKey: 'AR-31',
+            title: 'Fix the cart',
+            commit: 'b'.repeat(40),
+            at: '2026-10-12T10:00:00.000Z',
+            by: 'claude',
+          },
+        ],
+      },
     });
+    expect(text).toContain(`- running: version ${'a'.repeat(40)}; commit ${'a'.repeat(40)}; tag v2026.10.11`);
+    expect(text).toContain('- open release: none');
+    expect(text).toContain('- AR-31 Fix the cart: commit bbbbbbbb, 2026-10-12T10:00:00.000Z, by claude');
+    expect(text).toContain('- general, dev-2: member_on_leave');
+    expect(text).toContain('- dev-2: 3, the oldest sent 2026-10-10T08:00:00.000Z');
     expect(text).toContain('Pause: project true; instance false.');
     expect(text).toContain('- dev: 2');
     expect(text).toContain('dev-1, task AR-21, idle, since 2026-10-10');

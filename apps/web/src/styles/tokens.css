@@ -167,6 +167,16 @@
   --role-system-fg: #3f3e3a;
   --role-system-bg: #eeede8;
 
+  /* feedback marker colours (PM-506): a person keeps theirs; white lettering holds 4.5:1 on each, in both themes */
+  --c-marker-1: #3044c9;
+  --c-marker-2: #0f766e;
+  --c-marker-3: #9d174d;
+  --c-marker-4: #6d28d9;
+  --c-marker-5: #9a3412;
+  --c-marker-6: #166534;
+  --c-marker-7: #b42318;
+  --c-marker-8: #713f12;
+
   /* toast icons (on the inverted toast background) */
   --c-toast-ok: #5eead4;
   --c-toast-error: #fca5a1;

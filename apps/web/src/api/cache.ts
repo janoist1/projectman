@@ -266,6 +266,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       void client.invalidateQueries({ queryKey: queryKeys.messages(event.projectKey) });
       return;
     }
+    case 'feedback_changed': {
+      // A mark came, was answered or decided: the list, the badge, the open mark and the cards' rows read again.
+      void client.invalidateQueries({ queryKey: queryKeys.feedback(event.projectKey) });
+      return;
+    }
     case 'operator_signal': {
       // A signal opened or was decided or resolved: the corner's channel carries it (PM-476).
       void client.invalidateQueries({ queryKey: queryKeys.operator(event.projectKey) });

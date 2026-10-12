@@ -1,0 +1,32 @@
+.row {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.row > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.ok {
+  background: var(--c-ok-bg);
+  color: var(--c-ok-text);
+}
+
+.needs {
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  color: inherit;
+}

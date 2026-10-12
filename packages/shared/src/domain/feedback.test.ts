@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyConfigPatch } from '../config/edit';
+import { applyConfigPatch, PatchConfigRequest } from '../config/edit';
 import type { MemberConfig, ProjectConfig } from '../config/schema';
 import { FeedbackAnchor, FeedbackConfig, FeedbackSurface } from './feedback';
 import {
@@ -160,6 +160,30 @@ describe('feedback configuration', () => {
     const blocked = applyConfigPatch(patched, { baseVersion: 'v', feedback: { blockedMarkers: [] } });
     expect(blocked.project.feedback?.blockedMarkers).toEqual([]);
     expect(blocked.project.feedback?.surfaces).toHaveLength(1);
+  });
+
+  it('keeps the list the request leaves out, once parsed', () => {
+    const surface = { id: 'web', name: 'Site', origin: 'https://a.example' };
+    const base = {
+      project: { key: 'AR', feedback: { surfaces: [surface], blockedMarkers: ['x'] } },
+      team: { members: [], limits: { tempWorkers: {} } },
+      pipeline: {},
+    } as unknown as ProjectConfig;
+    const onlyBlocked = PatchConfigRequest.parse({
+      baseVersion: 'v',
+      feedback: { blockedMarkers: ['kata'] },
+    });
+    expect(onlyBlocked.feedback).toEqual({ blockedMarkers: ['kata'] });
+    expect(applyConfigPatch(base, onlyBlocked).project.feedback).toEqual({
+      surfaces: [surface],
+      blockedMarkers: ['kata'],
+    });
+    const onlySurfaces = PatchConfigRequest.parse({ baseVersion: 'v', feedback: { surfaces: [] } });
+    expect(onlySurfaces.feedback).toEqual({ surfaces: [] });
+    expect(applyConfigPatch(base, onlySurfaces).project.feedback).toEqual({
+      surfaces: [],
+      blockedMarkers: ['x'],
+    });
   });
 });
 

@@ -157,6 +157,21 @@
   text-overflow: ellipsis;
 }
 
+.itemBadge {
+  min-width: 18px;
+  height: 18px;
+  box-sizing: border-box;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--c-needs);
+  color: var(--c-on-needs);
+  font-size: 10.5px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .itemMeta {
   font-family: var(--font-mono);
   font-size: 11.5px;

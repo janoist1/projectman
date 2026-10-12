@@ -69,8 +69,8 @@ export const PatchConfigRequest = z
     /** The feedback tool (PM-506): each list present replaces the whole list. */
     feedback: z
       .strictObject({
-        surfaces: FeedbackConfig.shape.surfaces.optional(),
-        blockedMarkers: FeedbackConfig.shape.blockedMarkers.optional(),
+        surfaces: FeedbackConfig.shape.surfaces.removeDefault().optional(),
+        blockedMarkers: FeedbackConfig.shape.blockedMarkers.removeDefault().optional(),
       })
       .optional(),
     pipeline: Pipeline.optional(),

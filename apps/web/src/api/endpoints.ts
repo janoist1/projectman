@@ -53,6 +53,17 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  CloseFeedbackRequest,
+  CreateTaskFromFeedbackRequest,
+  CreateTaskFromFeedbackResponse,
+  FeedbackCommentRequest,
+  FeedbackInboxResponse,
+  FeedbackLaunchRequest,
+  FeedbackLaunchResponse,
+  FeedbackMarkDetail,
+  FeedbackSettingsView,
+  FeedbackSummary,
+  LinkFeedbackRequest,
   StartMergeRequest,
   StopOrphansRequest,
   BoardMoveRequest,
@@ -302,6 +313,32 @@ export const api = {
     apiRequest(routes.instancePauseResume(), { method: 'POST', body: {}, schema: InstancePauseView }),
   forcePauseInstance: () =>
     apiRequest(routes.instancePauseForce(), { method: 'POST', body: {}, schema: InstancePauseView }),
+
+  /** Feedback marks (PM-511): the DTOs are interfaces, so the answers carry no schema. */
+  feedback: (key: string, taskKey?: string) =>
+    apiRequest<FeedbackInboxResponse>(
+      `${routes.feedback(key)}${taskKey ? `?task=${encodeURIComponent(taskKey)}` : ''}`,
+    ),
+  feedbackSummary: (key: string) => apiRequest<FeedbackSummary>(routes.feedbackSummary(key)),
+  feedbackSettings: (key: string) => apiRequest<FeedbackSettingsView>(routes.feedbackSettings(key)),
+  feedbackMark: (key: string, markId: string) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackMark(key, markId)),
+  feedbackLaunch: (key: string, body: FeedbackLaunchRequest) =>
+    apiRequest<FeedbackLaunchResponse>(routes.feedbackLaunch(key), { method: 'POST', body }),
+  feedbackMarkerLogout: (key: string, handle: string) =>
+    apiRequest<null>(routes.feedbackMarkerLogout(key, handle), { method: 'POST', body: {} }),
+  feedbackComment: (key: string, markId: string, body: FeedbackCommentRequest) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackComments(key, markId), { method: 'POST', body }),
+  feedbackRead: (key: string, markId: string) =>
+    apiRequest<null>(routes.feedbackRead(key, markId), { method: 'POST', body: {} }),
+  feedbackCreateTask: (key: string, markId: string, body: CreateTaskFromFeedbackRequest) =>
+    apiRequest<CreateTaskFromFeedbackResponse>(routes.feedbackTask(key, markId), { method: 'POST', body }),
+  feedbackLink: (key: string, markId: string, body: LinkFeedbackRequest) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackLink(key, markId), { method: 'POST', body }),
+  feedbackClose: (key: string, markId: string, body: CloseFeedbackRequest) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackClose(key, markId), { method: 'POST', body }),
+  feedbackReopen: (key: string, markId: string) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackReopen(key, markId), { method: 'POST', body: {} }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>

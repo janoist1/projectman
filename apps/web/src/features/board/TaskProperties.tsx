@@ -9,6 +9,7 @@ import type { MemberIndex } from '../../lib/members';
 import { shortCommit } from '../../lib/timeline';
 import type { PipelineIndex } from '../../lib/pipeline';
 import type { TaskPhase } from '../../lib/taskState';
+import { TaskFeedbackRow } from '../feedback/TaskFeedbackRow';
 import { TaskAssigneeSelect } from './TaskLifecycle';
 import { TaskPrioritySelect } from './TaskPriority';
 import { TaskLabels } from './TaskLabels';
@@ -131,6 +132,7 @@ export function TaskProperties({
         phases={phases}
         pipeline={pipeline}
       />
+      <TaskFeedbackRow key={`feedback:${task.key}`} taskKey={task.key} />
     </section>
   );
 }

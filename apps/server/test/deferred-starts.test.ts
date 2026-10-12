@@ -215,6 +215,10 @@ describe('deferred starts across a restart', () => {
     await settle();
     expect(stored(h)).toEqual([]);
     expect(taskSessions(h)).toHaveLength(0);
+    // The one start is the Operator's, woken by the imported card's idle signal.
+    expect(h.repos.sessions.list('AR').filter((session) => session.workItem.type === 'general')).toHaveLength(
+      h.runner.started.length,
+    );
 
     h = await restartDomainHarness(h);
     await settle();

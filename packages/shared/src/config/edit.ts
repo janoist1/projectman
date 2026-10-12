@@ -7,11 +7,18 @@ import {
   AutoCompactWindowTokens,
   MaxConcurrentAi,
   ProjectConfig,
+  ReviewTestConfig,
   TeamLimits,
   WarnAboveSessionTokens,
 } from './schema';
 
 const tempWorkersSchema = TeamLimits.shape.tempWorkers.removeDefault();
+
+/** A repository's full test as an edit sets it (PM-538): the whole object, the command trimmed, unknown keys refused. */
+export const ReviewTestPatch = ReviewTestConfig.extend({
+  command: z.string().trim().min(1).max(500),
+}).strict();
+export type ReviewTestPatch = z.infer<typeof ReviewTestPatch>;
 
 /** PATCH fields deliberately omit defaults so partial edits retain existing values. */
 export const PatchConfigRequest = z
@@ -65,6 +72,16 @@ export const PatchConfigRequest = z
       .array(z.object({ repo: z.string(), docs: RepoDocs.nullable() }).strict())
       .max(20)
       .optional(),
+    /** Per repository: the full test the server runs (`reviewTest`, PM-538); null removes it. Owner-only (`review_test`). */
+    repoReviewTest: z
+      .array(z.object({ repo: z.string(), reviewTest: ReviewTestPatch.nullable() }).strict())
+      .max(20)
+      .optional(),
+    /** Per repository: whether the full test runs only at the merge (`fullTestAtMerge`, PM-386); null removes it. Owner-only (`review_test`). */
+    repoFullTestAtMerge: z
+      .array(z.object({ repo: z.string(), fullTestAtMerge: z.boolean().nullable() }).strict())
+      .max(20)
+      .optional(),
     boundary: ProjectConfig.shape.team.shape.boundary,
     /** The feedback tool (PM-506): each list present replaces the whole list. */
     feedback: z
@@ -83,7 +100,10 @@ export function configSchemaIssues(issues: readonly { code: string; path: readon
   return issues.map(({ code, path }) => ({ code, path: path.map(String).join('.') }));
 }
 
-/** The first repository of `repoMerge` or `repoDocs` that the configuration does not know (the edit answers `unknown_repo`); null: none. */
+/**
+ * The first repository of `repoMerge`, `repoDocs`, `repoReviewTest` or `repoFullTestAtMerge` (in this order)
+ * that the configuration does not know (the edit answers `unknown_repo`); null: none.
+ */
 export function unknownPatchRepo(
   config: Pick<ProjectConfig, 'project'>,
   patch: PatchConfigRequest,
@@ -92,6 +112,8 @@ export function unknownPatchRepo(
   return (
     patch.repoMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     patch.repoDocs?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoReviewTest?.find((entry) => !known.has(entry.repo))?.repo ??
+    patch.repoFullTestAtMerge?.find((entry) => !known.has(entry.repo))?.repo ??
     null
   );
 }
@@ -113,6 +135,11 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
   // The last entry for a repository wins.
   const repoMerge = patch.repoMerge && new Map(patch.repoMerge.map((e) => [e.repo, e.requireMerge] as const));
   const repoDocs = patch.repoDocs && new Map(patch.repoDocs.map((e) => [e.repo, e.docs] as const));
+  const repoReviewTest =
+    patch.repoReviewTest && new Map(patch.repoReviewTest.map((e) => [e.repo, e.reviewTest] as const));
+  const repoFullTestAtMerge =
+    patch.repoFullTestAtMerge &&
+    new Map(patch.repoFullTestAtMerge.map((e) => [e.repo, e.fullTestAtMerge] as const));
   const feedback = patch.feedback
     ? {
         surfaces: (patch.feedback.surfaces ?? config.project.feedback?.surfaces ?? []).map((surface) => ({
@@ -129,7 +156,7 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
       ...patch.project,
       ...(feedback ? { feedback } : {}),
       repos:
-        repoMerge || repoDocs
+        repoMerge || repoDocs || repoReviewTest || repoFullTestAtMerge
           ? config.project.repos.map((repo) => {
               let changed = repo;
               const merge = repoMerge?.get(repo.name);
@@ -141,6 +168,16 @@ export function applyConfigPatch(config: ProjectConfig, patch: PatchConfigReques
               if (docs !== undefined) {
                 const { docs: _previous, ...rest } = changed;
                 changed = docs === null ? rest : { ...rest, docs };
+              }
+              const reviewTest = repoReviewTest?.get(repo.name);
+              if (reviewTest !== undefined) {
+                const { reviewTest: _previous, ...rest } = changed;
+                changed = reviewTest === null ? rest : { ...rest, reviewTest };
+              }
+              const fullTestAtMerge = repoFullTestAtMerge?.get(repo.name);
+              if (fullTestAtMerge !== undefined) {
+                const { fullTestAtMerge: _previous, ...rest } = changed;
+                changed = fullTestAtMerge === null ? rest : { ...rest, fullTestAtMerge };
               }
               return changed;
             })

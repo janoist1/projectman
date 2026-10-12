@@ -229,6 +229,95 @@ describe('Operator actions and owner approvals (PM-464)', () => {
     expect((await h.domain.projects.history('AR')).some((row) => row.approvedBy === 'owner')).toBe(false);
   });
 
+  it('sets and removes the full test of a repository only after the owner approves (PM-538)', async () => {
+    await setup();
+    const reviewTest = { command: 'npm run merge-test', maxWorkers: 4, timeoutMinutes: 30 };
+    const repo = async () => (await h.domain.projects.config('AR')).project.repos[0]!;
+    const set = await operate({
+      op: 'config_patch',
+      patch: { repoReviewTest: [{ repo: 'web', reviewTest }] },
+    });
+    expect(set.status).toBe('awaiting_approval');
+    const item = h.domain.inbox.get('AR', set.inbox_item_id!);
+    expect(operatorApprovalOf(item)).toMatchObject({
+      consequence: 'review_test',
+      changes: [
+        {
+          area: 'repos',
+          target: 'web',
+          field: 'reviewTest',
+          before: null,
+          after: '{"command":"npm run merge-test","maxWorkers":4,"timeoutMinutes":30}',
+          level: 'approval',
+        },
+      ],
+    });
+    expect(await repo()).not.toHaveProperty('reviewTest');
+    await resolve(item.id);
+    expect(await repo()).toMatchObject({ reviewTest });
+    expect((await h.domain.projects.history('AR'))[0]).toMatchObject({
+      operator: 'operator',
+      approvedBy: 'owner',
+    });
+
+    const removed = await operate({
+      op: 'config_patch',
+      patch: { repoReviewTest: [{ repo: 'web', reviewTest: null }] },
+    });
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', removed.inbox_item_id!))).toMatchObject({
+      consequence: 'review_test',
+      changes: [{ field: 'reviewTest', before: expect.stringContaining('merge-test'), after: null }],
+    });
+    await resolve(removed.inbox_item_id!);
+    expect(await repo()).not.toHaveProperty('reviewTest');
+  });
+
+  it('asks for approval for fullTestAtMerge too, and refuses an unknown repository (PM-538)', async () => {
+    await setup();
+    const result = await operate({
+      op: 'config_patch',
+      patch: { repoFullTestAtMerge: [{ repo: 'web', fullTestAtMerge: true }] },
+    });
+    expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))).toMatchObject({
+      consequence: 'review_test',
+      changes: [{ field: 'fullTestAtMerge', after: 'true' }],
+    });
+    await expect(
+      operate({
+        op: 'config_patch',
+        patch: { repoReviewTest: [{ repo: 'ghost', reviewTest: null }] },
+      }),
+    ).rejects.toMatchObject({ message: expect.stringContaining('unknown_repo') });
+  });
+
+  it('does not let a non-owner approve a full test change (PM-538)', async () => {
+    await setup();
+    const result = await operate({
+      op: 'config_patch',
+      patch: {
+        repoReviewTest: [{ repo: 'web', reviewTest: { command: 'true', maxWorkers: 2, timeoutMinutes: 15 } }],
+      },
+    });
+    await expect(
+      h.domain.inbox.resolve(
+        'AR',
+        result.inbox_item_id!,
+        { optionId: 'approve' },
+        { handle: 'dana', access: 'admin' },
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    await expect(
+      h.domain.inbox.resolve(
+        'AR',
+        result.inbox_item_id!,
+        { optionId: 'approve' },
+        { ...owner, via: 'integrator' },
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(await h.domain.projects.config('AR')).toMatchObject({ project: { repos: [{ name: 'web' }] } });
+    expect((await h.domain.projects.config('AR')).project.repos[0]).not.toHaveProperty('reviewTest');
+  });
+
   it('rejects integrator decisions and non-owner human decisions', async () => {
     await setup();
     const result = await operate(network());

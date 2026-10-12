@@ -59,6 +59,8 @@ function consequenceOf(operation: OperatorOperation, changes: ConfigChangeRow[])
   if (changes.some((r) => ['permissionMode', 'approver'].includes(r.field))) return 'permission_mode';
   if (changes.some((r) => r.area === 'label')) return 'labels';
   if (changes.some((r) => ['stage', 'gate'].includes(r.area))) return 'pipeline';
+  if (changes.some((r) => r.area === 'repos' && (r.field === 'reviewTest' || r.field === 'fullTestAtMerge')))
+    return 'review_test';
   if (changes.some((r) => r.area === 'repos' || r.field === 'workspacePath')) return 'locations';
   if (changes.some((r) => r.field.toLowerCase().includes('fix'))) return 'fix_limit';
   if (changes.some((r) => r.area === 'member')) return 'member_other';

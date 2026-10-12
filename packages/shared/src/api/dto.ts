@@ -491,6 +491,7 @@ export const OperatorConsequence = z.enum([
   'member_retire',
   'member_other',
   'locations',
+  'review_test',
   'fix_limit',
   'session_stop',
   'project_pause',

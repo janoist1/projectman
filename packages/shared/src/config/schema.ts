@@ -243,6 +243,17 @@ export const TeamLimits = z.object({
 });
 export type TeamLimits = z.infer<typeof TeamLimits>;
 
+/** A repository's full test: the shell command the server runs in the full test sandbox, and its limits (PM-538). */
+export const ReviewTestConfig = z.object({
+  /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
+  command: z.string().min(1).max(500),
+  /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
+  maxWorkers: z.number().int().min(1).max(8).default(2),
+  /** Wall-clock limit of one run. */
+  timeoutMinutes: z.number().int().min(1).max(60).default(15),
+});
+export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
+
 export const RepoConfig = z.object({
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
@@ -258,16 +269,7 @@ export const RepoConfig = z.object({
    * The full test the server runs on the pinned commit before a task is reviewed (PM-217), in a
    * sandbox of its own with PTYs. Absent: the feature is off for this repository.
    */
-  reviewTest: z
-    .object({
-      /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
-      command: z.string().min(1).max(500),
-      /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
-      maxWorkers: z.number().int().min(1).max(8).default(2),
-      /** Wall-clock limit of one run. */
-      timeoutMinutes: z.number().int().min(1).max(60).default(15),
-    })
-    .optional(),
+  reviewTest: ReviewTestConfig.optional(),
   /**
    * Developers run targeted checks only; the integrator owns the full check before merge (PM-380).
    * Absent or false: retain the existing hand-over policy. true: `reviewTest` runs only at the merge,

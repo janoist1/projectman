@@ -10,7 +10,6 @@ import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState } from '../../components/States';
 import { t } from '../../i18n/t';
-import { errorMessage } from '../../lib/errors';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import { filtersFor, matchesFilter, matchesSource, parseFilter, sourceOptions } from './feedbackModel';
 import type { FeedbackFilter } from './feedbackModel';
@@ -90,19 +89,20 @@ export function FeedbackPage() {
   const inDetail = isMobile && markId !== undefined;
   const surfaces = data?.surfaces ?? [];
 
-  // Nothing is set up yet and nothing was marked: a count of zeros says nothing.
-  const subtitle =
-    data && !(surfaces.length === 0 && marks.length === 0)
-      ? canProcess
-        ? t('feedback.summary.processor', {
-            fresh: marks.filter((mark) => mark.status === 'new').length,
-            waiting: marks.filter((mark) => mark.status === 'waiting_owner').length,
-          })
-        : t('feedback.summary.member', {
-            open: marks.filter((mark) => mark.status !== 'closed').length,
-            replies: summary.data?.unreadReplies ?? 0,
-          })
-      : undefined;
+  // A line of zero counts says nothing (nothing set up, or nothing marked yet): no summary then.
+  const fresh = marks.filter((mark) => mark.status === 'new').length;
+  const waiting = marks.filter((mark) => mark.status === 'waiting_owner').length;
+  const open = marks.filter((mark) => mark.status !== 'closed').length;
+  const replies = summary.data?.unreadReplies ?? 0;
+  const subtitle = !data
+    ? undefined
+    : canProcess
+      ? fresh + waiting > 0
+        ? t('feedback.summary.processor', { fresh, waiting })
+        : undefined
+      : open + replies > 0
+        ? t('feedback.summary.member', { open, replies })
+        : undefined;
 
   const header = (
     <PageHeader title={t('feedback.title')} subtitle={subtitle} hideTitleOnPhone className={styles.header}>
@@ -121,7 +121,6 @@ export function FeedbackPage() {
     body = (
       <div className={styles.errorBox}>
         <ErrorBanner>{t('feedback.loadFailed')}</ErrorBanner>
-        <p className={styles.errorDetail}>{errorMessage(list.error)}</p>
         <Button variant="secondary" size="md" icon="undo" onClick={() => void list.refetch()}>
           {t('app.retry')}
         </Button>

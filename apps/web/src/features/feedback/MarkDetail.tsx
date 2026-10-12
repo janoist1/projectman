@@ -213,7 +213,7 @@ function Opened({
                   </Button>
                 ) : null}
                 <Button variant="secondary" size="md" onClick={() => setDialog('link')}>
-                  {t('feedback.actions.link')}
+                  {mark.card === null ? t('feedback.actions.link') : t('feedback.actions.linkAnother')}
                 </Button>
                 <Button variant="ghost" size="md" onClick={() => setDialog('close')}>
                   {t('feedback.actions.close')}
@@ -239,7 +239,7 @@ function Opened({
       </div>
       {mark.canComment ? (
         <Composer mark={mark} />
-      ) : closed && !canProcess ? (
+      ) : closed ? (
         <p className={styles.closedNote}>{t('feedback.composer.closed')}</p>
       ) : !closed ? (
         <p className={styles.closedNote}>{t('feedback.composer.viewer')}</p>

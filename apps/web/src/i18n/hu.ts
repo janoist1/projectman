@@ -4507,6 +4507,7 @@ export const hu = {
       reopen: 'Újranyitom',
       create: 'Új kártya',
       link: 'Kártyához kötöm',
+      linkAnother: 'Másik kártyához kötöm',
       close: 'Lezárom',
     },
     composer: {

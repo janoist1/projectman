@@ -263,8 +263,25 @@ describe('working a mark', () => {
     await waitFor(() => expect(POSTS(p, '/close')).toHaveLength(1));
     expect(POSTS(p, '/close')[0]!.body).toEqual({ reply: 'Javítva.' });
     const reopen = await within(detail).findByRole('button', { name: t('feedback.actions.reopen') });
+    // The processor sees the same closing line as the marker does.
+    expect(within(detail).getByText(t('feedback.composer.closed'))).toBeTruthy();
     fireEvent.click(reopen);
     await waitFor(() => expect(POSTS(p, '/reopen')).toHaveLength(1));
+  });
+
+  it('words the link button "another card" when the mark already stands on one', async () => {
+    const p = seeded();
+    const detail = await open(p, /Az üres kosár szövegében/);
+    fireEvent.click(within(detail).getByRole('button', { name: t('feedback.actions.link') }));
+    const dialog = await screen.findByRole('dialog', { name: t('feedback.link.heading') });
+    fireEvent.change(within(dialog).getByRole('combobox'), { target: { value: 'AC-24' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /AC-24/ }));
+    fireEvent.click(within(dialog).getByRole('button', { name: t('feedback.link.submit') }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(
+      await within(detail).findByRole('button', { name: t('feedback.actions.linkAnother') }),
+    ).toBeTruthy();
+    expect(within(detail).queryByRole('button', { name: t('feedback.actions.link') })).toBeNull();
   });
 });
 

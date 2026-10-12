@@ -78,12 +78,6 @@
   gap: 10px;
 }
 
-.errorDetail {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--c-ink-3);
-}
-
 .skeleton {
   width: 100%;
   max-width: 560px;

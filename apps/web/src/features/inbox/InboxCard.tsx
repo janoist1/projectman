@@ -528,7 +528,11 @@ export function InboxCard({
               {choices.map((option) => (
                 <Button
                   key={option.id}
-                  variant={answering ? 'secondary' : variantFor[option.style]}
+                  variant={
+                    answering || alertPayload?.alert === 'feedback_forwarded'
+                      ? 'secondary'
+                      : variantFor[option.style]
+                  }
                   size={buttonSize}
                   disabled={pending}
                   onClick={() =>

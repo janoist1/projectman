@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { memberOf, operatorApprovalOf } from '@projectman/shared';
+import { memberOf, operatorApprovalOf, operatorWatchOf } from '@projectman/shared';
+import { humanActor } from '../src/domain/util';
 import type { AiMemberConfig, OperatorOperation, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
@@ -58,6 +59,76 @@ const member = async (handle = 'dev-1') =>
 const resolve = (id: string, optionId = 'approve') => h.domain.inbox.resolve('AR', id, { optionId }, owner);
 
 describe('Operator actions and owner approvals (PM-464)', () => {
+  it('allows only the owner to change the watch level, including clearing it', async () => {
+    await setup();
+    const patchAs = async (operatorWatch: 'report' | 'unblock' | 'drive' | null, meta: typeof by) =>
+      h.domain.projects.patch(
+        'AR',
+        {
+          baseVersion: (await h.domain.projects.load('AR')).version,
+          operatorWatch,
+        },
+        meta,
+      );
+    const admin = { actor: humanActor('dana'), author: { name: 'Dana', email: 'dana@example.test' } };
+    const integrator = {
+      actor: { ...OWNER_ACTOR, via: 'integrator' as const },
+      author: { ...OWNER, via: 'integrator' as const },
+    };
+    const originalVersion = (await h.domain.projects.load('AR')).version;
+    for (const meta of [admin, integrator])
+      await expect(patchAs('unblock', meta)).rejects.toMatchObject({
+        code: meta === admin ? 'owner_only' : 'owner_login_required',
+        status: 403,
+      });
+    expect((await h.domain.projects.load('AR')).version).toBe(originalVersion);
+    expect(operatorWatchOf((await patchAs('drive', by)).config)).toBe('drive');
+    for (const meta of [admin, integrator])
+      await expect(patchAs(null, meta)).rejects.toMatchObject({
+        code: meta === admin ? 'owner_only' : 'owner_login_required',
+        status: 403,
+      });
+    const cleared = await patchAs(null, by);
+    expect(cleared.config.team).not.toHaveProperty('operatorWatch');
+    expect(operatorWatchOf(cleared.config)).toBe('report');
+    await expect(patchAs('report', admin)).resolves.toBeDefined();
+    await expect(patchAs(null, integrator)).resolves.toBeDefined();
+  });
+
+  it('changes and clears the watch level only after owner approval', async () => {
+    await setup(true);
+    for (const level of ['unblock', null] as const) {
+      const before = await h.domain.projects.config('AR');
+      const result = await operate({ op: 'config_patch', patch: { operatorWatch: level } });
+      expect(result.status).toBe('awaiting_approval');
+      expect(operatorApprovalOf(h.domain.inbox.get('AR', result.inbox_item_id!))).toMatchObject({
+        consequence: 'operator_watch',
+        changes: [{ area: 'project', field: 'operatorWatch', level: 'approval', after: level }],
+      });
+      expect(await h.domain.projects.config('AR')).toEqual(before);
+      expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(before.team.operatorWatch);
+      await resolve(result.inbox_item_id!);
+      const config = await h.domain.projects.config('AR');
+      expect(operatorWatchOf(config)).toBe(level ?? 'report');
+      expect((await h.configStore.load('AR')).config.team.operatorWatch).toBe(level ?? undefined);
+      if (level === null) {
+        expect(config.team).not.toHaveProperty('operatorWatch');
+        expect((await h.configStore.load('AR')).config.team).not.toHaveProperty('operatorWatch');
+      }
+    }
+    h = await restartDomainHarness(h);
+    expect(operatorWatchOf(await h.domain.projects.config('AR'))).toBe('report');
+  });
+
+  it('keeps the approved watch level in project state after a server restart', async () => {
+    await setup(true);
+    const result = await operate({ op: 'config_patch', patch: { operatorWatch: 'unblock' } });
+    await resolve(result.inbox_item_id!);
+    h = await restartDomainHarness(h);
+    expect((await h.domain.projectState.overview('AR')).operatorWatch).toBe('unblock');
+    expect((await h.domain.projects.config('AR')).team.operatorWatch).toBe('unblock');
+  });
+
   it.each(['config_changed', 'session_ended', 'pause_changed'] as const)(
     'does not hold later %s listeners while an approval recheck is pending',
     async (event) => {

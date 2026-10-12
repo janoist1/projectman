@@ -143,6 +143,7 @@ export function formatProjectState(report: TaskStateReport | ProjectStateReport)
   }
   return [
     `Pause: project ${report.paused.project}; instance ${report.paused.instance}.`,
+    `Operator watch: ${report.operatorWatch}.`,
     'Cards by stage:',
     ...report.stages.map((s) => `- ${s.stageId}: ${s.count}`),
     'Live and idle sessions:',

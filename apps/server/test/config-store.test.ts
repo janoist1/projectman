@@ -17,6 +17,7 @@ import {
   isReleaseApprovalLabel,
   labelDefinition,
   labelHolders,
+  operatorWatchOf,
   releaseGateAccepts,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -45,6 +46,33 @@ describe('ConfigStore (customization repository)', () => {
     store = createConfigStore({ rootDir: join(dir, 'customization') });
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it.each(['report', 'unblock', 'drive'] as const)(
+    'commits and reloads the watch level %s and its removal',
+    async (level) => {
+      const config = testConfig();
+      const original = await store.save('AR', config, { author, message: 'Create project' });
+      const teamFile = join(store.rootDir, 'projects/AR/team.yaml');
+      expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
+      expect(operatorWatchOf((await store.load('AR')).config)).toBe('report');
+
+      config.team.operatorWatch = level;
+      const changed = await store.save('AR', config, { author, message: 'Set watch level' });
+      expect(changed.version).not.toBe(original.version);
+      expect(readFileSync(teamFile, 'utf8')).toContain(`operatorWatch: ${level}`);
+      const freshStore = createConfigStore({ rootDir: store.rootDir });
+      expect((await freshStore.load('AR')).config.team.operatorWatch).toBe(level);
+      expect((await freshStore.loadVersion('AR', changed.version)).team.operatorWatch).toBe(level);
+
+      delete config.team.operatorWatch;
+      const cleared = await freshStore.save('AR', config, { author, message: 'Clear watch level' });
+      expect(cleared.version).not.toBe(changed.version);
+      expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
+      const reloaded = await store.load('AR');
+      expect(reloaded.config.team).not.toHaveProperty('operatorWatch');
+      expect(operatorWatchOf(reloaded.config)).toBe('report');
+    },
+  );
 
   it('loads legacy explicit owners and approvers without rewriting YAML and round-trips duty overrides', async () => {
     const old = testConfig();

@@ -1,5 +1,5 @@
 import type { InboxKind, SessionState, StageKind, StartBlock, TaskStartWaiting } from '@projectman/shared';
-import type { TaskWait, OperatorSignal } from '@projectman/shared';
+import type { TaskWait, OperatorSignal, OperatorWatch } from '@projectman/shared';
 
 export interface TaskStateReport {
   taskKey: string;
@@ -19,6 +19,7 @@ export interface TaskStateReport {
 }
 
 export interface ProjectStateReport {
+  operatorWatch: OperatorWatch;
   paused: { project: boolean; instance: boolean };
   stages: Array<{ stageId: string; count: number }>;
   sessions: Array<{ id: string; member: string; taskKey: string | null; state: SessionState; since: string }>;

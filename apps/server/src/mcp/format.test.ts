@@ -117,6 +117,7 @@ describe('formatProjectState', () => {
     const text = formatProjectState({
       signals: [],
       paused: { project: true, instance: false },
+      operatorWatch: 'report',
       stages: [{ stageId: 'dev', count: 2 }],
       sessions: [{ id: 'ses_1', member: 'dev-1', taskKey: 'AR-21', state: 'idle', since: '2026-10-10' }],
       waitingStarts: [{ taskKey: 'AR-22', member: 'cr', reason: 'member_on_leave' }],

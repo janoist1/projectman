@@ -334,6 +334,7 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('getProjectState', ctx, args);
       return {
         paused: { project: false, instance: false },
+        operatorWatch: 'report',
         stages: [],
         sessions: [],
         waitingStarts: [],

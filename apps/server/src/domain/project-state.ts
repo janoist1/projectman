@@ -1,4 +1,12 @@
-import { conditionHolds, isOpenTask, isTheme, ownerHandles, stageOf, startBlock } from '@projectman/shared';
+import {
+  conditionHolds,
+  isOpenTask,
+  isTheme,
+  operatorWatchOf,
+  ownerHandles,
+  stageOf,
+  startBlock,
+} from '@projectman/shared';
 import type { Session } from '@projectman/shared';
 import type { ProjectStateReport, TaskStateReport } from '../contracts';
 import type { DomainContext } from './context';
@@ -104,6 +112,7 @@ export class ProjectState {
     }
     return {
       paused: { project: !!pause.project, instance: !!pause.instance },
+      operatorWatch: operatorWatchOf(config),
       signals: this.deps.operatorSignals.active(projectKey),
       stages: config.pipeline.stages.map((s) => ({
         stageId: s.id,

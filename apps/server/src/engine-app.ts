@@ -62,15 +62,6 @@ const SHUTDOWN_PAUSE_CAP_MS = 20_000;
 const TOKEN = /^[A-Za-z0-9_-]{8,256}$/;
 const LOOPBACK = '127.0.0.1';
 
-/** A hybrid engine runs the `legacy` profile on the owner's machine; the managed VM is a different installation. */
-export function assertEngineProfile(settings: { executionProfile?: string; boundaryConfig?: string }): void {
-  if (settings.executionProfile === 'managed_vm' || settings.boundaryConfig)
-    throw new EngineConfigError(
-      'managed_vm_unsupported',
-      'The engine runs the legacy execution profile only: PROJECTMAN_EXECUTION_PROFILE=managed_vm and PROJECTMAN_BOUNDARY_CONFIG belong to the managed VM, not to an engine.',
-    );
-}
-
 export interface EngineAppModules {
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   github?: GithubService;
@@ -91,9 +82,6 @@ export interface EngineAppOptions {
   /** `resolveAppVersion(installDir, PROJECTMAN_VERSION)`: what the cloud compares with its own. */
   version: string;
   installDir: string;
-  /** Checked at start: a managed VM setting stops the engine. */
-  executionProfile?: string;
-  boundaryConfig?: string;
   agentEnv?: NodeJS.ProcessEnv;
   claudeBin?: string;
   codexBin?: string;
@@ -144,7 +132,6 @@ const headerText = (value: string | string[] | undefined, fallback: string): str
 };
 
 export async function buildEngineApp(options: EngineAppOptions): Promise<EngineApp> {
-  assertEngineProfile(options);
   if (os.platform() !== 'darwin' && os.platform() !== 'linux')
     throw new EngineConfigError('platform_unsupported', 'The engine runs on macOS or Linux.');
   const modules = options.modules ?? {};

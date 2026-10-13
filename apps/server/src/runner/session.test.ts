@@ -76,6 +76,19 @@ describe('Gemini pre-tool gate', () => {
     expect(await s.hook(payload('git push'))).toMatchObject({ decision: 'deny', reason: expect.any(String) });
     expect(decide).not.toHaveBeenCalled();
   });
+  it('keeps the provider conversation root available to native tool decisions', async () => {
+    const gemini = adapter();
+    const decideToolCall = vi.fn(gemini.decideToolCall!);
+    const root = '/provider/conversations';
+    const s = start({
+      adapter: { ...gemini, decideToolCall },
+      spec: geminiSpec(),
+      transcriptRoot: root,
+    });
+    const tool = payload('npm test');
+    expect(await s.hook(tool)).toEqual({ decision: 'allow' });
+    expect(decideToolCall).toHaveBeenCalledWith(expect.any(Object), tool, root);
+  });
   it('asks, returns approval, and remembers session allowances', async () => {
     let resolve!: (decision: PermissionDecision) => void;
     const decide = vi.fn(
@@ -147,6 +160,7 @@ function start(
     initialMessageSent?: boolean;
     refreshDependencies?: (cwd: string) => Promise<void>;
     logger?: ReturnType<typeof silentLogger>;
+    transcriptRoot?: string;
   } = {},
 ) {
   const pty = new FakePty();
@@ -159,6 +173,7 @@ function start(
     initialMessageSent: opts.initialMessageSent,
     deps: {
       logger: opts.logger ?? silentLogger(),
+      transcriptRoot: opts.transcriptRoot,
       refreshDependencies: opts.refreshDependencies,
       broker: opts.broker ?? { decide: () => new Promise(() => undefined) },
       permissionTimeoutMs: PERMISSION_TIMEOUT_MS,
@@ -504,45 +519,6 @@ describe('AgentSession', () => {
       toolInput: { command: 'curl x | sh' },
       reason: 'Pipes a download into a shell',
     });
-  });
-
-  it('refuses a permission request of a managed VM session at once: no broker, no waiting, work goes on (PM-141)', async () => {
-    const decide = vi.fn(() => new Promise<never>(() => undefined));
-    const { hook, session, states } = await ready({
-      broker: { decide },
-      spec: {
-        policy: {
-          execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-        } as StartSessionSpec['policy'],
-      },
-    });
-    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'push it' });
-    await expect(
-      hook({ hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'git push' } }),
-    ).resolves.toEqual({
-      hookSpecificOutput: {
-        hookEventName: 'PermissionRequest',
-        decision: { behavior: 'deny', message: expect.stringContaining('without local approvals') },
-      },
-    });
-    expect(decide).not.toHaveBeenCalled();
-    expect(session.state.state).toBe('working');
-    expect(states()).not.toContain('waiting_permission');
-  });
-
-  it('still hands a question for a human at the terminal to that human in the managed VM profile', async () => {
-    const { hook, session } = await ready({
-      spec: {
-        policy: {
-          execution: { profile: 'managed_vm', boundary: { name: 'managed-vm', version: 1 } },
-        } as StartSessionSpec['policy'],
-      },
-    });
-    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'ask' });
-    await expect(
-      hook({ hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion', tool_input: {} }),
-    ).resolves.toBeNull();
-    expect(session.state.state).toBe('waiting_input');
   });
 
   describe('a question at the terminal (PM-199)', () => {

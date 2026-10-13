@@ -10,7 +10,6 @@ import {
   REVIEW_SHELL_TOOLS,
   DEVELOPMENT_SHELL_TOOLS,
   LOCAL_PUBLISHING_OPERATIONS,
-  managedVmPermissions,
   placementReadsOnly,
 } from '@projectman/shared';
 import type { AgentProvider, RoleId, ProjectConfig, Task } from '@projectman/shared';
@@ -415,7 +414,6 @@ export const READER_UNSANDBOXED_COMMANDS = ['gh pr view', 'gh pr diff'];
 
 /**
  * The CLI's own sandbox of a legacy session (decision 28, PM-167), from the policy's actual paths;
- * none for the managed VM profile, whose boundary is outside the CLI.
  * - Work in a task's own worktree: `worktreeSandbox`, from the `SandboxPaths` too (PM-153).
  * - A reading placement (read-only, or a review copy without the test opt-in): its commands write
  *   only the temp directory; the working directory, every extra directory (`--add-dir`, the
@@ -436,7 +434,6 @@ export function sessionSandbox(
     readerDenyWrite?: readonly (string | undefined)[];
   } = {},
 ): AgentSandbox | undefined {
-  if (policy.execution?.profile === 'managed_vm') return undefined;
   if (policy.access === 'task_worktree') {
     // Without the user's home the sandbox could not close it: no start rather than an open one.
     if (!options.userHome) throw new Error("A worktree session's sandbox needs the user's home.");
@@ -811,11 +808,6 @@ export function buildSessionPolicy(input: {
   /** Whether the member's commands can reach the network. */
   outboundNetwork: boolean;
   /**
-   * The managed VM profile (PM-141), given only after its boundary was verified for this start:
-   * the placement is the member's own workspace and the CLI asks nothing locally.
-   */
-  managedVm?: { boundary: { name: string; version: number } };
-  /**
    * The Operator's conversation with someone who is not an owner (PM-475): the team tools only, no
    * file, shell or web tool, and nothing to read outside the placement.
    */
@@ -824,7 +816,6 @@ export function buildSessionPolicy(input: {
   if (input.teamToolsOnly) {
     input = { ...input, readableRoots: [], readOnlyPaths: [] };
   }
-  if (input.managedVm) return buildManagedVmPolicy({ ...input, managedVm: input.managedVm });
   const role = roleSessionAccess(input.config, input.role);
   const placement = input.placement;
   const mergeFix =
@@ -894,52 +885,6 @@ export function buildSessionPolicy(input: {
       outbound: input.outboundNetwork ? 'open' : 'allowlist',
     },
     outsideSandbox: enforcement === 'strict' ? 'deny' : 'ask',
-    permissions,
-  };
-}
-
-/**
- * The managed VM profile's policy (PM-141). It is a separate execution profile, not a strict
- * enforcement and not a mode migration: `enforcement` stays `legacy`, the member's `permissionMode`
- * is only read (`plan` stays research-only; the rest runs question-free) and never rewritten.
- * Nothing local is limited: no tool grants to render, no denied operations (the business rules and
- * the owner's exceptions apply at the domain, network and operation gate), no command rules.
- */
-function buildManagedVmPolicy(input: {
-  config: ProjectConfig;
-  role: RoleId;
-  task: Pick<Task, 'repo'> | null;
-  placement: SessionPolicy['placement'];
-  permissionMode?: string;
-  readableRoots?: string[];
-  protectedPaths?: string[];
-  readOnlyPaths?: string[];
-  teamToolsOnly?: boolean;
-  managedVm: { boundary: { name: string; version: number } };
-}): SessionPolicy {
-  const placement = input.placement;
-  if (placement.kind !== 'member_workspace')
-    throw new Error('The managed VM profile works only in the member workspace placement.');
-  const permissions = managedVmPermissions(input.permissionMode);
-  const ownRoots = [placement.path];
-  return {
-    version: 1,
-    enforcement: 'legacy',
-    execution: { profile: 'managed_vm', boundary: input.managedVm.boundary },
-    access: 'member_workspace',
-    placement,
-    tools: sessionToolsOf(input),
-    ...(input.teamToolsOnly ? { teamToolsOnly: true } : {}),
-    filesystem: {
-      readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
-      writableRoots: permissions.sandbox === 'read-only' ? [] : ownRoots,
-      protectedPaths: [...new Set(input.protectedPaths ?? [])],
-      ...(input.readOnlyPaths?.length ? { readOnlyPaths: [...new Set(input.readOnlyPaths)] } : {}),
-    },
-    deniedOperations: [],
-    // Which hosts the worker reaches is the network gate's decision (PM-140), not a setting here.
-    network: { allowedDomains: [], allowLocalBinding: false },
-    outsideSandbox: 'deny',
     permissions,
   };
 }

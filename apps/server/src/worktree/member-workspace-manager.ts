@@ -66,7 +66,7 @@ export class MemberWorkspaceError extends Error {
 }
 
 export interface MemberWorkspaceManagerSettings extends MemberWorkspaceManagerOptions {
-  /** How workspaces are touched (default: here, as the server). The managed VM runs them as workers. */
+  /** How workspaces are touched (default: here, as the server). */
   access?: WorkspaceAccess;
   /** The root of a member's workspaces (default: `rootDir` for every member). */
   rootFor?: (member: string) => string;
@@ -79,8 +79,7 @@ export interface MemberWorkspaceManagerSettings extends MemberWorkspaceManagerOp
  * without a remote, so nothing the member does there reaches the project repository or a
  * teammate. The server fetches into it explicitly and moves it between branches only when it is
  * clean, never resetting, stashing or cleaning; it is never removed. Every command inside a
- * workspace goes through `access`: in the managed VM it runs as the member's worker account, so a
- * filter or configuration the member planted never runs with the server's rights (PM-140).
+ * workspace goes through `access`, which applies the isolated git settings for local commands.
  */
 export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSettings): MemberWorkspaceManager {
   const log = opts.logger;
@@ -547,21 +546,6 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     });
   }
 
-  async function exportBranch(
-    key: MemberWorkspaceKey,
-    branch: string,
-  ): Promise<{ path: string; bundle: boolean; done(): Promise<void> }> {
-    await assertBranchName(branch);
-    const { info } = await locate(key);
-    await assertWorkspace(info);
-    const handed = await access.transfer(null, {
-      path: info.path,
-      refs: [`refs/heads/${branch}`],
-      owner: access.ownerOf(info.path),
-    });
-    return { path: handed.from, bundle: handed.from !== info.path, done: handed.done };
-  }
-
   return {
     location,
     home,
@@ -573,7 +557,6 @@ export function createMemberWorkspaceManager(opts: MemberWorkspaceManagerSetting
     resolveSource,
     checkoutTaskBranch,
     checkoutReview,
-    exportBranch,
   };
 }
 

@@ -3,16 +3,14 @@ import { existsSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseExecutionProfile } from '@projectman/shared';
 import { APP_DEFAULTS, buildApp, isLoopbackHost, loopbackBaseUrl, parseMode, parseTerminalMode } from './app';
 import type { BuildAppOptions, LoopbackHost, RunMode } from './app';
-import { assertEngineProfile, buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
+import { buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
 import { parseFeedbackPublicUrl } from './http/feedback-host-guard';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { createServerLogStream, serverLogFile } from './logging/server-log';
-import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './domain';
 import { createAppTagReader, resolveAppVersion } from './engine-link';
@@ -33,23 +31,10 @@ import { EngineConfigError } from './engine-link/engine-config';
  *   shared by the members' sandboxes, the server's full test and `npm run heavy`.
  *   PROJECTMAN_WORKSPACES (task_worktree): `member` gives every AI member a durable workspace per
  *   repository (PM-138) instead of a worktree per task.
- *   PROJECTMAN_BOUNDARY_CONFIG (unset): the managed VM's boundary configuration
- *   (/etc/projectman/boundary.json, PM-140); sessions then start only through the protected
- *   launcher, as their members' worker accounts, while the boundary is ready.
- *   PROJECTMAN_EXECUTION_PROFILE (legacy): `managed_vm` is the owner's choice for the verified managed
- *   VM (PM-141, docs/VM.md): sessions run question-free in the member's workspace, but only behind
- *   the VM boundary (PROJECTMAN_BOUNDARY_CONFIG is required) and only while its readiness report
- *   (PROJECTMAN_VM_READINESS_REPORT, default: the boundary configuration's; at most
- *   PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES old, default: the configuration's limit) proves the
- *   boundary at the start. It needs PROJECTMAN_WORKSPACES=member; an unknown or conflicting
- *   setting stops the server. The CLIs never see these variables.
- *   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE: the VM's separate GitHub identity for publishing task
- *   branches (PM-142, docs/GITHUB.md): a file only the service can read, holding that identity's token.
- *   Only the managed VM profile accepts it; without it nothing is published.
  *   PROJECTMAN_TERMINAL (pty): `pipe` starts the agent CLIs with pipes instead of a pseudo-terminal
  *   (PM-267), for a development instance whose sandbox has no PTY, with the fake CLIs. The real
  *   `claude` and `codex` are not interactive without a terminal, so it needs PROJECTMAN_HOME set to
- *   a development home, CLAUDE_BIN and CODEX_BIN set, no boundary configuration and no managed VM profile.
+ *   a development home, CLAUDE_BIN and CODEX_BIN set.
  *   PROJECTMAN_CLIENT_IP_HEADER (unset): the header the public entrance sets to the real client's
  *   address (`cf-connecting-ip` behind Cloudflare, PM-211, docs/DEPLOY.md). The login and invitation
  *   limiters then count per that address instead of the proxy's, but only for requests from
@@ -68,7 +53,7 @@ import { EngineConfigError } from './engine-link/engine-config';
  *   (PM-315); the server keeps no machine of its own. `engine` starts the engine process on the
  *   machine the work happens on (PM-314, `npm run engine -- start`): no database, no web app and no
  *   `/api`, only a loopback listener for the CLIs' hooks and team tools and one outbound link to the cloud.
- *   Its settings are `<home>/engine.json` (`npm run engine -- init`); it refuses the managed VM profile.
+ *   Its settings are `<home>/engine.json` (`npm run engine -- init`).
  *   PROJECTMAN_ENGINE_PORT (4801): the engine's loopback port (engine mode only).
  *   PROJECTMAN_VERSION (unset): shared cloud/engine version; otherwise the installation git HEAD, then dev.
  * The agent CLIs start with this environment, minus billing and host-session variables (the
@@ -85,6 +70,21 @@ function loggerOptions(env: NodeJS.ProcessEnv, home: string, name: 'server' | 'e
     ...(env.LOG_LEVEL === undefined ? {} : { level: env.LOG_LEVEL }),
     stream: createServerLogStream(serverLogFile(home, name)),
   };
+}
+
+/** Ignore obsolete installation settings left in old service environments (PM-581). */
+function warnRemovedManagedVmSettings(
+  env: NodeJS.ProcessEnv,
+  log: { warn: (object: { variables: string[] }, message: string) => void },
+): void {
+  const variables = [
+    'PROJECTMAN_BOUNDARY_CONFIG',
+    'PROJECTMAN_EXECUTION_PROFILE',
+    'PROJECTMAN_VM_READINESS_REPORT',
+    'PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES',
+    'PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE',
+  ].filter((name) => Boolean(env[name]));
+  if (variables.length) log.warn({ variables }, 'ignoring removed managed VM settings');
 }
 
 interface ServerConfig {
@@ -115,18 +115,6 @@ async function configFromEnv(
   const workspaces = env.PROJECTMAN_WORKSPACES || 'task_worktree';
   if (workspaces !== 'task_worktree' && workspaces !== 'member')
     throw new Error(`invalid PROJECTMAN_WORKSPACES: ${workspaces} (task_worktree or member)`);
-  // The managed VM boundary: a root-owned file the service unit names. Unreadable or invalid, the
-  // server does not start (it never falls back to running sessions itself).
-  const boundaryFile = env.PROJECTMAN_BOUNDARY_CONFIG || undefined;
-  const runtimeBoundary = boundaryFile ? loadBoundaryConfig(boundaryFile) : undefined;
-  // The owner's installation profile (PM-141): an unknown value stops the start. `managed_vm` is
-  // proven by the readiness report at every session start, so this setting alone changes nothing.
-  const executionProfile = parseExecutionProfile(env.PROJECTMAN_EXECUTION_PROFILE);
-  const reportMinutes = Number.parseInt(env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES ?? '', 10);
-  if (env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES && !(reportMinutes > 0))
-    throw new Error(
-      `invalid PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES: ${env.PROJECTMAN_VM_REPORT_MAX_AGE_MINUTES}`,
-    );
   // The header a trusted entrance sets to the client's address; a header name, and never the
   // forgeable X-Forwarded-For chain.
   const clientIpHeader = env.PROJECTMAN_CLIENT_IP_HEADER?.trim().toLowerCase() || undefined;
@@ -209,8 +197,6 @@ async function configFromEnv(
         liveHome: join(homedir(), '.projectman'),
         claudeBin: env.CLAUDE_BIN,
         codexBin: env.CODEX_BIN,
-        boundaryConfig: boundaryFile,
-        executionProfile,
       }),
       ghBin: env.GH_BIN,
       ghHost: env.GH_HOST || undefined,
@@ -219,11 +205,6 @@ async function configFromEnv(
       // The checkout the server runs from (three levels up from src/ or dist/).
       installDir,
       memberWorkspaces: workspaces === 'member',
-      runtimeBoundary,
-      executionProfile,
-      vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
-      vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
-      githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
       feedbackPublicUrl,
       feedbackWidgetFile: join(installDir, 'apps', 'feedback-widget', 'dist', 'widget.js'),
       shutdownPauseMs,
@@ -251,16 +232,11 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
   const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
   if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
     throw new Error(`invalid PROJECTMAN_CLONE_DEPENDENCIES: ${cloneDependencies} (on or off)`);
-  const boundaryConfig = env.PROJECTMAN_BOUNDARY_CONFIG || undefined;
-  const executionProfile = parseExecutionProfile(env.PROJECTMAN_EXECUTION_PROFILE);
-  assertEngineProfile({ executionProfile, boundaryConfig });
   const engine = await buildEngineApp({
     home,
     port,
     installDir,
     version: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
-    executionProfile,
-    boundaryConfig,
     agentEnv: env,
     sessionFoldersDir: join(
       realpathSync(tmpdir()),
@@ -282,14 +258,13 @@ async function engineMain(env: NodeJS.ProcessEnv): Promise<void> {
       liveHome: join(homedir(), '.projectman'),
       claudeBin: env.CLAUDE_BIN,
       codexBin: env.CODEX_BIN,
-      boundaryConfig,
-      executionProfile,
     }),
     ghBin: env.GH_BIN,
     ghHost: env.GH_HOST || undefined,
     logger: loggerOptions(env, home, 'engine'),
     shutdownPauseMs,
   });
+  warnRemovedManagedVmSettings(env, engine.app.log);
   const shutdown = createShutdown({
     pause: () => engine.pauseForShutdown(),
     close: () => engine.close(),
@@ -309,14 +284,12 @@ async function main(): Promise<void> {
   const mode = parseMode(process.env.PROJECTMAN_MODE);
   if (mode === 'engine') return engineMain(process.env);
   const config = await configFromEnv(process.env, mode);
-  // The server's full test before review (PM-217) runs in the Anthropic Sandbox Runtime on the Mac. The
-  // managed VM profile leaves it out: its members have no CLI sandbox and run the full test themselves.
   const app = await buildApp({
     ...config.app,
     // Always wire the live checker here; buildApp and domain harnesses never contact NanoGPT.
     modules:
       // The cloud runs none of the machine's work itself: its engine does the full test and the screenshots.
-      config.app.executionProfile === 'managed_vm' || mode === 'cloud'
+      mode === 'cloud'
         ? { ...config.app.modules, nanogptKeyCheck: createNanogptKeyCheck() }
         : {
             ...config.app.modules,
@@ -327,8 +300,7 @@ async function main(): Promise<void> {
               createScreenshotExecutor({ logger, env: process.env, heavyLockDir: config.app.heavyLockDir }),
           },
   });
-  if (config.app.executionProfile === 'managed_vm')
-    app.log.info('the full test before review is off: the managed VM profile has no sandbox for it');
+  warnRemovedManagedVmSettings(process.env, app.log);
   if (config.machineFixture)
     app.log.warn('the machine display shows fixed data (PROJECTMAN_MACHINE_FIXTURE), not the real machine');
 

@@ -18,7 +18,7 @@ import {
 export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry';
 export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
 import path from 'node:path';
-import type { EngineId, ExecutionProfile, Me, Session, Task } from '@projectman/shared';
+import type { EngineId, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
 import type { EngineCounters } from './engine-registry';
@@ -33,20 +33,15 @@ import type {
   FullTestExecutor,
   MessageAttachmentStorage,
   ScreenshotExecutor,
-  GithubPublisher,
   GithubService,
   MachineProbe,
-  ManagedVmBoundary,
   MemberMemoryStore,
   MemberWorkspaceManager,
   PermissionBroker,
   RunnerModule,
-  RuntimeBoundary,
   WorktreeManager,
 } from '../contracts';
 import type { Repositories } from '../db';
-import { EgressService } from './egress';
-import type { EgressSettings } from './egress';
 import type { ProcessProbe } from './workspaces';
 import { projectAccessFor } from './access';
 import type { ProjectAccess } from './access';
@@ -100,7 +95,6 @@ import { MessageDelivery, MessageService, Messaging, RelationNotices } from './m
 import { PlanUsageMonitor } from './plan-usage';
 import { PresenceService } from './presence';
 import { OWNER_HANDLE, ProjectService } from './projects';
-import { PublishingGate } from './publishing';
 import { ReviewWatch } from './review-watch';
 import { RoleService } from './roles';
 import { ScheduleService } from './schedules';
@@ -161,8 +155,6 @@ export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
 export { CardQuestions, QUESTION_LIMIT } from './card-questions';
-export { EgressService } from './egress';
-export type { EgressDecision, EgressIdentity, EgressSession, EgressSettings } from './egress';
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
@@ -230,10 +222,6 @@ export interface DomainOptions {
   /** The release tag on the running build's commit (PM-542); absent: none. */
   appTag?: () => Promise<string | null>;
   boundaryAdapter?: BoundaryOperationAdapter;
-  /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
-  runtimeBoundary?: RuntimeBoundary;
-  /** The network gate's base destinations and grant length (managed VM). */
-  egress?: EgressSettings;
   repos: Repositories;
   configStore: ConfigStore;
   logger: FastifyBaseLogger;
@@ -242,11 +230,6 @@ export interface DomainOptions {
   /** Creates the runner module once the permission broker (the inbox) exists. */
   createRunner: (broker: PermissionBroker, nanogptKey?: () => Promise<string | null>) => RunnerModule;
   github: GithubService;
-  /**
-   * The VM's GitHub publishing identity (PM-142): without it `publish_task_branch` refuses. It is
-   * separate from `github`, which only reads, so the poller never holds write rights.
-   */
-  githubPublisher?: GithubPublisher;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
   worktrees: WorktreeManager;
@@ -287,7 +270,7 @@ export interface DomainOptions {
   installDir?: string;
   /**
    * The root of the session folders (PM-268): each Claude session gets its own writable folder below
-   * it. Checked here (`prepareSessionFoldersRoot`); one that is not safe, or the managed VM, turns
+   * it. Checked here (`prepareSessionFoldersRoot`); one that is not safe turns
    * the folders off. Absent: no folders.
    */
   sessionFoldersDir?: string;
@@ -315,13 +298,6 @@ export interface DomainOptions {
   /** Whether a process group still runs (tests replace it): a workspace reservation outlives a restart until it is gone. */
   processExists?: ProcessProbe;
   /**
-   * The installation's execution profile (PM-141): `legacy` (default) or the owner's `managed_vm`,
-   * which starts sessions question-free in the member's own workspace, on a verified boundary only.
-   */
-  executionProfile?: ExecutionProfile;
-  /** The proof of the managed VM boundary, asked at every session start of a `managed_vm` installation. */
-  managedVm?: ManagedVmBoundary;
-  /**
    * A standby copy of an installation (PM-143, `instance.json`): it shows its data but runs no scheduler,
    * no GitHub polling and no automatic starts, and refuses every AI session start. Only one copy of a
    * home may work, and a rehearsal or not yet released copy is never it.
@@ -348,7 +324,7 @@ export interface DomainOptions {
   reviewWatchMs?: number;
   /**
    * Runs the server's full test of a pinned commit before review (PM-217) in its own sandbox. Absent
-   * (tests, the managed VM, a platform without the sandbox), the feature is off.
+   * (tests, a platform without the sandbox), the feature is off.
    */
   fullTestExecutor?: FullTestExecutor;
   /**
@@ -464,7 +440,6 @@ export function createDomain(opts: DomainOptions) {
             const repo = project?.repos.find((entry) => entry.name === repoName);
             return project && repo ? path.resolve(project.workspacePath, repo.path) : null;
           },
-          runtimeBoundary: opts.runtimeBoundary,
           appHome: opts.appHome,
           userHome: opts.userHome,
           worktreesRootDir: opts.worktreesRootDir,
@@ -583,12 +558,7 @@ export function createDomain(opts: DomainOptions) {
     doneTurnLimitMs: opts.doneTurnLimitMs,
     attachments,
     attachmentDirectory,
-    runtimeBoundary: opts.runtimeBoundary,
-    executionProfile: opts.executionProfile,
-    managedVm: opts.managedVm,
     standby: opts.standby,
-    // `boundary` is built below; the callback only runs when a session starts.
-    onExecutionProfileChange: (projectKey, sessionId) => boundary.invalidateSession(projectKey, sessionId),
     usageAlerts: new UsageAlerts({ ctx, projects, inbox }),
     inputStall: new InputStallAlerts({ ctx, projects, inbox }),
     inputStallMs: opts.inputStallMs,
@@ -677,19 +647,13 @@ export function createDomain(opts: DomainOptions) {
     messaging,
     delivery,
   });
-  // The network gate's egress operations are one registry of the protected adapter; another
-  // adapter (PM-142's publishing) answers the operation ids that are not egress ones.
-  const egress = new EgressService({ ctx, projects, timeline, settings: opts.egress });
   const boundary = new BoundaryService({
     ctx,
     projects,
     inbox,
     timeline,
     adapter: {
-      resolve: (requester, operationId) =>
-        egress.resolve(requester, operationId) ??
-        opts.boundaryAdapter?.resolve(requester, operationId) ??
-        null,
+      resolve: (requester, operationId) => opts.boundaryAdapter?.resolve(requester, operationId) ?? null,
     },
     notify(request, recipients) {
       const config = projects.cachedConfig(request.projectKey);
@@ -714,7 +678,6 @@ export function createDomain(opts: DomainOptions) {
       );
     },
   });
-  egress.attach(boundary);
   // A member's tool question went to its AI decider: wake it like a boundary request's lead. The
   // sponsor and owners are not told; they hear of it only if it comes to them.
   events.on('permission_delegated', (item) => {
@@ -915,15 +878,6 @@ export function createDomain(opts: DomainOptions) {
         opts.logger.warn({ err, taskKey }, 'could not check the pinned review commit');
       }),
   });
-  const publishing = new PublishingGate({
-    ctx,
-    projects,
-    tasks,
-    githubSync,
-    publisher: opts.githubPublisher,
-    // Publishing is the server's own act, on the machine it runs on.
-    memberWorkspaces: engines.get(LOCAL_ENGINE_ID)?.memberWorkspaces,
-  });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
   const approvalQuestions = new ApprovalQuestions({ ctx, inbox, openQuestionLabel });
   events.on('task_labels_changed', ({ task, previousLabels }) =>
@@ -1087,8 +1041,6 @@ export function createDomain(opts: DomainOptions) {
     fixLimit,
     handoffs,
     boundary,
-    egress,
-    publishing,
     ctx,
     sessions,
     projectFocus,
@@ -1230,7 +1182,6 @@ export function createDomain(opts: DomainOptions) {
   events.on('config_changed', (change) => sessions.handleConfigChange(change));
   events.on('config_changed', () => boundary.sweep());
   events.on('config_changed', () => inbox.sweepDelegations());
-  events.on('config_changed', (change) => egress.handleConfigChange(change));
   events.on('task_cancelled', () => boundary.sweep());
   // AI work switched back on: the deferred starts continue.
   events.on('config_changed', (change) => {
@@ -1590,8 +1541,6 @@ export function createDomain(opts: DomainOptions) {
     projects,
     inbox,
     boundary,
-    egress,
-    runtimeBoundary: opts.runtimeBoundary ?? null,
     runnerModule,
     providerKeys,
     presence,

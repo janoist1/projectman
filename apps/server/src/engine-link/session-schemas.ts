@@ -15,13 +15,7 @@ const review = {
 export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
   version: z.literal(1),
   enforcement: z.enum(['legacy', 'strict']),
-  execution: z
-    .strictObject({
-      profile: z.literal('managed_vm'),
-      boundary: z.strictObject({ name: text, version: z.number() }),
-    })
-    .optional(),
-  access: z.enum(['task_worktree', 'review_copy', 'read_only', 'member_workspace']),
+  access: z.enum(['task_worktree', 'review_copy', 'read_only']),
   reviewCopyMode: z.enum(['inherit', 'read_only', 'test']).optional(),
   placement: z.discriminatedUnion('kind', [
     z.strictObject({
@@ -41,13 +35,6 @@ export const Policy: z.ZodType<SessionPolicy> = z.strictObject({
       tempDir: text.optional(),
     }),
     z.strictObject({ kind: z.literal('read_only'), path: text }),
-    z.strictObject({
-      kind: z.literal('member_workspace'),
-      path: text,
-      use: z.enum(['work', 'review', 'home']),
-      workspace: workspace.optional(),
-      review: z.strictObject(review).optional(),
-    }),
   ]),
   tools: z.strictObject({
     team: z.strictObject({ all: z.boolean(), names: texts }),
@@ -122,5 +109,4 @@ export const EngineStartSpec: z.ZodType<EngineStartSpec> = z.strictObject({
   rows: z.number().optional(),
   member: text.optional(),
   provider: AgentProvider.optional(),
-  egressToken: text.optional(),
 });

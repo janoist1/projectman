@@ -14,7 +14,7 @@ import { createServer } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { assertEngineProfile, buildEngineApp } from '../src/engine-app';
+import { buildEngineApp } from '../src/engine-app';
 import type { EngineApp, EngineAppOptions } from '../src/engine-app';
 import {
   EngineConfig,
@@ -278,16 +278,6 @@ describe('engine process', () => {
       expect(error).toBeInstanceOf(EngineConfigError);
       expect((error as EngineConfigError).code).toBe('config_missing');
       expect((error as EngineConfigError).message).toContain('init');
-    });
-
-    it('stops with a clear error for the managed VM profile', async () => {
-      await expect(build({ executionProfile: 'managed_vm' })).rejects.toMatchObject({
-        code: 'managed_vm_unsupported',
-      });
-      await expect(build({ boundaryConfig: '/etc/boundary.json' })).rejects.toMatchObject({
-        code: 'managed_vm_unsupported',
-      });
-      expect(() => assertEngineProfile({ executionProfile: 'legacy' })).not.toThrow();
     });
 
     it('keeps the key file and the status file private', async () => {

@@ -34,10 +34,8 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
   'list_attachments',
   'read_attachment',
   'read_message_attachment',
-  'get_remote_state',
   'get_boundary_request',
   'get_screenshot_run',
-  'list_network_denials',
   'get_project_state',
   'check_release',
   'read_project_doc',
@@ -61,7 +59,6 @@ export const OPERATOR_NEVER_TOOLS: ReadonlySet<string> = new Set([
   'decide_fix_limit',
   'submit_boundary_request',
   'hand_off',
-  'publish_task_branch',
   'merge_task',
   'propose_release',
 ]);

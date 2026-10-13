@@ -70,7 +70,6 @@ import type {
   LocatedAttachmentForTool,
   MessageAttachmentReading,
   MemberMemoryStore,
-  NetworkDenial,
   ProposedRelease,
   ReleaseCheckResult,
   ScreenshotRun,
@@ -89,7 +88,6 @@ import { isoNow } from './context';
 import type { BoundaryService } from './boundary';
 import { QUESTION_LIMIT } from './card-questions';
 import type { CardQuestions } from './card-questions';
-import type { EgressService } from './egress';
 import { DomainError } from './errors';
 import { engineIdOf } from './engines';
 import type { FeedbackService } from './feedback';
@@ -129,7 +127,6 @@ import type { ProjectService } from './projects';
 import type { ProjectState } from './project-state';
 import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
-import type { PublishingGate } from './publishing';
 import type { TaskService, TaskWaits } from './tasks';
 import { attachmentToolRules } from './session-policy';
 import type { TimelineService } from './timeline';
@@ -428,38 +425,6 @@ export class TeamToolsService implements TeamToolsHandler {
       throw toToolError(err);
     }
   }
-  async listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]> {
-    try {
-      await this.caller(ctx, 'list_network_denials');
-      return (this.egress?.recentDenials(ctx) ?? []).map((operation) => ({
-        operationId: operation.id,
-        destination: `${operation.host}:${operation.port}`,
-        refusedAt: operation.createdAt,
-        expiresAt: operation.expiresAt,
-      }));
-    } catch (err) {
-      throw toToolError(err);
-    }
-  }
-  async publishTaskBranch(
-    ctx: ToolContext,
-    args: { taskKey?: string; commit: string; title?: string; body?: string },
-  ) {
-    try {
-      await this.caller(ctx, 'publish_task_branch');
-    } catch (err) {
-      throw toToolError(err);
-    }
-    return this.publishing.publish(ctx, args);
-  }
-  async getRemoteState(ctx: ToolContext, args: { taskKey: string }) {
-    try {
-      await this.caller(ctx, 'get_remote_state');
-    } catch (err) {
-      throw toToolError(err);
-    }
-    return this.publishing.remoteState(ctx, { taskKey: this.validTaskKey(ctx, args.taskKey) });
-  }
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'roundFor' | 'openRound'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
   /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
@@ -469,8 +434,6 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
   private readonly taskStarts: TaskStarts;
   private readonly boundary: BoundaryService;
-  private readonly egress: EgressService | null;
-  private readonly publishing: PublishingGate;
   private readonly ctx: DomainContext;
   private readonly sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers' | 'cardWorkersFor'>;
   private readonly cardQuestions: Pick<CardQuestions, 'list'>;
@@ -508,9 +471,6 @@ export class TeamToolsService implements TeamToolsHandler {
   constructor(deps: {
     projectState: ProjectState;
     boundary: BoundaryService;
-    /** The network gate (its refused destinations); absent in older test setups. */
-    egress?: EgressService;
-    publishing: PublishingGate;
     ctx: DomainContext;
     /** The session service: set_current_work records the sentence on the caller's session. */
     sessions: Pick<SessionOrchestrator, 'setDoing' | 'cardWorkers' | 'cardWorkersFor'>;
@@ -587,8 +547,6 @@ export class TeamToolsService implements TeamToolsHandler {
     this.screenshots = deps.screenshots;
     this.sessionEngine = deps.sessionEngine;
     this.boundary = deps.boundary;
-    this.egress = deps.egress ?? null;
-    this.publishing = deps.publishing;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.cardQuestions = deps.cardQuestions;
@@ -1046,7 +1004,7 @@ export class TeamToolsService implements TeamToolsHandler {
   /**
    * Where the calling session's files go (PM-518): its engine's session folders when the session has
    * a folder of its own there, and whether its CLI shows an image in a tool result. Null: the session
-   * has no folder (a provider without session folders, the managed VM, an unknown session), so it
+   * has no folder (a provider without session folders, an unknown session), so it
    * gets the content only.
    */
   private sessionFileTarget(

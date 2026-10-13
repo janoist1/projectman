@@ -139,6 +139,8 @@ describe('team MCP endpoint', () => {
     const { tools } = await client.listTools();
 
     expect(tools.map((t) => t.name).sort()).toEqual([...TEAM_TOOL_NAMES].sort());
+    for (const removed of ['publish_task_branch', 'get_remote_state', 'list_network_denials'])
+      expect(tools.map((tool) => tool.name)).not.toContain(removed);
     for (const tool of tools) {
       expect(tool.description?.length).toBeGreaterThan(80);
       expect(tool.inputSchema.type).toBe('object');
@@ -1143,60 +1145,6 @@ describe('team tools', () => {
 
     expect(h.handler.calls[0]?.args).toEqual({ taskKey: 'AR-21', repo: 'acme/web', number: 42 });
     expect(out).toBe('Linked PR acme/web#42 to AR-21.\nPull requests on AR-21: acme/web#42 (open)');
-  });
-
-  it('publish_task_branch passes only the commit, title and body, and reports the pull request', async () => {
-    const h = await startServer();
-    const client = await connect(h, 'token-dev');
-    const commit = 'c'.repeat(40);
-
-    const out = text(await call(client, 'publish_task_branch', { commit, title: 'Fix the email' }));
-
-    expect(h.handler.calls[0]?.args).toEqual({
-      taskKey: undefined,
-      commit,
-      title: 'Fix the email',
-      body: undefined,
-    });
-    expect(out).toContain('Published AR-21-work at cccccccccccc to acme/web.');
-    expect(out).toContain('Opened pull request #7 (https://github.com/acme/web/pull/7) into main.');
-    expect(out).toContain('recorded on AR-21 under your name');
-  });
-
-  it('publish_task_branch refuses a commit that is not a full id, and has no branch or repository argument', async () => {
-    const h = await startServer();
-    const client = await connect(h, 'token-dev');
-    const tools = (await client.listTools()).tools;
-    const publish = tools.find((tool) => tool.name === 'publish_task_branch')!;
-    expect(Object.keys(publish.inputSchema.properties ?? {}).sort()).toEqual([
-      'body',
-      'commit',
-      'task_key',
-      'title',
-    ]);
-    expect(publish.inputSchema.required).toEqual(['commit']);
-    expect(publish.annotations?.readOnlyHint).toBe(false);
-
-    expect(text(await call(client, 'publish_task_branch', { commit: 'abc1234' }))).toContain(
-      'Input validation error',
-    );
-    expect(text(await call(client, 'publish_task_branch', { commit: 'A'.repeat(40) }))).toContain(
-      'Input validation error',
-    );
-    expect(h.handler.calls).toHaveLength(0);
-  });
-
-  it('get_remote_state reads, and is marked read-only', async () => {
-    const h = await startServer();
-    const client = await connect(h, 'token-dev');
-    const tools = (await client.listTools()).tools;
-    expect(tools.find((tool) => tool.name === 'get_remote_state')!.annotations?.readOnlyHint).toBe(true);
-
-    const out = text(await call(client, 'get_remote_state', { task_key: 'AR-21' }));
-
-    expect(h.handler.calls[0]?.args).toEqual({ taskKey: 'AR-21' });
-    expect(out).toContain('AR-21 on acme/web: main is at aaaaaaaaaaaa, AR-21-work at bbbbbbbbbbbb.');
-    expect(out).toContain('2 commit(s) ahead of and 0 behind main');
   });
 
   it('withdraw_question passes the question and the reason on and confirms', async () => {

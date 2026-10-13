@@ -7,8 +7,6 @@ import { isValidBranch, isValidPullRequestNumber, isValidRepo, parsePullRequestU
 
 export { GithubError, type GithubErrorCode } from './errors';
 export { parsePullRequestUrl, pullRequestLink, taskKeyFromBranch } from './refs';
-export { createGithubPublisher, type GithubPublisherOptions } from './publisher';
-export { createTokenFileReader } from './token-file';
 
 /** Optional tuning on top of the contract options; the defaults suit production. */
 export interface GithubServiceOptions extends GithubModuleOptions {

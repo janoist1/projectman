@@ -41,7 +41,6 @@ import type {
   ProjectDoc,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
-import type { PullRequestInfo, RemoteState } from './github';
 import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
 
 /** What read_project_doc answers: the lines asked for of a project document at one commit. */
@@ -293,36 +292,6 @@ export interface MessageAttachmentReading {
   file?: { path: string };
 }
 
-/** A refused destination the session may ask for with submit_boundary_request. */
-export interface NetworkDenial {
-  operationId: string;
-  /** `host:port`. */
-  destination: string;
-  refusedAt: string;
-  /** Asking (and the allowance it may open) is possible until then. */
-  expiresAt: string;
-}
-
-/** The result of `publish_task_branch`. */
-export interface PublishedTaskBranch {
-  repo: string;
-  branch: string;
-  commit: string;
-  /** The remote branch already had this commit, so nothing was uploaded. */
-  alreadyPublished: boolean;
-  pullRequest: PullRequestInfo;
-  /** False when the branch's open pull request already existed. */
-  pullRequestCreated: boolean;
-  task: Task;
-}
-
-/** The result of `get_remote_state`. */
-export interface PublishedTaskState extends RemoteState {
-  taskKey: string;
-  /** The member who published the task's pull request; null when none did. */
-  publishedBy: string | null;
-}
-
 /** The input of `take_screenshots` (PM-351), as the domain gets it from the validated tool arguments. */
 export interface TakeScreenshotsInput {
   /** The scenario module, relative to the session's working directory or absolute. */
@@ -486,8 +455,6 @@ export interface TeamToolsHandler {
    * the caller on that card (any more).
    */
   handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
-  /** list_network_denials: destinations the egress proxy refused this session (PM-140), newest first. */
-  listNetworkDenials(ctx: ToolContext): Promise<NetworkDenial[]>;
   /** list_tasks: visible board tasks, newest update first. */
   listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
@@ -602,17 +569,6 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; repo: string; number: number },
   ): Promise<{ task: Task }>;
-  /**
-   * publish_task_branch (PM-142, managed VM profile only): puts the caller's own task branch at the
-   * named commit on GitHub through the VM's publishing identity, and opens its pull request once.
-   * Everything but the commit, the title and the body comes from the server's records.
-   */
-  publishTaskBranch(
-    ctx: ToolContext,
-    args: { taskKey?: string; commit: string; title?: string; body?: string },
-  ): Promise<PublishedTaskBranch>;
-  /** get_remote_state (PM-142): the remote default branch and task branch heads, their distance and the pull requests. */
-  getRemoteState(ctx: ToolContext, args: { taskKey: string }): Promise<PublishedTaskState>;
   /**
    * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
    * The question is written for a non-specialist. Each option is a label, or a label with its

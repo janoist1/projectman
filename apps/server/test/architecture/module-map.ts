@@ -81,7 +81,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'infra',
     target: 'kernel',
     pass: 'move',
-    paths: ['domain/errors.ts', 'domain/util.ts', 'domain/background.ts'],
+    paths: ['kernel/', 'domain/errors.ts', 'domain/util.ts', 'domain/background.ts'],
     sealed: false,
   },
   {
@@ -270,8 +270,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/merges',
     pass: 'split-tool',
-    paths: ['domain/merges.ts', 'domain/merge-card-lock.ts'],
-    sealed: false,
+    paths: ['services/merges/'],
+    sealed: true,
   },
   {
     id: 'services/full-tests',
@@ -538,16 +538,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'core/members',
     to: 'runtime/sessions',
     removedBy: 'core/members',
-  },
-  {
-    from: 'services/merges',
-    to: 'services/project-docs',
-    removedBy: 'services/merges',
-  },
-  {
-    from: 'services/merges',
-    to: 'runtime/sessions',
-    removedBy: 'services/merges',
   },
   {
     from: 'core/messages',

@@ -454,7 +454,25 @@ export interface AttachmentToolsHandler {
   ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
-export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler {
+/** The tools of services/merges. */
+export interface MergeToolsHandler {
+  /** merge_task: the card's merger starts (or retries, or continues after a fix) the merge of the approved commit. */
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
+  /**
+   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
+   * repository's queue, with the reason; `moved` is false when it was first already.
+   */
+  prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }>;
+}
+
+export interface TeamToolsHandler
+  extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler, MergeToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -586,18 +604,6 @@ export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, 
     operator: boolean;
   }>;
 
-  mergeTask(
-    ctx: ToolContext,
-    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
-  ): Promise<{ task: Task }>;
-  /**
-   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
-   * repository's queue, with the reason; `moved` is false when it was first already.
-   */
-  prioritizeMerge(
-    ctx: ToolContext,
-    args: { taskKey: string; reason: string },
-  ): Promise<{ task: Task; moved: boolean }>;
   /**
    * propose_release (PM-491): the member with the deployment duty proposes releasing the default
    * branch's head (or `commit`); `preview` only lists what the release would contain.

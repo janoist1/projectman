@@ -2135,7 +2135,8 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Pull (PM-436).** At the end of every `retryDeferred` round (so on every event that retries the deferred starts) the
   `FocusPull` (`admission/focus-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
   the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order), then the focus cards by
-  place. A candidate is an active card, not a theme, with no assignee, no open prerequisite, no start block
+  place. A candidate is an active card, not a theme or a collector with open subtasks, with no assignee,
+  no open prerequisite, no start block
   (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
   `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`pickDeveloper`: a
   Senior card waits for a Senior, never goes to another developer) among the AI owners of the work stage who are not
@@ -2145,6 +2146,9 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   card and starts it like a deferred start (`startLocked` in the system's name, `automatic`, `StartTaskOptions.pulled`
   into the stage change), so the Start button and a pull on the same card make one start; a failure after the
   assignment falls back to the usual `work_start` retry. Refusals are logged at debug level and write no timeline.
+  Automatic work starts also leave themes and collectors with open subtasks unassigned (PM-586), using
+  `canAutomaticallyStartTask` (shared) before choosing a developer and again before assignment. A deferred
+  work start is dropped on retry when its card gains an open subtask. Explicit manual starts remain available.
   A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
   internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
 - **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of

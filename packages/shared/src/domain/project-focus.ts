@@ -8,7 +8,7 @@ import { startBlock } from '../config/start-block';
 import { compareBoardOrder } from './board-order';
 import { Actor } from './event';
 import { openPrerequisites } from './relations';
-import { isOpenTask, isTheme, TaskKey } from './task';
+import { canAutomaticallyStartTask, isOpenTask, isTheme, TaskKey } from './task';
 import type { Task } from './task';
 import type { Stage } from './pipeline';
 
@@ -133,8 +133,8 @@ export function pullSourceStage(config: Pick<ProjectConfig, 'pipeline'>): Stage 
 /**
  * The cards that may be pulled into development, in order: the urgent ones in board order, then the
  * focus cards by place (the board order within one place). A card is a candidate when it is an active card
- * (not a theme) in the source stage with no assignee and no open prerequisite, its start is not blocked
- * (`startBlock`: not being refined, no holding label, no approval pending) and the gates on the way
+ * (not a theme or a collector with open subtasks) in the source stage with no assignee and no open
+ * prerequisite, its start is not blocked (`startBlock`: not being refined, no holding label, no approval pending) and the gates on the way
  * ask for nothing more: no missing label and no approval to request.
  */
 export function pullCandidates(input: {
@@ -149,7 +149,13 @@ export function pullCandidates(input: {
   const ranked = (task: Task) => ({ key: task.key, rank: task.boardRank, updatedAt: task.updatedAt });
   const candidates: { task: Task; class: StartClass }[] = [];
   for (const task of tasks) {
-    if (isTheme(task) || task.status !== 'active' || task.stageId !== source.id || task.assignee) continue;
+    if (
+      !canAutomaticallyStartTask(task, tasks) ||
+      task.status !== 'active' ||
+      task.stageId !== source.id ||
+      task.assignee
+    )
+      continue;
     const cls = startClass(task, places);
     if (cls.kind === 'other') continue;
     if (openPrerequisites(task, tasks).length > 0) continue;

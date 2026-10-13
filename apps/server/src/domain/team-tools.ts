@@ -1943,6 +1943,33 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
+  async withdrawQuestion(
+    ctx: ToolContext,
+    args: { itemId: string; reason: string },
+  ): Promise<{ itemId: string }> {
+    return this.guard(async () => {
+      await this.caller(ctx, 'withdraw_question');
+      const reason = args.reason.trim();
+      if (!reason) throw new TeamToolError('invalid', 'The reason is empty.');
+      const item = this.ctx.repos.inbox.get(args.itemId);
+      if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
+        throw new TeamToolError('not_found', `Question ${args.itemId} does not exist in this project.`);
+      if (item.source !== ctx.member)
+        throw new TeamToolError(
+          'forbidden',
+          `not_your_question: question ${item.id} was asked by ${item.source}; only the asker withdraws it.`,
+        );
+      const closed = await this.inbox.closeQuestion(item.id, {
+        rule: 'withdrawn',
+        by: ctx.member,
+        note: reason,
+      });
+      if (!closed)
+        throw new TeamToolError('invalid', `question_closed: question ${item.id} is not waiting any more.`);
+      return { itemId: closed.id };
+    });
+  }
+
   async setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }> {
     return this.guard(async () => {
       await this.caller(ctx, 'set_current_work');

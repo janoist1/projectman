@@ -103,6 +103,7 @@ export const WireRunnerEvent: z.ZodType<Exclude<RunnerEvent, { type: 'terminal_d
       signal: z.number().int().nullable(),
     }),
     z.strictObject({ type: z.literal('first_input_sent'), sessionId: text }),
+    z.strictObject({ type: z.literal('first_input_failed'), sessionId: text }),
     z.strictObject({ type: z.literal('provider_session_id'), sessionId: text, providerSessionId: text }),
     z.strictObject({
       type: z.literal('auth_error'),

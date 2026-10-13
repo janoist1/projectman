@@ -232,6 +232,7 @@ export class Admission {
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
+    this.sessions.assertProviderCooldown(provider);
     // The engine the member's sessions run on must be connected (PM-311): the start waits for it.
     const engineId = member ? this.assertEngineOnline(projectKey, member.handle) : undefined;
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.

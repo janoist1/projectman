@@ -316,6 +316,7 @@ export const hu: TemplateLocale = {
   },
   operatorReport: {
     done: 'Megtettem',
+    decision: 'Döntés kell',
     approval: 'Jóváhagyásra vár',
     waiting: 'Rád vár',
     nothing: 'Semmi.',

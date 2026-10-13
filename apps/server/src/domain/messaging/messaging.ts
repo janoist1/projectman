@@ -38,6 +38,7 @@ import type {
 import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageRecipient, WakeStart } from '../../contracts';
 import type { RefinementSteps } from '../admission';
+import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { DomainError, forbidden, invalid, conflict } from '../errors';
 import type { MessageAttachmentService } from '../message-attachments';
@@ -478,7 +479,7 @@ export class Messaging {
       this.delivery.holdAsWritten(session, message);
       this.delivery.holdForPause(session, message);
     } else if (started && sentAsFirstInput)
-      this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
+      this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput, started.session);
     else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
   }
@@ -673,12 +674,11 @@ export class Messaging {
     const asker = memberOf(config, item.source);
     if (asker?.kind !== 'ai') return null;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
-    const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
-    const manager = Boolean(isProjectManager(asker) || isOperator(asker));
+    const workItem = await this.answerWorkItem(item);
     const byOperator = resolution.rule === 'operator_answered';
     const todo = questionPayloadOf(item)?.screening?.todo;
     let closed: InboxItem | null = null;
-    await this.send(
+    const result = await this.sendReporting(
       item.projectKey,
       resolution.by,
       {
@@ -695,15 +695,12 @@ export class Messaging {
         attachmentIds: [...attachmentIds],
       },
       {
+        awaitWake: true,
         beforeRecord: () => {
           closed = close();
         },
         sessionId: item.sessionId,
-        workItem: manager
-          ? { type: 'general' }
-          : session?.member === asker.handle
-            ? session.workItem
-            : routeFor(item.taskKey),
+        workItem,
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
         actor:
@@ -714,7 +711,44 @@ export class Messaging {
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
-    return closed;
+    const recipient = result.recipients.find((r) => r.handle === asker.handle);
+    if (recipient?.start?.state === 'waiting')
+      this.messages.recordAnswerDelivery(result.message, asker.handle, {
+        state: 'waiting',
+        reason: recipient.start.reason,
+        since: isoNow(this.ctx),
+      });
+    else if (
+      recipient?.start?.state === 'started' ||
+      recipient?.delivery === 'typed_now' ||
+      recipient?.delivery === 'after_turn'
+    )
+      this.messages.recordAnswerDelivery(result.message, asker.handle, {
+        state: 'delivered',
+        at: isoNow(this.ctx),
+      });
+    return closed ? this.ctx.repos.inbox.get(item.id) : null;
+  }
+
+  /** The same effective route for sending an answer and previewing its admission. */
+  async answerWorkItem(item: InboxItem): Promise<WorkItemRef> {
+    const config = await this.projects.config(item.projectKey);
+    const asker = memberOf(config, item.source);
+    const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
+    const workItem: WorkItemRef =
+      isProjectManager(asker) || isOperator(asker)
+        ? { type: 'general' }
+        : session?.member === item.source
+          ? session.workItem
+          : routeFor(item.taskKey);
+    return this.place(
+      item.projectKey,
+      config,
+      item.source,
+      workItem,
+      false,
+      item.resolution?.by ?? item.assignees[0],
+    ).workItem;
   }
 
   /**

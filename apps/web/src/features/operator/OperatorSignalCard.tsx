@@ -115,13 +115,11 @@ export function OperatorSignalCard({
           {t('operator.signal.details')} →
         </Link>
       ) : null}
-      {open && !readOnly ? (
+      {open && signal.actionable && !readOnly ? (
         <div className={styles.actions}>
-          {signal.actionable ? (
-            <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
-              {t('operator.signal.accept')}
-            </Button>
-          ) : null}
+          <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
+            {t('operator.signal.accept')}
+          </Button>
           <Button
             variant="secondary"
             size="md"

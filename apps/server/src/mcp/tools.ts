@@ -93,6 +93,7 @@ export const TEAM_TOOL_NAMES = [
   'publish_task_branch',
   'get_remote_state',
   'ask_human',
+  'withdraw_question',
   'save_memory',
   'set_current_work',
   'list_attachments',
@@ -162,6 +163,7 @@ const MAX_QUESTION_CHARS = 4_000;
 const MAX_OPTION_CHARS = 200;
 const MAX_CONSEQUENCE_CHARS = 400;
 const MAX_REASON_CHARS = 400;
+const MAX_WITHDRAW_REASON_CHARS = 1_000;
 const MAX_DETAILS_CHARS = 10_000;
 const MAX_MEMORY_CHARS = 2_000;
 const MAX_PATH_CHARS = 4_096;
@@ -1408,6 +1410,24 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         attachments,
         screening === true,
       );
+    },
+  }),
+
+  defineTool({
+    name: 'withdraw_question',
+    title: 'Withdraw a question',
+    readOnly: false,
+    description:
+      'Withdraw a question you asked with ask_human when it became moot while you waited (the decision ' +
+      'was made elsewhere, the work changed). Only your own question that is still waiting can be ' +
+      'withdrawn. Give a short reason; it is recorded on the card.',
+    input: {
+      item_id: z.string().trim().min(1).describe('Id of the question, as ask_human gave it.'),
+      reason: z.string().trim().min(1).max(MAX_WITHDRAW_REASON_CHARS).describe('Why it is moot, briefly.'),
+    },
+    async run({ ctx, args, handler }) {
+      const { itemId } = await handler.withdrawQuestion(ctx, { itemId: args.item_id, reason: args.reason });
+      return `Question ${itemId} withdrawn.`;
     },
   }),
 

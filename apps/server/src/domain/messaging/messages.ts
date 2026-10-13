@@ -10,6 +10,7 @@ import {
 } from '@projectman/shared';
 import type {
   Actor,
+  AnswerDelivery,
   MessageAttachmentRef,
   ProjectConfig,
   TeamMessage,
@@ -24,7 +25,7 @@ import type { OperatorRequests } from '../operator-requests';
 import type { TimelineService } from '../timeline';
 import type { ProjectService } from '../projects';
 import { forbidden, notFound } from '../errors';
-import { excerpt, newId } from '../util';
+import { excerpt, newId, SYSTEM_ACTOR } from '../util';
 
 export interface RecordMessageInput {
   id?: string;
@@ -174,9 +175,49 @@ export class MessageService {
     if (message) {
       this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
       const first = !before.receipts?.find((r) => r.handle === handle)?.deliveredAt;
-      if (first) this.openOperatorRequest(message, handle);
+      if (first) {
+        this.openOperatorRequest(message, handle);
+        this.recordAnswerDelivery(message, handle, { state: 'delivered', at });
+      }
     }
     return message;
+  }
+
+  /** Track only the asking recipient; a late deferral cannot overwrite a completed receipt. */
+  recordAnswerDelivery(message: TeamMessage, handle: string, delivery: AnswerDelivery): void {
+    if (message.origin?.kind !== 'answer') return;
+    const item = this.ctx.repos.inbox.get(message.origin.inboxItemId);
+    if (!item || item.kind !== 'question' || item.source !== handle || item.projectKey !== message.projectKey)
+      return;
+    const previous = item.payload.answerDelivery as AnswerDelivery | undefined;
+    if (delivery.state === 'waiting') {
+      const latest = this.ctx.repos.messages.get(message.id);
+      if (latest?.receipts?.find((r) => r.handle === handle)?.deliveredAt) return;
+      if (previous?.state === 'waiting' && previous.reason === delivery.reason) return;
+      if (previous?.state === 'waiting') delivery = { ...delivery, since: previous.since };
+    } else if (previous?.state === 'delivered') return;
+    const at = isoNow(this.ctx);
+    const updated = this.ctx.repos.inbox.updatePayload(
+      item.id,
+      { ...item.payload, answerDelivery: delivery },
+      at,
+    );
+    if (!updated) return;
+    this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item: updated });
+    if (delivery.state === 'waiting' || previous?.state === 'waiting')
+      this.timeline.append({
+        projectKey: item.projectKey,
+        taskKey: item.taskKey,
+        sessionId: item.sessionId,
+        actor: SYSTEM_ACTOR,
+        type: 'question_answer_delivery',
+        data: {
+          inboxItemId: item.id,
+          asker: handle,
+          state: delivery.state,
+          ...(delivery.state === 'waiting' ? { reason: delivery.reason } : {}),
+        },
+      });
   }
 
   /**

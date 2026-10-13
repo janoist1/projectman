@@ -13,7 +13,7 @@ import type {
   StartSessionSpec,
 } from '../contracts';
 import type { HookPayload } from './hook-payload';
-import { InputQueue } from './input-queue';
+import { InputQueue, NotSubmittedError } from './input-queue';
 import { PAUSED_AFTER_TOOL, PAUSED_BEFORE_TOOL, PauseState } from './pause';
 import { PermissionGate } from './permission-gate';
 import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from './providers/types';
@@ -233,9 +233,13 @@ export class AgentSession {
     // A resumed conversation that owes a compaction gets it before the message that woke it (PM-213).
     if (args.spec.compactFirst) void this.compact(args.spec.compactFirst);
     if (args.spec.initialMessage?.trim() && !this.initialMessageSent) {
-      this.enqueue(args.spec.initialMessage).then(
+      this.send(args.spec.initialMessage).then(
         () => this.deps.emit({ type: 'first_input_sent', sessionId: this.id }),
-        () => undefined,
+        (err: unknown) => {
+          // A process that ended first says so by its exit; a typed brief the CLI never took does not (PM-571).
+          if (err instanceof NotSubmittedError)
+            this.deps.emit({ type: 'first_input_failed', sessionId: this.id });
+        },
       );
     }
   }
@@ -330,6 +334,14 @@ export class AgentSession {
   /** Queues a user message; it is typed when the session is idle. Resolves once typed. */
   enqueue(text: string): Promise<void> {
     return this.input.enqueue(text);
+  }
+
+  /**
+   * Queues a message for the agent; resolves once the CLI took it (UserPromptSubmit), rejects when it
+   * was typed but the CLI did not take it in time (PM-571): it did not reach the agent.
+   */
+  send(text: string): Promise<void> {
+    return this.input.enqueueSubmitted(text);
   }
 
   /** A message is still on its way to the agent (queued, being typed, or not yet submitted). */

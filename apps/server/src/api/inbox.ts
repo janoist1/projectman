@@ -38,7 +38,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void 
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit: 500 })
       .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)));
-    return { items };
+    return { items: await domain.inbox.withAskerStart(key, items) };
   });
 
   /** The questions the Operator screened (PM-558): a look for the owners and admins, who can see all of them. */

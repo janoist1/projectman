@@ -709,6 +709,10 @@ export class SessionOrchestrator {
    */
   requestReviewRound(projectKey: string, taskKey: string, member?: string): void {
     for (const workspaces of this.allWorkspaces()) workspaces.requestReviewRound(projectKey, taskKey, member);
+    // A reviewer that gave the work back has a new round now (PM-570).
+    for (const s of this.list(projectKey, { taskKey }))
+      if ((!member || s.member === member) && this.closePending.get(s.id)?.kind === 'awaiting_fix')
+        this.cancelClose(s.id);
   }
 
   /**

@@ -128,6 +128,7 @@ import type { ProjectFocusService } from './project-focus';
 import type { ProjectService } from './projects';
 import type { ProjectState } from './project-state';
 import type { ScreenshotRuns } from './screenshot-runs';
+import type { SessionCloser } from './session-closer';
 import type { SessionOrchestrator } from './sessions';
 import type { PublishingGate } from './publishing';
 import type { TaskService, TaskWaits } from './tasks';
@@ -486,6 +487,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly openQuestionLabel: OpenQuestionLabel;
   private readonly fixLimit: Pick<FixLimitWatch, 'decide'>;
   private readonly handoffs: Pick<HandoffService, 'recordNote'>;
+  private readonly closer: Pick<SessionCloser, 'workReturned'>;
   private readonly timeline: TimelineService;
   private readonly memory: MemberMemoryStore;
   private readonly github: GithubService;
@@ -533,6 +535,8 @@ export class TeamToolsService implements TeamToolsHandler {
     fixLimit: Pick<FixLimitWatch, 'decide'>;
     /** The assignee handoff (PM-342): `hand_off` records its note. */
     handoffs: Pick<HandoffService, 'recordNote'>;
+    /** The session closer (PM-570): a verdict that gives the card's work back marks the caller's session. */
+    closer: Pick<SessionCloser, 'workReturned'>;
     timeline: TimelineService;
     memory: MemberMemoryStore;
     github: GithubService;
@@ -604,6 +608,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.openQuestionLabel = deps.openQuestionLabel;
     this.fixLimit = deps.fixLimit;
     this.handoffs = deps.handoffs;
+    this.closer = deps.closer;
     this.timeline = deps.timeline;
     this.memory = deps.memory;
     this.github = deps.github;
@@ -1502,11 +1507,14 @@ export class TeamToolsService implements TeamToolsHandler {
         aiActor(ctx.member),
         { sessionId: ctx.sessionId },
       );
+      await this.markWorkReturned(ctx, task, args.addLabels);
       return { task };
     } catch (err) {
       if (err instanceof DomainError && err.code === 'approval_requested') {
         const { approvers } = err.details as { approvers: string[] };
         onApproval();
+        // The labels of the call were recorded before the move waited for the approval.
+        await this.markWorkReturned(ctx, this.tasks.get(ctx.projectKey, taskKey), args.addLabels);
         throw new TeamToolError(
           'gate_blocked',
           `Moving ${taskKey} to ${args.stageId} needs a human approval. It was requested from ` +
@@ -1516,6 +1524,18 @@ export class TeamToolsService implements TeamToolsHandler {
       }
       throw err;
     }
+  }
+
+  /** A verdict that gives the work back marks the caller's session to close when idle (PM-570); never fails the call. */
+  private async markWorkReturned(
+    ctx: ToolContext,
+    task: Task,
+    addLabels: readonly string[] | undefined,
+  ): Promise<void> {
+    if (!addLabels?.length) return;
+    await this.closer.workReturned(ctx.sessionId, task, addLabels).catch((err: unknown) => {
+      this.ctx.logger.warn({ err, taskKey: task.key }, 'could not mark the session of a returned verdict');
+    });
   }
 
   async createTask(

@@ -3725,6 +3725,7 @@ export const hu = {
         handed_off: 'a munkát leadta',
         handoff_timeout: 'lejárt a leadás ideje',
         merge_running: 'a beolvasztás a szerveren fut',
+        awaiting_fix: 'a fejlesztő javítására vár',
       },
       short: {
         step_done: 'lépés kész',
@@ -3736,6 +3737,7 @@ export const hu = {
         handed_off: 'leadva',
         handoff_timeout: 'leadás lejárt',
         merge_running: 'beolvasztás fut',
+        awaiting_fix: 'javításra vár',
       },
     },
     tabs: {

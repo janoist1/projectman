@@ -1086,6 +1086,7 @@ export function createDomain(opts: DomainOptions) {
     openQuestionLabel,
     fixLimit,
     handoffs,
+    closer: sessionCloser,
     boundary,
     egress,
     publishing,

@@ -36,6 +36,7 @@ export interface LocalEngineOptions {
   fullTestExecutor?: FullTestExecutor;
   screenshotExecutor?: ScreenshotExecutor;
   freeDiskBytes?: () => Promise<number | null>;
+  heavyRunSessions?: () => Promise<string[]>;
   processExists?: ProcessProbe;
   /** The project's working directory; null: the project is not known (not loaded). */
   workspacePath: (projectKey: string) => string | null;
@@ -113,6 +114,13 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
         }
       : {}),
     ...operations,
+    async heavyRunSessions() {
+      try {
+        return (await opts.heavyRunSessions?.()) ?? [];
+      } catch {
+        return [];
+      }
+    },
     processExists: alive,
     workspacePath: opts.workspacePath,
   };

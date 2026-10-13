@@ -1136,6 +1136,11 @@ workers follow the machine's size.
   wins. A live holder is never broken, however long it runs. After a sleep a live lock can be broken for a
   moment (two runs overlap); the holder notices at its next heartbeat and logs it once. `readHeavyQueue` shows
   who holds it and who waits, for the PM-300 display.
+- **Idle close (PM-569).** An idle session with a live heavy-run holder or waiter stays open,
+  and gets its full idle interval after the last sweep that saw the run. Heartbeats must be at most
+  30 seconds old and the PID must live. After 120 minutes since `lastActivityAt`, idle closure applies
+  even with a run present. Other closure reasons and meeting sessions are unchanged. Only queued
+  commands are covered; grace is in memory and does not survive a server restart.
 - **Who queues.** The CLI `npm run heavy -- [--label <text>] [--max-wait <s>] <command>`
   (`scripts/heavy/cli.ts`) runs the command at its turn; the root `npm test`, `npm run typecheck` and
   `npm run shots` go through it. It says on stderr who it waits for; `--max-wait` ends with exit status 75; a
@@ -1325,7 +1330,8 @@ workers follow the machine's size.
   - Attachments: `files.export`, `files.materialize`; transcripts/resume: `transcript.*`.
   - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
-  - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
+  - Free-disk admission: `host.free_disk`; idle heavy-run protection: `host.heavy_run_sessions`;
+    CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
     `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
@@ -1649,6 +1655,9 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   temporary files from atomic writes do not count as queued waiters. Run it on the execution
   host, using its own temporary directory and PID namespace.
   Since PM-311 the folder is `EnginePaths.heavyLockDir` of the session's engine (`contracts/engine.ts`).
+  Idle closure asks that engine through `EngineHost.heavyRunSessions` / `host.heavy_run_sessions`
+  (PM-569). PID and heartbeat checks run on the engine; only its own running session ids cross
+  to the server. An unavailable or older engine returns no sessions, retaining normal idle closure.
   **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
   (PM-444). Every process logs pino's JSON lines to the terminal and, since PM-444, to

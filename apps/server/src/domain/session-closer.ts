@@ -9,9 +9,12 @@ import {
   OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
   reviewReturnedWork,
   SESSION_IDLE_CLOSE_MINUTES,
+  SESSION_HEAVY_RUN_IDLE_MAX_MINUTES,
   stageIndex,
 } from '@projectman/shared';
-import type { ProjectConfig, Session, SessionStop, Task } from '@projectman/shared';
+import type { EngineId, ProjectConfig, Session, SessionStop, Task } from '@projectman/shared';
+import type { EngineDirectory } from '../contracts';
+import { engineIdOf } from './engines';
 import type { DomainContext } from './context';
 import type { MessageDelivery, Messaging } from './messaging';
 import type { ProjectService } from './projects';
@@ -33,6 +36,8 @@ const MINUTE_MS = 60_000;
  */
 export class SessionCloser {
   private readonly ctx: DomainContext;
+  private readonly engines: Pick<EngineDirectory, 'get'>;
+  private readonly heavySeenAt = new Map<string, number>();
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly sessions: SessionOrchestrator;
@@ -42,6 +47,7 @@ export class SessionCloser {
 
   constructor(deps: {
     ctx: DomainContext;
+    engines: Pick<EngineDirectory, 'get'>;
     projects: ProjectService;
     tasks: TaskService;
     sessions: SessionOrchestrator;
@@ -50,6 +56,7 @@ export class SessionCloser {
     delivery: Pick<MessageDelivery, 'deliverWaiting'>;
   }) {
     this.ctx = deps.ctx;
+    this.engines = deps.engines;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
     this.sessions = deps.sessions;
@@ -140,6 +147,7 @@ export class SessionCloser {
    */
   async sweep(): Promise<void> {
     const now = this.ctx.now().getTime();
+    const runs = new Map<EngineId, Promise<ReadonlySet<string>>>();
     for (const session of this.ctx.repos.sessions.listInStates(['idle'])) {
       if (session.workItem.type === 'meeting') continue;
       if (!this.sessions.isRunning(session.id) || this.sessions.isPaused(session)) continue;
@@ -160,11 +168,57 @@ export class SessionCloser {
           session.workItem.type === 'general' && session.workItem.with
             ? OPERATOR_GUEST_IDLE_CLOSE_MINUTES
             : SESSION_IDLE_CLOSE_MINUTES;
-        if (silent >= limit) await this.tryClose(session, { kind: 'idle', idleMinutes: silent });
+        if (silent < limit) continue;
+        if (
+          silent < SESSION_HEAVY_RUN_IDLE_MAX_MINUTES &&
+          (await this.heldByHeavyRun(session, now, limit, runs))
+        )
+          continue;
+        await this.tryClose(session, { kind: 'idle', idleMinutes: silent });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not close an idle session');
       }
     }
+    const idle = new Set(
+      this.ctx.repos.sessions
+        .listInStates(['idle'])
+        .filter((session) => this.sessions.isRunning(session.id))
+        .map((session) => session.id),
+    );
+    for (const id of this.heavySeenAt.keys()) {
+      if (!idle.has(id)) this.heavySeenAt.delete(id);
+    }
+  }
+
+  /** Heavy runs extend only idle closure, including a full idle interval after the last sighting. */
+  private async heldByHeavyRun(
+    session: Session,
+    now: number,
+    limit: number,
+    runs: Map<EngineId, Promise<ReadonlySet<string>>>,
+  ): Promise<boolean> {
+    const engineId = engineIdOf(session);
+    let running = runs.get(engineId);
+    if (!running) {
+      running = Promise.resolve()
+        .then(() => this.engines.get(engineId)?.heavyRunSessions() ?? [])
+        .then(
+          (ids) => new Set(ids),
+          () => new Set<string>(),
+        );
+      runs.set(engineId, running);
+    }
+    if ((await running).has(session.id)) {
+      if (!this.heavySeenAt.has(session.id))
+        this.ctx.logger.info(
+          { sessionId: session.id, member: session.member },
+          'an idle session stays open while its heavy run is queued or running',
+        );
+      this.heavySeenAt.set(session.id, now);
+      return true;
+    }
+    const seen = this.heavySeenAt.get(session.id);
+    return seen !== undefined && now - seen < limit * MINUTE_MS;
   }
 
   /** The running task sessions of a card (a meeting's session is not one). */

@@ -340,6 +340,11 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'host.free_disk'() {
       return engine.freeDiskBytes();
     },
+    async 'host.heavy_run_sessions'() {
+      const ids = await engine.heavyRunSessions();
+      const running = new Set(runner.list().map((session) => session.sessionId));
+      return ids.filter((id) => running.has(id));
+    },
     async 'host.is_directory'({ path: target }) {
       return engine.isDirectory(target);
     },

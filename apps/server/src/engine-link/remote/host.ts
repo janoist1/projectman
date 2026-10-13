@@ -315,6 +315,14 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           return null;
         }
       },
+      async heavyRunSessions() {
+        if (!hub.link(id)) return [];
+        try {
+          return await call('host.heavy_run_sessions', {});
+        } catch {
+          return [];
+        }
+      },
       processExists(pid) {
         const mirror = hub.mirror(id);
         // Without a link nothing can be said, and a process that may still run counts as running.

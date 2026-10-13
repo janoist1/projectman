@@ -84,4 +84,32 @@ describe('engine handlers', () => {
     );
     expect([...CLOUD_METHODS].sort()).toEqual(cloudMethods.sort());
   });
+
+  it('reports only heavy runs belonging to this runner and validates the reply', async () => {
+    const handlers = new Map<string, (params: unknown, context: unknown) => Promise<unknown>>();
+    const rpc = {
+      handle: (name: string, handler: never) => {
+        handlers.set(name, handler);
+        return () => undefined;
+      },
+    } as unknown as EngineRpc;
+    createEngineHandlers({
+      limit: { check: async (_method: string, params: unknown) => params } as never,
+      audit: { record: () => undefined } as never,
+      runner: { list: () => [{ sessionId: 'own' }] } as never,
+      transcripts: {} as never,
+      planUsageFor: (() => ({})) as never,
+      engine: { heavyRunSessions: async () => ['own', 'other'] } as never,
+      github: {} as never,
+      probe: {} as never,
+      transfers: {} as never,
+      mcpBase: 'http://127.0.0.1:4801',
+      emit: () => undefined,
+      terminals: new Set(),
+      exportDir: '/nonexistent',
+    }).register(rpc);
+    const result = await handlers.get('host.heavy_run_sessions')!({}, { id: 'heavy' });
+    expect(result).toEqual(['own']);
+    expect(methods['host.heavy_run_sessions'].result.parse(result)).toEqual(['own']);
+  });
 });

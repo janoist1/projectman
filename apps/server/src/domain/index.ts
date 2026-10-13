@@ -373,6 +373,7 @@ export interface DomainOptions {
    * it nothing is measured, so no start is refused for disk space.
    */
   freeDiskBytes?: () => Promise<number | null>;
+  heavyRunSessions?: () => Promise<string[]>;
   /** How often the free disk space is checked (default 1 min). */
   diskCheckMs?: number;
   /** How often the worktrees of closed cards are swept, starting at startup (default 6 hours). */
@@ -457,6 +458,7 @@ export function createDomain(opts: DomainOptions) {
           fullTestExecutor: opts.fullTestExecutor,
           screenshotExecutor: opts.screenshotExecutor,
           freeDiskBytes: opts.freeDiskBytes,
+          heavyRunSessions: opts.heavyRunSessions,
           processExists: opts.processExists,
           workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
           repoPath: (projectKey, repoName) => {
@@ -670,6 +672,7 @@ export function createDomain(opts: DomainOptions) {
   delivery.useMessageHolds((session) => messaging.holdsMessagesOf(session));
   const sessionCloser = new SessionCloser({
     ctx,
+    engines,
     projects,
     tasks,
     sessions,

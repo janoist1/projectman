@@ -104,6 +104,7 @@ export async function createDomainHarness(
     inputStallMs?: number;
     /** The free disk bytes (PM-243); absent: not measured, so no start is refused for disk space. */
     freeDiskBytes?: () => Promise<number | null>;
+    heavyRunSessions?: () => Promise<string[]>;
     /** How long a closed card's worktree stays (default 3 days). */
     closedWorktreeKeepMs?: number;
     /** The server's full test before review (PM-217); absent, the feature is off. */
@@ -197,6 +198,7 @@ export async function createDomainHarness(
                   workspacesRootDir: memberWorkspaces ? workspacesDir : undefined,
                   workspacePath: () => workspace,
                   fullTestExecutor: opts.fullTestExecutor,
+                  heavyRunSessions: opts.heavyRunSessions,
                   claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
                 },
                 log.logger,
@@ -275,6 +277,7 @@ export async function createDomainHarness(
     // And the handoff sweep: tests call `domain.handoffs.sweep()` after moving the clock.
     handoffSweepMs: 3_600_000,
     freeDiskBytes: opts.freeDiskBytes,
+    heavyRunSessions: opts.heavyRunSessions,
     closedWorktreeKeepMs: opts.closedWorktreeKeepMs,
   });
   await domain.start();

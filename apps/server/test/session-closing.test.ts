@@ -28,9 +28,19 @@ describe('closing finished and idle sessions', () => {
    * dev-1 works AR-1 in development, its session started and (unless `firstTurn` is false: it still
    * awaits its first turn) went working.
    */
-  async function setup(opts: { firstTurn?: boolean; adjust?: (config: ProjectConfig) => void } = {}) {
+  async function setup(
+    opts: {
+      firstTurn?: boolean;
+      adjust?: (config: ProjectConfig) => void;
+      heavyRunSessions?: () => Promise<string[]>;
+    } = {},
+  ) {
     now = new Date('2026-10-04T08:00:00.000Z');
-    h = await createDomainHarness({ now: () => now, adjust: opts.adjust });
+    h = await createDomainHarness({
+      now: () => now,
+      adjust: opts.adjust,
+      heavyRunSessions: opts.heavyRunSessions,
+    });
     await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
     await h.domain.taskStarts.start('AR', 'AR-1', { assignee: 'dev-1', actor: OWNER_ACTOR, author: OWNER });
     await vi.waitFor(() => expect(h.runner.started).toHaveLength(1));
@@ -275,6 +285,93 @@ describe('closing finished and idle sessions', () => {
   });
 
   describe('after a quarter of an hour of silence', () => {
+    it('keeps a heavy run open and grants an idle interval after its last sighting', async () => {
+      const runs = vi.fn<() => Promise<string[]>>().mockResolvedValue([]);
+      const dev = await setup({ heavyRunSessions: runs });
+      h.runner.setState(dev.id, 'idle');
+      advance(14);
+      await h.domain.sessionCloser.sweep();
+      expect(runs).not.toHaveBeenCalled();
+      runs.mockResolvedValue([dev.id]);
+      advance(2);
+      await h.domain.sessionCloser.sweep();
+      expect(h.runner.isRunning(dev.id)).toBe(true);
+      runs.mockResolvedValue([]);
+      advance(14);
+      await h.domain.sessionCloser.sweep();
+      expect(h.runner.isRunning(dev.id)).toBe(true);
+      advance(1);
+      await h.domain.sessionCloser.sweep();
+      expect(fresh(dev.id).lastStop).toEqual({ kind: 'idle', idleMinutes: 31 });
+    });
+
+    it('closes at 120 minutes even when a heavy run is still present', async () => {
+      const runs = vi.fn<() => Promise<string[]>>().mockResolvedValue([]);
+      const dev = await setup({ heavyRunSessions: runs });
+      runs.mockResolvedValue([dev.id]);
+      h.runner.setState(dev.id, 'idle');
+      advance(119);
+      await h.domain.sessionCloser.sweep();
+      expect(h.runner.isRunning(dev.id)).toBe(true);
+      advance(1);
+      await h.domain.sessionCloser.sweep();
+      expect(fresh(dev.id).lastStop).toEqual({ kind: 'idle', idleMinutes: 120 });
+    });
+
+    it('closes normally when the heavy-run reader fails', async () => {
+      const dev = await setup({
+        heavyRunSessions: async () => {
+          throw new Error('unavailable');
+        },
+      });
+      h.runner.setState(dev.id, 'idle');
+      advance(16);
+      await h.domain.sessionCloser.sweep();
+      expect(fresh(dev.id).lastStop).toEqual({ kind: 'idle', idleMinutes: 16 });
+    });
+
+    it('closes normally when the session engine is missing', async () => {
+      const runs = vi.fn<() => Promise<string[]>>().mockResolvedValue([]);
+      const dev = await setup({ heavyRunSessions: runs });
+      h.runner.setState(dev.id, 'idle');
+      await flush();
+      h.repos.sessions.update(dev.id, { engineId: 'eng_000000000000' as never });
+      expect(fresh(dev.id).engineId).toBe('eng_000000000000');
+      advance(16);
+      await h.domain.sessionCloser.sweep();
+      expect(fresh(dev.id).lastStop).toEqual({ kind: 'idle', idleMinutes: 16 });
+      expect(runs).not.toHaveBeenCalled();
+    });
+
+    it('closes a finished step even with a heavy run present', async () => {
+      const runs = vi.fn<() => Promise<string[]>>().mockResolvedValue([]);
+      const dev = await setup({ heavyRunSessions: runs });
+      runs.mockResolvedValue([dev.id]);
+      h.runner.setState(dev.id, 'idle');
+      advance(16);
+      await h.domain.sessionCloser.sweep();
+      expect(h.runner.isRunning(dev.id)).toBe(true);
+      await handOver();
+      await vi.waitFor(() => expect(h.runner.isRunning(dev.id)).toBe(false));
+      expect(fresh(dev.id).lastStop).toMatchObject({ kind: 'step_done' });
+    });
+
+    it('queries an engine only once per sweep for multiple idle sessions', async () => {
+      const runs = vi.fn<() => Promise<string[]>>().mockResolvedValue([]);
+      const dev = await setup({ heavyRunSessions: runs });
+      const { session: general } = await h.domain.sessions.ensureSession('AR', 'dev-1', { type: 'general' });
+      for (const id of [dev.id, general.id]) {
+        h.runner.setState(id, 'working');
+        h.runner.setState(id, 'idle');
+      }
+      runs.mockResolvedValue([dev.id, general.id]);
+      advance(16);
+      await h.domain.sessionCloser.sweep();
+      expect(runs).toHaveBeenCalledTimes(1);
+      expect(h.runner.isRunning(dev.id)).toBe(true);
+      expect(h.runner.isRunning(general.id)).toBe(true);
+    });
+
     it('closes an idle session that has been silent that long, with the reason', async () => {
       const dev = await setup();
       h.runner.setState(dev.id, 'idle');

@@ -261,6 +261,8 @@ export interface EngineHost {
   readonly sessionFolders?: EngineSessionFolders;
   /** null: not measurable (no start is refused for disk space). */
   freeDiskBytes(): Promise<number | null>;
+  /** Session ids holding or waiting for this engine's heavy-run queue; unavailable gives [], never rejects (PM-569). */
+  heavyRunSessions(): Promise<string[]>;
   processExists(pid: number): boolean;
   /** The project's working directory on this engine; null: the engine does not hold the project. */
   workspacePath(projectKey: string): string | null;

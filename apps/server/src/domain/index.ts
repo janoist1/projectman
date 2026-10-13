@@ -1257,6 +1257,8 @@ export function createDomain(opts: DomainOptions) {
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
+  // A question closed without an answer (PM-556): its asking session, when it runs, is told not to wait.
+  events.on('inbox_cancelled', (item) => messaging.closedNotice(item));
   // AI members writing round in circles on a card: the scheduling duty's holder is told first, people
   // only when that did not help (PM-261). A loop ends when the card makes progress or goes quiet.
   const loopWatch = new LoopWatch({ ctx, projects, tasks, sessions, admission, delivery, inbox, timeline });

@@ -1,4 +1,4 @@
-import { questionPayloadOf } from '@projectman/shared';
+import { PENDING_INBOX_STATES, questionPayloadOf } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
@@ -16,7 +16,11 @@ export class ApprovalQuestions {
     const added = task.labels.filter((label) => !previousLabels.includes(label));
     if (!added.length) return;
     const { inbox, openQuestionLabel } = this.deps;
-    for (const item of inbox.list(task.projectKey, { state: 'open', kind: 'question', taskKey: task.key })) {
+    for (const item of inbox.list(task.projectKey, {
+      state: PENDING_INBOX_STATES,
+      kind: 'question',
+      taskKey: task.key,
+    })) {
       const label = questionPayloadOf(item)?.approvalLabel;
       if (!label || !added.includes(label)) continue;
       const closed = inbox.resolveByRule(item.id, 'ended', 'approval_given');

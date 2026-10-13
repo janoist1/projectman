@@ -7,6 +7,7 @@ import {
   isOnLeave,
   isOpenTask,
   memberOf,
+  PENDING_INBOX_STATES,
   refinementTurn,
   turnStalled,
 } from '@projectman/shared';
@@ -151,7 +152,7 @@ export class RefinementSteps {
     if (taken && taken.label === turn.label && taken.member !== null && !isClosedTurn(taken.reason)) {
       // Handed out already: not again. Its member's turn having ended without the label is told once.
       // An open question of an AI member is no stall: it waits for the answer.
-      const items = this.inbox.list(projectKey, { state: 'open', kind: 'question', taskKey });
+      const items = this.inbox.list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey });
       if (
         endedMember === taken.member &&
         turnStalled(items, config) &&

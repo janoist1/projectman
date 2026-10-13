@@ -10,6 +10,7 @@ const wake: WakeFacts = {
   recipientHasRole: true,
   recipientIsOperator: false,
   fromOwnLogin: false,
+  answersQuestion: false,
 };
 
 const facts: StaleFacts = {
@@ -98,6 +99,29 @@ describe('message validity and wake-up', () => {
       expect(messageWakeBlock({ kind: 'info' }, aiNoRole, null)).toBeNull();
       expect(messageWakeBlock(action, aiNoRole, 'stage_moved')).toBeNull();
       expect(messageWakes(action, aiNoRole, 'stage_moved')).toBe(false);
+    });
+  });
+
+  describe('an answer or a forwarded question wakes like a person’s message (PM-556)', () => {
+    const aiNoRole: WakeFacts = { ...wake, fromAi: true, recipientHasRole: false };
+    const answering: WakeFacts = { ...aiNoRole, answersQuestion: true };
+
+    it('wakes a recipient without a role on the card, and is not blocked', () => {
+      expect(messageWakes(action, aiNoRole, null)).toBe(false);
+      expect(messageWakes(action, answering, null)).toBe(true);
+      expect(messageWakeBlock(action, answering, null)).toBeNull();
+    });
+
+    it('wakes even when the action message is stale', () => {
+      expect(messageWakes(action, answering, 'stage_moved')).toBe(true);
+    });
+
+    it('does not change the Operator rule', () => {
+      const toOperator: WakeFacts = { ...answering, recipientIsOperator: true };
+      expect(messageWakes({}, toOperator, null)).toBe(false);
+      expect(messageWakeBlock({}, toOperator, null)).toBe('operator_owner_only');
+      const person: WakeFacts = { ...toOperator, fromHuman: true, fromOwnLogin: true };
+      expect(messageWakes({}, person, null)).toBe(true);
     });
   });
 

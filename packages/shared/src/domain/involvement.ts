@@ -24,6 +24,8 @@ export const SessionStartCauseKind = z.enum([
   'pause_resume',
   /** The card changed assignee (PM-342): the old session is asked for its note, or the new one takes over. */
   'handoff',
+  /** The Operator is asked to screen an AI member's question (PM-556). */
+  'question_screening',
 ]);
 export const SessionStartCause = z.object({
   kind: SessionStartCauseKind,
@@ -46,6 +48,8 @@ export const MessageOrigin = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('note'), eventId: z.string() }),
   z.object({ kind: z.literal('label'), labels: z.array(LabelId).min(1), eventId: z.string().optional() }),
   z.object({ kind: z.literal('answer'), inboxItemId: z.string() }),
+  /** The Operator passed a screened question to the recipient (PM-556). */
+  z.object({ kind: z.literal('question_forward'), inboxItemId: z.string() }),
 ]);
 export type MessageOrigin = z.infer<typeof MessageOrigin>;
 

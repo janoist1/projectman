@@ -1,4 +1,10 @@
-import { openPrerequisites, taskWait, waitHolders, waitWorkers } from '@projectman/shared';
+import {
+  openPrerequisites,
+  PENDING_INBOX_STATES,
+  taskWait,
+  waitHolders,
+  waitWorkers,
+} from '@projectman/shared';
 import type { InboxItem, ProjectConfig, Task, TaskWait } from '@projectman/shared';
 import type { DomainContext } from '../context';
 import type { MemberService } from '../members';
@@ -33,7 +39,7 @@ export class TaskWaits {
     const roster = this.members.rosterFor(config);
     const all = new Map(this.ctx.repos.tasks.list(projectKey).map((task) => [task.key, task]));
     const itemsByTask = new Map<string, InboxItem[]>();
-    for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {
+    for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
       if (!item.taskKey) continue;
       const list = itemsByTask.get(item.taskKey) ?? [];
       list.push(item);

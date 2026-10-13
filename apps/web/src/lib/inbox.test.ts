@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { QuestionCloseRule } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
 import {
@@ -41,6 +42,23 @@ it('shows approval questions closed by the system as approved rather than answer
   };
   expect(resolutionLabel(approved)).toBe(t('inbox.resolutions.approval_given'));
   expect(resolverName(approved, new Map(), 'owner')).toBe(t('inbox.resolutionRules.approval_given'));
+});
+
+it('says why a question was closed without an answer, although its state is cancelled (PM-556)', () => {
+  const closed = (rule: QuestionCloseRule): InboxItem => ({
+    ...item,
+    kind: 'question',
+    payload: { question: 'Which font?' },
+    state: 'cancelled',
+    resolution: { ...item.resolution!, optionId: 'closed', rule },
+  });
+  for (const rule of QuestionCloseRule.options) {
+    expect(resolutionLabel(closed(rule))).toBe(t(`inbox.resolutions.${rule}`));
+    expect(resolverName(closed(rule), new Map(), 'owner')).toBe(t(`inbox.resolutionRules.${rule}`));
+  }
+  expect(resolutionLabel({ ...closed('task_done'), resolution: null })).toBe(
+    t('inbox.resolutions.cancelled'),
+  );
 });
 
 describe('approvalHintOf (PM-484)', () => {

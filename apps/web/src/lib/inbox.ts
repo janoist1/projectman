@@ -7,6 +7,7 @@ import {
   loopDecisionOf,
   mergeRequestOf,
   permissionDelegationOf,
+  QuestionCloseRule,
   questionPayloadOf,
   releaseApprovalOf,
   seniorWaitDecisionOf,
@@ -638,6 +639,9 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 }
 
 export function resolutionLabel(item: InboxItem): string {
+  // A question closed without an answer (PM-556) says why, whatever its state is.
+  const closed = QuestionCloseRule.safeParse(item.resolution?.rule);
+  if (closed.success) return t(`inbox.resolutions.${closed.data}`);
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
   if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
 import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
+import type { QuestionCloseRule, QuestionTodo, ScreeningOutcome } from './inbox';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -11,7 +12,7 @@ import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
 import type { ReleaseFailure, ReleaseState } from './release';
 import { TaskKey } from './task';
-import type { TaskPriority } from './task';
+import type { TaskPriority, TaskStartWaiting } from './task';
 
 /** Who did something. Every step is attributed to a human, an AI member or the system. */
 export const Actor = z.object({
@@ -57,6 +58,10 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'question_screened',
+  'question_screening_skipped',
+  'question_closed',
+  'question_answer_delivery',
   'refinement_turn',
   'task_loop',
   'task_fix_limit',
@@ -355,8 +360,39 @@ export interface TimelineEventData {
     assignees: string[];
     reason?: string;
   };
-  question_asked: { inboxItemId: string; question: string };
+  /**
+   * `screening`: the Operator screens the question first (PM-556); `unscreened`: it was asked again
+   * without screening, replacing `previousItemId`, for `reason`.
+   */
+  question_asked: {
+    inboxItemId: string;
+    question: string;
+    screening?: true;
+    unscreened?: { reason: string; previousItemId: string };
+  };
   question_answered: { inboxItemId: string; answer: string };
+  /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
+  question_screened: {
+    inboxItemId: string;
+    asker: string;
+    outcome: ScreeningOutcome;
+    note: string;
+    forwardedTo?: string;
+    answer?: string;
+    todo?: QuestionTodo;
+    feedbackId?: string;
+  };
+  /** A question of `asker` went to the people with no Operator outcome (PM-556). */
+  question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
+  /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
+  question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };
+  /** The answer of a question waits for the session of `asker`, or reached it (PM-556). */
+  question_answer_delivery: {
+    inboxItemId: string;
+    asker: string;
+    state: 'waiting' | 'delivered';
+    reason?: TaskStartWaiting['reason'];
+  };
   /**
    * The turn on a card that is being refined changed (PM-254): `label` is the label the step lacks
    * and `member` the AI member started for it (null: nobody, the people who may set it were told, or

@@ -700,3 +700,49 @@ describe('the merge event with a fixed conflict (PM-471)', () => {
     expect(merged({ resolution: { note: '  ', commit: 'c' } }).resolution).toBeUndefined();
   });
 });
+
+describe('the rows of a question the Operator screens (PM-556)', () => {
+  const row = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
+    describeEvent({ ...creation, type, actor: { kind: 'system', handle: null }, data }, context).text;
+  const asker = 'dev-1';
+
+  it('words each outcome of the screening', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'It is clear.' };
+    expect(row('question_screened', { ...base, outcome: 'answered', answer: 'Yes' })).toBe(
+      t('timeline.events.question_screened_answered', { asker: 'dev-1', answer: 'Yes' }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'forwarded', forwardedTo: 'dev-2' })).toBe(
+      t('timeline.events.question_screened_forwarded', { asker: 'dev-1', to: 'dev-2', note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'moot' })).toBe(
+      t('timeline.events.question_screened_moot', { asker: 'dev-1', note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'decision' })).toBe(
+      t('timeline.events.question_screened_decision', { note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'todo' })).toBe(
+      t('timeline.events.question_screened_todo', { note: base.note }),
+    );
+  });
+
+  it('words the fallback, the closing and the answer delivery', () => {
+    expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'timeout' })).toBe(
+      t('timeline.events.question_screening_skipped_timeout', { asker: 'dev-1' }),
+    );
+    expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'unavailable' })).toBe(
+      t('timeline.events.question_screening_skipped_unavailable', { asker: 'dev-1' }),
+    );
+    expect(row('question_closed', { inboxItemId: 'inb_1', asker, rule: 'task_done', note: null })).toBe(
+      t('timeline.events.question_closed', { asker: 'dev-1', reason: t('inbox.resolutions.task_done') }),
+    );
+    expect(
+      row('question_closed', { inboxItemId: 'inb_1', asker, rule: 'withdrawn', note: 'Never mind' }),
+    ).toBe(t('timeline.events.question_closed_withdrawn', { asker: 'dev-1', note: 'Never mind' }));
+    expect(row('question_answer_delivery', { inboxItemId: 'inb_1', asker, state: 'waiting' })).toBe(
+      t('timeline.events.question_answer_waiting', { asker: 'dev-1' }),
+    );
+    expect(row('question_answer_delivery', { inboxItemId: 'inb_1', asker, state: 'delivered' })).toBe(
+      t('timeline.events.question_answer_delivered'),
+    );
+  });
+});

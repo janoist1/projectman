@@ -1,4 +1,4 @@
-export { MessageDelivery } from './delivery';
+export { MessageDelivery } from '../../runtime/delivery';
 export { MessageService } from './messages';
 export type { RecordMessageInput } from './messages';
 export { Messaging } from './messaging';

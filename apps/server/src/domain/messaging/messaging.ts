@@ -49,7 +49,7 @@ import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
 import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
-import type { MessageDelivery } from './delivery';
+import type { MessageDelivery } from '../../runtime/delivery';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
 

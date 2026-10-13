@@ -205,8 +205,8 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/delivery',
     pass: 'split-tool',
-    paths: ['domain/messaging/delivery.ts'],
-    sealed: false,
+    paths: ['runtime/delivery/'],
+    sealed: true,
   },
   {
     id: 'runtime/permissions',
@@ -567,11 +567,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'services/merges',
     to: 'runtime/sessions',
     removedBy: 'services/merges',
-  },
-  {
-    from: 'runtime/delivery',
-    to: 'services/project-docs',
-    removedBy: 'runtime/delivery',
   },
   {
     from: 'core/messages',

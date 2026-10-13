@@ -1,5 +1,14 @@
 import { execFile } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readdir, realpath, rm, unlink } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile as readFileBytes,
+  realpath,
+  rm,
+  unlink,
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type {
@@ -11,6 +20,7 @@ import type {
   MergeRepoRef,
 } from '../contracts';
 import { isWithin } from './within';
+import { DEPENDENCY_LOCKFILE, findDependencyReference } from '../worktree';
 import {
   DOC_FILE_MAX_BYTES,
   isBranchName,
@@ -43,6 +53,8 @@ export interface LocalBranchMergerOptions {
 }
 
 export const MERGE_CHECK_DIR = '_merge';
+export const DEPENDENCIES_NOT_INSTALLED =
+  "No checkout of the repository has the dependencies of the merge result installed (its package-lock.json matches no installed checkout). Install them with npm ci in a checkout whose package-lock.json is the merge result's: the repository's own checkout of the default branch when the card does not change the dependencies, otherwise the card's worktree after merging the default branch into it. Then retry merge_task.";
 export const MAX_CHANGED = 1000;
 export const MAX_CONFLICTS = 50;
 const MAX_NODE_MODULES_DEPTH = 2; // the root, `*/` and `*/*/`
@@ -455,6 +467,38 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     await runGit(repo, ['worktree', 'prune']);
   };
 
+  const dependencySource = async (repo: string, target: string, preferred: string | null) => {
+    const source = preferred === null ? null : await realpath(preferred).catch(() => null);
+    if (preferred !== null && source === null) invalid('The dependencies path does not exist');
+    const overlaps = (candidate: string) => isWithin(target, candidate) || isWithin(candidate, target);
+    if (source !== null && overlaps(source)) invalid('The dependencies path overlaps the check checkout');
+    const lockPath = path.join(target, DEPENDENCY_LOCKFILE);
+    const info = await lstat(lockPath).catch(() => null);
+    if (!info?.isFile() || info.isSymbolicLink()) return { path: source, reference: null, lock: null };
+    const lock = await readFileBytes(lockPath);
+    const candidates = new Set<string>();
+    const add = (candidate: string | null) => {
+      if (candidate !== null && !overlaps(candidate)) candidates.add(candidate);
+    };
+    add(source);
+    add(await realpath(repo));
+    const root = await realpath(options.worktreesRoot!);
+    const mergeRoot = path.join(root, MERGE_CHECK_DIR);
+    const worktrees = parseWorktrees(
+      await must(repo, ['worktree', 'list', '--porcelain'], 'worktree list', {
+        env: { GIT_OPTIONAL_LOCKS: '0' },
+      }),
+    );
+    for (const worktree of worktrees) {
+      if (worktree.prunable) continue;
+      const candidate = await realpath(worktree.path).catch(() => null);
+      if (candidate !== null && isWithin(root, candidate) && !isWithin(mergeRoot, candidate)) add(candidate);
+    }
+    const reference = await findDependencyReference([...candidates], target, lock);
+    if (!reference) throw new MergeError('git_failed', DEPENDENCIES_NOT_INSTALLED);
+    return { path: reference.path, reference, lock };
+  };
+
   const checkoutForCheck = async (
     ref: MergeRepoRef,
     input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
@@ -471,12 +515,16 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
     await release(repo, target);
     await must(repo, ['worktree', 'add', '--detach', target, mergeCommit], 'worktree add');
     try {
-      if (input.depsFrom !== null) {
-        const source = await realpath(input.depsFrom).catch(() => null);
-        if (source === null) invalid('The dependencies path does not exist');
-        else if (isWithin(await realpath(target), source) || isWithin(source, await realpath(target)))
-          invalid('The dependencies path overlaps the check checkout');
-        else await copyDependencies(source, await realpath(target));
+      const realTarget = await realpath(target);
+      const source = await dependencySource(repo, realTarget, input.depsFrom);
+      if (source.path !== null) await copyDependencies(source.path, realTarget);
+      if (source.reference !== null && source.lock !== null) {
+        const after = await findDependencyReference([source.reference.path], realTarget, source.lock);
+        if (!after || after.installedAt !== source.reference.installedAt)
+          throw new MergeError(
+            'git_failed',
+            'the dependency source changed while it was copied; retry the merge',
+          );
       }
       const commonDir = (
         await must(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 'rev-parse')

@@ -11,6 +11,7 @@ import {
   symlinkSync,
   writeFileSync,
   chmodSync,
+  utimesSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -20,6 +21,7 @@ import { newId } from '../domain/util';
 import {
   classifyPush,
   createLocalBranchMerger,
+  DEPENDENCIES_NOT_INSTALLED,
   MERGE_CHECK_DIR,
   overlappingPaths,
   parseWorktrees,
@@ -296,6 +298,91 @@ describe('checkoutConflicts', () => {
 });
 
 describe('checkoutForCheck and releaseCheck', () => {
+  function install(checkout: string, marker: string, fresh = true): void {
+    write(checkout, 'node_modules/.package-lock.json', '{}');
+    write(checkout, 'node_modules/source.txt', marker);
+    const time = new Date('2026-01-01T00:00:00Z');
+    utimesSync(path.join(checkout, 'package-lock.json'), time, time);
+    const installed = new Date(time.getTime() + (fresh ? 1000 : -1000));
+    utimesSync(path.join(checkout, 'node_modules/.package-lock.json'), installed, installed);
+  }
+
+  it.each(['preferred', 'repository', 'worktree', 'stale preferred'])(
+    'selects an installed checkout matching the merge lockfile: %s',
+    async (scenario) => {
+      const { repo, merger, worktreesRoot } = fixture({ withRemote: false });
+      write(repo, '.gitignore', 'node_modules/\n');
+      write(repo, 'package-lock.json', 'old lock');
+      const old = commit(repo, 'add old lock');
+      const preferred = path.join(worktreesRoot, 'card');
+      git(repo, 'worktree', 'add', '--detach', preferred, old);
+      // The card is older than the dependency change on main.
+      write(preferred, 'card.txt', 'card change');
+      const card = commit(preferred, 'change card');
+      write(repo, 'package-lock.json', 'merged lock');
+      const main = commit(repo, 'change dependencies');
+      const built = await merger.build(REF, { onto: main, commit: card, message: 'merge card' });
+      if (!built.ok) throw new Error('unexpected conflict');
+      let depsFrom: string | null = preferred;
+      let expected: string;
+      if (scenario === 'preferred') {
+        write(preferred, 'package-lock.json', 'merged lock');
+        install(preferred, 'preferred');
+        install(repo, 'repository');
+        expected = 'preferred';
+      } else if (scenario === 'repository') {
+        depsFrom = null;
+        install(repo, 'repository');
+        expected = 'repository';
+      } else {
+        install(preferred, 'preferred');
+        if (scenario === 'stale preferred') {
+          write(preferred, 'package-lock.json', 'merged lock');
+          install(preferred, 'preferred', false);
+        }
+        const other = path.join(worktreesRoot, 'other');
+        git(repo, 'worktree', 'add', '--detach', other, main);
+        install(other, 'other');
+        expected = 'other';
+      }
+      const mergeId = 'mrg_lock0001';
+      const made = await merger.checkoutForCheck(REF, { mergeId, mergeCommit: built.mergeCommit, depsFrom });
+      expect(readFileSync(path.join(made.path, 'package-lock.json'), 'utf8')).toBe('merged lock');
+      expect(readFileSync(path.join(made.path, 'node_modules/source.txt'), 'utf8')).toBe(expected);
+      await merger.releaseCheck(REF, { mergeId });
+    },
+  );
+
+  it.each(['missing', 'stale', 'outside', 'merge', 'symlink outside', 'prunable'])(
+    'refuses without an eligible dependency source and releases the checkout: %s',
+    async (scenario) => {
+      const { repo, merger, worktreesRoot } = fixture({ withRemote: false });
+      write(repo, '.gitignore', 'node_modules/\n');
+      write(repo, 'package-lock.json', 'merged lock');
+      const head = commit(repo, 'add lock');
+      if (scenario === 'stale') install(repo, 'stale', false);
+      else if (scenario !== 'missing') {
+        const outside = path.join(root, `outside-source-${counter}`);
+        const other =
+          scenario === 'merge'
+            ? path.join(worktreesRoot, MERGE_CHECK_DIR, 'other')
+            : scenario === 'prunable'
+              ? path.join(worktreesRoot, 'prunable')
+              : outside;
+        git(repo, 'worktree', 'add', '--detach', other, head);
+        install(other, scenario);
+        if (scenario === 'symlink outside') symlinkSync(other, path.join(worktreesRoot, 'linked'));
+        if (scenario === 'prunable') rmSync(other, { recursive: true, force: true });
+      }
+      const mergeId = 'mrg_nolocksource';
+      await expect(
+        merger.checkoutForCheck(REF, { mergeId, mergeCommit: head, depsFrom: null }),
+      ).rejects.toMatchObject({ code: 'git_failed', message: DEPENDENCIES_NOT_INSTALLED });
+      expect(existsSync(path.join(worktreesRoot, MERGE_CHECK_DIR, mergeId))).toBe(false);
+      expect(git(repo, 'worktree', 'list', '--porcelain')).not.toContain(mergeId);
+    },
+  );
+
   it('makes a detached checkout under _merge, copies dependencies with relative links kept, and releases it', async () => {
     const { merger, repo, worktreesRoot } = fixture({ withRemote: false });
     const head = git(repo, 'rev-parse', 'HEAD');

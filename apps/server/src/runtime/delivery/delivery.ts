@@ -198,7 +198,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           retryAttempts.delete(session.id);
           return Effect.void;
         }).pipe(
-          Effect.catchCause((cause) =>
+          catchFailure((cause) =>
             Effect.sync(() => {
               ctx.logger.warn(
                 { err: Cause.squash(cause), sessionId: session.id },
@@ -247,7 +247,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
           asWritten.delete(claim);
           messages.markRecipientDelivered(message.id, session.member);
         }).pipe(
-          Effect.catchCause((cause) =>
+          catchFailure((cause) =>
             Effect.andThen(
               Effect.sync(() =>
                 ctx.logger.warn(
@@ -289,7 +289,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
             yield* retryLater(session);
           }
         }).pipe(
-          Effect.catchCause((cause) =>
+          catchFailure((cause) =>
             Effect.sync(() => ctx.logger.warn({ err: failure(cause) }, 'team message delivery failed')),
           ),
           Effect.ensuring(
@@ -461,7 +461,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
               if (memberOf(config, message.from)?.kind === 'human') yield* deliver(current, message);
         }
         const flush = flushWaiting(session).pipe(
-          Effect.catchCause((cause) =>
+          catchFailure((cause) =>
             Effect.sync(() =>
               ctx.logger.warn(
                 { err: failure(cause), sessionId: session.id },
@@ -486,7 +486,7 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
         for (const id of messageIds) messages.markRecipientDelivered(id, session.member);
         return true;
       }).pipe(
-        Effect.catchCause((cause) =>
+        catchFailure((cause) =>
           Effect.sync(() => {
             ctx.logger.warn({ err: failure(cause), sessionId: session.id }, 'could not deliver a message');
             return false;
@@ -614,6 +614,18 @@ export const makeMessageDelivery = (deps: DeliveryDeps): Effect.Effect<DeliveryE
     };
   });
 
+/**
+ * Handles a failure or a defect, not an interruption: a fiber stopped by `close()` or `dropHeld`
+ * is not a failed delivery, so it logs no warning and starts no retry.
+ */
+function catchFailure<A2, E2, R2>(handler: (cause: Cause.Cause<unknown>) => Effect.Effect<A2, E2, R2>) {
+  return <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A | A2, E2, R | R2> =>
+    Effect.catchCause(self, (cause) =>
+      // An interrupt-only cause carries no typed error, so the cast to `never` is exact.
+      Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause as Cause.Cause<never>) : handler(cause),
+    );
+}
+
 /** What the facade throws: the error the service call failed with, not its Effect wrapper. */
 function failure(cause: Cause.Cause<unknown>): unknown {
   const error = Cause.squash(cause);
@@ -621,8 +633,9 @@ function failure(cause: Cause.Cause<unknown>): unknown {
 }
 
 /**
- * Fibers run at once on the caller's stack (tasks queue while one runs), as resolving a Promise
- * ran its callbacks before (docs/EFFECT.md).
+ * Fibers started with `runFork` run at once on the caller's stack (tasks queue while one runs), as
+ * resolving a Promise ran its callbacks before (docs/EFFECT.md). `Effect.runSync` always brings its
+ * own synchronous scheduler, so it takes no part in it.
  */
 const inlineDispatcher = ((): Scheduler.SchedulerDispatcher => {
   const tasks: Array<() => void> = [];
@@ -649,7 +662,7 @@ const inline = Context.make(Scheduler.Scheduler, {
   shouldYield: () => false,
   makeDispatcher: () => inlineDispatcher,
 });
-const runSync = Effect.runSyncWith(inline);
+const runSync = Effect.runSync;
 const runFork = Effect.runForkWith(inline);
 /** Like `Effect.runPromise` (a failure rejects with the original error), but settles the promise at once. */
 const runPromise = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>

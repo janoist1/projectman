@@ -69,17 +69,23 @@ export class Thing {
 
 Effect's default scheduler resumes a fiber with `setImmediate`, and `Effect.runPromise` adds a promise
 hop. The code these programs replaced reacted within the same promise turn, and tests (session
-tests that count promise ticks) and callers depend on that. The facade of the input queue therefore
-runs its program with an **inline scheduler** (a trampoline: a task runs at once on the caller's
-stack, tasks queued meanwhile run after it; `executionMode: 'sync'`, `shouldYield: () => false`),
-given through the context of `Effect.runSyncWith(context)` / `runForkWith(context)`, and with its own
-`runPromise` (`runFork(effect).addObserver(...)` that resolves or rejects the promise by hand).
+tests that count promise ticks) and callers depend on that. A facade therefore starts its
+promise-returning members and `close()` with an **inline scheduler** (a trampoline: a task runs at
+once on the caller's stack, tasks queued meanwhile run after it; `executionMode: 'sync'`,
+`shouldYield: () => false`), given through the context of `Effect.runForkWith(context)`, and with its
+own `runPromise` (`runFork(effect).addObserver(...)` that resolves or rejects the promise by hand).
 
-Two traps found while doing this: `Effect.provideService(effect, Scheduler.Scheduler, ...)` does not
-change how the fiber is scheduled (the scheduler must be in the context the run function gets); and
-`MixedScheduler('sync')` alone was not enough, tick counts still went from 1 to 2. The delivery facade
-has its own copy of the same ~40 lines; a shared place would be a new module, so decide that on a card
-before a third program needs it.
+The synchronous members use plain `Effect.runSync`: in effect 4.0.4 `runSyncWith(context)` always
+passes its own `MixedScheduler('sync')` to the fiber (`runSyncExitWith` in
+`node_modules/effect/src/internal/effect.ts`), which overrides the scheduler of the context, so an
+inline scheduler would not apply there (nor to the fibers forked from that run). The tests that count
+promise ticks pass with it.
+
+Two more traps found while doing this: `Effect.provideService(effect, Scheduler.Scheduler, ...)` does
+not change how the fiber is scheduled (the scheduler must be in the context the run function gets);
+and `MixedScheduler('sync')` alone was not enough for `runFork`/`runPromise`, tick counts still went
+from 1 to 2. The delivery facade has its own copy of the same ~40 lines; a shared place would be a new
+module, so decide that on a card before a third program needs it.
 
 ## Timers and cleanup
 
@@ -102,6 +108,9 @@ before a third program needs it.
   must not with `Effect.promise`.
 - A **program bug** (a failing callback that was not expected to fail) is a defect: `Effect.die`,
   `Effect.catchDefect`.
+- A handler that logs a failed background delivery (or retries it) must not run for an interruption
+  (`close()`, `dropHeld`): when it catches a whole `Cause`, skip it if `Cause.hasInterruptsOnly(cause)`
+  (`catchFailure` in `runtime/delivery/delivery.ts`).
 - The facade throws the error callers always got, not the tagged wrapper:
   `effect.pipe(Effect.catchTag('StartFailed', (e) => Effect.die(e.cause)))` before running it as a
   promise, and `Cause.squash` in `runPromise`. A caller does not know about Effect.

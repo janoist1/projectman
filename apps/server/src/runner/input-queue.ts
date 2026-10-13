@@ -316,9 +316,11 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
   });
 
 /**
- * Fibers run at once on the caller's stack (tasks queue while one runs), as resolving a Promise
- * ran its callbacks before: the default scheduler resumes a fiber on `setImmediate`, which lets
- * a caller observe the queue several turns late (docs/EFFECT.md).
+ * Fibers started with `runFork` run at once on the caller's stack (tasks queue while one runs), as
+ * resolving a Promise ran its callbacks before: the default scheduler resumes a fiber on
+ * `setImmediate`, which lets a caller observe the queue several turns late (docs/EFFECT.md).
+ * This applies to `runFork`/`runPromise` only: `Effect.runSync` always brings its own synchronous
+ * scheduler, so it takes no part in it.
  */
 const inlineDispatcher = ((): Scheduler.SchedulerDispatcher => {
   const tasks: Array<() => void> = [];
@@ -348,7 +350,7 @@ const inlineScheduler: Scheduler.Scheduler = {
 };
 
 const inline = Context.make(Scheduler.Scheduler, inlineScheduler);
-const runSync = Effect.runSyncWith(inline);
+const runSync = Effect.runSync;
 const runFork = Effect.runForkWith(inline);
 /**
  * Like `Effect.runPromise` (a failure rejects with the original error), but a settled fiber settles

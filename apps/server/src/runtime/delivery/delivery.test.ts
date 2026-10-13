@@ -47,8 +47,9 @@ function messageOf(id: string): TeamMessage {
 function setup() {
   const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
   const waiting = new Map<string, TeamMessage>();
-  const control = { typeInto: 'fail' as 'fail' | 'ok' };
+  const control = { typeInto: 'fail' as 'fail' | 'ok' | 'hang' };
   const typeInto = vi.fn(async (_session: Session, _text: string) => {
+    if (control.typeInto === 'hang') return new Promise<boolean>(() => {});
     if (control.typeInto === 'fail') throw new Error('not taken');
     return true;
   });
@@ -283,6 +284,20 @@ describe('MessageDelivery facade', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(typeInto).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs no failure and starts no retry for a typing that close() interrupts', async () => {
+    const { deps, typeInto, logger, control } = setup();
+    control.typeInto = 'hang';
+    const delivery = new MessageDelivery(deps);
+    delivery.deliver(session, messageOf('m1'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(typeInto).toHaveBeenCalledTimes(1);
+    await delivery.close();
+    await vi.advanceTimersByTimeAsync(3_600_000);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
     expect(typeInto).toHaveBeenCalledTimes(1);
   });
 

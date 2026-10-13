@@ -2,9 +2,28 @@
 
 AI members (Claude Code or Codex sessions) reach their team through an MCP server named `team`;
 Claude sees its tools as `mcp__team__<tool>`. It replaces the desktop app's SendMessage between
-sessions. The behaviour lives in the domain (`TeamToolsHandler`, see
-`src/contracts/team-tools.ts`); this module is the MCP transport, the tool definitions and the
-text the model reads.
+sessions. The handler contracts live in
+`src/contracts/team-tools.ts` (`TeamToolsHandler`). This module owns the MCP transport,
+module tool definitions and handlers, and the text the model reads.
+
+## Where a tool goes
+
+A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
+`handler.ts` implements the module's handler contract, and `index.ts` exports both.
+The first groups are `members`, `tasks` and `attachments`. `tools.ts` collects their
+definitions in `TEAM_TOOL_GROUPS`; `TeamToolsService` in `domain/team-tools.ts`
+forwards to their handlers. New tools belong in the module's group and handler,
+never in either collector. The remaining tools move with their own module's
+refactor pass (PM-577).
+
+Assembly creates one shared `ToolCaller` (`caller.ts`) for caller checks, the
+Operator's request and guest access, step logging, and opening session files.
+Every handler receives that instance so signal-step reservations stay shared.
+Shared definition types, schemas and helpers live in `kit.ts`.
+
+REST routes already register by module: `api/<module>.ts` exports
+`register<X>Routes(app, deps)`, collected by `registerApiRoutes` in `api/index.ts`.
+No REST code or contract changes are needed for this registration.
 
 ## Endpoint
 
@@ -124,7 +143,7 @@ tests use the SDK's own client, which behaves the same way here):
   no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
   `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
   question again unscreened (`reask_not_allowed` otherwise). Handler method: `screenQuestion(ctx, { itemId,
-  outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operator".
+outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operator".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

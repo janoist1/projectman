@@ -757,6 +757,7 @@ export function createDomain(opts: DomainOptions) {
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
   messaging.useMessageStarts(messageStarts);
+  inbox.useMessageStarts(messageStarts, (item) => messaging.answerWorkItem(item));
   sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
     messageStarts.resumeAfter(session, stageId, after),
   );

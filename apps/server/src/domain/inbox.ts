@@ -30,6 +30,8 @@ import type {
   ResolveInboxRequest,
   Session,
   TimelineEventData,
+  TaskStartWaiting,
+  WorkItemRef,
 } from '@projectman/shared';
 import { APPROVER_NONE_REFUSAL, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
 import type {
@@ -45,6 +47,7 @@ import type { DomainContext } from './context';
 import { engineIdOf } from './engines';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
+import type { MessageStarts } from './admission';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from './session-policy';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
@@ -154,6 +157,45 @@ export class InboxService {
 
   useQuestionAnswer(answer: NonNullable<InboxService['questionAnswer']>): void {
     this.questionAnswer = answer;
+  }
+
+  private messageStarts?: Pick<MessageStarts, 'waitingReason'>;
+  private answerWorkItem?: (item: InboxItem) => Promise<WorkItemRef>;
+
+  useMessageStarts(
+    starts: Pick<MessageStarts, 'waitingReason'>,
+    answerWorkItem: (item: InboxItem) => Promise<WorkItemRef>,
+  ): void {
+    this.messageStarts = starts;
+    this.answerWorkItem = answerWorkItem;
+  }
+
+  /** Enrich only visible HTTP results; previews are never stored or sent through websocket events. */
+  async withAskerStart(projectKey: string, items: InboxItem[]): Promise<InboxItem[]> {
+    const starts = this.messageStarts;
+    const answerWorkItem = this.answerWorkItem;
+    if (!starts || !answerWorkItem) return items;
+    const checks = new Map<string, Promise<TaskStartWaiting['reason'] | null>>();
+    return Promise.all(
+      items.map(async (item) => {
+        if (!isPendingQuestion(item)) return item;
+        try {
+          const config = await this.projects.config(projectKey);
+          if (memberOf(config, item.source)?.kind !== 'ai') return item;
+          const workItem = await answerWorkItem(item);
+          const key = JSON.stringify([item.source, workItem]);
+          let check = checks.get(key);
+          if (!check) {
+            check = starts.waitingReason(projectKey, item.source, workItem).catch(() => null);
+            checks.set(key, check);
+          }
+          const reason = await check;
+          return reason ? { ...item, askerStart: { reason } } : item;
+        } catch {
+          return item;
+        }
+      }),
+    );
   }
 
   useMergeStart(start: (item: InboxItem, by: Resolver) => Promise<void>): void {

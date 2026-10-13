@@ -1,3 +1,4 @@
+import { FeedbackTools } from '../mcp/feedback';
 import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
@@ -116,7 +117,12 @@ import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } 
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
-import { FeedbackNotices, FeedbackScreenshotStore, FeedbackService, FeedbackWidgetService } from './feedback';
+import {
+  FeedbackNotices,
+  FeedbackScreenshotStore,
+  FeedbackService,
+  FeedbackWidgetService,
+} from '../services/feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
@@ -202,8 +208,8 @@ export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
-export { FeedbackService, FeedbackWidgetService } from './feedback';
-export type { FeedbackWidgetSession } from './feedback';
+export { FeedbackService, FeedbackWidgetService } from '../services/feedback';
+export type { FeedbackWidgetSession } from '../services/feedback';
 export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
@@ -1080,6 +1086,7 @@ export function createDomain(opts: DomainOptions) {
   const teamTools = new TeamToolsService({
     calls: toolCaller,
     tools: {
+      feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       members: new MemberTools({ calls: toolCaller, members }),
       tasks: new TaskTools({
         calls: toolCaller,
@@ -1130,7 +1137,6 @@ export function createDomain(opts: DomainOptions) {
     github: opts.github,
     githubSync,
     messageAttachments,
-    feedback,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

@@ -646,7 +646,7 @@ recipients get the message.
 
 A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements its handler contract, and `index.ts` exports both. The first
-groups are `members`, `tasks` and `attachments`. `mcp/tools.ts` collects the definitions
+groups are `members`, `tasks`, `attachments` and `feedback`. `mcp/tools.ts` collects the definitions
 in `TEAM_TOOL_GROUPS`; `domain/team-tools.ts` collects the handlers through
 `TeamToolsService` forwarding methods. New tools belong in their module's group and
 handler, never in either collector. The tools not moved yet move with their own
@@ -701,9 +701,10 @@ before touching or writing Effect code.
   and approvals); members and profiles; sessions; admission (`admission/`: checks, deferred
   starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
   messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
-  file storage, content check, file names); feedback marks (`feedback/`: the service, the
-  screenshot store, the widget service with the tool's sessions and limits; PM-506, PM-509); inbox; invitations; the board; GitHub
+  file storage, content check, file names); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler collector (unmoved handlers remain here); domain events.
+- `services/` — feedback marks (`feedback/`: the service, screenshot store, processor notices,
+  and widget service with the tool's sessions and limits; PM-506, PM-509, PM-608).
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
 
@@ -1139,7 +1140,7 @@ workers follow the machine's size.
   **Module:** `scripts`
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
-  `apps/server/src/domain/feedback/{service,screenshots}.ts`, `apps/server/src/api/feedback.ts`,
+  `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
   `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family
   `feedback_*` and `PROJECTMAN_HOME/feedback/`. The app side (this card) is cookie authenticated and
   runs on the server; the public entrance for the tool on customer pages (a later card) will be an
@@ -1150,8 +1151,8 @@ workers follow the machine's size.
   database, the screenshot files and the public entrance. **Remote engine:** everything runs on the
   server; an engine needs nothing from it and receives a mark's screenshot only as the card's
   attachment, over the existing attachment transfer. The processing (PM-512) runs on the server too: the
-  wake-up message to the project manager (`domain/feedback/notices.ts`) is an ordinary stored team message,
-  and the feedback team tools (`domain/team-tools.ts`, `mcp/tools.ts`) are answered by the server.
+  wake-up message to the project manager (`services/feedback/notices.ts`) is an ordinary stored team message,
+  and the feedback team tools (`mcp/feedback/`) are answered by the server.
   `get_feedback { mark_id }` hands the stored screenshot's absolute path (`FeedbackScreenshotStore.locate`) only
   to a session whose engine is the local one (`getFeedbackMark`); a session on a remote engine gets none
   and reads the image as the card's attachment (`read_attachment`, PM-315) after
@@ -1159,7 +1160,7 @@ workers follow the machine's size.
   with the other data (`HYBRID_CLOUD_ENTRIES`) and the public entrance belongs to the cloud server.
 
   **The public widget API (PM-509)** — `apps/server/src/api/feedback-widget.ts`,
-  `apps/server/src/domain/feedback/widget.ts`, routes `routes.feedbackWidgetScript()`
+  `apps/server/src/services/feedback/widget.ts`, routes `routes.feedbackWidgetScript()`
   (`/feedback/widget.js`) and `routes.feedbackWidgetApi()` (`/feedback/api/v1`). Outside `/api`, so
   its own guard applies: an `onRequest` hook checks the `Origin` (the address of some project's
   surface, else 403 `feedback_origin_not_allowed`), answers the CORS preflight (no credentials,

@@ -632,6 +632,16 @@ The merge service supplies the facts for “done only after merging”; the rule
 decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
 stays in `packages/shared` and is applied by task moves.
 
+The inbox's `registerDecider(key, decide)` supplies merge, release, hand-on and Operator
+approval decisions; handlers that own the item close it themselves. `registerQuestionAnswer`
+supplies question delivery, and `registerAskerStarts` supplies visible asker-start previews.
+Messaging's `registerWaker` supplies recipient wake-ups, `registerSignals` records Operator
+signal presentations and decisions, and `registerCardHold(reason, hold)` supplies card-level
+fix-limit and full-test holds while messaging decides which recipients wait (PM-593).
+The awaited `task_review_round` event announces an assignee's action message about an open
+card before recording it; its assembly listener queues the pinned commit's full test before
+recipients get the message.
+
 #### Team tools and routes by module (PM-592)
 
 A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,

@@ -53,7 +53,6 @@ import type { DomainContext } from './context';
 import { engineIdOf } from './engines';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
-import type { MessageStarts } from './admission';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from './session-policy';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
@@ -139,6 +138,32 @@ export interface Resolver {
   access: HumanAccess;
 }
 
+/** Who decides an inbox item another module owns (PM-593). Operator approvals are recognized by operatorApprovalOf. */
+export type InboxDeciderKey = 'merge_request' | 'release' | 'hand_on' | 'operator_approval';
+/** Merge, release and hand-on handlers close their item in their transaction; refusals leave it open.
+ * The inbox closes operator approvals after their handler returns. */
+export type InboxDecider = (
+  item: InboxItem,
+  by: Resolver,
+  optionId: string,
+  note: string | null,
+) => void | Promise<void>;
+/** Answers an AI member's question. */
+export type QuestionAnswerer = (
+  item: InboxItem,
+  attachmentIds: readonly string[],
+  close: () => InboxItem,
+) => Promise<InboxItem | null>;
+/** The start of an AI asker that the visible inbox shows. */
+export interface AskerStarts {
+  answerWorkItem(item: InboxItem): Promise<WorkItemRef>;
+  waitingReason(
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+  ): Promise<TaskStartWaiting['reason'] | null>;
+}
+
 /** One-line summary of a tool call for humans, e.g. the Bash command or the edited file. */
 function summarizeToolInput(input: unknown, sessionCwd?: string | null): string {
   const obj = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
@@ -191,33 +216,23 @@ export class InboxService {
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
-  private mergeStart?: (item: InboxItem, by: Resolver) => Promise<void>;
-  private questionAnswer?: (
-    item: InboxItem,
-    attachmentIds: readonly string[],
-    close: () => InboxItem,
-  ) => Promise<InboxItem | null>;
+  private readonly deciders = new Map<InboxDeciderKey, InboxDecider>();
+  private questionAnswer?: QuestionAnswerer;
 
-  useQuestionAnswer(answer: NonNullable<InboxService['questionAnswer']>): void {
+  registerQuestionAnswer(answer: QuestionAnswerer): void {
     this.questionAnswer = answer;
   }
 
-  private messageStarts?: Pick<MessageStarts, 'waitingReason'>;
-  private answerWorkItem?: (item: InboxItem) => Promise<WorkItemRef>;
+  private askerStarts?: AskerStarts;
 
-  useMessageStarts(
-    starts: Pick<MessageStarts, 'waitingReason'>,
-    answerWorkItem: (item: InboxItem) => Promise<WorkItemRef>,
-  ): void {
-    this.messageStarts = starts;
-    this.answerWorkItem = answerWorkItem;
+  registerAskerStarts(starts: AskerStarts): void {
+    this.askerStarts = starts;
   }
 
   /** Enrich only visible HTTP results; previews are never stored or sent through websocket events. */
   async withAskerStart(projectKey: string, items: InboxItem[]): Promise<InboxItem[]> {
-    const starts = this.messageStarts;
-    const answerWorkItem = this.answerWorkItem;
-    if (!starts || !answerWorkItem) return items;
+    const starts = this.askerStarts;
+    if (!starts) return items;
     const checks = new Map<string, Promise<TaskStartWaiting['reason'] | null>>();
     return Promise.all(
       items.map(async (item) => {
@@ -225,7 +240,7 @@ export class InboxService {
         try {
           const config = await this.projects.config(projectKey);
           if (memberOf(config, item.source)?.kind !== 'ai') return item;
-          const workItem = await answerWorkItem(item);
+          const workItem = await starts.answerWorkItem(item);
           const key = JSON.stringify([item.source, workItem]);
           let check = checks.get(key);
           if (!check) {
@@ -241,23 +256,15 @@ export class InboxService {
     );
   }
 
-  useMergeStart(start: (item: InboxItem, by: Resolver) => Promise<void>): void {
-    this.mergeStart = start;
+  /** A later registration for the same key replaces the earlier one. */
+  registerDecider(key: InboxDeciderKey, decide: InboxDecider): void {
+    this.deciders.set(key, decide);
   }
 
   resolveMergeRequest(id: string, by: string): void {
     const at = isoNow(this.ctx);
     const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'merge', by, at, note: null }, at);
     if (item) this.publish(item);
-  }
-
-  private releaseDecision?: (item: InboxItem, by: Resolver, optionId: string, note: string | null) => void;
-
-  /** The release service (PM-491) decides a release approval item; it closes the item itself, in its transaction. */
-  useReleaseDecision(
-    decide: (item: InboxItem, by: Resolver, optionId: string, note: string | null) => void,
-  ): void {
-    this.releaseDecision = decide;
   }
 
   /** Close a release approval item as part of the transaction that decided its release. */
@@ -267,13 +274,7 @@ export class InboxService {
     if (item) this.publish(item);
   }
 
-  private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
   private readonly resolutionLocks = new KeyedMutex();
-  private operatorDecision?: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>;
-
-  useOperatorDecision(decide: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>): void {
-    this.operatorDecision = decide;
-  }
 
   staleOperator(id: string, payload: Record<string, unknown>): void {
     const updated = this.ctx.repos.inbox.updateOperator(
@@ -283,10 +284,6 @@ export class InboxService {
       isoNow(this.ctx),
     );
     if (updated) this.publish(updated);
-  }
-
-  useHandOnMove(move: (item: InboxItem, by: Resolver) => Promise<void>): void {
-    this.handOnMove = move;
   }
 
   /** Close a hand-on item as part of the transaction that actually moved its card. */
@@ -489,33 +486,36 @@ export class InboxService {
     if (item.kind === 'question' && req.optionId === TODO_CANNOT_OPTION.id && !note)
       throw invalid('todo_reason_required', 'say why the task cannot be done');
     if (item.kind === 'merge_request') {
-      if (!this.mergeStart) throw conflict('inbox_item_closed', 'the merge request is no longer available');
-      await this.mergeStart(item, by);
+      const decide = this.deciders.get('merge_request');
+      if (!decide) throw conflict('inbox_item_closed', 'the merge request is no longer available');
+      await decide(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     }
     if (item.kind === 'release') {
-      if (!this.releaseDecision)
-        throw conflict('inbox_item_closed', 'the release approval is no longer available');
+      const decide = this.deciders.get('release');
+      if (!decide) throw conflict('inbox_item_closed', 'the release approval is no longer available');
       // The decision closes the item in its own transaction; a refused one leaves it open.
-      this.releaseDecision(item, by, req.optionId, note);
+      await decide(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     }
     if (item.kind === 'hand_on') {
-      if (!handOnRequestOf(item) || !this.handOnMove)
+      const decide = this.deciders.get('hand_on');
+      if (!handOnRequestOf(item) || !decide)
         throw conflict('inbox_item_closed', 'the hand-on request is no longer available');
       // The move closes the item in its own transaction; a refused move leaves it open.
-      await this.handOnMove(item, by);
+      await decide(item, by, req.optionId, note);
       const resolved = this.get(projectKey, id);
       await this.ctx.events.emit('inbox_resolved', resolved);
       return resolved;
     }
     if (operator) {
-      if (!this.operatorDecision) throw forbidden('operator_never', 'Operator decisions are unavailable');
-      await this.operatorDecision(item, by, req.optionId);
+      const decide = this.deciders.get('operator_approval');
+      if (!decide) throw forbidden('operator_never', 'Operator decisions are unavailable');
+      await decide(item, by, req.optionId, note);
     }
     const at = isoNow(this.ctx);
     const resolution = {

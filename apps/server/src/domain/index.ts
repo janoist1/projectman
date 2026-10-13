@@ -769,13 +769,17 @@ export function createDomain(opts: DomainOptions) {
     delivery,
     starts: taskStarts,
   });
-  messaging.useFixLimit(fixLimit);
+  messaging.registerCardHold('fix_limit', { holds: (task, config) => fixLimit.heldFor(task, config) });
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
   const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
   const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
-  messaging.useMessageStarts(messageStarts);
-  inbox.useMessageStarts(messageStarts, (item) => messaging.answerWorkItem(item));
+  messaging.registerWaker(messageStarts);
+  inbox.registerAskerStarts({
+    answerWorkItem: (item) => messaging.answerWorkItem(item),
+    waitingReason: (projectKey, handle, workItem) =>
+      messageStarts.waitingReason(projectKey, handle, workItem),
+  });
   sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
     messageStarts.resumeAfter(session, stageId, after),
   );
@@ -853,7 +857,13 @@ export function createDomain(opts: DomainOptions) {
     engines,
     released: () => retryDeferredStarts(),
   });
-  messaging.useFullTests(fullTests);
+  // Queue the pinned commit's full test before reviewers receive the new round's message (PM-217).
+  events.on('task_review_round', ({ projectKey, taskKey }) =>
+    fullTests.sync(projectKey, taskKey).catch((err: unknown) => {
+      opts.logger.warn({ err, taskKey }, 'could not queue the full test of the new round');
+    }),
+  );
+  messaging.registerCardHold('full_test', fullTests);
   const merges = new Merges({
     cards: mergeCards,
     ctx,
@@ -870,7 +880,7 @@ export function createDomain(opts: DomainOptions) {
   });
   const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
   merges.useDocWrites(docWrites);
-  inbox.useMergeStart(async (item, by) => {
+  inbox.registerDecider('merge_request', async (item, by) => {
     if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
   });
   const releases = new ReleaseService({
@@ -886,7 +896,7 @@ export function createDomain(opts: DomainOptions) {
     // The instance's own repository is on the machine the server runs on.
     engineId: () => LOCAL_ENGINE_ID,
   });
-  inbox.useReleaseDecision((item, by, optionId, note) => releases.decide(item, by, optionId, note));
+  inbox.registerDecider('release', (item, by, optionId, note) => releases.decide(item, by, optionId, note));
   const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
   events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
   // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
@@ -954,7 +964,7 @@ export function createDomain(opts: DomainOptions) {
     activeOutageIds: (projectKey) => outages.activeIds(projectKey),
     releases,
   });
-  messaging.useOperatorSignals(operatorSignals);
+  messaging.registerSignals(operatorSignals);
   const questionScreening = new QuestionScreening({
     ctx,
     projects,
@@ -1033,7 +1043,9 @@ export function createDomain(opts: DomainOptions) {
   const operatorActions = new OperatorActions(operatorDeps);
   const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
   operatorActions.useApprovals(operatorApprovals);
-  inbox.useOperatorDecision((item, by, optionId) => operatorApprovals.apply(item, by, optionId));
+  inbox.registerDecider('operator_approval', (item, by, optionId) =>
+    operatorApprovals.apply(item, by, optionId),
+  );
   const recheckOperatorApprovals = ({ projectKey }: { projectKey: string }): void => {
     if (!operatorApprovals.hasPending(projectKey)) return;
     background.run(
@@ -1309,7 +1321,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
-  inbox.useQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
+  inbox.registerQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   // The card's other workers learn what was answered, so they do not ask it again (PM-249).
   events.on('inbox_resolved', (item) =>
     item.kind === 'question' ? messaging.answeredNotice(item) : undefined,

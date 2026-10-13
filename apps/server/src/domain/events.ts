@@ -41,6 +41,9 @@ export interface DomainEventMap {
   release_proposed: { release: Release };
   /** A task entered another stage (after the change committed). */
   task_stage_changed: StageChange;
+  /** A card's assignee requested a new round on the open card (PM-138). Emitted and awaited before
+   * recording the message, so listeners queue the pinned commit's full test before recipients get it. */
+  task_review_round: { projectKey: string; taskKey: string; from: string };
   /** An operation put relations on cards (PM-421), after it committed; both cards of each, from their own side. */
   task_relations_added: { projectKey: string; actor: Actor; added: AddedRelation[] };
   /** A task's assignee changed (PM-262), after the change committed. `previous` is the one it had. */

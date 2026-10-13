@@ -199,7 +199,7 @@ describe('the Operator learns what became of its message (PM-543)', () => {
     await setup();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
-    h.domain.messaging.useMessageStarts(
+    h.domain.messaging.registerWaker(
       {
         wake: async (projectKey, handle, workItem) => {
           await gate;
@@ -240,7 +240,7 @@ describe('another sender is not slowed by the start (PM-543)', () => {
     const waiting: string[] = [];
     h.domain.ctx.events.on('message_waiting', (e) => void waiting.push(e.handle));
     let calls = 0;
-    h.domain.messaging.useMessageStarts({
+    h.domain.messaging.registerWaker({
       wake: async () => {
         calls++;
         return { state: 'starting' };

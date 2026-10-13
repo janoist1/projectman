@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { conflict } from '../src/domain/errors';
 import type { MergeGate } from '../src/domain/tasks';
+import type { InboxDecider } from '../src/domain/inbox';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 
@@ -86,5 +87,125 @@ describe('TaskService.registerMergeGate', () => {
 
     expect(gate.cancel).toHaveBeenCalledExactlyOnceWith('AR', 'AR-1', expect.any(Array));
     expect(h.domain.tasks.get('AR', 'AR-1').status).toBe('cancelled');
+  });
+});
+
+describe('inbox and messaging extension points', () => {
+  let h: DomainHarness;
+  const resolver = { handle: 'owner', access: 'owner' } as const;
+
+  beforeEach(async () => {
+    h = await createDomainHarness();
+    vi.spyOn(h.domain.autoAdvance, 'check').mockResolvedValue(undefined);
+    await h.domain.tasks.create('AR', { title: 'Card with extension points' }, OWNER_ACTOR);
+    const task = h.domain.tasks.get('AR', 'AR-1');
+    h.repos.tasks.update(task.id, { stageId: 'code_review', assignee: 'dev-1' });
+  });
+  afterEach(() => h.cleanup());
+
+  function mergeRequest() {
+    return h.domain.inbox.create({
+      projectKey: 'AR',
+      taskKey: 'AR-1',
+      kind: 'merge_request',
+      assignees: ['owner'],
+      source: 'dev-1',
+      title: 'Merge request',
+      payload: {},
+      options: [{ id: 'merge', label: 'merge', style: 'primary' }],
+    });
+  }
+
+  it('passes decision arguments, propagates refusal and leaves the item open', async () => {
+    const item = mergeRequest();
+    const error = conflict('task_not_merged', 'The registered decider refused');
+    const decide = vi.fn<InboxDecider>(async () => {
+      throw error;
+    });
+    h.domain.inbox.registerDecider('merge_request', decide);
+
+    await expect(
+      h.domain.inbox.resolve('AR', item.id, { optionId: 'merge', note: '  Ready  ' }, resolver),
+    ).rejects.toBe(error);
+
+    expect(decide).toHaveBeenCalledExactlyOnceWith(item, resolver, 'merge', 'Ready');
+    expect(h.domain.inbox.get('AR', item.id).state).toBe('open');
+  });
+
+  it('replaces the decider registered for the same key', async () => {
+    const item = mergeRequest();
+    const first = vi.fn<InboxDecider>();
+    const second = vi.fn<InboxDecider>((item, by) => h.domain.inbox.resolveMergeRequest(item.id, by.handle));
+    h.domain.inbox.registerDecider('merge_request', first);
+    h.domain.inbox.registerDecider('merge_request', second);
+
+    const result = await h.domain.inbox.resolve('AR', item.id, { optionId: 'merge' }, resolver);
+
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledExactlyOnceWith(item, resolver, 'merge', null);
+    expect(result.state).toBe('resolved');
+  });
+
+  it('holds a reviewer and replaces the full-test hold on re-registration', async () => {
+    h.domain.messaging.registerCardHold('full_test', { holds: () => true });
+    const held = await h.domain.messaging.sendReporting(
+      'AR',
+      'dev-2',
+      {
+        to: ['cr'],
+        taskKey: 'AR-1',
+        text: 'Held review',
+      },
+      { kind: 'info' },
+    );
+    expect(held.recipients[0]?.hold).toBe('full_test');
+
+    h.domain.messaging.registerCardHold('full_test', { holds: () => false });
+    const released = await h.domain.messaging.sendReporting(
+      'AR',
+      'dev-2',
+      {
+        to: ['cr'],
+        taskKey: 'AR-1',
+        text: 'Available review',
+      },
+      { kind: 'info' },
+    );
+    expect(released.recipients[0]?.hold).not.toBe('full_test');
+  });
+
+  it('awaits one review-round event before recording the assignee action message', async () => {
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const listener = vi.fn(async () => {
+      expect(h.repos.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(0);
+      await pending;
+      expect(h.repos.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(0);
+    });
+    h.domain.ctx.events.on('task_review_round', listener);
+
+    const sending = h.domain.messaging.sendReporting(
+      'AR',
+      'dev-1',
+      {
+        to: ['cr'],
+        taskKey: 'AR-1',
+        text: 'Review the new round',
+      },
+      { kind: 'action' },
+    );
+    await vi.waitFor(() =>
+      expect(listener).toHaveBeenCalledExactlyOnceWith({
+        projectKey: 'AR',
+        taskKey: 'AR-1',
+        from: 'dev-1',
+      }),
+    );
+    expect(h.repos.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(0);
+    release();
+    const { message } = await sending;
+    expect(h.repos.messages.list('AR', { taskKey: 'AR-1' }).map((stored) => stored.id)).toEqual([message.id]);
   });
 });

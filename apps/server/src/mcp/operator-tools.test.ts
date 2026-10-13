@@ -159,6 +159,31 @@ describe('Operator MCP tools', () => {
     expect(tool.inputSchema.safeParse({ task_key: 'invalid' }).success).toBe(false);
   });
 
+  it('passes the signal id of start_task and start_member only when it is given (PM-545)', async () => {
+    const task = TEAM_TOOLS.find((t) => t.name === 'start_task')!;
+    const member = TEAM_TOOLS.find((t) => t.name === 'start_member')!;
+    const handler = createFakeTeamToolsHandler();
+    await task.run({
+      ctx: devContext,
+      args: task.inputSchema.parse({ task_key: 'AR-1', signal_id: 'ops_1' }),
+      handler,
+    });
+    expect(handler.calls[0]!.args).toEqual({ taskKey: 'AR-1', signalId: 'ops_1' });
+    await member.run({
+      ctx: devContext,
+      args: member.inputSchema.parse({ member: 'dev-1', text: 'Go.', task_key: 'AR-1', signal_id: 'ops_1' }),
+      handler,
+    });
+    expect(handler.calls[1]!.args).toEqual({
+      member: 'dev-1',
+      text: 'Go.',
+      taskKey: 'AR-1',
+      signalId: 'ops_1',
+    });
+    expect(task.inputSchema.safeParse({ task_key: 'AR-1', signal_id: '' }).success).toBe(false);
+    expect(member.inputSchema.safeParse({ member: 'dev-1', text: 'Go.', task_key: 'x' }).success).toBe(false);
+  });
+
   it('validates start_member and reports the member delivery in one line', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'start_member')!;
     expect(tool.annotations.readOnlyHint).toBe(false);

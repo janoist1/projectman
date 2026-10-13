@@ -1,5 +1,6 @@
 import {
   isOnLeave,
+  OPERATOR_SIGNAL_ROUND_FROM,
   operatorConversationOf,
   operatorOf,
   ownerHandles,
@@ -46,7 +47,11 @@ export class ProjectManagerChannels {
     const readOnly = conversation.type === 'general' && conversation.with !== undefined;
     return {
       ...channel,
-      requests: this.deps.operatorRequests.views(projectKey, readOnly ? [viewer] : ownerHandles(config)),
+      // The owners' channel also lists the rounds of the Operator's own steps on signals (PM-545).
+      requests: this.deps.operatorRequests.views(
+        projectKey,
+        readOnly ? [viewer] : [...ownerHandles(config), OPERATOR_SIGNAL_ROUND_FROM],
+      ),
       readOnly,
       // The system signals are the owners' business (a card key, a subject): a person reading along sees none.
       ...(readOnly ? { signals: [], openSignals: 0 } : this.deps.operatorSignals.channel(projectKey)),

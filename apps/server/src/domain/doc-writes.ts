@@ -187,6 +187,7 @@ export class DocWrites {
         changes: [],
         configVersion: null,
         inboxItemId: null,
+        signalId: null,
         refusal: null,
       });
     });

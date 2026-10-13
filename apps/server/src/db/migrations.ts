@@ -1120,5 +1120,50 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     DROP TABLE operator_signals_old;
     CREATE UNIQUE INDEX operator_signals_open ON operator_signals(project_key, case_key) WHERE resolved_at IS NULL;`,
   },
+  {
+    version: 57,
+    name: 'operator steps on signals',
+    // PM-545: the Operator's own steps on a system signal hang on a request row of source 'signal' (the
+    // CHECK grows, so both tables are rebuilt: the steps first reference the new requests table, then the
+    // old pair goes) and carry the signal's id; a signal remembers when to be looked at again.
+    sql: `CREATE TABLE operator_requests_next (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      source TEXT NOT NULL CHECK (source IN ('message', 'answer', 'signal')),
+      message_id TEXT,
+      inbox_item_id TEXT,
+      from_handle TEXT NOT NULL,
+      quote TEXT NOT NULL,
+      opened_at TEXT NOT NULL,
+      closed_at TEXT
+    );
+    CREATE TABLE operator_steps_next (
+      id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES operator_requests_next(id),
+      at TEXT NOT NULL,
+      action TEXT NOT NULL,
+      status TEXT NOT NULL,
+      task_key TEXT,
+      member TEXT,
+      changes TEXT NOT NULL DEFAULT '[]',
+      config_version TEXT,
+      inbox_item_id TEXT,
+      refusal TEXT,
+      signal_id TEXT
+    );
+    INSERT INTO operator_requests_next SELECT id, project_key, session_id, source, message_id, inbox_item_id, from_handle, quote, opened_at, closed_at FROM operator_requests;
+    INSERT INTO operator_steps_next (id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal)
+      SELECT id, request_id, at, action, status, task_key, member, changes, config_version, inbox_item_id, refusal FROM operator_steps;
+    DROP TABLE operator_steps;
+    DROP TABLE operator_requests;
+    ALTER TABLE operator_requests_next RENAME TO operator_requests;
+    ALTER TABLE operator_steps_next RENAME TO operator_steps;
+    CREATE INDEX operator_requests_project ON operator_requests(project_key, opened_at);
+    CREATE INDEX operator_requests_session ON operator_requests(session_id) WHERE closed_at IS NULL;
+    CREATE INDEX operator_steps_request ON operator_steps(request_id, at);
+    CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;
+    ALTER TABLE operator_signals ADD COLUMN follow_up_at TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

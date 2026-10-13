@@ -16,6 +16,9 @@ import {
   MessageAttachmentId,
   messageRoute,
   needsRepoChoice,
+  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  operatorSignalStepRefusal,
+  operatorWatchOf,
   questionChoices,
   questionApprovalLabel,
   sessionWorkItemOf,
@@ -78,6 +81,7 @@ import type {
 } from '../contracts';
 import { isWithin } from './command-paths';
 import type { DomainContext } from './context';
+import { isoNow } from './context';
 import type { BoundaryService } from './boundary';
 import { QUESTION_LIMIT } from './card-questions';
 import type { CardQuestions } from './card-questions';
@@ -93,6 +97,7 @@ import { ANSWER_OPTION, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
 import type { Messaging } from './messaging';
+import { recipientHasCardRole } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
 import {
   OPERATOR_GUEST_TOOLS,
@@ -276,6 +281,16 @@ interface CallerWithRequest {
   request: ReturnType<OperatorRequests['openFor']>;
   /** The person the Operator talks with when they are not an owner: it reads what they see and answers them (PM-475). */
   guest: GuestView | null;
+  /** The system signal the call acts on (PM-545); with no owner request, `request` is the signal round. */
+  signalId?: string;
+}
+
+/** The Operator's own step on a system signal, as the guard sees it (PM-545). */
+interface SignalStep {
+  signalId: string;
+  tool: 'start_task' | 'start_member';
+  member: string | null;
+  taskKey: string | null;
 }
 
 interface GuestView {
@@ -437,8 +452,8 @@ export class TeamToolsService implements TeamToolsHandler {
     }
     return this.publishing.remoteState(ctx, { taskKey: this.validTaskKey(ctx, args.taskKey) });
   }
-  private readonly operatorRequests: Pick<OperatorRequests, 'openFor'>;
-  private readonly operatorSteps: Pick<OperatorSteps, 'record'>;
+  private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'roundFor' | 'openRound'>;
+  private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
   private readonly operatorActions: OperatorActions;
   private readonly operatorSignals: OperatorSignals;
   private readonly taskStarts: TaskStarts;
@@ -536,9 +551,9 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
     screenshots?: Pick<ScreenshotRuns, 'take' | 'get'>;
     /** The owner's requests to the Operator (PM-463): its writes need an open one. */
-    operatorRequests: Pick<OperatorRequests, 'openFor'>;
+    operatorRequests: Pick<OperatorRequests, 'openFor' | 'roundFor' | 'openRound'>;
     /** The Operator's step log (PM-463). */
-    operatorSteps: Pick<OperatorSteps, 'record'>;
+    operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
     operatorActions: OperatorActions;
     operatorSignals: OperatorSignals;
     taskStarts: TaskStarts;
@@ -686,7 +701,10 @@ export class TeamToolsService implements TeamToolsHandler {
                 actor: aiActor(ctx.member),
                 sessionId: ctx.sessionId,
                 kind: args.kind,
-                operatorRequest: who.request?.id,
+                // The report sits under the round of the own steps on signals when no request is open (PM-545).
+                operatorRequest:
+                  who.request?.id ??
+                  (operator ? this.operatorRequests.roundFor(ctx.sessionId)?.id : undefined),
                 operatorSignals: signal
                   ? ids.map((id) => ({
                       id,
@@ -1945,7 +1963,7 @@ export class TeamToolsService implements TeamToolsHandler {
 
   async startTask(
     ctx: ToolContext,
-    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
   ) {
     const config = await this.projects.config(ctx.projectKey);
     if (!isOperator(memberOf(config, ctx.member)))
@@ -1953,18 +1971,41 @@ export class TeamToolsService implements TeamToolsHandler {
         'forbidden',
         'operator_only: only the Operator may start tasks through this tool.',
       );
-    const caller = await this.callerWithRequest(ctx, 'start_task');
+    const { signalId, ...startArgs } = args;
+    // On a signal the call starts the card's own assignee and nothing else (PM-545).
+    if (signalId !== undefined && (args.assignee !== undefined || args.despitePrerequisites !== undefined))
+      throw new TeamToolError(
+        'invalid',
+        'invalid_request: with signal_id start_task takes no assignee and no despite_prerequisites.',
+      );
+    const caller = await this.callerWithRequest(
+      ctx,
+      'start_task',
+      undefined,
+      signalId !== undefined
+        ? { signalId, tool: 'start_task', member: null, taskKey: args.taskKey }
+        : undefined,
+    );
     return this.recorded<Awaited<ReturnType<TeamToolsHandler['startTask']>>>(
       caller,
       { action: 'task_start', taskKey: args.taskKey, madeMember: (result) => result.hired },
       async () => {
         const operator = memberOf(config, ctx.member)!;
-        const result = await this.taskStarts.start(ctx.projectKey, this.validTaskKey(ctx, args.taskKey), {
-          ...args,
-          startSetters: true,
+        const taskKey = this.validTaskKey(ctx, args.taskKey);
+        const card = signalId !== undefined ? this.tasks.get(ctx.projectKey, taskKey) : null;
+        if (card && !card.assignee)
+          throw new TeamToolError('invalid', 'invalid_request: the card has no assignee to start.');
+        const result = await this.taskStarts.start(ctx.projectKey, taskKey, {
+          ...startArgs,
           actor: aiActor(ctx.member),
           author: { name: operator.displayName, email: `${ctx.member}@projectman.local` },
-          sponsor: caller.request!.fromHandle,
+          ...(card
+            ? {
+                // The assignee as the signal named it; a card that moved on meanwhile is left alone.
+                assignee: card.assignee!,
+                stillWanted: (now: Task) => now.assignee === card.assignee && now.stageId === card.stageId,
+              }
+            : { startSetters: true, sponsor: caller.request!.fromHandle }),
         });
         return {
           task_key: result.task.key,
@@ -1984,18 +2025,37 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
-  async startMember(ctx: ToolContext, args: { member: string; text: string }): Promise<MemberStartResult> {
+  async startMember(
+    ctx: ToolContext,
+    args: { member: string; text: string; taskKey?: string; signalId?: string },
+  ): Promise<MemberStartResult> {
     const config = await this.projects.config(ctx.projectKey);
     if (!isOperator(memberOf(config, ctx.member)))
       throw new TeamToolError(
         'forbidden',
         'operator_only: only the Operator may start members through this tool.',
       );
-    const who = await this.callerWithRequest(ctx, 'start_member');
+    const who = await this.callerWithRequest(
+      ctx,
+      'start_member',
+      undefined,
+      args.signalId !== undefined
+        ? {
+            signalId: args.signalId,
+            tool: 'start_member',
+            member: args.member,
+            taskKey: args.taskKey ?? null,
+          }
+        : undefined,
+    );
     return this.recorded<MemberStartResult>(
       who,
-      { action: 'task_start', taskKey: null, member: args.member },
+      { action: 'task_start', taskKey: args.taskKey ?? null, member: args.member },
       async () => {
+        // The message is the card's: the member needs a role on it (PM-545).
+        const card = args.taskKey
+          ? this.tasks.get(ctx.projectKey, this.validTaskKey(ctx, args.taskKey))
+          : null;
         const member = memberOf(config, args.member);
         if (!member) throw new TeamToolError('not_found', `Unknown team member: ${args.member}.`);
         if (member.kind === 'human')
@@ -2004,11 +2064,16 @@ export class TeamToolsService implements TeamToolsHandler {
             `not_ai_member: ${args.member} is a person; ask them with ask_human.`,
           );
         if (isOperator(member)) throw new TeamToolError('invalid', 'cannot_start_self');
+        if (card && !recipientHasCardRole(this.ctx, config, card, member.handle))
+          throw new TeamToolError(
+            'invalid',
+            `not_card_role: ${member.handle} has no role on ${card.key}; start a member who holds it, or use start_task.`,
+          );
         const { message, recipients } = await this.messaging
           .sendReporting(
             ctx.projectKey,
             ctx.member,
-            { to: [member.handle], text: args.text, taskKey: null },
+            { to: [member.handle], text: args.text, taskKey: card?.key ?? null },
             {
               actor: aiActor(ctx.member),
               sessionId: ctx.sessionId,
@@ -2034,6 +2099,7 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
     tool: string,
     signal?: { ids: string[]; to: string[] },
+    signalStep?: SignalStep,
   ): Promise<CallerWithRequest> {
     const config = await this.projects.config(ctx.projectKey);
     const member = memberOf(config, ctx.member);
@@ -2077,13 +2143,76 @@ export class TeamToolsService implements TeamToolsHandler {
         'forbidden',
         `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
       );
-    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal)
+    if (signalStep && request) {
+      // An open owner request authorizes the call; the signal is only logged with the step.
+      if (this.ctx.repos.operatorSignals.get(signalStep.signalId)?.projectKey !== ctx.projectKey)
+        throw new TeamToolError('invalid', 'invalid_request: unknown signal in this project.');
+      return { config, request, guest: null, signalId: signalStep.signalId };
+    }
+    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal) {
+      if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
       throw new TeamToolError(
         'forbidden',
         `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
           "There is none (its round is over or it timed out); wait for the owner's next message.",
       );
+    }
     return { config, request, guest: null };
+  }
+
+  /**
+   * The Operator's own step on a system signal without an owner's request (PM-545): the project's level,
+   * the signal's targets and the signal's budget of steps decide; a refusal is no step. The step then hangs
+   * on the session's signal round.
+   */
+  private async signalStepCaller(
+    ctx: ToolContext,
+    config: ProjectConfig,
+    step: SignalStep,
+  ): Promise<CallerWithRequest> {
+    const level = operatorWatchOf(config);
+    const refuse: (code: string, text: string) => never = (code, text) => {
+      throw new TeamToolError('forbidden', `${code}: ${text}`);
+    };
+    const noRequest = `${step.tool} writes, and the Operator writes only for an open request of an owner`;
+    if (level === 'report')
+      refuse('operator_no_request', `${noRequest}; this project lets it only report signals.`);
+    const { signal, allowed } = await this.operatorSignals
+      .stepTargets(ctx.projectKey, step.signalId)
+      .catch((err: unknown) => {
+        if (err instanceof DomainError) throw new TeamToolError('invalid', `${err.code}: ${err.message}`);
+        throw err;
+      });
+    const refusal = operatorSignalStepRefusal({
+      level,
+      kind: signal.kind,
+      tool: step.tool,
+      target: { member: step.member, taskKey: step.taskKey },
+      allowed,
+      stepsAt: this.operatorSteps
+        .ofSignal(signal.id)
+        .filter((s) => s.status !== 'refused')
+        .map((s) => s.at),
+      now: isoNow(this.ctx),
+    });
+    if (refusal?.code === 'operator_no_request')
+      refuse(
+        'operator_no_request',
+        `${noRequest}. At level ${level} a ${signal.kind} signal does not allow this call (${refusal.reason}).`,
+      );
+    if (refusal)
+      refuse(
+        'operator_signal_budget',
+        refusal.reason === 'used'
+          ? 'this signal has no step left; tell the owner what you did and what became of it.'
+          : `the last step on this signal was less than ${OPERATOR_SIGNAL_STEP_GAP_MINUTES} minutes ago; retry after ${refusal.retryAt}.`,
+      );
+    return {
+      config,
+      request: this.operatorRequests.openRound(ctx.projectKey, ctx.sessionId),
+      guest: null,
+      signalId: signal.id,
+    };
   }
 
   /**
@@ -2125,7 +2254,7 @@ export class TeamToolsService implements TeamToolsHandler {
    * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
    */
   private async recorded<T>(
-    { config, request }: CallerWithRequest,
+    { config, request, signalId }: CallerWithRequest,
     step: {
       action: OperatorAction;
       taskKey?: string | null;
@@ -2143,6 +2272,7 @@ export class TeamToolsService implements TeamToolsHandler {
       action: step.action,
       taskKey: step.taskKey && TaskKey.safeParse(step.taskKey).success ? step.taskKey : null,
       member: step.member && memberOf(config, step.member) ? step.member : null,
+      ...(signalId ? { signalId } : {}),
     };
     let result: T;
     try {
@@ -2162,6 +2292,8 @@ export class TeamToolsService implements TeamToolsHandler {
       ...(step.madeMember ? { member: step.madeMember(result) } : {}),
       status: 'done',
     });
+    // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
+    if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);
     return result;
   }
 

@@ -6,7 +6,7 @@ import {
   quoteOf,
   sessionWorkItemOf,
 } from '@projectman/shared';
-import type { Actor, Session, Task, WorkItemRef } from '@projectman/shared';
+import type { Actor, Session, Task, TaskStartWaiting, WorkItemRef } from '@projectman/shared';
 import type { WakeStart } from '../../contracts';
 import { encodeWorkItem } from '../../db';
 import { requireAiMember } from '../access';
@@ -24,7 +24,8 @@ import type { AutomaticStart, StartSpec } from './deferred-starts';
 /**
  * Sessions that messages need: a member's general chat a person opens, and the wake-up of an
  * AI recipient of waiting messages. Both pass admission; a refused wake-up waits and is
- * retried while its messages wait (they stay in SQLite) and its task stays in that stage.
+ * retried while its messages wait (they stay in SQLite). Answers and forwarded questions follow
+ * their open card across stage changes; ordinary messages expire when the stage changes.
  */
 export class MessageStarts {
   private readonly ctx: import('../context').DomainContext;
@@ -110,11 +111,55 @@ export class MessageStarts {
     const start = this.startFor(projectKey, handle, workItem);
     try {
       const outcome = await this.admission.attempt(start);
+      if (outcome.kind === 'deferred') {
+        for (const message of this.messages.waiting(projectKey, handle, workItem))
+          this.messages.recordAnswerDelivery(message, handle, {
+            state: 'waiting',
+            reason: outcome.waiting.reason,
+            since: outcome.waiting.since,
+          });
+      }
       if (outcome.kind === 'done') this.failures.delete(start.key);
       return outcome;
     } catch (err) {
       this.failures.set(start.key, { code: errorCodeOf(err), at: isoNow(this.ctx) });
       throw err;
+    }
+  }
+
+  /** Admission preview for an answer's recipient, without starting or deferring work. */
+  async waitingReason(
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+  ): Promise<TaskStartWaiting['reason'] | null> {
+    const config = await this.projects.config(projectKey);
+    const member = memberOf(config, handle);
+    if (member?.kind !== 'ai') return null;
+    workItem = sessionWorkItemOf(member, workItem);
+    const session = this.ctx.repos.sessions.findByWorkItem(projectKey, handle, workItem);
+    const running = session && LIVE_SESSION_STATES.includes(session.state);
+    try {
+      await this.admission.check({
+        config,
+        member,
+        workItem,
+        ...(isOperator(member) && !(workItem.type === 'general' && workItem.with) ? { capacity: false } : {}),
+      });
+      return null;
+    } catch (err) {
+      const code = errorCodeOf(err);
+      // Typing into a live session bypasses start admission, but still waits for provider cooldowns.
+      if (running && code !== 'provider_rate_limited') return null;
+      const reasons = [
+        'member_on_leave',
+        'plan_usage_paused',
+        'provider_rate_limited',
+        'member_at_capacity',
+        'ai_limit_reached',
+        'team_paused',
+      ] as const;
+      return reasons.find((reason) => reason === code) ?? null;
     }
   }
 
@@ -215,8 +260,12 @@ export class MessageStarts {
     const config = this.projects.cachedConfig(projectKey);
     workItem = sessionWorkItemOf(config ? memberOf(config, handle) : undefined, workItem);
     const taskKey = workItem.type === 'task' ? workItem.taskKey : null;
-    /** The task's stage when the wake-up was tried: a move makes a waiting wake-up obsolete. */
+    /** Ordinary messages expire on a move; answers and forwarded questions survive it. */
     let triedIn = stageId;
+    const survivesMove = () =>
+      this.messages
+        .waiting(projectKey, handle, workItem)
+        .some((m) => m.origin?.kind === 'answer' || m.origin?.kind === 'question_forward');
     return {
       key: this.wakeKey(projectKey, handle, workItem),
       projectKey,
@@ -224,6 +273,7 @@ export class MessageStarts {
       spec: () => ({ kind: 'message_wake', projectKey, handle, workItem, stageId: triedIn ?? null }),
       stillValid: (task) => {
         const config = this.projects.cachedConfig(projectKey);
+        if (task && isOpenTask(task) && survivesMove()) triedIn = task.stageId;
         return (
           !!config &&
           (task ? isOpenTask(task) && task.stageId === triedIn : taskKey === null) &&
@@ -247,6 +297,7 @@ export class MessageStarts {
         if (member?.kind !== 'ai') return;
         const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
         if (task && !isOpenTask(task)) return;
+        if (task && triedIn !== undefined && task.stageId !== triedIn && !survivesMove()) return;
         triedIn = task?.stageId;
         const waiting = this.messages.waiting(projectKey, handle, workItem);
         const first = waiting.find((message) => this.messages.wakes(config, message, handle));

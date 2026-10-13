@@ -41,6 +41,9 @@ export const queryKeys = {
   /** Prefix of every session detail query of a project. */
   sessionDetails: (key: string) => ['project', key, 'session'] as const,
   inbox: (key: string) => ['project', key, 'inbox'] as const,
+  /** The Operator's screened questions of a day (PM-561); `since` is the start of the viewer's day. */
+  screenedQuestions: (key: string, since: string) => ['project', key, 'inbox-screened', since] as const,
+  screenedQuestionsAll: (key: string) => ['project', key, 'inbox-screened'] as const,
   /** The project's message feed; also the prefix of the thread and unread queries below. */
   messages: (key: string) => ['project', key, 'messages'] as const,
   messageThread: (key: string, handle: string) => ['project', key, 'messages', 'thread', handle] as const,

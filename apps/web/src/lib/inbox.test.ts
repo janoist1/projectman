@@ -4,16 +4,26 @@ import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
 import {
   alertText,
+  answerDeliveryText,
   approvalHintOf,
+  askerStartNote,
+  askerStartToast,
+  closedBySomeoneElse,
   decisionSubject,
+  displayKindOf,
   gateThenMergeText,
   inboxHeading,
+  isRecentDecision,
+  operatorTrailMark,
+  operatorTrailNote,
   questionExtras,
   resolutionLabel,
+  resolutionMark,
   resolverName,
   resolutionNote,
   shortCommand,
   splitQuestion,
+  todoRows,
 } from './inbox';
 
 const item: InboxItem = {
@@ -54,11 +64,125 @@ it('says why a question was closed without an answer, although its state is canc
   });
   for (const rule of QuestionCloseRule.options) {
     expect(resolutionLabel(closed(rule))).toBe(t(`inbox.resolutions.${rule}`));
-    expect(resolverName(closed(rule), new Map(), 'owner')).toBe(t(`inbox.resolutionRules.${rule}`));
   }
+  // Nobody answered: a rule of the card closed it by itself, or the member who left it is named.
+  expect(resolverName(closed('task_done'), new Map(), 'owner')).toBe(t('inbox.closedBySystem'));
+  expect(resolverName(closed('task_cancelled'), new Map(), 'owner')).toBe(t('inbox.closedBySystem'));
+  const byMember = {
+    ...closed('handed_off'),
+    resolution: { ...closed('handed_off').resolution!, by: 'dev-1' },
+  };
+  expect(resolverName(byMember, new Map(), 'owner')).not.toBe(t('inbox.closedBySystem'));
   expect(resolutionLabel({ ...closed('task_done'), resolution: null })).toBe(
     t('inbox.resolutions.cancelled'),
   );
+});
+
+describe('the screened question helpers (PM-561)', () => {
+  const asked = (payload: Record<string, unknown>, overrides: Partial<InboxItem> = {}): InboxItem => ({
+    ...item,
+    kind: 'question',
+    state: 'open',
+    resolution: null,
+    payload: { question: 'Which font?', ...payload },
+    ...overrides,
+  });
+  const screened = (screening: Record<string, unknown>, overrides: Partial<InboxItem> = {}) =>
+    asked({ screening: { until: '2026-09-30T10:10:00.000Z', ...screening } }, overrides);
+  const todoItem = screened({ outcome: 'todo', todo: { what: 'Run it', where: ' ', expected: 'No errors' } });
+
+  it('makes only an open todo a kind of its own', () => {
+    expect(displayKindOf(todoItem)).toBe('todo');
+    expect(displayKindOf({ ...todoItem, state: 'resolved' })).toBe('question');
+    expect(displayKindOf(asked({}))).toBe('question');
+    expect(todoRows(todoItem).map((row) => row.value)).toEqual(['Run it', 'No errors']);
+  });
+
+  it('marks a closed question by what happened to it', () => {
+    const resolved = (optionId: string, extra: Partial<NonNullable<InboxItem['resolution']>> = {}) =>
+      asked(
+        {},
+        {
+          state: 'resolved',
+          resolution: { optionId, by: 'owner', at: item.createdAt, note: null, ...extra },
+        },
+      );
+    expect(resolutionMark(resolved('answer'))).toBe('ok');
+    expect(resolutionMark(resolved('todo_cannot'))).toBe('no');
+    expect(resolutionMark(resolved('closed', { rule: 'withdrawn' }))).toBe('moot');
+    expect(
+      resolutionMark(
+        asked(
+          { answerDelivery: { state: 'waiting', reason: 'member_on_leave', since: item.createdAt } },
+          {
+            state: 'resolved',
+            resolution: { optionId: 'answer', by: 'owner', at: item.createdAt, note: 'x' },
+          },
+        ),
+      ),
+    ).toBe('wait');
+  });
+
+  it('keeps what the Operator settled out of the history, unless the question had gone to the people', () => {
+    const closedAs = (
+      rule: NonNullable<InboxItem['resolution']>['rule'],
+      screening: Record<string, unknown>,
+    ) =>
+      screened(screening, {
+        state: 'cancelled',
+        resolution: { optionId: 'closed', by: 'operator', at: item.createdAt, note: null, rule },
+      });
+    expect(isRecentDecision(todoItem)).toBe(false);
+    expect(isRecentDecision(asked({}, { state: 'resolved' }))).toBe(true);
+    expect(isRecentDecision(closedAs('operator_moot', { outcome: 'moot' }))).toBe(false);
+    expect(isRecentDecision(closedAs('operator_moot', { fallback: 'timeout' }))).toBe(true);
+    expect(isRecentDecision(closedAs('operator_answered', { outcome: 'answered' }))).toBe(false);
+    expect(isRecentDecision(closedAs('task_done', {}))).toBe(true);
+  });
+
+  it("tells a question closed by someone else from the viewer's own answer", () => {
+    const resolvedBy = (by: string, rule?: QuestionCloseRule) =>
+      asked(
+        {},
+        {
+          state: rule ? 'cancelled' : 'resolved',
+          resolution: {
+            optionId: rule ? 'closed' : 'answer',
+            by,
+            at: item.createdAt,
+            note: null,
+            ...(rule ? { rule } : {}),
+          },
+        },
+      );
+    expect(closedBySomeoneElse(asked({}), 'owner')).toBe(false);
+    expect(closedBySomeoneElse(resolvedBy('owner'), 'owner')).toBe(false);
+    expect(closedBySomeoneElse(resolvedBy('kata'), 'owner')).toBe(true);
+    expect(closedBySomeoneElse(resolvedBy('system', 'task_done'), 'owner')).toBe(true);
+    expect(closedBySomeoneElse(asked({}, { state: 'screening' }), 'owner')).toBe(false);
+  });
+
+  it('words the wait for the member to start only for a reason that explains it', () => {
+    const members = new Map();
+    const leave = asked({}, { askerStart: { reason: 'member_on_leave' } });
+    expect(askerStartNote(leave, members, 'owner')).toContain(t('inbox.awaitsStart.before.leave'));
+    expect(askerStartToast(leave, members, 'owner')).toContain(t('inbox.awaitsStart.before.leave'));
+    expect(askerStartNote(asked({}), members, 'owner')).toBeNull();
+    const waiting = asked({
+      answerDelivery: { state: 'waiting', reason: 'member_on_leave', since: item.createdAt },
+    });
+    expect(answerDeliveryText(waiting, members, 'owner')).toContain(t('inbox.awaitsStart.after.leave'));
+    expect(answerDeliveryText(asked({}), members, 'owner')).toBeNull();
+  });
+
+  it('marks the Operator trail rows and notes what it held', () => {
+    expect(operatorTrailMark(asked({}, { state: 'screening' }))).toBe('at');
+    expect(operatorTrailMark(screened({ outcome: 'answered' }))).toBe('answered');
+    expect(operatorTrailMark(screened({ outcome: 'forwarded' }))).toBe('forwarded');
+    expect(operatorTrailMark(screened({ outcome: 'moot' }))).toBe('moot');
+    expect(operatorTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }))).toBe('Not needed.');
+    expect(operatorTrailNote(screened({ outcome: 'moot' }))).toBeNull();
+  });
 });
 
 describe('approvalHintOf (PM-484)', () => {

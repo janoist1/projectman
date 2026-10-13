@@ -257,6 +257,9 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
         view ? { items: upsertBy(view.items, item, (entry) => entry.id) } : view,
       );
       patchOpenInboxCount(client, key, inbox);
+      // The Operator's trail follows a question that moves through screening (PM-561).
+      if (item.kind === 'question')
+        void client.invalidateQueries({ queryKey: queryKeys.screenedQuestionsAll(key) });
       return;
     }
     case 'team_message':

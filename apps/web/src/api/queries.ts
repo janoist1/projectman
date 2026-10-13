@@ -590,6 +590,18 @@ export function useInbox(key: string) {
   return useQuery({ queryKey: queryKeys.inbox(key), queryFn: () => api.inbox(key) });
 }
 
+/**
+ * The questions the Operator screened today (PM-561): the trail "Az Operátor intézte". `enabled` is false for
+ * a viewer who may not see it (below admin); `since` is the start of the viewer's day, an ISO time.
+ */
+export function useScreenedQuestions(key: string, since: string, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.screenedQuestions(key, since),
+    queryFn: () => api.screenedQuestions(key, since),
+    enabled,
+  });
+}
+
 export interface ResolveVariables {
   item: InboxItem;
   body: ResolveInboxRequest;

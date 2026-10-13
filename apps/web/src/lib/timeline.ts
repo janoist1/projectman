@@ -841,11 +841,20 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
         ...(str(d.reason) ? { detail: str(d.reason) } : {}),
       };
-    case 'question_asked':
+    case 'question_asked': {
+      // A question the Operator screens first says so; a question asked again says why it skips the screening (PM-556).
+      const unscreened = d.unscreened as { reason?: unknown } | undefined;
+      const key =
+        d.screening === true
+          ? 'timeline.events.question_asked_screening'
+          : unscreened
+            ? 'timeline.events.question_asked_unscreened'
+            : 'timeline.events.question_asked';
       return {
-        text: t('timeline.events.question_asked', { question: str(d.question) }),
+        text: t(key, { question: str(d.question), reason: str(unscreened?.reason) }),
         emphasis: ctx.openInboxIds.has(str(d.inboxItemId)) ? 'needs' : 'normal',
       };
+    }
     case 'question_answered':
       return normal(t('timeline.events.question_answered', { answer: str(d.answer) }));
     case 'question_screened': {
@@ -865,7 +874,15 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         case 'decision':
           return normal(t('timeline.events.question_screened_decision', { note }));
         case 'todo':
-          return normal(t('timeline.events.question_screened_todo', { note }));
+          // Only a todo that was recorded as a missing feature (PM-472) says so.
+          return normal(
+            t(
+              str(d.feedbackId)
+                ? 'timeline.events.question_screened_todo_recorded'
+                : 'timeline.events.question_screened_todo',
+              { note },
+            ),
+          );
         default:
           return normal(t('timeline.events.question_screened_moot', { asker, note }));
       }

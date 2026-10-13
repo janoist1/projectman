@@ -57,7 +57,7 @@ export const hu = {
       provider_resume: 'a szolgáltatói keret újra elérhető',
       pause_resume: 'a szünet véget ért',
       handoff: 'a kártya felelőse változott',
-      question_screening: 'a kérdésére az Operátor válasza vagy továbbadása',
+      question_screening: 'Kérdést szűr',
     },
     stops: {
       assignee_change: 'a felelős módosításához',
@@ -3209,6 +3209,8 @@ export const hu = {
       approval: 'Jóváhagyás',
       alert: 'Figyelmeztetés',
       release: 'Kiadás',
+      // A question the Operator made a todo of (PM-556): a card of its own kind, with a pill.
+      todo: 'Teendő',
     },
     kindsLower: {
       hand_on: 'továbbvitel',
@@ -3220,6 +3222,7 @@ export const hu = {
       approval: 'jóváhagyás',
       alert: 'figyelmeztetés',
       release: 'kiadás',
+      todo: 'teendő',
     },
     options: {
       allow: 'Engedélyezem',
@@ -3239,6 +3242,8 @@ export const hu = {
       move: 'Tovább',
       dismiss: 'Rendben',
       merge: 'Beolvasztás',
+      todo_done: 'Megcsináltam',
+      todo_cannot: 'Nem tudom megcsinálni',
     },
     /** A Senior card that has waited too long for a Senior (PM-348/PM-349): wait on, or any free developer. */
     seniorWait: {
@@ -3518,6 +3523,8 @@ export const hu = {
       assignee_changed: 'Tárgytalan: a kártya új felelőst kapott',
       withdrawn: 'Visszavonta',
       operator_moot: 'Tárgytalan: az Operátor szerint',
+      todo_done: 'Megcsináltad',
+      todo_cannot: 'Nem csinálod meg',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
@@ -3540,6 +3547,81 @@ export const hu = {
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
+    /** The name of the resolver of a question that closed by itself (PM-556). */
+    closedBySystem: 'Magától lezárult',
+    /** The page's two groups, shown when the viewer has both decisions and todos (PM-556). */
+    groups: {
+      decisions: 'Döntés kell',
+      todo: 'Teendő',
+      todoHint: 'Ezt csak ember tudja megcsinálni.',
+    },
+    /** A todo the Operator made out of a question (PM-556): the step box and the result field. */
+    todo: {
+      stepTitle: 'A lépés',
+      what: 'Mit',
+      where: 'Hol',
+      expected: 'Várt eredmény',
+      resultLabel: 'Eredmény',
+      resultOptional: '(nem kötelező)',
+      resultPlaceholder: 'Mi lett? Pl. a kimenet vége…',
+      reasonRequired: 'Írd meg röviden, miért nem.',
+      emptyFilter: 'Ebben nincs teendőd.',
+    },
+    /** What the Operator said about a question that came to the viewer (PM-556). */
+    operatorNote: 'Operátor:',
+    operatorFallback: {
+      timeout: 'Az Operátor nem nézte át: nem válaszolt 10 percen belül.',
+      unavailable: 'Az Operátor nem nézte át: nem volt elérhető.',
+    },
+    rerouted: 'Újra kérdezi, az Operátor szűrése nélkül. Indoka: „{reason}”',
+    /** Why a question closed while the viewer had it open, in the middle of a sentence (PM-556). */
+    closedReasons: {
+      task_done: 'a kártya Kész',
+      task_cancelled: 'a kártya megszakadt',
+      handed_off: 'a kérdező átadta a kártyát',
+      assignee_changed: 'a kártya új felelőst kapott',
+      withdrawn: 'a kérdező visszavonta',
+      operator_moot: 'az Operátor szerint tárgytalan',
+    },
+    /** The card of a question that closed while the viewer was answering it (PM-556). */
+    closedWhileOpen: {
+      withReason: 'Ez a kérdés közben lezárult: {reason}. A válaszod nem ment el.',
+      plain: 'Ez a kérdés közben lezárult. A válaszod nem ment el.',
+      dismiss: 'Rendben',
+    },
+    /** The asker cannot start now, so the viewer's answer waits for the member (PM-556). */
+    awaitsStart: {
+      note: '{name} most {reason}: a válaszod megvárja.',
+      toast: 'Elküldve. {name} {reason}, a válasz megvárja.',
+      waiting: 'A válasz vár {name} indulására: {reason}.',
+      delivered: 'Megkapta {time}.',
+      before: {
+        leave: 'szabadságon van',
+        quota: 'kvótára vár',
+        capacity: 'nem fér be, tele a kapacitása',
+      },
+      after: {
+        leave: 'szabadságon van',
+        quota: 'kvótára vár',
+        capacity: 'tele a kapacitása',
+        other: 'most nem tud indulni',
+      },
+    },
+    /** The folded row of the questions the Operator settled with no person involved (PM-556). */
+    operatorTrail: {
+      title: 'Az Operátor intézte · ma {count}',
+      titleUnknown: 'Az Operátor intézte',
+      lead: 'Ezek nem jutottak el hozzád. Ha valamelyik mégis rád tartozott volna, a kérdező újra kérdezhet.',
+      loading: 'Betöltés…',
+      error: 'Nem sikerült betölteni.',
+      retry: 'Újra',
+      limit: 'A legutóbbi {count} látszik.',
+      answered: 'Megválaszolta',
+      forwarded: 'Továbbadta',
+      moot: 'Tárgytalan',
+      at: 'Operátornál',
+      until: 'Legkésőbb {time}-kor hozzád kerül.',
+    },
     resolvedBy: '{who} · {time}',
     allDone: 'Ebben a szűrésben minden el van intézve.',
     allDoneEverywhere: 'Minden el van intézve.',
@@ -4107,6 +4189,8 @@ export const hu = {
       permission_escalated_timeout: 'A döntnök nem döntött időben, emberi döntésre vár',
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
+      question_asked_screening: 'Kérdés: {question} · az Operátornál',
+      question_asked_unscreened: 'Kérdés újra, az Operátor szűrése nélkül: {question} · indok: {reason}',
       question_answered: 'Válasz: {answer}',
       // The Operator's screening of a question (PM-556); the row names who acted.
       question_screened_answered: 'Megválaszolta {asker} kérdését: „{answer}”',
@@ -4114,6 +4198,7 @@ export const hu = {
       question_screened_moot: 'Tárgytalannak zárta {asker} kérdését: {note}',
       question_screened_decision: 'Döntésként továbbengedte neked: {note}',
       question_screened_todo: 'Teendőként továbbengedte neked: {note}',
+      question_screened_todo_recorded: 'Teendőként továbbengedte neked: {note} Hiányként rögzítette.',
       question_screening_skipped_timeout:
         '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: az Operátor nem válaszolt időben',
       question_screening_skipped_unavailable:

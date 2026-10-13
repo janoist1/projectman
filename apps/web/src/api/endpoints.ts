@@ -32,6 +32,7 @@ import {
   ConfigView,
   InboxView,
   InstancePauseView,
+  ScreenedQuestionsResponse,
   Me,
   MemberView,
   ProjectPauseView,
@@ -298,6 +299,11 @@ export const api = {
 
   /** Every state (the server defaults to open items): resolved ones feed the history lists. */
   inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
+  /** The questions the Operator screened since `since` (an ISO time with an offset); owners and admins only (PM-558). */
+  screenedQuestions: (key: string, since: string) =>
+    apiRequest(`${routes.screenedQuestions(key)}?since=${encodeURIComponent(since)}`, {
+      schema: ScreenedQuestionsResponse,
+    }),
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
   /** "Check now" on an outage alert (PM-466): the server looks again at once; no body. */

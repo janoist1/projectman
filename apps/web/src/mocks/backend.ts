@@ -2390,6 +2390,7 @@ export class MockBackend {
         ),
       });
     }
+    if (rest === '/inbox/screened' && method === 'GET') return this.screenedQuestions(query);
     if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
       this.refreshBoundaryInbox();
       const item = this.inbox.find((i) => i.id === m![1] && i.kind === 'boundary');
@@ -5805,6 +5806,33 @@ export class MockBackend {
     this.settleSeniorWaits();
   }
 
+  /**
+   * The questions the Operator screened (PM-556), for an owner or an admin: those it still holds, and those it
+   * settled itself (answered, forwarded, or found moot) since the given time, newest first, at most 20.
+   */
+  private screenedQuestions(query: URLSearchParams): MockResponse {
+    if (!['owner', 'admin'].includes(this.viewerAccess()))
+      return error(403, 'insufficient_access', 'Only an admin sees what the Operator screened');
+    const since = query.get('since');
+    if (!since || Number.isNaN(Date.parse(since))) return error(400, 'invalid_request', 'Invalid since');
+    const settled = (item: InboxItem): boolean => {
+      if (item.kind !== 'question') return false;
+      const screening = questionPayloadOf(item)?.screening;
+      if (!screening) return false;
+      if (item.state === 'screening') return true;
+      return (
+        screening.outcome === 'answered' ||
+        screening.outcome === 'forwarded' ||
+        item.resolution?.rule === 'operator_moot'
+      );
+    };
+    const timeOf = (item: InboxItem) => item.resolution?.at ?? item.createdAt;
+    const all = this.inbox
+      .filter((item) => settled(item) && Date.parse(timeOf(item)) >= Date.parse(since))
+      .sort((a, b) => timeOf(b).localeCompare(timeOf(a)));
+    return ok({ items: clone(all.slice(0, 20)), today: all.length });
+  }
+
   private resolve(itemId: string, body: unknown): MockResponse {
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
@@ -5855,6 +5883,9 @@ export class MockBackend {
       });
     if (item.kind === 'question' && input.optionId === 'answer' && !note && !attached.length) {
       return error(400, 'answer_required', 'A free-text answer needs a note');
+    }
+    if (item.kind === 'question' && input.optionId === 'todo_cannot' && !note) {
+      return error(400, 'todo_reason_required', 'A todo that cannot be done needs a reason');
     }
     if (item.kind === 'hand_on') {
       // Taking the card on is a move under the gates: refused, the item stays open.

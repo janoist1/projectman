@@ -166,6 +166,11 @@
   --kind-fg: var(--c-kind-question-fg);
   --kind-bg: var(--c-kind-question-bg);
 }
+/* A question the Operator made a todo of (PM-556): something to do, not a warning. */
+[data-kind='todo'] {
+  --kind-fg: var(--c-ok-text);
+  --kind-bg: var(--c-ok-bg);
+}
 [data-kind='hand_on'] {
   --kind-fg: var(--c-needs-text);
   --kind-bg: var(--c-needs-bg);

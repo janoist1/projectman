@@ -744,6 +744,37 @@ describe('the rows of a question the Operator screens (PM-556)', () => {
     );
   });
 
+  it('says when a question goes to the Operator first, and why one skips the screening', () => {
+    const base = { inboxItemId: 'inb_1', question: 'Which font?' };
+    expect(row('question_asked', base)).toBe(
+      t('timeline.events.question_asked', { question: 'Which font?' }),
+    );
+    expect(row('question_asked', { ...base, screening: true })).toBe(
+      t('timeline.events.question_asked_screening', { question: 'Which font?' }),
+    );
+    expect(
+      row('question_asked', {
+        ...base,
+        unscreened: { reason: 'It needs a person', previousItemId: 'inb_0' },
+      }),
+    ).toBe(
+      t('timeline.events.question_asked_unscreened', {
+        question: 'Which font?',
+        reason: 'It needs a person',
+      }),
+    );
+  });
+
+  it('says a todo was recorded as a missing feature only when it was', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'Needs a key.', outcome: 'todo' };
+    expect(row('question_screened', { ...base, feedbackId: 'fb_1' })).toBe(
+      t('timeline.events.question_screened_todo_recorded', { note: base.note }),
+    );
+    expect(row('question_screened', base)).toBe(
+      t('timeline.events.question_screened_todo', { note: base.note }),
+    );
+  });
+
   it('words the fallback, the closing and the answer delivery', () => {
     expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'timeout' })).toBe(
       t('timeline.events.question_screening_skipped_timeout', { asker: 'dev-1' }),

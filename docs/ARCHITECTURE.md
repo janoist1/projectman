@@ -996,6 +996,14 @@ GitHub service (the default engine's `github.*` calls in cloud mode); it is inde
 Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
 as a code-free card. See the machine inventory entry below.
 
+Check dependencies match the merged `package-lock.json` (PM-580). The engine tries the preferred
+source, its repository checkout, then that repository's non-prunable worktrees under `worktreesRoot`
+outside `_merge`, using canonical paths and excluding overlapping checkouts. The first byte-identical
+lockfile with an installation at least as recent as that lockfile supplies `node_modules`; the source
+is checked again after copying. Without a matching installed source, the check never starts and the
+merge blocks with `check_error` and installation instructions. No install command runs. A merged tree
+without a regular root lockfile keeps the preferred-source copy behavior.
+
 `BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
 (PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
 the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
@@ -1489,9 +1497,12 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `cp -c -R`; only Darwin and checkouts on the same APFS volume pass the probe. Missing or
   stale installations are cloned before a task session starts or resumes and before each tool
   via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
-  local lockfile and hidden npm lockfile modification times. Per-worktree serialization and
-  directory backups protect replacements; a server-start lifetime registry restricts targets,
-  failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
+  local lockfile and hidden npm lockfile modification times.
+  The merge check uses the same reference-selection rule via `findDependencyReference` on the engine
+  (`engine-host/branch-merger.ts`, PM-580), selecting against the merged lockfile and blocking with
+  `check_error` before running checks when no installed source matches.
+  Per-worktree serialization and directory backups protect replacements; a server-start lifetime registry
+  restricts targets, failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
   time for preparation (`runner/hook-forwarder.ts`, 120 seconds for Claude and Codex).
   No npm install runs outside a sandbox.
   Target workspace ancestors must be real directories: component-wise `lstat` checks run
@@ -1897,8 +1908,11 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
   with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
   `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
-  `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from a source the engine limit bounds, an
-  APFS clone `cp -c` on macOS), `merge.push` (never forced, `--no-verify`) and `merge.advance` (a
+  `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from an installed checkout with a byte-identical
+  merged lockfile, an APFS clone `cp -c` on macOS; PM-580). The engine tries the bounded preferred source,
+  its repository checkout, then repository worktrees under its root outside `_merge`; it rechecks the
+  source after copying and blocks with `check_error` before checks if none matches. `merge.push`
+  (never forced, `--no-verify`) and `merge.advance` (a
   fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
   Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The

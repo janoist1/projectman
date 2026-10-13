@@ -213,7 +213,8 @@ export interface BranchMerger {
   ): Promise<MergeBuildResult>;
   /** Uncommitted paths of the default branch's checkout that `changed` also touches; [] when it is not checked out. */
   checkoutConflicts(ref: MergeRepoRef, input: { base: string; changed: string[] }): Promise<string[]>;
-  /** A detached worktree of `mergeCommit` for the check, with the dependencies of `depsFrom`. */
+  /** A detached worktree of `mergeCommit` for the check. `depsFrom` is the preferred source;
+   * the engine selects an installed checkout matching the merged lockfile. */
   checkoutForCheck(
     ref: MergeRepoRef,
     input: { mergeId: string; mergeCommit: string; depsFrom: string | null },

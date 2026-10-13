@@ -473,7 +473,7 @@ export class Messaging {
       this.delivery.holdAsWritten(session, message);
       this.delivery.holdForPause(session, message);
     } else if (started && sentAsFirstInput)
-      this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
+      this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput, started.session);
     else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
   }

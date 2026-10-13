@@ -173,6 +173,41 @@ describe('InputQueue', () => {
     expect(queue.hasPending).toBe(false);
   });
 
+  it('enqueueSubmitted resolves only once the CLI reported the prompt', async () => {
+    const { queue } = setup();
+    const settled = vi.fn();
+    void queue.enqueueSubmitted('hello').then(settled);
+    await vi.advanceTimersByTimeAsync(TYPE_MS + timing.enterRetryMs);
+    expect(settled).not.toHaveBeenCalled();
+    queue.submitted();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toHaveBeenCalledTimes(1);
+  });
+
+  it('enqueueSubmitted rejects when the prompt is never reported, and the queue moves on (PM-571)', async () => {
+    const { queue, typed, warn } = setup();
+    const lost = expect(queue.enqueueSubmitted('lost')).rejects.toThrow('did not take the typed message');
+    void queue.enqueue('next');
+    await vi.advanceTimersByTimeAsync(TYPE_MS + timing.submitTimeoutMs);
+    await lost;
+    expect(warn).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    expect(typed().pastes).toEqual(['lost', 'next']);
+  });
+
+  it('enqueueSubmitted resolves a slash command once typed, and rejects when the process is gone', async () => {
+    const command = setup();
+    const done = command.queue.enqueueSubmitted('/compact now');
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    await expect(done).resolves.toBeUndefined();
+
+    const gone = setup();
+    const lost = expect(gone.queue.enqueueSubmitted('hello')).rejects.toThrow('exited before the message');
+    await vi.advanceTimersByTimeAsync(TYPE_MS);
+    gone.queue.close();
+    await lost;
+  });
+
   it('types nothing before a prompt given on the command line is reported, or times out', async () => {
     const { queue, typed } = setup();
     queue.awaitCommandLinePrompt(30_000);

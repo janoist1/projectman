@@ -339,7 +339,7 @@ describe('AgentSession', () => {
     expect(pty.typed()).toEqual({ pastes: ['Build the login page', 'And add a test'], enters: 2 });
   });
 
-  it('reports the first input only once it is typed (PM-189)', async () => {
+  it('reports the first input only once the CLI took it (PM-189, PM-571)', async () => {
     const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
     const sent = () => events.filter((e) => e.type === 'first_input_sent');
     await vi.advanceTimersByTimeAsync(5_000);
@@ -348,7 +348,32 @@ describe('AgentSession', () => {
     await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs - 1);
     expect(sent()).toEqual([]);
     await vi.advanceTimersByTimeAsync(1 + TYPE_MS);
+    // Typed, but the CLI has not reported the prompt yet.
+    expect(sent()).toEqual([]);
+    await hook({ hook_event_name: 'UserPromptSubmit', prompt: 'Build the login page' });
     expect(sent()).toEqual([{ type: 'first_input_sent', sessionId: 'ses_1' }]);
+  });
+
+  it('reports a typed first input the CLI never took as failed, not as sent (PM-571)', async () => {
+    const { events, hook } = start({ spec: { initialMessage: 'Build the login page' } });
+    await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(
+      CLAUDE_TIMING.readySettleMs + TYPE_MS + CLAUDE_TIMING.submitTimeoutMs + CLAUDE_TIMING.enterRetryMs,
+    );
+    expect(events.filter((e) => e.type === 'first_input_sent')).toEqual([]);
+    expect(events.filter((e) => e.type === 'first_input_failed')).toEqual([
+      { type: 'first_input_failed', sessionId: 'ses_1' },
+    ]);
+  });
+
+  it('does not report a first input as failed when the process ends first (PM-571)', async () => {
+    const { events, hook, pty } = start({ spec: { initialMessage: 'Build the login page' } });
+    await hook({ hook_event_name: 'SessionStart', source: 'startup' });
+    await vi.advanceTimersByTimeAsync(CLAUDE_TIMING.readySettleMs + TYPE_MS);
+    pty.exit(1);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(events.map((e) => e.type)).not.toContain('first_input_failed');
+    expect(events.map((e) => e.type)).not.toContain('first_input_sent');
   });
 
   it('never reports the first input of a process that ends before the prompt is up (PM-189)', async () => {
@@ -1231,6 +1256,7 @@ describe('pausing (PM-218)', () => {
     s.session.release();
     await vi.advanceTimersByTimeAsync(TYPE_MS);
     expect(s.pty.typed().pastes).toEqual(['The brief']);
+    await s.hook({ hook_event_name: 'UserPromptSubmit', prompt: 'The brief' });
     expect(s.events.filter((e) => e.type === 'first_input_sent')).toHaveLength(1);
   });
 

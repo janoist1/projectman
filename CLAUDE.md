@@ -82,6 +82,11 @@ These rules apply to every member, including Codex:
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
 `index.ts`; import other modules through their `index.ts`, never their internals.
 
+Every file under `apps/server/src` belongs to a module in
+`apps/server/test/architecture/module-map.ts`; `dependencies.test.ts` enforces its
+layer rules. Register new files in that map with an explicit path in the appropriate
+module row. Do not add dependency exceptions: each refactor slice removes its own.
+
 ## Code style
 
 - TypeScript strict, ESM, `moduleResolution: bundler` (extensionless relative imports).

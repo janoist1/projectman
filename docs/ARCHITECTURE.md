@@ -520,6 +520,105 @@ claude | codex ── transcript JSONL ────────────▶ r
 
 ## Module map
 
+### Layers and the dependency rule (PM-577)
+
+The refactor assigns every server source file to one stable module and one layer.
+Targets and passes describe the final layout, not directories already moved.
+Each module gets one pass: `none` keeps it unchanged; `move` relocates it;
+`split` gives it a narrow plain TypeScript interface; `split-tool` does that and
+adopts the chosen tool (Effect) in the same pass; `delete` removes it.
+
+| Layer | Contents | Runs on |
+| --- | --- | --- |
+| `contracts` | Shared interfaces and engine ports | Server and engine |
+| `infra` | Storage, configuration, logging and common helpers | Server; engine where needed (logging, identity and helpers) |
+| `core` | Project, task, member, message and inbox rules | Server |
+| `runtime` | Admission, sessions, delivery, permissions, watches and context | Server; engine-local enforcement through contracts |
+| `service` | Independent capabilities such as merges, tests and releases | Server; machine operations through engine ports |
+| `engine` | CLIs, worktrees, host operations and server/engine transport | Execution host; remote adapters also run on the server |
+| `connector` | API, MCP, websocket, HTTP, control and auth adapters | Server; engine-side HTTP/MCP relay where needed |
+| `assembly` | Application startup and dependency wiring | Server or engine entry point |
+
+Imports within a module are unrestricted. Across modules, dependencies go only
+downward according to this table (type imports count too):
+
+| Layer | May import |
+| --- | --- |
+| `contracts` | `contracts` |
+| `infra` | `contracts`, `infra` |
+| `core` | `contracts`, `infra`, `core` |
+| `runtime` | `contracts`, `infra`, `core`, `runtime` |
+| `service` | `contracts`, `infra`, `core` |
+| `engine` | `contracts`, `infra`, `engine` |
+| `connector` | `contracts`, `infra`, `core`, `runtime`, `service`, `connector` |
+| `assembly` | All layers |
+
+Services do not call other services, and runtime and services do not call each
+other: they communicate through the core. Connectors and runtime reach engine
+capabilities only through ports in `contracts/`. Workspace `@projectman/*`
+packages count as contracts and are accessible to every layer.
+
+| Module | Responsibility |
+| --- | --- |
+| `contracts` | Shared server interfaces and engine ports. |
+| `db` | SQLite storage, repositories and migrations. |
+| `config` | Project configuration loading, validation and migrations. |
+| `logging` | Structured server and engine logging and file rotation. |
+| `instance` | Installation identity and activation state. |
+| `kernel` | Common errors, utilities and background work helpers. |
+| `agent-text` | Text formatting for agent-facing context. |
+| `core/base` | Domain context, events and the event bus. |
+| `core/projects` | Projects, roles, stage reviewers and visibility. |
+| `core/tasks` | Tasks, board state, focus, involvement and card measures. |
+| `core/members` | Member access, invitations, presence and naming. |
+| `core/timeline` | Append-only task and project timeline access. |
+| `core/messages` | Stored messages, routing and conversation rules. |
+| `core/inbox` | Human questions, approval inbox and question lifecycle. |
+| `core/attachments` | Task and message attachment storage and processing. |
+| `runtime/admission` | Admission, deferred starts, handovers and refinement. |
+| `runtime/sessions` | Session orchestration, policy, pause and workspace selection. |
+| `runtime/delivery` | Session input queuing and message delivery. |
+| `runtime/permissions` | Command parsing and execution permission rules. |
+| `runtime/watchers` | Runtime health, review, disk and worktree watches. |
+| `runtime/usage` | Provider quota, plan usage and managed provider keys. |
+| `context` | Agent context packs and prompts. |
+| `services/merges` | Card merge orchestration and merge locks. |
+| `services/full-tests` | Full-test and screenshot-run orchestration. |
+| `services/releases` | Release proposals and release roadmap notices. |
+| `services/github` | GitHub synchronization, pull requests and publishing. |
+| `services/feedback` | Feedback marks, screenshots and widget sessions. |
+| `services/project-docs` | Operator project-document writes and decision candidates. |
+| `services/boundary` | External operation authorization and boundary requests. |
+| `services/schedules` | Scheduled member work. |
+| `services/operator` | Operator actions, signals, requests and project management. |
+| `runner` | Provider CLIs, PTYs, hooks and transcript handling. |
+| `worktree` | Task and member worktree creation and dependency refresh. |
+| `engine-host` | Engine-local files, process operations and branch merging. |
+| `full-test` | Sandboxed test execution and the heavy-run queue. |
+| `machine` | Machine probes and process parsing. |
+| `engine-link` | Server/engine RPC, transport and remote adapters. |
+| `runtime-boundary` | Legacy managed VM boundary, scheduled for removal by PM-581. |
+| `api` | HTTP API adapters. |
+| `mcp` | MCP transport and tool declarations. |
+| `team-tools` | Domain adapter for team tool calls. |
+| `ws` | Websocket transport and broadcasts. |
+| `http` | HTTP transport guards and infrastructure. |
+| `control` | Administrative control socket. |
+| `auth` | Authentication and integrator credentials. |
+| `assembly` | Domain service composition and wiring. |
+| `entry` | Application and engine startup, composition and shutdown. |
+
+The single source of truth for file → module → layer assignments, targets and
+passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
+The longest matching path wins; each declared path must exist and appear only once.
+[dependencies.test.ts](../apps/server/test/architecture/dependencies.test.ts)
+enforces the layer rules against all production TypeScript source files.
+Current forbidden module pairs have explicit exceptions with a removal owner.
+This initial baseline may only shrink: slice cards update their own paths and remove
+their own exceptions. Once a slice seals its module, other modules must import its
+target `index.ts`, including when a layer exception still exists.
+PM-581 removes the `runtime-boundary` row and its exceptions together with that folder.
+
 **Packages** (TypeScript source, used directly by both apps):
 
 - `packages/shared` — the contracts: domain types, configuration schema and invariants, the
@@ -1078,6 +1177,7 @@ workers follow the machine's size.
   sessions' sandboxes deny. No state file: resources are found by name. **Remote engine:** nothing runs on
   an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
   `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
+  **Module:** `scripts`
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/domain/feedback/{service,screenshots}.ts`, `apps/server/src/api/feedback.ts`,
@@ -1116,6 +1216,7 @@ workers follow the machine's size.
   the public address of the server (`PROJECTMAN_FEEDBACK_PUBLIC_URL`) is the only machine assumption.
   **Remote engine:** nothing runs on an engine; the API, its sessions and limits live on the server, and
   the engine is not involved. Security notes: `docs/SECURITY.md` "The feedback tool's public API".
+  **Module:** `services/feedback`
 
 - **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),
   `apps/server/test/live-*.test.ts`. Two macOS LaunchAgents (`com.projectman.live` for the server,
@@ -1142,6 +1243,7 @@ workers follow the machine's size.
   Homebrew `Cellar` path, which a `brew upgrade node` removes). `live status` checks both files exist. Machine
   assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
   has no such plist.
+  **Module:** `scripts`
 
 - **Feedback widget public entrance (PM-506)** — the hostname without Access for the marking widget on
   customer pages (PM-513). Code: `PROJECTMAN_FEEDBACK_PUBLIC_URL` checked at start in
@@ -1158,6 +1260,7 @@ workers follow the machine's size.
   given by whoever installs it (`docs/HYBRID.md`). **Remote engine:** the entrance belongs to the server
   (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
   Security notes: `docs/SECURITY.md` "The widget's public hostname".
+  **Module:** `http`
 
 - **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
   checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
@@ -1167,6 +1270,7 @@ workers follow the machine's size.
   paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
   **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
   dependencies and queue. Only the command and result need to cross the existing full-test boundary.
+  **Module:** `scripts`
 
 - **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
   (`providerStatus`). Every 30 seconds the server checks the used providers' login
@@ -1182,6 +1286,7 @@ workers follow the machine's size.
   confirmed recovery resolves it with `outage_ended` and retries deferred work. Unknown
   checks preserve the last confirmed outage. Acknowledgement suppresses repeats for the
   episode; open alerts and their original start times are adopted after restart.
+  **Module:** `runtime/watchers`
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
@@ -1225,6 +1330,7 @@ workers follow the machine's size.
     `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
+  **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
   `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
@@ -1287,6 +1393,7 @@ workers follow the machine's size.
   purpose-scoped uploads and downloads (`engine-transfer.ts`; the cloud's endpoints are PM-315).
   The link client uses the runtime's `WebSocket`, which cannot send the close codes 1001, 1002 and
   1011: it closes with 1000 and a reason text (`engine_shutdown`) instead.
+  **Module:** `entry`
 
 - **Cloud composition** — `engine-link/remote/{hub,transfers,runner,transcripts,host,attachments,machine,github,handlers,index}.ts`,
   `engine-link/index.ts` (`EngineLinks.authenticate`), `app.ts` (`parseMode`, `createCloudRemote`),
@@ -1326,6 +1433,7 @@ workers follow the machine's size.
   (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
   the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
   `hello` paths are the engine's own and are never opened by the cloud.
+  **Module:** `engine-link`
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
@@ -1358,6 +1466,7 @@ workers follow the machine's size.
   cloud's home, never an engine's worktrees or transcripts. The restore rehearsal
   (`entrypoint.sh rehearse`) starts a standby copy on the loopback with no tunnel and no
   replication, so it cannot disturb the production replica.
+  **Module:** `deploy`
 
 - **Integrator credential** — `auth/auth-service.ts`, `auth/index.ts`,
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
@@ -1375,6 +1484,7 @@ workers follow the machine's size.
   "Integrator access"); the key still works only over HTTPS, which the container sees as
   `x-forwarded-proto: https` from the tunnel's loopback connection. The service token is a second
   secret with the same rules: never in a message, task, commit, prompt or engine payload.
+  **Module:** `auth`
 
 - **Codex project layer check** — `runner/managed-vm.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
@@ -1388,6 +1498,7 @@ workers follow the machine's size.
   Today the server and CLI share the filesystem. NanoGPT retains its separate `any` rule.
   **Cloud mode (PM-315):** `RemoteRunner.assertWorkspaceConfig` calls `session.assert_workspace_config` on the
   session's engine; the engine refuses with its relative file names and key names only, never values.
+  **Module:** `runner`
 
 - **NanoGPT Codex home and key delivery** — `runner/providers/nanogpt/index.ts`, `runner/providers/codex/args.ts`,
   `runner/env.ts`, `app.ts`, `index.ts`
@@ -1436,6 +1547,7 @@ workers follow the machine's size.
   (`engine-link/remote/handlers.ts`) releases it only to the engine of a NanoGPT session that is starting
   (`RemoteRunner.takeKeyGrant`: a grant held only until the start call returns), never caches or logs it, and a key change asks each engine for its login state again
   (`provider.status`).
+  **Module:** `runner`
 
 - **Gemini (agy) CLI, conversation directories and keychain login** —
   `runner/providers/gemini/*` (PM-326; PM-319). The interactive PTY runs `AGY_BIN`/`agy`,
@@ -1455,6 +1567,7 @@ workers follow the machine's size.
   transcript access must use the launcher with the conversation root as its confinement,
   rather than opening engine paths on the server. Managed VM launches remain unsupported
   until PM-331. No remote Gemini launcher is implemented by PM-326.
+  **Module:** `runner`
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
   See **NanoGPT Codex home and key delivery** (PM-329) for session-only secret delivery.
@@ -1465,6 +1578,7 @@ workers follow the machine's size.
   storage and validation remain on the server; this card does not send
   the key to an engine. PM-329 must deliver it only to NanoGPT sessions over the authenticated
   server/engine boundary, without configuration, database or logging persistence on either side.
+  **Module:** `runtime/usage`
 
 This is a living inventory of assumptions that tie execution to a machine, account or OS.
 The current local mode usually places the server and agent CLIs on the same host; the managed
@@ -1483,6 +1597,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** run this probe beside the CLI on the engine and transport the exit event;
   a remote PID must never be checked against the server's process table.
   Since PM-311 the domain asks the workspace's engine (`EngineHost.processExists`, `contracts/engine.ts`).
+  **Module:** `runner`
 
 - **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
   `apps/server/test/fixtures/fake-claude.mjs` (PM-344). Tests hold the fake's work/tool
@@ -1491,6 +1606,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   that temporary filesystem. Interrupting a turn abandons its gate without a release.
   **Remote engine:** run this integration harness and its fake together on the engine;
   these test-only paths never cross the production server/engine boundary.
+  **Module:** `runner`
 - **Dependency clones and refreshes** — `worktree/dependencies.ts`, `cloneDependencies`,
   `worktree/worktree-manager.ts`, `ensureForTask` (PM-334, PM-412).
   Copies installed `node_modules` from another checkout with the same lockfile using
@@ -1514,6 +1630,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   cannot be cloned across machines, and native dependencies must match the engine. Keep the
   runner, registry, freshness checks and copies together on the engine; the callback is local
   there and adds no server/engine request.
+  **Module:** `worktree`
 - **Heavy-run queue and worker limits** — `full-test/heavy-lock.ts`,
   `scripts/heavy/{cli,run}.ts`, `packages/shared/src/config/test-workers.ts` and the workspace
   `vitest.config.ts` files (PM-332, PM-336). A per-user lock directory under
@@ -1532,6 +1649,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   temporary files from atomic writes do not count as queued waiters. Run it on the execution
   host, using its own temporary directory and PID namespace.
   Since PM-311 the folder is `EnginePaths.heavyLockDir` of the session's engine (`contracts/engine.ts`).
+  **Module:** `full-test`
 - **Server and engine log files** — `logging/{rotating-file,server-log}.ts`, `index.ts` (`loggerOptions`)
   (PM-444). Every process logs pino's JSON lines to the terminal and, since PM-444, to
   `<PROJECTMAN_HOME>/logs/server.log` (single mode and the cloud) or `logs/engine.log` (engine
@@ -1545,6 +1663,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine:** each process writes its own log on its own host: the cloud's under the cloud's
   home, the engine's under the engine's home. Logs are not shipped across the link; to read the
   engine's log, read it on the engine's machine.
+  **Module:** `logging`
 - **Session output folders** — `index.ts`, `engine-host/session-folders.ts` (`SessionFolders`),
   `engine-host/disk.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339, PM-312). Legacy Claude
@@ -1600,6 +1719,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the folders on the engine (`folders.*`, `host.*`) and keeps the paths in the hub's mirror, so
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
+  **Module:** `engine-host`
 - **Message attachments (PM-516)** — `domain/message-attachments/{storage,service,image}.ts`,
   `domain/attachments/{files,upload,thumbnail}.ts`, `api/message-attachments.ts`, `mcp/tools.ts`
   (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
@@ -1620,6 +1740,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
   at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
   card attachments.
+  **Module:** `core/attachments`
 - **Message file in the session folder (PM-518)** — `domain/team-tools.ts` (`readMessageAttachment`,
   `sessionFileTarget`), `domain/message-attachments/{service,storage}.ts` (`source`, `locate`,
   `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
@@ -1644,6 +1765,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   own, checks size and checksum, and `SessionFolders.materializeFile` puts it in. The engine's limit
   allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
   valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
+  **Module:** `team-tools`
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
@@ -1668,6 +1790,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   server cannot run it against a remote path); the server keeps only the tool and the run record.
   Since PM-311 the browser directory is `EnginePaths.browsersDir` and the run is the
   `EngineHost.screenshotExecutor` of the requesting session's engine (`contracts/engine.ts`).
+  **Module:** `engine-host`
 - **Machine display and orphan processes** — `machine/{probe,parse}.ts`,
   `domain/machine.ts` (`MachineMonitor.stopOrphans`), `api/machine.ts` (PM-320, PM-300).
   OS probes (`ps`, macOS `vm_stat`/`sysctl`, Linux `/proc`) measure the local host; trees,
@@ -1678,12 +1801,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** `RemoteMachineProbe` (`engine-link/remote/machine.ts`) asks the default engine
   (`machine.snapshot/processes/env_values/signal`; `MachineProbe.signal` is asynchronous for it); with no
   engine the machine view answers `engine_offline` (409).
+  **Module:** `machine`
 - **Instance identity for process attribution** — `app.ts` derives the first 16 hex characters of
   `sha256(realpath(home))`; `runner/env.ts` supplies `PROJECTMAN_INSTANCE` alongside
   `PROJECTMAN_SESSION_ID` (PM-320). This identifies a local installation by its home path,
   not a host-independent engine identity. **Remote engine:** plan instance/engine attribution
   explicitly, including reconnects and moves; equal paths on different hosts must not imply
   equal ownership.
+  **Module:** `entry`
 - **Session process termination** — `runner/session.ts` (`stop`, `kill`),
   `runner/runner.ts` (PM-341; PM-320). The runner owns a local process handle and sends
   SIGTERM, then SIGKILL after a timeout (or SIGKILL immediately for a forced stop).
@@ -1691,6 +1816,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.stop` and runner exit events (PM-313), execute stop/kill on the engine owning that process, return its exit
   acknowledgement, and plan descendant cleanup there; a server-side PID or closed transport
   is not evidence that a remote session has stopped.
+  **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
   `runner/session.ts`, `domain/sessions.ts`, `runner/providers/{claude,codex}/transcript.ts`
   (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
@@ -1714,6 +1840,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   different one counts as `relocated`, like a changed execution profile).
   **Cloud mode (PM-315):** `createRemoteTranscripts` (`engine-link/remote/transcripts.ts`) asks the session's
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
+  **Module:** `runner`
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
   `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
@@ -1733,6 +1860,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   on no loopback for the CLIs. `permission.*` and `mcp.relay` are handled by `engine-link/remote/handlers.ts`;
   the relay runs the request through the cloud's own `/mcp/<token>` route and answers 404 for a token whose
   session runs on another engine.
+  **Module:** `runner`
 - **Task worktrees and shared git storage** — `worktree/worktree-manager.ts`,
   `worktree/member-workspace-manager.ts`, `worktree/paths.ts`, `domain/worktree-sweep.ts`,
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
@@ -1751,6 +1879,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   leaves the engine only as an upload (`workspace.export_branch`, unused: publishing is not available in
   cloud mode). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
   is required.
+  **Module:** `worktree`
 - **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
   `domain/admission/` (PM-243). `statfs(PROJECTMAN_HOME)` supplies the local free-space
   value for `minFreeDiskGb`; a low value defers new sessions. It does not measure other
@@ -1760,6 +1889,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Since PM-311 `DiskGuard` asks the target engine's `EngineHost.freeDiskBytes` (`contracts/engine.ts`);
   since PM-312 the `statfs` itself is `freeBytesOf` in `engine-host/disk.ts`, not in `domain/`.
   **Cloud mode (PM-315):** the engine directory answers with `host.free_disk` of the target engine.
+  **Module:** `runtime/watchers`
 - **Control socket, pause and deployment** — `control/socket.ts`, `domain/pause.ts`,
   `scripts/control/{client,cli}.ts`, `scripts/migrate/instance.ts` (PM-219, PM-143).
   `PROJECTMAN_HOME/control.sock` is a local Unix socket (0600), authorised by filesystem
@@ -1782,6 +1912,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   needs the person's statement that the cloud is retired, no running engine and a database that
   holds the cloud's `engines` row, so that a stale pre-hybrid database never replaces the cloud's work;
   `--discard-cloud-data` states the opposite on purpose.)
+  **Module:** `control`
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
@@ -1839,6 +1970,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Since PM-311 the paths the policy is built from are the session's engine's `EnginePaths`
   (`userHome`, `home`, `worktreesRoot`, `workspacesRoot`, `installDir`, `gitExcludesFile`;
   `contracts/engine.ts`).
+  **Module:** `runtime/sessions`
 - **CLI token and plan usage** — `runner/providers/claude/{usage,plan-usage}.ts`,
   `runner/providers/codex/{transcript,plan-usage}.ts` (`CodexTranscriptParser`),
   `runner/session.ts`, `domain/plan-usage.ts` (PM-341; PM-286, PM-310).
@@ -1851,12 +1983,14 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   timestamped measurements; leave credentials there and retain subscription-only execution.
   **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
+  **Module:** `runtime/usage`
 - **Claude workspace trust** — `runner/providers/claude/trust.ts`,
   `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
   in `~/.claude.json` (or the configured Claude config directory); the managed launcher
   helper does so as the worker, for that worker's home and local repository path.
   **Remote engine (engine mode, PM-314: runs in the engine process):** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
+  **Module:** `runner`
 - **Server full test before review** — `domain/full-tests.ts`, `engine-host/disk.ts`
   (`resolveGitDir`: the checkout's real `.git`, asked of the engine),
   `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
@@ -1873,6 +2007,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+  **Module:** `services/full-tests`
 - **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
   `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
@@ -1897,6 +2032,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
   at startup and periodically. The engine revalidates the canonical fix path under its
   repository mutex, refuses symlinks and leaves unregistered directories in place.
+  **Module:** `services/merges`
 
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
@@ -1932,6 +2068,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
   without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
+  **Module:** `services/merges`
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
@@ -1941,6 +2078,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine:** retain the launcher, account isolation, peer checks and spools inside
   the execution host; plan authenticated server/engine requests and artifact transfer instead
   of forwarding Unix paths, UIDs or TCP peer lookup across machines.
+  **Module:** `runtime-boundary`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
   `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
@@ -1969,6 +2107,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   (fixed names, so one path denies the tree); the package (`--out`) and the downloaded copy (`--from`)
   are the person's folders outside the home, which the sandboxes' deny-only reads do not cover, so the
   guide tells the person to delete them after use.
+  **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
@@ -1983,6 +2122,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the one that should run the engine (the plist names it). **Does this work on a remote engine?**
   This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
   CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
+  **Module:** `scripts`
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
   `buildSessionEnv`), `runtime-boundary/launcher/daemon.ts` (`workerEnvironment`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
@@ -1991,6 +2131,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   set for every provider; the managed VM launcher's worker environment (sessions and one-off
   programs) takes the same constant. **Remote engine:** the engine builds the session
   environment beside the CLI with the same function (or the same four variables).
+  **Module:** `runner`
 
 After this inventory reaches `main`, the architect must compare the PM-286 hybrid plan and
 its breakdown with it before PM-311 starts, including the related remote-work directions

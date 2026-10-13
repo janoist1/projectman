@@ -17,6 +17,7 @@ import type {
   ScreenshotRunEnded,
   ScreenshotRunSpec,
   ScreenshotScope,
+  TakeScreenshotsInput,
   ToolContext,
 } from '../contracts';
 import { listImages, resolveScenario } from '../engine-host';
@@ -31,6 +32,8 @@ let sessionDir: string;
 let scope: ScreenshotScope | undefined;
 const warn = vi.fn();
 const logger = { warn } as unknown as FastifyBaseLogger;
+const services: ScreenshotRuns[] = [];
+const pendingTakes: Promise<unknown>[] = [];
 
 const ctx: ToolContext = { sessionId: 'ses_1', projectKey: 'PM', member: 'codex', taskKey: 'PM-1' };
 const other: ToolContext = { ...ctx, sessionId: 'ses_2' };
@@ -50,7 +53,9 @@ beforeEach(() => {
   };
   warn.mockClear();
 });
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(services.splice(0).map((service) => service.stop()));
+  await Promise.allSettled(pendingTakes.splice(0));
   rmSync(base, { recursive: true, force: true });
 });
 
@@ -78,14 +83,25 @@ function fakeExecutor() {
         );
       }),
   };
-  return { executor, calls };
+  const waitForCall = async (index = 0) => {
+    await vi.waitFor(() => expect(calls[index]).toBeDefined(), { timeout: 5_000 });
+    return calls[index]!;
+  };
+  return { executor, calls, waitForCall };
 }
 
-function runs(options: { pollMs?: number; platform?: NodeJS.Platform; now?: () => number } = {}) {
+function runs(
+  options: {
+    pollMs?: number;
+    platform?: NodeJS.Platform;
+    now?: () => number;
+    diskFor?: typeof localDisk;
+  } = {},
+) {
   const fake = fakeExecutor();
   const service = new ScreenshotRuns({
     executor: fake.executor,
-    diskFor: localDisk,
+    diskFor: options.diskFor ?? localDisk,
     sessions: {
       screenshotScope: (sessionId) => (sessionId === 'ses_1' || sessionId === 'ses_2' ? scope : undefined),
     },
@@ -94,7 +110,16 @@ function runs(options: { pollMs?: number; platform?: NodeJS.Platform; now?: () =
     pollMs: options.pollMs ?? 5_000,
     ...(options.now ? { now: options.now } : {}),
   });
+  services.push(service);
   return { service, ...fake };
+}
+
+/** Keep in-flight validation alive until teardown, even if a later assertion fails. */
+function take(service: ScreenshotRuns, args: TakeScreenshotsInput = input) {
+  const taking = service.take(ctx, args);
+  pendingTakes.push(taking);
+  void taking.catch(() => undefined);
+  return taking;
 }
 
 const input = { scenario: 'shots/login.mjs' };
@@ -107,7 +132,6 @@ const refusal = async (promise: Promise<unknown>): Promise<TeamToolError> => {
   }
   throw new Error('expected a TeamToolError');
 };
-const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
 const image = (name: string, atMs?: number) => {
   const file = path.join(sessionDir, 'shots', name);
   writeFileSync(file, 'png');
@@ -116,9 +140,31 @@ const image = (name: string, atMs?: number) => {
 };
 
 describe('take_screenshots', () => {
+  it('waits for scenario validation before calling the executor', async () => {
+    let release!: () => void;
+    const validation = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { service, calls, waitForCall } = runs({
+      diskFor: () => ({
+        listImages,
+        resolveScenario: async (roots, scenario) => {
+          await validation;
+          return resolveScenario(roots, scenario);
+        },
+      }),
+    });
+    const taking = take(service);
+    expect(calls).toHaveLength(0);
+    release();
+    const call = await waitForCall();
+    call.end();
+    await expect(taking).resolves.toMatchObject({ status: 'done' });
+  });
+
   it('starts the run with the validated arguments and the scenario real path, and returns the finished run', async () => {
-    const { service, calls } = runs();
-    const taking = service.take(ctx, {
+    const { service, calls, waitForCall } = runs();
+    const taking = take(service, {
       scenario: 'shots/../shots/login.mjs',
       widths: [390, 1280],
       fullPage: true,
@@ -126,7 +172,7 @@ describe('take_screenshots', () => {
       timeoutSeconds: 90,
       seed: 'demo',
     });
-    await tick();
+    await waitForCall();
     expect(calls).toHaveLength(1);
     const { spec } = calls[0]!;
     expect(spec).toMatchObject({
@@ -164,7 +210,9 @@ describe('take_screenshots', () => {
     calls[0]!.started();
     expect(await service.get(ctx, run.runId)).toMatchObject({ status: 'running' });
     calls[0]!.end();
-    expect(await service.get(ctx, run.runId)).toMatchObject({ status: 'done' });
+    await vi.waitFor(async () => {
+      expect(await service.get(ctx, run.runId)).toMatchObject({ status: 'done' });
+    });
   });
 
   it('refuses a second run of the session, naming the first, but not one of another session', async () => {
@@ -176,7 +224,9 @@ describe('take_screenshots', () => {
     await expect(service.take(other, input)).resolves.toMatchObject({ status: 'queued' });
     expect(calls).toHaveLength(2);
     calls[0]!.end();
-    await service.get(ctx, first.runId);
+    await vi.waitFor(async () => {
+      expect(await service.get(ctx, first.runId)).toMatchObject({ status: 'done' });
+    });
     // Over: the session may start another.
     await expect(service.take(ctx, input)).resolves.toBeDefined();
   });
@@ -202,7 +252,7 @@ describe('take_screenshots', () => {
 
   it('does not start a run whose session ended while the scenario was checked', async () => {
     const { service, calls } = runs();
-    const taking = service.take(ctx, input);
+    const taking = take(service);
     service.stopSession(ctx.sessionId);
     await expect(taking).resolves.toMatchObject({ status: 'failed', failure: 'stopped' });
     expect(calls).toHaveLength(0);
@@ -245,10 +295,10 @@ describe('take_screenshots', () => {
   });
 
   it('keeps the image of a scenario that lies in the session folder', async () => {
-    const { service, calls } = runs();
+    const { service, calls, waitForCall } = runs();
     writeFileSync(path.join(sessionDir, 'mine.mjs'), '');
-    const taking = service.take(ctx, { scenario: path.join(sessionDir, 'mine.mjs') });
-    await tick();
+    const taking = take(service, { scenario: path.join(sessionDir, 'mine.mjs') });
+    await waitForCall();
     calls[0]!.end();
     await expect(taking).resolves.toMatchObject({ status: 'done' });
   });
@@ -263,17 +313,17 @@ describe('how a run ends', () => {
     ['a process killed from outside', { exitCode: null }, 'sandbox', null],
   ];
   it.each(ends)('%s is %s', async (_name, ended, failure, exitCode) => {
-    const { service, calls } = runs();
-    const taking = service.take(ctx, input);
-    await tick();
+    const { service, calls, waitForCall } = runs();
+    const taking = take(service);
+    await waitForCall();
     calls[0]!.end({ output: 'the end', ...ended });
     expect(await taking).toMatchObject({ status: 'failed', failure, exitCode });
   });
 
   it('keeps the output tail short and lists no images that were written before the run', async () => {
-    const { service, calls } = runs();
-    const taking = service.take(ctx, input);
-    await tick();
+    const { service, calls, waitForCall } = runs();
+    const taking = take(service);
+    await waitForCall();
     image('old.png', Date.now() - 60_000);
     const fresh = image('new.png');
     image('notes.txt');
@@ -319,6 +369,7 @@ describe('how a run ends', () => {
       platform: 'darwin',
       pollMs: 1_000,
     });
+    services.push(service);
     expect(await service.take(ctx, input)).toMatchObject({
       status: 'failed',
       failure: 'sandbox',
@@ -330,9 +381,9 @@ describe('how a run ends', () => {
 
 describe('get_screenshot_run', () => {
   it('knows a run of its own session only', async () => {
-    const { service, calls } = runs();
-    const taking = service.take(ctx, input);
-    await tick();
+    const { service, calls, waitForCall } = runs();
+    const taking = take(service);
+    await waitForCall();
     calls[0]!.end();
     const run = await taking;
     expect((await refusal(service.get(other, run.runId))).code).toBe('not_found');
@@ -342,11 +393,11 @@ describe('get_screenshot_run', () => {
 
   it('keeps an ended run for an hour and the last five of a session', async () => {
     let now = Date.now();
-    const { service, calls } = runs({ now: () => now });
+    const { service, calls, waitForCall } = runs({ now: () => now });
     const ids: string[] = [];
     for (let i = 0; i < 7; i++) {
-      const taking = service.take(ctx, input);
-      await tick();
+      const taking = take(service);
+      await waitForCall(i);
       calls[i]!.end();
       const run = await taking;
       ids.push(run.runId);

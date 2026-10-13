@@ -762,25 +762,35 @@ describe('member initiated merge', () => {
     expect(events('task_merged')[0]?.actor).toEqual({ kind: 'system', handle: null });
   });
 
-  it('tells the AI merger what to do after a failed full check', async () => {
-    await setup({
-      executor: fakeExecutor({ ...passed, outcome: 'failed', outputTail: 'FAIL src/a.test.ts' }),
-      adjust: (c) => {
-        c.project.repos[0]!.reviewTest = reviewTest;
-      },
-    });
-    await start();
-    await vi.waitFor(() => expect(row()?.state).toBe('failed'));
-    const text = h!.repos.messages
-      .list('AR', { taskKey: 'AR-1' })
-      .map((m) => m.body)
-      .find((body) => body.includes('The full check'));
-    expect(text).toContain('The full check (`npm test`) failed on the merge result of AR-1 onto ');
-    expect(text).toContain('the default branch did not move.');
-    expect(text).toContain('FAIL src/a.test.ts');
-    expect(text).toContain('send the card back to its work stage with update_task (a fix round)');
-    expect(text).toContain('retry once with merge_task; if it fails again, ask_human.');
-  });
+  it.each([{ failedFiles: [] }, { failedFiles: ['src/a.test.ts'] }])(
+    'tells the AI merger the failed files and output after a failed full check ($failedFiles)',
+    async ({ failedFiles }) => {
+      await setup({
+        executor: fakeExecutor({
+          ...passed,
+          outcome: 'failed',
+          failedFiles,
+          outputTail: 'FAIL src/a.test.ts\nAssertionError: expected 1 to be 2',
+        }),
+        adjust: (c) => {
+          c.project.repos[0]!.reviewTest = reviewTest;
+        },
+      });
+      await start();
+      await vi.waitFor(() => expect(row()?.state).toBe('failed'));
+      const text = h!.repos.messages
+        .list('AR', { taskKey: 'AR-1' })
+        .map((m) => m.body)
+        .find((body) => body.includes('The full check'));
+      expect(text).toContain('The full check (`npm test`) failed on the merge result of AR-1 onto ');
+      expect(text).toContain('the default branch did not move.');
+      expect(text).toContain('FAIL src/a.test.ts');
+      expect(text).toContain('AssertionError: expected 1 to be 2');
+      expect(row()?.failure?.files).toEqual(failedFiles);
+      expect(text).toContain('send the card back to its work stage with update_task (a fix round)');
+      expect(text).toContain('retry once with merge_task; if it fails again, ask_human.');
+    },
+  );
 
   it('keeps the conflict message for a conflict', async () => {
     await setup();

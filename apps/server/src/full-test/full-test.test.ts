@@ -88,6 +88,39 @@ describe('the output of a full test', () => {
       expect(report.length).toBeLessThanOrEqual(FAILURE_REPORT_CHARS);
     });
 
+    it('keeps server failures when a successful web run follows with a long output', () => {
+      const report = failureReport(
+        [
+          '> @projectman/server@0.0.0 test',
+          '> vitest run',
+          ' RUN  v4.0.0 /repo/apps/server',
+          '⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯',
+          ' FAIL  src/domain/screenshot-runs.test.ts > take_screenshots > starts the run',
+          'TypeError: Cannot read properties of undefined',
+          '⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯',
+          'Error: The scenario shots/login.mjs is not a file.',
+          ' Test Files  1 failed | 299 passed (300)',
+          '      Tests  1 failed | 900 passed (901)',
+          '     Errors  2 errors',
+          '> @projectman/web@0.0.0 test',
+          '> vitest run',
+          ' RUN  v4.0.0 /repo/apps/web',
+          ' ✓ src/passing.test.ts (3 tests)\n'.repeat(1_000),
+          ' Test Files  300 passed (300)',
+          '      Tests  900 passed (900)',
+        ].join('\n'),
+      );
+      expect(report).toContain('## @projectman/server test');
+      expect(report).toContain(
+        'FAIL  src/domain/screenshot-runs.test.ts > take_screenshots > starts the run',
+      );
+      expect(report).toContain('The scenario shots/login.mjs is not a file.');
+      expect(report).toContain('Errors  2 errors');
+      expect(report).toContain('## @projectman/web test');
+      expect(report).not.toContain('src/passing.test.ts');
+      expect(report.length).toBeLessThanOrEqual(FAILURE_REPORT_CHARS);
+    });
+
     it('says a workspace stopped without a report', () => {
       const output = [
         '> @projectman/server@0.0.0 test',

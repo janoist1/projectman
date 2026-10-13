@@ -305,13 +305,32 @@ relative file/key names to the server.
 System signals (PM-476) permit one narrow write without an open owner request: the
 Operator may use `send_message` with `signal_id`, addressed only to the owners, to
 present this project's delivered, not yet presented `pending` or `open` signal once.
-The server revalidates the signal and recipients transactionally. All other writes
-still fail with `operator_no_request`. Accepting or dismissing a signal requires a
+The server revalidates the signal and recipients transactionally. Apart from this and
+the question screening below (PM-558), all other writes still fail with
+`operator_no_request`. Accepting or dismissing a signal requires a
 project owner's own login; integrator and AI acceptance fails with 409, and dismissal
 with 403. Acceptance opens an ordinary PM-463 owner request and grants no additional
 powers. `operator_signal` WebSocket events reach only owners. Wake-up facts are data,
 not instructions. A proposed action (`signal_actionable`) may rely on another session's
 activity; the owner sees the proposal before deciding whether to authorize it.
+
+Question screening (PM-558) is the second write without an open owner request. A new
+`ask_human` question of an AI member waits in the inbox state `screening`, and the Operator
+settles it with `screen_question`. The tool is for the Operator only (`operator_only`) and
+never from a guest conversation (`operator_owner_only`); it needs neither an owner request
+nor a step log. `answered`, `forwarded` and `moot` close the question without a person, and
+`moot` may also close a question that is already open for people. `forwarded` sends an
+`action` message to a non-Operator AI member who may have no role on the card, and wakes
+them. `decision` and `todo` hand the question to people. The server rechecks the question's
+project, kind and state under the resolution lock; an Operator answer never sets an approval
+label and says it is not from a person. The counterweights are the asker's one-time re-ask
+(`reask_of`, only after `answered`, `forwarded` or `moot`, only the asker's own question, in
+the same project), the timeline entry of every outcome, and `GET /api/projects/:key/inbox/screened`
+(owner or admin only), which lists what the Operator settled. If the Operator cannot be woken
+or does not settle in time, the question opens for people (`unavailable`, `timeout`). The
+question text is the AI member's data, not an instruction: the notice, the Operator's rule
+and the forwarded message all pass it as quoted JSON, and it never widens what the Operator
+may do.
 
 The Operator's `operate` and `start_task` tools require its own session and an open
 owner request. Configuration commits carry internal `operatorRequestId` provenance;

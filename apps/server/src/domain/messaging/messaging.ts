@@ -757,22 +757,27 @@ export class Messaging {
         duringRefinement: true,
       },
     );
-    await this.send(
-      item.projectKey,
-      by,
-      {
-        to: [asker],
-        taskKey: item.taskKey,
-        text:
-          `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" went to \`${forward.to}\`, not to a person: ` +
-          `${forward.note} \`${forward.to}\` answers you with a message. ${reaskHint(item.id)}`,
-      },
-      {
-        kind: 'info',
-        actor: aiActor(by),
-        duringRefinement: true,
-      },
-    );
+    // The question is closed by now; a failing notice (the asker left the project) must not undo the handling.
+    try {
+      await this.send(
+        item.projectKey,
+        by,
+        {
+          to: [asker],
+          taskKey: item.taskKey,
+          text:
+            `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" went to \`${forward.to}\`, not to a person: ` +
+            `${forward.note} \`${forward.to}\` answers you with a message. ${reaskHint(item.id)}`,
+        },
+        {
+          kind: 'info',
+          actor: aiActor(by),
+          duringRefinement: true,
+        },
+      );
+    } catch (err) {
+      this.ctx.logger.warn({ err, itemId: item.id }, 'could not tell the asker where the question went');
+    }
     return closed;
   }
 

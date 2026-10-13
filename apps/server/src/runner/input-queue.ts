@@ -95,6 +95,8 @@ export interface InputQueueEffects {
 
 type Outcome = Deferred.Deferred<void, NotSubmittedError | SessionGoneError>;
 
+const HELD_WARN_MS = 10 * 60_000;
+
 interface QueuedMessage {
   readonly text: string;
   /** The message counts as done once typed (`enqueue`), or only once the CLI took it (`enqueueSubmitted`). */
@@ -118,6 +120,7 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
     const scope = yield* Effect.scope;
     const pumpTimer = yield* FiberHandle.make();
     const submitWatch = yield* FiberHandle.make();
+    const heldWatch = yield* FiberHandle.make();
     const { timing } = host;
     const queue: QueuedMessage[] = [];
     const s = {
@@ -279,12 +282,30 @@ export const makeInputQueue = (host: InputQueueHost): Effect.Effect<InputQueueEf
         if (pending?.settle) yield* Deferred.succeed(pending.settle, undefined);
       }),
       awaitCommandLinePrompt: (timeoutMs) => awaitSubmit(true, timeoutMs),
-      hold: Effect.sync(() => {
+      hold: Effect.gen(function* () {
+        if (s.closed || s.held) return;
         s.held = true;
+        const heldAt = yield* Clock.currentTimeMillis;
+        yield* FiberHandle.run(
+          heldWatch,
+          Effect.gen(function* () {
+            yield* Effect.sleep(HELD_WARN_MS);
+            if (s.closed || !s.held || queue.length === 0) return;
+            host.logger.warn(
+              {
+                sessionId: host.sessionId,
+                queued: queue.length,
+                heldMs: (yield* Clock.currentTimeMillis) - heldAt,
+              },
+              'input held with waiting messages',
+            );
+          }),
+        );
       }),
       unhold: (first) =>
         Effect.gen(function* () {
           s.held = false;
+          yield* FiberHandle.clear(heldWatch);
           if (first?.trim() && !s.closed) {
             const outcome = yield* Deferred.make<void, NotSubmittedError | SessionGoneError>();
             queue.unshift({ text: first, untilSubmitted: false, outcome });

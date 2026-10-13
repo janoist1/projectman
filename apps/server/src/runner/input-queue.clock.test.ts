@@ -78,6 +78,75 @@ const failureOf = <A, E>(fiber: FiberType.Fiber<Exit.Exit<A, E>>) =>
 const adjust = (ms: number) => TestClock.adjust(ms);
 
 describe('input queue under the TestClock', () => {
+  it('warns once at ten minutes with waiting messages, even when hold is repeated', async () => {
+    const { host, warn } = hostOf();
+    await run(host, (queue) =>
+      Effect.gen(function* () {
+        yield* queue.hold;
+        yield* start(queue.enqueue('waiting'));
+        yield* adjust(9 * 60_000);
+        yield* queue.hold;
+        yield* adjust(60_000 - 1);
+        expect(warn).not.toHaveBeenCalled();
+        yield* adjust(1);
+        expect(warn).toHaveBeenCalledExactlyOnceWith(
+          { sessionId: 'ses_1', queued: 1, heldMs: 10 * 60_000 },
+          'input held with waiting messages',
+        );
+        yield* queue.hold;
+        yield* adjust(20 * 60_000);
+        expect(warn).toHaveBeenCalledTimes(1);
+      }),
+    );
+  });
+
+  it('cancels the warning when unheld at nine minutes and starts a fresh warning on the next hold', async () => {
+    const { host, state, warn } = hostOf();
+    state.idle = false;
+    await run(host, (queue) =>
+      Effect.gen(function* () {
+        yield* queue.hold;
+        yield* start(queue.enqueue('waiting'));
+        yield* adjust(9 * 60_000);
+        yield* queue.unhold();
+        yield* adjust(2 * 60_000);
+        expect(warn).not.toHaveBeenCalled();
+        yield* queue.hold;
+        yield* adjust(10 * 60_000);
+        expect(warn).toHaveBeenCalledExactlyOnceWith(
+          { sessionId: 'ses_1', queued: 1, heldMs: 10 * 60_000 },
+          'input held with waiting messages',
+        );
+      }),
+    );
+  });
+
+  it('does not warn when the held queue is empty', async () => {
+    const { host, warn } = hostOf();
+    await run(host, (queue) =>
+      Effect.gen(function* () {
+        yield* queue.hold;
+        yield* adjust(20 * 60_000);
+        expect(warn).not.toHaveBeenCalled();
+      }),
+    );
+  });
+
+  it('does not warn after closing a held queue with waiting messages', async () => {
+    const { host, warn } = hostOf();
+    await run(host, (queue, scope) =>
+      Effect.gen(function* () {
+        yield* queue.hold;
+        const waiting = yield* start(queue.enqueue('waiting'));
+        yield* adjust(9 * 60_000);
+        yield* Scope.close(scope, Exit.void);
+        expect(String(yield* failureOf(waiting))).toContain('exited');
+        yield* adjust(20 * 60_000);
+        expect(warn).not.toHaveBeenCalled();
+      }),
+    );
+  });
+
   it('gives up on a typed message exactly at submitTimeoutMs, and types the next one afterwards', async () => {
     const { host, typed, warn } = hostOf();
     await run(host, (queue) =>
@@ -230,6 +299,36 @@ describe('InputQueue facade timers', () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('cancels the held warning timer on unhold', async () => {
+    const { host, warn } = hostOf();
+    const queue = new InputQueue(host);
+    queue.hold();
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    queue.unhold();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    expect(warn).not.toHaveBeenCalled();
+    queue.close();
+    await vi.advanceTimersByTimeAsync(0);
+  });
+
+  it('leaves no held warning timer or warning after close', async () => {
+    const { host, warn } = hostOf();
+    const queue = new InputQueue(host);
+    queue.hold();
+    const waiting = expect(queue.enqueue('waiting')).rejects.toThrow('exited');
+    await vi.advanceTimersByTimeAsync(9 * 60_000);
+    queue.close();
+    await vi.advanceTimersByTimeAsync(0);
+    await waiting;
+    expect(vi.getTimerCount()).toBe(0);
+    queue.hold();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(20 * 60_000);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('leaves no timer behind after close, with a scheduled pump, an awaited submit and a queued message', async () => {

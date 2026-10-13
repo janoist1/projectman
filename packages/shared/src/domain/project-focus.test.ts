@@ -229,6 +229,29 @@ describe('the start class and the pull (PM-427)', () => {
   });
 
   describe('pullCandidates', () => {
+    it.each(['urgent', 'focus'] as const)('leaves the %s collector and pulls its focused subtask', (mode) => {
+      const parent = card('AC-1', { priority: mode === 'urgent' ? 'urgent' : null });
+      const child = card('AC-2', { parentKey: parent.key });
+      const tasks = [parent, child];
+      const focus = projectFocusPlaces([{ key: parent.key }], tasks);
+      expect(pulled(tasks, focus)).toEqual([child.key]);
+    });
+
+    it('allows a collector whose subtasks are all done or cancelled', () => {
+      const tasks = [
+        card('AC-1', { priority: 'urgent' }),
+        card('AC-2', { parentKey: 'AC-1', status: 'done' }),
+        card('AC-3', { parentKey: 'AC-1', status: 'cancelled' }),
+      ];
+      expect(pulled(tasks)).toEqual(['AC-1']);
+    });
+
+    it.each(['waiting', 'blocked'] as const)('leaves a collector whose subtask is %s', (status) => {
+      expect(
+        pulled([card('AC-1', { priority: 'urgent' }), card('AC-2', { parentKey: 'AC-1', status })]),
+      ).toEqual([]);
+    });
+
     it('takes the urgent cards first, then the focus cards by place, in board order within one', () => {
       const tasks = [
         card('AC-1'),

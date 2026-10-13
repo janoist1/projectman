@@ -34,6 +34,60 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
       return 'Switch AI work';
     });
 
+  it('drops a deferred start when the card gains an open subtask', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    await setLeave('dev-1', true);
+    await setLeave('dev-2', true);
+    const parent = await create('Collecting card');
+    await move(parent);
+    await vi.waitFor(() => expect(waiting(parent)).toMatchObject({ reason: 'no_free_member' }));
+    await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    await setLeave('dev-1', false);
+    await h.domain.admission.retryDeferred();
+    await flush();
+    expect(task(parent).assignee).toBeNull();
+    expect(waiting(parent)).toBeUndefined();
+    expect(storedKeys()).toEqual([]);
+    expect(sessionsOf(parent)).toEqual([]);
+    expect(h.runner.started).toHaveLength(0);
+  });
+
+  it('keeps a person able to explicitly start a collecting card', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    await h.domain.taskStarts.start('AR', parent, by());
+    expect(task(parent).assignee).toBe('dev-1');
+    expect(sessionsOf(parent)).toHaveLength(1);
+  });
+
+  it('automatically starts a card whose subtasks are all closed', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    const child = (await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR))
+      .key;
+    await h.domain.tasks.cancel('AR', child, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
+    await move(parent);
+    await vi.waitFor(() => expect(task(parent).assignee).toBe('dev-1'));
+    expect(sessionsOf(parent)).toHaveLength(1);
+  });
+
+  it('rechecks open subtasks after the admission check', async () => {
+    h = await createDomainHarness({ adjust: roomy });
+    const parent = await create('Collecting card');
+    const check = h.domain.admission.check.bind(h.domain.admission);
+    vi.spyOn(h.domain.admission, 'check').mockImplementationOnce(async (request) => {
+      await check(request);
+      await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR);
+    });
+    await move(parent);
+    await flush();
+    await h.domain.admission.retryDeferred();
+    expect(task(parent).assignee).toBeNull();
+    expect(sessionsOf(parent)).toEqual([]);
+    expect(storedKeys()).toEqual([]);
+  });
+
   it('starts a free developer on the moved card, as the Start button would', async () => {
     h = await createDomainHarness({ adjust: roomy });
     const key = await create();

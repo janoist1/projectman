@@ -134,6 +134,30 @@ describe('the order of deferred starts and the focus pull', () => {
   });
 
   describe('the pull', () => {
+    it.each(['urgent', 'focus'] as const)(
+      'leaves a %s collector in the queue and starts its subtask',
+      async (mode) => {
+        await harness(oneDeveloper);
+        const parent = await create('Collecting card');
+        const child = (
+          await h.domain.tasks.create('AR', { title: 'Subtask', parentKey: parent }, OWNER_ACTOR)
+        ).key;
+        if (mode === 'urgent') await priority(parent);
+        await focus(parent);
+        await waitFor(child, 'dev-1');
+        await settle();
+        expect(task(parent)).toMatchObject({ stageId: 'backlog', assignee: null });
+        expect(stageChange(parent)).toEqual([]);
+        expect(sessionsOf(parent)).toEqual([]);
+        expect(pulledOf(child)).toEqual({
+          reason: 'focus',
+          position: 1,
+          key: parent,
+          title: 'Collecting card',
+        });
+      },
+    );
+
     it('gives a ready urgent card to a free developer in the name of the system', async () => {
       await harness(oneDeveloper);
       const key = await create('Urgent card');

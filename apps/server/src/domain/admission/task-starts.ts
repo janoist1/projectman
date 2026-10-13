@@ -1,5 +1,6 @@
 import {
   aiLabelSetters,
+  canAutomaticallyStartTask,
   developerLevelOf,
   evaluateStart,
   isOnLeave,
@@ -205,11 +206,12 @@ export class TaskStarts {
   async startLocked(projectKey: string, taskKey: string, opts: StartTaskOptions): Promise<StartTaskResult> {
     const config = await this.projects.config(projectKey);
     let task = this.tasks.get(projectKey, taskKey);
+    const skipped = { task, session: null, hired: null };
+    if (opts.automatic && !canAutomaticallyStartTask(task, this.tasks.list(projectKey))) return skipped;
     if (isTheme(task)) throw themeRefused(taskKey, 'be started');
     if (!isOpenTask(task)) throw conflict('task_closed', `task ${taskKey} is ${task.status}`);
     if (isOperatorActor(config, opts.actor) && task.fixLimit)
       throw forbidden('operator_never', 'the Operator cannot start a task held by its fix round limit');
-    const skipped = { task, session: null, hired: null };
     if (opts.stillWanted && !opts.stillWanted(task)) return skipped;
     const workStage = workStageOf(config, task);
     if (!workStage) throw invalid('no_work_stage', 'the pipeline has no work stage');
@@ -260,7 +262,13 @@ export class TaskStarts {
     // Again: admission and a hire waited since the first check, and labels may have changed.
     if (needsMove) await this.passEntryGates(config, task, workStage, opts);
 
-    const wanted = () => !opts.stillWanted || opts.stillWanted(this.tasks.get(projectKey, taskKey));
+    const wanted = () => {
+      const current = this.tasks.get(projectKey, taskKey);
+      return (
+        (!opts.automatic || canAutomaticallyStartTask(current, this.tasks.list(projectKey))) &&
+        (!opts.stillWanted || opts.stillWanted(current))
+      );
+    };
     let hired: AiMemberConfig | null = null;
     if (!member) {
       if (!wanted()) return skipped;

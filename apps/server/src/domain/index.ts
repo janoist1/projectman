@@ -90,6 +90,7 @@ import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { ApprovalQuestions } from './approval-questions';
+import { QuestionClosing } from './question-closing';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging, RelationNotices } from './messaging';
@@ -905,6 +906,13 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_labels_changed', ({ task, previousLabels }) =>
     approvalQuestions.labelsChanged(task, previousLabels),
   );
+  // A question about a card that is done or cancelled, or that its asker no longer holds, is moot (PM-556).
+  const questionClosing = new QuestionClosing({ ctx, inbox });
+  events.on('task_stage_changed', (change) => {
+    if (change.task.status === 'done') return questionClosing.taskDone(change.task);
+  });
+  events.on('task_cancelled', (task) => questionClosing.taskCancelled(task));
+  events.on('task_assigned', ({ task, previous }) => questionClosing.assigneeChanged(task, previous));
   // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
   // Remote engines are not connected yet when this is built, so a given directory always gets the runs (PM-315).
   const screenshotRuns =

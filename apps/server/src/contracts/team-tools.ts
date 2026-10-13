@@ -625,6 +625,13 @@ export interface TeamToolsHandler {
     },
   ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
   /**
+   * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
+   * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
+   * question in the project), `forbidden` `not_your_question` (the caller did not ask it), `invalid`
+   * `question_closed` (it is not pending any more).
+   */
+  withdrawQuestion(ctx: ToolContext, args: { itemId: string; reason: string }): Promise<{ itemId: string }>;
+  /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.
    * Only the latest is kept; it is cleared when the round ends. `recorded` is false when the session

@@ -554,6 +554,11 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       return { ok: true };
     },
 
+    async withdrawQuestion(ctx, args) {
+      await enter('withdrawQuestion', ctx, args);
+      return { itemId: args.itemId };
+    },
+
     async setCurrentWork(ctx, args) {
       await enter('setCurrentWork', ctx, args);
       if (ctx.taskKey === null)

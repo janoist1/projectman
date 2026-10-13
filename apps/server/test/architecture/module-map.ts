@@ -650,11 +650,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
   },
   {
     from: 'core/tasks',
-    to: 'services/merges',
-    removedBy: 'PM-577 5a',
-  },
-  {
-    from: 'core/tasks',
     to: 'services/github',
     removedBy: 'core/tasks',
   },

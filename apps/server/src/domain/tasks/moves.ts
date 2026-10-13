@@ -25,6 +25,7 @@ import type {
   GateRequestPayload,
   InboxItem,
   ProjectConfig,
+  RepoConfig,
   Stage,
   StagePull,
   StartBlock,
@@ -39,12 +40,28 @@ import { requireHuman } from '../access';
 import { conflict, DomainError, projectManagerMoveRefused, themeRefused } from '../errors';
 import { DECISION_OPTIONS } from '../inbox';
 import type { InboxService } from '../inbox';
-import type { Merges } from '../merges';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { BoardOrder } from './board-order';
 import type { TaskLabels } from './labels';
 import { requireStage, runEffects } from './store';
 import type { Effect, TaskStore } from './store';
+
+/**
+ * What a stage move asks the module that merges a card's work (PM-591). The rule (which move needs a
+ * merge and when it is checked: moveMerge, mergeRepoOf) stays with the move; the gate answers the facts.
+ */
+export interface MergeGate {
+  /** Before the unit of work, when moveMerge is 'due': resolves when the approved commit is on the base branch, else throws `task_not_merged` (or `handover_uncommitted`). */
+  checkGate(config: ProjectConfig, task: Task, targetId: string): Promise<void>;
+  /** The `task_not_merged` refusal of a merge-requiring move that was not checked before its unit of work. */
+  notMergedError(config: ProjectConfig, task: Task, repo: RepoConfig, reason: 'not_merged'): DomainError;
+  /** After an approved move waits for the merge: opens or refreshes the card's merge request. */
+  reconcile(projectKey: string, taskKey: string): Promise<void>;
+  /** Who merges the card (the approval request's `merge.merger`); null: nobody can. */
+  mergerOf(config: ProjectConfig, task: Task): string | null;
+  /** Inside the unit of work that cancels the card: cancels its open merge; work after the commit goes to `effects`. */
+  cancel(projectKey: string, taskKey: string, effects: Effect[]): void;
+}
 
 export interface MoveResult {
   task: Task;
@@ -142,12 +159,13 @@ export function approvalRequestedError(items: InboxItem[]) {
  * event once it is committed.
  */
 export class TaskMoves {
-  private merges: Merges | undefined;
-  useMerges(merges: Merges): void {
-    this.merges = merges;
+  private mergeGate: MergeGate | undefined;
+  /** A later registration replaces the earlier one (PM-591). */
+  registerMergeGate(gate: MergeGate): void {
+    this.mergeGate = gate;
   }
   cancelMerge(projectKey: string, taskKey: string, effects: Effect[]): void {
-    this.merges?.cancel(projectKey, taskKey, effects);
+    this.mergeGate?.cancel(projectKey, taskKey, effects);
   }
   private readonly store: TaskStore;
   private readonly labels: TaskLabels;
@@ -239,8 +257,8 @@ export class TaskMoves {
     // The merge is checked only when the move's own gates hold (PM-484): a merge that waits for a gate
     // of the move (a missing approval) would otherwise keep the gate from ever being asked.
     let mergeChecked = false;
-    if (this.merges && moveMerge(config, task, task.stageId, target.id).kind === 'due') {
-      await this.merges.checkGate(config, task, target.id);
+    if (this.mergeGate && moveMerge(config, task, task.stageId, target.id).kind === 'due') {
+      await this.mergeGate.checkGate(config, task, target.id);
       mergeChecked = true;
     }
     return { handover: await this.readHandover(config, task, target), mergeChecked };
@@ -344,9 +362,9 @@ export class TaskMoves {
     }
     // The gates hold; the work must be merged too. `prepareMove` checks it before the unit of work, and
     // an approval may have come between that and now (PM-484): such a move is not let through unchecked.
-    if (this.merges && !opts.mergeChecked) {
+    if (this.mergeGate && !opts.mergeChecked) {
       const repo = mergeRepoOf(config, task, task.stageId, target.id);
-      if (repo) throw this.merges.notMergedError(config, task, repo, 'not_merged');
+      if (repo) throw this.mergeGate.notMergedError(config, task, repo, 'not_merged');
     }
     const decision = handOnDecision(config, actor, task.stageId, target.id);
     if (decision.kind === 'request')
@@ -602,11 +620,11 @@ export class TaskMoves {
     }
     // Not checked (the approval came after `prepareMove` read the card): the work counts as not merged.
     const unchecked =
-      this.merges && !handed.mergeChecked && mergeRepoOf(config, current, current.stageId, target.id);
+      this.mergeGate && !handed.mergeChecked && mergeRepoOf(config, current, current.stageId, target.id);
     if (handed.mergeMissing || unchecked) {
       this.settleWaiting(current, actor, { gateBlocked: { to: target.id, reason: 'task_not_merged' } });
       effects.push(async () => {
-        await this.merges?.reconcile(current.projectKey, current.key);
+        await this.mergeGate?.reconcile(current.projectKey, current.key);
       });
       return;
     }
@@ -659,7 +677,7 @@ export class TaskMoves {
     const requestId = newId('gat');
     // The merge that follows the approval (PM-484), so that the request can say who merges and into what.
     const afterGates = moveMerge(config, task, task.stageId, target.id);
-    const merger = afterGates.kind === 'after_gates' ? this.merges?.mergerOf(config, task) : null;
+    const merger = afterGates.kind === 'after_gates' ? this.mergeGate?.mergerOf(config, task) : null;
     const merge =
       afterGates.kind === 'after_gates' && merger ? { merger, base: afterGates.repo.defaultBranch } : null;
     const items = approvals.map((req) => {

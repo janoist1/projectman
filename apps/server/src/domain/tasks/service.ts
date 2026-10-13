@@ -61,7 +61,7 @@ import { planDeveloperLevel } from './developer-level';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
+import type { MergeGate, MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
@@ -125,8 +125,8 @@ export interface TaskUpdate {
  * attributed to an Actor in the timeline.
  */
 export class TaskService {
-  useMerges(merges: import('../merges').Merges): void {
-    this.moves.useMerges(merges);
+  registerMergeGate(gate: MergeGate): void {
+    this.moves.registerMergeGate(gate);
   }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;

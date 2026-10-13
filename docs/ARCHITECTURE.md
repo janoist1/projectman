@@ -613,6 +613,18 @@ This initial baseline may only shrink: slice cards update their own paths and re
 their own exceptions. Once a slice seals its module, other modules must import its
 target `index.ts`, including when a layer exception still exists.
 
+#### Core extension points
+
+When a core rule needs facts from a service or runtime module, the port type belongs
+to the core module. Its `register…` method names the core concept rather than the
+provider. Registration happens in assembly (`domain/index.ts`) until the provider's
+slice moves it into its own factory. A later registration replaces the earlier one.
+
+The first extension point is `TaskService.registerMergeGate(gate: MergeGate)` (PM-591).
+The merge service supplies the facts for “done only after merging”; the rule that
+decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
+stays in `packages/shared` and is applied by task moves.
+
 **Packages** (TypeScript source, used directly by both apps):
 
 - `packages/shared` — the contracts: domain types, configuration schema and invariants, the

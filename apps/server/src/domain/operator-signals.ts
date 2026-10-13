@@ -1,6 +1,10 @@
 import {
+  dutyMembers,
   formatInjectedTeamMessage,
+  isOperator,
   operatorOf,
+  projectManagersOf,
+  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OperatorSignal,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   aiLimitReached,
@@ -16,7 +20,14 @@ import {
   OPERATOR_SILENT_WORK_MINUTES,
   OPERATOR_UNRELEASED_HOURS,
 } from '@projectman/shared';
-import type { OperatorSignalKind, ProjectConfig, Stage, Task, TaskWait } from '@projectman/shared';
+import type {
+  OperatorSignalKind,
+  OperatorSignalStepTargets,
+  ProjectConfig,
+  Stage,
+  Task,
+  TaskWait,
+} from '@projectman/shared';
 import type { OperatorSignalRecord } from '../db';
 import type { DomainContext } from './context';
 import { isoNow } from './context';
@@ -92,6 +103,7 @@ export class OperatorSignals {
       decidedAt: null,
       resolvedAt: null,
       deliveredAt: null,
+      followUpAt: null,
     };
     ctx.repos.operatorSignals.insert(signal);
     return signal;
@@ -144,6 +156,60 @@ export class OperatorSignals {
     };
     this.save(updated);
     return OperatorSignal.parse(updated);
+  }
+
+  /**
+   * What the signal lets the Operator start without an owner's request (PM-545). The case must still hold
+   * and the signal be open for the Operator; a person on leave, a person and the Operator itself are never targets.
+   */
+  async stepTargets(
+    projectKey: string,
+    signalId: string,
+  ): Promise<{ signal: OperatorSignalRecord; allowed: OperatorSignalStepTargets }> {
+    const { ctx, projects, taskWaits } = this.deps;
+    const signal = ctx.repos.operatorSignals.get(signalId);
+    if (!signal || signal.projectKey !== projectKey)
+      throw invalid('invalid_request', 'unknown signal in this project');
+    const config = await projects.config(projectKey);
+    if (
+      signal.resolvedAt ||
+      !signal.deliveredAt ||
+      !(signal.state === 'open' || signal.state === 'pending') ||
+      !this.caseHolds(config, signal)
+    )
+      throw conflict('operator_signal_closed', 'the signal is no longer open');
+    const startable = (handles: readonly string[]) =>
+      handles.filter((handle) => {
+        const member = memberOf(config, handle);
+        return member?.kind === 'ai' && !isOperator(member) && !isOnLeave(member);
+      });
+    const allowed: OperatorSignalStepTargets = { startTask: null, members: [], taskKey: null };
+    const task = signal.taskKey ? ctx.repos.tasks.get(signal.taskKey) : null;
+    if (signal.kind === 'idle' && task) {
+      const stage = stageOf(config, task.stageId);
+      const wait = taskWaits.ofCard(config, task);
+      const holders = stage && wait ? startable(this.idleHolders(config, stage, wait)) : [];
+      if (stage?.kind === 'work') allowed.startTask = holders.includes(task.assignee ?? '') ? task.key : null;
+      else {
+        allowed.members = holders;
+        allowed.taskKey = task.key;
+      }
+    } else if ((signal.kind === 'merge_waiting' || signal.kind === 'merge_blocked') && task) {
+      const merger = ctx.repos.taskMerges.open(projectKey, task.key)?.merger;
+      allowed.members = merger ? startable([merger]) : [];
+      allowed.taskKey = task.key;
+    } else if (signal.kind === 'unreleased') {
+      allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
+    } else if (signal.kind === 'ready_waiting') {
+      allowed.members = startable(projectManagersOf(config).map((m) => m.handle));
+    }
+    return { signal, allowed };
+  }
+
+  /** The Operator took a step on the signal: it is shown again if the case still stands in half an hour. */
+  stepTaken(signalId: string): void {
+    const at = this.deps.ctx.now().getTime() + OPERATOR_SIGNAL_STEP_GAP_MINUTES * 60_000;
+    this.deps.ctx.repos.operatorSignals.followUp(signalId, new Date(at).toISOString());
   }
 
   /** Delivered, unresolved signals still awaiting presentation or a decision, oldest first. */
@@ -247,43 +313,64 @@ export class OperatorSignals {
   }
 
   private pending(projectKey: string): OperatorSignalRecord[] {
-    const { ctx, projects, taskWaits } = this.deps;
+    const { ctx, projects } = this.deps;
+    const now = ctx.now().getTime();
     let board: Map<string, SignalInput> | undefined;
     return ctx.repos.operatorSignals.list(projectKey).filter((s) => {
-      if (s.state !== 'pending' || s.resolvedAt || s.deliveredAt) return false;
-      let valid = true;
-      if (BOARD_KINDS.has(s.kind)) {
-        const config = projects.cachedConfig(projectKey);
+      if (s.resolvedAt) return false;
+      // A signal the Operator took a step on is shown again once its follow-up time has come (PM-545).
+      const again =
+        s.followUpAt !== null &&
+        Date.parse(s.followUpAt) <= now &&
+        (s.state === 'pending' || s.state === 'open');
+      if (!again && (s.state !== 'pending' || s.deliveredAt)) return false;
+      const config = projects.cachedConfig(projectKey);
+      const valid = this.caseHolds(config, s, () => {
         board ??= config ? this.boardCases(config, ctx.repos.tasks.list(projectKey)) : new Map();
-        valid = board.has(s.caseKey);
-        // Free capacity is raised at once but wakes the Operator only if it lasts (PM-547).
-        if (
-          valid &&
-          s.kind === 'ready_waiting' &&
-          ctx.now().getTime() - Date.parse(s.raisedAt) < OPERATOR_READY_WAITING_MINUTES * 60_000
-        )
-          return false;
-      } else if (s.kind === 'nobody') {
-        const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
-        const config = projects.cachedConfig(projectKey);
-        valid =
-          !!task &&
-          !!config &&
-          task.stageId === s.subject &&
-          taskWaits.ofCard(config, task)?.reason === 'nobody';
-      } else if (s.kind === 'silent' || s.kind === 'stalled') {
-        const session = ctx.repos.sessions.get(s.subject ?? '');
-        valid =
-          !!session &&
-          (s.kind === 'stalled'
-            ? session.state === 'waiting_input'
-            : session.state === 'working' &&
-              ctx.now().getTime() - Date.parse(session.lastActivityAt) >=
-                OPERATOR_SILENT_WORK_MINUTES * 60_000);
+        return board;
+      });
+      if (!valid) {
+        this.resolve(projectKey, s.caseKey);
+        return false;
       }
-      if (!valid) this.resolve(projectKey, s.caseKey);
-      return valid;
+      // Free capacity is raised at once but wakes the Operator only if it lasts (PM-547).
+      return !(
+        s.kind === 'ready_waiting' &&
+        !again &&
+        now - Date.parse(s.raisedAt) < OPERATOR_READY_WAITING_MINUTES * 60_000
+      );
     });
+  }
+
+  /** Whether the case of the signal still stands, read from the cards, merges, sessions and releases now. */
+  private caseHolds(
+    config: ProjectConfig | undefined,
+    s: OperatorSignalRecord,
+    board: () => Map<string, SignalInput> = () =>
+      config ? this.boardCases(config, this.deps.ctx.repos.tasks.list(s.projectKey)) : new Map(),
+  ): boolean {
+    const { ctx, taskWaits } = this.deps;
+    if (BOARD_KINDS.has(s.kind)) return board().has(s.caseKey);
+    if (s.kind === 'nobody') {
+      const task = s.taskKey ? ctx.repos.tasks.get(s.taskKey) : null;
+      return (
+        !!task &&
+        !!config &&
+        task.stageId === s.subject &&
+        taskWaits.ofCard(config, task)?.reason === 'nobody'
+      );
+    }
+    if (s.kind === 'silent' || s.kind === 'stalled') {
+      const session = ctx.repos.sessions.get(s.subject ?? '');
+      return (
+        !!session &&
+        (s.kind === 'stalled'
+          ? session.state === 'waiting_input'
+          : session.state === 'working' &&
+            ctx.now().getTime() - Date.parse(session.lastActivityAt) >= OPERATOR_SILENT_WORK_MINUTES * 60_000)
+      );
+    }
+    return true;
   }
   /**
    * The cases of the board kinds that hold now (PM-547), read from the cards, merges, sessions and releases
@@ -455,6 +542,19 @@ export class OperatorSignals {
             )
             .join('\n');
         const workItem = { type: 'general' } as const;
+        // A signal shown again after an own step is shown from the start (PM-545): the Operator may present it anew.
+        const markDelivered = () =>
+          ctx.unitOfWork(() => {
+            const at = isoNow(ctx);
+            ctx.repos.operatorSignals.delivered(
+              signals.filter((s) => s.followUpAt === null).map((s) => s.id),
+              at,
+            );
+            ctx.repos.operatorSignals.redelivered(
+              signals.filter((s) => s.followUpAt !== null).map((s) => s.id),
+              at,
+            );
+          });
         const running = sessions.findRunning(projectKey, member.handle, workItem);
         if (running && !sessions.isPaused(running)) {
           if (!(await delivery.notice(running, 'projectman', text, null)))
@@ -474,12 +574,7 @@ export class OperatorSignals {
           });
           const delivered = firstInput!.then((typed) => {
             if (!typed) throw new Error('operator signal first input was not delivered');
-            ctx.unitOfWork(() =>
-              ctx.repos.operatorSignals.delivered(
-                signals.map((s) => s.id),
-                isoNow(ctx),
-              ),
-            );
+            markDelivered();
             const current = sessions.findRunning(projectKey, member.handle, workItem);
             if (!current || current.state === 'idle') this.finish(projectKey);
           });
@@ -488,12 +583,7 @@ export class OperatorSignals {
           this.firstDeliveries.set(projectKey, delivered);
           return;
         }
-        ctx.unitOfWork(() =>
-          ctx.repos.operatorSignals.delivered(
-            signals.map((s) => s.id),
-            isoNow(ctx),
-          ),
-        );
+        markDelivered();
       },
     };
   }

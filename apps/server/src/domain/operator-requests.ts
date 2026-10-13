@@ -1,3 +1,4 @@
+import { OPERATOR_SIGNAL_ROUND_FROM } from '@projectman/shared';
 import type {
   ConfigChangeRow,
   ErrorCode,
@@ -141,10 +142,39 @@ export class OperatorRequests {
   openFor(sessionId: string): OperatorRequestRecord | null {
     let found: OperatorRequestRecord | null = null;
     for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId)) {
-      if (this.expire(request)) continue;
+      if (this.expire(request) || request.source === 'signal') continue;
       found ??= request;
     }
     return found;
+  }
+
+  /**
+   * The signal round of the session (PM-545): the row its own steps on system signals hang on, open until
+   * the turn ends or its time is up. It authorizes nothing: `openFor` never returns it.
+   */
+  roundFor(sessionId: string): OperatorRequestRecord | null {
+    for (const request of this.ctx.repos.operatorRequests.openOfSession(sessionId))
+      if (request.source === 'signal' && !this.expire(request)) return request;
+    return null;
+  }
+
+  /** The session's signal round, opened by the first step on a signal. */
+  openRound(projectKey: string, sessionId: string): OperatorRequestRecord {
+    const open = this.roundFor(sessionId);
+    if (open) return open;
+    const request = {
+      id: newId('opr'),
+      projectKey,
+      sessionId,
+      source: 'signal' as const,
+      messageId: null,
+      inboxItemId: null,
+      fromHandle: OPERATOR_SIGNAL_ROUND_FROM,
+      quote: '',
+      openedAt: isoNow(this.ctx),
+    };
+    this.ctx.repos.operatorRequests.insert(request);
+    return { ...request, closedAt: null };
   }
 
   /** The session's turn is over (idle) or the session ended: its open requests close. */
@@ -197,6 +227,8 @@ export interface OperatorStepInput {
   changes?: ConfigChangeRow[];
   configVersion?: string | null;
   inboxItemId?: string | null;
+  /** The system signal the step acted on without a request (PM-545). */
+  signalId?: string | null;
   refusal?: { code: ErrorCode; message: string } | null;
 }
 
@@ -220,9 +252,15 @@ export class OperatorSteps {
       changes: input.changes ?? [],
       configVersion: input.configVersion ?? null,
       inboxItemId: input.inboxItemId ?? null,
+      signalId: input.signalId ?? null,
       refusal: input.refusal ?? null,
     };
     this.ctx.repos.operatorRequests.insertStep(step);
     return step;
+  }
+
+  /** The steps the Operator took on a signal, the oldest first. */
+  ofSignal(signalId: string): OperatorStepRecord[] {
+    return this.ctx.repos.operatorRequests.stepsOfSignal(signalId);
   }
 }

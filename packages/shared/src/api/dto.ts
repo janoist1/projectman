@@ -125,6 +125,8 @@ export const OperatorStep = z.object({
   changes: z.array(ConfigChangeRow),
   configVersion: z.string().nullable(),
   inboxItemId: z.string().nullable(),
+  /** The system signal the Operator acted on without an owner's request (PM-545). */
+  signalId: z.string().nullable(),
   refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
 });
 export type OperatorStep = z.infer<typeof OperatorStep>;

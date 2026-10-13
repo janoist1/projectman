@@ -538,6 +538,7 @@ describe('write_project_docs (PM-495)', () => {
         changes: [],
         configVersion: null,
         inboxItemId: null,
+        signalId: null,
         refusal: null,
       });
       h.repos.docWrites.insert({

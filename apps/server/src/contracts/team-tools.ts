@@ -399,7 +399,7 @@ export interface TeamToolsHandler {
   }>;
   startTask(
     ctx: ToolContext,
-    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean },
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
   ): Promise<{
     task_key: string;
     session_id: string | null;
@@ -411,7 +411,10 @@ export interface TeamToolsHandler {
     /** Seniors the card waits for, without an assigned developer (PM-348). */
     senior_wait?: { seniors: string[] };
   }>;
-  startMember(ctx: ToolContext, args: { member: string; text: string }): Promise<MemberStartResult>;
+  startMember(
+    ctx: ToolContext,
+    args: { member: string; text: string; taskKey?: string; signalId?: string },
+  ): Promise<MemberStartResult>;
   /**
    * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
    * Only the Operator; needs no open request.

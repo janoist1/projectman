@@ -217,6 +217,10 @@ export const ERROR_CODES = [
   'operator_never',
   'operator_only',
   'operator_approval_stale',
+  // The Operator's own steps on a system signal (PM-545): no more steps left, or too soon after the last;
+  // a start_member on a card for a member with no role on it.
+  'operator_signal_budget',
+  'not_card_role',
   // The Operator's documents (PM-495): not set up; an edit that does not apply (422); a log line that would
   // change; no change at all; the file moved on since it was read; a write already waits or runs (409);
   // the write did not go up (409).

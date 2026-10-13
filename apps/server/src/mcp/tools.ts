@@ -421,11 +421,12 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Start work on a task',
     readOnly: false,
     description:
-      'Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused).',
+      "Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the Operator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
     input: {
       task_key: TaskKey,
       assignee: MemberHandle.optional(),
       despite_prerequisites: z.boolean().optional(),
+      signal_id: z.string().min(1).max(64).optional(),
     },
     async run({ ctx, args, handler }) {
       return JSON.stringify(
@@ -433,6 +434,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           taskKey: args.task_key,
           assignee: args.assignee,
           despitePrerequisites: args.despite_prerequisites,
+          ...(args.signal_id !== undefined ? { signalId: args.signal_id } : {}),
         }),
       );
     },
@@ -442,10 +444,22 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Start a member on work without a card',
     readOnly: false,
     description:
-      'Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task.',
-    input: { member: MemberHandle, text: z.string().min(1).max(20000) },
+      "Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names.",
+    input: {
+      member: MemberHandle,
+      text: z.string().min(1).max(20000),
+      task_key: TaskKey.optional(),
+      signal_id: z.string().min(1).max(64).optional(),
+    },
     async run({ ctx, args, handler }) {
-      return formatMemberStart(await handler.startMember(ctx, { member: args.member, text: args.text }));
+      return formatMemberStart(
+        await handler.startMember(ctx, {
+          member: args.member,
+          text: args.text,
+          ...(args.task_key !== undefined ? { taskKey: args.task_key } : {}),
+          ...(args.signal_id !== undefined ? { signalId: args.signal_id } : {}),
+        }),
+      );
     },
   }),
   defineTool({

@@ -77,6 +77,7 @@ function step(partial: Partial<OperatorStep> & Pick<OperatorStep, 'id' | 'action
     changes: [],
     configVersion: null,
     inboxItemId: null,
+    signalId: null,
     refusal: null,
     ...partial,
   };

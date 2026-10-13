@@ -408,10 +408,6 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       inside(source.path, 'The source repository');
       return [{ ...key, project: bind(key.project, key.repoName) }, source, ref];
     },
-    'workspace.export_branch': (params) => {
-      limit.token(params.uploadToken);
-      return { ...params, key: { ...params.key, project: bind(params.key.project, params.key.repoName) } };
-    },
     'full_test.run': (params) => {
       const { spec } = params;
       if (

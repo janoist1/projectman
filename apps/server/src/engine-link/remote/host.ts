@@ -114,18 +114,6 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       resolveSource: (source) => call('workspace.resolveSource', [source]),
       checkoutTaskBranch: (key, request) => call('workspace.checkoutTaskBranch', [key, request]),
       checkoutReview: (key, source, roundId) => call('workspace.checkoutReview', [key, source, roundId]),
-      async exportBranch(key, branch) {
-        // The bundle goes over the file endpoint into the cloud's spool; the cloud reads it from there.
-        const ticket = transfers.issueUpload(id, 'bundle');
-        try {
-          const receipt = await call('workspace.export_branch', { key, branch, uploadToken: ticket.token });
-          const received = ticket.take(receipt);
-          return { path: received.path, bundle: true, done: async () => ticket.dispose() };
-        } catch (err) {
-          ticket.dispose();
-          throw err;
-        }
-      },
     };
 
     const foldersRoot = () => helloOf().paths.sessionFoldersRoot ?? '';

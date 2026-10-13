@@ -265,7 +265,7 @@ export class BoundaryService {
 
   /** The protected executor consumes one exact grant before execution. This only returns
    * authorization metadata; it never performs a command or changes CLI permissions. `record`
-   * runs in the same transaction, so the executor's own record of the grant (the egress
+   * runs in the same transaction, so the executor's own record of the grant (the external operation
    * allowance) exists exactly when the grant is consumed. */
   async consume(
     requester: BoundaryRequester,

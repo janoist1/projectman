@@ -20,7 +20,6 @@ Documentation map:
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
 | [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |
 | [GITHUB.md](GITHUB.md), [SECURITY.md](SECURITY.md), [DEPLOY.md](DEPLOY.md) | GitHub integration; threat model and protections; server deployment |
-| [VM.md](VM.md)                                                             | the managed VM profile: build, readiness report, trial, restore     |
 
 ## Hard constraints
 
@@ -248,9 +247,7 @@ Documentation map:
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
   read and update tasks (labels, notes, stage moves, subtasks), create tasks, link PRs, ask
   humans, save memories and work with attachments (list, read by local path, attach a file of
-  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)), and
-  in the managed VM publish their own task branch (`publish_task_branch`) and read the remote
-  (`get_remote_state`; PM-142, [GITHUB.md](GITHUB.md)). Text
+  their own working directory, delete their own; PM-113, see [SECURITY.md](SECURITY.md)). Text
   an agent writes in its own session reaches nobody.
 - **Team messages** — a message about a task goes to the recipient's session for that task
   (batched when idle; a stopped session is started or resumed through admission only for a valid
@@ -451,7 +448,6 @@ browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node,
                                                  ├─ domain services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
                                                  ├─ github ──────────▶ gh CLI (owner's login, read-only)
-                                                 │                  └─ publisher: git + gh as the VM's own identity (PM-142)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
 claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
@@ -558,55 +554,54 @@ other: they communicate through the core. Connectors and runtime reach engine
 capabilities only through ports in `contracts/`. Workspace `@projectman/*`
 packages count as contracts and are accessible to every layer.
 
-| Module                  | Responsibility                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `contracts`             | Shared server interfaces and engine ports.                                                     |
-| `db`                    | SQLite storage, repositories and migrations.                                                   |
-| `config`                | Project configuration loading, validation and migrations.                                      |
-| `logging`               | Structured server and engine logging and file rotation.                                        |
-| `instance`              | Installation identity and activation state.                                                    |
-| `kernel`                | Common errors, utilities and background work helpers.                                          |
-| `agent-text`            | Text formatting for agent-facing context.                                                      |
-| `core/base`             | Domain context, events and the event bus.                                                      |
-| `core/projects`         | Projects, roles, stage reviewers and visibility.                                               |
-| `core/tasks`            | Tasks, board state, focus, involvement and card measures.                                      |
-| `core/members`          | Member access, invitations, presence and naming.                                               |
-| `core/timeline`         | Append-only task and project timeline access.                                                  |
-| `core/messages`         | Stored messages, routing and conversation rules.                                               |
-| `core/inbox`            | Human questions, approval inbox and question lifecycle.                                        |
-| `core/attachments`      | Task and message attachment storage and processing.                                            |
-| `runtime/admission`     | Admission, deferred starts, handovers and refinement.                                          |
-| `runtime/sessions`      | Session orchestration, policy, pause and workspace selection.                                  |
-| `runtime/delivery`      | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)). |
-| `runtime/permissions`   | Command parsing and execution permission rules.                                                |
-| `runtime/watchers`      | Runtime health, review, disk and worktree watches.                                             |
-| `runtime/usage`         | Provider quota, plan usage and managed provider keys.                                          |
-| `context`               | Agent context packs and prompts.                                                               |
-| `services/merges`       | Card merge orchestration and merge locks.                                                      |
-| `services/full-tests`   | Full-test and screenshot-run orchestration.                                                    |
-| `services/releases`     | Release proposals and release roadmap notices.                                                 |
-| `services/github`       | GitHub synchronization, pull requests and publishing.                                          |
-| `services/feedback`     | Feedback marks, screenshots and widget sessions.                                               |
-| `services/project-docs` | Operator project-document writes and decision candidates.                                      |
-| `services/boundary`     | External operation authorization and boundary requests.                                        |
-| `services/schedules`    | Scheduled member work.                                                                         |
-| `services/operator`     | Operator actions, signals, requests and project management.                                    |
-| `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                            |
-| `worktree`              | Task and member worktree creation and dependency refresh.                                      |
-| `engine-host`           | Engine-local files, process operations and branch merging.                                     |
-| `full-test`             | Sandboxed test execution and the heavy-run queue.                                              |
-| `machine`               | Machine probes and process parsing.                                                            |
-| `engine-link`           | Server/engine RPC, transport and remote adapters.                                              |
-| `runtime-boundary`      | Legacy managed VM boundary, scheduled for removal by PM-581.                                   |
-| `api`                   | HTTP API adapters.                                                                             |
-| `mcp`                   | MCP transport and tool declarations.                                                           |
-| `team-tools`            | Domain adapter for team tool calls.                                                            |
-| `ws`                    | Websocket transport and broadcasts.                                                            |
-| `http`                  | HTTP transport guards and infrastructure.                                                      |
-| `control`               | Administrative control socket.                                                                 |
-| `auth`                  | Authentication and integrator credentials.                                                     |
-| `assembly`              | Domain service composition and wiring.                                                         |
-| `entry`                 | Application and engine startup, composition and shutdown.                                      |
+| Module | Responsibility |
+| --- | --- |
+| `contracts` | Shared server interfaces and engine ports. |
+| `db` | SQLite storage, repositories and migrations. |
+| `config` | Project configuration loading, validation and migrations. |
+| `logging` | Structured server and engine logging and file rotation. |
+| `instance` | Installation identity and activation state. |
+| `kernel` | Common errors, utilities and background work helpers. |
+| `agent-text` | Text formatting for agent-facing context. |
+| `core/base` | Domain context, events and the event bus. |
+| `core/projects` | Projects, roles, stage reviewers and visibility. |
+| `core/tasks` | Tasks, board state, focus, involvement and card measures. |
+| `core/members` | Member access, invitations, presence and naming. |
+| `core/timeline` | Append-only task and project timeline access. |
+| `core/messages` | Stored messages, routing and conversation rules. |
+| `core/inbox` | Human questions, approval inbox and question lifecycle. |
+| `core/attachments` | Task and message attachment storage and processing. |
+| `runtime/admission` | Admission, deferred starts, handovers and refinement. |
+| `runtime/sessions` | Session orchestration, policy, pause and workspace selection. |
+| `runtime/delivery` | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)). |
+| `runtime/permissions` | Command parsing and execution permission rules. |
+| `runtime/watchers` | Runtime health, review, disk and worktree watches. |
+| `runtime/usage` | Provider quota, plan usage and managed provider keys. |
+| `context` | Agent context packs and prompts. |
+| `services/merges` | Card merge orchestration and merge locks. |
+| `services/full-tests` | Full-test and screenshot-run orchestration. |
+| `services/releases` | Release proposals and release roadmap notices. |
+| `services/github` | GitHub synchronization, pull requests and publishing. |
+| `services/feedback` | Feedback marks, screenshots and widget sessions. |
+| `services/project-docs` | Operator project-document writes and decision candidates. |
+| `services/boundary` | External operation authorization and boundary requests. |
+| `services/schedules` | Scheduled member work. |
+| `services/operator` | Operator actions, signals, requests and project management. |
+| `runner` | Provider CLIs, PTYs, hooks and transcript handling. |
+| `worktree` | Task and member worktree creation and dependency refresh. |
+| `engine-host` | Engine-local files, process operations and branch merging. |
+| `full-test` | Sandboxed test execution and the heavy-run queue. |
+| `machine` | Machine probes and process parsing. |
+| `engine-link` | Server/engine RPC, transport and remote adapters. |
+| `api` | HTTP API adapters. |
+| `mcp` | MCP transport and tool declarations. |
+| `team-tools` | Domain adapter for team tool calls. |
+| `ws` | Websocket transport and broadcasts. |
+| `http` | HTTP transport guards and infrastructure. |
+| `control` | Administrative control socket. |
+| `auth` | Authentication and integrator credentials. |
+| `assembly` | Domain service composition and wiring. |
+| `entry` | Application and engine startup, composition and shutdown. |
 
 The single source of truth for file → module → layer assignments, targets and
 passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
@@ -617,7 +612,18 @@ Current forbidden module pairs have explicit exceptions with a removal owner.
 This initial baseline may only shrink: slice cards update their own paths and remove
 their own exceptions. Once a slice seals its module, other modules must import its
 target `index.ts`, including when a layer exception still exists.
-PM-581 removes the `runtime-boundary` row and its exceptions together with that folder.
+
+#### Core extension points
+
+When a core rule needs facts from a service or runtime module, the port type belongs
+to the core module. Its `register…` method names the core concept rather than the
+provider. Registration happens in assembly (`domain/index.ts`) until the provider's
+slice moves it into its own factory. A later registration replaces the earlier one.
+
+The first extension point is `TaskService.registerMergeGate(gate: MergeGate)` (PM-591).
+The merge service supplies the facts for “done only after merging”; the rule that
+decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
+stays in `packages/shared` and is applied by task moves.
 
 **Effect (PM-590, a trial on a branch):** two programs are written with the `effect` package, each
 behind a plain TypeScript facade, so nothing outside them sees an Effect type: the runner's input
@@ -650,12 +656,7 @@ before touching or writing Effect code.
   events, links, the repository of a task, one-line text.
 - `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
   safe branch switches, pinned review checkouts; PM-138).
-- `github/` — `gh`-based pull request lookups and polling (the owner's read login); the publisher
-  with the VM's separate identity (PM-142).
-- `runtime-boundary/` — the VM boundary (PM-140): the boundary configuration, the launcher
-  (root daemon, protocol, client), the worker bridge (inside each unit's own network namespace)
-  and the service's per-member bridge sockets, the egress proxy, the worker workspace access, the
-  readiness verdict and the boundary probe verify.sh runs.
+- `github/` — `gh`-based pull request lookups and polling (the owner's read login).
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
   configuration migrations.
@@ -708,9 +709,6 @@ worktrees/<KEY>/…         git worktrees created for tasks
 workspaces/<KEY>/<handle>/<repo>/{repo,cache,tmp}
                           member workspaces (PM-138, when on): durable independent clones,
                           never removed by projectman
-workspaces/<KEY>/<handle>/.home
-                          the member's own directory without a repository (PM-141, managed VM
-                          profile only: chats, schedule runs, tasks without a repository)
 instance.json             role of this copy (PM-143): absent = the active instance, `standby` or
                           `retired`; written only by a person with the move tool
 migrated/                 what a move left (PM-143): the apply report, the old machine's pending
@@ -783,8 +781,7 @@ a `permission` inbox item whose `payload.delegation` carries the decider(s) and 
 decider is woken by a team message and answers with `decide_permission_request`
 (`InboxService.resolveDelegated`: `allow` and `deny` close the item in its name and answer the waiting
 hook, `escalate` hands it to the sponsor or owners). A deadline, a decider on leave or delegation
-switched off do the same in `sweepDelegations`; nothing is ever an allowance by itself. The `managed_vm`
-profile has no local approvals and is untouched.
+switched off do the same in `sweepDelegations`; nothing is ever an allowance by itself.
 
 An owner may set both settings for one session, as Claude Desktop switches the mode per session
 (PM-170): `PATCH /api/projects/:key/sessions/:id` (`UpdateSessionRequest`, owner only; `null`
@@ -797,8 +794,7 @@ pack's approver text), `InboxService.decide` (the refusal of `none`, and the app
 header. A new approver applies to the next question. A new mode needs the CLI's process to start again: a running session is marked
 `permissionRestartPending` and restarts with `--resume` (Codex `resume`) once it is idle and
 `SessionRunner.hasPendingInput` says no message is on its way in; messages for it wait meanwhile
-and are typed in after the restart, which gets no continue message. Behind the managed VM profile
-only a change into or out of `plan` restarts it. Grants "for this session" die with the process:
+and are typed in after the restart, which gets no continue message. Grants "for this session" die with the process:
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
 
@@ -852,94 +848,7 @@ home, the server's own checkout `installDir` from `index.ts`; PM-188) in `denyWr
 and the live data (`deniedPaths`) in `denyRead`. The Claude adapter also denies `Edit` of the
 `denyWrite` paths (and everything below them) with rules, since the sandbox does not bind the
 built-in file tools. Codex renders the sensitive-path denials and portable writes through its
-own permission profile (PM-356; readers receive no write entries); the
-managed VM profile gets none.
-
-## Managed VM profile (PM-137, part of PM-135)
-
-The running boundary of the VM direction (decisions 25, 26) is **outside** the app and measured:
-`deploy/vm/` builds a Linux guest from a root-managed profile (`profile.env`, one source for
-`bootstrap.sh` and `verify.sh`), and the app only consumes a result. The pieces:
-
-- **Protected side**: the service account (`projectman`, uid 19000), the app and CLIs owned by root,
-  `PROJECTMAN_HOME` (database, cookie secret, attachments, memory, worktrees), the logs, and the
-  boundary settings (`/etc/projectman`, the nftables egress table `projectman_gate`, the units).
-  None of it is writable by the workers; the data is not readable by them.
-- **Free side**: one unprivileged account per member, `pmw-<handle>` (uids 20000–20999, own group
-  and home under `/var/lib/projectman-work`), where that member's sessions and workspaces live.
-- **Contract**: `packages/shared/src/deploy/vm-readiness.ts` lists the checks (version, worker
-  privileges, protected paths, host isolation, network gate, launcher, service), which are
-  required, and the one verdict rule `evaluateVmReadiness()`. `verify.sh` writes a report in that
-  shape; `scripts/vm-readiness.ts` prints the verdict and the server enforces it (below); PM-143
-  consumes it for the move. A flag such as `VM=true` is never an input; the report is strict and a
-  missing check fails.
-
-**The runtime boundary (PM-140, `src/runtime-boundary`).** `index.ts` reads nothing from the
-environment: `index.ts` of the server loads the root-owned boundary configuration
-(`PROJECTMAN_BOUNDARY_CONFIG`, `BoundaryConfig`), and `app.ts` builds from it:
-
-- the **launcher client** (`SessionLauncher`): the runner starts every session through it as the
-  member's worker (`RunnerModuleOptions.launcher`), the member workspace manager runs every
-  workspace command through it (`WorkspaceAccess`), and the session orchestrator prepares a
-  worker's session directory with it. The launcher itself (`launcher/daemon.ts`, entry
-  `dist/launcher.js`) runs as root behind a socket only the service's group reaches and turns a
-  narrow, validated request into a `systemd-run` unit with a fixed sandbox;
-- the **egress proxy** (`egress/proxy.ts`, in the service process): the workers' only way out;
-  it asks the domain's `EgressService` for every connection, which allows the base list and
-  allowances and turns allowed PM-139 grants into allowances (DB migration 16);
-- the **verdict** (`RuntimeBoundary.status()`): the readiness report, the launcher's answer and the
-  proxy's listener. `SessionOrchestrator` refuses every start while it is not ready
-  (`runtime_boundary_not_ready`). The question-free profile (PM-141, `managed_vm`) needs this
-  configuration (the server does not start without it), and its per-start proof
-  (`ManagedVmBoundary.verify()`) also requires `status().ready`, so question-free sessions only ever
-  run through the launcher as the member's worker.
-
-Without the configuration the boundary is `off` (`disabledRuntimeBoundary`), nothing changes for
-other installations, and `status().ready` is always false.
-
-Details, the manual trial and backup/restore are in [VM.md](VM.md).
-
-## Execution profile (PM-141, part of PM-135)
-
-An installation runs in one of two **execution profiles** (`ExecutionProfile` in
-`packages/shared/src/deploy/managed-vm.ts`): `legacy`, the Mac installation as it always was, or
-`managed_vm`, the owner's choice for the verified managed VM. In the managed VM profile the boundary
-is outside the CLIs, so Claude Code and Codex run without local approval questions (decision 26);
-[PROVIDERS.md](PROVIDERS.md) lists what each CLI is given and what is not yet proven by hand.
-
-- **Selection is not proof.** `PROJECTMAN_EXECUTION_PROFILE=managed_vm` (read in `index.ts`, with
-  `PROJECTMAN_WORKSPACES=member`, `PROJECTMAN_BOUNDARY_CONFIG` and optionally
-  `PROJECTMAN_VM_READINESS_REPORT`, which defaults to the boundary configuration's report) only
-  selects. Every start, resume included, asks a `ManagedVmBoundary` (`contracts/runner.ts`): the
-  report boundary needs a Linux host, a ready, current report with the launcher and the domain gate
-  passed (`evaluateManagedVmActivation`), and `app.ts` adds the runtime boundary's verdict (launcher
-  answering, egress proxy listening). Otherwise the start fails with `managed_vm_unavailable`, before
-  any workspace is prepared or process spawned, and never falls back to a legacy start. An unknown
-  profile, or a managed VM without member workspaces or the boundary configuration, stops the
-  server; a readiness report on a legacy installation does too. On the Mac the profile cannot be
-  entered by a file or a flag.
-- **The policy** (`SessionPolicy.execution`, placement `member_workspace`, built by
-  `buildManagedVmPolicy` in `domain/session-policy.ts`) keeps `enforcement: 'legacy'`: it neither
-  claims strict isolation nor migrates a `permissionMode` (`managedVmPermissions` reads the member's
-  mode; `plan` stays research-only). It has no tool grants to render, no denied operations and no
-  sandbox; the business rules and owner exceptions apply at the domain, network and operation gate
-  (BOUNDARY.md). Sessions without a repository (chats, schedule runs, a task without one) work in a
-  directory of the member's own worker account (behind the launcher) or in the member's own
-  `<workspaces>/<KEY>/<handle>/.home`, never a shared directory.
-- **No local approval path.** A permission request that arrives anyway is refused at once in the
-  runner (and in the inbox broker): no inbox item, no `commandVerdict`, no command-form rules; the
-  context pack drops the "Commands that run without asking" section. The legacy path keeps all of it.
-- **Profile changes.** `sessions.execution_profile` (migration 14) records the profile a session last
-  ran in. A conversation of the other profile is not resumed; the session starts a new one in the new
-  placement and its unconsumed boundary requests are revoked (`BoundaryService.invalidateSession`).
-- **Checks before each spawn** (runner, `runner/managed-vm.ts`): the installed CLI version is one the
-  question-free settings are proven for, and the VM's own provider configuration (managed policy, user
-  files, Codex's project file) sets nothing that overrides the protected start (PM-49); behind the
-  launcher the user files are read from the member's worker home without following links; the Claude
-  start also leaves out the project's settings and `.mcp.json`.
-
-The fake CLIs model this (`FAKE_*_VERSION`, bypass modes, `FAKE_*_FORCE_*` for a request where none is
-expected); the real CLIs are only run in the human trial of [VM.md](VM.md).
+own permission profile (PM-356; readers receive no write entries).
 
 ## Instance role and the move (PM-143, part of PM-135)
 
@@ -956,7 +865,7 @@ updated to a build that knows it before the old home is called retired.
 The move tool (`scripts/migrate/`) is outside the server and uses it only for the schema version, the marker and
 the configuration loader. It reads a **stopped** source (its database from a scratch copy of the main file and
 its log, never in place), writes a checksummed secret package (the home without worktrees, workspaces and the
-publishing identity; a git bundle per repository; the dirty files of every checkout; the transcripts the
+retired publishing data; a git bundle per repository; the dirty files of every checkout; the transcripts the
 database names), and `apply` turns it into a standby home: the database migrated by this build, the stored
 paths translated by explicit mappings, the workspace paths committed in the copy's customization history, the
 repositories rebuilt from their bundles, the old machine's uncommitted work kept as pending items. The procedure,
@@ -1008,7 +917,7 @@ commit pinned at the hand-over, run by the server.
   or a `/tmp/claude` that does not exist, so `fullTestEnv` sets it to the run's tmp) with
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` set to `maxWorkers`, kills the process group at the time limit
   and reads vitest's failed files and "Failed Tests" section from the output. Without macOS or `srt` the
-  executor is not available and the feature is off. The managed VM profile leaves it out.
+  executor is not available and the feature is off.
 - **The hold.** While the current pin has no result (`FullTestRuns.holds`) the reviewers do not start (the
   hand-over's deferred start waits with `full_test_pending`) and the developer's messages to them are stored
   (`Messaging.heldForFullTest`); a person's message is not held. `TaskReviewPin.fullTest` shows the state.
@@ -1160,7 +1069,7 @@ workers follow the machine's size.
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
   `AgentSandbox.portable` (PM-346): `buildCodexArgs` adds the parent to `sandbox_workspace_write.writable_roots`
-  (only in `workspace-write`; none in the managed VM) and sets each variable with
+  (only in `workspace-write`) and sets each variable with
   `shell_environment_policy.set.<NAME>`, so every command sees them, also one run outside the sandbox after a
   question. The server makes the missing parent (0700) before the process starts.
 - **Workers.** `defaultTestWorkers` (`packages/shared/src/config/test-workers.ts`): half the cores, at most 4,
@@ -1383,8 +1292,7 @@ workers follow the machine's size.
   `instanceTag`, `pid`, `uid` and `bootId`. The NanoGPT key is asked from the cloud for a starting
   NanoGPT session only and lives in memory for that start; the audit log records that request (method,
   session id, ok or error) but never the key. On SIGINT/SIGTERM the engine pauses its
-  running sessions first, then stops them and closes the link. `managed_vm` and a boundary config are
-  refused at start-up (PM-331). The link client reconnects with a back-off of 1 to 30 seconds, replays
+  running sessions first, then stops them and closes the link. The link client reconnects with a back-off of 1 to 30 seconds, replays
   unacknowledged events by sequence number, buffers at most 10,000 events or 50 MB (the oldest are
   dropped and counted), and sends terminal data only for sessions the cloud attached.
   **Assumptions:** the code (a git checkout), the CLIs, their logged-in accounts (Claude, Codex,
@@ -1431,9 +1339,7 @@ workers follow the machine's size.
   condition, now answered by `handlers.ts`) and is never logged.
   **Assumptions:** the cloud has no CLI, git checkout, browser or session folder of its own; the one
   engine of a project (the default engine) is the machine the owner sees. `PROJECTMAN_MACHINE_FIXTURE`
-  is ignored and no full-test or screenshot executor is built locally. Publishing a task branch
-  (`PublishingGate`) is not available in cloud mode: `githubPublishTokenFile` is valid with `managed_vm`
-  only, so `publish_task_branch` answers `not_available` (the remote `exportBranch` exists, unused). The
+  is ignored and no full-test or screenshot executor is built locally. The
   local worktree manager is still created because `DomainOptions.worktrees` is required, and is unused.
   The idempotency store of a link keeps 10,000 results; the `usage` events replayed after a cloud restart
   can be counted twice, because the cloud's memory of handled events does not survive its restart.
@@ -1495,7 +1401,7 @@ workers follow the machine's size.
   secret with the same rules: never in a message, task, commit, prompt or engine payload.
   **Module:** `auth`
 
-- **Codex project layer check** — `runner/managed-vm.ts` (`inspectProjectCodex`,
+- **Codex project layer check** — `runner/ambient-config.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
   `runner/providers/codex/index.ts` (`launch`), `domain/sessions.ts` (PM-357).
   The server reads the CLI's canonical working directory and each `.codex` layer from the
@@ -1515,7 +1421,7 @@ workers follow the machine's size.
   `PROJECTMAN_HOME/providers/nanogpt/codex-home`; any `auth.json` refuses startup. Only this
   adapter supplies the secret as trusted child environment and excludes it from CLI shell
   commands. Transcripts remain in that home; ChatGPT plan usage reads only the ordinary
-  Codex home. Managed VM execution is refused pending PM-331. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
+  Codex home. **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.start`,
   `provider.status` and `secret.nanogpt_key` (PM-313); the CLI,
   home and transcripts belong on the engine; secret delivery requires an authenticated
   launch/resume boundary, never configuration, public status or logs. The current server and
@@ -1540,7 +1446,7 @@ workers follow the machine's size.
   transcript parsing stays on the engine and sends `rate_limited` across RunnerEvent.
   No new machine-dependent boundary is required (PM-377).
   Startup checks `/etc/codex`, the dedicated home and workspace Codex configuration through
-  `runner/managed-vm.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
+  `runner/ambient-config.ts`'s `inspectAmbientConfig`, refusing overrides with names only.
   NanoGPT also refuses nonempty workspace `.codex` directories and dedicated-home
   `hooks.json` files; escaped quoted TOML roots fail closed in the shared inspector.
   The shared inspector checks separate project and home hook files for every Codex caller;
@@ -1573,9 +1479,8 @@ workers follow the machine's size.
   This does not contain code executed by allowed tests/builds; PM-361 investigates isolation.
   **Remote engine (engine mode, PM-314: runs in the engine process):** the binary, login/keychain, private directories, PTY, forwarder and
   transcript reader must run on the engine. Hook/MCP requests cross authenticated URLs;
-  transcript access must use the launcher with the conversation root as its confinement,
-  rather than opening engine paths on the server. Managed VM launches remain unsupported
-  until PM-331. No remote Gemini launcher is implemented by PM-326.
+  transcript access must stay confined to the provider's conversation root on the engine,
+  rather than opening engine paths on the server.
   **Module:** `runner`
 
 - **NanoGPT secret store** — `domain/provider-keys.ts`, `domain/nanogpt-key-check.ts` (PM-328).
@@ -1590,8 +1495,7 @@ workers follow the machine's size.
   **Module:** `runtime/usage`
 
 This is a living inventory of assumptions that tie execution to a machine, account or OS.
-The current local mode usually places the server and agent CLIs on the same host; the managed
-VM boundary separates accounts on one host, not server and engine across hosts. The remote
+The current local mode usually places the server and agent CLIs on the same host. The remote
 actions below are requirements for planning, not implemented remote support or new contracts.
 Keep entries current under the rule in `CLAUDE.md`.
 
@@ -1600,9 +1504,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 - **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
   probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
   the normal failed-session cleanup. Only `ESRCH` proves disappearance; permission errors
-  leave the session running. An unreaped zombie also passes the probe. Across launcher worker
-  accounts an `EPERM` result provides no liveness verdict; the launcher exit event remains necessary.
-  The PID belongs to this host (including local launcher workers).
+  leave the session running. An unreaped zombie also passes the probe.
+  The PID belongs to this host.
   **Remote engine (engine mode, PM-314: runs in the engine process):** run this probe beside the CLI on the engine and transport the exit event;
   a remote PID must never be checked against the server's process table.
   Since PM-311 the domain asks the workspace's engine (`EngineHost.processExists`, `contracts/engine.ts`).
@@ -1678,7 +1581,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `domain/sessions.ts` and `domain/session-policy.ts` (PM-268, PM-333, PM-339, PM-312). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
-  folders are not supplied to read-only Codex or managed VM sessions. A Codex session also gets its
+  folders are not supplied to read-only Codex sessions. A Codex session also gets its
   own short temporary directory, `<realpath('/tmp')>/projectman-<uid>-tmp/<home hash>/<12 random hex>`
   (`defaultSessionTmpRoot`, `SessionFolders.allocateTmp`/`make`), its `TMPDIR` and a writable root,
   removed and swept with the folder; without a safe tmp root Codex gets no folder. The root is 0700
@@ -1785,8 +1688,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   Chromium, the server runs `npm run shots` itself (`take_screenshots`, `get_screenshot_run`,
   PM-351): `domain/screenshot-runs.ts`, `full-test/{screenshots,run-sandboxed}.ts` start it in the
   member's worktree inside the macOS `srt` sandbox, with the session's own read/write limits and
-  the session folder as the output; it queues in the machine's heavy-run queue and is off in the
-  managed VM profile and off macOS. Since PM-312 the scenario file is resolved and the images are
+  the session folder as the output; it queues in the machine's heavy-run queue and is off outside macOS. Since PM-312 the scenario file is resolved and the images are
   listed by the session's engine (`EngineHost.resolveScenario`, `listImages`); a refusal reaches the
   member as the same `TeamToolError('invalid', …)` texts as before.
   **Cloud mode (PM-315):** `screenshots.run/cancel` run on the session's engine
@@ -1833,7 +1735,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
   Claude conversations live under `~/.claude/projects`; Codex rollouts under
   `CODEX_HOME/sessions`. The server reads and tails hook-reported files, and resume eligibility
-  checks transcript content; managed worker reads are confined to the worker home.
+  checks transcript content.
   PM-342 adds `TranscriptReader.summary` (`runner/transcript/summary.ts`): when a member's new
   conversation replaces one that could not go on (provider changed, lost, moved) or a card is
   handed over without a note, the server reads the old transcript for the CLI's compaction
@@ -1843,10 +1745,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   stream conversation events to the server, and preserve confinement. A conversation ID
   without its engine's saved state is insufficient for resume. `summary()` runs on the engine,
   next to the conversation; only the `HandoffSummary` (at most 8000 characters) crosses the
-  server/engine boundary, and the managed worker's `confineTo` restriction stays.
+  server/engine boundary.
   Since PM-311 a session records its engine (`sessions.engine_id`, `Session.engineId`), the transcript
   reader calls carry the optional `engineId`, and a conversation resumes only on the same engine (a
-  different one counts as `relocated`, like a changed execution profile).
+  different one counts as `relocated`).
   **Cloud mode (PM-315):** `createRemoteTranscripts` (`engine-link/remote/transcripts.ts`) asks the session's
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
   **Module:** `runner`
@@ -1878,15 +1780,13 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   operations. PM-368's `domain/messaging/messaging.ts` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `domain/handoffs.ts` uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
-  **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, including `workspace.export_branch` (PM-313), run this git query beside the worktrees and return the attributed branch head
+  **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head
   to the server for its version and input formatting; maintain repositories/worktrees and git metadata there;
   plan branch/commit transfer and remote status/cleanup rather than treating server paths
-  as shared storage. The managed VM's bundle hand-over is a separate existing mechanism.
+  as shared storage.
   Since PM-311 the worktrees are `EngineHost.worktrees` (and `memberWorkspaces`) of the session's or
   card's engine, and the project's directory is `EngineHost.workspacePath` (`contracts/engine.ts`).
-  **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`), and the branch
-  leaves the engine only as an upload (`workspace.export_branch`, unused: publishing is not available in
-  cloud mode). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
+  **Cloud mode (PM-315):** the worktrees are the engine's (`worktree.*`, `workspace.*`). The local worktree manager object still exists, unused, because `DomainOptions.worktrees`
   is required.
   **Module:** `worktree`
 - **Free-disk admission guard** — `domain/disk-guard.ts` (`freeDiskBytes`),
@@ -1930,7 +1830,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
   Claude member with it on gets the sandbox network allowlist `*` minus the blocked hosts, with it
-  off only the npm registry (the legacy profile; the managed VM profile is not changed by it).
+  off only the npm registry.
   Codex has its own permission mapping in `runner/providers/codex/args.ts`: local sessions
   receive an inline `projectman` profile extending `:read-only`, with `sensitivePaths` and
   the adapter's Codex home denied (PM-356). Writing sessions retain workspace protections
@@ -1951,8 +1851,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   This file-path exception relies on macOS Seatbelt enforcement. A Linux engine may keep a
   nonexistent lock path closed; verify provider grants on that engine before claiming rebase
   support. The hard-link probe must fail at link creation, without writing through the link.
-  The managed VM retains the legacy sandbox flags because its VM is the boundary.
-  PM-356 adds local startup checks in `runner/runner.ts` and `runner/managed-vm.ts`:
+  PM-356 adds local startup checks in `runner/runner.ts` and `runner/ambient-config.ts`:
   a numeric CLI minimum and refusal of loaded sandbox/profile configuration, reporting only
   setting names through `codex_setup_incomplete`. User MCP names are resolved beside the CLI;
   ambiguous names refuse startup. `runner/providers/codex/args.ts` disables each user server
@@ -1993,10 +1892,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** `createRemotePlanUsage` (`engine-link/remote/transcripts.ts`) asks the engine
   (`usage.plan`, `provider.status`); the cloud keeps only the measurements, with the engine that sent them.
   **Module:** `runtime/usage`
-- **Claude workspace trust** — `runner/providers/claude/trust.ts`,
-  `runtime-boundary/claude-trust.ts` (PM-341; PM-140). The runner updates workspace trust
-  in `~/.claude.json` (or the configured Claude config directory); the managed launcher
-  helper does so as the worker, for that worker's home and local repository path.
+- **Claude workspace trust** — `runner/providers/claude/trust.ts` (PM-341).
+  The runner updates workspace trust in `~/.claude.json` (or the configured Claude config directory).
   **Remote engine (engine mode, PM-314: runs in the engine process):** trust is part of `session.start` (PM-313); prepare trust on the engine as the executing account, for the actual
   canonical checkout path; changing the server account's trust cannot unblock a remote CLI.
   **Module:** `runner`
@@ -2005,7 +1902,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `full-test/{index,sandbox,run-sandboxed}.ts` (PM-217, PM-336, PM-312; PM-351 shares the spawn with the
   screenshot runs). The executor runs the pinned checkout on the server host, using local
   git metadata, a short temporary run directory, process-group signals and macOS `srt`;
-  it is unavailable without macOS/`srt` and is off in the managed VM profile. Its sandbox
+  it is unavailable without macOS/`srt`. Its sandbox
   (`fullTestSandbox`, `closedTmpRoots`; PM-353) denies reading Claude Code's shared temporary roots
   and the session tmp root's parent: other sessions' and projects' command outputs lie there.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `full_test.run/cancel` (PM-313), plan where the pinned commit and dependencies are tested, equivalent
@@ -2078,16 +1975,6 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
   **Module:** `services/merges`
-- **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
-  `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
-  `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
-  PM-138; PM-331). The privileged launcher uses a local Unix socket and worker accounts;
-  egress peer identity comes from Linux's local `/proc/net/tcp*` socket UID tables.
-  Worker workspace hand-over uses local owner-checked spool files and git bundles.
-  **Remote engine:** retain the launcher, account isolation, peer checks and spools inside
-  the execution host; plan authenticated server/engine requests and artifact transfer instead
-  of forwarding Unix paths, UIDs or TCP peer lookup across machines.
-  **Module:** `runtime-boundary`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
   `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
   Disposable instances reserve loopback ports, spawn local server/web process groups and
@@ -2134,11 +2021,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `scripts`
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
-  `buildSessionEnv`), `runtime-boundary/launcher/daemon.ts` (`workerEnvironment`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
+  `buildSessionEnv`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
   `EDITOR` and `VISUAL` set to `true`, so git (a rebase's message or todo list) never opens
   Vim on a terminal nobody types into. The values override the service's environment and are
-  set for every provider; the managed VM launcher's worker environment (sessions and one-off
-  programs) takes the same constant. **Remote engine:** the engine builds the session
+  set for every provider. **Remote engine:** the engine builds the session
   environment beside the CLI with the same function (or the same four variables).
   **Module:** `runner`
 
@@ -2729,11 +2615,4 @@ remote engines receive the existing messages and context packs through the exist
 Tasks live in our database (decision 9); GitHub is used for pull requests, reviews, checks
 and merges. projectman reads from GitHub: it polls the PRs linked to tasks, keeps the
 `pr-merged` label, clears `pr_updated` labels when new commits land, and attributes PR authors
-to members (`githubLogin`). The one writing path is the managed VM's **publishing gate** (PM-142,
-decision 26): the team tool `publish_task_branch` (`domain/publishing.ts`) takes member, task,
-repository and branch from the server's records, and `GithubPublisher` (`github/publisher.ts`)
-pushes that branch (never the default branch, never forced) and opens its pull request once, with a
-separate GitHub identity whose token only the service holds. The pull request's author is recorded
-from the authenticated session (`task_links.author_source = 'published'`, migration 15), so polling
-by the shared bot login never rewrites it and no-self-review keeps holding. `get_remote_state` lets
-the integrator and reviewers read the remote. See [GITHUB.md](GITHUB.md).
+to members (`githubLogin`). See [GITHUB.md](GITHUB.md).

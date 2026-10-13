@@ -256,9 +256,7 @@ function building(work: (where: string, tests: string) => string[], ownerReview?
           ? `Commit the work on the task's own branch in your worktree. Never push and never open a pull request: ${LOCAL_ONLY_REASON}. Before you hand over, make sure everything is committed: \`git status\` shows nothing left to commit.`
           : serverMergeRepo(input)
             ? "Commit the work on the task's own branch. Never merge or push manually: before the merge target, the card merger uses merge_task to merge the approved commit and push it if the base has an upstream."
-            : input.sessionPolicy?.execution?.profile === 'managed_vm'
-              ? 'Commit on the task branch, then publish it with publish_task_branch (the full commit id of HEAD): it pushes the branch and opens the pull request, recorded on the task under your name. Do not push or open a pull request yourself, and do not link it again.'
-              : 'Commit, push, open a pull request and attach it with link_pull_request.',
+            : 'Commit, push, open a pull request and attach it with link_pull_request.',
         ...reviewBeforeHandover(c, target),
         handover(input, target, localOnly ? LOCAL_ONLY_FACTS : undefined),
       ];
@@ -377,12 +375,7 @@ const reviewing: StepRule = ({ input, s, task, duty, author, localOnly }) => {
   }
   const placement = input.sessionPolicy?.placement;
   // In the member's own workspace (PM-138) the handed-over commit is already checked out.
-  const ownWorkspace =
-    placement?.kind === 'review_copy'
-      ? placement.sourceBranch !== undefined
-      : placement?.kind === 'member_workspace' &&
-        placement.use === 'review' &&
-        placement.review?.sourceBranch !== undefined;
+  const ownWorkspace = placement?.kind === 'review_copy' ? placement.sourceBranch !== undefined : false;
   const pin = task.reviewPin;
   return [
     ...(repoOf(input.project, effectiveRepo(input.project, task))?.fullTestAtMerge &&

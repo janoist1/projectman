@@ -442,6 +442,168 @@ describe('closing finished and idle sessions', () => {
     });
   });
 
+  describe("while the reviewer waits for the developer's fix", () => {
+    const awaitingFix: SessionStop = { kind: 'awaiting_fix', taskKey: 'AR-1' };
+    const changes = { addLabels: ['code-review-changes'], note: 'Please fix the edge case.' };
+
+    /** AR-1 is handed over to code review and the reviewer cr works its round. */
+    async function reviewing() {
+      const dev = await setup();
+      h.runner.setState(dev.id, 'idle');
+      await handOver();
+      await vi.waitFor(() => expect(h.runner.started.some((s) => s.member === 'cr')).toBe(true));
+      const cr = h.repos.sessions.findByWorkItem('AR', 'cr', task)!;
+      h.runner.setState(cr.id, 'working');
+      h.runner.emit({ type: 'transcript_path', sessionId: cr.id, path: `/tmp/${cr.id}.jsonl` });
+      return cr;
+    }
+    /** The reviewer's own `update_task` call from its session. */
+    const verdict = (cr: Session, args: Record<string, unknown>) =>
+      h.domain.teamTools.updateTask(
+        { projectKey: 'AR', member: 'cr', taskKey: 'AR-1', sessionId: cr.id },
+        { taskKey: 'AR-1', ...args },
+      );
+    const askNewRound = (text: string) =>
+      h.domain.messaging.send(
+        'AR',
+        'dev-1',
+        { to: ['cr'], taskKey: 'AR-1', text },
+        { actor: aiActor('dev-1') },
+      );
+
+    it('closes at the idle moment after the verdict, not while the round goes on, and keeps the conversation', async () => {
+      const cr = await reviewing();
+      await verdict(cr, changes);
+      expect(h.domain.sessions.pendingClose(cr.id)).toEqual(awaitingFix);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(h.runner.isRunning(cr.id)).toBe(true);
+
+      h.runner.setState(cr.id, 'idle');
+      await vi.waitFor(() => expect(h.runner.isRunning(cr.id)).toBe(false));
+      expect(fresh(cr.id).lastStop).toEqual(awaitingFix);
+      expect(endedStop(cr.id)).toEqual(awaitingFix);
+      expect(fresh(cr.id).claudeSessionId).toBe(cr.claudeSessionId);
+    });
+
+    it('is woken in the same conversation by the developer asking a new round, and closes again after the second verdict', async () => {
+      const cr = await reviewing();
+      await verdict(cr, changes);
+      h.runner.setState(cr.id, 'idle');
+      await vi.waitFor(() => expect(h.runner.isRunning(cr.id)).toBe(false));
+
+      await askNewRound('Fixed, please look again.');
+      await vi.waitFor(() => expect(h.runner.started.filter((s) => s.sessionId === cr.id)).toHaveLength(2));
+      expect(h.runner.lastStarted()).toMatchObject({
+        sessionId: cr.id,
+        resume: true,
+        claudeSessionId: cr.claudeSessionId,
+        initialMessage: expect.stringContaining('Fixed, please look again.'),
+      });
+      expect(h.domain.sessions.pendingClose(cr.id)).toBeUndefined();
+
+      // The label is up from the first round: asking it again is the second round's verdict.
+      h.runner.setState(cr.id, 'working');
+      await verdict(cr, changes);
+      expect(h.domain.sessions.pendingClose(cr.id)).toEqual(awaitingFix);
+      h.runner.setState(cr.id, 'idle');
+      await vi.waitFor(() => expect(h.runner.isRunning(cr.id)).toBe(false));
+      expect(fresh(cr.id).lastStop).toEqual(awaitingFix);
+    });
+
+    it('stays open when the developer asks a new round before the reviewer went idle', async () => {
+      const cr = await reviewing();
+      await verdict(cr, changes);
+      expect(h.domain.sessions.pendingClose(cr.id)).toEqual(awaitingFix);
+      await askNewRound('Already fixed, once more please.');
+      expect(h.domain.sessions.pendingClose(cr.id)).toBeUndefined();
+
+      h.runner.setState(cr.id, 'idle');
+      await vi.waitFor(() =>
+        expect(h.runner.messages.some((m) => m.text.includes('Already fixed, once more please.'))).toBe(true),
+      );
+      expect(h.runner.isRunning(cr.id)).toBe(true);
+      expect(fresh(cr.id).lastStop).toBeUndefined();
+    });
+
+    it('does not mark a session for an approval', async () => {
+      const cr = await reviewing();
+      await verdict(cr, { addLabels: ['code-review-ok'] });
+      expect(h.domain.sessions.pendingClose(cr.id)).toBeUndefined();
+      h.runner.setState(cr.id, 'idle');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(h.runner.isRunning(cr.id)).toBe(true);
+    });
+
+    it('stays open when the verdict is an approval after all in the same round', async () => {
+      const cr = await reviewing();
+      await verdict(cr, changes);
+      await verdict(cr, { addLabels: ['code-review-ok'], removeLabels: ['code-review-changes'] });
+      expect(h.domain.tasks.get('AR', 'AR-1').labels).not.toContain('code-review-changes');
+      h.runner.setState(cr.id, 'idle');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(h.runner.isRunning(cr.id)).toBe(true);
+      expect(h.domain.sessions.pendingClose(cr.id)).toBeUndefined();
+    });
+
+    it('does not mark a session that runs on another work item', async () => {
+      await reviewing();
+      const { session: general } = await h.domain.sessions.ensureSession('AR', 'cr', { type: 'general' });
+      h.runner.setState(general.id, 'working');
+      await verdict(general, changes);
+      expect(h.domain.sessions.pendingClose(general.id)).toBeUndefined();
+    });
+
+    it('lets the sweep close a marked idle session whose idle event was missed', async () => {
+      const cr = await reviewing();
+      // The session is idle already when the verdict marks it: no idle event follows.
+      h.runner.setState(cr.id, 'idle');
+      await verdict(cr, changes);
+      expect(h.domain.sessions.pendingClose(cr.id)).toEqual(awaitingFix);
+      expect(h.runner.isRunning(cr.id)).toBe(true);
+      await h.domain.sessionCloser.sweep();
+      expect(h.runner.isRunning(cr.id)).toBe(false);
+      expect(fresh(cr.id).lastStop).toEqual(awaitingFix);
+    });
+
+    it('starts a card that waited for the capacity of the reviewer once its session closes', async () => {
+      const dev = await setup({
+        adjust: (config) => {
+          for (const member of config.team.members)
+            if (member.kind === 'ai' && member.handle === 'cr') member.capacity = 1;
+        },
+      });
+      h.runner.setState(dev.id, 'idle');
+      await handOver();
+      await vi.waitFor(() => expect(h.runner.started.some((s) => s.member === 'cr')).toBe(true));
+      const cr = h.repos.sessions.findByWorkItem('AR', 'cr', task)!;
+      h.runner.setState(cr.id, 'working');
+      await h.domain.tasks.create('AR', { title: 'Second page' }, OWNER_ACTOR);
+      await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: ['cr'], taskKey: 'AR-2', text: 'Please look at the second page.' },
+        { actor: OWNER_ACTOR },
+      );
+      await vi.waitFor(() =>
+        expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toMatchObject({ reason: 'member_at_capacity' }),
+      );
+
+      await verdict(cr, changes);
+      h.runner.setState(cr.id, 'idle');
+      await vi.waitFor(() => expect(h.runner.isRunning(cr.id)).toBe(false));
+      await vi.waitFor(() => expect(h.runner.lastStarted().initialMessage).toContain('second page'));
+      expect(h.domain.tasks.get('AR', 'AR-2').startWaiting).toBeUndefined();
+    });
+
+    it('keeps the reason of a send-back made in the same call', async () => {
+      const cr = await reviewing();
+      await verdict(cr, { ...changes, stageId: 'development' });
+      h.runner.setState(cr.id, 'idle');
+      await vi.waitFor(() => expect(h.runner.isRunning(cr.id)).toBe(false));
+      expect(fresh(cr.id).lastStop).toEqual({ kind: 'sent_back', taskKey: 'AR-1', stageId: 'development' });
+    });
+  });
+
   describe('the reason of the other stops', () => {
     it('records a finished card on the session it stops', async () => {
       const dev = await setup();

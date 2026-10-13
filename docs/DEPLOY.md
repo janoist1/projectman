@@ -1,10 +1,6 @@
 # Deploy on a Linux VPS over Tailscale
 
-This page describes a single trusted-team account on a VPS. For the **managed VM profile**
-(PM-137: pinned versions, a root-owned app, unprivileged per-member accounts, system-managed
-egress rules and a readiness report), which also builds a Linux VM on a Mac, follow
-[VM.md](VM.md); its scripts in `deploy/vm/` replace the account and build steps below, and the
-service-unit, login, Tailscale and curl sections here still apply to it.
+This page describes a single trusted-team account on a VPS.
 
 Use Node **22.12 or newer** (a supported LTS release), npm, git, curl, Tailscale,
 and the standalone Claude Code / Codex CLIs you need. Install `gh` for GitHub integration.
@@ -21,7 +17,7 @@ Projectman disables agy's automatic updates on session launches and login checks
 login, a tool approval and conversation resume before restarting member work. A manual
 `agy` login without this flag can itself update the binary. Conversation configuration and
 transcripts stay under `PROJECTMAN_HOME/providers/gemini`; do not delete them if resume is
-needed. The managed VM profile refuses Gemini until PM-331.
+needed.
 
 Run the app and its CLIs as a dedicated, trusted-team Unix account, `projectman`,
 with login home `/var/lib/projectman`. Keep repositories accessible to that account.
@@ -81,7 +77,7 @@ PATH; adjust PATH or set absolute `CLAUDE_BIN`, `CODEX_BIN`, `GH_BIN` paths in t
 ## Service and first owner
 
 Exit the service-user shell. Adjust [projectman.service](../deploy/projectman.service),
-especially `ExecStart` (it expects Node at `/usr/local/bin/node`, as the VM profile installs it)
+especially `ExecStart` (it expects Node at `/usr/local/bin/node`)
 and the `PATH` for your CLIs. The unit also sets `DISABLE_AUTOUPDATER=1` and hardening options
 (`NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`, an empty capability set); if a tool of
 yours needs more, loosen one option at a time and say why. Then:
@@ -412,28 +408,6 @@ that opens their PRs. Restart after a manual config edit. GitHub polling matches
 login case-insensitively and persists that member as PR author for the no-self-review
 rule. The login is returned in `MemberView`; editing it currently uses config only.
 
-A pull request that the managed VM's publishing gate opens (PM-142) is attributed differently: its
-author is the member whose authenticated session published it, because several AI members share one
-bot login and the login cannot say who wrote the change. That author is kept for good and polling
-never replaces it. Do not set the bot's login as one member's `githubLogin` expecting it to name the
-author of published pull requests.
-
-## GitHub publishing identity (managed VM, PM-142)
-
-Only the managed VM profile publishes, and only with a separate GitHub identity that a person
-creates and installs once ([GITHUB.md](GITHUB.md#publishing-from-the-managed-vm-pm-142) lists its
-permissions, the rulesets in `deploy/github/` and the trial `deploy/github/trial.sh`). On the server:
-
-```sh
-# as root: the token file, readable by the service account alone (the app refuses a wider mode)
-install -o projectman -g projectman -m 600 /dev/stdin /etc/projectman/github-publish.token
-# then, in the service's environment (next to PROJECTMAN_EXECUTION_PROFILE=managed_vm):
-#   PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE=/etc/projectman/github-publish.token
-```
-
-The token is never put in a unit file, an environment file of a worker, the repository or a log, and
-`gh auth login` of the owner or an admin is never copied to the VM. Rotating it is replacing the file.
-
 ## Sandbox rollout prerequisite (PM-87)
 
 The provider-neutral policy migration does not activate strict sandboxes or change the live
@@ -603,10 +577,8 @@ deletions that were cut short (it logs what it finds); a restored copy needs not
 Encrypt backups, restrict readers, and test restoring ownership/modes on an isolated host.
 Restoring a different secret invalidates existing browser logins. An online SQLite backup
 must use SQLite's backup API/`.backup`, never copy just the live database file.
-On the managed VM, `deploy/vm/check-backup.sh` proves an archive restorable without touching the
-installation (and `restore.sh` runs it first); moving data from another machine is
-[MIGRATION.md](MIGRATION.md). A restored or moved copy must not run beside the original: only
-one home may be the active instance (`instance.json`, ARCHITECTURE.md).
+A restored or moved copy must not run beside the original: only one home may be the active
+instance (`instance.json`, ARCHITECTURE.md). See [MIGRATION.md](MIGRATION.md) for moving data.
 
 Before updating, take a backup and review dependency/CLI changes. Stop during the build
 so the running server and browser assets stay on the same version:

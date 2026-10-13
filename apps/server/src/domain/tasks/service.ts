@@ -61,7 +61,7 @@ import { planDeveloperLevel } from './developer-level';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
+import type { MergeGate, MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
@@ -125,8 +125,8 @@ export interface TaskUpdate {
  * attributed to an Actor in the timeline.
  */
 export class TaskService {
-  useMerges(merges: import('../merges').Merges): void {
-    this.moves.useMerges(merges);
+  registerMergeGate(gate: MergeGate): void {
+    this.moves.registerMergeGate(gate);
   }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
@@ -1071,53 +1071,6 @@ export class TaskService {
         if (link.repo) data.repo = link.repo;
         this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_link_added', data });
       }
-      this.publish(next);
-      return next;
-    });
-  }
-
-  /**
-   * A published task branch and its pull request (PM-142). The pull request's author is `author`,
-   * the member whose authenticated session published it; polling by the bot's login never changes
-   * it, and it stays when the task is reassigned, so the no-self-review rule keeps holding.
-   */
-  recordPublication(
-    projectKey: string,
-    taskKey: string,
-    publication: { repo: string; branch: string; pullRequest: PullRequestInfo },
-    author: string,
-    actor: Actor,
-    sessionId: string | null,
-  ): Task {
-    return this.ctx.unitOfWork(() => {
-      const task = this.get(projectKey, taskKey);
-      const at = isoNow(this.ctx);
-      const { repo, branch, pullRequest } = publication;
-      const links: Array<{ link: TaskLink; result: 'inserted' | 'updated' | 'unchanged' }> = [
-        {
-          link: { kind: 'branch', ref: branch, repo },
-          result: this.ctx.repos.tasks.upsertLink(task.id, { kind: 'branch', ref: branch, repo }, at),
-        },
-      ];
-      const prLink: TaskLink = {
-        kind: 'pull_request',
-        ref: String(pullRequest.number),
-        repo: pullRequest.repo,
-        title: pullRequest.title,
-        state: pullRequest.state,
-      };
-      links.push({
-        link: prLink,
-        result: this.ctx.repos.tasks.recordPublication(task.id, prLink, author, at),
-      });
-      if (links.every((entry) => entry.result === 'unchanged')) return task;
-      for (const { link, result } of links) {
-        if (result !== 'inserted') continue;
-        const data: TimelineEventData['task_link_added'] = { kind: link.kind, ref: link.ref };
-        if (link.repo) data.repo = link.repo;
-        this.timeline.append({ projectKey, taskKey, sessionId, actor, type: 'task_link_added', data });
-      }
-      const next = this.get(projectKey, taskKey);
       this.publish(next);
       return next;
     });

@@ -242,17 +242,6 @@ describe('the session folder and the browsers in the sandbox (PM-268)', () => {
     });
   });
 
-  it('gives the managed VM profile no sandbox at all', () => {
-    const vm = buildSessionPolicy({
-      config: testConfig(),
-      role: 'developer',
-      task: { repo: 'web' },
-      placement: { kind: 'member_workspace', path: source, use: 'work' },
-      managedVm: { boundary: { name: 'vm', version: 1 } },
-    });
-    expect(sessionSandbox(vm, { ...paths, sessionDir, browsersDir: browsers })).toBeUndefined();
-  });
-
   describe('withSessionFolders', () => {
     it('gives the policy the folder and its root', () => {
       const base = developer();

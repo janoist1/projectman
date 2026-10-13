@@ -282,12 +282,12 @@ restriction, subject to the host-user trust boundary described in the threat mod
 Codex trusts the workspace and bypasses hook trust for projectman's own hooks. Its project
 layer must therefore not introduce subprocesses or sandbox exemptions. Starts and resumes
 allow only `.codex/config.toml` with model and project-document keys (the exact list is in
-`runner/managed-vm.ts`). Every layer from the nearest `.git` ancestor to the canonical cwd is
+`runner/ambient-config.ts`). Every layer from the nearest `.git` ancestor to the canonical cwd is
 checked, rejecting symlinked folders, symlinked/nonregular/multiply-linked files and every
 other entry, including hooks, MCP servers, rules, agents and skills. The domain checks before
 recording the session or creating its folder; the adapter checks again before building arguments.
 Automatic starts wait with `workspace_codex_config`, retrying every 30 seconds. Errors and
-deferral logs contain only file/key names. The question-free VM also uses the member allowlist.
+deferral logs contain only file/key names.
 
 Residual risks: the [0.159.1 release notes](https://github.com/openai/codex/releases/tag/rust-v0.159.1)
 mention model-catalog changes, not configuration or hook reloads. This is not proof that reloads
@@ -483,7 +483,6 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   patch outside the session's directories (Codex `apply_patch` included) to a person. Waking the
   decider uses subscription capacity and competes with its own work.
 - The `autoMode` prose in `--settings` only guides the classifier; it is not a boundary.
-- The managed VM profile is unchanged: its limits are outside the CLI.
 
 **The CLI's sandbox (PM-167, decision 28).** Every legacy Claude session runs its shell in Claude
 Code's own sandbox: a developer's in its worktree, every reading session (the
@@ -522,8 +521,7 @@ server logs the reason and runs on (the sweep must never empty a directory someb
 the predictable path at; a symbolic link in it is removed as a link). Every Claude session of the
 instance reads every member's folder below the root, and writes only its own (PM-333, the owner's
 decision): nothing secret goes into a session folder. Another instance's root (another home hash)
-is not opened. Codex and the
-managed VM profile get none. Playwright's browsers directory is read-only for every sandbox
+is not opened. Read-only Codex sessions get none. Playwright's browsers directory is read-only for every sandbox
 (`PLAYWRIGHT_BROWSERS_PATH`); it is left out when it is the user's home or the app home or above.
 
 **A Claude developer reads only its own work (PM-153).** A developer's sandbox reads nothing below the
@@ -564,8 +562,8 @@ are neither written nor read.
 
 **Residual risk (owner's decision, decision 24 and PM-156).** Sandboxed commands may listen on
 local ports, so they also reach the live instance's port 4800, readers included; the owner decided
-that port stays reachable up to the VM (PM-156). A reader's sandbox reaches the npm registry. A
-Codex member uses its own permission profile before the VM: it denies `sensitivePaths`
+that port stays reachable (PM-156). A reader's sandbox reaches the npm registry. A
+Codex member uses its own permission profile: it denies `sensitivePaths`
 and its Codex home, but reads other paths broadly (PM-356; the wider boundary is PM-360).
 A developer's file tools have no such `Edit` deny rules outside its
 worktree (its own worktree is inside the app home, and a deny rule wins over an allow rule): there
@@ -634,7 +632,7 @@ live instance's own addresses (`localhost`, `127.0.0.1`): with the network on, t
 of the local network (the router, a printer, a NAS, other machines of the tailnet) are reachable
 through the proxy as well. With the setting off, only the npm registry is reachable.
 
-**Residual risk (PM-153, accepted until per-member workstations or the VM).** The shared git
+**Residual risk (PM-153, accepted until per-member workstations).** The shared git
 directory of the worktrees is the integrating checkout's `.git`, and the sandbox lets a developer
 write everything in it but `hooks`, `config` and the PM-153 files. So a developer's commands can
 still change other tasks' branches and their `worktrees/<name>` metadata, other refs (tags,
@@ -646,7 +644,7 @@ object store is writable, so an existing loose object of the default branch can 
 and a local checkout, diff or merge reads it without checking its hash. The `main` ref does not
 move, but what the integrating session sees and tests on the host under that ref may not be what
 was committed; a push of `main` sends those objects as they are. Accepted until per-member
-workstations or the VM; a per-member workstation has its own clone and nothing shared. What the host's own git does in a developer's worktree (its
+workstations; a per-member workstation has its own clone and nothing shared. What the host's own git does in a developer's worktree (its
 `.git` file, which the developer can rewrite) stays the host-git risk of PM-126/PM-131
 (PROVIDERS.md); PM-193 closed the npm cache and the development data, not that.
 
@@ -801,183 +799,14 @@ repository or a teammate; only committed branches travel, fetched by the server 
 The server's git commands in a member workspace (or reading a teammate's) run with
 `core.hooksPath=/dev/null`, no fsmonitor, no system or global configuration and only the local
 `file` transport. Clean/smudge filters that a repository's own configuration names still run on
-the server's checkouts there: outside the VM they run as the same user the sessions already are;
-behind the VM boundary (PM-140) every command in a workspace runs as its member's worker instead,
-and commits cross accounts only as bundles. Workspaces are reserved for one
+the server's checkouts there: they run as the same user the sessions already are. Workspaces are reserved for one
 session's process group at a time, so no session can switch the branch under another.
-
-**Publishing from the managed VM (PM-142).** The only way a task branch leaves the VM is the
-publishing gate ([GITHUB.md](GITHUB.md#publishing-from-the-managed-vm-pm-142)): the server takes
-member, task, repository and branch from its own records, builds the refspec itself and pushes with a
-separate GitHub identity whose token only the service reads (a file refused unless group and others
-cannot read it). The identity has no administration, workflow, secret, environment or deployment
-permission, is no bypass actor, and the repository's rulesets refuse it the default branch, force
-pushes, deletion, tags and merging; a deployment sits behind an environment with the owner as required
-reviewer. The token is redacted from every log and answer; the git and gh it is given run with a
-minimal environment of their own and never inside a worker's clone. The pull request's author is
-recorded from the authenticated session, so a shared bot login cannot launder authorship around the
-no-self-review rule. Enforcement by GitHub depends on the plan and the repository: it is verified by
-the trial script on a throwaway repository, not assumed.
 
 The model and fake CLI regression tests prove rendering and compatibility only. PM-126's
 corrected manual macOS subscription probe and the PM-130 adversarial matrix must establish
 the real filesystem/network boundary, hook/lifecycle confinement and publishing protection.
 The accepted local-port exception is recorded in decision 24; Linux is not certified by the
 macOS probe.
-
-## Managed VM profile (PM-137)
-
-[VM.md](VM.md) describes a machine whose boundary is **measured**, replacing the earlier plan to
-certify each CLI's own sandbox (decision 25). What it establishes, with the report that proves
-it (`deploy/vm/verify.sh`, verdict `evaluateVmReadiness()`):
-
-- The app, the pinned CLIs and the boundary settings (`/etc/projectman`, the egress rules, the
-  units) are root-owned and neither the service account nor any worker can write them. The data
-  directory, the SQLite database, the cookie secret and the service home are the service's alone
-  (0700); a worker cannot read them, cannot read another worker's home and cannot see other
-  accounts' processes or arguments (`hidepid`). No account of the profile has sudo, and the service
-  runs with `NoNewPrivileges`.
-- Workers are per-member unprivileged accounts (uids 20000+, own group, `nologin`, locked password,
-  not allowed to ssh). Each worker's subscription login is made once by a person for that worker
-  (PM-140); no worker home holds a copy of another account's login, a GitHub login or an SSH key.
-- Nothing of the host is shared in (no 9p, virtiofs, sshfs or similar mount), ssh agent forwarding is
-  off, no worker can write a control socket outside a short list (Tailscale's LocalAPI socket
-  included: its directory is root-only), and only loopback, the SSH port and tailscaled's own
-  tailnet-address listener listen (the ingress rules drop everything but SSH and HTTPS from
-  `tailscale0`). The system-managed egress rules (nftables, loaded by a root unit at boot) refuse
-  the service account and the workers any private, link-local, CGNAT (tailnet) or multicast IPv4
-  address and all non-loopback IPv6, so the host behind the NAT, the LAN, the metadata address and
-  the tailnet are unreachable to them, over IPv4 and IPv6. NAT alone does not do this, which is why
-  a probe with a positive control proves it. A guest without IPv6 connectivity cannot be probed over
-  IPv6; the rule is then checked as loaded.
-- Remote access stays as before: loopback listener, SSH port forwarding from a Mac, Tailscale
-  Serve (HTTPS only, never Funnel) from a phone, and the unchanged login, Origin, hook and MCP
-  protections.
-
-A mere environment flag or a VM label never counts: the report schema is strict and a missing check
-fails. Decision 24's local-port exception does not apply inside the VM profile beyond what VM.md
-states (loopback, with the app's token checks).
-
-## The VM boundary (PM-140)
-
-The server behind the boundary (`PROJECTMAN_BOUNDARY_CONFIG`) starts nothing as itself. What holds,
-and how the readiness report proves it on the real guest (the `launcher` and `domain-gate` checks
-run a fixed probe as a worker in its real unit, with root's positive controls):
-
-- **Sessions and workspace commands run as the member's worker**, through the root launcher, each in
-  a transient unit with no capability, `NoNewPrivileges`, a read-only system, only the worker's home
-  writable, other processes invisible, no further namespaces, a network namespace of its own (only
-  its own loopback; a bridge carries the app's and the egress proxy's ports to the member's own
-  unix sockets of the service), a loopback-only IP filter, and no access to the
-  system bus, the resolver, systemd's transient unit files, container or Tailscale sockets or the
-  service's data. The launcher takes no shell, environment or uid from the service: a registered
-  member, a pinned program and a directory in that member's home. Its socket is the service's
-  group's only; it holds no secret and writes no audit. A repository's hooks, filters and
-  configuration run only as its member (workspace git goes through the launcher; commits cross
-  accounts as bundles), never as the service.
-- **Workers reach the network only through the egress proxy**: their units have no network but
-  their own loopback and the bridge; in the host namespace the nft rules give a worker the proxy's
-  port only (no other member's server, no service port, no resolver, no sshd). No member can bind a
-  port of the service. The proxy allows the base list and exact, expiring allowances.
-  Direct IP, IPv6, UDP and DNS, QUIC, another proxy, an SSH tunnel, a DNS answer pointing inside
-  (rebinding), a redirect to another host (a new CONNECT, checked again) and a TLS name other than
-  the allowed host do not get through. The service's own egress keeps the baseline rules (no
-  private side).
-- **The service reads a worker's files only defensively**: transcripts and hand-over bundles are
-  opened without following a symlink, without blocking on a FIFO, as regular files only, checked
-  against their real path in the worker's home (transcripts, on every read) or their owner (bundles),
-  and read from the checked descriptor.
-- **A grant is an authorization, not a widening**: an allowed boundary request for an egress
-  operation opens one host and one port for one member in one project until its expiry; the proxy
-  consumes the grant (PM-139's single-operation consumption) and records the allowance in the same
-  transaction; an owner can revoke it. A refused destination registers an operation once per session
-  and destination and never asks anyone by itself. An allowed domain is not permission to pay,
-  create secrets or deploy: those stay operations of the protected adapters (PM-142 and later).
-- **Fail closed**: an invalid boundary configuration stops the server; a missing, failing, foreign
-  or stale readiness report, an unreachable launcher or a proxy that does not listen refuses every
-  new session (`runtime_boundary_not_ready`); a session whose service connection drops is stopped.
-- **Identity**: the proxy takes the member from the bridge socket a connection came through (on its
-  loopback port, from the kernel's socket table) and the session from its proxy credentials (a
-  per-session token, not the MCP token, revoked when the session ends); a token presented by
-  another member is refused. The hook and MCP endpoints keep their per-session tokens.
-
-What it does not establish:
-
-- A worker reads its own login and the tokens of its own sessions (the CLI runs as the worker), in
-  every project: all of a member's sessions share its uid, and `ProtectProc=invisible` hides only
-  other accounts' processes, so one session can read another live session's egress token from
-  `/proc` and use that session's project allowances. A handle's worker is shared by every project
-  of the instance (one `pmw-<handle>`): accounts per member and project are an open question for
-  the owner ([ROADMAP.md](ROADMAP.md)).
-- A CLI can still read a billing variable from a file the member controls (its own
-  `~/.claude/settings.json`); the launcher refuses one only on the command line. The subscription
-  check of the login and the provider profile (PM-141) cover that.
-- Data can leave to an allowed destination. The readiness report is at most two hours old, so a
-  change of the rules made in between shows on the next report (the units' own IP filters and
-  network namespaces hold meanwhile). `/api/providers` reports the service's own CLI logins, not
-  each worker's (a session start checks the worker's). Codex plan usage is not read from worker
-  transcripts.
-- The boundary does not defend against root, the admin, the hypervisor or a kernel flaw.
-
-Each worker has its own subscription login (the owner's choice on PM-140, 2026-10-01).
-
-## The question-free profile (PM-141)
-
-In the managed VM profile the CLIs run with their own approvals and sandbox off (Claude Code in
-`bypassPermissions`, Codex with `danger-full-access` and approval `never`; decision 26), so the whole
-protection is the boundary VM.md measures. What keeps that from being a weaker Mac:
-
-- **No way in by assertion.** The profile is an owner-made installation setting, and each start
-  additionally needs the machine's own readiness report (Linux host, every required check, the
-  launcher and the domain gate passed, current, strict schema). A repository file, an environment
-  flag or a member's `permissionMode` never selects it; on the Mac and on a VM without a complete
-  report a session does not start at all (`managed_vm_unavailable`), and there is no fall-back that
-  would start it more freely. An existing member's mode is read, never rewritten, so leaving the
-  profile restores the configured behaviour (decision 19 and 21 stand everywhere else).
-- **A CLI version the settings are proven for.** The installed version must be a pinned one; another
-  release may read the flags differently, so it is refused, not tried.
-- **The VM's own configuration cannot reopen a door.** A managed policy, the provider's user
-  configuration or a trusted Codex project file that sets hooks, MCP servers, approval or sandbox
-  rules, credentials or endpoints refuses the start (names only in the error); the Claude start
-  leaves out the project's settings and MCP file and keeps only this session's team server (PM-49).
-  The service's SSH agent and GitHub token variables never reach a worker.
-- **No human approval to be tricked into.** A request that arrives anyway is refused, not queued for
-  an inbox item a person might approve from a phone without context. Anything that leaves the machine
-  is stopped at the network gate or decided as a boundary request (BOUNDARY.md); the owner's
-  exceptions apply there, not in the CLI.
-- **Nothing carries across a change.** A conversation, a working directory or an "allow for this
-  session" of the other profile is never reused, and the session's unconsumed boundary requests are
-  revoked.
-
-Limits: the real CLIs are not exercised by the automated tests (fakes only). What the flags do in
-the pinned versions, and that a forbidden step really stops at the gate, is the human trial of
-VM.md in a throwaway VM. Until the launcher (PM-140) runs sessions as the worker accounts, the
-profile cannot be activated (its report check stays `unverified`).
-
-## The move to the VM (PM-143)
-
-[MIGRATION.md](MIGRATION.md) moves the owner's data to the VM. What it keeps safe, and what it does not:
-
-- **The package is the most sensitive file the project makes.** It holds the database (accounts and their password
-  hashes, every task and message), the cookie signing key, conversations and the owner's unpushed work. It is
-  created mode 0700/0600, refused inside the source home or any git repository, and must be encrypted before it
-  leaves the machine; it is never a task attachment, a message or a repository file. Checksums in its manifest
-  detect damage and accidental change, not a malicious one: a package is trusted because the owner made it and
-  carried it.
-- **Nothing of the owner's identity moves.** No personal CLI home, no provider login and no `gh` login are
-  copied; the VM has new subscription logins and the separate publishing identity (PM-142). A remote URL that
-  carries credentials is neither recorded nor restored. The inventory, the cutover sheet and the reports print
-  names, counts, modes and commit ids, never file contents or secrets (tested).
-- **A copy never works by accident.** A restored or migrated home starts as `standby` (no scheduler, no GitHub
-  polling, no session) and a retired one does not start; going active is a person's command that needs the other
-  copy to be shown or stated retired. A damaged marker stops the server. The live Mac checkout ignores the marker
-  until it is updated, so for that machine the safeguard is the procedure (the instance stays stopped).
-- **No automatic rollback of a schema.** A database a newer build migrated is refused by an older one, by
-  `verify` and by `check-backup.sh`/`restore.sh` (nothing is restored over a healthy installation first). The
-  rollback goes to the untouched old database.
-- **Old work is carried, not applied.** Dirty files wait as pending items; `work apply` writes them only into a
-  clean checkout of the same commit a person names, and its archive paths come from `git status`, so they cannot
-  point outside that checkout (and `tar` refuses `..`). Package contents are otherwise not authenticated.
 
 ## Before server hosting
 

@@ -6,5 +6,5 @@ export { AutoAdvance } from './auto-advance';
 export { TaskWaits } from './task-wait';
 export { LeftParts } from './left-parts';
 export { approvalRequestedError, gateBlockedError } from './moves';
-export type { MoveOptions, MoveResult, StageChange } from './moves';
+export type { MergeGate, MoveOptions, MoveResult, StageChange } from './moves';
 export type { StartWaitingReader } from './store';

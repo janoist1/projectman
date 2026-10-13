@@ -8,7 +8,7 @@ import { routes } from '@projectman/shared';
 import type { HumanAccess, ProjectConfig } from '@projectman/shared';
 import { buildApp } from '../../src/app';
 import type { AppModules, BuildAppOptions } from '../../src/app';
-import type { BoundaryOperationAdapter, RuntimeBoundary } from '../../src/contracts';
+import type { BoundaryOperationAdapter } from '../../src/contracts';
 import { createTemplateRegistry, humanActor } from '../../src/domain';
 import type { ScheduleTimer } from '../../src/domain';
 import { createRunnerModule } from '../../src/runner';
@@ -29,8 +29,6 @@ export const OWNER_LOGIN = { name: 'Owner', email: 'owner@example.com', password
 export interface AppHarnessOptions {
   nanogptKeyCheck?: AppModules['nanogptKeyCheck'];
   boundaryAdapter?: BoundaryOperationAdapter;
-  /** The VM boundary (PM-140); default: none. */
-  runtimeBoundary?: RuntimeBoundary;
   webDistDir?: string;
   now?: () => Date;
   scheduleTimer?: ScheduleTimer;
@@ -128,7 +126,6 @@ export async function createAppHarness(
   const modules: AppModules = {
     nanogptKeyCheck: opts.nanogptKeyCheck,
     boundaryAdapter: opts.boundaryAdapter,
-    runtimeBoundary: opts.runtimeBoundary,
     createRunnerModule: (o) => runnerModule.create(o),
     createMcpModule: real.mcp ? undefined : (o) => mcp.create(o),
     github,

@@ -1,3 +1,5 @@
+The running VM code was removed in PM-581; it remains available in git history.
+
 # The managed VM profile
 
 > **Archived.** The managed-VM direction was dropped on 2026-10-06 (decision 36). This page is

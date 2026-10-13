@@ -459,7 +459,6 @@ export const hu = {
       workspace_codex_config:
         'A munkafa saját .codex mappájában olyan Codex-beállítás van, amely a homokozón kívül futtathatna parancsot (például hook, MCP-szerver vagy szabály), ezért a Codex-tag nem indul el.',
       provider_unsupported: 'A szolgáltató ebben a futtatási profilban nem támogatott.',
-      managed_vm_unavailable: 'A kérdésmentes VM-profil határa nincs igazolva.',
       session_start_failed: 'A munkamenetet nem sikerült elindítani.',
       session_failed: 'A munkamenet sikertelenül zárult.',
       server_restarted: 'A szerver újraindult a futás közben.',
@@ -974,8 +973,6 @@ export const hu = {
       team_paused: 'A csapat szünetel: amíg tart, új munka nem indul.',
       instance_standby:
         'Ez a példány készenléti másolat: az AI-munka csak az éles (aktív) példányban indul, itt csak az adatok láthatók.',
-      managed_vm_unavailable:
-        'A kérdésmentes VM-profil határa nincs igazolva (vagy a telepített szolgáltatói program nem a jóváhagyott verzió), ezért a munkamenet nem indul el.',
       workspace_busy:
         'A tag munkaállomásán most egy másik feladat munkamenete fut ebben a repóban; az előbb annak kell véget érnie.',
       workspace_dirty:
@@ -983,8 +980,6 @@ export const hu = {
       workspace_fetch_failed: 'A friss alapágat nem sikerült letölteni, ezért az új feladat nem indult el.',
       workspace_branch_missing: 'A feladat ága hiányzik a tag munkaállomásáról.',
       workspace_source_missing: 'Az átadott commit már nincs rajta a feladat ágán; kérj új átadást.',
-      runtime_boundary_not_ready:
-        'A virtuális gép védelme most nincs rendben (ellenőrzés, indító vagy hálózati kapu), ezért AI-munkamenet nem indul.',
       project_exists: 'Ilyen kulcsú projekt már van.',
       workspace_not_found: 'Ez a munkaterület-útvonal nem létezik ezen a gépen.',
       unknown_template: 'Ismeretlen sablon.',
@@ -3725,6 +3720,7 @@ export const hu = {
         handed_off: 'a munkát leadta',
         handoff_timeout: 'lejárt a leadás ideje',
         merge_running: 'a beolvasztás a szerveren fut',
+        awaiting_fix: 'a fejlesztő javítására vár',
       },
       short: {
         step_done: 'lépés kész',
@@ -3736,6 +3732,7 @@ export const hu = {
         handed_off: 'leadva',
         handoff_timeout: 'leadás lejárt',
         merge_running: 'beolvasztás fut',
+        awaiting_fix: 'javításra vár',
       },
     },
     tabs: {

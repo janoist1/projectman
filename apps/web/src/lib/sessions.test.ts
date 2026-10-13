@@ -34,6 +34,7 @@ describe('what closes a session', () => {
     'handed_off',
     'handoff_timeout',
     'merge_running',
+    'awaiting_fix',
   ];
   it.each(closing)('counts %s of an exited session', (kind) => {
     expect(sessionClosure({ state: 'exited', lastStop: { kind } })).toEqual({ kind });
@@ -114,6 +115,12 @@ describe('the texts of a closed session', () => {
     const stop: SessionStop = { kind: 'merge_running', taskKey: 'PM-1' };
     expect(text(stop).list).toBe('Lezárva · beolvasztás fut');
     expect(text(stop).event).toContain('a beolvasztás a szerveren fut (PM-1)');
+  });
+
+  it('words the closure of a reviewer who waits for the fix (PM-570)', () => {
+    const stop: SessionStop = { kind: 'awaiting_fix', taskKey: 'PM-1' };
+    expect(text(stop).list).toBe('Lezárva · javításra vár');
+    expect(text(stop).event).toContain('a fejlesztő javítására vár (PM-1)');
   });
 
   it('names who stopped it: another member, nobody, or the viewer', () => {

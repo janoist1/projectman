@@ -12,6 +12,8 @@ import {
   noApproverReason,
   planLabelChange,
   isOwnerApprovalLabel,
+  isReturnedWorkLabel,
+  reviewReturnedWork,
 } from './labels';
 import type { LabelChangePlan } from './labels';
 import { ProjectConfig } from './schema';
@@ -116,6 +118,39 @@ const task: Pick<Task, 'assignee' | 'links'> = {
 const human = (handle: string): Actor => ({ kind: 'human', handle });
 const ai = (handle: string): Actor => ({ kind: 'ai', handle });
 const system: Actor = { kind: 'system', handle: null };
+
+describe('isReturnedWorkLabel (PM-570)', () => {
+  const labels = [
+    ...config().pipeline.labels,
+    {
+      id: 'security-changes',
+      name: 'Security: changes',
+      setBy: { duties: ['security_review'] },
+      requiresComment: true,
+    },
+    { id: 'qa-failed', name: 'QA failed', setBy: { duties: ['testing_acceptance'] }, requiresComment: true },
+    { id: 'qa-ok', name: 'QA ok', setBy: { duties: ['testing_acceptance'] }, notByAuthor: true },
+    { id: 'needs-plan', name: 'Needs plan', setBy: { members: ['dev-1'] }, requiresComment: true },
+  ] as ProjectConfig['pipeline']['labels'];
+  const withLabels = { ...config().pipeline, labels };
+  const of = (id: string) => isReturnedWorkLabel(labelDefinition({ pipeline: withLabels }, id));
+
+  it('is true for the results that give the work back', () => {
+    for (const id of ['review-changes', 'security-changes', 'qa-failed']) expect(of(id)).toBe(true);
+  });
+
+  it('is false for an approval, a note-asking label no review sets, and a missing label', () => {
+    for (const id of ['review-ok', 'qa-ok', 'needs-plan', 'waiting', 'unknown']) expect(of(id)).toBe(false);
+    expect(isReturnedWorkLabel(undefined)).toBe(false);
+  });
+
+  it('keeps reviewReturnedWork as it was', () => {
+    const pipeline = { ...withLabels };
+    expect(reviewReturnedWork({ pipeline }, { labels: ['review-ok', 'review-changes'] })).toBe(true);
+    expect(reviewReturnedWork({ pipeline }, { labels: ['review-ok', 'needs-plan'] })).toBe(false);
+    expect(reviewReturnedWork({ pipeline }, { labels: [] })).toBe(false);
+  });
+});
 
 describe('labelRefusal', () => {
   it.each<[string, string, Actor, LabelRefusal | null]>([

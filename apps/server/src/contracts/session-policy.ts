@@ -5,24 +5,10 @@ import type {
   ShellToolRule,
 } from '@projectman/shared';
 
-/**
- * How the managed VM profile (PM-141) runs a session: the installation's verified boundary, not
- * the CLI, holds the limits, so the CLI asks nothing locally. Absent in a policy means `legacy`
- * (the Mac installation as it always was). It never says `strict`: the strict native sandbox is a
- * different, stopped direction (decision 25) and the two are not mixed.
- */
-export interface ManagedVmExecution {
-  profile: 'managed_vm';
-  /** The readiness profile the boundary was verified for (`VM_PROFILE_NAME` / `VM_PROFILE_VERSION`). */
-  boundary: { name: string; version: number };
-}
-
 /** Versioned provider-neutral intent. Legacy enforcement is not a strict isolation boundary. */
 export interface SessionPolicy {
   version: 1;
   enforcement: 'legacy' | 'strict';
-  /** Present only for the managed VM profile; an adapter without it runs the legacy way. */
-  execution?: ManagedVmExecution;
   access: SessionAccess;
   /** Separate review-copy opt-in; absent means inherit, never inferred from permissionMode. */
   reviewCopyMode?: ReviewCopyMode;
@@ -51,27 +37,7 @@ export interface SessionPolicy {
         baseBranch?: string;
         baseCommit?: string;
       }
-    | { kind: 'read_only'; path: string }
-    | {
-        /**
-         * The managed VM's placement: the member's own workspace, whatever it does there. `use` says
-         * what the role does (the task branch, a pinned review round, or no repository at all); it
-         * limits nothing locally, the boundary does.
-         */
-        kind: 'member_workspace';
-        path: string;
-        use: 'work' | 'review' | 'home';
-        /** `use` work: the task branch in the workspace and where it started. */
-        workspace?: { branch: string; baseCommit: string | null };
-        /** `use` review: the pinned round (the same facts as a review copy's). */
-        review?: {
-          sourceCommit: string;
-          roundId: string;
-          sourceBranch?: string;
-          baseBranch?: string;
-          baseCommit?: string;
-        };
-      };
+    | { kind: 'read_only'; path: string };
   tools: {
     team: { all: boolean; names: string[] };
     files: Array<'read' | 'grep' | 'glob'>;
@@ -94,7 +60,7 @@ export interface SessionPolicy {
      * (the credentials of the user and the sensitive parts of the live instance, PM-165). Claude
      * Code renders them as deny rules, which hold in Auto too; its shell uses `denyRead` (PM-167).
      * Local Codex/NanoGPT shell commands use the same denials in their permission profile (PM-356).
-     * Approved host commands are outside that boundary. Absent in the managed VM profile.
+     * Approved host commands are outside that boundary.
      */
     deniedPaths?: string[];
     /**
@@ -117,7 +83,7 @@ export interface SessionPolicy {
     deniedHosts?: string[];
     /**
      * The member's outbound network (PM-355): `open` reaches any host but `deniedHosts`, `allowlist` only
-     * the npm registry. The legacy profile applies it; the managed VM profile ignores it (its boundary decides).
+     * the npm registry. The session's sandbox applies it.
      */
     outbound?: 'open' | 'allowlist';
   };

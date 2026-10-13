@@ -3,8 +3,11 @@ import {
   isMergeRunningFor,
   isOpenTask,
   isRefining,
+  isReturnedWorkLabel,
   isSessionAtWork,
+  labelDefinition,
   OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
+  reviewReturnedWork,
   SESSION_IDLE_CLOSE_MINUTES,
   stageIndex,
 } from '@projectman/shared';
@@ -23,7 +26,8 @@ const MINUTE_MS = 60_000;
  * memory. A session closes when its member's step on the card is done (the card moved on, or the
  * refinement turn passed to another member), or after `SESSION_IDLE_CLOSE_MINUTES` of silence. It never
  * closes while it works, nor a meeting's. The session of a member whose merge the server queues or runs
- * closes at once as well, as the member has nothing to wait for (PM-552). The conversation stays: a message, an answer or a hand-over
+ * closes at once as well, as the member has nothing to wait for (PM-552). The session of a member that
+ * gave the card's work back closes at the first idle moment after the verdict (PM-570). The conversation stays: a message, an answer or a hand-over
  * resumes it. A session that is in a turn when its step ends is marked, and closes at its next idle
  * moment (`sessionIdle`); the periodic `sweep` catches what no event did.
  */
@@ -93,6 +97,24 @@ export class SessionCloser {
       this.sessions.closeWhenIdle(session, stop);
       await this.tryClose(session, stop);
     }
+  }
+
+  /**
+   * The member gave the card's work back in this session (PM-570): it closes at its next idle moment.
+   * `requested` are the labels the member asked for in the call; the mark goes on the request, not on a
+   * change of the label, as the second round's verdict finds the label on the card already.
+   */
+  async workReturned(sessionId: string, task: Task, requested: readonly string[]): Promise<void> {
+    const session = this.sessions.find(sessionId);
+    if (!session || !this.sessions.isRunning(session.id)) return;
+    if (session.workItem.type !== 'task' || session.workItem.taskKey !== task.key) return;
+    if (!isOpenTask(task) || this.sessions.pendingClose(session.id)) return;
+    const config = await this.projects.config(task.projectKey);
+    const gaveBack = requested.some((raw) => {
+      const id = raw.trim();
+      return task.labels.includes(id) && isReturnedWorkLabel(labelDefinition(config, id));
+    });
+    if (gaveBack) this.sessions.closeWhenIdle(session, { kind: 'awaiting_fix', taskKey: task.key });
   }
 
   /**
@@ -185,11 +207,25 @@ export class SessionCloser {
    * wrote its handoff note (PM-342) closes whatever step its member has: the card is no longer theirs.
    */
   private async closeMarked(session: Session, stop: SessionStop): Promise<void> {
+    // A member that gave the work back waits for the fix: its step stays, so only the labels count (PM-570).
+    if (stop.kind === 'awaiting_fix') {
+      if (await this.workStillReturned(session)) await this.tryClose(session, stop);
+      else this.sessions.cancelClose(session.id);
+      return;
+    }
     if (stop.kind !== 'handed_off' && (await this.stepRemains(session))) {
       this.sessions.cancelClose(session.id);
       return;
     }
     await this.tryClose(session, stop);
+  }
+
+  /** Whether the session's card is open and still carries a label that gives its work back (PM-570). */
+  private async workStillReturned(session: Session): Promise<boolean> {
+    if (session.workItem.type !== 'task') return false;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task || !isOpenTask(task)) return false;
+    return reviewReturnedWork(await this.projects.config(task.projectKey), task);
   }
 
   /** Whether the session works, or a message that is not held back is on its way to it. */

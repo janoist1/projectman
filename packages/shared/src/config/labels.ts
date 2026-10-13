@@ -31,15 +31,20 @@ export function reviewReturnedWork(
   config: Pick<ProjectConfig, 'pipeline'>,
   task: Pick<Task, 'labels'>,
 ): boolean {
-  return task.labels.some((id) => {
-    const label = labelDefinition(config, id);
-    const setBy = label?.setBy;
-    return (
-      label?.requiresComment === true &&
-      typeof setBy === 'object' &&
-      (setBy.duties ?? []).some((duty) => REVIEW_DUTIES.includes(duty))
-    );
-  });
+  return task.labels.some((id) => isReturnedWorkLabel(labelDefinition(config, id)));
+}
+
+/**
+ * Whether the label gives the work back (PM-183, PM-570): it needs a note and a reviewing or testing
+ * duty sets it ("changes needed", "failed", "blocked").
+ */
+export function isReturnedWorkLabel(label: LabelDefinition | undefined): boolean {
+  const setBy = label?.setBy;
+  return (
+    label?.requiresComment === true &&
+    typeof setBy === 'object' &&
+    (setBy.duties ?? []).some((duty) => REVIEW_DUTIES.includes(duty))
+  );
 }
 
 export function labelDefinition(

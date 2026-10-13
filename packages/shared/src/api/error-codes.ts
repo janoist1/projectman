@@ -185,8 +185,6 @@ export const ERROR_CODES = [
   'provider_unsupported',
   'nanogpt_key_rejected',
   'session_start_failed',
-  // The question-free managed VM profile (PM-141): its boundary is not verified, or a CLI does not fit
-  'managed_vm_unavailable',
   // A standby copy of the installation (PM-143, `instance.json`): only the active instance starts AI work
   'instance_standby',
   // Member workspaces (PM-138)
@@ -195,8 +193,6 @@ export const ERROR_CODES = [
   'workspace_fetch_failed',
   'workspace_branch_missing',
   'workspace_source_missing',
-  // The VM boundary (PM-140): its readiness or a part of it failed, so no session starts.
-  'runtime_boundary_not_ready',
   // The fix round limit (PM-262): the card is not held, the caller does not decide it, nobody can plan.
   'fix_limit_not_held',
   'fix_limit_not_decider',

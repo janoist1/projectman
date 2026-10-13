@@ -11,7 +11,6 @@ import type {
   SessionState,
   TokenUsage,
 } from '@projectman/shared';
-import type { SessionLauncher, WorkerLayout } from './runtime-boundary';
 import type { SessionPolicy } from './session-policy';
 
 /**
@@ -169,12 +168,6 @@ export interface StartSessionSpec {
   member?: string;
   /** The agent CLI to run (default "claude"). */
   provider?: AgentProvider;
-  /**
-   * The session's egress proxy credentials (managed VM, PM-140): the launcher puts them in the
-   * proxy settings of the worker, and the proxy maps them back to this session. Required when the
-   * runner starts sessions through the launcher.
-   */
-  egressToken?: string;
 }
 
 export type RunnerEvent =
@@ -272,13 +265,6 @@ export interface ProviderStatus {
 export const PROVIDER_NOT_LOGGED_IN = 'provider_not_logged_in';
 
 /**
- * Error code of a managed VM session start (PM-141) refused because the boundary is not proven
- * now, the installed CLI is not a version the question-free settings are proven for, or the VM's
- * own configuration would override the protected start. Its `reason` says which.
- */
-export const MANAGED_VM_UNAVAILABLE = 'managed_vm_unavailable';
-
-/**
  * Codex start refused because a project `.codex/` layer contains more than a `config.toml`
  * of allowed roots (PM-357). Details: `{ provider: 'codex', issues: Array<{ file: string;
  * keys: string[] }> }`; names only, never values.
@@ -286,38 +272,11 @@ export const MANAGED_VM_UNAVAILABLE = 'managed_vm_unavailable';
 export const WORKSPACE_CODEX_CONFIG = 'workspace_codex_config';
 
 /**
- * The answer to a permission request that reaches a managed VM session anyway (read by the agent,
- * so English): the profile has no local approvals, and nothing is queued for a human.
- */
-export const MANAGED_VM_NO_LOCAL_APPROVAL =
-  'This installation runs without local approvals: the work you do in your workspace needs none, so this request is refused, not queued for a human. A step that leaves the machine is decided at the network gate; for a registered operation use submit_boundary_request. Continue with what you can do here.';
-
-/**
  * The answer to a permission request of a member whose approver is nobody (PM-165): read by the
  * agent, so English. No inbox item exists; the refusal is final, and `ask_human` is the way forward.
  */
 export const APPROVER_NONE_REFUSAL =
   'Not allowed: nobody approves questions for this session. Do not retry it in another form. If you really need it, ask a human with ask_human and say why.';
-
-/** What a verified managed VM boundary says about itself, at the moment it was asked. */
-export interface ManagedVmAttestation {
-  /** The readiness profile the boundary was verified for. */
-  profile: { name: string; version: number };
-  /** When the proof was made (ISO time). */
-  verifiedAt: string;
-  /** The CLI versions the question-free settings are proven for, per provider. */
-  providerVersions: Partial<Record<AgentProvider, readonly string[]>>;
-}
-
-/**
- * The proof that this installation is the owner's verified managed VM. It is asked at every start,
- * never answered from a flag: a repository file, the environment or a member's setting is not an
- * input. Implementations read the measured readiness report (`createReadinessBoundary`) or, later,
- * the protected launcher (PM-140). It rejects with an error whose `code` is `managed_vm_unavailable`.
- */
-export interface ManagedVmBoundary {
-  verify(): Promise<ManagedVmAttestation>;
-}
 
 export interface RunningSessionInfo {
   sessionId: string;
@@ -418,8 +377,6 @@ export interface SessionRunner {
   /**
    * Login state of a provider's CLI (cached briefly). `start` refuses to spawn a session of a
    * provider that is not logged in, with an error whose `code` is `provider_not_logged_in`.
-   * With the launcher (managed VM) every member's worker has its own login: `member` names whose
-   * login to check (without it, the server's own login is checked).
    */
   providerStatus?(
     provider: AgentProvider,
@@ -477,7 +434,7 @@ export interface TranscriptReader {
   /**
    * Whether the transcript exists and is not empty (PM-340): only such a conversation can be
    * resumed, the CLI writes the file after its first message. `confineTo` as in `read`. Rejects
-   * when the file cannot be checked (not a regular file in the worker home, no access).
+   * when the file cannot be checked (not a regular file in the conversation root, no access).
    */
   hasContent(path: string, opts?: { confineTo?: string; engineId?: EngineId }): Promise<boolean>;
   /**
@@ -496,7 +453,7 @@ export interface TranscriptReader {
       firstUserOrigin?: 'brief' | 'human';
       cwd?: string | null;
       /**
-       * A worker home (PM-140): the transcript is read only as a regular file whose real path lies
+       * A conversation root: the transcript is read only as a regular file whose real path lies
        * in it, without following a final symlink or blocking on a FIFO.
        */
       confineTo?: string;
@@ -530,8 +487,7 @@ export interface RunnerModuleOptions {
   refreshDependencies?: (cwd: string) => Promise<void>;
   /**
    * `pipe` starts the CLI with pipes instead of a pseudo-terminal (PM-267): for the fake CLIs in a
-   * development instance that has no PTY (a member's sandbox). Default `pty`. It has no effect on
-   * sessions that start through the launcher.
+   * development instance that has no PTY (a member's sandbox). Default `pty`.
    */
   terminal?: TerminalMode;
   /** Path or name of the Claude Code CLI (default "claude"). Tests pass a fake CLI. */
@@ -571,32 +527,17 @@ export interface RunnerModuleOptions {
   /**
    * The tag of this instance (PM-320): set as `PROJECTMAN_INSTANCE` in the environment of every
    * local session, so a process that outlives its session can be recognised as this instance's.
-   * The launcher's sessions run as another user and do not get it.
    */
   instanceTag?: string;
   /**
-   * The protected launcher of the managed VM (PM-140). When set, every session starts through it
-   * as its member's worker account, in a sandboxed unit, with the provider's pinned CLI; nothing
-   * is spawned locally, and a session without a member or egress token is refused. Workspace
-   * trust and login checks run as the worker too.
-   */
-  launcher?: SessionLauncher;
-  /** Worker paths (with `launcher`): a session's transcript must lie in its worker's home. */
-  workerLayout?: WorkerLayout;
-  /**
-   * The managed VM boundary (PM-141). Without it the runner refuses every session whose policy
-   * asks for the managed VM profile; with it, each such start is verified first.
-   */
-  managedVm?: ManagedVmBoundary;
-  /**
-   * Where the VM's own configuration is looked at for settings that would override the protected
+   * Where the provider's configuration is looked at for settings that would override the protected
    * start (managed policy, the provider's user configuration): defaults are the providers' real
    * locations. Tests pass temporary directories.
    */
   ambientConfig?: AmbientConfigLocations;
 }
 
-/** Locations of the provider configuration a managed VM start inspects (see `inspectAmbientConfig`). */
+/** Locations of the provider configuration a start inspects (see `inspectAmbientConfig`). */
 export interface AmbientConfigLocations {
   /** Claude Code's managed policy files, in precedence order (default: the Linux and macOS paths). */
   claudeManaged?: string[];

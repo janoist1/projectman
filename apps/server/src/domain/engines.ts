@@ -8,7 +8,6 @@ import type {
   EnginePaths,
   FullTestExecutor,
   MemberWorkspaceManager,
-  RuntimeBoundary,
   ScreenshotExecutor,
   WorktreeManager,
 } from '../contracts';
@@ -44,7 +43,6 @@ export interface LocalEngineOptions {
    * (`EngineHost.merger`); without it, it does not.
    */
   repoPath?: (projectKey: string, repo: string) => string | null;
-  runtimeBoundary?: RuntimeBoundary;
   appHome?: string;
   userHome?: string;
   worktreesRootDir?: string;
@@ -71,7 +69,6 @@ export function createLocalEngine(opts: LocalEngineOptions, logger: FastifyBaseL
       ...(opts.sessionFoldersDir ? { sessionFoldersDir: opts.sessionFoldersDir } : {}),
       ...(opts.sessionTmpDir ? { sessionTmpDir: opts.sessionTmpDir } : {}),
       ...(opts.heavyLockDir ? { heavyLockDir: opts.heavyLockDir } : {}),
-      sessionFoldersOff: opts.runtimeBoundary?.mode === 'managed_vm',
       ...(opts.claudeTmpBase ? { claudeTmpBase: opts.claudeTmpBase } : {}),
       ...(opts.claudeTmpRoots ? { claudeTmpRoots: opts.claudeTmpRoots } : {}),
       ...(opts.freeDiskBytes ? { freeDiskBytes: opts.freeDiskBytes } : {}),

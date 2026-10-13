@@ -127,22 +127,6 @@ export function withLocalNoProxy(env: Record<string, string>): Record<string, st
 }
 
 /**
- * What a managed VM worker (PM-141) never inherits from the service's environment: a way to act
- * as someone else on the network. The VM has no agent socket and the worker's GitHub identity is
- * its own (PM-142), so none of the service's reaches it, whatever the unit's environment holds.
- */
-const MANAGED_VM_REMOVED_VARS = new Set([
-  'SSH_AUTH_SOCK',
-  'SSH_AGENT_PID',
-  'SSH_ASKPASS',
-  'GIT_ASKPASS',
-  'GH_TOKEN',
-  'GITHUB_TOKEN',
-  'GH_ENTERPRISE_TOKEN',
-  'GITHUB_ENTERPRISE_TOKEN',
-]);
-
-/**
  * Editors that never open a window: git (a rebase's commit message or todo list) and other tools
  * that start `$EDITOR` would otherwise leave Vim waiting on a terminal nobody types into, and the
  * member could not stop it (PM-428). `true` accepts the file as it is. Set last, for every
@@ -159,7 +143,7 @@ export const NON_INTERACTIVE_EDITOR_ENV = {
 export function buildSessionEnv(
   base: NodeJS.ProcessEnv,
   sessionId: string,
-  opts: { managedVm?: boolean; instanceTag?: string } = {},
+  opts: { instanceTag?: string } = {},
 ): Record<string, string> {
   const env = withLocalNoProxy(
     buildChildEnv(base, {
@@ -171,6 +155,5 @@ export function buildSessionEnv(
       ...(opts.instanceTag ? { PROJECTMAN_INSTANCE: opts.instanceTag } : {}),
     }),
   );
-  if (opts.managedVm) for (const name of MANAGED_VM_REMOVED_VARS) delete env[name];
   return env;
 }

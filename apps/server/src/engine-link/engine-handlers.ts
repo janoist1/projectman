@@ -251,32 +251,6 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'workspace.checkoutReview'([key, source, commit]) {
       return memberWorkspaces().checkoutReview(key, source, commit);
     },
-    async 'workspace.export_branch'({ key, branch, uploadToken }) {
-      if (!BRANCH.test(branch) || branch.includes('..') || branch.endsWith('/') || branch.endsWith('.lock'))
-        throw new EngineRpcError('invalid_params', 'Invalid branch name');
-      limit.token(uploadToken);
-      const exported = await memberWorkspaces().exportBranch(key, branch);
-      let bundle = exported.path;
-      let scratch: string | null = null;
-      try {
-        if (!exported.bundle) {
-          // The workspace is on this disk: the cloud receives a bundle of just that branch.
-          scratch = await mkdtemp(path.join(deps.exportDir, 'branch-'));
-          bundle = path.join(scratch, 'branch.bundle');
-          await git(['-C', exported.path, 'bundle', 'create', bundle, `refs/heads/${branch}`], {
-            isolatedConfig: true,
-          });
-        }
-        const size = (await stat(bundle)).size;
-        return await transfers.upload(uploadToken, 'bundle', {
-          size,
-          stream: () => createReadStream(bundle),
-        });
-      } finally {
-        if (scratch) await rm(scratch, { recursive: true, force: true });
-        await exported.done();
-      }
-    },
     async 'github.is_available'() {
       return github.isAvailable();
     },

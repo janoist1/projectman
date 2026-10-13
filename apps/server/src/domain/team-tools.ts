@@ -283,6 +283,8 @@ interface CallerWithRequest {
   guest: GuestView | null;
   /** The system signal the call acts on (PM-545); with no owner request, `request` is the signal round. */
   signalId?: string;
+  /** The call holds its signal's step slot (`signalStepsRunning`) until `recorded` logs the step. */
+  holdsSignalStep?: boolean;
 }
 
 /** The Operator's own step on a system signal, as the guard sees it (PM-545). */
@@ -454,6 +456,8 @@ export class TeamToolsService implements TeamToolsHandler {
   }
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'roundFor' | 'openRound'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
+  /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
+  private readonly signalStepsRunning = new Set<string>();
   private readonly operatorActions: OperatorActions;
   private readonly operatorSignals: OperatorSignals;
   private readonly taskStarts: TaskStarts;
@@ -2207,11 +2211,20 @@ export class TeamToolsService implements TeamToolsHandler {
           ? 'this signal has no step left; tell the owner what you did and what became of it.'
           : `the last step on this signal was less than ${OPERATOR_SIGNAL_STEP_GAP_MINUTES} minutes ago; retry after ${refusal.retryAt}.`,
       );
+    // The budget counts logged steps, and a step is logged only after it ran: a call that arrives while
+    // another step on this signal is running would pass the count too. No await between the count and here.
+    if (this.signalStepsRunning.has(signal.id))
+      refuse(
+        'operator_signal_budget',
+        'a step on this signal is still running; wait for its result before you take another.',
+      );
+    this.signalStepsRunning.add(signal.id);
     return {
       config,
       request: this.operatorRequests.openRound(ctx.projectKey, ctx.sessionId),
       guest: null,
       signalId: signal.id,
+      holdsSignalStep: true,
     };
   }
 
@@ -2254,7 +2267,7 @@ export class TeamToolsService implements TeamToolsHandler {
    * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
    */
   private async recorded<T>(
-    { config, request, signalId }: CallerWithRequest,
+    { config, request, signalId, holdsSignalStep }: CallerWithRequest,
     step: {
       action: OperatorAction;
       taskKey?: string | null;
@@ -2267,34 +2280,39 @@ export class TeamToolsService implements TeamToolsHandler {
     /** A refusal that is no refusal: the change waits for a human's approval. */
     awaitsApproval?: (err: unknown) => boolean,
   ): Promise<T> {
-    if (!step || !request) return run();
-    const target = {
-      action: step.action,
-      taskKey: step.taskKey && TaskKey.safeParse(step.taskKey).success ? step.taskKey : null,
-      member: step.member && memberOf(config, step.member) ? step.member : null,
-      ...(signalId ? { signalId } : {}),
-    };
-    let result: T;
     try {
-      result = await run();
-    } catch (err) {
-      this.operatorSteps.record(
-        awaitsApproval?.(err)
-          ? { requestId: request.id, ...target, status: 'awaiting_approval' }
-          : { requestId: request.id, ...target, status: 'refused', refusal: refusalOf(err) },
-      );
-      throw err;
+      if (!step || !request) return await run();
+      const target = {
+        action: step.action,
+        taskKey: step.taskKey && TaskKey.safeParse(step.taskKey).success ? step.taskKey : null,
+        member: step.member && memberOf(config, step.member) ? step.member : null,
+        ...(signalId ? { signalId } : {}),
+      };
+      let result: T;
+      try {
+        result = await run();
+      } catch (err) {
+        this.operatorSteps.record(
+          awaitsApproval?.(err)
+            ? { requestId: request.id, ...target, status: 'awaiting_approval' }
+            : { requestId: request.id, ...target, status: 'refused', refusal: refusalOf(err) },
+        );
+        throw err;
+      }
+      this.operatorSteps.record({
+        requestId: request.id,
+        ...target,
+        ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
+        ...(step.madeMember ? { member: step.madeMember(result) } : {}),
+        status: 'done',
+      });
+      // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
+      if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);
+      return result;
+    } finally {
+      // The step is logged now (or the call failed): the signal's slot is free, the budget counts it.
+      if (holdsSignalStep && signalId) this.signalStepsRunning.delete(signalId);
     }
-    this.operatorSteps.record({
-      requestId: request.id,
-      ...target,
-      ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
-      ...(step.madeMember ? { member: step.madeMember(result) } : {}),
-      status: 'done',
-    });
-    // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
-    if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);
-    return result;
   }
 
   /** A task key of the caller's project. */

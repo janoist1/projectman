@@ -3,10 +3,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   OPERATOR_IDLE_MINUTES,
   OPERATOR_MERGE_WAIT_MINUTES,
+  OPERATOR_READY_WAITING_MINUTES,
   OPERATOR_SIGNAL_ROUND_FROM,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
 } from '@projectman/shared';
-import type { OperatorSignalKind, OperatorWatch, Task } from '@projectman/shared';
+import type { OperatorSignalKind, OperatorWatch, ProjectConfig, Task } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createRepositories, LATEST_SCHEMA_VERSION, migrate } from '../src/db';
 import type { MergeRecord } from '../src/db';
@@ -29,12 +30,18 @@ const later = (minutes: number) => {
 const open = (kind: OperatorSignalKind) =>
   h.repos.operatorSignals.list('AR').filter((s) => s.kind === kind && !s.resolvedAt);
 
-async function setup(level: OperatorWatch | undefined) {
+async function setup(
+  level: OperatorWatch | undefined,
+  opts: { adjust?: (config: ProjectConfig) => void; target?: boolean; appVersion?: string } = {},
+) {
   now = new Date('2026-10-12T10:00:00Z');
   h = await createDomainHarness({
     now: () => now,
+    ...(opts.target ? { releaseTarget: { projectKey: 'AR', repo: 'web' } } : {}),
+    ...(opts.appVersion ? { appVersion: opts.appVersion } : {}),
     adjust: (config) => {
       if (level) config.team.operatorWatch = level;
+      opts.adjust?.(config);
     },
   });
 }
@@ -247,6 +254,32 @@ describe('level unblock', () => {
     expect(roundSteps()).toHaveLength(1);
   });
 
+  it('lets one of two simultaneous calls on a signal through, the other waits for the step in progress', async () => {
+    await setup('unblock');
+    const { card, signal } = await idleCard();
+    const results = await Promise.allSettled([startIdle(card, signal), startIdle(card, signal)]);
+    expect(results.map((r) => r.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const refused = results.find((r) => r.status === 'rejected') as PromiseRejectedResult;
+    expect(refused.reason).toMatchObject({ message: expect.stringContaining('operator_signal_budget') });
+    expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toHaveLength(1);
+    expect(roundSteps()).toHaveLength(1);
+  });
+
+  it('starts the owner of a step that holds the card with start_member on the card', async () => {
+    await setup('unblock');
+    const card = await place({ stageId: 'code_review', status: 'waiting' });
+    later(OPERATOR_IDLE_MINUTES);
+    await h.domain.operatorSignals.sweep('AR');
+    await flush();
+    const signal = open('idle')[0]!;
+    await expect(startIdle(card, signal)).rejects.toThrow('operator_no_request');
+    const result = await startMerger(card, signal, 'cr');
+    expect(result.recipient.handle).toBe('cr');
+    expect(roundSteps()).toMatchObject([
+      { action: 'task_start', taskKey: card.key, member: 'cr', status: 'done', signalId: signal.id },
+    ]);
+  });
+
   it('does not cover the board kinds that only drive covers', async () => {
     await setup('unblock');
     const { card } = await idleCard();
@@ -288,6 +321,86 @@ describe('level drive', () => {
     await expect(startIdle(card, signal)).rejects.toThrow('operator_signal_closed');
     later(1);
     await expect(startIdle(card, signal)).resolves.toBeDefined();
+  });
+
+  it('starts the project manager for cards that stand ready, and nobody else', async () => {
+    await setup('drive', {
+      adjust: (config) => {
+        config.pipeline.stages.splice(1, 0, {
+          id: 'ready',
+          name: 'Ready',
+          kind: 'queue',
+          owners: ['owner'],
+          columnId: 'todo',
+        });
+        const pm = config.team.members.find((m) => m.handle === 'pm');
+        if (pm?.kind === 'ai') pm.onLeave = false;
+      },
+    });
+    await place({ stageId: 'ready', status: 'active' });
+    await h.domain.operatorSignals.sweep('AR');
+    later(OPERATOR_READY_WAITING_MINUTES);
+    await h.domain.operatorSignals.sweep('AR');
+    await flush();
+    const signal = open('ready_waiting')[0]!;
+    await expect(
+      h.domain.teamTools.startMember(operator(), { member: 'dev-1', text: 'Take it.', signalId: signal.id }),
+    ).rejects.toThrow('operator_no_request');
+    const result = await h.domain.teamTools.startMember(operator(), {
+      member: 'pm',
+      text: 'Cards stand ready.',
+      signalId: signal.id,
+    });
+    expect(result.recipient.handle).toBe('pm');
+    expect(roundSteps()).toMatchObject([
+      { action: 'task_start', taskKey: null, member: 'pm', status: 'done', signalId: signal.id },
+    ]);
+  });
+
+  it('starts the deployment duty for work merged but not released', async () => {
+    const sha = (n: number) => n.toString(16).padStart(40, '0');
+    await setup('drive', {
+      target: true,
+      appVersion: sha(1),
+      adjust: (config) => {
+        const developer = config.team.members.find((m) => m.handle === 'dev-2')!;
+        config.team.members.push({
+          ...developer,
+          handle: 'ops',
+          displayName: 'Ops',
+          role: 'devops',
+        } as typeof developer);
+      },
+    });
+    for (const [index, at] of [
+      [1, '2026-10-01T00:00:00.000Z'],
+      [2, '2026-10-02T00:00:00.000Z'],
+    ] as const)
+      h.repos.taskMerges.save(
+        mergeRow(`AR-${index}`, {
+          id: `mrg_${index}`,
+          state: 'merged',
+          startedBy: 'dev-1',
+          startedAt: at,
+          mergeCommit: sha(index),
+          finishedAt: at,
+        }),
+      );
+    await h.domain.operatorSignals.sweep('AR');
+    await flush();
+    const signal = open('unreleased')[0]!;
+    await expect(
+      h.domain.teamTools.startMember(operator(), { member: 'dev-1', text: 'Release.', signalId: signal.id }),
+    ).rejects.toThrow('operator_no_request');
+    const result = await h.domain.teamTools.startMember(operator(), {
+      member: 'ops',
+      text: 'Merged work is not live.',
+      signalId: signal.id,
+    });
+    expect(result.recipient.handle).toBe('ops');
+    expect(roundSteps()).toMatchObject([
+      { action: 'task_start', taskKey: null, member: 'ops', status: 'done', signalId: signal.id },
+    ]);
   });
 });
 

@@ -1117,6 +1117,10 @@ workers follow the machine's size.
   GitHub release; on a failure it puts back the previous build and the backup. The state is a journal in
   `~/.projectman/release/` (denied to the sessions' sandboxes in `domain/session-policy.ts`); the watcher
   talks to the server through the control socket (`release_next`, `release_claim`, `release_report`).
+  **launchd teardown (PM-584):** `scripts/live/launchd.ts` polls `launchctl print` after `bootout`
+  until the job is absent (up to 120 s), before cutover or rollback continues; `bootstrap` retries
+  exit status 5 every 500 ms for up to 30 s. A rollback whose unload fails stays in its journal step
+  for the next watcher round. These waits run on the macOS server host; no engine boundary changes.
   It needs launchd (`launchctl`), the user's `gui/<uid>` domain, `git`, `npm`, `sqlite3`, `lsof`, the
   `gh` CLI login and git access to the GitHub remote, the live checkout, the data home and its control
   socket on one machine, and the machine's heavy-run queue. **Remote engine:** the watcher belongs to the

@@ -273,6 +273,50 @@ describe('a step that fails before the live server is touched', () => {
 });
 
 describe('a failure at the cutover', () => {
+  it.each([false, true])('waits for launchd teardown during cutover and rollback (%s)', async (rollback) => {
+    ready();
+    if (rollback) world.brokenCommits.add(NEW);
+    let releasedAt = 0;
+    let stops = 0;
+    world.override((record) => {
+      if (record.key === 'launchctl-bootout') {
+        stops += 1;
+        releasedAt = world.time + 10_000;
+      }
+      if (record.key === 'launchctl-print' && world.time < releasedAt)
+        return { status: 0, stdout: 'state = exiting', stderr: '' };
+      if (record.key === 'backup' || record.key === 'launchctl-bootstrap')
+        expect(world.time).toBeGreaterThanOrEqual(releasedAt);
+      return undefined;
+    });
+    expect(await watch(world)).toBe(0);
+    expect(stops).toBe(rollback ? 2 : 1);
+    expect(world.server).toEqual({ running: true, version: rollback ? OLD : NEW });
+    expect(world.release?.state).toBe(rollback ? 'failed' : 'published');
+  });
+
+  it('keeps a rollback pending when launchd does not release the new job', async () => {
+    ready();
+    world.brokenCommits.add(NEW);
+    let stops = 0;
+    let blocked = true;
+    world.override((record) => {
+      if (record.key === 'launchctl-bootout') stops += 1;
+      if (record.key === 'launchctl-print' && stops >= 2 && blocked)
+        return { status: 0, stdout: 'state = exiting', stderr: '' };
+      return undefined;
+    });
+    expect(await watch(world)).toBe(1);
+    expect(world.journal()).toMatchObject({ step: 'rollback' });
+    expect(world.version()).toBe(NEW);
+    expect(world.version(world.prev())).toBe(OLD);
+    expect(world.keys().filter((key) => key === 'launchctl-bootstrap')).toHaveLength(1);
+    blocked = false;
+    expect(await watch(world)).toBe(0);
+    expect(world.server).toEqual({ running: true, version: OLD });
+    expect(world.release?.failure).toMatchObject({ rolledBack: true });
+  });
+
   it('goes back to work when the sessions do not pause in time', async () => {
     ready();
     world.pausingPolls = Infinity;

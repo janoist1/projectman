@@ -670,7 +670,13 @@ class Watcher {
     this.log(
       `release ${releaseId} failed in ${failure.step}: ${failure.message.split('\n')[0]}; rolling back`,
     );
-    await bootout(this.deps, SERVER_LABEL);
+    const stopped = await bootout(this.deps, SERVER_LABEL);
+    if (stopped.status !== 0) {
+      this.log(
+        `launchctl bootout exited with ${stopped.status}: ${stopped.stderr.trim()}; the next round tries again`,
+      );
+      return 1;
+    }
     rmSync(this.next, { recursive: true, force: true });
     if (existsSync(this.o.root)) {
       const head = await this.deps.run('git', ['rev-parse', 'HEAD'], {

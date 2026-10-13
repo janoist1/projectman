@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig, TaskPriority } from '@projectman/shared';
-import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
+import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
@@ -325,18 +325,44 @@ describe('the order of deferred starts and the focus pull', () => {
       expect(task(covered).stageId).toBe('backlog');
     });
 
-    it('starts a card once when the Start button and the pull take it together', async () => {
-      await harness(oneDeveloper);
-      const key = await create('Urgent card');
-      await h.domain.tasks.update('AR', key, { priority: 'urgent' }, OWNER_ACTOR);
-      await Promise.all([move(key).catch(() => undefined), h.domain.admission.retryDeferred()]);
-      await flush();
+    it('pulls a card at once when it reaches the queue stage, without waiting for the timer', async () => {
+      await harness((c) => {
+        oneDeveloper(c);
+        const queue = c.pipeline.stages[0];
+        if (queue) c.pipeline.stages.unshift({ ...queue, id: 'ideas', name: 'Ideas' });
+      });
+      const key = await create('Urgent idea');
+      expect(task(key).stageId).toBe('ideas');
+      await priority(key);
+      await settle();
+      expect(task(key).stageId).toBe('ideas');
+      await move(key, 'backlog');
       await waitFor(key, 'dev-1');
       expect(task(key).stageId).toBe('development');
-      await vi.waitFor(() => expect(sessionsOf(key)).toHaveLength(1));
+      expect(pulledOf(key)).toMatchObject({ reason: 'urgent' });
+    });
+
+    it('starts a card once when the Start button and the pull take it together', async () => {
+      await harness(oneDeveloper);
+      const busy = await busyDeveloper();
+      const key = await create('Urgent card');
+      await priority(key);
       await settle();
+      expect(task(key).stageId).toBe('backlog');
+      // The developer is freed (which starts a pull round) while the Start button is pressed on the card.
+      await Promise.all([
+        cancel(busy),
+        h.domain.taskStarts.start('AR', key, { actor: OWNER_ACTOR, author: OWNER }),
+        h.domain.admission.retryDeferred(),
+      ]);
+      await flush();
+      await waitFor(key, 'dev-1');
+      await settle();
+      expect(task(key).stageId).toBe('development');
       expect(sessionsOf(key)).toHaveLength(1);
-      expect(h.runner.started).toHaveLength(1);
+      expect(stageChange(key)).toHaveLength(1);
+      // The busy card's session and this card's: no second session for the card.
+      expect(h.runner.started).toHaveLength(2);
     });
   });
 });

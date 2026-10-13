@@ -1714,7 +1714,8 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
 - **Order of deferred starts (PM-436).** `Admission.retryDeferred` ranks the stored starts by `startClass` /
   `compareStartClass` (shared): urgent (the card's priority is `urgent`), then focus by place, then the others; within
   a class the `senior_busy` waits first, then the store order, so without focus or urgent cards the old order holds.
-  The places are read once per project and round.
+  The places are read once per project and round. Rounds run one after the other: a start being retried is out of
+  the store, so an overlapping round would not see it; a round asked for while one runs makes the running one go once more.
 - **Pull (PM-436).** At the end of every `retryDeferred` round (so on every event that retries the deferred starts) the
   `FocusPull` (`admission/focus-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
   the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order), then the focus cards by

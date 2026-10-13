@@ -93,6 +93,8 @@ export class Admission {
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   private readonly locks = new KeyedMutex();
   private pull: FocusPulling | undefined;
+  private retrying: Promise<void> | null = null;
+  private retryAgain = false;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -345,9 +347,30 @@ export class Admission {
    * the project's master switch is left alone while the switch is off, and one that waits for a
    * member on leave while the member is away: a retry could only be refused and logged again,
    * and turning the switch on or calling the member back retries them. The order is `retryOrder`'s; the
-   * focus pull (PM-427) goes last.
+   * focus pull (PM-427) goes last. Rounds do not overlap: a start being retried is out of the store,
+   * so a second round meanwhile would not see it (and one that fails puts it back after the round that
+   * saw the change). A round asked for while one runs makes the running one go once more, and both
+   * callers get the result of the last.
    */
-  async retryDeferred(): Promise<void> {
+  retryDeferred(): Promise<void> {
+    if (this.retrying) {
+      this.retryAgain = true;
+      return this.retrying;
+    }
+    this.retrying = (async () => {
+      try {
+        do {
+          this.retryAgain = false;
+          await this.retryRound();
+        } while (this.retryAgain);
+      } finally {
+        this.retrying = null;
+      }
+    })();
+    return this.retrying;
+  }
+
+  private async retryRound(): Promise<void> {
     await this.sessions.refreshProviderQuota();
     const configs = new Map<string, ProjectConfig | null>();
     for (const entry of this.retryOrder()) {

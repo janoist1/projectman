@@ -53,15 +53,24 @@ async function setup(opts: { appHome?: string; sessionFolders?: boolean } = {}):
 
 /** A person writes to the Operator with their own login. */
 async function say(from: string, text = 'Hello', { waitsAtCapacity = false } = {}) {
-  const result = await h.domain.messaging.sendReporting('AR', from, { to: ['operator'], text });
-  if (waitsAtCapacity) await settle();
-  else
+  const result = await h.domain.messaging.sendReporting(
+    'AR',
+    from,
+    { to: ['operator'], text },
+    { awaitWake: true },
+  );
+  await settle();
+  if (!waitsAtCapacity)
     await waitFor(
       () => {
         const session = from === 'owner' ? ownerConversation() : conversationWith(from);
-        return session && h.runner.started.some((spec) => spec.sessionId === session.id);
+        return (
+          session &&
+          h.runner.started.some((spec) => spec.sessionId === session.id) &&
+          h.repos.messages.get(result.message.id)?.deliveredAt
+        );
       },
-      { what: `${from}’s Operator conversation to start` },
+      { what: `${from}’s message to reach the Operator conversation` },
     );
   return result;
 }
@@ -100,6 +109,7 @@ describe('the Operator talks with every person in a conversation of their own (P
   it('gives two people two sessions, and keeps the owners in the shared general chat', async () => {
     await setup();
     await say('cleo');
+    const cleoId = conversationWith('cleo')!.id;
     await finish(conversationWith('cleo'));
     await say('dana');
     await finish(conversationWith('dana'));
@@ -114,6 +124,9 @@ describe('the Operator talks with every person in a conversation of their own (P
     expect(operatorSessions()).toHaveLength(3);
     // The same person comes back to the same conversation.
     await say('cleo', 'Again');
+    expect(h.runner.started).toHaveLength(4);
+    expect(h.runner.started.at(-1)).toMatchObject({ sessionId: cleoId });
+    expect(h.runner.started.at(-1)!.initialMessage).toContain('Again');
     expect(operatorSessions()).toHaveLength(3);
   });
 
@@ -182,7 +195,13 @@ describe('the Operator talks with every person in a conversation of their own (P
     await waitFor(() => conversationWith('dana'), { what: 'the waiting Operator conversation' });
     expect(conversationWith('dana')).toBeDefined();
     // The client’s next message continues the same conversation.
-    await say('cleo', 'Back again');
+    const back = await say('cleo', 'Back again', { waitsAtCapacity: true });
+    await finish(conversationWith('dana'));
+    await waitFor(() => h.repos.messages.get(back.message.id)?.deliveredAt, {
+      what: 'the returning client’s message to reach the Operator conversation',
+    });
+    expect(h.runner.started.at(-1)).toMatchObject({ sessionId: cleo.id });
+    expect(h.runner.started.at(-1)!.initialMessage).toContain('Back again');
     expect(
       operatorSessions().filter((s) => s.workItem.type === 'general' && s.workItem.with === 'cleo'),
     ).toHaveLength(1);
@@ -489,9 +508,10 @@ describe('who sees the Operator’s sessions (PM-475)', () => {
       text: 'What is going on?',
     });
     expect(sent.statusCode).toBe(202);
-    await settle();
     const { domain } = app.app.projectman;
-    const session = domain.sessions.list('AR', { member: 'operator' })[0]!;
+    const session = await waitFor(() => domain.sessions.list('AR', { member: 'operator' })[0], {
+      what: 'the client’s Operator conversation over HTTP',
+    });
     expect(session.workItem).toEqual({ type: 'general', with: 'cleo' });
 
     const read = (cookie: string) =>

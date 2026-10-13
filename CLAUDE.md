@@ -1,7 +1,8 @@
 # projectman — working rules
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
-comes next and the owner's open questions: `docs/ROADMAP.md`.
+comes next and the owner's open questions: `docs/ROADMAP.md`. The lessons learned while
+building projectman are in `docs/LESSONS.md`.
 `docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
 Operator writes them, at the owner's request or after the owner's yes (decision 50); nobody
 changes them on a card branch. An owner decision made on a card is offered by the Operator

@@ -15,6 +15,7 @@ Documentation map:
 | this file                                                                  | concepts, invariants, runtime structure, module map, storage        |
 | [DECISIONS.md](DECISIONS.md)                                               | what the owner decided and why (numbered, append-only)              |
 | [ROADMAP.md](ROADMAP.md)                                                   | what is built, what comes next, open questions for the owner        |
+| [LESSONS.md](LESSONS.md)                                                   | what building projectman taught us: challenges and lessons          |
 | [PROVIDERS.md](PROVIDERS.md)                                               | Claude Code and Codex: flags, hooks, permissions, login, plan usage |
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
 | [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |

@@ -353,7 +353,108 @@ export interface MemberStartResult {
   recipient: SentMessageRecipient;
 }
 
-export interface TeamToolsHandler {
+/** The tools of core/members (PM-592). */
+export interface MemberToolsHandler {
+  /** list_members: roster with handles, roles and status. */
+  listMembers(ctx: ToolContext): Promise<MemberView[]>;
+}
+
+/** The tools of core/tasks (PM-592). */
+export interface TaskToolsHandler {
+  /** list_tasks: visible board tasks, newest update first. */
+  listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
+  /**
+   * get_task: task with recent timeline, and where its work happens. With `eventId`, the detail
+   * also carries that event of the task (not_found when the task has no such event).
+   */
+  getTask(ctx: ToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail>;
+  /**
+   * update_task: rewrite the title or description, set or clear the repository, add or remove
+   * labels (under the labels' rules), add a note, move stage (gates enforced). Everything else is
+   * recorded before the stage move, so labels added in the same call count for the target stage's
+   * gate.
+   */
+  updateTask(
+    ctx: ToolContext,
+    args: {
+      taskKey: string;
+      stageId?: string;
+      addLabels?: string[];
+      removeLabels?: string[];
+      note?: string;
+      title?: string;
+      description?: string;
+      /** A repository of the project; null clears it. */
+      repo?: string | null;
+      /** Relations to other cards (PM-192): removals first, then additions, in the same all-or-nothing call. */
+      relations?: RelationsChange;
+      /** The theme the card belongs to (PM-192); null removes it. */
+      themeKey?: string | null;
+      /** The card priority (PM-433); null clears it. Only people and the project manager may set it. */
+      priority?: TaskPriority | null;
+      /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
+      developerLevel?: DeveloperLevelRequest;
+    },
+  ): Promise<{ task: Task }>;
+  /**
+   * create_task: a new task in the pipeline's first (queue) stage, unassigned and attributed
+   * to the calling member; humans prioritise it.
+   */
+  createTask(
+    ctx: ToolContext,
+    args: {
+      title: string;
+      description?: string;
+      labels?: string[];
+      visibility?: Visibility;
+      parentKey?: string;
+      /** Relations the new card starts with (PM-192). */
+      relations?: AddRelationRef[];
+      /** `theme` creates a theme (PM-192). */
+      kind?: TaskKind;
+      /** The theme the new card belongs to. */
+      themeKey?: string;
+      /** The recommended developer (PM-347). */
+      developerLevel?: DeveloperLevelRequest;
+    },
+  ): Promise<{ task: Task }>;
+}
+
+/** The tools of core/attachments (PM-592). */
+export interface AttachmentToolsHandler {
+  /** list_attachments: a page of the task's attachments, oldest first. */
+  listAttachments(
+    ctx: ToolContext,
+    args: { taskKey: string; offset?: number; limit?: number },
+  ): Promise<AttachmentPage>;
+  /**
+   * read_attachment: where a ready attachment is stored, after the same access check as the REST
+   * routes. The content is neither read into the answer nor ever run.
+   */
+  readAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<LocatedAttachmentForTool>;
+  /**
+   * read_message_attachment: the content of a file attached to a team message, judged through the
+   * calling member's eyes (in a guest conversation of the Operator, through the guest's): a file of
+   * a message they cannot see is not found, whoever uploaded it.
+   */
+  readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
+  /**
+   * attach_file: attaches a regular file from the calling session's working directory (as the
+   * server recorded it; never a directory the caller names) in the caller's name. The path is
+   * relative to that directory or absolute inside it.
+   */
+  attachFile(ctx: ToolContext, args: { taskKey: string; path: string }): Promise<{ attachment: Attachment }>;
+  /** delete_attachment: deletes an attachment under the REST rules (an AI member deletes its own). */
+  deleteAttachment(
+    ctx: ToolContext,
+    args: { taskKey: string; attachmentId: string },
+  ): Promise<{ attachmentId: string; fileName: string | null }>;
+}
+
+export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -455,8 +556,7 @@ export interface TeamToolsHandler {
    * the caller on that card (any more).
    */
   handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
-  /** list_tasks: visible board tasks, newest update first. */
-  listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]>;
+
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
@@ -485,19 +585,7 @@ export interface TeamToolsHandler {
     /** The sender is the Operator (PM-543): the text then never sends it to a person. */
     operator: boolean;
   }>;
-  /** list_members: roster with handles, roles and status. */
-  listMembers(ctx: ToolContext): Promise<MemberView[]>;
-  /**
-   * get_task: task with recent timeline, and where its work happens. With `eventId`, the detail
-   * also carries that event of the task (not_found when the task has no such event).
-   */
-  getTask(ctx: ToolContext, args: { taskKey: string; eventId?: string }): Promise<TaskToolDetail>;
-  /**
-   * update_task: rewrite the title or description, set or clear the repository, add or remove
-   * labels (under the labels' rules), add a note, move stage (gates enforced). Everything else is
-   * recorded before the stage move, so labels added in the same call count for the target stage's
-   * gate.
-   */
+
   mergeTask(
     ctx: ToolContext,
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
@@ -520,50 +608,7 @@ export interface TeamToolsHandler {
   ): Promise<ProposedRelease>;
   /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
   checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
-  updateTask(
-    ctx: ToolContext,
-    args: {
-      taskKey: string;
-      stageId?: string;
-      addLabels?: string[];
-      removeLabels?: string[];
-      note?: string;
-      title?: string;
-      description?: string;
-      /** A repository of the project; null clears it. */
-      repo?: string | null;
-      /** Relations to other cards (PM-192): removals first, then additions, in the same all-or-nothing call. */
-      relations?: RelationsChange;
-      /** The theme the card belongs to (PM-192); null removes it. */
-      themeKey?: string | null;
-      /** The card priority (PM-433); null clears it. Only people and the project manager may set it. */
-      priority?: TaskPriority | null;
-      /** The recommended developer (PM-347); only whoever `canSetDeveloperLevel` may set it. */
-      developerLevel?: DeveloperLevelRequest;
-    },
-  ): Promise<{ task: Task }>;
-  /**
-   * create_task: a new task in the pipeline's first (queue) stage, unassigned and attributed
-   * to the calling member; humans prioritise it.
-   */
-  createTask(
-    ctx: ToolContext,
-    args: {
-      title: string;
-      description?: string;
-      labels?: string[];
-      visibility?: Visibility;
-      parentKey?: string;
-      /** Relations the new card starts with (PM-192). */
-      relations?: AddRelationRef[];
-      /** `theme` creates a theme (PM-192). */
-      kind?: TaskKind;
-      /** The theme the new card belongs to. */
-      themeKey?: string;
-      /** The recommended developer (PM-347). */
-      developerLevel?: DeveloperLevelRequest;
-    },
-  ): Promise<{ task: Task }>;
+
   /** link_pull_request: attach a GitHub PR to the task. */
   linkPullRequest(
     ctx: ToolContext,
@@ -632,25 +677,7 @@ export interface TeamToolsHandler {
   setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
   /** save_memory: append a durable learning to this member's memory. */
   saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
-  /** list_attachments: a page of the task's attachments, oldest first. */
-  listAttachments(
-    ctx: ToolContext,
-    args: { taskKey: string; offset?: number; limit?: number },
-  ): Promise<AttachmentPage>;
-  /**
-   * read_attachment: where a ready attachment is stored, after the same access check as the REST
-   * routes. The content is neither read into the answer nor ever run.
-   */
-  readAttachment(
-    ctx: ToolContext,
-    args: { taskKey: string; attachmentId: string },
-  ): Promise<LocatedAttachmentForTool>;
-  /**
-   * read_message_attachment: the content of a file attached to a team message, judged through the
-   * calling member's eyes (in a guest conversation of the Operator, through the guest's): a file of
-   * a message they cannot see is not found, whoever uploaded it.
-   */
-  readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
+
   /**
    * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
    * the marks that wait for a decision.
@@ -680,17 +707,6 @@ export interface TeamToolsHandler {
   ): Promise<FeedbackToolResult>;
   /** close_feedback: the mark is closed, with an optional last reply. */
   closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
-  /**
-   * attach_file: attaches a regular file from the calling session's working directory (as the
-   * server recorded it; never a directory the caller names) in the caller's name. The path is
-   * relative to that directory or absolute inside it.
-   */
-  attachFile(ctx: ToolContext, args: { taskKey: string; path: string }): Promise<{ attachment: Attachment }>;
-  /** delete_attachment: deletes an attachment under the REST rules (an AI member deletes its own). */
-  deleteAttachment(
-    ctx: ToolContext,
-    args: { taskKey: string; attachmentId: string },
-  ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */

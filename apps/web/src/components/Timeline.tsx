@@ -13,6 +13,7 @@ import { describeEvent } from '../lib/timeline';
 import type { TimelineContext } from '../lib/timeline';
 import { Avatar } from './Avatar';
 import { Icon } from './Icon';
+import { Markdown } from './Markdown';
 import styles from './Timeline.module.css';
 
 interface TimelineProps {
@@ -90,7 +91,7 @@ export function Timeline({
             ),
         )
         .map((event) => {
-          const { text, emphasis, detail } = describeEvent(event, ctx);
+          const { text, emphasis, detail, resolution, note, link } = describeEvent(event, ctx);
           const comment = event.type === 'task_note';
           const imported =
             comment &&
@@ -189,11 +190,40 @@ export function Timeline({
                   ) : (
                     (renderText?.(event) ?? text)
                   )}
+                  {event.type === 'feedback_linked' && typeof event.data.markId === 'string' ? (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <Link to={`/p/${event.projectKey}/feedback/${event.data.markId}`}>
+                        {t('timeline.openMark')}
+                      </Link>
+                    </>
+                  ) : null}
+                  {link ? (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <a
+                        href={link.href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.external}
+                        aria-label={`${link.label} ${t('inbox.release.newTab')}`}
+                      >
+                        {link.label} <span aria-hidden="true">↗</span>
+                      </a>
+                    </>
+                  ) : null}
                 </span>
+                {note ? <p className={styles.note}>{note}</p> : null}
                 {fullMessage ? (
                   <Link to={fullMessage} className={styles.fullMessage}>
                     {t('timeline.fullMessage')}
                   </Link>
+                ) : null}
+                {resolution ? (
+                  <details className={styles.detail}>
+                    <summary>{t('timeline.events.merged_resolution')}</summary>
+                    <Markdown text={resolution} />
+                  </details>
                 ) : null}
                 {detail ? (
                   <details className={styles.detail}>

@@ -93,3 +93,14 @@
   font-weight: 700;
   color: var(--c-blocked-text);
 }
+
+/* A refusal the viewer can only wait out (the work is not merged yet, and somebody else merges it). */
+.info {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--c-accent-bg);
+  color: var(--c-accent-text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}

@@ -2,12 +2,17 @@ import {
   alertPayloadOf,
   BoundaryRequest,
   fixLimitDecisionOf,
+  gateRequestOf,
+  handOnRequestOf,
   loopDecisionOf,
+  mergeRequestOf,
   permissionDelegationOf,
+  QuestionCloseRule,
   questionPayloadOf,
+  releaseApprovalOf,
   seniorWaitDecisionOf,
 } from '@projectman/shared';
-import type { InboxItem, InboxOption, LabelView, WorkItemRef } from '@projectman/shared';
+import type { InboxItem, InboxOption, LabelView, Task, WorkItemRef } from '@projectman/shared';
 import { formatStamp, formatTokens } from '../i18n/format';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { toolPresentationFor } from './chat';
@@ -16,7 +21,9 @@ import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { fixRoundParts } from './fixLimit';
 import { pairText, watcherName } from './loop';
+import { outageHeading, outageOfItem } from './outage';
 import type { PipelineIndex } from './pipeline';
+import { releaseFailedWords } from './release';
 import { relationKindLabel } from './timeline';
 
 /** Option id used for a free-text answer to a question (the text goes in `note`). */
@@ -37,6 +44,9 @@ const BUILT_IN_OPTIONS = [
   'another_round',
   'wait_for_senior',
   'any_developer',
+  'move',
+  'dismiss',
+  'merge',
 ] as const;
 type BuiltInOption = (typeof BUILT_IN_OPTIONS)[number];
 
@@ -55,11 +65,21 @@ export function optionLabel(option: InboxOption): string {
  */
 export function inboxHeading(item: InboxItem): string {
   if (item.kind === 'boundary') return t('boundary.heading');
+  const merge = mergeRequestOf(item);
+  if (merge)
+    return t(merge.failure ? 'inbox.mergeRequest.failedTitle' : 'inbox.mergeRequest.title', {
+      key: merge.taskKey,
+    });
+  if (releaseApprovalOf(item)) return t('inbox.release.title');
   if (loopDecisionOf(item)) return t('inbox.loop.heading');
   if (fixLimitDecisionOf(item)) return t('inbox.fixLimit.heading');
   if (seniorWaitDecisionOf(item)) return t('inbox.seniorWait.heading');
   if (item.kind === 'alert') {
     const alert = alertPayloadOf(item);
+    if (alert?.alert === 'merge_blocked') return t('inbox.mergeBlocked.title', { key: alert.taskKey });
+    if (alert?.alert === 'work_outage') return outageHeading(alert.outage);
+    if (alert?.alert === 'release_failed')
+      return releaseFailedWords(alert.step, alert.rolledBack, alert.taskKey).title;
     return alert ? t(`inbox.alerts.${alert.alert}.heading`) : t('inbox.alerts.unknown');
   }
   if (item.kind === 'permission') {
@@ -236,6 +256,11 @@ export function alertText(
 ): string | null {
   const alert = alertPayloadOf(item);
   if (!alert) return null;
+  // The merge alert says why in the words of its card (MergeInboxBody), with the raw message folded.
+  if (alert.alert === 'merge_blocked') return null;
+  if (alert.alert === 'work_outage') return null;
+  // The release alert tells the step and what became of the old version in its own body (ReleaseAlertBody).
+  if (alert.alert === 'release_failed') return null;
   if (alert.alert === 'provider_rate_limited')
     return t(
       alert.until ? 'inbox.alerts.provider_rate_limited.body' : 'inbox.alerts.provider_rate_limited.unknown',
@@ -275,6 +300,18 @@ export function alertText(
       relations: joinNames(
         alert.relations.map((relation) => `${relationKindLabel(relation.kind)} ${relation.key}`),
       ),
+    });
+  if (alert.alert === 'parts_left')
+    return t('inbox.alerts.parts_left.body', {
+      key: alert.taskKey,
+      member: nameOf(alert.member, members, myHandle),
+      parts: alert.parts.join(', '),
+    });
+  if (alert.alert === 'feedback_forwarded')
+    return t('inbox.alerts.feedback_forwarded.body', {
+      author: nameOf(alert.author, members, myHandle),
+      excerpt: alert.excerpt,
+      reason: alert.reason,
     });
   if (alert.alert === 'session_input')
     return t('inbox.alerts.session_input.body', {
@@ -386,14 +423,92 @@ export function withConsequences(item: InboxItem, options: readonly InboxOption[
 interface GatePayload {
   fromStageId?: unknown;
   toStageId?: unknown;
+  label?: unknown;
 }
 
-/** "Továbblépés: Merge → Élesítés" for gate approval decisions. */
-export function gateMoveText(item: InboxItem, pipeline: PipelineIndex | null | undefined): string | null {
+/**
+ * "Jóváhagyás: „Merge jóváhagyva” · Code review → Kész" for gate approval decisions (PM-445); a request
+ * from before the approval was a label names none, and reads "Továbblépés: Code review → Kész".
+ */
+export function gateMoveText(
+  item: InboxItem,
+  pipeline: PipelineIndex | null | undefined,
+  labels: readonly LabelView[] = [],
+): string | null {
   const gate = item.payload.gate as GatePayload | undefined;
   if (!gate || typeof gate !== 'object' || typeof gate.toStageId !== 'string') return null;
   const name = (id: unknown) => (typeof id === 'string' ? (pipeline?.stageById.get(id)?.name ?? id) : '');
-  return t('inbox.gateMove', { from: name(gate.fromStageId), to: name(gate.toStageId) });
+  const from = name(gate.fromStageId);
+  const to = name(gate.toStageId);
+  return typeof gate.label === 'string'
+    ? t('inbox.gateApproval', {
+        label: t('taskStatus.quoted', { name: labelName(gate.label, labels) }),
+        from,
+        to,
+      })
+    : t('inbox.gateMove', { from, to });
+}
+
+/**
+ * "Jóváhagyás után X beolvasztja a main ágba, és a kártya átkerül ide: Kész." under an approval a merge
+ * follows (PM-484); null when the request names no merge (older requests, no merger).
+ */
+export function gateThenMergeText(
+  item: InboxItem,
+  pipeline: PipelineIndex | null | undefined,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
+  const gate = item.kind === 'decision' ? gateRequestOf(item) : null;
+  if (!gate?.merge) return null;
+  const params = {
+    base: gate.merge.base,
+    to: pipeline?.stageById.get(gate.toStageId)?.name ?? gate.toStageId,
+  };
+  return gate.merge.merger === myHandle
+    ? t('inbox.gateThenMergeYou', params)
+    : t('inbox.gateThenMerge', { ...params, merger: nameOf(gate.merge.merger, members, myHandle) });
+}
+
+/** What a question that asks for an approval tells the reader (PM-484): the answer sets no label. */
+export type ApprovalHint =
+  | { kind: 'jump'; label: string; gateItemId: string }
+  | { kind: 'others'; label: string; approvers: string[] }
+  | { kind: 'none'; label: string; taskKey: string }
+  | { kind: 'done'; label: string };
+
+/**
+ * Which of the four notes an open question gets: the label is already on the card (`done`), the approval
+ * request waits for the viewer (`jump`) or for others (`others`), or there is none open (`none`). `label` is
+ * the label id; the card shows its name. Null when the question asks for no approval.
+ */
+export function approvalHintOf(
+  item: InboxItem,
+  ctx: {
+    task: Pick<Task, 'labels'> | undefined;
+    items: readonly InboxItem[];
+    myHandle: string | null;
+  },
+): ApprovalHint | null {
+  if (item.kind !== 'question' || item.state !== 'open') return null;
+  const label = questionPayloadOf(item)?.approvalLabel;
+  if (!label) return null;
+  if (ctx.task?.labels.includes(label)) return { kind: 'done', label };
+  const requests = openItems(ctx.items).filter(
+    (other) =>
+      other.kind === 'decision' && other.taskKey === item.taskKey && gateRequestOf(other)?.label === label,
+  );
+  const mine = requests.find((other) => isAssignedTo(other, ctx.myHandle));
+  if (mine) return { kind: 'jump', label, gateItemId: mine.id };
+  if (requests.length > 0) {
+    return { kind: 'others', label, approvers: [...new Set(requests.flatMap((other) => other.assignees))] };
+  }
+  return { kind: 'none', label, taskKey: item.taskKey ?? '' };
+}
+
+/** The id of an item's card in the page, for a link that scrolls to it. */
+export function inboxItemDomId(itemId: string): string {
+  return `inbox-item-${itemId}`;
 }
 
 /** Short text of what was decided, for history lists. */
@@ -406,6 +521,8 @@ export function decisionSubject(item: InboxItem): string {
   const seniorWait = seniorWaitDecisionOf(item);
   if (seniorWait) return t('inbox.seniorWait.subject', { key: seniorWait.taskKey });
   if (item.kind === 'question') return inboxHeading(item);
+  const outage = outageOfItem(item);
+  if (outage) return outageHeading(outage);
   return item.title;
 }
 
@@ -522,12 +639,18 @@ export function isAutomaticDecision(item: InboxItem): boolean {
 }
 
 export function resolutionLabel(item: InboxItem): string {
+  // A question closed without an answer (PM-556) says why, whatever its state is.
+  const closed = QuestionCloseRule.safeParse(item.resolution?.rule);
+  if (closed.success) return t(`inbox.resolutions.${closed.data}`);
   if (item.state === 'expired') return t('inbox.resolutions.expired');
   if (item.state === 'cancelled') return t('inbox.resolutions.cancelled');
+  if (item.resolution?.rule === 'outage_ended') return t('inbox.resolutions.outage_ended');
   if (item.resolution?.rule === 'loop_ended') return t('inbox.resolutions.loop_ended');
   if (item.resolution?.rule === 'fix_limit_ended') return t('inbox.resolutions.fix_limit_ended');
   if (item.resolution?.rule === 'senior_took') return t('inbox.resolutions.senior_took');
   if (item.resolution?.rule === 'senior_wait_ended') return t('inbox.resolutions.senior_wait_ended');
+  if (item.resolution?.rule === 'approval_given') return t('inbox.resolutions.approval_given');
+  if (item.resolution?.rule === 'feedback_handled') return t('inbox.resolutions.feedback_handled');
   const optionId = item.resolution?.optionId;
   if (!optionId) return t('inbox.resolutions.answer');
   if (isAutomaticDecision(item) && (optionId === 'allow' || optionId === 'deny'))
@@ -535,6 +658,28 @@ export function resolutionLabel(item: InboxItem): string {
   if (isBuiltIn(optionId)) return t(`inbox.resolutions.${optionId}`);
   const option = item.options.find((entry) => entry.id === optionId);
   return option ? t('inbox.resolutions.option', { label: option.label }) : t('inbox.resolutions.answer');
+}
+
+/** A taken-on card in the list of decisions (PM-461): "Továbbvitted: Átnézés" / "Kata továbbvitte: Átnézés". */
+export function handOnResolvedText(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+  pipeline: PipelineIndex | null | undefined,
+): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  const by = item.resolution?.by;
+  return by && by !== myHandle
+    ? t('inbox.handOn.resolvedBy', { name: nameOf(by, members, myHandle), stage })
+    : t('inbox.handOn.resolvedMe', { stage });
+}
+
+/** The notice after the viewer took a finished card on (PM-461): "Továbbvitted: Átnézés". */
+export function handOnToast(item: InboxItem, pipeline: PipelineIndex | null | undefined): string {
+  const request = handOnRequestOf(item);
+  const stage = request ? (pipeline?.stageById.get(request.toStageId)?.name ?? request.toStageId) : '';
+  return t('inbox.handOn.resolvedMe', { stage });
 }
 
 /** The short notice after the viewer's own decision went through: "Engedélyezve", "Válasz: B". */

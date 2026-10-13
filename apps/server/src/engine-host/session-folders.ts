@@ -1,7 +1,9 @@
-import { randomBytes } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
-import { lstat, mkdir, readdir, rename, rm, rmdir } from 'node:fs/promises';
+import { createHash, randomBytes } from 'node:crypto';
+import { chmodSync, constants, createWriteStream, lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { link, lstat, mkdir, open, readdir, rename, rm, rmdir } from 'node:fs/promises';
 import path from 'node:path';
+import { Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { EngineSessionFolders } from '../contracts';
 
 /**
@@ -18,6 +20,71 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const TMP_NAME = /^[0-9a-f]{12}$/;
 
 const code = (err: unknown): string | undefined => (err as NodeJS.ErrnoException | undefined)?.code;
+
+/**
+ * Whether `file`, which the agent can write, is a regular file with exactly the size and checksum of
+ * `source` (PM-523). It is opened without following a link and without blocking (a FIFO opens at
+ * once and is refused by `fstat`), and everything is read through that one descriptor, at most
+ * `size + 1` bytes: a name swapped for a FIFO or a link to a device, or a file that keeps growing,
+ * cannot stop the server's read or keep it hashing. Anything that is not that file is `false`.
+ */
+async function isSameFile(file: string, source: { size: number; sha256: string }): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch {
+    return false;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile() || stat.size !== source.size) return false;
+    const hash = createHash('sha256');
+    let bytes = 0;
+    for await (const chunk of handle.createReadStream({ start: 0, end: source.size, autoClose: false })) {
+      bytes += (chunk as Buffer).length;
+      if (bytes > source.size) return false;
+      hash.update(chunk as Buffer);
+    }
+    return bytes === source.size && hash.digest('hex') === source.sha256;
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Copies a regular file (a link is refused) to `dest`, which must not exist, with mode 0600, and checks
+ * that it has exactly the size and checksum the caller named; a copy that fails the check is removed.
+ */
+async function copyChecked(
+  source: { path: string; size: number; sha256: string },
+  dest: string,
+): Promise<void> {
+  const handle = await open(source.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error('The file is not a regular file');
+    if (stat.size !== source.size) throw new Error('The file does not have the size it was given with');
+    const hash = createHash('sha256');
+    let bytes = 0;
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, done) {
+        hash.update(chunk);
+        bytes += chunk.length;
+        done(null, chunk);
+      },
+    });
+    try {
+      await pipeline(handle.createReadStream(), meter, createWriteStream(dest, { flags: 'wx', mode: 0o600 }));
+      if (bytes !== source.size || hash.digest('hex') !== source.sha256)
+        throw new Error('The file does not match its size and checksum');
+    } catch (err) {
+      await rm(dest, { force: true });
+      throw err;
+    }
+  } finally {
+    await handle.close();
+  }
+}
 
 function assertOwnDirectorySync(dir: string, mustExist = false): void {
   const stat = lstatSync(dir, { throwIfNoEntry: false });
@@ -277,6 +344,54 @@ export class SessionFolders implements EngineSessionFolders {
     }
     await this.sweepTmp(keptTmps);
     return removed;
+  }
+
+  /**
+   * A file of the server's storage into the session's folder, `<folder>/<name>` (PM-518, PM-523).
+   * Only the folder this registry recorded for the session is written, never a path the caller names:
+   * a session the registry does not know (not started here, already ended) is refused. The content is
+   * copied to a name in the root, which no session reaches, checked against the size and checksum,
+   * and then linked into place, so the file the agent sees is complete and made exclusively (0600,
+   * never through a link).
+   *
+   * The file goes straight into the session folder and there is no subfolder: the agent writes inside
+   * the folder, so a directory in it could be renamed away and replaced by a link between the check
+   * and the use, and the server (outside the sandbox) would write and remove through that link. The
+   * folder itself lives in the root, which the agent cannot write, so it cannot be swapped, and its
+   * last element is safe by itself: `link` refuses an existing name (a link included, it is never
+   * followed) and a name that is not the same file is renamed into the root and removed there, so the
+   * agent's own entry (a link, or a folder it keeps changing) is never walked in its place. A file
+   * already there with the same checksum stays as the answer.
+   */
+  async materializeFile(
+    sessionId: string,
+    input: { name: string; source: { path: string; size: number; sha256: string } },
+  ): Promise<{ path: string }> {
+    const { name, source } = input;
+    if (!name || name.length > 255 || name === '.' || name === '..' || /[/\\\0]/.test(name))
+      throw new Error(`Not a plain file name: ${JSON.stringify(name)}`);
+    const folder = this.folders.get(sessionId);
+    if (!folder) throw new Error(`Session ${sessionId} has no folder on this engine`);
+    const staged = path.join(this.root, `.part-${randomBytes(8).toString('hex')}`);
+    try {
+      await copyChecked(source, staged);
+      await assertOwnDirectory(folder, true);
+      const dest = path.join(folder, name);
+      if (await isSameFile(dest, source)) return { path: dest };
+      // The slow check above is over: what is there now (nothing, mostly) is moved out of the agent's
+      // reach by its name alone (a link moves as a link), and only then removed.
+      const trash = path.join(this.root, `.trash-${randomBytes(8).toString('hex')}`);
+      try {
+        await rename(dest, trash);
+        await rm(trash, { recursive: true, force: true });
+      } catch (err) {
+        if (code(err) !== 'ENOENT') throw err;
+      }
+      await link(staged, dest);
+      return { path: dest };
+    } finally {
+      await rm(staged, { force: true });
+    }
   }
 
   /**

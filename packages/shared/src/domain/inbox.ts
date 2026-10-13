@@ -1,12 +1,16 @@
 import { z } from 'zod';
+import { AttachmentId, AttachmentPreview } from './attachment';
 import { BoardPlacement } from './board-order';
 import { Actor } from './event';
 import { LabelId } from './label';
+import { MergeBlockReason, MergeFailure } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import { StageId } from './pipeline';
+import { ReleaseStep } from './release';
 import { TaskRelationKind } from './relations';
 import { WorkItemRef } from './session';
-import { TaskKey } from './task';
+import { TaskKey, TaskStartWaiting } from './task';
+import { WorkOutage } from './outage';
 
 /**
  * Items waiting for a human ("Rád vár" in the UI):
@@ -18,8 +22,65 @@ import { TaskKey } from './task';
  * - alert:      something the owners should notice, with nothing to decide ("Láttam"); see
  *               `AlertPayload`
  */
-export const InboxKind = z.enum(['permission', 'decision', 'question', 'approval', 'boundary', 'alert']);
+export const InboxKind = z.enum([
+  'permission',
+  'decision',
+  'question',
+  'approval',
+  'boundary',
+  'alert',
+  'hand_on',
+  'merge_request',
+  /** The approval of a proposed release of the instance itself (PM-491); see `ReleaseApprovalPayload`. */
+  'release',
+]);
 export type InboxKind = z.infer<typeof InboxKind>;
+
+/**
+ * `payload.release` of a `release` item: the release an owner approves or rejects. The options are
+ * `approve` (primary) and `reject` (danger); a note is optional.
+ */
+export const ReleaseApprovalPayload = z.object({
+  releaseId: z.string(),
+  commit: z.string(),
+  baseCommit: z.string().nullable(),
+  tasks: z.array(z.object({ key: TaskKey, title: z.string() })),
+  summary: z.string(),
+});
+export type ReleaseApprovalPayload = z.infer<typeof ReleaseApprovalPayload>;
+export function releaseApprovalOf(item: Pick<InboxItem, 'kind' | 'payload'>): ReleaseApprovalPayload | null {
+  if (item.kind !== 'release') return null;
+  const parsed = ReleaseApprovalPayload.safeParse(item.payload.release);
+  return parsed.success ? parsed.data : null;
+}
+
+export const MergeRequestPayload = z.object({
+  taskKey: TaskKey,
+  mergeId: z.string(),
+  repo: z.string(),
+  base: z.string(),
+  failure: MergeFailure.optional(),
+});
+export type MergeRequestPayload = z.infer<typeof MergeRequestPayload>;
+export function mergeRequestOf(item: Pick<InboxItem, 'kind' | 'payload'>): MergeRequestPayload | null {
+  if (item.kind !== 'merge_request') return null;
+  const parsed = MergeRequestPayload.safeParse(item.payload.mergeRequest);
+  return parsed.success ? parsed.data : null;
+}
+
+export const HandOnPayload = z.object({
+  taskKey: TaskKey,
+  fromStageId: StageId,
+  toStageId: StageId,
+  requestedBy: MemberHandle,
+});
+export type HandOnPayload = z.infer<typeof HandOnPayload>;
+
+export function handOnRequestOf(item: Pick<InboxItem, 'kind' | 'payload'>): HandOnPayload | null {
+  if (item.kind !== 'hand_on') return null;
+  const parsed = HandOnPayload.safeParse(item.payload.handOn);
+  return parsed.success ? parsed.data : null;
+}
 
 export const InboxOption = z.object({
   id: z.string(),
@@ -33,8 +94,16 @@ export const InboxOption = z.object({
 });
 export type InboxOption = z.infer<typeof InboxOption>;
 
-export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled']);
+export const InboxState = z.enum(['open', 'resolved', 'expired', 'cancelled', 'screening']);
 export type InboxState = z.infer<typeof InboxState>;
+
+/** A question waits for its answer in these states; screening: the Operator looks at it first (PM-556). */
+export const PENDING_INBOX_STATES = ['open', 'screening'] as const;
+
+/** True for a question that still waits for its answer: open, or with the Operator for screening. */
+export function isPendingQuestion(item: Pick<InboxItem, 'kind' | 'state'>): boolean {
+  return item.kind === 'question' && (PENDING_INBOX_STATES as readonly string[]).includes(item.state);
+}
 
 /**
  * The rule by which the system resolved an item itself (`resolution.by` is "system"):
@@ -42,6 +111,7 @@ export type InboxState = z.infer<typeof InboxState>;
  * repository, lockfile installs in a task worktree). The UI names the rule via i18n.
  */
 export const InboxResolutionRule = z.enum([
+  'outage_ended',
   'command_policy',
   /** The loop a decision was about ended by itself (PM-261): nothing is left to decide. */
   'loop_ended',
@@ -51,8 +121,39 @@ export const InboxResolutionRule = z.enum([
   'senior_took',
   /** The card a decision asked about went on another way (PM-348): nothing is left to decide. */
   'senior_wait_ended',
+  /** The label a question asked approval for was put on its card (PM-484): nothing is left to answer. */
+  'approval_given',
+  /** A feedback mark that waited for the owner was handled (PM-506): nothing is left to see. */
+  'feedback_handled',
+  /** The Operator answered an AI member's question itself while screening it (PM-556). */
+  'operator_answered',
+  /** The Operator passed a screened question to another member (PM-556). */
+  'operator_forwarded',
+  /** The Operator found a screened question moot (PM-556): nothing is left to answer. */
+  'operator_moot',
+  /** The card a question asked about was done (PM-556): nothing is left to answer. */
+  'task_done',
+  /** The card a question asked about was cancelled (PM-556): nothing is left to answer. */
+  'task_cancelled',
+  /** The card a question asked about was handed to someone else (PM-556). */
+  'handed_off',
+  /** The card a question asked about changed assignee (PM-556). */
+  'assignee_changed',
+  /** The asking member withdrew the question (PM-556). */
+  'withdrawn',
 ]);
 export type InboxResolutionRule = z.infer<typeof InboxResolutionRule>;
+
+/** The rules by which a pending question is closed without an answer (`InboxService.closeQuestion`). */
+export const QuestionCloseRule = InboxResolutionRule.extract([
+  'task_done',
+  'task_cancelled',
+  'handed_off',
+  'assignee_changed',
+  'withdrawn',
+  'operator_moot',
+]);
+export type QuestionCloseRule = z.infer<typeof QuestionCloseRule>;
 
 export const InboxItem = z.object({
   id: z.string(),
@@ -83,6 +184,11 @@ export const InboxItem = z.object({
     })
     .nullable(),
   createdAt: z.string(),
+  /**
+   * Computed in list responses only, never stored (PM-556): why the asking member's own session has not
+   * started again to take the answer.
+   */
+  askerStart: z.object({ reason: TaskStartWaiting.shape.reason }).optional(),
 });
 export type InboxItem = z.infer<typeof InboxItem>;
 
@@ -105,6 +211,10 @@ export const GateRequestPayload = z.object({
    * wish survives a restart: checked again on approval, the top of the column when the anchor is gone.
    */
   placement: BoardPlacement.optional(),
+  /** The merge that follows the approval (PM-484): the move needs the work merged into `base` by `merger`
+   *  before the card enters the target. Absent when moveMerge was not `after_gates` with an approval, when
+   *  nobody can merge, and on requests from before. */
+  merge: z.object({ merger: MemberHandle, base: z.string().min(1) }).optional(),
 });
 export type GateRequestPayload = z.infer<typeof GateRequestPayload>;
 
@@ -316,6 +426,25 @@ export const RelationCheckAlert = z.object({
 });
 export type RelationCheckAlert = z.infer<typeof RelationCheckAlert>;
 
+/** `parts_left` (PM-480): parts of card `taskKey` that `member` created are still left in the first stage after a reminder. */
+export const PartsLeftAlert = z.object({
+  alert: z.literal('parts_left'),
+  taskKey: TaskKey,
+  member: MemberHandle,
+  parts: z.array(TaskKey).min(1),
+});
+export type PartsLeftAlert = z.infer<typeof PartsLeftAlert>;
+
+/** `feedback_forwarded` (PM-506): the processor passed feedback mark `markId` of `author` on to the owners with a `reason`. */
+export const FeedbackForwardedAlert = z.object({
+  alert: z.literal('feedback_forwarded'),
+  markId: z.string(),
+  author: MemberHandle,
+  excerpt: z.string().max(200),
+  reason: z.string(),
+});
+export type FeedbackForwardedAlert = z.infer<typeof FeedbackForwardedAlert>;
+
 /** A provider quota stopped a session; the owners are told once per hold (PM-377). */
 export const ProviderRateLimitAlert = z.object({
   alert: z.literal('provider_rate_limited'),
@@ -327,7 +456,39 @@ export const ProviderRateLimitAlert = z.object({
 });
 export type ProviderRateLimitAlert = z.infer<typeof ProviderRateLimitAlert>;
 
+export const MergeBlockedAlert = z.object({
+  alert: z.literal('merge_blocked'),
+  taskKey: TaskKey,
+  mergeId: z.string(),
+  reason: MergeBlockReason,
+  message: z.string(),
+});
+export type MergeBlockedAlert = z.infer<typeof MergeBlockedAlert>;
+export const WorkOutageAlert = z.object({
+  alert: z.literal('work_outage'),
+  outage: WorkOutage,
+  members: z.array(MemberHandle),
+  tasks: z.array(TaskKey),
+  checkedAt: z.string(),
+});
+export type WorkOutageAlert = z.infer<typeof WorkOutageAlert>;
+
+/** `release_failed` (PM-491): the deploy of release `releaseId` failed in `step`; `rolledBack`: the previous commit runs again. */
+export const ReleaseFailedAlert = z.object({
+  alert: z.literal('release_failed'),
+  releaseId: z.string(),
+  taskKey: TaskKey,
+  commit: z.string(),
+  step: ReleaseStep,
+  message: z.string(),
+  rolledBack: z.boolean(),
+});
+export type ReleaseFailedAlert = z.infer<typeof ReleaseFailedAlert>;
+
 export const AlertPayload = z.discriminatedUnion('alert', [
+  ReleaseFailedAlert,
+  WorkOutageAlert,
+  MergeBlockedAlert,
   SessionTokensAlert,
   MessageBurstAlert,
   SessionInputAlert,
@@ -336,6 +497,8 @@ export const AlertPayload = z.discriminatedUnion('alert', [
   RefinementAlert,
   ProviderRateLimitAlert,
   RelationCheckAlert,
+  PartsLeftAlert,
+  FeedbackForwardedAlert,
 ]);
 export type AlertPayload = z.infer<typeof AlertPayload>;
 
@@ -346,6 +509,83 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
   return parsed.success ? parsed.data : null;
 }
 
+/** At most this many files on one question (PM-498). */
+export const MAX_QUESTION_ATTACHMENTS = 6;
+
+/** A file a question names (PM-498): a snapshot taken when it was asked, so it still shows after a deletion. */
+export const QuestionAttachment = z.object({
+  id: AttachmentId,
+  /** The card the file is on: the question's card or its parent. */
+  taskKey: TaskKey,
+  fileName: z.string(),
+  size: z.number().int().nonnegative(),
+  mediaType: z.string(),
+  preview: AttachmentPreview,
+  /** When the file was deleted from its card after the question was asked; absent while it is there. */
+  goneAt: z.string().optional(),
+});
+export type QuestionAttachment = z.infer<typeof QuestionAttachment>;
+
+/** How long the Operator may screen a question before it goes to the people (PM-556). */
+export const QUESTION_SCREENING_MINUTES = 10;
+
+/** What the Operator decided about a screened question: it answered, passed it on, found it moot, or asked a person. */
+export const ScreeningOutcome = z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']);
+export type ScreeningOutcome = z.infer<typeof ScreeningOutcome>;
+
+/** A task for a person that the Operator made out of a question: what to do, where, and what is expected. */
+export const QuestionTodo = z.object({
+  what: z.string().min(1).max(2000),
+  where: z.string().min(1).max(500),
+  expected: z.string().min(1).max(1000),
+});
+export type QuestionTodo = z.infer<typeof QuestionTodo>;
+
+/** `payload.screening` of a question: the Operator looks at it first (PM-556). */
+export const QuestionScreening = z.object({
+  /** ISO: when it was asked plus `QUESTION_SCREENING_MINUTES`. */
+  until: z.string(),
+  /** The Operator got it. */
+  deliveredAt: z.string().optional(),
+  outcome: ScreeningOutcome.optional(),
+  /** The Operator's handle. */
+  by: z.string().optional(),
+  at: z.string().optional(),
+  /** The Operator's reason or background. */
+  note: z.string().max(2000).optional(),
+  /** Outcome `forwarded`. */
+  forwardedTo: z.string().optional(),
+  /** Outcome `todo`. */
+  todo: QuestionTodo.optional(),
+  /** Released to the people with no outcome. */
+  fallback: z.enum(['timeout', 'unavailable']).optional(),
+  /** The feedback item (PM-472) of a todo. */
+  feedbackId: z.string().optional(),
+});
+export type QuestionScreening = z.infer<typeof QuestionScreening>;
+
+/** Whether the answer reached the asking member: it waits for the member's session, or it was delivered. */
+export const AnswerDelivery = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('waiting'), reason: TaskStartWaiting.shape.reason, since: z.string() }),
+  z.object({ state: z.literal('delivered'), at: z.string() }),
+]);
+export type AnswerDelivery = z.infer<typeof AnswerDelivery>;
+
+/** The options of a todo the Operator made out of a question. The web app translates the ids. */
+export const TODO_DONE_OPTION: InboxOption = { id: 'todo_done', label: 'Done', style: 'primary' };
+export const TODO_CANNOT_OPTION: InboxOption = {
+  id: 'todo_cannot',
+  label: 'Cannot do it',
+  style: 'secondary',
+};
+
+/** The questions the Operator screened, newest first, and how many of them today. */
+export const ScreenedQuestionsResponse = z.object({
+  items: z.array(InboxItem),
+  today: z.number().int().nonnegative(),
+});
+export type ScreenedQuestionsResponse = z.infer<typeof ScreenedQuestionsResponse>;
+
 /**
  * `payload` of a `question` item, written by the `ask_human` team tool. The question is also the
  * item's title; what each option leads to is `consequence` on the item's options. Questions from
@@ -354,6 +594,8 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
  */
 export const QuestionPayload = z.object({
   question: z.string(),
+  /** The approval this question appears to request. An answer never sets it; setting it closes the question (approval_given). */
+  approvalLabel: LabelId.optional(),
   /** The suggested answers as plain labels; the item's options (`option_1`, ...) repeat them. */
   options: z.array(z.string()).optional(),
   /** Id of the option (in the item's `options`) the asking member recommends. */
@@ -367,6 +609,14 @@ export const QuestionPayload = z.object({
    * off when the last such question closes; absent when a person had put it on, or it was not set.
    */
   autoLabel: z.boolean().optional(),
+  /** The files the question names (PM-498); absent on older questions and on questions without files. */
+  attachments: z.array(QuestionAttachment).optional(),
+  /** Present while the Operator screens the question and after it did (PM-556). */
+  screening: QuestionScreening.optional(),
+  /** The question was asked again without screening: why, and the item it replaces (PM-556). */
+  unscreened: z.object({ reason: z.string().min(1).max(1000), previousItemId: z.string() }).optional(),
+  /** Whether the answer reached the asking member (PM-556). */
+  answerDelivery: AnswerDelivery.optional(),
 });
 export type QuestionPayload = z.infer<typeof QuestionPayload>;
 
@@ -374,6 +624,41 @@ export type QuestionPayload = z.infer<typeof QuestionPayload>;
 export function questionPayloadOf(item: Pick<InboxItem, 'payload'>): QuestionPayload | null {
   const parsed = QuestionPayload.safeParse(item.payload);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * The files a question names, or an empty list when the item is not a question, has none, or the
+ * field is unreadable. The field is parsed on its own so one bad entry does not make the whole
+ * question unreadable.
+ */
+export function questionAttachmentsOf(item: Pick<InboxItem, 'kind' | 'payload'>): QuestionAttachment[] {
+  if (item.kind !== 'question') return [];
+  const raw = (item.payload as Record<string, unknown> | null | undefined)?.attachments;
+  const parsed = z.array(QuestionAttachment).safeParse(raw);
+  return parsed.success ? parsed.data : [];
+}
+
+/**
+ * A copy of a question payload in which the named file is marked deleted at `at`. Null when the
+ * payload has no such file or it is already marked. The server and the web's test backend both
+ * call this.
+ */
+export function withQuestionAttachmentGone(
+  payload: Record<string, unknown>,
+  attachmentId: string,
+  at: string,
+): Record<string, unknown> | null {
+  const list = payload.attachments;
+  if (!Array.isArray(list)) return null;
+  let changed = false;
+  const next = list.map((entry: unknown) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const record = entry as Record<string, unknown>;
+    if (record.id !== attachmentId || record.goneAt !== undefined) return entry;
+    changed = true;
+    return { ...record, goneAt: at };
+  });
+  return changed ? { ...payload, attachments: next } : null;
 }
 
 /**

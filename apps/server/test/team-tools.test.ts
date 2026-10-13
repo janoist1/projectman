@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { questionPayloadOf } from '@projectman/shared';
-import type { TaskStatus } from '@projectman/shared';
+import type { TaskStatus, WorkItemRef } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
-import { TEAM_TOOLS } from '../src/mcp';
+import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
+import { formatTaskDetail } from '../src/mcp/format';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -38,10 +39,10 @@ describe('team tools', () => {
   it('send_message delivers to the recipient session for the task without waiting for it', async () => {
     const result = await h.domain.teamTools.sendMessage(dev, {
       kind: 'action',
-      to: ['cr', 'owner', 'dev-1'],
+      to: ['cr', 'dev-1'],
       text: 'Ready for review',
     });
-    expect(result.deliveredTo).toEqual(['cr', 'owner']);
+    expect(result.deliveredTo).toEqual(['cr']);
     await flush();
 
     const crSession = h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })[0]!;
@@ -52,7 +53,7 @@ describe('team tools', () => {
     );
     expect(h.runner.messages.filter((m) => m.sessionId === crSession.id)).toEqual([]);
     const stored = h.repos.messages.get(result.messageId)!;
-    expect(stored).toMatchObject({ from: 'dev-1', to: ['cr', 'owner'], taskKey: 'AR-1' });
+    expect(stored).toMatchObject({ from: 'dev-1', to: ['cr'], taskKey: 'AR-1' });
     expect(stored.deliveredAt).not.toBeNull();
 
     expect(
@@ -65,19 +66,115 @@ describe('team tools', () => {
     ).toBe('invalid');
   });
 
+  it('send_message refuses an action for a person, alone or with AI members, and sends nothing (PM-445)', async () => {
+    for (const to of [['owner'], ['cr', 'owner']]) {
+      const err = await toolError(
+        h.domain.teamTools.sendMessage(dev, { kind: 'action', to, text: 'Please decide' }),
+      );
+      expect(err.code).toBe('invalid');
+      expect(err.message).toContain('ask_human');
+    }
+    expect(h.repos.messages.list('AR').filter((m) => m.body === 'Please decide')).toEqual([]);
+    expect(h.domain.sessions.list('AR', { member: 'cr', taskKey: 'AR-1' })).toEqual([]);
+    // Information for a person and an action for an AI member go through as before.
+    await h.domain.teamTools.sendMessage(dev, { kind: 'info', to: ['owner'], text: 'FYI' });
+    await h.domain.teamTools.sendMessage(dev, { kind: 'action', to: ['cr'], text: 'Please review' });
+  });
+
+  describe('a reply from a general session keeps the card of the message it answers (PM-504)', () => {
+    beforeEach(async () => {
+      await h.cleanup();
+      h = await createDomainHarness({
+        adjust: (c) => {
+          const pm = c.team.members.find((m) => m.handle === 'pm');
+          if (pm?.kind === 'ai') pm.onLeave = false;
+        },
+      });
+      await h.domain.tasks.create('AR', { title: 'Login page' }, OWNER_ACTOR);
+    });
+    const generalSession = async (member: string) => {
+      const { session } = await h.domain.sessions.ensureSession('AR', member, { type: 'general' });
+      return { sessionId: session.id, projectKey: 'AR', member, taskKey: null } satisfies ToolContext;
+    };
+    // The real way: the owner writes in the conversation of the card, with no recipient but the manager.
+    const cardMessageTo = async (member: string, taskKey: string | null = 'AR-1', workItem?: WorkItemRef) => {
+      const sent = await h.domain.messaging.send(
+        'AR',
+        'owner',
+        { to: [member], text: 'What is next?', taskKey },
+        { actor: OWNER_ACTOR, ...(workItem ? { workItem } : {}) },
+      );
+      await flush();
+      return h.repos.messages.get(sent.id)!;
+    };
+
+    it('shows the manager reply to the owner in the conversation of the card', async () => {
+      const sent = await cardMessageTo('pm');
+      expect(sent.receipts?.[0]).toMatchObject({ handle: 'pm', route: { type: 'general' } });
+      const pm = await generalSession('pm');
+      const result = await h.domain.teamTools.sendMessage(pm, {
+        kind: 'info',
+        to: ['owner'],
+        text: 'Working on it',
+      });
+      expect(h.repos.messages.get(result.messageId)).toMatchObject({ from: 'pm', taskKey: 'AR-1' });
+    });
+
+    it('keeps an explicit card, and adds none for a message without a card', async () => {
+      await cardMessageTo('pm');
+      const pm = await generalSession('pm');
+      await h.domain.tasks.create('AR', { title: 'Other' }, OWNER_ACTOR);
+      const other = await h.domain.teamTools.sendMessage(pm, {
+        kind: 'info',
+        to: ['owner'],
+        text: 'About another card',
+        taskKey: 'AR-2',
+      });
+      expect(h.repos.messages.get(other.messageId)?.taskKey).toBe('AR-2');
+      await cardMessageTo('pm', null);
+      const plain = await h.domain.teamTools.sendMessage(pm, { kind: 'info', to: ['owner'], text: 'Hello' });
+      expect(h.repos.messages.get(plain.messageId)?.taskKey).toBeNull();
+    });
+
+    it('does the same for any member whose card message was delivered to its general session', async () => {
+      const sent = await cardMessageTo('cr', 'AR-1', { type: 'general' });
+      expect(sent.receipts?.[0]).toMatchObject({ handle: 'cr', route: { type: 'general' } });
+      const cr = await generalSession('cr');
+      const result = await h.domain.teamTools.sendMessage(cr, { kind: 'info', to: ['owner'], text: 'Done' });
+      expect(h.repos.messages.get(result.messageId)?.taskKey).toBe('AR-1');
+    });
+
+    it('adds no card when the card message went to the member’s own card session', async () => {
+      const started = await h.domain.taskStarts.start('AR', 'AR-1', { actor: OWNER_ACTOR, author: OWNER });
+      const sent = await cardMessageTo('dev-1');
+      expect(sent.receipts?.[0]?.route).toBeUndefined();
+      const general = await generalSession('dev-1');
+      expect(general.sessionId).not.toBe(started.session!.id);
+      const result = await h.domain.teamTools.sendMessage(general, {
+        kind: 'info',
+        to: ['owner'],
+        text: 'Unrelated chat',
+      });
+      expect(h.repos.messages.get(result.messageId)?.taskKey).toBeNull();
+    });
+  });
+
   describe('what send_message says per recipient (PM-144)', () => {
     const task = { type: 'task', taskKey: 'AR-1' } as const;
     const send = (to: string[]) =>
       h.domain.teamTools.sendMessage(dev, { kind: 'action', to, text: 'Please take a look' });
+    // A message to a person carries information only (PM-445).
+    const inform = (to: string[]) =>
+      h.domain.teamTools.sendMessage(dev, { kind: 'info', to, text: 'For your information' });
 
     it('says typed_now for an idle session, after_turn for one in a turn, wake without a session, inbox for a person', async () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
       h.runner.setState(session.id, 'idle');
-      expect((await send(['dev-2', 'owner', 'cr'])).recipients).toEqual([
+      expect((await send(['dev-2', 'cr'])).recipients).toEqual([
         { handle: 'dev-2', delivery: 'typed_now' },
-        { handle: 'owner', delivery: 'inbox' },
         { handle: 'cr', delivery: 'wake' },
       ]);
+      expect((await inform(['owner'])).recipients).toEqual([{ handle: 'owner', delivery: 'inbox' }]);
       await flush();
       for (const state of ['working', 'waiting_permission'] as const) {
         h.runner.setState(session.id, state);
@@ -107,7 +204,7 @@ describe('team tools', () => {
       const { session } = await h.domain.sessions.ensureSession('AR', 'dev-2', task);
       // The fake runner types at once; a session that waits for its restart keeps the message.
       h.repos.sessions.update(session.id, { permissionRestartPending: true });
-      const { messageId } = await send(['dev-2', 'owner']);
+      const { messageId } = await send(['dev-2']);
       expect((await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).pendingSentMessages).toEqual([
         { messageId, handles: ['dev-2'] },
       ]);
@@ -319,7 +416,7 @@ describe('team tools', () => {
 
   it('list_members and get_task answer with the roster and the task detail', async () => {
     const members = await h.domain.teamTools.listMembers(dev);
-    expect(members.map((m) => m.handle)).toEqual(['owner', 'dev-1', 'dev-2', 'cr', 'pm']);
+    expect(members.map((m) => m.handle)).toEqual(['owner', 'dev-1', 'dev-2', 'cr', 'pm', 'operator']);
     const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' });
     expect(detail.task.key).toBe('AR-1');
     expect(detail.sessions).toHaveLength(1);
@@ -332,8 +429,10 @@ describe('team tools', () => {
     await h.domain.teamTools.updateTask(reviewer, { taskKey: 'AR-1', note });
 
     const getTask = TEAM_TOOLS.find((t) => t.name === 'get_task')!;
-    const read = (args: Record<string, unknown>) =>
-      getTask.run({ ctx: dev, args: { task_key: 'AR-1', ...args }, handler: h.domain.teamTools });
+    const read = async (args: Record<string, unknown>) =>
+      toolOutputText(
+        await getTask.run({ ctx: dev, args: { task_key: 'AR-1', ...args }, handler: h.domain.teamTools }),
+      );
     const line = (await read({})).split('\n').find((l) => l.includes('note: Measured'))!;
     const id = /event_id (\S+)\)/.exec(line)![1]!;
     expect(line).toContain('(cut, 2017 chars; read it whole: get_task task_key AR-1, event_id ');
@@ -364,6 +463,57 @@ describe('team tools', () => {
     expect(detail.undeliveredMessageIds).toEqual(['msg_waiting']);
   });
 
+  it('get_task and list_tasks say why a card stands still, from the shared rule (PM-460)', async () => {
+    await h.domain.tasks.create('AR', { title: 'Second card' }, OWNER_ACTOR);
+    const detail = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-2' });
+    expect(detail.wait).toMatchObject({ reason: 'ready', next: [] });
+    expect(formatTaskDetail(detail)).toContain('Waiting: ready in its queue');
+    const listed = await h.domain.teamTools.listTasks(dev, {});
+    expect(listed.find((card) => card.key === 'AR-2')?.waitsFor).toBe('ready to start');
+
+    // The same rule the API gives: what the board says is what the AI members read.
+    const config = await h.domain.projects.config('AR');
+    expect(h.domain.taskWaits.ofCard(config, h.domain.tasks.get('AR', 'AR-2'))).toEqual(detail.wait);
+
+    // A cancelled card waits for nothing: no line, no short part.
+    h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-2').id, { status: 'cancelled' });
+    const closed = await h.domain.teamTools.getTask(dev, { taskKey: 'AR-2' });
+    expect(closed).not.toHaveProperty('wait');
+    expect(formatTaskDetail(closed)).not.toContain('Waiting:');
+    const all = await h.domain.teamTools.listTasks(dev, { status: 'cancelled' });
+    expect(all[0]).not.toHaveProperty('waitsFor');
+  });
+
+  it('the wait is counted for the viewer when there is one: their own open item comes first (PM-460)', async () => {
+    const card = await h.domain.tasks.create('AR', { title: 'Blocked card' }, OWNER_ACTOR);
+    h.repos.tasks.update(card.id, { status: 'blocked' });
+    h.repos.inbox.insert({
+      id: 'inb_wait',
+      projectKey: 'AR',
+      kind: 'question',
+      assignees: ['owner'],
+      source: 'dev-1',
+      sessionId: null,
+      taskKey: card.key,
+      title: 'Which colour?',
+      body: null,
+      payload: {},
+      options: [],
+      state: 'open',
+      resolution: null,
+      createdAt: '2026-09-30T10:00:00.000Z',
+    });
+    const config = await h.domain.projects.config('AR');
+    const task = h.domain.tasks.get('AR', card.key);
+    expect(h.domain.taskWaits.ofCard(config, task, 'owner')).toMatchObject({
+      reason: 'inbox',
+      next: [{ handle: 'owner', kind: 'human' }],
+      inboxItemId: 'inb_wait',
+    });
+    // Without a viewer (the AI text) the blocked status comes before an item that is somebody's.
+    expect(h.domain.taskWaits.ofCard(config, task)?.reason).toBe('blocked');
+  });
+
   it('list_tasks filters the board, sorts before limiting and uses get_task visibility', async () => {
     h.repos.tasks.update(h.domain.tasks.get('AR', 'AR-1').id, { updatedAt: '2026-09-29T09:00:00.000Z' });
     const statuses: TaskStatus[] = ['active', 'waiting', 'blocked', 'done', 'cancelled'];
@@ -385,7 +535,7 @@ describe('team tools', () => {
     expect(result.slice(0, 3).map((task) => task.status)).toEqual(['blocked', 'waiting', 'active']);
     expect(result).toHaveLength(4);
     expect(Object.keys(result[0]!).sort()).toEqual(
-      ['key', 'title', 'stageId', 'status', 'assignee', 'labels', 'updatedAt'].sort(),
+      ['key', 'title', 'stageId', 'status', 'assignee', 'labels', 'updatedAt', 'waitsFor'].sort(),
     );
     expect(await h.domain.teamTools.listTasks(dev, { assignee: 'me' })).toMatchObject([{ key: 'AR-1' }]);
     expect(
@@ -420,6 +570,18 @@ describe('team tools', () => {
     const result = await h.domain.teamTools.listTasks(dev, {});
     expect(result.find((task) => task.key === 'AR-1')).toMatchObject({ priority: 'high' });
     expect(result.find((task) => task.key === other.key)).not.toHaveProperty('priority');
+  });
+
+  it('list_tasks and get_task show the place in the project focus only on cards in it (PM-437)', async () => {
+    const other = await h.domain.tasks.create('AR', { title: 'Not in focus' }, OWNER_ACTOR);
+    await h.domain.projectFocus.add('AR', 'AR-1', OWNER_ACTOR);
+    const result = await h.domain.teamTools.listTasks(dev, {});
+    expect(result.find((task) => task.key === 'AR-1')).toMatchObject({ focus: { position: 1 } });
+    expect(result.find((task) => task.key === other.key)).not.toHaveProperty('focus');
+    expect(await h.domain.teamTools.getTask(dev, { taskKey: 'AR-1' })).toMatchObject({
+      focus: { position: 1 },
+    });
+    expect(await h.domain.teamTools.getTask(dev, { taskKey: other.key })).not.toHaveProperty('focus');
   });
 
   it('create_task puts an unassigned task into the first stage, attributed to the member', async () => {

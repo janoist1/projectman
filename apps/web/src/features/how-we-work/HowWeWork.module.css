@@ -111,6 +111,22 @@
   padding: 6px 12px 6px 0;
 }
 
+/* The mover line sits under the start, in line with its text. */
+.moverRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 0 12px 6px 76px;
+}
+
+/* The mark column narrows with the flow (Flow.module.css): 44px and an 8px gap. */
+@container flow (max-width: 640px) {
+  .moverRow {
+    padding-left: 52px;
+  }
+}
+
 .startDot {
   width: 22px;
   height: 22px;

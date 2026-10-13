@@ -1,11 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SESSION_IDLE_CLOSE_MINUTES } from '@projectman/shared';
 import type {
   AgentProvider,
   AiMemberConfig,
+  CapacityHolder,
   PlanUsage,
   ProjectConfig,
   Session,
   Task,
+  TaskStartWaiting,
   WorkItemRef,
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
@@ -13,7 +16,7 @@ import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain'
 import { isDeferrable } from '../src/domain/admission';
 import type { AutomaticStart, DomainContext, SessionOrchestrator, TaskService } from '../src/domain';
 import { capturingLogger, planUsage } from './helpers/fakes';
-import { testConfig } from './helpers/test-template';
+import { makeRepoless, testConfig } from './helpers/test-template';
 
 const AT = '2026-09-30T10:00:00.000Z';
 
@@ -457,7 +460,7 @@ describe('admission checks', () => {
     ],
     [
       'admits a developer on a task without a repository when the project has none',
-      { adjust: (config) => void (config.project.repos = []), tasks: [task('AR-1')] },
+      { adjust: makeRepoless, tasks: [task('AR-1')] },
       { handle: 'dev-1', workItem: onTask('AR-1') },
       null,
     ],
@@ -541,6 +544,157 @@ describe('admission checks', () => {
       'ai_limit_reached',
     );
     expect(sessionFake.ensureSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('what holds the places of a member (PM-297)', () => {
+  const EARLY = '2026-09-30T09:00:00.000Z';
+  const LATE = '2026-09-30T09:50:00.000Z';
+  const meeting: WorkItemRef = { type: 'meeting', meetingId: 'M-1' };
+  const live = (s: Session, over: Partial<Session> = {}): Session => ({ ...s, ...over });
+  const sorted = (holders: CapacityHolder[]) => holders.map((h) => h.taskKey ?? h.kind).sort();
+
+  /** Everything that can hold a place of dev-1 at once. */
+  const everything = {
+    tasks: [
+      task('AR-1', { assignee: 'dev-1' }),
+      task('AR-2', { assignee: 'dev-1' }),
+      task('AR-3', { assignee: 'dev-1', stageId: 'code_review' }),
+    ],
+    sessions: [
+      live(session('dev-1', onTask('AR-1'), 'ses_1'), {
+        state: 'working',
+        startedAt: EARLY,
+        lastActivityAt: LATE,
+      }),
+      live(session('dev-1', onTask('AR-2'), 'ses_2'), {
+        state: 'idle',
+        startedAt: EARLY,
+        lastActivityAt: EARLY,
+      }),
+      // Idle in a stage it does not work in: no place, unless its first turn has not begun.
+      live(session('dev-1', onTask('AR-3'), 'ses_3'), { state: 'idle' }),
+      live(session('dev-1', general), { state: 'idle', lastActivityAt: EARLY }),
+      live(session('dev-1', scheduled), { state: 'working' }),
+      live(session('dev-1', meeting), { state: 'idle' }),
+    ],
+    running: ['ses_1', 'ses_2', 'ses_3', 'ses_dev-1_general', 'ses_dev-1_schedule', 'ses_dev-1_meeting'],
+  } satisfies World;
+
+  it('lists one element per task and one per other running session, the set memberLoad counts', () => {
+    const { admission, config } = admissionFor({
+      ...everything,
+      // Closed: held no place.
+      sessions: [...everything.sessions, live(session('dev-1', general, 'ses_closed'), { state: 'exited' })],
+      awaitingFirstTurn: ['ses_3'],
+    });
+    const holders = admission.holders(config, 'dev-1');
+    expect(holders).toEqual([
+      {
+        kind: 'task',
+        taskKey: 'AR-1',
+        sessionId: 'ses_1',
+        working: true,
+        startedAt: EARLY,
+        lastActivityAt: LATE,
+      },
+      {
+        kind: 'task',
+        taskKey: 'AR-2',
+        sessionId: 'ses_2',
+        working: false,
+        startedAt: EARLY,
+        lastActivityAt: EARLY,
+      },
+      { kind: 'task', taskKey: 'AR-3', sessionId: 'ses_3', working: true, startedAt: AT, lastActivityAt: AT },
+      {
+        kind: 'general',
+        sessionId: 'ses_dev-1_general',
+        working: false,
+        startedAt: AT,
+        lastActivityAt: EARLY,
+      },
+      { kind: 'schedule', sessionId: 'ses_dev-1_schedule', working: true, startedAt: AT, lastActivityAt: AT },
+      { kind: 'meeting', sessionId: 'ses_dev-1_meeting', working: false, startedAt: AT, lastActivityAt: AT },
+    ]);
+    expect(admission.memberLoad(config, 'dev-1')).toBe(holders.length);
+    expect(admission.holders(config, 'dev-2')).toEqual([]);
+  });
+
+  it('counts the same as memberLoad whatever the world holds', () => {
+    const worlds: World[] = [
+      {},
+      { ...everything },
+      { ...everything, awaitingFirstTurn: ['ses_3'] },
+      // The session of a task that moved on, idle, is no place.
+      {
+        tasks: [task('AR-3', { assignee: 'dev-1', stageId: 'code_review' })],
+        sessions: [session('dev-1', onTask('AR-3'))],
+        running: ['ses_dev-1_task'],
+      },
+      // A task that is done holds none.
+      {
+        tasks: [task('AR-1', { assignee: 'dev-1', status: 'done' })],
+        sessions: [session('dev-1', onTask('AR-1'))],
+        running: ['ses_dev-1_task'],
+      },
+      // A session whose process does not run holds none.
+      { tasks: everything.tasks, sessions: everything.sessions, running: [] },
+    ];
+    for (const world of worlds) {
+      const { admission, config } = admissionFor(world);
+      for (const exclude of [undefined, 'AR-1']) {
+        const holders = admission.holders(config, 'dev-1', exclude);
+        expect(admission.memberLoad(config, 'dev-1', exclude)).toBe(holders.length);
+      }
+    }
+  });
+
+  it('puts the sessions of one task together: earliest start, latest activity, the latest session', () => {
+    const { admission, config } = admissionFor({
+      tasks: [task('AR-1', { assignee: 'dev-1' })],
+      sessions: [
+        live(session('dev-1', onTask('AR-1'), 'ses_old'), {
+          state: 'idle',
+          startedAt: EARLY,
+          lastActivityAt: EARLY,
+        }),
+        live(session('dev-1', onTask('AR-1'), 'ses_new'), {
+          state: 'working',
+          startedAt: LATE,
+          lastActivityAt: LATE,
+        }),
+      ],
+      running: ['ses_old', 'ses_new'],
+    });
+    expect(admission.holders(config, 'dev-1')).toEqual([
+      {
+        kind: 'task',
+        taskKey: 'AR-1',
+        sessionId: 'ses_new',
+        working: true,
+        startedAt: EARLY,
+        lastActivityAt: LATE,
+      },
+    ]);
+    expect(admission.memberLoad(config, 'dev-1')).toBe(1);
+  });
+
+  it('leaves out the task the work is for, as memberLoad does', () => {
+    const { admission, config } = admissionFor(everything);
+    expect(sorted(admission.holders(config, 'dev-1'))).toEqual([
+      'AR-1',
+      'AR-2',
+      'general',
+      'meeting',
+      'schedule',
+    ]);
+    expect(sorted(admission.holders(config, 'dev-1', 'AR-1'))).toEqual([
+      'AR-2',
+      'general',
+      'meeting',
+      'schedule',
+    ]);
   });
 });
 
@@ -697,6 +851,73 @@ describe('deferred starts', () => {
     expect(deferred.waitingFor(reviewing)).toMatchObject({ reason: 'member_at_capacity' });
     deferred.discardStale(reviewing);
     expect(deferred.list().map((entry) => entry.start.key)).toEqual(['hand-over:AR-1']);
+  });
+
+  describe('what holds the places of the member a card waits for (PM-297)', () => {
+    const holder = { kind: 'general', working: false, startedAt: AT, lastActivityAt: AT } as const;
+    const keepWaiting = (deferred: DeferredStarts, waiting: Omit<TaskStartWaiting, 'since'>) =>
+      deferred.keep({
+        start: start('hand-over:AR-1', { taskKey: 'AR-1', member: 'cr' }).automatic,
+        waiting: { ...waiting, since: AT },
+      });
+    const reviewing = task('AR-1', { stageId: 'code_review' });
+
+    it('reads the holders, the capacity and the close time when the card is read, and stores none of them', () => {
+      const store = createRepositories(openDatabase(':memory:')).deferredStarts;
+      const deferred = new DeferredStarts(store);
+      let holders: CapacityHolder[] = [holder];
+      const reader = vi.fn((_projectKey: string, _handle: string) => ({ holders, capacity: 2 }));
+      deferred.useCapacity(reader);
+      keepWaiting(deferred, { reason: 'member_at_capacity', member: 'cr' });
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'member_at_capacity',
+        member: 'cr',
+        since: AT,
+        holders: [holder],
+        capacity: 2,
+        closeAfterMinutes: SESSION_IDLE_CLOSE_MINUTES,
+      });
+      expect(reader).toHaveBeenCalledWith('AR', 'cr');
+      // The present situation each time it is read.
+      holders = [];
+      expect(deferred.waitingFor(reviewing)?.holders).toEqual([]);
+      expect(store.list()[0]!.waiting).toEqual({ reason: 'member_at_capacity', member: 'cr', since: AT });
+    });
+
+    it('leaves every other waiting alone, and a capacity wait that names no member or has no reader', () => {
+      const deferred = new DeferredStarts();
+      const reader = vi.fn(() => ({ holders: [holder], capacity: 1 }));
+      keepWaiting(deferred, { reason: 'member_at_capacity', member: 'cr' });
+      // No reader bound yet: the waiting is the stored one.
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'member_at_capacity',
+        member: 'cr',
+        since: AT,
+      });
+      deferred.useCapacity(reader);
+      deferred.drop('hand-over:AR-1');
+      keepWaiting(deferred, { reason: 'member_at_capacity' });
+      expect(deferred.waitingFor(reviewing)).toEqual({ reason: 'member_at_capacity', since: AT });
+      deferred.drop('hand-over:AR-1');
+      keepWaiting(deferred, { reason: 'plan_usage_paused', member: 'cr' });
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'plan_usage_paused',
+        member: 'cr',
+        since: AT,
+      });
+      expect(reader).not.toHaveBeenCalled();
+    });
+
+    it('shows no holders for a member the reader does not know', () => {
+      const deferred = new DeferredStarts();
+      deferred.useCapacity(() => undefined);
+      keepWaiting(deferred, { reason: 'member_at_capacity', member: 'owner' });
+      expect(deferred.waitingFor(reviewing)).toEqual({
+        reason: 'member_at_capacity',
+        member: 'owner',
+        since: AT,
+      });
+    });
   });
 
   it('retries the starts that still apply and drops the others', async () => {

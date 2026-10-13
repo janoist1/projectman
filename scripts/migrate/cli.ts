@@ -6,15 +6,19 @@
 //   plan      --home H [--vm-repo-root P] [--out FILE]   the concrete cutover sheet (read-only; runs on a live source too)
 //   package   --home H --out DIR               a secret package of a STOPPED source (never in a repository)
 //   apply     --package DIR --target-home H --map FROM=TO ...   a standby copy on this machine
-//   verify    --home H [--no-paths]            is the home whole and consistent (server stopped)
-//   instance  status|standby|retire|activate --home H ...        who may work (only one copy is active)
+//   verify    --home H [--no-paths|--hybrid-cloud]   is the home whole and consistent (server stopped)
+//   instance  status|standby|retire|engine|activate --home H ...  who may work (only one copy is active)
 //   work      list|apply --home H [--id N --into DIR]            the old machine's uncommitted work
+//   hybrid    plan --home H                      the hybrid mode (PM-318, docs/HYBRID.md): what goes to the cloud (read-only)
+//   hybrid    package --home H --out DIR --engine-name N --cloud URL   the cloud's package of a STOPPED home; writes engine.key and engine.json in H
+//   hybrid    back --home H --from DIR --confirm-source-retired        the cloud's data replaces the Mac's home (the old entries are kept)
 //
 // Exit status: 0 done, 1 refused or a blocking finding, 2 wrong usage.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { applyPackage, applyPendingWork, readPendingWork } from './apply';
-import { activateHome, instanceStatus, retireHome, standbyHome } from './instance';
+import { buildHybridPlan, createHybridPackage, hybridBack, renderHybridPlan } from './hybrid';
+import { activateHome, engineHome, instanceStatus, retireHome, standbyHome } from './instance';
 import { buildInventory, formatInventory } from './inventory';
 import { createPackage, MigrationRefused } from './package';
 import { parsePathMapping } from './paths';
@@ -26,7 +30,13 @@ interface Args {
   flags: Map<string, string[]>;
 }
 
-const BOOLEAN_FLAGS = new Set(['no-paths', 'confirm-source-retired', 'json-only']);
+const BOOLEAN_FLAGS = new Set([
+  'no-paths',
+  'confirm-source-retired',
+  'json-only',
+  'hybrid-cloud',
+  'discard-cloud-data',
+]);
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
@@ -121,9 +131,55 @@ async function main(argv: string[]): Promise<number> {
       return verified.ok ? 0 : 1;
     }
     case 'verify': {
-      const result = await verifyHome({ home: one(args, 'home'), checkPaths: !args.flags.has('no-paths') });
+      const result = await verifyHome({
+        home: one(args, 'home'),
+        checkPaths: !args.flags.has('no-paths'),
+        hybridCloud: args.flags.has('hybrid-cloud'),
+      });
       console.log(formatVerify(result));
       return result.ok ? 0 : 1;
+    }
+    case 'hybrid': {
+      const home = one(args, 'home');
+      switch (sub) {
+        case 'plan':
+          console.log(renderHybridPlan(await buildHybridPlan({ home })));
+          return 0;
+        case 'package': {
+          const out = resolve(one(args, 'out'));
+          const result = await createHybridPackage({
+            home,
+            out,
+            engineName: one(args, 'engine-name'),
+            cloudUrl: one(args, 'cloud'),
+          });
+          console.log(
+            `Cloud package written to ${out}/home (${Object.keys(result.manifest.files).length} files); ` +
+              `engine ${result.engine.id} "${result.engine.name}", ${result.sessionsMoved} sessions moved to it.\n` +
+              `Written in ${home}: ${result.keyFile} (the machine key, mode 600, shown nowhere) and ${result.configFile}.`,
+          );
+          for (const warning of result.warnings) console.log(`  WARNING ${warning}`);
+          console.log(
+            'The package is a SECRET (the database, the cookie key): upload only home/ to the cloud volume, never put it in a repository, a task or a message.',
+          );
+          return 0;
+        }
+        case 'back': {
+          const report = await hybridBack({
+            home,
+            from: one(args, 'from'),
+            confirmCloudStopped: args.flags.has('confirm-source-retired'),
+          });
+          console.log(
+            `${home}: the cloud's data is in place; engine ${report.engineId} is revoked, ${report.sessionsMoved} sessions are local again ` +
+              `(${report.liveSessions} were not closed: the first start resumes or ends them).\n` +
+              `The former entries are in ${report.archive}. Next: instance activate --home ${home} --confirm-source-retired`,
+          );
+          return 0;
+        }
+        default:
+          throw new UsageError('hybrid needs plan, package or back');
+      }
     }
     case 'instance': {
       const home = one(args, 'home');
@@ -137,15 +193,19 @@ async function main(argv: string[]): Promise<number> {
         case 'retire':
           retireHome(home, one(args, 'reason'));
           break;
+        case 'engine':
+          engineHome(home, optional(args, 'reason') ?? 'hybrid mode: this machine runs the engine only');
+          break;
         case 'activate':
           activateHome({
             home,
             otherHome: optional(args, 'other-home'),
             confirmSourceRetired: args.flags.has('confirm-source-retired'),
+            discardCloudData: args.flags.has('discard-cloud-data'),
           });
           break;
         default:
-          throw new UsageError('instance needs status, standby, retire or activate');
+          throw new UsageError('instance needs status, standby, retire, engine or activate');
       }
       console.log(`${home}: ${instanceStatus(home)}`);
       return 0;
@@ -168,7 +228,7 @@ async function main(argv: string[]): Promise<number> {
       throw new UsageError('work needs list or apply');
     }
     default:
-      throw new UsageError('commands: inventory, plan, package, apply, verify, instance, work');
+      throw new UsageError('commands: inventory, plan, package, apply, verify, instance, work, hybrid');
   }
 }
 

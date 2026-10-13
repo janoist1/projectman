@@ -8,9 +8,12 @@ import {
   MemberHandle,
   PermissionMode,
 } from '../domain/member';
+import { FeedbackConfig } from '../domain/feedback';
 import { Pipeline } from '../domain/pipeline';
 import { DEFAULT_PROVIDER_MODELS } from '../domain/provider-model';
 import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
+import { RepoDocs } from './project-docs';
+import { OperatorWatch } from './operator-watch';
 
 /**
  * Project configuration ("customizations"). Lives as YAML files in a separate git
@@ -18,6 +21,24 @@ import { CustomRoleDefinition, RoleId, RoleOverrides } from '../domain/role';
  * every change is a commit that an admin can revert. Display names inside are data in
  * the project's language.
  */
+
+export const CardMover = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('worker') }),
+  z.object({ kind: z.literal('project_manager') }),
+  z.object({ kind: z.literal('human'), handle: MemberHandle }),
+]);
+export type CardMover = z.infer<typeof CardMover>;
+
+/** Who merges a card's approved work into the repository's default branch (PM-448, decision 48). */
+export const Merger = z.discriminatedUnion('kind', [
+  /** The owner of the card's code review stage who reviewed it. */
+  z.object({ kind: z.literal('code_reviewer') }),
+  /** The card's assignee, who developed it. */
+  z.object({ kind: z.literal('developer') }),
+  /** A named member, AI or human. */
+  z.object({ kind: z.literal('member'), handle: MemberHandle }),
+]);
+export type Merger = z.infer<typeof Merger>;
 
 export const HumanMemberConfig = z.object({
   kind: z.literal('human'),
@@ -223,6 +244,17 @@ export const TeamLimits = z.object({
 });
 export type TeamLimits = z.infer<typeof TeamLimits>;
 
+/** A repository's full test: the shell command the server runs in the full test sandbox, and its limits (PM-538). */
+export const ReviewTestConfig = z.object({
+  /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
+  command: z.string().min(1).max(500),
+  /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
+  maxWorkers: z.number().int().min(1).max(8).default(2),
+  /** Wall-clock limit of one run. */
+  timeoutMinutes: z.number().int().min(1).max(60).default(15),
+});
+export type ReviewTestConfig = z.infer<typeof ReviewTestConfig>;
+
 export const RepoConfig = z.object({
   /** Short name used in task.repo, e.g. "locked". */
   name: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/),
@@ -238,21 +270,24 @@ export const RepoConfig = z.object({
    * The full test the server runs on the pinned commit before a task is reviewed (PM-217), in a
    * sandbox of its own with PTYs. Absent: the feature is off for this repository.
    */
-  reviewTest: z
-    .object({
-      /** Shell command run at the root of the developer's checkout, e.g. "npm run typecheck && npm test". */
-      command: z.string().min(1).max(500),
-      /** Test workers: VITEST_MAX_FORKS and VITEST_MAX_THREADS. */
-      maxWorkers: z.number().int().min(1).max(8).default(2),
-      /** Wall-clock limit of one run. */
-      timeoutMinutes: z.number().int().min(1).max(60).default(15),
-    })
-    .optional(),
+  reviewTest: ReviewTestConfig.optional(),
   /**
    * Developers run targeted checks only; the integrator owns the full check before merge (PM-380).
-   * Absent or false: retain the existing hand-over policy. Does not disable `reviewTest`.
+   * Absent or false: retain the existing hand-over policy. true: `reviewTest` runs only at the merge,
+   * not before review (`reviewTestBeforeReview`, PM-386).
    */
   fullTestAtMerge: z.boolean().optional(),
+  /**
+   * true: a card's work must be in `defaultBranch` before the card enters the merge target (PM-448);
+   * false: it need not be; absent: `requiresMerge` decides.
+   */
+  requireMerge: z.boolean().optional(),
+  /**
+   * Where the project documents (decision log, roadmap) live in this repository (PM-388). No default:
+   * absent, the feature is off, so nothing is written to a client's public default branch unasked.
+   * When several repositories have it, the first counts (`projectDocsOf`).
+   */
+  docs: RepoDocs.optional(),
 });
 export type RepoConfig = z.infer<typeof RepoConfig>;
 
@@ -273,8 +308,14 @@ export const ProjectConfig = z.object({
     /** IANA time zone of the team, e.g. "Europe/Budapest"; schedules run in it. */
     timezone: z.string().min(1).default('UTC'),
     templateId: z.string().optional(),
+    /** The feedback tool (PM-506): where it may run and who may not mark. */
+    feedback: FeedbackConfig.optional(),
   }),
   team: z.object({
+    operatorWatch: OperatorWatch.optional(),
+    cardMover: CardMover.optional(),
+    /** Who merges approved work into the default branch. Absent: `defaultMerger` decides. */
+    merger: Merger.optional(),
     members: z.array(MemberConfig).min(1),
     /** Roles the team defined in addition to the built-in ones. */
     roles: z.array(CustomRoleDefinition).default([]),

@@ -51,6 +51,7 @@ const REFUSAL_CODES: ReadonlySet<EngineErrorCode> = new Set([
   'repo_not_registered',
   'signal_not_allowed',
   'secret_not_allowed',
+  'merge_not_allowed',
 ]);
 
 export interface EngineHandlerDeps {
@@ -104,6 +105,10 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     if (!engine.sessionFolders)
       throw new EngineRpcError('unknown_method', 'This engine has no session folders');
     return engine.sessionFolders;
+  };
+  const merger = () => {
+    if (!engine.merger) throw new EngineRpcError('merge_not_allowed', 'This engine does not merge');
+    return engine.merger;
   };
   const fullRuns = new Map<string, AbortController>();
   const shotRuns = new Map<string, AbortController>();
@@ -192,6 +197,19 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     },
     async 'worktree.ensureForTask'([arg]) {
       return engine.worktrees.ensureForTask(arg);
+    },
+    async 'worktree.ensureMergeFix'([arg]) {
+      return engine.worktrees.ensureMergeFix(arg);
+    },
+    async 'worktree.findMergeFix'([arg]) {
+      return engine.worktrees.findMergeFix(arg);
+    },
+    async 'worktree.removeMergeFix'([arg]) {
+      await engine.worktrees.removeMergeFix(arg);
+      return none;
+    },
+    async 'worktree.listMergeFixes'([arg]) {
+      return engine.worktrees.listMergeFixes(arg);
     },
     async 'worktree.find'([arg]) {
       return engine.worktrees.find(arg);
@@ -291,7 +309,9 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       const controller = new AbortController();
       fullRuns.set(spec.runId, controller);
       try {
-        return await engine.fullTestExecutor.run(spec, controller.signal);
+        return await engine.fullTestExecutor.run(spec, controller.signal, () =>
+          deps.emit({ kind: 'full_test_started', runId: spec.runId }),
+        );
       } finally {
         fullRuns.delete(spec.runId);
       }
@@ -389,11 +409,54 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
       await transfers.download(limit.token(downloadToken), dest, { size, sha256 });
       return { path: dest };
     },
+    async 'files.materialize_into_session'({ downloadToken, sessionId, name, sha256, size }) {
+      // Fetched into a folder of the engine's own that no session reaches, then put into the session's
+      // folder by the registry, which checks the file again and writes nowhere else.
+      const scratch = await mkdtemp(path.join(deps.exportDir, 'session-file-'));
+      try {
+        const staged = path.join(scratch, 'file');
+        await transfers.download(limit.token(downloadToken), staged, { size, sha256 });
+        return await folders().materializeFile(sessionId, { name, source: { path: staged, size, sha256 } });
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    },
     async 'files.resolve_scenario'({ roots, requested }) {
       return engine.resolveScenario(roots, requested);
     },
     async 'files.list_images'({ dir, sinceMs }) {
       return engine.listImages(dir, sinceMs);
+    },
+    async 'merge.prepare'({ ref, ...input }) {
+      return merger().prepare(ref, input);
+    },
+    async 'merge.is_ancestor'({ ref, ...input }) {
+      return merger().isAncestor(ref, input);
+    },
+    async 'merge.build'({ ref, ...input }) {
+      return merger().build(ref, input);
+    },
+    async 'merge.checkout_conflicts'({ ref, ...input }) {
+      return merger().checkoutConflicts(ref, input);
+    },
+    async 'merge.checkout_for_check'({ ref, ...input }) {
+      return merger().checkoutForCheck(ref, input);
+    },
+    async 'merge.release_check'({ ref, ...input }) {
+      await merger().releaseCheck(ref, input);
+      return none;
+    },
+    async 'merge.push'({ ref, ...input }) {
+      return merger().push(ref, input);
+    },
+    async 'merge.advance'({ ref, ...input }) {
+      return merger().advance(ref, input);
+    },
+    async 'merge.read_file'({ ref, ...input }) {
+      return merger().readFile(ref, input);
+    },
+    async 'merge.commit_files'({ ref, ...input }) {
+      return merger().commitFiles(ref, input);
     },
     async 'machine.snapshot'() {
       return probe.machine();

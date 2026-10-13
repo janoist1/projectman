@@ -245,6 +245,11 @@ describe('integratorConfigRefusal', () => {
       ['the permission mode of an AI member', (n) => (ai(n, 'dev-1').permissionMode = 'plan')],
       ['the maxFixRounds limit', (n) => (n.team.limits.maxFixRounds = 5)],
       ['release four eyes', (n) => (n.team.releaseFourEyes = true)],
+      [
+        'the full test command of a repository',
+        (n) => (n.project.repos[0]!.reviewTest = { command: 'true', maxWorkers: 2, timeoutMinutes: 15 }),
+      ],
+      ['running the full test only at the merge', (n) => (n.project.repos[0]!.fullTestAtMerge = true)],
     ])('refuses %s', (_name, edit) => {
       expect(refusal(edit)).toBe('owner_settings');
     });

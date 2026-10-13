@@ -29,6 +29,7 @@ export interface SessionPolicy {
   placement:
     | {
         kind: 'task_worktree';
+        mergeFix?: { branch: string };
         path: string;
         /** A shared git directory outside `path` (a git worktree's); absent for an independent clone. */
         gitDir?: string;
@@ -76,6 +77,12 @@ export interface SessionPolicy {
     files: Array<'read' | 'grep' | 'glob'>;
     shell: ShellToolRule[];
   };
+  /**
+   * The session works through the team tools alone (the Operator's conversation with someone who is not
+   * an owner, PM-475). The adapter then offers no other built-in tool, denies the file, shell and web
+   * tools, and renders no allow rule for a directory or a command.
+   */
+  teamToolsOnly?: boolean;
   filesystem: {
     readableRoots: string[];
     writableRoots: string[];

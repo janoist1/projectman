@@ -1,12 +1,25 @@
 import { z } from 'zod';
+
+/** Empty starts or retries; fixConflict creates a checkout; resolution submits its committed fix (PM-481). */
+export const StartMergeRequest = z.object({
+  fixConflict: z.boolean().optional(),
+  resolution: z.string().trim().min(1).max(2000).optional(),
+});
+export type StartMergeRequest = z.infer<typeof StartMergeRequest>;
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';
 import { ChatItem } from '../chat/chat';
 import { AutoCompactWindowTokens, MemberSchedule, ProjectConfig, RepoConfig } from '../config/schema';
+import { ConfigChangeRow } from '../config/operator';
+import { PatchConfigRequest } from '../config/edit';
+import { ERROR_CODES } from './error-codes';
+import { TaskWait } from '../config/task-wait';
 import { TimelineEvent } from '../domain/event';
 import { HandoffStart } from '../domain/handoff';
-import { InboxItem } from '../domain/inbox';
+import { InboxItem, InboxOption } from '../domain/inbox';
+import { WorkOutage } from '../domain/outage';
+
 import {
   AgentProvider,
   AgentEffort,
@@ -21,6 +34,7 @@ import {
   SelectablePermissionMode,
 } from '../domain/member';
 import { TeamMessage } from '../domain/message';
+import { MAX_MESSAGE_ATTACHMENTS, MessageAttachmentId } from '../domain/message-attachment';
 import { LabelDefinition, LabelId } from '../domain/label';
 import { ProjectPauseView } from '../domain/pause';
 import { BoardColumn, GateCondition, Stage, StageId } from '../domain/pipeline';
@@ -30,7 +44,22 @@ import { Session, TaskWork } from '../domain/session';
 import { CardRounds } from '../domain/card-measure';
 import { MemberUsage } from '../domain/token-usage';
 import { AddRelationRef, RelationsChange } from '../domain/relations';
-import { Task, TaskKey, TaskKind, TaskPriority, TaskStartWaiting, Visibility } from '../domain/task';
+import {
+  CapacityHolder,
+  Task,
+  TaskKey,
+  TaskKind,
+  TaskPriority,
+  TaskStartWaiting,
+  Visibility,
+} from '../domain/task';
+
+export const CheckOutageResponse = z.object({
+  item: InboxItem,
+  stillFailing: z.boolean(),
+  checkedAt: z.string(),
+});
+export type CheckOutageResponse = z.infer<typeof CheckOutageResponse>;
 
 export const ProjectManagerChannelState = z.enum([
   'available',
@@ -51,6 +80,116 @@ export const ProjectManagerChannel = z.object({
   sessionId: z.string().nullable(),
 });
 export type ProjectManagerChannel = z.infer<typeof ProjectManagerChannel>;
+
+/* ---------- the Operator (PM-447, PM-463) ---------- */
+
+/** What the Operator did on an owner's request; one step per tool call. */
+export const OperatorAction = z.enum([
+  'task_create',
+  'task_update',
+  'task_move',
+  'task_labels',
+  'task_priority',
+  'task_start',
+  'message',
+  'config_change',
+  'member_change',
+  'member_hire',
+  'member_retire',
+  'config_revert',
+  'session_stop',
+  'project_pause',
+  'project_resume',
+  'docs_write',
+  'decision_offer',
+]);
+export type OperatorAction = z.infer<typeof OperatorAction>;
+export const OperatorStepStatus = z.enum([
+  'done',
+  'queued',
+  'awaiting_approval',
+  'approved',
+  'rejected',
+  'stale',
+  'refused',
+]);
+export type OperatorStepStatus = z.infer<typeof OperatorStepStatus>;
+export const OperatorStep = z.object({
+  id: z.string(),
+  requestId: z.string(),
+  at: z.string(),
+  action: OperatorAction,
+  status: OperatorStepStatus,
+  taskKey: TaskKey.nullable(),
+  member: MemberHandle.nullable(),
+  changes: z.array(ConfigChangeRow),
+  configVersion: z.string().nullable(),
+  inboxItemId: z.string().nullable(),
+  /** The system signal the Operator acted on without an owner's request (PM-545). */
+  signalId: z.string().nullable(),
+  refusal: z.object({ code: z.enum(ERROR_CODES), message: z.string() }).nullable(),
+});
+export type OperatorStep = z.infer<typeof OperatorStep>;
+export const OperatorRequestView = z.object({
+  id: z.string(),
+  messageId: z.string().nullable(),
+  quote: z.string(),
+  openedAt: z.string(),
+  closedAt: z.string().nullable(),
+  steps: z.array(OperatorStep),
+});
+export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
+export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
+export const OPERATOR_SILENT_WORK_MINUTES = 30;
+/** A card held by an AI member with no work running for this long is idle (PM-547). */
+export const OPERATOR_IDLE_MINUTES = 30;
+/** A merge the merger has not started for this long is waiting. */
+export const OPERATOR_MERGE_WAIT_MINUTES = 30;
+/** Work merged and not released for this long is waiting for a release. */
+export const OPERATOR_UNRELEASED_HOURS = 24;
+/** Startable cards and free capacity together for this long wake the Operator. */
+export const OPERATOR_READY_WAITING_MINUTES = 30;
+export const OperatorSignalKind = z.enum([
+  'outage',
+  'nobody',
+  'stalled',
+  'silent',
+  'idle',
+  'merge_waiting',
+  'merge_blocked',
+  'unreleased',
+  'ready_waiting',
+]);
+export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
+export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
+export const OperatorSignal = z.object({
+  id: z.string(),
+  kind: OperatorSignalKind,
+  state: OperatorSignalState,
+  actionable: z.boolean(),
+  taskKey: TaskKey.nullable(),
+  subject: z.string().nullable(),
+  inboxItemId: z.string().nullable(),
+  messageId: z.string().nullable(),
+  raisedAt: z.string(),
+  decidedBy: MemberHandle.nullable(),
+  decidedAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+export type OperatorSignal = z.infer<typeof OperatorSignal>;
+/**
+ * The viewer's Operator conversation as the project manager's, plus the last 50 requests (the newest last).
+ * `readOnly` (PM-475): the conversation is with a person who is not an owner, so the Operator only reads and answers
+ * (and the owners' system signals stay out of it).
+ */
+export const OperatorChannel = ProjectManagerChannel.extend({
+  requests: z.array(OperatorRequestView),
+  readOnly: z.boolean(),
+  signals: z.array(OperatorSignal),
+  openSignals: z.number().int(),
+});
+export type OperatorChannel = z.infer<typeof OperatorChannel>;
 
 /* ---------- auth ---------- */
 
@@ -192,8 +331,25 @@ export const CreateProjectRequest = z.object({
   templateId: z.string(),
   /** Repositories of the workspace; templates start without any (they can also be added later in the config). */
   repos: z.array(RepoConfig).optional(),
+  /** Who moves the cards on; absent means `worker`. `creator` makes the creating human the mover. */
+  cardMover: z.enum(['worker', 'project_manager', 'creator']).optional(),
 });
 export type CreateProjectRequest = z.infer<typeof CreateProjectRequest>;
+
+/** What `POST /api/projects/preview` answers: the configuration a create would save and its issues. */
+export const ProjectPreview = z.object({
+  config: ProjectConfig,
+  /** The fields of `ConfigIssue`; an absent severity is an error. */
+  issues: z.array(
+    z.object({
+      code: z.string(),
+      severity: z.enum(['error', 'warning']).optional(),
+      path: z.string(),
+      detail: z.string().optional(),
+    }),
+  ),
+});
+export type ProjectPreview = z.infer<typeof ProjectPreview>;
 
 export const TemplateSummary = z.object({
   id: z.string(),
@@ -208,6 +364,7 @@ export type TemplateSummary = z.infer<typeof TemplateSummary>;
 /* ---------- members ---------- */
 
 export const MemberView = z.object({
+  outage: WorkOutage.optional(),
   githubLogin: GithubLogin.optional(),
   handle: MemberHandle,
   displayName: z.string(),
@@ -321,6 +478,73 @@ export const UpdateMemberRequest = z.object({
 });
 export type UpdateMemberRequest = z.infer<typeof UpdateMemberRequest>;
 
+export const OperatorMemberChanges = UpdateMemberRequest.omit({
+  access: true,
+  roles: true,
+  displayName: true,
+}).extend({
+  capacity: z.number().int().min(1).max(5).optional(),
+  permissionMode: PermissionMode.optional(),
+  role: RoleId.optional(),
+});
+export type OperatorMemberChanges = z.infer<typeof OperatorMemberChanges>;
+export const OperatorOperation = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('config_patch'),
+    patch: PatchConfigRequest.omit({ baseVersion: true, message: true }),
+  }),
+  z.object({ op: z.literal('member_update'), handle: MemberHandle, changes: OperatorMemberChanges }),
+  z.object({ op: z.literal('member_hire'), request: HireMemberRequest }),
+  z.object({ op: z.literal('member_retire'), handle: MemberHandle }),
+  z.object({ op: z.literal('config_revert'), version: z.string() }),
+  z.object({ op: z.literal('session_stop'), sessionId: z.string() }),
+  z.object({ op: z.literal('project_pause') }),
+  z.object({ op: z.literal('project_resume') }),
+]);
+export type OperatorOperation = z.infer<typeof OperatorOperation>;
+export const OperatorConsequence = z.enum([
+  'network',
+  'permission_mode',
+  'pipeline',
+  'labels',
+  'member_hire',
+  'member_retire',
+  'member_other',
+  'locations',
+  'review_test',
+  'operator_watch',
+  'fix_limit',
+  'session_stop',
+  'project_pause',
+  'project_resume',
+  'project',
+  'other',
+]);
+export type OperatorConsequence = z.infer<typeof OperatorConsequence>;
+export const OperatorApprovalPayload = z.object({
+  requestId: z.string(),
+  stepId: z.string(),
+  quote: z.string(),
+  action: OperatorAction,
+  operation: OperatorOperation,
+  changes: z.array(ConfigChangeRow),
+  consequence: OperatorConsequence,
+  baseVersion: z.string().nullable(),
+  session: z.object({ id: z.string(), startedAt: z.string() }).nullable(),
+  stale: z
+    .object({ reason: z.enum(['config_changed', 'session_changed', 'pause_changed']), at: z.string() })
+    .nullable(),
+});
+export type OperatorApprovalPayload = z.infer<typeof OperatorApprovalPayload>;
+export function operatorApprovalOf(
+  item: Pick<InboxItem, 'kind' | 'payload'>,
+): OperatorApprovalPayload | null {
+  if (item.kind !== 'approval') return null;
+  const parsed = OperatorApprovalPayload.safeParse(item.payload.operator);
+  return parsed.success ? parsed.data : null;
+}
+export const OPERATOR_DISMISS_OPTION: InboxOption = { id: 'dismiss', label: 'dismiss', style: 'secondary' };
+
 export const RetireMemberRequest = z.object({ handoverTo: MemberHandle.optional() });
 export type RetireMemberRequest = z.infer<typeof RetireMemberRequest>;
 
@@ -333,6 +557,8 @@ export const MemberProfile = z.object({
   sessions: z.array(Session),
   capacity: z.number().nullable(),
   capacityUsed: z.number(),
+  /** What takes the member's places (PM-297); filled in where `capacityUsed` is. */
+  capacityHolders: z.array(CapacityHolder).optional(),
   email: z.string().optional(),
   /** AI members: the tokens their sessions used lately (PM-178); omitted for humans and by older servers. */
   usage: MemberUsage.optional(),
@@ -445,6 +671,8 @@ export const TaskDetail = z.object({
   fixRounds: z
     .object({ rounds: z.number().int().nonnegative(), limit: z.number().int().positive() })
     .optional(),
+  /** Why the card stands still (PM-460), for the viewer; null for a closed card; not shared with clients. */
+  wait: TaskWait.nullable().optional(),
 });
 export type TaskDetail = z.infer<typeof TaskDetail>;
 
@@ -565,7 +793,7 @@ export const BoardGroupItem = z.discriminatedUnion('outcome', [
     taskKey: TaskKey,
     outcome: z.literal('blocked'),
     // `no_approver`: an approval the move needs cannot be given by anyone; `approvals` names it, no approvers.
-    code: z.enum(['gate_blocked', 'handover_uncommitted', 'no_approver']),
+    code: z.enum(['gate_blocked', 'handover_uncommitted', 'no_approver', 'task_not_merged']),
     message: z.string(),
     unmet: z.array(
       z.object({ stageId: StageId, condition: GateCondition, setters: z.array(z.string()).optional() }),
@@ -671,11 +899,24 @@ export type UpdateSessionRequest = z.infer<typeof UpdateSessionRequest>;
 export const SendMessageRequest = z.object({ text: z.string().min(1) });
 export type SendMessageRequest = z.infer<typeof SendMessageRequest>;
 
-export const SendTeamMessageRequest = z.object({
-  to: z.array(MemberHandle).min(1).max(100),
-  text: z.string().trim().min(1).max(20000),
-  taskKey: TaskKey.optional(),
-});
+export const SendTeamMessageRequest = z
+  .object({
+    operatorSignal: z.string().optional(),
+    to: z.array(MemberHandle).min(1).max(100),
+    /** Empty only when `attachmentIds` names a file (PM-515). */
+    text: z.string().trim().max(20000),
+    taskKey: TaskKey.optional(),
+    /** Uploaded files the message takes (`routes.messageAttachments`), each of the sender's and not sent yet. */
+    attachmentIds: z.array(MessageAttachmentId).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+  })
+  .refine((request) => request.text !== '' || (request.attachmentIds?.length ?? 0) > 0, {
+    path: ['text'],
+    message: 'text or attachmentIds is required',
+  })
+  .refine((request) => new Set(request.attachmentIds).size === (request.attachmentIds?.length ?? 0), {
+    path: ['attachmentIds'],
+    message: 'attachmentIds must be unique',
+  });
 export type SendTeamMessageRequest = z.infer<typeof SendTeamMessageRequest>;
 
 export const TeamMessagesView = z.object({
@@ -708,12 +949,19 @@ export type ReadTeamMessagesRequest = z.infer<typeof ReadTeamMessagesRequest>;
 export const InboxView = z.object({ items: z.array(InboxItem) });
 export type InboxView = z.infer<typeof InboxView>;
 
-export const ResolveInboxRequest = z.object({ optionId: z.string(), note: z.string().optional() });
+export const ResolveInboxRequest = z.object({
+  optionId: z.string(),
+  note: z.string().optional(),
+  attachmentIds: z.array(MessageAttachmentId).max(MAX_MESSAGE_ATTACHMENTS).optional(),
+});
 export type ResolveInboxRequest = z.infer<typeof ResolveInboxRequest>;
 
 /* ---------- configuration ---------- */
 
 export const ConfigVersionEntry = z.object({
+  operator: MemberHandle.optional(),
+  request: z.string().optional(),
+  approvedBy: MemberHandle.optional(),
   via: z.literal('integrator').optional(),
   version: z.string(),
   message: z.string(),

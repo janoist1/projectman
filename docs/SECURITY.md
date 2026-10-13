@@ -35,6 +35,21 @@ tenants into separate OS accounts or machines.
   only for requests classified as local. HTTPS termination is trusted only from
   a loopback reverse proxy, using the same protocol check as integrator keys.
 
+- The move to the hybrid mode (PM-318, [HYBRID.md](HYBRID.md)) handles two secrets. The machine key is
+  made on the Mac (`newMachineKey`), written to `engine.key` with mode 0600 and the `wx` flag (never
+  over an existing file), and shown nowhere; only its SHA-256 hash is in the cloud package, and a test
+  searches the whole package for the key. The cloud package is a closed list of six entries (the
+  database, the cookie key, `secrets/`, `customization/`, `attachments/`, `memory/`), made with mode
+  0700/0600, refused inside the home or a git repository, and re-checked by `verify --hybrid-cloud`; the
+  Mac's CLI logins, `github-publish/`, `engine.*` and `instance.json` never enter it. After the move the
+  Mac's home keeps the stale single-machine database and cookie key (the way back needs them); the
+  `engine` role means no server opens them, and the sandboxes' `sensitivePaths` keep sessions out; the
+  same list denies `pre-hybrid/` (where the way back keeps the former database, cookie key, secrets and
+  machine key) and its staging folder `.hybrid-back/`. The package and the downloaded cloud copy are in
+  folders of the person's choice, which sessions' deny-only reads do not cover: the guide has them
+  deleted after the upload and after the way back. The
+  launchd job (`deploy/mac/com.projectman.engine.plist`) is given `PATH`, `PROJECTMAN_MODE` and
+  `PROJECTMAN_HOME` only: no API key and no integrator key.
 - Cloud mode (`PROJECTMAN_MODE=cloud`, PM-315) adds three surfaces for the engine, and an
   engine is trusted only with its own sessions:
   - `GET /engine/files/downloads/:token` and `POST /engine/files/uploads/:token` need the
@@ -233,6 +248,35 @@ frame-ancestors 'none'` and `X-Frame-Options: DENY` (PM-211), so no other site c
   secrets. Authentication records are not broadcast. Markdown builds escaped React
   elements, permits HTTP(S) links only, and uses `noopener noreferrer`.
 
+### Message attachments (PM-516, PM-518, PM-520, PM-524)
+
+Message files live in `PROJECTMAN_HOME/message-attachments/<projectKey>/<id>`, in 0700
+directories with 0600 files, separate from task attachments. Before sending, only the uploader
+can see a file. After sending, access follows `canSeeTeamMessage`: the sender, recipients and
+project owners/admins can see it. Unknown, deleted or invisible files return `not_found`.
+In an Operator guest conversation, `read_message_attachment` checks the guest's visibility.
+An hourly sweep, also run at startup, deletes unsent uploads older than 24 hours.
+
+The `attachments` paths of `send_message` use the same file reader as `attach_file`: only
+regular files inside the recorded working directory or the calling process's own session
+folder, with the same symlink, hard-link and unchanged-handle checks described above. The
+server uploads them and binds them to the message when sending; a refused send removes the
+unsent files, with the sweep as fallback.
+
+`read_message_attachment` returns a bounded image or small UTF-8 text as MCP content. When
+that cannot represent the file (for example a PDF or large text), or the provider cannot show
+an MCP image, a session with its own folder receives an authorized copy at
+`<session folder>/message-attachments/<id>-<sanitized name>`. The server identifies the session
+from its MCP token and checks visibility again before obtaining the source. Its engine
+materializes the file only in that session's recorded folder, checking size and SHA-256;
+a remote engine receives it through a single-use download token. Guest Operator sessions have
+no folder and receive content only. If materialization fails, the tool returns without a path.
+
+The entire app-home `message-attachments` directory is in `sensitivePaths`: member file tools
+and sandboxed shell commands cannot read the shared store directly and bypass message
+visibility. Authorized copies in session folders remain readable. This is a sandbox policy
+restriction, subject to the host-user trust boundary described in the threat model.
+
 ### Codex project configuration (PM-357)
 
 Codex trusts the workspace and bypasses hook trust for projectman's own hooks. Its project
@@ -256,7 +300,95 @@ card. NanoGPT retains its launch-time `any` refusal; its failed-row-per-retry be
 is outside this change. On remote engines inspection must run beside the CLI, returning only
 relative file/key names to the server.
 
+## Operator actions and approvals (PM-464)
+
+System signals (PM-476) permit one narrow write without an open owner request: the
+Operator may use `send_message` with `signal_id`, addressed only to the owners, to
+present this project's delivered, not yet presented `pending` or `open` signal once.
+The server revalidates the signal and recipients transactionally. All other writes
+still fail with `operator_no_request`. Accepting or dismissing a signal requires a
+project owner's own login; integrator and AI acceptance fails with 409, and dismissal
+with 403. Acceptance opens an ordinary PM-463 owner request and grants no additional
+powers. `operator_signal` WebSocket events reach only owners. Wake-up facts are data,
+not instructions. A proposed action (`signal_actionable`) may rely on another session's
+activity; the owner sees the proposal before deciding whether to authorize it.
+
+The Operator's `operate` and `start_task` tools require its own session and an open
+owner request. Configuration commits carry internal `operatorRequestId` provenance;
+`assertCommitAllowed` verifies the request's project and Operator attribution and runs
+`operatorConfigVerdict` under the configuration commit lock. Forbidden changes are refused;
+restricted changes require the matching open approval and its exact change rows.
+
+Only a project owner using their own login can approve, reject or dismiss an Operator
+proposal. Integrator (`via`) and AI decisions receive 403. Approval replays the stored
+operation against current configuration and compares its before/after rows. Session
+stops require the same running session ID and start time; pause changes require the
+same pause state. Changed proposals become stale, execute nothing and remain open
+with only `dismiss` available. Configuration commits, session endings and pause changes
+also trigger proactive checks. The Operator cannot stop its own session.
+
+`start_task` may override prerequisites with `despitePrerequisites`, just as the owner's
+Start button does, but cannot override a fix-limit hold. Policy-controlled temporary
+worker hiring uses `SYSTEM_ACTOR` and `SYSTEM_AUTHOR`, sponsored by the requesting
+owner, within the configured role and count limits. Permanent Operator hiring follows
+the configuration verdict and approval path.
+
+Configuration history reads attribution only from the final trailer block. Commit
+creation quotes user-supplied `Projectman-` lines, so a patch message cannot forge
+Operator approval or hide integrator attribution. Attribution fields come from internal
+author metadata, never from the HTTP request body.
+
+### The Operator talks with everyone, and obeys the owner (PM-475)
+
+Every person of the project has a conversation of their own with the Operator
+(`{ type: 'general', with: <handle> }`); the owners share `{ type: 'general' }`. Only a
+change an owner asked for is made. In a conversation with anyone else the Operator reads and
+answers, nothing more:
+
+- **Writes are refused by the server.** `callerWithRequest` lets such a session call
+  `OPERATOR_GUEST_TOOLS` only (`get_task`, `list_tasks`, `list_members`, `list_attachments`,
+  `read_attachment`, and `send_message` to that person alone). Every other tool gets 403
+  `operator_owner_only`; a refused write is logged as a `refused` step. `get_project_state` is not
+  among them until a separate task adds a viewer filter.
+- **Reads are the person's own view.** Cards, details, timeline excerpts and attachments go through
+  `canSeeTask` / `visibleTaskDetail` / `humanActor`, so a client sees only what is shared with them.
+- **No other way to data.** The session starts with the team tools alone (`SessionPolicy.teamToolsOnly`).
+  The Claude Code adapter then renders: `--tools ToolSearch` (the one built-in tool that reaches the
+  deferred team tools), the deny rules `Bash`, `Read`, `Edit`, `Write`, `WebFetch`, `WebSearch` and `Agent`,
+  the allow rule `mcp__team__*` and nothing else (no session-folder rule, no read-only path, no command),
+  no `--add-dir`, and the sandbox (kept as a second wall) with `autoAllowBashIfSandboxed: false`. The
+  working directory is an empty directory of its own (`guestSessionDir`), the permission mode is `default`,
+  so it neither reads the workspace, the worktrees, the attachments, the git history or the owner's
+  transcripts, nor shares a transcript with the owners' conversation. A permission request from it is
+  refused at once and never reaches the owner's inbox. It has no memory section, and an AI member's
+  message does not wake it. The other CLIs (Codex, Gemini, NanoGPT) cannot be limited this way, so a
+  guest conversation with an Operator on one of them is refused (`provider_unsupported`); the owners'
+  conversation is unaffected. `apps/server/test/operator-guests.test.ts` and `claude/args.test.ts` pin
+  the rendered settings and arguments.
+- **Who sees the sessions.** The Operator's sessions (REST, the websocket, the terminal, the member
+  profile) are visible to owners and admins only (`canSeeOperatorSessions`). Raw terminal input into
+  the Operator's session is the owner's alone: an admin may watch, not type.
+- One guest conversation runs at a time and closes after five idle minutes; the owners' one is
+  outside that capacity.
+
 ## Automatic command decisions
+
+### Merge-fix worktrees (PM-471)
+
+The nominated merger can receive a writable `merge-fix/<KEY>` worktree without a
+file-changing duty (`files: []` and `DEVELOPMENT_SHELL_TOOLS`). This exception applies
+only while the card's merge is `fixing`, on the card's engine, in `task_worktree` mode.
+The placement and current member must match the recorded fixer and branch.
+
+`git merge <fix.base>` is automatically allowed only with the exact recorded commit
+SHA. For Codex, this executes outside its sandbox like the other routine developer
+steps, with the server user's rights and the repository's hooks and configuration.
+
+The owner decided that mechanical conflict fixes may enter the default branch without
+a separate code review of the fix commit. The resolution note and ancestry checks
+record the explanation and require the approved commit and conflict base to be present;
+they do not restrict the contents of the fix commit. Behavioral conflicts must be sent
+back to the developer with a reason.
 
 PM-126 has not certified a strict agent boundary. Its revised [verification procedure](SANDBOX-PROBE.md)
 separates shell isolation, built-in file-tool permissions and trusted runner hooks/MCP. The
@@ -304,7 +436,8 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   `gh pr merge` where the repository has no GitHub; the built-in file tools may not read or change
   the user's credential files (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.gemini`, `~/.npmrc`; the rest of `~/.claude` stays open: saved tool outputs and
+  `~/.codex`, `~/.gemini`, `~/.npmrc`, `~/.aws`, `~/.cloudflared` (the owner's AWS and Cloudflare
+  logins, PM-533); the rest of `~/.claude` stays open: saved tool outputs and
   the plan mode's plan file are there) and the sensitive parts of the app home (database, cookie
   secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
   `providers`); `WebFetch` may not reach
@@ -525,6 +658,78 @@ path it cannot use); a session that is already running gets the rule at its next
 reader's file tools still read the user's home and the other PM-339 folders (PM-425); Codex on the
 PM-339 base still reads what its profile opens (PM-360); NanoGPT members (PM-365) and Gemini (no OS
 sandbox) are not covered by the sandbox rules.
+
+## The feedback tool's public API (PM-506, PM-509)
+
+The tool is a script (`/feedback/widget.js`) that runs on a customer's page and calls
+`/feedback/api/v1` across origins. It is the one surface of the server that a page of another
+site may call, so it has its own guard instead of the `/api` one (cookies and CSRF origin checks
+do not apply: nothing here uses a cookie).
+
+- **Entry.** The app gives a person a single-use launch code (two minutes, 256 bits, kept as a
+  SHA-256 hash, bound to the person, the project and the surface). The page swaps it for a session
+  with `POST /sessions`. A code is used up by the first attempt that names it, also when the
+  `Origin` is wrong. Every refusal is the same `401 feedback_code_invalid`, so nothing tells a
+  guess from an expired or foreign code. Wrong attempts are counted per client address (10 in 15
+  minutes, then `429`; the address comes from `PROJECTMAN_CLIENT_IP_HEADER`, as for the login).
+- **The session token** is 256 random bits, returned once, stored only as a hash. The widget keeps
+  it in the page's `localStorage` and sends it as `Authorization: Bearer`.
+- **Risk: XSS on the customer's site.** Script on the page (the site's own or an injected one) can
+  read that token and act as the person until it ends. The token is therefore narrow: one person,
+  one project, one surface (one site address), only marking and reading. It cannot reach
+  anything a person sees in the app: the widget API leaves out a mark's environment, its
+  screenshot, the reason of a forward and `canProcess` (always false), and shows only the marks
+  of the session's own surface. Internal cards stay hidden as in the app (`visible: false`).
+- **Origin.** Every request (also a refused one) needs an `Origin` that is the address of some
+  project's surface, else `403 feedback_origin_not_allowed` with no CORS header. A session works
+  only from the address it was made for. `Access-Control-Allow-Credentials` is never sent;
+  answers are `no-store` and vary on `Origin`. The check and the session check run in an
+  `onRequest` hook, before the body is read, so an unauthorised request cannot make the server
+  take a 3 MiB body.
+- **Revocation.** The session is checked on every request, not trusted from its issue: it ends at
+  once when the person signs it out (`DELETE /sessions/current`), an owner or admin signs the
+  person out of the tool (`Kiléptetem`) or switches the person's "may mark" off, the person is
+  removed or becomes a viewer, or the surface is changed or deleted. It expires after 30 days
+  without use and 90 days in any case. Every failure is `401 feedback_session_invalid`. These
+  endings are for good: every change of the project's configuration revokes the sessions whose
+  person may no longer mark or whose surface is gone or has another address (and the first request
+  after a missed change does too), so a handle that is given to someone else later, or a switch that
+  is turned on again, does not bring an old token back; the person needs a new code. A configuration
+  that cannot be read only refuses that request.
+- **Limits.** Per session and hour: 30 marks, 120 comments (in memory, so a server restart
+  resets them); per project and day: 500 marks (counted from the database). Over a limit: `429`
+  with `Retry-After`. Request bodies: 3 MiB for a mark (screenshot), 64 KiB for everything else.
+  A screenshot is checked by its content (a real PNG or JPEG of bounded size), not by its label.
+- **Remaining risks.** A stolen token works until it ends (up to 30 days idle) from the same site
+  address; there is no per-device binding. A page can send an `Origin` only from a browser, so a
+  script off the browser (curl) with a stolen token can send any `Origin` it likes: the token,
+  not the `Origin`, is the credential there. The in-memory hourly limits are per server process.
+
+## Files the server puts into a session folder (PM-518, PM-523)
+
+`SessionFolders.materializeFile` (`engine-host/session-folders.ts`; the local and every remote
+engine run it) copies a message attachment into the session's own folder, as the server's user,
+outside the agent's sandbox. The agent writes inside its folder, so the folder's contents are
+hostile input. The boundary:
+
+- The target is `<folder>/<name>`, directly in the folder the registry recorded for the session. There
+  is no subdirectory: a directory inside the folder could be renamed away and replaced by a link
+  between the server's check and its use, and the server would then write and remove through the link
+  (PM-523: a `LaunchAgents` plist or any file the sandbox forbids, and any file deleted).
+- The folder itself is made in the folders root, which no sandbox writes, so the agent cannot rename
+  or replace it. It is checked once (a real directory of the server's user) and its path is never
+  re-resolved from a name the agent controls, other than the last element.
+- The last element is safe by itself: `link` fails for an existing name and never follows a link. A
+  name that is not the same file is renamed into the root as a `.trash-*` entry and removed there, so
+  a link or a directory the agent keeps changing is moved as itself, never walked in its place. No
+  recursive removal runs on a path in the agent's folder. The "same file" check opens the name with
+  `O_NOFOLLOW|O_NONBLOCK`, takes `fstat` of that descriptor (a regular file of the expected size) and
+  reads at most `size + 1` bytes through it, so a FIFO, a link to a device or a file that keeps
+  growing cannot stop or stretch the server's read.
+- The content is staged in the root, checked against the size and checksum, and hard-linked in, so
+  the agent never sees a half-written file and the file is made exclusively (0600).
+- What this does not cover: the agent can delete or replace the file after the call, and it can
+  fill the folder; both stay inside its own folder.
 
 ## Findings
 
@@ -805,6 +1010,9 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
    every repository and are never put into text, notes or messages. The Cloudflare account has a
    passkey or hardware key.
 
+7. The marking widget has its own hostname on the same tunnel, outside Access (PM-513, next
+   subsection).
+
 **Residual risks** (known when the owner chose this entrance, PM-200; they do not go away):
 
 - **Cloudflare sees all traffic in clear.** TLS ends at its edge, so it can read the terminal
@@ -826,3 +1034,39 @@ frame-ancestors 'none'`) for uploads shown inline: a Set rule would replace it a
 - A mistake in the Access policy (a wildcard rule, an extra policy) opens the second lock; the
   login and the origin and attempt limits are then the only barrier. Re-read the policy after
   every change and rerun `check.sh`.
+
+### The widget's public hostname (PM-506, PM-513)
+
+The marking widget runs on a customer's page, so it cannot pass Access. It gets **a hostname of
+its own on the same tunnel with no Access application** (setup: [DEPLOY.md](DEPLOY.md) step 7).
+The Access application of the application's hostname is not weakened and no Bypass policy is
+added. What is reachable without Access is exactly `/feedback/widget.js` and `/feedback/api/v1/*`;
+their session, origin and limit rules are in "The feedback tool's public API".
+
+1. **The tunnel passes only `^/feedback/`** on that hostname, and answers 404 to the rest of it
+   (`deploy/cloudflare/config.example.yml`). Like the application's rules it has no
+   `httpHostHeader`.
+2. **The server's host guard is the second lock** (`src/http/feedback-host-guard.ts`, registered
+   as the first `onRequest` hook, before the auth hook). It is on when
+   `PROJECTMAN_FEEDBACK_PUBLIC_URL` is set to a non-loopback address. For a request whose `Host`
+   (lower-case, with its port, without a trailing dot) is that address, anything outside the
+   list gets the same 404 an unknown server route gets, so a wrong or missing tunnel rule does
+   not expose `/api`, `/ws`, `/hooks`, `/mcp` or the web app there. A websocket upgrade is
+   refused and its socket closed.
+3. **The list is strict and read from the raw request target**, the text before the `?`, with no
+   decoding and no normalization: exactly `/feedback/widget.js`, or `/feedback/api/v1/` followed by
+   segments of `[A-Za-z0-9_-]` separated by single `/`. `..`, `.`, `%`-encoding, `\`, `//`, a
+   trailing `/` and other letter case are all outside it. The reason is that Cloudflare's
+   `^/feedback/` rule passes `/feedback/../api/setup` on, and a router may read such a path
+   differently from the way the proxy did. `app.inject` normalizes URLs, so the tests write the
+   raw request to a socket.
+4. **A wrong `PROJECTMAN_FEEDBACK_PUBLIC_URL` stops the server at start**: `https` is required
+   (`http` only on a loopback host), and no user name, path, query or `#`.
+5. The guard keys on the `Host` header, so it guards the tunnel's traffic, not local callers: a
+   process on the machine can send any `Host` to the loopback port, and it is already the machine's
+   own user. Requests for the application's hostname are not changed by the guard.
+
+**Residual risks.** The guard protects the public hostname, not the application's hostname: if the
+tunnel's rules for the application's hostname were lost, Access would still be the lock there, as
+before. The widget's token on the customer's page is the risk described in "The feedback tool's
+public API" (XSS on that site). Cloudflare sees this traffic in clear like the rest.

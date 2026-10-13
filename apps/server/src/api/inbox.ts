@@ -19,6 +19,11 @@ const InboxQuery = z.object({
 });
 
 export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void {
+  app.post<ItemParams>(routes.checkOutage(':key', ':itemId'), async (request) => {
+    const { key, itemId } = request.params;
+    const access = await requireAccess(domain, request, key, { internal: true });
+    return domain.outages.checkNow(key, itemId, access);
+  });
   app.get<ProjectParams>(routes.inbox(':key'), async (request): Promise<InboxView> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key);
@@ -28,7 +33,7 @@ export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void 
     const items = domain.inbox
       .list(key, { state, kind: query.kind, limit: 500 })
       .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)));
-    return { items };
+    return { items: await domain.inbox.withAskerStart(key, items) };
   });
 
   /** Assignees resolve items; owners may also answer permission requests and questions. */

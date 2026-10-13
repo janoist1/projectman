@@ -17,6 +17,43 @@ import {
 } from '../src/domain';
 
 describe('role session policy', () => {
+  it('allows only the pinned base merge and routine commits in a nominated merge-fix session', () => {
+    const base = 'a'.repeat(40);
+    const task = {
+      repo: 'web',
+      merge: {
+        id: 'm',
+        repo: 'web',
+        base: 'main',
+        merger: 'lead',
+        toStageId: 'done',
+        requestedAt: 'now',
+        state: 'fixing' as const,
+        landed: 'nowhere' as const,
+        fix: { by: 'lead', base, branch: 'merge-fix/AR-1', startedAt: 'now' },
+      },
+    };
+    const session = {
+      cwd: '/worktrees/AR/AR-1-web-merge-fix',
+      role: 'lead_developer',
+      member: 'lead',
+      branch: task.merge.fix.branch,
+    };
+    const verdict = (command: string, member = 'lead') =>
+      commandVerdict({
+        config: testConfig(),
+        session: { ...session, member },
+        task,
+        worktreesRootDir: '/worktrees',
+        toolName: 'Bash',
+        toolInput: { command },
+      });
+    expect(verdict(`git merge ${base}`)).toEqual({ behavior: 'allow' });
+    expect(verdict('git add -A && git commit -m "Resolve imports"')).toEqual({ behavior: 'allow' });
+    expect(verdict('git merge main')).toBeNull();
+    expect(verdict(`git merge ${'b'.repeat(40)}`)).toBeNull();
+    expect(verdict(`git merge ${base}`, 'other')).toBeNull();
+  });
   // The built-in duty bundles: no overrides and no custom roles.
   const team = testConfig();
 

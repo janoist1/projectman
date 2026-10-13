@@ -397,7 +397,8 @@ export class SessionManager implements SessionRunner {
         if (!(await cliExists(adapter.bin, env.PATH))) {
           return {
             provider,
-            loggedIn: null,
+            loggedIn: false,
+            problem: 'cli_missing',
             method: null,
             checkedAt: new Date().toISOString(),
             detail: `${adapter.label} CLI not found: ${adapter.bin}`,

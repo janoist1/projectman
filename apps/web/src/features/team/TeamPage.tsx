@@ -48,6 +48,7 @@ type TeamDialog =
 
 const statusRank: Record<string, number> = {
   needs_you: 0,
+  cannot_work: 1,
   waiting_for_human: 1,
   working: 2,
   paused: 2,

@@ -14,6 +14,7 @@ import type {
   ProjectConfig,
   Session,
   Task,
+  WorkOutage,
   TaskPriority,
   TaskDetail,
   TaskFixLimit,
@@ -60,7 +61,7 @@ import { planDeveloperLevel } from './developer-level';
 import type { DeveloperLevelChange } from './developer-level';
 import { labelsChange, planLabelsOrThrow, TaskLabels } from './labels';
 import { approvalRequestedError, gateBlockedError, TaskMoves } from './moves';
-import type { Handover, MoveOptions, MoveResult, SourceHeadReader } from './moves';
+import type { MoveOptions, MoveResult, PreparedMove, SourceHeadReader } from './moves';
 import { SUBTASK_PARENT_REFUSALS, TaskRelations } from './relations';
 import { requireStage, runEffects, TaskStore } from './store';
 import type { Effect, StartWaitingReader } from './store';
@@ -124,6 +125,9 @@ export interface TaskUpdate {
  * attributed to an Actor in the timeline.
  */
 export class TaskService {
+  useMerges(merges: import('../merges').Merges): void {
+    this.moves.useMerges(merges);
+  }
   private readonly ctx: DomainContext;
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
@@ -144,8 +148,10 @@ export class TaskService {
     inbox: InboxService;
     /** Why a task's AI work waits, shown on the task. */
     startWaiting: StartWaitingReader;
+    outageOf?: (task: Task) => WorkOutage | undefined;
     /** The head of the developer's branch, read when a task is handed over for review (PM-183). */
     sourceHead: SourceHeadReader;
+    notifyHandOn: (config: ProjectConfig, task: Task, handOn: NonNullable<Task['handOn']>) => Promise<void>;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
     /**
@@ -167,6 +173,7 @@ export class TaskService {
       inbox: deps.inbox,
       sourceHead: deps.sourceHead,
       order: this.order,
+      notifyHandOn: deps.notifyHandOn,
     });
     this.group = new BoardGroupMove({ store: this.store, moves: this.moves, order: this.order });
     this.themes = new TaskThemes(this.store);
@@ -378,11 +385,28 @@ export class TaskService {
         ? await this.requireLifecycleAccess(projectKey, actor)
         : await this.projects.config(projectKey);
     const effects: Effect[] = [];
-    // A move into a review or test stage hands the branch over (PM-183): read before the write.
-    const handover =
-      change.stageId !== undefined
-        ? await this.moves.prepareHandover(config, this.get(projectKey, taskKey), change.stageId)
-        : null;
+    // A move into a review or test stage hands the branch over (PM-183), and one that needs a merge checks
+    // it (PM-484): read before the write, as the card will be once the labels of this change are on it.
+    let prepared: PreparedMove = { handover: null, mergeChecked: false };
+    if (change.stageId !== undefined) {
+      const current = this.get(projectKey, taskKey);
+      const wanted = change.labels
+        ? unique(change.labels.map((label) => label.trim()).filter(Boolean))
+        : unique([
+            ...current.labels.filter((label) => !change.removeLabels?.includes(label)),
+            ...(change.addLabels ?? []),
+          ]);
+      prepared = await this.moves.prepareMove(
+        config,
+        {
+          ...current,
+          labels: wanted,
+          ...(change.repo !== undefined ? { repo: change.repo } : {}),
+          ...(change.assignee !== undefined ? { assignee: change.assignee } : {}),
+        },
+        change.stageId,
+      );
+    }
     const result = this.ctx.unitOfWork(() =>
       this.applyUpdate(
         config,
@@ -391,11 +415,11 @@ export class TaskService {
         actor,
         opts.sessionId ?? null,
         effects,
-        handover,
+        prepared,
       ),
     );
     await runEffects(effects);
-    if (result.pendingApproval) throw approvalRequestedError(result.pendingApproval);
+    if (result.pendingApproval?.length) throw approvalRequestedError(result.pendingApproval);
     return result.handoffStart ? { ...result.task, handoffStart: result.handoffStart } : result.task;
   }
 
@@ -422,7 +446,9 @@ export class TaskService {
     if (entering && req.withSubtasks && this.group.along(config, seen).length > 0)
       return this.moveGroupOnBoard(config, seen, target, req, actor);
     // A move into a review or test stage hands the branch over (PM-183): read before the write.
-    const handover = entering ? await this.moves.prepareHandover(config, seen, target.id) : null;
+    const prepared: PreparedMove = entering
+      ? await this.moves.prepareMove(config, seen, target.id)
+      : { handover: null, mergeChecked: false };
     const effects: Effect[] = [];
     const result = this.ctx.unitOfWork((): { board: BoardMoveResult; pending?: InboxItem[] } => {
       const task = this.requireDroppable(projectKey, taskKey, req);
@@ -437,7 +463,7 @@ export class TaskService {
       }
       if (!chronological) this.order.requireCurrent(config, task, req.columnId, req.placement);
       const moved = this.moves.move(config, task, target.id, actor, effects, {
-        handover,
+        ...prepared,
         despitePrerequisites: req.despitePrerequisites,
         placement: req.placement,
       });
@@ -501,7 +527,7 @@ export class TaskService {
     actor: Actor,
     sessionId: string | null,
     effects: Effect[],
-    handover: Handover | null,
+    prepared: PreparedMove,
   ): { task: Task; pendingApproval?: InboxItem[]; handoffStart?: HandoffStart | undefined } {
     // A theme does not move, have an assignee or a repository (PM-192).
     if (isTheme(task)) {
@@ -713,7 +739,7 @@ export class TaskService {
     if (note && !labelsChanged) this.store.recordNote(config, next, note, actor, sessionId, effects);
     if (!moving) return { task: next, handoffStart };
     const moved = this.moves.move(config, next, change.stageId!, actor, effects, {
-      handover,
+      ...prepared,
       despitePrerequisites: change.despitePrerequisites,
     });
     return moved.moved
@@ -823,7 +849,11 @@ export class TaskService {
     effects: Effect[],
   ): Task {
     const at = isoNow(this.ctx);
-    const cancelled = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+    this.moves.cancelMerge(task.projectKey, task.key, effects);
+    this.moves.clearHandOn(task);
+    const cancelled = this.store.view(
+      this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at }),
+    );
     this.timeline.append({
       projectKey: task.projectKey,
       taskKey: task.key,
@@ -854,18 +884,35 @@ export class TaskService {
       const task = this.get(projectKey, taskKey);
       if (!isTheme(task)) throw conflict('task_not_theme', `${taskKey} is not a theme: cancel it instead`);
       if (!isOpenTask(task)) throw conflict('task_closed', `theme ${taskKey} is closed already`);
-      const at = isoNow(this.ctx);
-      const closed = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
-      this.timeline.append({
-        projectKey,
-        taskKey,
-        actor,
-        type: 'task_updated',
-        data: { fields: ['status', 'closedAt'], action: 'closed', previousStatus: task.status },
-      });
-      this.publish(closed);
-      return closed;
+      return this.writeThemeClosed(task, actor);
     });
+  }
+
+  /**
+   * Closes a theme on the system's behalf, inside the caller's unit of work (PM-491, the release card;
+   * the architect's decision): no person is asked, so only the domain calls it. The theme ends as
+   * `cancelled`, like `closeTheme`, so that it can be reopened; a theme that is closed already is
+   * returned as it is.
+   */
+  closeThemeBySystem(projectKey: string, taskKey: string, actor: Actor): Task {
+    const task = this.get(projectKey, taskKey);
+    if (!isTheme(task)) throw conflict('task_not_theme', `${taskKey} is not a theme: cancel it instead`);
+    if (!isOpenTask(task)) return task;
+    return this.writeThemeClosed(task, actor);
+  }
+
+  private writeThemeClosed(task: Task, actor: Actor): Task {
+    const at = isoNow(this.ctx);
+    const closed = this.store.write(task, { status: 'cancelled', closedAt: at, updatedAt: at });
+    this.timeline.append({
+      projectKey: task.projectKey,
+      taskKey: task.key,
+      actor,
+      type: 'task_updated',
+      data: { fields: ['status', 'closedAt'], action: 'closed', previousStatus: task.status },
+    });
+    this.publish(closed);
+    return closed;
   }
 
   /**
@@ -918,7 +965,7 @@ export class TaskService {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'pulled'>,
+    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled'>,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }
@@ -931,6 +978,10 @@ export class TaskService {
   /** Handler for resolved `decision` items: completes (or drops) the requested stage move. */
   handleDecisionResolved(item: InboxItem): Promise<void> {
     return this.moves.handleDecisionResolved(item);
+  }
+
+  reconcileHandOns(config: ProjectConfig): Promise<void> {
+    return this.moves.reconcileHandOns(config);
   }
 
   /** Adds and removes labels under the project's label rules (see TaskLabels). */

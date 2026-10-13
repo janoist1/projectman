@@ -9,6 +9,10 @@
     "scripts",
     "../../scripts/migrate",
     "../../scripts/control",
-    "../../scripts/heavy"
+    "../../scripts/heavy",
+    "../../scripts/merge-test",
+    "../../scripts/full-test",
+    "../../scripts/live",
+    "../../scripts/cloud"
   ]
 }

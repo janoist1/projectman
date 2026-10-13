@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isOperatorActor } from '../config/operator-member';
 import { isProjectManagerActor } from '../config/project-manager';
 import type { ProjectConfig } from '../config/schema';
 import { TaskDeveloperLevel } from './developer-level';
@@ -7,9 +8,11 @@ import type { Actor } from './event';
 import { FullTestErrorReason, FullTestStatus } from './full-test';
 import { TaskHandoff, TaskHandoffRef } from './handoff';
 import { LabelId } from './label';
+import { TaskMergeState, TaskMerged } from './merge';
 import { AgentProvider, MemberHandle } from './member';
 import type { HumanAccess } from './member';
 import { StageId } from './pipeline';
+import { WorkOutage } from './outage';
 
 /** Human-friendly task key: project key + sequence number, e.g. "AR-21". */
 export const TaskKey = z.string().regex(/^[A-Z][A-Z0-9]{0,9}-\d+$/);
@@ -23,12 +26,14 @@ export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;
 
-/** People and the team's project manager (PM-433) may set or clear a card's priority; no other AI member. */
+/** People, the team's project manager (PM-433) and its Operator (PM-447) may set or clear a card's priority; no other AI member. */
 export function priorityRefusal(
   actor: Pick<Actor, 'kind' | 'handle'>,
   config: Pick<ProjectConfig, 'team'>,
 ): 'priority_humans_only' | null {
-  return actor.kind === 'human' || isProjectManagerActor(config, actor) ? null : 'priority_humans_only';
+  return actor.kind === 'human' || isProjectManagerActor(config, actor) || isOperatorActor(config, actor)
+    ? null
+    : 'priority_humans_only';
 }
 
 /**
@@ -63,6 +68,26 @@ export type TaskLink = z.infer<typeof TaskLink>;
 /** Internal tasks are hidden from client members; shared ones appear in the client view. */
 export const Visibility = z.enum(['internal', 'shared']);
 export type Visibility = z.infer<typeof Visibility>;
+
+/**
+ * What takes one of an AI member's places (PM-297): one task (however many sessions work on it) or
+ * one other running session. The set is exactly what the server counts as the member's load.
+ */
+export const CapacityHolder = z.object({
+  /** The kind of work of the session. */
+  kind: z.enum(['task', 'general', 'schedule', 'meeting']),
+  /** `task` only; left out for a viewer who cannot see the card. */
+  taskKey: TaskKey.optional(),
+  /** The latest active session; it points to the session's page. Left out for a client viewer. */
+  sessionId: z.string().optional(),
+  /** Works now: an engaged session state, or its first turn has not begun yet. */
+  working: z.boolean(),
+  /** ISO; for a task, the earliest start of its sessions. */
+  startedAt: z.string(),
+  /** ISO; the latest. When it does not work, this plus `closeAfterMinutes` is when it closes. */
+  lastActivityAt: z.string(),
+});
+export type CapacityHolder = z.infer<typeof CapacityHolder>;
 
 export const TaskStartWaiting = z.object({
   /**
@@ -127,6 +152,12 @@ export const TaskStartWaiting = z.object({
   until: z.string().optional(),
   /** Admission threshold, rather than current usage. */
   threshold: z.number().optional(),
+  /** `member_at_capacity`, filled in when read (never stored): what holds the member's places. */
+  holders: z.array(CapacityHolder).optional(),
+  /** `member_at_capacity`: the member's capacity. */
+  capacity: z.number().int().positive().optional(),
+  /** `member_at_capacity`: `SESSION_IDLE_CLOSE_MINUTES`, after which a silent session closes. */
+  closeAfterMinutes: z.number().int().positive().optional(),
   since: z.string(),
 });
 export type TaskStartWaiting = z.infer<typeof TaskStartWaiting>;
@@ -204,7 +235,18 @@ export type TaskFixLimit = z.infer<typeof TaskFixLimit>;
 export const TaskKind = z.enum(['task', 'theme']);
 export type TaskKind = z.infer<typeof TaskKind>;
 
+export const TaskHandOn = z.object({
+  fromStageId: StageId,
+  toStageId: StageId,
+  mover: MemberHandle,
+  requestedBy: MemberHandle,
+  requestedAt: z.string(),
+  inboxItemId: z.string().nullable(),
+});
+export type TaskHandOn = z.infer<typeof TaskHandOn>;
+
 export const Task = z.object({
+  handOn: TaskHandOn.optional(),
   /** Absent: `task`. */
   kind: TaskKind.optional(),
   /**
@@ -218,7 +260,10 @@ export const Task = z.object({
   /** The developer the card is recommended for (PM-347); absent: no recommendation, which counts as `any`. */
   developerLevel: TaskDeveloperLevel.optional(),
   startWaiting: TaskStartWaiting.optional(),
+  outage: WorkOutage.optional(),
   reviewPin: TaskReviewPin.optional(),
+  merge: TaskMergeState.optional(),
+  merged: TaskMerged.optional(),
   /** The loop open on the card (PM-261); absent when there is none. Hidden from clients. */
   loop: TaskLoop.optional(),
   /** The fix round limit that holds the card back (PM-262); absent when it is not held. Hidden from clients. */

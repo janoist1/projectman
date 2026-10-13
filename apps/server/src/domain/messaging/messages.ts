@@ -1,13 +1,17 @@
 import {
+  isOperator,
   isProjectManager,
   isUnreadBy,
   memberOf,
   messageRoute,
+  operatorConversationOf,
   sameWorkItem,
   threadPeersOf,
 } from '@projectman/shared';
 import type {
   Actor,
+  AnswerDelivery,
+  MessageAttachmentRef,
   ProjectConfig,
   TeamMessage,
   TeamMessageAnswer,
@@ -15,12 +19,13 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { isoNow } from '../context';
-import { wakesFor } from './staleness';
+import { wakeFactsFor, wakesFor } from './staleness';
 import type { DomainContext } from '../context';
+import type { OperatorRequests } from '../operator-requests';
 import type { TimelineService } from '../timeline';
 import type { ProjectService } from '../projects';
 import { forbidden, notFound } from '../errors';
-import { excerpt, newId } from '../util';
+import { excerpt, newId, SYSTEM_ACTOR } from '../util';
 
 export interface RecordMessageInput {
   id?: string;
@@ -41,7 +46,13 @@ export interface RecordMessageInput {
   routes?: Record<string, WorkItemRef>;
   /** Set on the message that carries a person's answer to an AI member's question (PM-249). */
   answer?: TeamMessageAnswer;
+  relayed?: TeamMessage['relayed'];
   origin?: TeamMessage['origin'];
+  /** The Operator's request this message was sent during (PM-463). */
+  operatorRequest?: string;
+  operatorSignal?: string;
+  /** The files the message carries (PM-516), already bound to it by `MessageAttachmentService.bindForSend`. */
+  attachments?: MessageAttachmentRef[];
 }
 
 /**
@@ -54,10 +65,18 @@ export class MessageService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
 
-  constructor(deps: { ctx: DomainContext; timeline: TimelineService; projects: ProjectService }) {
+  private readonly operatorRequests: OperatorRequests;
+
+  constructor(deps: {
+    ctx: DomainContext;
+    timeline: TimelineService;
+    projects: ProjectService;
+    operatorRequests: OperatorRequests;
+  }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;
     this.projects = deps.projects;
+    this.operatorRequests = deps.operatorRequests;
   }
 
   get(id: string): TeamMessage | null {
@@ -90,8 +109,12 @@ export class MessageService {
         ...(input.routes?.[handle] ? { route: input.routes[handle] } : {}),
       })),
       ...(input.answer ? { answer: input.answer } : {}),
+      ...(input.relayed ? { relayed: input.relayed } : {}),
       ...(input.actor.via ? { via: input.actor.via } : {}),
       ...(input.origin ? { origin: input.origin } : {}),
+      ...(input.operatorRequest ? { operatorRequest: input.operatorRequest } : {}),
+      ...(input.operatorSignal ? { operatorSignal: input.operatorSignal } : {}),
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     };
     return this.ctx.unitOfWork(() => {
       this.ctx.repos.messages.insert(message);
@@ -106,7 +129,8 @@ export class MessageService {
           messageId: message.id,
           from: message.from,
           to: message.to,
-          excerpt: excerpt(message.body),
+          // A message of files alone is told by their names.
+          excerpt: excerpt(message.body || (message.attachments ?? []).map((a) => a.fileName).join(', ')),
           kind: message.kind,
           version: message.version,
         },
@@ -118,12 +142,17 @@ export class MessageService {
   /** Messages an AI recipient has not received yet for a work item (where `messageRoute` puts them), oldest first. */
   waiting(projectKey: string, handle: string, workItem: WorkItemRef): TeamMessage[] {
     const config = this.projects.cachedConfig(projectKey);
-    const allRoutes = workItem.type === 'general' && config && isProjectManager(memberOf(config, handle));
+    const recipient = config ? memberOf(config, handle) : undefined;
+    // The project manager has one conversation: every route lands in it. The Operator has one per person who is
+    // not an owner and one shared by the others (PM-475): a message lands in the one its route names.
+    const operator = workItem.type === 'general' && isOperator(recipient);
+    const allRoutes = workItem.type === 'general' && isProjectManager(recipient);
     // A task's session takes the messages routed to that task; any other chat takes everything not
     // routed to a task (general ones, and answers routed to a schedule run or meeting whose session ended).
     return this.ctx.repos.messages.pending(projectKey, handle).filter((m) => {
       if (allRoutes) return true;
       const route = messageRoute(m, handle);
+      if (operator) return (route.type === 'general' ? route.with : undefined) === workItem.with;
       return workItem.type === 'task' ? sameWorkItem(route, workItem) : route.type !== 'task';
     });
   }
@@ -143,8 +172,79 @@ export class MessageService {
     ).map((r) => (r.handle === handle && !r.deliveredAt ? { ...r, deliveredAt: at } : r));
     const deliveredAt = receipts.every((r) => r.deliveredAt) ? (before.deliveredAt ?? at) : null;
     const message = this.ctx.repos.messages.updateReceipts(id, receipts, deliveredAt);
-    if (message) this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+    if (message) {
+      this.ctx.bus.publish({ type: 'team_message', projectKey: message.projectKey, message });
+      const first = !before.receipts?.find((r) => r.handle === handle)?.deliveredAt;
+      if (first) {
+        this.openOperatorRequest(message, handle);
+        this.recordAnswerDelivery(message, handle, { state: 'delivered', at });
+      }
+    }
     return message;
+  }
+
+  /** Track only the asking recipient; a late deferral cannot overwrite a completed receipt. */
+  recordAnswerDelivery(message: TeamMessage, handle: string, delivery: AnswerDelivery): void {
+    if (message.origin?.kind !== 'answer') return;
+    const item = this.ctx.repos.inbox.get(message.origin.inboxItemId);
+    if (!item || item.kind !== 'question' || item.source !== handle || item.projectKey !== message.projectKey)
+      return;
+    const previous = item.payload.answerDelivery as AnswerDelivery | undefined;
+    if (delivery.state === 'waiting') {
+      const latest = this.ctx.repos.messages.get(message.id);
+      if (latest?.receipts?.find((r) => r.handle === handle)?.deliveredAt) return;
+      if (previous?.state === 'waiting' && previous.reason === delivery.reason) return;
+      if (previous?.state === 'waiting') delivery = { ...delivery, since: previous.since };
+    } else if (previous?.state === 'delivered') return;
+    const at = isoNow(this.ctx);
+    const updated = this.ctx.repos.inbox.updatePayload(
+      item.id,
+      { ...item.payload, answerDelivery: delivery },
+      at,
+    );
+    if (!updated) return;
+    this.ctx.bus.publish({ type: 'inbox_upserted', projectKey: item.projectKey, item: updated });
+    if (delivery.state === 'waiting' || previous?.state === 'waiting')
+      this.timeline.append({
+        projectKey: item.projectKey,
+        taskKey: item.taskKey,
+        sessionId: item.sessionId,
+        actor: SYSTEM_ACTOR,
+        type: 'question_answer_delivery',
+        data: {
+          inboxItemId: item.id,
+          asker: handle,
+          state: delivery.state,
+          ...(delivery.state === 'waiting' ? { reason: delivery.reason } : {}),
+        },
+      });
+  }
+
+  /**
+   * A person's message, or the owner's answer to the Operator's question, entered the Operator's session of
+   * their conversation: the Operator may act on it until its turn ends (PM-463); for a person who is not an
+   * owner it only reads and answers (PM-475). Anyone else's message (an AI member's, the system's) opens nothing.
+   */
+  private openOperatorRequest(message: TeamMessage, handle: string): void {
+    const config = this.projects.cachedConfig(message.projectKey);
+    if (!config || !isOperator(memberOf(config, handle))) return;
+    const facts = wakeFactsFor(this.ctx, config, message, handle);
+    if (!facts.fromHuman || !facts.fromOwnLogin) return;
+    const session = this.ctx.repos.sessions.findByWorkItem(
+      message.projectKey,
+      handle,
+      operatorConversationOf(config, message.from),
+    );
+    if (!session) return;
+    this.operatorRequests.open({
+      projectKey: message.projectKey,
+      sessionId: session.id,
+      source: message.answer ? 'answer' : 'message',
+      messageId: message.id,
+      inboxItemId: message.answer?.inboxItemId ?? null,
+      from: message.from,
+      text: message.answer?.answer ?? message.body,
+    });
   }
 
   /**

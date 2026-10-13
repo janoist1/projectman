@@ -15,6 +15,56 @@ function errorCode(response: { body?: unknown }) {
   return (response.body as { error: { code: string } }).error.code;
 }
 
+/** The card's work is on the main branch already: a move to the release is not refused for want of the merge. */
+function markMerged(backend: MockBackend, taskKey: string) {
+  const task = backend.findTask(taskKey)!;
+  task.merged = {
+    via: 'tool',
+    mergeCommit: 'c'.repeat(40),
+    commit: 'a'.repeat(40),
+    repo: task.repo ?? 'webshop',
+    base: 'main',
+    at: new Date().toISOString(),
+  };
+}
+
+describe('mock merger setting', () => {
+  it('stores the merger and the per-repository merge setting like the server', () => {
+    const backend = new MockBackend();
+    const repo = backend.config.project.repos[0]!;
+    const saved = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      merger: { kind: 'developer' },
+      repoMerge: [{ repo: repo.name, requireMerge: false }],
+    });
+    expect(saved.status).toBe(200);
+    expect(backend.config.team.merger).toEqual({ kind: 'developer' });
+    expect(backend.config.project.repos[0]?.requireMerge).toBe(false);
+  });
+
+  it('refuses a repository the project does not have', () => {
+    const backend = new MockBackend();
+    const refused = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      repoMerge: [{ repo: 'no-such-repo', requireMerge: true }],
+    });
+    expect(refused.status).toBe(400);
+    expect(errorCode(refused)).toBe('unknown_repo');
+  });
+
+  it('stores and clears the project documents of a repository, and refuses an unknown repository', () => {
+    const backend = new MockBackend();
+    const repo = backend.config.project.repos[0]!;
+    const patch = (repoDocs: unknown) =>
+      backend.handle('PATCH', `${base}/config`, { baseVersion: backend.configVersion, repoDocs });
+    expect(patch([{ repo: repo.name, docs: { decisions: 'docs/D.md' } }]).status).toBe(200);
+    expect(backend.config.project.repos[0]?.docs).toEqual({ decisions: 'docs/D.md' });
+    expect(errorCode(patch([{ repo: 'no-such-repo', docs: null }]))).toBe('unknown_repo');
+    expect(patch([{ repo: repo.name, docs: null }]).status).toBe(200);
+    expect(backend.config.project.repos[0]).not.toHaveProperty('docs');
+  });
+});
+
 describe('mock configuration error tolerance', () => {
   it('saves unrelated edits with existing errors and reports only additional errors', () => {
     const backend = new MockBackend();
@@ -209,6 +259,7 @@ describe('mock task updates', () => {
         (item) => item.taskKey === 'AC-28' && item.kind === 'decision' && item.state === 'open',
       );
     backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
+    markMerged(backend, 'AC-28');
     for (const title of ['Fictional shipping fee', 'Fictional shipping fee v2'])
       expect(backend.handle('PATCH', `${base}/tasks/AC-28`, { title, stageId: 'release' })).toMatchObject({
         status: 409,
@@ -228,6 +279,7 @@ describe('mock task updates', () => {
   ] as const)('changes nothing when nobody may give the approval: %s', (_case, code) => {
     const backend = new MockBackend();
     backend.handle('PATCH', `${base}/tasks/AC-28`, { stageId: 'merge' });
+    markMerged(backend, 'AC-28');
     backend.findTask('AC-28')!.links[0]!.author = 'owner';
     const approval = backend.config.pipeline.labels.find((label) => label.id === 'release-approved')!;
     if (code === 'release_four_eyes') backend.config.team.releaseFourEyes = true;

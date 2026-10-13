@@ -8,10 +8,13 @@ import {
   DEFAULT_AGENT_PROVIDER,
   LOCAL_ENGINE_ID,
   effectiveRepo,
+  isMergeFixer,
+  isMergeRunningFor,
   effectiveSessionPermissions,
   handoffBlocksStart,
   isOnLeave,
   isOpenTask,
+  isOperator,
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
@@ -62,6 +65,7 @@ import type {
   AttachmentOperations,
   CardRelation,
   CardWorker,
+  ContextFocus,
   ContextPackBuilder,
   HandoffTakeover,
   ManagedVmAttestation,
@@ -94,6 +98,7 @@ import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, DomainError, notFound, themeRefused } from './errors';
 import type { MemberService } from './members';
+import type { ProjectFocusService } from './project-focus';
 import type { ConfigChange, ProjectService } from './projects';
 import {
   allowedToolsFor,
@@ -103,6 +108,7 @@ import {
   sessionPolicyFor,
   DONE_TASK_CLEANUP_DELAY_MS,
   DONE_TASK_TURN_LIMIT_MS,
+  guestSessionDir,
   memberSandboxDir,
   sensitivePaths,
   sessionSandbox,
@@ -117,6 +123,7 @@ import { ProviderQuotaHolds } from './provider-quota-hold';
 import type { PlanUsageCache } from './plan-usage';
 import type { InboxService } from './inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
+import { MergeCardLock } from './merge-card-lock';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
@@ -228,9 +235,13 @@ function newConversationInput(brief: string | null, messages: string[]): string 
 }
 
 export interface SessionOrchestratorDeps {
+  mergeCards?: MergeCardLock;
+  onAuthError?: (projectKey: string, handle: string, provider: AgentProvider, engineId: EngineId) => void;
   ctx: DomainContext;
   projects: ProjectService;
   tasks: TaskService;
+  /** The project's focus (PM-437), named in the kick-off brief. */
+  projectFocus: Pick<ProjectFocusService, 'get' | 'places'>;
   members: MemberService;
   timeline: TimelineService;
   runner: SessionRunner;
@@ -394,6 +405,7 @@ export class SessionOrchestrator {
 
   private readonly ctx: DomainContext;
   private readonly locks = new KeyedMutex();
+  private readonly mergeCards: MergeCardLock;
   private readonly tokens = new Map<string, ToolContext>();
   private readonly tokenBySession = new Map<string, string>();
   /** Egress proxy credentials of live sessions (managed VM): token -> session. */
@@ -423,6 +435,8 @@ export class SessionOrchestrator {
   private readonly awaitingFirstTurn = new Set<string>();
   /** The permission mode each session's current process runs in (PM-170): another one restarts it. */
   private readonly processModes = new Map<string, string | undefined>();
+  /** The dedicated merge-fix placement granted to each current process. */
+  private readonly processMergeFixes = new Map<string, { branch: string; cwd: string }>();
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
   private readonly processGrants = new Map<string, number>();
   /**
@@ -446,7 +460,10 @@ export class SessionOrchestrator {
   private readonly unsubscribe: () => void;
   private readonly providerHolds = new ProviderQuotaHolds();
   private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
-  private quotaResume: ((session: Session, stageId: string) => Promise<void>) | undefined;
+  private quotaResume:
+    ((session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>) | undefined;
+  /** Sessions whose CLI reported a lost login, and of which provider, until they end (PM-467). */
+  private readonly lostLogins = new Map<string, AgentProvider>();
   private quotaProbe: Promise<PlanUsage | null> | null = null;
   /** The member workspaces (PM-138) of each engine that has them, made when first used. */
   private readonly workspaceSets = new Map<
@@ -455,6 +472,7 @@ export class SessionOrchestrator {
   >();
 
   constructor(deps: SessionOrchestratorDeps) {
+    this.mergeCards = deps.mergeCards ?? new MergeCardLock();
     this.deps = deps;
     this.ctx = deps.ctx;
     this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
@@ -543,7 +561,7 @@ export class SessionOrchestrator {
 
   useQuotaRecovery(
     usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
-    resume: (session: Session, stageId: string) => Promise<void>,
+    resume: (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>,
   ): void {
     this.quotaUsage = usage;
     this.quotaResume = resume;
@@ -640,6 +658,13 @@ export class SessionOrchestrator {
     return this.ctx.repos.sessions.list(projectKey, filter);
   }
 
+  /** Whether the session is the Operator's: only the owner and the admin see those (PM-475). */
+  isOperatorSession(sessionId: string): boolean {
+    const session = this.find(sessionId);
+    const config = session ? this.deps.projects.cachedConfig(session.projectKey) : null;
+    return !!session && !!config && isOperator(memberOf(config, session.member));
+  }
+
   isRunning(sessionId: string): boolean {
     try {
       return this.deps.runner.isRunning(sessionId);
@@ -691,18 +716,27 @@ export class SessionOrchestrator {
    * holds uncommitted work (PM-183): the member workspace's with member workspaces, else the task's
    * worktree. Null for a task without a repository or a branch, and when it cannot be read.
    */
-  async sourceHead(config: ProjectConfig, task: Task): Promise<SourceHead | null> {
+  async sourceHead(
+    config: ProjectConfig,
+    task: Task,
+    opts: { strict?: boolean } = {},
+  ): Promise<SourceHead | null> {
     const repoName = effectiveRepo(config, task);
     if (!repoName) return null;
     try {
       const engineId = this.cardEngineId(config.project.key, task);
       const engine = this.deps.engines.get(engineId);
-      if (!engine) return null;
+      if (!engine) {
+        if (opts.strict)
+          throw conflict('engine_offline', 'the card engine is not connected', { engine: engineId });
+        return null;
+      }
       const workspaces = this.workspacesOf(engineId);
       if (workspaces) return await workspaces.sourceHead(config, task);
       const found = await engine.worktrees.find({ project: config, repoName, taskKey: task.key });
       return found ? await engine.worktrees.head(found.path) : null;
     } catch (err) {
+      if (opts.strict) throw err;
       this.ctx.logger.warn({ err, taskKey: task.key }, 'could not read the head of the task branch');
       return null;
     }
@@ -1147,6 +1181,7 @@ export class SessionOrchestrator {
     this.watchInputWait(current);
     this.wakeForNewRound(current);
     if (current.state !== 'idle') return;
+    this.restartForMergeFix(current);
     if (current.permissionRestartPending) this.restartWhenIdle(current);
     if (this.ctx.repos.sessions.compaction(current.id).pending) this.compactWhenIdle(current);
   }
@@ -1596,7 +1631,19 @@ export class SessionOrchestrator {
     // The session's own permission settings, set by an owner, in place of the member's (PM-170):
     // a resume keeps them (same row), a new session has none. The member's stay as they are.
     const permissions = effectiveSessionPermissions(member, existing ?? {});
-    const permissionMode = permissions.permissionMode ?? member.permissionMode;
+    // The Operator's conversation with someone who is not an owner (PM-475) runs on the team tools
+    // alone: no file or shell tools, an empty directory of its own, and every other tool refused.
+    const guestOf = isOperator(member) && workItem.type === 'general' ? workItem.with : undefined;
+    // Only the Claude Code adapter can leave a CLI with the team tools alone (`--tools` and deny rules);
+    // the others keep their own shell and file tools, so a guest conversation fails closed on them.
+    if (guestOf !== undefined && provider !== 'claude')
+      throw conflict(
+        'provider_unsupported',
+        `the Operator's conversation with others needs Claude Code; ${provider} cannot be limited to the team tools`,
+        { provider },
+      );
+    const permissionMode =
+      guestOf !== undefined ? 'default' : (permissions.permissionMode ?? member.permissionMode);
     const acting: AiMemberConfig = { ...member, permissionMode, approver: permissions.approver };
     // The engine the session runs on (PM-311): every path, worktree and folder below is its. A start
     // is refused while it is not connected (admission makes it wait).
@@ -1633,7 +1680,28 @@ export class SessionOrchestrator {
     const repoName = effectiveRepo(config, task);
     let placed: WorktreeInfo | null = null;
     let ws: WorkspacePlacement | null = null;
-    if (task && repoName && workspaces?.kindFor(config, member, task)) {
+    const mergeFix = isMergeFixer(task?.merge, member.handle);
+    if (mergeFix && task && repoName) {
+      if (workspaces || vm || this.managed)
+        throw conflict('merge_fix_not_allowed', 'merge fixes require task worktree mode', {
+          reason: 'member_workspaces',
+        });
+      if (engineId !== this.cardEngineId(projectKey, task))
+        throw conflict('merge_fix_engine_mismatch', 'merge fix must run on the card engine');
+      placed = await this.mergeCards.run(projectKey, task.key, async () => {
+        const current = this.deps.tasks.get(projectKey, task.key);
+        if (!isMergeFixer(current.merge, member.handle))
+          throw conflict('merge_fix_not_allowed', 'the merge fix ended before placement');
+        return engine.worktrees.ensureMergeFix({
+          project: config,
+          repoName,
+          taskKey: task.key,
+          commit: current.merge!.commit!,
+        });
+      });
+      cwd = placed.path;
+      branch = placed.branch;
+    } else if (task && repoName && workspaces?.kindFor(config, member, task)) {
       // The member's own durable workspace (PM-138): reserved for this session, on the task's branch
       // or the handed-over commit under review.
       ws = await workspaces.prepare(config, member, task, sessionId);
@@ -1660,6 +1728,10 @@ export class SessionOrchestrator {
           reason: 'no_member_workspaces',
         });
       cwd = await engine.memberWorkspaces.home({ projectKey, member: member.handle });
+    } else if (guestOf !== undefined) {
+      // Its own empty directory: not the workspace, and its transcript is not the owner's conversation's.
+      cwd = guestSessionDir(paths.home ?? path.join(paths.userHome, '.projectman'), projectKey, guestOf);
+      await engine.preparePortablePaths([cwd]);
     } else if (task && repoName && usesWorktree(member.role, config)) {
       // Code-changing roles work in the task's own worktree and branch; others in the workspace.
       try {
@@ -1728,12 +1800,13 @@ export class SessionOrchestrator {
       existing &&
       (profileChanged ||
         engineChanged ||
+        Boolean(existing.branch?.startsWith('merge-fix/')) !== mergeFix ||
         // The managed VM (and anything behind the VM boundary) always places the session itself: it
         // never goes back to where it ran.
-        ((vm || this.managed) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
+        ((vm || this.managed || guestOf !== undefined) && path.resolve(existing.cwd) !== path.resolve(cwd)) ||
         ((placed || ws) && (path.resolve(existing.cwd) !== path.resolve(cwd) || ws?.newGeneration))),
     );
-    if (existing && !relocated && !ws && !vm && !this.managed) {
+    if (existing && !relocated && !ws && !vm && !this.managed && guestOf === undefined) {
       // Claude Code keeps conversations per working directory: resume where it started.
       cwd = existing.cwd;
       branch = existing.branch ?? branch;
@@ -1791,6 +1864,7 @@ export class SessionOrchestrator {
       : [];
     const relations = task ? this.deps.tasks.relationsOf(projectKey, task.key) : [];
     const themeCard = task?.themeKey ? this.deps.tasks.find(projectKey, task.themeKey) : null;
+    const focus = this.focusFor(projectKey, task);
     // What a returning reviewer reviewed last (PM-213), named in the message that wakes it.
     const lastReviewedCommit = existing ? this.ctx.repos.sessions.reviewedCommit(existing.id) : null;
     const { userHome } = paths;
@@ -1804,6 +1878,7 @@ export class SessionOrchestrator {
     const policy = buildSessionPolicy({
       config,
       role: member.role,
+      member: member.handle,
       task,
       permissionMode,
       deniedPaths: [
@@ -1818,6 +1893,7 @@ export class SessionOrchestrator {
           : placed
             ? {
                 kind: 'task_worktree',
+                ...(mergeFix ? { mergeFix: { branch: branch! } } : {}),
                 path: cwd,
                 ...(placed.gitDir ? { gitDir: placed.gitDir } : {}),
                 ...(placed.worktreeGitDir ? { worktreeGitDir: placed.worktreeGitDir } : {}),
@@ -1825,6 +1901,7 @@ export class SessionOrchestrator {
             : ({ kind: 'read_only', path: cwd } satisfies SessionPolicy['placement']),
       readableRoots: additionalDirectories,
       ...(attachmentDirs.length > 0 ? { readOnlyPaths: attachmentDirs } : {}),
+      ...(guestOf !== undefined ? { teamToolsOnly: true } : {}),
       ...(vm ? { managedVm: { boundary: vm.profile } } : {}),
     });
     // A developer's npm cache and development data live in its own directory (PM-193).
@@ -1874,9 +1951,12 @@ export class SessionOrchestrator {
     // The folder the sandbox kept and its root go into the policy: the adapter renders the file-tool
     // rules from it, and drops the legacy allow list beside a policy (PM-333).
     const sessionFolder = sandbox?.env?.[SESSION_DIR_VARIABLE];
+    // A team-tools-only guest conversation gets no session folder rules: it reads no file at all.
     const startPolicy = withSessionFolders(
       policy,
-      sessionFolder && folders ? { own: sessionFolder, root: folders.root } : undefined,
+      sessionFolder && folders && guestOf === undefined
+        ? { own: sessionFolder, root: folders.root }
+        : undefined,
     );
     const pack = this.deps.contextBuilder.build({
       ...(task && this.fullTests?.runsFor(task, config) ? { serverFullTest: true } : {}),
@@ -1907,6 +1987,7 @@ export class SessionOrchestrator {
             },
           }
         : {}),
+      ...(focus ? { focus } : {}),
       ...(lastReviewedCommit ? { lastReviewedCommit } : {}),
       ...(previousConversation && task ? { previousConversation } : {}),
       ...(handoff ? { handoff } : {}),
@@ -1920,6 +2001,15 @@ export class SessionOrchestrator {
     assertNotOnLeave(memberOf(latestConfig, member.handle));
     if (task) {
       const latestTask = this.deps.tasks.get(projectKey, task.key);
+      if (
+        mergeFix &&
+        (!isMergeFixer(latestTask.merge, member.handle) ||
+          latestTask.merge?.fix?.branch !== branch ||
+          latestTask.merge?.fix?.startedAt !== task.merge?.fix?.startedAt)
+      )
+        throw conflict('merge_fix_not_allowed', 'the merge-fix authorization changed while starting', {
+          reason: 'not_conflict',
+        });
       assertRepoChosen(latestConfig, member.role, latestTask);
       if ((placed || ws) && effectiveRepo(latestConfig, latestTask) !== repoName) {
         throw conflict(
@@ -2040,6 +2130,9 @@ export class SessionOrchestrator {
     if (initialMessage?.trim()) this.awaitingFirstTurn.add(session.id);
 
     try {
+      if (mergeFix && placed)
+        this.processMergeFixes.set(session.id, { branch: placed.branch, cwd: placed.path });
+      else this.processMergeFixes.delete(session.id);
       const info = await this.deps.runner.start({
         sessionId: session.id,
         claudeSessionId: session.claudeSessionId,
@@ -2069,7 +2162,12 @@ export class SessionOrchestrator {
         policy: startPolicy,
         // The managed VM profile (PM-141) hands the CLI no tool rules, no denied tools and no sandbox of
         // its own: the legacy ones below would put inner limits back (PM-134's sandbox included).
-        allowedTools: vm ? [] : [...allowedToolsFor(member.role, config), ...attachmentRules.allow],
+        allowedTools: vm
+          ? []
+          : [
+              ...allowedToolsFor(member.role, config, { teamToolsOnly: guestOf !== undefined }),
+              ...attachmentRules.allow,
+            ],
         deniedTools: vm ? [] : [...deniedToolsFor(config, task), ...attachmentRules.deny],
         additionalDirectories,
         // The CLI's own sandbox (decision 28): a developer's in its worktree, a reader's that writes
@@ -2107,6 +2205,7 @@ export class SessionOrchestrator {
       this.processProviders.delete(session.id);
       this.resumingProcesses.delete(session.id);
       this.processModes.delete(session.id);
+      this.processMergeFixes.delete(session.id);
       this.processGrants.delete(session.id);
       const failed = this.ctx.repos.sessions.update(session.id, {
         state: 'failed',
@@ -2241,6 +2340,31 @@ export class SessionOrchestrator {
       task,
       this.ctx.repos.sessions.list(projectKey, { taskKey: task.key }),
     ).filter((s) => this.isRunning(s.id));
+  }
+
+  /**
+   * The project's focus as the brief tells it (PM-437): the open items in order (closed ones keep
+   * their numbers) and the place of the session's card; undefined when no item is open.
+   */
+  private focusFor(projectKey: string, task: Task | null): ContextFocus | undefined {
+    const items = this.deps.projectFocus
+      .get(projectKey)
+      .items.flatMap<ContextFocus['items'][number]>((item, index) => {
+        const card = this.deps.tasks.find(projectKey, item.key);
+        return card && isOpenTask(card)
+          ? [
+              {
+                position: index + 1,
+                key: card.key,
+                title: card.title,
+                kind: isTheme(card) ? 'theme' : 'task',
+              },
+            ]
+          : [];
+      });
+    if (items.length === 0) return undefined;
+    const place = task ? (this.deps.projectFocus.places(projectKey).get(task.key) ?? null) : null;
+    return { items, place };
   }
 
   /** The other members working on the card, as the member's brief names them (PM-249). */
@@ -2640,6 +2764,7 @@ export class SessionOrchestrator {
     const resumeFailed =
       failed && session?.state === 'starting' && this.resumingProcesses.has(sessionId) && !stop;
     this.resumingProcesses.delete(sessionId);
+    this.lostLogins.delete(sessionId);
     this.stopReasons.delete(sessionId);
     this.closePending.delete(sessionId);
     this.closing.delete(sessionId);
@@ -2649,6 +2774,7 @@ export class SessionOrchestrator {
     this.removeSessionFolderOf(sessionId);
     this.processProviders.delete(sessionId);
     this.processModes.delete(sessionId);
+    this.processMergeFixes.delete(sessionId);
     this.processGrants.delete(sessionId);
     this.turnEnded(sessionId);
     const wait = this.inputWaits.get(sessionId);
@@ -2711,7 +2837,12 @@ export class SessionOrchestrator {
         }
         case 'state': {
           if (ENDED.has(event.state)) {
-            this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
+            const lostLogin = this.lostLogins.get(session.id);
+            const ended = this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
+            if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
+              void this.resumeAfterLoginLost(ended, lostLogin).catch((err: unknown) =>
+                this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
+              );
             return;
           }
           // A late event from a process that already ended must not revive the session.
@@ -2734,6 +2865,7 @@ export class SessionOrchestrator {
             void this.ctx.events.emit('session_idle', updated);
           }
           if (updated.state === 'idle') this.turnEnded(updated.id);
+          if (updated.state === 'idle') this.restartForMergeFix(updated);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
           if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)
             this.compactWhenIdle(updated);
@@ -2810,6 +2942,8 @@ export class SessionOrchestrator {
           return;
         }
         case 'auth_error': {
+          this.lostLogins.set(session.id, event.provider);
+          this.deps.onAuthError?.(session.projectKey, session.member, event.provider, engineIdOf(session));
           // The runner stops the session; its final state carries the message.
           this.ctx.logger.warn(
             { sessionId: session.id, provider: event.provider, message: event.message },
@@ -2833,7 +2967,7 @@ export class SessionOrchestrator {
           // Persist the continuation while the usage request is still pending: a restart
           // during its timeout must not lose the affected task's wake-up.
           if (stageId)
-            void this.quotaResume?.(session, stageId).catch((err: unknown) =>
+            void this.quotaResume?.(session, stageId, 'quota').catch((err: unknown) =>
               this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
             );
           void this.finishQuotaFailure(session, event.message, started, stageId).catch((err: unknown) =>
@@ -2883,7 +3017,37 @@ export class SessionOrchestrator {
           options: [ALERT_SEEN_OPTION],
         });
     }
-    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId);
+    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId, 'quota');
+  }
+
+  /**
+   * A task's session ended because its CLI lost the provider login (PM-467). The login is checked
+   * afresh: only a confirmed logout parks the task until the login is back (then admission resumes
+   * it). A login the check still finds, or cannot judge, is not a reason to start again: the
+   * server may refuse a login the CLI believes in, and every restart would fail the same way.
+   */
+  private async resumeAfterLoginLost(session: Session, provider: AgentProvider): Promise<void> {
+    if (session.workItem.type !== 'task') return;
+    const stageId = this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId;
+    if (!stageId) return;
+    let status;
+    try {
+      status = await this.deps.runner.providerStatus?.(provider, {
+        member: session.member,
+        refresh: true,
+        ...engineOption(engineIdOf(session)),
+      });
+    } catch (err) {
+      this.ctx.logger.warn({ err, sessionId: session.id, provider }, 'could not check the provider login');
+    }
+    if (status?.loggedIn !== false) {
+      this.ctx.logger.warn(
+        { sessionId: session.id, provider, loggedIn: status?.loggedIn ?? null },
+        'the session lost its login but the provider is not confirmed logged out: no automatic resume',
+      );
+      return;
+    }
+    await this.quotaResume?.(session, stageId, 'login');
   }
 
   /**
@@ -2930,6 +3094,60 @@ export class SessionOrchestrator {
           { err, sessionId: session.id },
           'could not restart the session into its new mode',
         ),
+      );
+  }
+
+  /** A conflict-fix request changes placement only after the tool's turn has ended. */
+  private restartForMergeFix(session: Session): void {
+    if (session.workItem.type !== 'task' || this.isPaused(session)) return;
+    void this.locks
+      .run(sessionLockKey(session.projectKey, session.member, session.workItem), async () => {
+        const current = this.find(session.id);
+        if (
+          !current ||
+          current.workItem.type !== 'task' ||
+          current.state !== 'idle' ||
+          !this.isRunning(current.id) ||
+          this.isPaused(current)
+        )
+          return;
+        const task = this.deps.tasks.find(current.projectKey, current.workItem.taskKey);
+        if (!task) return;
+        const placement = this.processMergeFixes.get(current.id);
+        if (!isMergeFixer(task.merge, current.member)) {
+          if (placement) {
+            // The resolution is in and the server runs the merge now: the same reason the closer gives (PM-552).
+            const stop: SessionStop | undefined = isMergeRunningFor(task.merge, current.member)
+              ? { kind: 'merge_running', taskKey: task.key }
+              : undefined;
+            await this.stop(current.projectKey, current.id, stop);
+          }
+          return;
+        }
+        if (placement?.branch === task.merge!.fix!.branch && placement.cwd === current.cwd) return;
+        const config = await this.deps.projects.config(current.projectKey);
+        const member = memberOf(config, current.member);
+        if (!this.mayWorkNow(config, member)) return;
+        this.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
+        await this.deps.runner.stop(current.id);
+        this.markEnded(current.id, null);
+        await this.start(
+          config,
+          member,
+          current.workItem,
+          task,
+          this.find(current.id),
+          messagesForFirstInput([
+            `Continue in the dedicated merge-fix worktree. Run git merge ${task.merge!.fix!.base}, resolve only mechanical conflicts, commit and call merge_task with resolution. Send behavioral conflicts back with update_task and a reason.`,
+          ]),
+          false,
+          null,
+          null,
+          null,
+        );
+      })
+      .catch((err: unknown) =>
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not update merge-fix placement'),
       );
   }
 

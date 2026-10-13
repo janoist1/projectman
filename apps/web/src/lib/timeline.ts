@@ -1,21 +1,26 @@
 import {
   BoundaryAuditReason,
   BoundaryState,
+  ReleaseFailure,
+  ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  QuestionCloseRule,
   TaskRelationKind,
   TaskPriority,
 } from '@projectman/shared';
-import type { LabelView, TimelineEvent } from '@projectman/shared';
+import type { LabelView, MergeBlockReason, TimelineEvent } from '@projectman/shared';
 import { joinNames, t, tDynamic } from '../i18n/t';
 import { fixRoundParts } from './fixLimit';
 import { fallbackReasonText, handoffEndName, noteExcerpt, providerName } from './handoff';
 import { labelName } from './labels';
+import { mergeBlockText } from './merge';
 import { decidesText, pairText } from './loop';
 import { nameOf, namesOf } from './members';
 import type { MemberIndex } from './members';
 import { reasonText } from './pause';
 import type { PipelineIndex } from './pipeline';
+import { isHttpsUrl, releaseOutcome, releaseStepName } from './release';
 import { closureTexts, eventClosure } from './sessions';
 import { describeStart, describeStop, involvementText } from './involvement';
 
@@ -34,6 +39,12 @@ export interface DescribedEvent {
   emphasis: 'normal' | 'needs';
   /** Raw (often English) explanation, shown folded behind "Részletek". */
   detail?: string;
+  /** What the merger wrote about the conflict it fixed (markdown prose), folded behind "Ütközés javítva" (PM-471). */
+  resolution?: string;
+  /** The reason a person gave with their decision (a rejected release), shown as a quote under the row. */
+  note?: string;
+  /** An external page the row ends with ("GitHub release ↗"); always an `https://` address. */
+  link?: { href: string; label: string };
 }
 
 function str(value: unknown): string {
@@ -289,6 +300,131 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
   const d = event.data;
   const normal = (text: string): DescribedEvent => ({ text, emphasis: 'normal' });
   switch (event.type) {
+    case 'task_merge_requested':
+      return normal(
+        t('timeline.events.task_merge_requested', {
+          merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
+        }),
+      );
+    case 'task_merge_failed': {
+      const files = strings(d.files);
+      const check = str(d.command);
+      const output = str(d.outputTail);
+      const detail = [files.join('\n'), output].filter(Boolean).join('\n\n');
+      const what =
+        d.reason === 'check_failed'
+          ? check
+            ? t('timeline.events.merge_failed_check', { check })
+            : t('timeline.events.merge_failed_check_unnamed')
+          : files.length
+            ? t('timeline.events.merge_failed_conflict', { count: files.length })
+            : t('timeline.events.merge_failed_conflict_unnamed');
+      return {
+        text: t('timeline.events.task_merge_failed', { what }),
+        emphasis: 'normal',
+        ...(detail ? { detail } : {}),
+      };
+    }
+    case 'task_merged': {
+      const base = str(d.base);
+      if (d.via === 'found' || !str(d.mergeCommit))
+        return normal(t('timeline.events.task_merged_found', { base, commit: shortCommit(str(d.commit)) }));
+      // Only what the event really records is told; a part that is not there is left out.
+      const check = record(d.check);
+      const pushed = record(d.pushed);
+      const pulls = Array.isArray(d.pullRequests) ? d.pullRequests : [];
+      const parts = [
+        check && check.status === 'passed' && str(check.command)
+          ? t('timeline.events.merged_checked', { check: str(check.command) })
+          : check
+            ? null
+            : t('timeline.events.merged_unchecked'),
+        pushed
+          ? t(pushed.commitUrl ? 'timeline.events.merged_pushed_github' : 'timeline.events.merged_pushed')
+          : null,
+        ...pulls.flatMap((pull) => {
+          const number = Number(record(pull)?.number);
+          return Number.isInteger(number) ? [t('timeline.events.merged_pull', { number })] : [];
+        }),
+      ].filter((part): part is string => !!part);
+      const text = t('timeline.events.task_merged', {
+        base,
+        commit: shortCommit(str(d.mergeCommit)),
+        parts: parts.map((part) => ` · ${part}`).join(''),
+      });
+      const resolution = str(record(d.resolution)?.note).trim();
+      return resolution ? { text, emphasis: 'normal', resolution } : normal(text);
+    }
+    case 'task_merge_blocked': {
+      const reason = mergeBlockText(
+        {
+          repo: str(d.repo),
+          base: str(d.base),
+          landed: d.landed === 'remote' ? 'remote' : 'nowhere',
+          toStageId: '',
+          block: { reason: d.reason as MergeBlockReason, message: str(d.message), at: event.createdAt },
+        },
+        { github: true, check: null, target: t('timeline.events.merge_target_unknown') },
+      );
+      return {
+        text: t('timeline.events.task_merge_blocked', { reason }),
+        emphasis: 'normal',
+        ...(str(d.message) ? { detail: str(d.message) } : {}),
+      };
+    }
+    case 'release_changed': {
+      const commit = shortCommit(str(d.commit));
+      const key = 'timeline.events.release_changed';
+      switch (ReleaseState.safeParse(d.state).data) {
+        case 'proposed':
+          return normal(t(`${key}.proposed`, { commit }));
+        case 'approved':
+          return normal(t(`${key}.approved`));
+        case 'rejected': {
+          const note = str(d.note).trim();
+          return { text: t(`${key}.rejected`), emphasis: 'normal', ...(note ? { note } : {}) };
+        }
+        case 'deploying':
+          return normal(t(`${key}.deploying`, { commit }));
+        case 'failed': {
+          const failure = ReleaseFailure.safeParse(d.failure).data;
+          if (!failure) return normal(t(`${key}.unknown`, { commit }));
+          const outcome = releaseOutcome(failure.step, failure.rolledBack);
+          const text = t(`${key}.failed`, {
+            step: releaseStepName(failure.step),
+            outcome: t(
+              outcome === 'early'
+                ? `${key}.failedEarly`
+                : outcome === 'rolledBack'
+                  ? `${key}.failedRolledBack`
+                  : `${key}.failedDown`,
+            ),
+          });
+          return {
+            text,
+            emphasis: outcome === 'down' ? 'needs' : 'normal',
+            ...(failure.message ? { detail: failure.message } : {}),
+          };
+        }
+        case 'live': {
+          const publishError = str(d.publishError);
+          if (publishError)
+            return { text: t(`${key}.livePublishError`), emphasis: 'needs', detail: publishError };
+          return normal(t(`${key}.live`, { commit }));
+        }
+        case 'published': {
+          const tag = str(d.tag);
+          const text = tag ? t(`${key}.published`, { tag }) : t(`${key}.live`, { commit });
+          // Only an https address becomes a link (the row is written by the release watcher, but still data).
+          return {
+            ...normal(text),
+            ...(isHttpsUrl(d.url) ? { link: { href: d.url, label: t(`${key}.githubRelease`) } } : {}),
+          };
+        }
+        default:
+          return normal(t(`${key}.unknown`, { commit }));
+      }
+    }
     case 'boundary_changed': {
       const state = BoundaryState.safeParse(d.state);
       const reason = BoundaryAuditReason.safeParse(d.reason);
@@ -353,6 +489,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     }
+    case 'task_hand_on_requested':
+      return normal(
+        t('timeline.events.task_hand_on_requested', {
+          requestedBy: nameOf(str(d.requestedBy), ctx.members, ctx.myHandle),
+          mover: nameOf(str(d.mover), ctx.members, ctx.myHandle),
+          to: stageName(ctx, str(d.toStageId)),
+        }),
+      );
     case 'task_stage_changed': {
       const names = { from: stageName(ctx, str(d.from)), to: stageName(ctx, str(d.to)) };
       const moved = record(d.branchMoved);
@@ -480,6 +624,18 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
             : t('timeline.prerequisiteFree')),
       );
     }
+    case 'task_parts_left':
+      return normal(
+        t(
+          str(d.phase) === 'alerted'
+            ? 'timeline.events.parts_left_alerted'
+            : 'timeline.events.parts_left_told',
+          {
+            name: nameOf(str(d.member), ctx.members, ctx.myHandle),
+            parts: strings(d.parts).join(', '),
+          },
+        ),
+      );
     case 'task_note':
       return normal(str(d.text));
     case 'attachment_added':
@@ -489,6 +645,8 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           fileName: str(d.fileName),
         }),
       );
+    case 'feedback_linked':
+      return normal(t(d.created === true ? 'timeline.feedbackCreated' : 'timeline.feedbackLinked'));
     case 'schedule_started':
       return normal(t('schedules.startedEvent'));
     case 'schedule_skipped':
@@ -616,7 +774,7 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       return normal(
         t('timeline.events.team_message', {
           to: joinNames(namesOf(strings(d.to), ctx.members, ctx.myHandle)),
-          excerpt: str(d.excerpt),
+          excerpt: str(d.excerpt) || t('messageAttachments.timelineExcerpt'),
         }),
       );
     case 'permission_requested':
@@ -679,6 +837,57 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       };
     case 'question_answered':
       return normal(t('timeline.events.question_answered', { answer: str(d.answer) }));
+    case 'question_screened': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      const note = str(d.note);
+      switch (d.outcome) {
+        case 'answered':
+          return normal(t('timeline.events.question_screened_answered', { asker, answer: str(d.answer) }));
+        case 'forwarded':
+          return normal(
+            t('timeline.events.question_screened_forwarded', {
+              asker,
+              note,
+              to: nameOf(str(d.forwardedTo), ctx.members, ctx.myHandle),
+            }),
+          );
+        case 'decision':
+          return normal(t('timeline.events.question_screened_decision', { note }));
+        case 'todo':
+          return normal(t('timeline.events.question_screened_todo', { note }));
+        default:
+          return normal(t('timeline.events.question_screened_moot', { asker, note }));
+      }
+    }
+    case 'question_screening_skipped':
+      return normal(
+        t(
+          d.reason === 'unavailable'
+            ? 'timeline.events.question_screening_skipped_unavailable'
+            : 'timeline.events.question_screening_skipped_timeout',
+          { asker: nameOf(str(d.asker), ctx.members, ctx.myHandle) },
+        ),
+      );
+    case 'question_closed': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      if (d.rule === 'withdrawn')
+        return normal(t('timeline.events.question_closed_withdrawn', { asker, note: str(d.note) }));
+      const reason = QuestionCloseRule.safeParse(d.rule);
+      return normal(
+        t('timeline.events.question_closed', {
+          asker,
+          reason: reason.success ? t(`inbox.resolutions.${reason.data}`) : str(d.note),
+        }),
+      );
+    }
+    case 'question_answer_delivery': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      return normal(
+        d.state === 'waiting'
+          ? t('timeline.events.question_answer_waiting', { asker })
+          : t('timeline.events.question_answer_delivered'),
+      );
+    }
     case 'member_hired':
       return normal(t('timeline.events.member_hired', { handle: str(d.handle) }));
     case 'member_retired':

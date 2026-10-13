@@ -21,6 +21,7 @@ import { cardWorkerRows, prerequisiteLabel } from '../../lib/taskState';
 import type { TaskState } from '../../lib/taskState';
 import { prChip, stageRows } from './cardModel';
 import { LabelChip } from '../../components/LabelChip';
+import { NextLine } from './NextLine';
 import styles from './TaskCard.module.css';
 
 interface TaskCardProps {
@@ -314,15 +315,17 @@ export function TaskCard({
               </span>
             ))}
           </span>
+        ) : state.next ? (
+          <NextLine next={state.next} className={styles.statusText} />
         ) : (
           <span
-            className={styles.statusText}
+            className={clsx(styles.statusText, state.phase === 'stuck' && styles.statusStuck)}
             title={
               state.workers.length > 0
                 ? state.workers.map((worker) => worker.sentence).join('\n')
                 : state.prerequisite?.inLabel
                   ? state.prerequisite.cards.map((card) => `${card.key} – ${card.title}`).join('\n')
-                  : undefined
+                  : state.title
             }
           >
             {state.label}

@@ -22,7 +22,7 @@ export * from './rpc';
 export { createEngineEventBuffer } from './event-buffer';
 export { createCloudRemote } from './remote';
 export type { CloudRemote } from './remote';
-export { resolveAppVersion } from './version';
+export { createAppTagReader, resolveAppTag, resolveAppVersion } from './version';
 export { EngineStartSpec } from './session-schemas';
 
 export interface EngineLink extends Omit<EngineRpc, 'receive' | 'close'> {

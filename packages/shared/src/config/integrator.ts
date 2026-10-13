@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { LabelDefinition } from '../domain/label';
+import { canonical } from './canonical';
 import { isOwnerApprovalLabel, labelHolders } from './labels';
 import { ownerOnlyChanges } from './owner-only';
 import { DEFAULT_MAX_FIX_ROUNDS } from './schema';
@@ -113,22 +114,4 @@ function membersChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
     );
   if (members(previous) !== members(next)) return true;
   return canonical(previous.team.limits.tempWorkers) !== canonical(next.team.limits.tempWorkers);
-}
-
-/** JSON with recursively sorted object keys and no `undefined` fields; array order stays. */
-function canonical(value: unknown): string {
-  return JSON.stringify(sortKeys(value)) ?? 'null';
-}
-
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, field]) => field !== undefined)
-        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-        .map(([key, field]) => [key, sortKeys(field)]),
-    );
-  }
-  return value;
 }

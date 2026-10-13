@@ -1,7 +1,13 @@
 import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { canSeeAllTeamMessages, cardThreadRecipients, isUnreadBy, SYSTEM_SENDER } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  cardThreadRecipients,
+  isUnreadBy,
+  projectManagerAmong,
+  SYSTEM_SENDER,
+} from '@projectman/shared';
 import type {
   InboxItem,
   LabelView,
@@ -40,6 +46,10 @@ import type { ThreadEntry } from '../messages/conversations';
 import { DeliveryStatus } from '../messages/DeliveryStatus';
 import { Composer } from '../session/Composer';
 import styles from './TaskThread.module.css';
+import { MessageAttachments } from '../messages/MessageAttachments';
+import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { useFileDrop } from './useFileDrop';
+import attachmentStyles from '../messages/MessageAttachments.module.css';
 
 /** How long a message reached by a link stays highlighted. */
 const FLASH_MS = 1800;
@@ -48,6 +58,7 @@ const BASIS_KEY = {
   workers: 'workers',
   assignee: 'assignee',
   stage_owners: 'stageOwners',
+  project_manager: 'projectManager',
   none: 'none',
 } as const;
 
@@ -98,10 +109,16 @@ export function TaskThread({
   const send = useSendTeamMessage(key);
   const toast = useToast();
   const isMobile = useIsMobile();
+  const uploads = useMessageAttachmentUploads(key);
   const visible = useDocumentVisible();
   const access = me.projects.find((project) => project.key === key)?.access;
   const canSeeAll = access ? canSeeAllTeamMessages({ access }) : false;
   const canSend = Boolean(myHandle && access && ['owner', 'admin', 'developer', 'client'].includes(access));
+  const fileDrop = useFileDrop({
+    allowed: canSend && !send.isPending && !isMobile,
+    onFiles: uploads.add,
+    isolate: true,
+  });
 
   const messages = useMemo(() => query.data?.messages ?? [], [query.data]);
   const ready = Boolean(query.data);
@@ -216,6 +233,7 @@ export function TaskThread({
     workers,
     assignee: task.assignee,
     stageOwners,
+    projectManager: projectManagerAmong(members.values())?.handle ?? null,
     writer: myHandle ?? '',
     canReceive,
   });
@@ -330,7 +348,17 @@ export function TaskThread({
   );
 
   return (
-    <section className={styles.panel} aria-label={t('task.thread.label')}>
+    <section
+      className={styles.panel}
+      aria-label={t('task.thread.label')}
+      data-message-composer
+      {...fileDrop.props}
+    >
+      {fileDrop.state && !isMobile ? (
+        <div className={attachmentStyles.drop} role="status">
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       {query.isPending ? (
         <LoadingState className={styles.state} />
       ) : query.isError ? (
@@ -468,6 +496,8 @@ export function TaskThread({
             ) : null}
             <p className={styles.toHint}>{hint}</p>
             <Composer
+              attachments={uploads}
+              attachmentHint={t('messageAttachments.cardHint')}
               autoFocus={false}
               label={t('task.thread.composerLabel', { key: task.key })}
               placeholder={t('task.thread.placeholder')}
@@ -475,7 +505,20 @@ export function TaskThread({
               blocked={to.length === 0}
               onSend={(text) => {
                 stick.current = true;
-                return send.mutateAsync({ to, text, taskKey: task.key }).then(() => undefined);
+                return send
+                  .mutateAsync({
+                    to,
+                    text,
+                    taskKey: task.key,
+                    ...(uploads.items.length
+                      ? {
+                          attachmentIds: uploads.items.flatMap((item) =>
+                            item.attachment ? [item.attachment.id] : [],
+                          ),
+                        }
+                      : {}),
+                  })
+                  .then(() => undefined);
               }}
             />
           </div>
@@ -581,9 +624,11 @@ function MessageBubble({
           <span className={styles.route}>{routeOf(message, members, myHandle)}</span>
         ) : null}
         <div className={styles.bubble}>
-          <Markdown text={message.body} />
+          {message.body.trim() ? <Markdown text={message.body} /> : null}
+          <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>
         <div className={styles.meta}>
+          {message.relayed ? <span>{t('pm.relayed')}</span> : null}
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
           {unread ? <span className={styles.unreadMark}>{t('messages.thread.unread')}</span> : null}
           {mine || (system && canSeeAll) ? (

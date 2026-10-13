@@ -398,7 +398,7 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   `bypassPermissions` too: `git push`, `gh pr create`, `gh pr merge` (a repository without GitHub),
   `Read` and `Edit` of the user's credentials (`~/.ssh`, `~/.config/gh`, `~/.claude/.credentials.json`,
   `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/hooks`, `~/.claude.json`,
-  `~/.codex`, `~/.npmrc`; not the whole `~/.claude`: the member's saved tool outputs under
+  `~/.codex`, `~/.npmrc`, `~/.aws`, `~/.cloudflared`; not the whole `~/.claude`: the member's saved tool outputs under
   `projects/` and the plan mode's `plans/` live there) and of the sensitive parts of the app home (database,
   cookie secret, logs, customization repository, members' memory, publishing identity, spool), and
   `WebFetch` of `localhost` and `127.0.0.1`. `domain/session-policy.ts` (`sensitivePaths`,

@@ -16,7 +16,7 @@ import styles from './MobileBoardList.module.css';
 const groups: ReadonlyArray<{ id: string; label: PlainMessageKey; phases: TaskPhase[]; dot: TaskPhase }> = [
   { id: 'needs', label: 'board.groups.needsYou', phases: ['needs_you'], dot: 'needs_you' },
   { id: 'working', label: 'board.groups.working', phases: ['working'], dot: 'working' },
-  { id: 'waiting', label: 'board.groups.waiting', phases: ['waiting', 'blocked'], dot: 'waiting' },
+  { id: 'waiting', label: 'board.groups.waiting', phases: ['waiting', 'blocked', 'stuck'], dot: 'waiting' },
   { id: 'ready', label: 'board.groups.ready', phases: ['ready'], dot: 'ready' },
   { id: 'done', label: 'board.groups.done', phases: ['done'], dot: 'done' },
 ];

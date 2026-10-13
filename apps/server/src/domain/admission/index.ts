@@ -1,5 +1,5 @@
 export { Admission } from './admission';
-export type { AdmissionRequest } from './admission';
+export type { AdmissionRequest, AttemptOutcome } from './admission';
 export { DeferredStarts, StartSpec } from './deferred-starts';
 export type { AutomaticStart, DeferredStart, DeferredStartStore } from './deferred-starts';
 export { FocusPull } from './focus-pull';

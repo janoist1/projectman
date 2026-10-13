@@ -14,14 +14,26 @@ import { flush, planUsage, settle } from './helpers/fakes';
 
 const aiOff = (config: ProjectConfig) => void (config.team.limits.aiEnabled = false);
 
-/** The owner may also record code reviews, so the reviewer can be retired without orphaning the gate. */
+/**
+ * The owner also owns the code review step and may record code reviews, so the reviewer can be
+ * retired without orphaning the step or the gate.
+ */
 const reviewersBesidesCr = (config: ProjectConfig) => {
   for (const label of config.pipeline.labels)
     if (label.group === 'code-review') label.setBy = { duties: ['code_review'], members: ['owner'] };
+  const review = config.pipeline.stages.find((stage) => stage.id === 'code_review')!;
+  review.owners = [...(review.owners ?? []), 'owner'];
 };
 
 /** The keys of the starts SQLite holds, oldest first. */
 const stored = (h: DomainHarness) => h.repos.deferredStarts.list().map((record) => record.key);
+
+/**
+ * The sessions started on a card. The Operator may be woken about a long-idle imported card (an
+ * `idle` signal, PM-547): that is a general session, not a start of the card's own work.
+ */
+const taskSessions = (h: DomainHarness) =>
+  h.repos.sessions.list('AR').filter((session) => session.workItem.type === 'task');
 
 async function setEnabled(h: DomainHarness, aiEnabled: boolean, projectKey = 'AR') {
   await h.domain.projects.update(projectKey, { actor: OWNER_ACTOR, author: OWNER }, (config) => {
@@ -202,12 +214,16 @@ describe('deferred starts across a restart', () => {
     await h.domain.tasks.create('AR', { title: 'Queued' }, OWNER_ACTOR);
     await settle();
     expect(stored(h)).toEqual([]);
-    expect(h.runner.started).toHaveLength(0);
+    expect(taskSessions(h)).toHaveLength(0);
+    // The one start is the Operator's, woken by the imported card's idle signal.
+    expect(h.repos.sessions.list('AR').filter((session) => session.workItem.type === 'general')).toHaveLength(
+      h.runner.started.length,
+    );
 
     h = await restartDomainHarness(h);
     await settle();
     await h.domain.admission.retryDeferred();
-    expect(h.runner.started).toHaveLength(0);
+    expect(taskSessions(h)).toHaveLength(0);
     expect(stored(h)).toEqual([]);
     expect(h.domain.tasks.list('AR').filter((t) => t.startWaiting)).toEqual([]);
   });

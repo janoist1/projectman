@@ -1,10 +1,16 @@
 import clsx from 'clsx';
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { InboxItem, InboxOption, LabelView, ResolveInboxRequest } from '@projectman/shared';
-import { BoundaryReason } from '@projectman/shared';
+import {
+  BoundaryReason,
+  alertPayloadOf,
+  handOnRequestOf,
+  operatorApprovalOf,
+  releaseApprovalOf,
+} from '@projectman/shared';
 import { Avatar } from '../../components/Avatar';
-import { Button } from '../../components/Button';
+import { Button, ButtonLink } from '../../components/Button';
 import type { ButtonVariant } from '../../components/Button';
 import { Chip } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
@@ -17,7 +23,9 @@ import {
   delegationNote,
   fixLimitDecisionText,
   gateMoveText,
+  gateThenMergeText,
   inboxHeading,
+  inboxItemDomId,
   loopDecisionText,
   seniorWaitDecisionText,
   optionLabel,
@@ -27,13 +35,26 @@ import {
   splitQuestion,
   withConsequences,
 } from '../../lib/inbox';
+import type { ApprovalHint } from '../../lib/inbox';
+import { labelName } from '../../lib/labels';
 import { toolPresentationFor } from '../../lib/chat';
 import { nameOf, namesOf } from '../../lib/members';
 import type { MemberIndex } from '../../lib/members';
 import type { PipelineIndex } from '../../lib/pipeline';
+import { OperatorApprovalActions, OperatorApprovalBody } from '../operator/OperatorApproval';
 import styles from './InboxCard.module.css';
+import { MergeInboxActions, MergeInboxBody } from './MergeInbox';
+import { OutageAlert, OutageCheck } from './OutageAlert';
+import { ReleaseAlertBody, ReleaseInboxActions, ReleaseInboxBody, isReleaseDown } from './ReleaseInbox';
 import { FoldedCommand, PermissionActions } from './PermissionParts';
-import { QuestionBody, QuestionChoices, QuestionDetails } from './Question';
+import { ApprovalHintNote, QuestionBody, QuestionChoices, QuestionDetails } from './Question';
+import { QuestionAttachments } from './QuestionAttachments';
+import { MessageAttachmentTray } from '../messages/MessageAttachmentTray';
+import { useMessageAttachmentUploads } from '../messages/useMessageAttachmentUploads';
+import { useFileDrop } from '../board/useFileDrop';
+import { pasteHasText, pastedImages } from '../../lib/attachmentInput';
+import { useIsMobile } from '../../lib/hooks';
+import attachmentStyles from '../messages/MessageAttachments.module.css';
 
 const variantFor: Record<InboxOption['style'], ButtonVariant> = {
   primary: 'primary',
@@ -58,6 +79,80 @@ export interface InboxCardProps {
   /** Smaller card inside the task drawer. */
   compact?: boolean;
   headingLevel?: 2 | 3;
+  /** Why the last answer was refused (a closed gate on "Tovább"); shown under the buttons. */
+  error?: string | null;
+  /** An Operator approval the server just refused as out of date (409); the card says so and offers "Rendben". */
+  stale?: boolean;
+  /** A question that asks for an approval says its answer sets no label (PM-484); see `approvalHintOf`. */
+  approvalHint?: ApprovalHint | null;
+  /** The card's drawer, where the approval item of a question stands. */
+  cardHref?: string | null;
+  /**
+   * The card row of an item that has a card (PM-501): `string` makes it a link to the card's drawer, `null`
+   * a plain line (the card is not on the board). Left out, the row stays the card's title (the drawer's cards).
+   */
+  taskHref?: string | null;
+}
+
+/** The card row: the key (mono, bold) and the title, two lines at most; a link when the card can be opened. */
+function TaskRow({ taskKey, title, href }: { taskKey: string; title: string | null; href: string | null }) {
+  const text = (
+    <span className={styles.taskText}>
+      <span className={styles.taskKey}>{taskKey}</span>
+      {title ? ` ${title}` : null}
+    </span>
+  );
+  return (
+    <p className={clsx(styles.task, styles.taskRow)}>
+      {href ? (
+        <Link
+          to={href}
+          className={styles.taskLink}
+          data-inbox-card-link=""
+          aria-label={
+            title
+              ? t('inbox.card.openLabel', { key: taskKey, title })
+              : t('inbox.card.openLabelKey', { key: taskKey })
+          }
+        >
+          {text}
+        </Link>
+      ) : (
+        text
+      )}
+    </p>
+  );
+}
+
+/** The "Vidd tovább" sentence with the next column in bold (PM-461). */
+function HandOnText({
+  item,
+  members,
+  myHandle,
+  pipeline,
+}: {
+  item: InboxItem;
+  members: MemberIndex;
+  myHandle: string | null;
+  pipeline?: PipelineIndex | null;
+}) {
+  const request = handOnRequestOf(item);
+  if (!request) return null;
+  const stageName = (id: string) => pipeline?.stageById.get(id)?.name ?? id;
+  const marker = '\u0000';
+  const params = { step: stageName(request.fromStageId), stage: marker };
+  const text = t('inbox.handOn.text', {
+    ...params,
+    owner: nameOf(request.requestedBy, members, myHandle),
+  });
+  const [before = '', after = ''] = text.split(marker);
+  return (
+    <p className={styles.body}>
+      {before}
+      <strong>{stageName(request.toStageId)}</strong>
+      {after}
+    </p>
+  );
 }
 
 /** One inbox request, including delegated boundary decisions. */
@@ -74,7 +169,14 @@ export function InboxCard({
   mobile = false,
   compact = false,
   headingLevel = 2,
+  error = null,
+  stale = false,
+  approvalHint = null,
+  cardHref = null,
+  taskHref,
 }: InboxCardProps) {
+  const operatorApproval = operatorApprovalOf(item);
+  const handOn = handOnRequestOf(item);
   const answerOption = item.options.find((option) => option.id === FREE_ANSWER_OPTION_ID);
   const choices = withConsequences(
     item,
@@ -86,16 +188,53 @@ export function InboxCard({
   const [answer, setAnswer] = useState('');
   const [answerError, setAnswerError] = useState<string | null>(null);
   const answerId = useId();
+  const uploads = useMessageAttachmentUploads(item.projectKey);
+  const picker = useRef<HTMLInputElement>(null);
+  const answerInput = useRef<HTMLTextAreaElement>(null);
+  const isMobile = useIsMobile();
+  const addFiles = (files: readonly File[]) => {
+    setAnswerError(null);
+    uploads.add(files);
+  };
+  const fileDrop = useFileDrop({
+    allowed: answering && !pending && !isMobile && !mobile,
+    onFiles: addFiles,
+    isolate: true,
+  });
+  const attachmentIds = answering
+    ? uploads.items.flatMap((entry) => (entry.attachment ? [entry.attachment.id] : []))
+    : [];
+  const answerBlocked = pending || Boolean(answering && uploads.blockedReason);
+  const answerHelp = uploads.error ?? uploads.blockedReason ?? answerError;
+  const answerHelpError = Boolean(
+    uploads.error ||
+    uploads.items.some((entry) => entry.status === 'failed') ||
+    (!uploads.blockedReason && answerError),
+  );
+  const resolveAnswer = (body: ResolveInboxRequest) => {
+    if (answerBlocked) return;
+    onResolve(item, { ...body, ...(attachmentIds.length ? { attachmentIds } : {}) });
+  };
   const source = members.get(item.source);
   const code = payloadCode(item);
-  const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline) : null;
+  const gateMove = item.kind === 'decision' ? gateMoveText(item, pipeline, labels) : null;
   const heading = gateMove ?? inboxHeading(item);
+  // An approval a merge follows says that one click is enough (PM-484).
+  const thenMerge = gateMove ? gateThenMergeText(item, pipeline, members, myHandle) : null;
   // What follows the short heading of a long question.
   const questionBody = item.kind === 'question' ? splitQuestion(item.title).body : null;
   // The tool line is redundant when the heading already names the tool.
   const tool = item.kind === 'permission' && heading === item.title ? permissionTool(item) : null;
   // The task the request is about: the most useful background of the decision, under the header row.
-  const contextTitle = taskTitle || (gateMove && item.title ? item.title : null);
+  // A "Vidd tovább" item names the card in its own heading.
+  const contextTitle = handOn ? null : taskTitle || (gateMove && item.title ? item.title : null);
+  // The card row names the card by its key; it is a link where the page gives an address (never in the drawer).
+  const taskRow =
+    !handOn && item.taskKey && taskHref !== undefined ? (
+      <TaskRow taskKey={item.taskKey} title={taskTitle || null} href={compact ? null : taskHref} />
+    ) : contextTitle ? (
+      <p className={styles.task}>{contextTitle}</p>
+    ) : null;
   const Heading = headingLevel === 2 ? 'h2' : 'h3';
   const assignedToOthers = myHandle !== null && !item.assignees.includes(myHandle);
   const buttonSize = mobile ? 'xl' : 'lg';
@@ -108,6 +247,14 @@ export function InboxCard({
   const fixLimitText = fixLimitDecisionText(item, members, myHandle);
   const seniorWaitText = seniorWaitDecisionText(item, members, myHandle);
   const alert = alertText(item, members, myHandle, labels) ?? loopText ?? fixLimitText ?? seniorWaitText;
+  // An outage (a provider or an engine that cannot work, PM-468) has its own body, and "Check now".
+  const alertPayload = item.kind === 'alert' ? alertPayloadOf(item) : null;
+  const outageAlert = alertPayload?.alert === 'work_outage' ? alertPayload : null;
+  // The merge request and the alert of a stopped merge (PM-453) tell and act through the card's merge words.
+  const mergeItem = item.kind === 'merge_request' || alertPayload?.alert === 'merge_blocked';
+  // The proposed release of the instance (PM-492) and the alert of one that failed: both lead to the release card.
+  const releaseItem = releaseApprovalOf(item) !== null;
+  const releaseAlert = alertPayload?.alert === 'release_failed' ? alertPayload : null;
   const [boundaryReason, setBoundaryReason] = useState<BoundaryReason>('scope_verified');
   // A question that recommends an option or describes what each one does lists its options with
   // that text, and so do a loop, a fix round limit and a Senior wait decision; every other item keeps
@@ -120,18 +267,80 @@ export function InboxCard({
       (extras.recommendedOptionId !== null || choices.some((option) => option.consequence)));
 
   const submitAnswer = () => {
-    if (!answer.trim()) {
+    if (answerBlocked) return;
+    if (!answer.trim() && !attachmentIds.length) {
       setAnswerError(t('inbox.answerRequired'));
       return;
     }
     setAnswerError(null);
-    onResolve(item, { optionId: FREE_ANSWER_OPTION_ID, note: answer.trim() });
+    resolveAnswer({ optionId: FREE_ANSWER_OPTION_ID, note: answer.trim() });
   };
+
+  // An Operator proposal (PM-447): the request, what changes and the consequence, then its own buttons.
+  if (operatorApproval) {
+    const isStale = operatorApproval.stale !== null || stale;
+    return (
+      <article
+        id={inboxItemDomId(item.id)}
+        className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
+        data-kind={item.kind}
+        data-operator-approval=""
+      >
+        <div className={styles.head}>
+          <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
+          {isStale ? <Chip tone="needs">{t('operator.approval.stale')}</Chip> : null}
+          <Avatar member={source} handle={item.source} size="sm" isMe={item.source === myHandle} />
+          <span className={styles.source}>{nameOf(item.source, members, myHandle)}</span>
+          <span className={styles.spacer} />
+          <time className={styles.time} dateTime={item.createdAt}>
+            {formatAgo(item.createdAt)}
+          </time>
+        </div>
+        {taskRow}
+        <Heading className={styles.title}>{item.title}</Heading>
+        <OperatorApprovalBody payload={operatorApproval} stale={stale} />
+        {assignedToOthers ? (
+          <p className={styles.others}>
+            <Icon name="user" size={14} />
+            {t('inbox.assignedTo', { names: joinNames(namesOf(item.assignees, members, myHandle)) })}
+          </p>
+        ) : (
+          <div className={styles.actions}>
+            <OperatorApprovalActions
+              item={item}
+              payload={operatorApproval}
+              size={buttonSize}
+              pending={pending}
+              stale={stale}
+              onDecide={onResolve}
+            />
+            {detailsHref && !mobile ? (
+              <>
+                <span className={styles.spacer} />
+                <Link to={detailsHref} className={styles.details}>
+                  <span>{t('inbox.details')}</span>
+                  <Icon name="arrowRight" size={14} strokeWidth={2.2} />
+                </Link>
+              </>
+            ) : null}
+          </div>
+        )}
+        {error ? (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        ) : null}
+      </article>
+    );
+  }
 
   return (
     <article
+      id={inboxItemDomId(item.id)}
       className={clsx(styles.card, compact && styles.compact, mobile && styles.mobile)}
       data-kind={item.kind}
+      data-alert={outageAlert ? 'work_outage' : releaseAlert ? 'release_failed' : undefined}
+      data-severity={releaseAlert && isReleaseDown(releaseAlert) ? 'down' : undefined}
     >
       <div className={styles.head}>
         <Chip tone="kind">{t(`inbox.kinds.${item.kind}`)}</Chip>
@@ -150,9 +359,25 @@ export function InboxCard({
           {formatAgo(item.createdAt)}
         </time>
       </div>
-      {contextTitle ? <p className={styles.task}>{contextTitle}</p> : null}
-      <Heading className={styles.title}>{heading}</Heading>
+      {taskRow}
+      <Heading className={styles.title} tabIndex={-1} data-inbox-title="">
+        {heading}
+      </Heading>
+      {thenMerge ? <p className={styles.body}>{thenMerge}</p> : null}
       {questionBody ? <QuestionBody text={questionBody} mobile={mobile} /> : null}
+      {approvalHint ? (
+        <ApprovalHintNote
+          hint={approvalHint}
+          labelName={labelName(approvalHint.label, labels)}
+          approverNames={
+            approvalHint.kind === 'others'
+              ? joinNames(namesOf(approvalHint.approvers, members, myHandle))
+              : ''
+          }
+          cardHref={cardHref ?? null}
+          mobile={mobile}
+        />
+      ) : null}
       {boundary ? (
         <div>
           <p>
@@ -187,8 +412,21 @@ export function InboxCard({
           </label>
         </div>
       ) : null}
+      {handOn ? <HandOnText item={item} members={members} myHandle={myHandle} pipeline={pipeline} /> : null}
+      {mergeItem ? <MergeInboxBody item={item} /> : null}
+      {releaseItem ? <ReleaseInboxBody item={item} /> : null}
+      {releaseAlert ? <ReleaseAlertBody alert={releaseAlert} /> : null}
       {alert ? <p className={styles.body}>{alert}</p> : null}
-      {item.body && loopText === null && fixLimitText === null && seniorWaitText === null ? (
+      {outageAlert ? (
+        <OutageAlert alert={outageAlert} members={members} myHandle={myHandle} mobile={mobile} />
+      ) : null}
+      {item.body &&
+      !mergeItem &&
+      !releaseItem &&
+      !releaseAlert &&
+      loopText === null &&
+      fixLimitText === null &&
+      seniorWaitText === null ? (
         item.kind === 'approval' ? (
           <blockquote className={styles.preview}>{item.body}</blockquote>
         ) : (
@@ -196,6 +434,7 @@ export function InboxCard({
         )
       ) : null}
       {extras.details ? <QuestionDetails text={extras.details} /> : null}
+      <QuestionAttachments item={item} projectKey={item.projectKey} />
       {code ? (
         <div className={styles.codeWrap}>
           {tool ? (
@@ -220,19 +459,25 @@ export function InboxCard({
           recommendationReason={extras.recommendationReason}
           size={buttonSize}
           mobile={mobile}
-          disabled={pending}
+          disabled={answerBlocked}
           variantOf={(option) =>
             answering ? 'secondary' : option.style === 'danger' ? 'dangerSolid' : variantFor[option.style]
           }
-          onPick={(option) => onResolve(item, { optionId: option.id })}
+          onPick={(option) => resolveAnswer({ optionId: option.id })}
         />
       ) : null}
       {answering ? (
-        <div className={styles.answer}>
+        <div className={styles.answer} {...fileDrop.props} data-message-composer="">
+          {fileDrop.state && !isMobile && !mobile ? (
+            <div className={attachmentStyles.drop} aria-hidden="true">
+              {t('attachments.dropActive')}
+            </div>
+          ) : null}
           <label htmlFor={answerId} className={styles.answerLabel}>
             {t('inbox.answerLabel')}
           </label>
           <textarea
+            ref={answerInput}
             id={answerId}
             className={styles.answerInput}
             rows={2}
@@ -240,14 +485,44 @@ export function InboxCard({
             placeholder={t('inbox.answerPlaceholder')}
             onChange={(event) => setAnswer(event.target.value)}
             aria-invalid={answerError ? true : undefined}
-            aria-describedby={answerError ? `${answerId}-error` : undefined}
+            aria-describedby={answerHelp ? `${answerId}-error` : undefined}
+            onPaste={(event) => {
+              event.stopPropagation();
+              if (pasteHasText(event.clipboardData)) return;
+              const images = pastedImages(event.clipboardData);
+              if (!images.length) return;
+              event.preventDefault();
+              if (!pending) addFiles(images);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submitAnswer();
             }}
           />
-          {answerError ? (
-            <span id={`${answerId}-error`} className={styles.answerError} role="alert">
-              {answerError}
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(event) => {
+              if (!pending) addFiles(Array.from(event.target.files ?? []));
+              event.target.value = '';
+            }}
+          />
+          <MessageAttachmentTray
+            items={uploads.items}
+            onRemove={uploads.remove}
+            onRetry={uploads.retry}
+            focusInput={() => answerInput.current?.focus()}
+            disabled={pending}
+          />
+          {answerHelp ? (
+            <span
+              id={`${answerId}-error`}
+              className={answerHelpError ? styles.answerError : styles.answerHint}
+              aria-live="polite"
+              role={answerHelpError ? 'alert' : undefined}
+            >
+              {answerHelp}
             </span>
           ) : null}
         </div>
@@ -261,11 +536,57 @@ export function InboxCard({
       {seniorWaitText !== null && !assignedToOthers ? (
         <p className={styles.others}>{t('inbox.seniorWait.footer')}</p>
       ) : null}
-      {assignedToOthers ? null : (
+      {assignedToOthers ? null : releaseItem ? (
+        <ReleaseInboxActions
+          item={item}
+          size={buttonSize}
+          pending={pending}
+          detailsHref={detailsHref}
+          onResolve={onResolve}
+        />
+      ) : mergeItem ? (
+        <MergeInboxActions
+          item={item}
+          size={buttonSize}
+          pending={pending}
+          detailsHref={detailsHref}
+          onResolve={onResolve}
+        />
+      ) : handOn ? (
+        <div className={clsx(styles.actions, styles.handOnActions)}>
+          <Button
+            variant="primary"
+            size={buttonSize}
+            disabled={pending}
+            onClick={() => onResolve(item, { optionId: 'move' })}
+          >
+            {t('inbox.handOn.move', {
+              stage: pipeline?.stageById.get(handOn.toStageId)?.name ?? handOn.toStageId,
+            })}
+          </Button>
+          {detailsHref ? (
+            <ButtonLink to={detailsHref} variant="secondary" size={buttonSize}>
+              {t('inbox.handOn.open')}
+            </ButtonLink>
+          ) : null}
+        </div>
+      ) : (
         <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
           {answering ? (
-            <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={pending}>
+            <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={answerBlocked}>
               {t('inbox.answerSubmit')}
+            </Button>
+          ) : null}
+          {answering ? (
+            <Button
+              variant="ghost"
+              icon="paperclip"
+              size={buttonSize}
+              disabled={pending}
+              title={t('messageAttachments.addTitle')}
+              onClick={() => picker.current?.click()}
+            >
+              {t('messageAttachments.add')}
             </Button>
           ) : null}
           {item.kind === 'permission' ? (
@@ -276,20 +597,38 @@ export function InboxCard({
               onPick={(option) => onResolve(item, { optionId: option.id })}
             />
           ) : describesChoices ? null : (
-            choices.map((option) => (
-              <Button
-                key={option.id}
-                variant={answering ? 'secondary' : variantFor[option.style]}
-                size={buttonSize}
-                disabled={pending}
-                onClick={() =>
-                  onResolve(item, { optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
-                }
-              >
-                {optionLabel(option)}
-              </Button>
-            ))
+            <>
+              {alertPayload?.alert === 'feedback_forwarded' ? (
+                <ButtonLink
+                  to={`/p/${item.projectKey}/feedback/${alertPayload.markId}`}
+                  variant="primary"
+                  size={buttonSize}
+                >
+                  {t('inbox.alerts.feedback_forwarded.open')}
+                </ButtonLink>
+              ) : null}
+              {choices.map((option) => (
+                <Button
+                  key={option.id}
+                  variant={
+                    answering || alertPayload?.alert === 'feedback_forwarded'
+                      ? 'secondary'
+                      : variantFor[option.style]
+                  }
+                  size={buttonSize}
+                  disabled={answerBlocked}
+                  onClick={() =>
+                    resolveAnswer({ optionId: option.id, ...(boundary ? { note: boundaryReason } : {}) })
+                  }
+                >
+                  {optionLabel(option)}
+                </Button>
+              ))}
+            </>
           )}
+          {outageAlert && item.state === 'open' ? (
+            <OutageCheck item={item} size={buttonSize === 'xl' ? 'xl' : 'lg'} />
+          ) : null}
           {allowsFreeAnswer && !answering ? (
             <Button variant="ghost" size={buttonSize} onClick={() => setAnswering(true)} disabled={pending}>
               {answerOption ? optionLabel(answerOption) : t('inbox.answerOwn')}
@@ -306,7 +645,12 @@ export function InboxCard({
           ) : null}
         </div>
       )}
-      {detailsHref && mobile ? (
+      {error ? (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      ) : null}
+      {detailsHref && mobile && !handOn && !mergeItem ? (
         <Link to={detailsHref} className={styles.details}>
           <span>{t('inbox.details')}</span>
           <Icon name="arrowRight" size={14} strokeWidth={2.2} />

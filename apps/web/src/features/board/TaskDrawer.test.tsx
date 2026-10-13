@@ -1,3 +1,4 @@
+import type { Task } from '@projectman/shared';
 import { nameOf } from '../../lib/members';
 import { mockIndexes } from '../../test/render';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -13,9 +14,21 @@ afterEach(() => setFetchImplementation((input, init) => globalThis.fetch(input, 
 
 const drawer = (
   <Routes>
-    <Route path="/p/:key/tasks/:taskKey" element={<TaskDrawer />} />
+    <Route path="/p/:key/tasks/:taskKey/*" element={<TaskDrawer />} />
   </Routes>
 );
+
+/** The card's work is already on the main branch, so a move is not refused for want of the merge (PM-453). */
+function markMerged(task: Task) {
+  task.merged = {
+    via: 'tool',
+    mergeCommit: 'c'.repeat(40),
+    commit: 'a'.repeat(40),
+    repo: task.repo ?? 'webshop',
+    base: 'main',
+    at: new Date().toISOString(),
+  };
+}
 
 /** Opens the "⋯" menu of the rare task actions. */
 const openMenu = async () =>
@@ -40,14 +53,25 @@ describe('task drawer lifecycle', () => {
       since: task.updatedAt,
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
-    await screen.findByText(
-      t(`taskStatus.startWaiting.${reason}`, {
-        provider: t('providers.claude'),
-        percent: 80,
-        name: nameOf('be-1', mockIndexes().members, 'owner'),
-      }),
+    // The header row says what the card waits for, short, like the card row; the box says it in full (PM-461).
+    const sentence = t(`taskStatus.startWaiting.${reason}`, {
+      provider: t('providers.claude'),
+      percent: 80,
+      name: nameOf('be-1', mockIndexes().members, 'owner'),
+    });
+    const labels = await screen.findAllByText(
+      reason === 'member_at_capacity' ? t('taskStatus.next.startReasons.member_at_capacity') : sentence,
     );
-    expect(screen.getByText(t(`taskStatus.startHints.${reason}`))).toBeTruthy();
+    expect(labels.length).toBeGreaterThan(0);
+    // What to do is the box's last row; a member who is busy only needs to be waited for.
+    const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+    const todo =
+      reason === 'member_at_capacity'
+        ? t('taskStatus.next.todo.auto')
+        : reason === 'repo_required'
+          ? t('taskStatus.next.todo.repo')
+          : t(`taskStatus.startHints.${reason}`);
+    expect(within(box).getByText(todo)).toBeTruthy();
   });
   it.each([
     ['claude', 'claude auth login'],
@@ -64,11 +88,13 @@ describe('task drawer lifecycle', () => {
         since: task.updatedAt,
       };
       project.render(drawer, '/p/AC/tasks/AC-20');
-      await screen.findByText(
+      await screen.findAllByText(
         t('taskStatus.startWaiting.provider_not_logged_in', { provider: t(`providers.${provider}`) }),
       );
-      const hint = screen.getByText(t('taskStatus.startHints.provider_not_logged_in'));
-      expect(within(hint).getByText(command).tagName).toBe('CODE');
+      // The box says what to do; the login command stays in its own line next to the buttons.
+      const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+      expect(within(box).getByText(t('taskStatus.startHints.provider_not_logged_in'))).toBeTruthy();
+      expect(screen.getByText(command).tagName).toBe('CODE');
     },
   );
   it('shows the commit handed over for review (PM-183)', async () => {
@@ -207,6 +233,7 @@ describe('task drawer stage moves', () => {
   });
   it('reports requested approval as information and stays in the original stage', async () => {
     const project = mockProject();
+    markMerged(project.backend.findTask('AC-17')!);
     project.render(drawer, '/p/AC/tasks/AC-17');
     await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
@@ -225,6 +252,7 @@ describe('task drawer stage moves', () => {
     const task = project.backend.findTask('AC-28')!;
     task.stageId = 'merge';
     task.links[0]!.author = 'owner';
+    markMerged(task);
     project.render(drawer, '/p/AC/tasks/AC-28');
     await openMove();
     fireEvent.click(screen.getByRole('button', { name: t('task.move.submit') }));
@@ -354,7 +382,7 @@ describe('task drawer labels', () => {
 describe('task drawer comments', () => {
   it('filters autocomplete by handle and name, selects with arrows and Enter, and sends', async () => {
     const project = mockProject();
-    project.render(drawer, '/p/AC/tasks/AC-20');
+    project.render(drawer, '/p/AC/tasks/AC-20/timeline');
     const input = await screen.findByLabelText(t('task.comments.label'));
     fireEvent.change(input, { target: { value: 'Hello @', selectionStart: 7 } });
     const list = screen.getByRole('listbox', { name: t('task.comments.members') });
@@ -574,14 +602,15 @@ describe('task drawer layout', () => {
       'article',
     )!;
     const properties = screen.getByRole('region', { name: t('task.labels.title') });
-    const timeline = screen.getByRole('heading', { name: t('task.timeline') });
     const follows = (a: Node, b: Node) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
     expect(follows(decision, properties)).toBe(true);
     const open = await screen.findByRole('link', { name: t('task.openSession') });
     expect(follows(decision, open)).toBe(true);
     expect(follows(open, properties)).toBe(true);
-    expect(follows(properties, timeline)).toBe(true);
+    // The timeline and the attachments have views of their own (PM-487): the card ends with its numbers.
+    expect(screen.queryByRole('heading', { name: t('task.timeline') })).toBeNull();
+    expect(screen.queryByRole('region', { name: t('attachments.title') })).toBeNull();
     // The move panel opens inside the row of the session buttons (the row it is positioned by), so
     // it stays within the drawer wherever the button wraps to.
     fireEvent.click(screen.getByRole('button', { name: t('task.move.open') }));
@@ -767,8 +796,11 @@ describe('starting a card whose prerequisite is open (PM-204)', () => {
     };
     project.render(drawer, '/p/AC/tasks/AC-20');
 
-    await screen.findByText(t('taskStatus.prerequisiteOnMore', { key: 'AC-17', more: 1 }));
-    expect(screen.getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
+    // The header row: "Előfeltételre vár · AC-17, AC-19".
+    await screen.findAllByText(t('taskStatus.next.heads.prerequisite'));
+    expect(screen.getAllByText('AC-17, AC-19').length).toBeGreaterThan(0);
+    const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+    expect(within(box).getByText(t('taskStatus.startHints.prerequisite_open'))).toBeTruthy();
   });
 });
 
@@ -824,10 +856,11 @@ describe('starting a card that waits for a label an AI member sets (PM-236)', ()
 
     fireEvent.click(await startButton());
 
-    await screen.findByText(
+    await screen.findAllByText(
       t('taskStatus.startWaiting.label_missing', { name: 'Tervező', labels: 'Terv kész' }),
     );
-    expect(screen.getByText(t('taskStatus.startHints.label_missing'))).toBeTruthy();
+    const box = screen.getByRole('region', { name: t('task.whyBox.title') });
+    expect(within(box).getByText(t('taskStatus.startHints.label_missing'))).toBeTruthy();
     const task = project.backend.findTask('AC-23')!;
     expect(task).toMatchObject({ stageId: 'ready', assignee: null });
     expect(task.startWaiting).toMatchObject({
@@ -842,7 +875,7 @@ describe('starting a card that waits for a label an AI member sets (PM-236)', ()
     const { project } = uiProject();
     project.render(drawer, '/p/AC/tasks/AC-23');
     fireEvent.click(await startButton());
-    await screen.findByText(t('taskStatus.startHints.label_missing'));
+    await screen.findAllByText(t('taskStatus.startHints.label_missing'));
 
     // A person takes the card out of the label's scope; the designer's own label change works the same way.
     const changed = project.backend.handle('POST', '/api/projects/AC/tasks/AC-23/labels', {
@@ -992,7 +1025,8 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     project.render(drawer, '/p/AC/tasks/AC-24');
 
     expect(await refineButton()).toBeTruthy();
-    expect(await screen.findByText(t('taskStatus.notRefined'))).toBeTruthy();
+    // The header row names the label the card waits for.
+    expect((await screen.findAllByText('Követelmény kész')).length).toBeGreaterThan(0);
     expectNoStart();
     // Nothing is being refined yet: no standing of the refinement either.
     expect(screen.queryByText(/Kidolgozás: \d+\/\d+ lépés kész/)).toBeNull();
@@ -1043,9 +1077,9 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     project.backend.findTask('AC-24')!.labels = ['refine'];
     project.render(drawer, '/p/AC/tasks/AC-24');
 
-    await screen.findByText(
-      t('taskStatus.refinement.yourStep', { label: t('taskStatus.quoted', { name: 'Követelmény kész' }) }),
-    );
+    // The header row says it is the viewer's step: "Rád vár · Követelmény kész".
+    expect((await screen.findAllByText(t('taskStatus.next.you'))).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Követelmény kész').length).toBeGreaterThan(0);
     await screen.findByText(t('taskStatus.refinement.progress', { done: 0, total: 1 }));
     expectNoStart();
     expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
@@ -1095,7 +1129,7 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     );
     project.render(drawer, '/p/AC/tasks/AC-24');
 
-    await screen.findByText(t('taskStatus.notRefined'));
+    expect((await screen.findAllByText('Követelmény kész')).length).toBeGreaterThan(0);
     expectNoStart();
     expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
   });
@@ -1113,9 +1147,7 @@ describe('the Kidolgozás button and the refused Start (decision 31)', () => {
     const project = gatedProject(false);
     project.render(drawer, '/p/AC/tasks/AC-24');
 
-    await screen.findByText(
-      t('taskStatus.labelsMissing', { labels: t('taskStatus.quoted', { name: 'Követelmény kész' }) }),
-    );
+    expect((await screen.findAllByText('Követelmény kész')).length).toBeGreaterThan(0);
     expectNoStart();
     expect(screen.queryByRole('button', { name: t('task.refine.button') })).toBeNull();
   });

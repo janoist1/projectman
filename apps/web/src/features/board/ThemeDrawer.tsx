@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Ref } from 'react';
+import clsx from 'clsx';
 import { Link, useNavigate } from 'react-router';
 import { isOpenTask } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
@@ -31,15 +32,18 @@ export function ThemeHeader({
   size,
   onToggleSize,
   onClose,
+  rule = true,
 }: {
   task: Task;
   headingRef: Ref<HTMLHeadingElement>;
   size: CardSize;
   onToggleSize: (() => void) | undefined;
   onClose: () => void;
+  /** The line under the head; the row of views under it has its own (PM-487). */
+  rule?: boolean;
 }) {
   return (
-    <div className={head.head}>
+    <div className={clsx(head.head, !rule && head.bare)}>
       <div className={head.chips}>
         <Chip tone="neutral" size="md" icon="layers">
           {t('theme.badge')}

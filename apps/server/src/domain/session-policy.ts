@@ -2,6 +2,7 @@ import path from 'node:path';
 import {
   CONTROL_SOCKET_NAME,
   effectiveRepo,
+  isMergeFixer,
   repoOf,
   roleSessionAccess,
   roleSessionTools,
@@ -27,6 +28,11 @@ import { editsFilesInPlace, IN_PLACE_EDIT_MESSAGE } from './in-place-edits';
 import { isReadOnlyCommand } from './read-only-commands';
 import { parseShellCommand } from './shell-words';
 import { isWorktreeRoutine } from './worktree-commands';
+
+/** Where `hybrid back` (PM-318) moves the Mac's former entries, in a dated folder per run. */
+export const HYBRID_ARCHIVE_DIR = 'pre-hybrid';
+/** Where `hybrid back` stages the downloaded cloud data inside the home, in a random folder per run. */
+export const HYBRID_STAGING_DIR = '.hybrid-back';
 
 /**
  * Per-role session settings, kept in one place so they are easy to change.
@@ -205,6 +211,14 @@ export const GIT_SETTINGS_VARIABLE = 'GIT_CONFIG_SYSTEM';
  */
 export function memberSandboxDir(appHome: string, projectKey: string, handle: string): string {
   return path.join(appHome, 'member-caches', projectKey, handle);
+}
+
+/**
+ * The empty directory the Operator's conversation with someone who is not an owner runs in (PM-475):
+ * not the workspace, so the conversation has a transcript of its own and nothing to read beside it.
+ */
+export function guestSessionDir(appHome: string, projectKey: string, guestHandle: string): string {
+  return path.join(appHome, 'operator-guests', projectKey, guestHandle);
 }
 
 /**
@@ -492,6 +506,8 @@ export function sessionSandbox(
  * workspaces and the task attachments live there, and a deny rule wins over an allow rule.
  */
 export function sensitivePaths(input: { userHome: string; appHome?: string }): string[] {
+  // The folders `hybrid back` makes inside the home (PM-318) hold copies of the old database, the cookie key,
+  // the secrets and the machine key: fixed names, so that a plain path denies the whole tree.
   // Not the whole `.claude`: the member's own saved tool outputs (`projects/.../tool-results`) and the
   // plan file of the plan mode (`plans`) live there. Only the credentials and the settings.
   const user = [
@@ -506,6 +522,10 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     '.codex',
     '.gemini',
     '.npmrc',
+    // The owner's cloud logins (PM-533): the AWS CLI's keys and SSO/CLI caches, the Cloudflare tunnel
+    // certificate and Access tokens. Whole directories.
+    '.aws',
+    '.cloudflared',
   ];
   // `logs` is not created by the server itself: the owner's live home has it (the process logs of
   // `npm start`). A name that does not exist denies nothing.
@@ -518,8 +538,14 @@ export function sensitivePaths(input: { userHome: string; appHome?: string }): s
     'logs',
     'customization',
     'memory',
+    // Message files follow recipient visibility; authorized copies go to session folders (PM-524).
+    'message-attachments',
     'github-publish',
     'spool',
+    // The release watcher's journal, lock and database backups (PM-493): the backups hold all data.
+    'release',
+    HYBRID_ARCHIVE_DIR,
+    HYBRID_STAGING_DIR,
     CONTROL_SOCKET_NAME,
   ];
   return [
@@ -574,13 +600,18 @@ export type CommandVerdict = { behavior: 'allow' } | { behavior: 'deny'; message
  */
 function inTaskWorktree(input: {
   config: ProjectConfig;
-  session: { cwd: string; role: RoleId };
-  task: Pick<Task, 'repo'> | null;
+  session: { cwd: string; role: RoleId; member?: string; branch?: string | null };
+  task: Pick<Task, 'repo' | 'merge'> | null;
   worktreesRootDir?: string;
   workspacesRootDir?: string;
 }): boolean {
   const { config, session, task } = input;
-  if (!effectiveRepo(config, task) || !sessionPolicyFor(session.role, config).worktree) return false;
+  const fixing =
+    session.member !== undefined &&
+    isMergeFixer(task?.merge, session.member) &&
+    session.branch === task?.merge?.fix?.branch;
+  if (!effectiveRepo(config, task) || (!sessionPolicyFor(session.role, config).worktree && !fixing))
+    return false;
   return [input.worktreesRootDir, input.workspacesRootDir].some((root) => {
     if (!root) return false;
     const relative = path.relative(path.resolve(root), path.resolve(session.cwd));
@@ -675,8 +706,8 @@ export function withSessionFolders(
  */
 export function commandVerdict(input: {
   config: ProjectConfig;
-  session: { cwd: string; role: RoleId; provider?: AgentProvider };
-  task: Pick<Task, 'repo'> | null;
+  session: { cwd: string; role: RoleId; provider?: AgentProvider; member?: string; branch?: string | null };
+  task: Pick<Task, 'repo' | 'merge'> | null;
   toolName: string;
   toolInput: unknown;
   worktreesRootDir?: string;
@@ -704,7 +735,14 @@ export function commandVerdict(input: {
   if (session.provider === 'nanogpt') return null;
   if (inTaskWorktree(input)) {
     const defaultBranch = repoOf(config, effectiveRepo(config, task))?.defaultBranch;
-    if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch })) return { behavior: 'allow' };
+    const mergeFixBase =
+      session.member !== undefined &&
+      isMergeFixer(task?.merge, session.member) &&
+      session.branch === task?.merge?.fix?.branch
+        ? task?.merge?.fix?.base
+        : undefined;
+    if (isWorktreeRoutine(parsed, { cwd: session.cwd, defaultBranch, mergeFixBase }))
+      return { behavior: 'allow' };
   }
   if (task && readableRoots && isReadOnlyCommand(parsed, { cwd: session.cwd, roots: readableRoots })) {
     return { behavior: 'allow' };
@@ -728,18 +766,37 @@ export function sessionPolicyFor(role: RoleId, config: Pick<ProjectConfig, 'team
   const { readOnlyTools, worktree } = roleSessionAccess(config, role);
   return { readOnlyTools, worktree };
 }
-export function allowedToolsFor(role: RoleId, config: Pick<ProjectConfig, 'team'>): string[] {
-  return claudeToolRules({ tools: roleSessionTools(config, role), deniedOperations: [] }).allow;
+export function allowedToolsFor(
+  role: RoleId,
+  config: Pick<ProjectConfig, 'team'>,
+  options: { teamToolsOnly?: boolean } = {},
+): string[] {
+  const tools = roleSessionTools(config, role);
+  return claudeToolRules({
+    tools: options.teamToolsOnly ? { ...tools, files: [], shell: [] } : tools,
+    deniedOperations: [],
+  }).allow;
 }
 export function usesWorktree(role: RoleId, config: Pick<ProjectConfig, 'team'>): boolean {
   return sessionPolicyFor(role, config).worktree;
+}
+
+/** The tools a session may use: its role's, or the team tools alone (`teamToolsOnly`, PM-475). */
+function sessionToolsOf(input: {
+  config: ProjectConfig;
+  role: RoleId;
+  teamToolsOnly?: boolean;
+}): SessionPolicy['tools'] {
+  const tools = roleSessionTools(input.config, input.role);
+  return input.teamToolsOnly ? { ...tools, files: [], shell: [] } : tools;
 }
 
 /** Build intent from actual placement. Strict sandbox enforcement is a separate activation. */
 export function buildSessionPolicy(input: {
   config: ProjectConfig;
   role: RoleId;
-  task: Pick<Task, 'repo'> | null;
+  task: Pick<Task, 'repo' | 'merge'> | null;
+  member?: string;
   placement: SessionPolicy['placement'];
   permissionMode?: string;
   reviewCopyMode?: SessionPolicy['reviewCopyMode'];
@@ -758,13 +815,26 @@ export function buildSessionPolicy(input: {
    * the placement is the member's own workspace and the CLI asks nothing locally.
    */
   managedVm?: { boundary: { name: string; version: number } };
+  /**
+   * The Operator's conversation with someone who is not an owner (PM-475): the team tools only, no
+   * file, shell or web tool, and nothing to read outside the placement.
+   */
+  teamToolsOnly?: boolean;
 }): SessionPolicy {
+  if (input.teamToolsOnly) {
+    input = { ...input, readableRoots: [], readOnlyPaths: [] };
+  }
   if (input.managedVm) return buildManagedVmPolicy({ ...input, managedVm: input.managedVm });
   const role = roleSessionAccess(input.config, input.role);
   const placement = input.placement;
+  const mergeFix =
+    input.member !== undefined &&
+    isMergeFixer(input.task?.merge, input.member) &&
+    placement.kind === 'task_worktree' &&
+    placement.mergeFix?.branch === input.task?.merge?.fix?.branch;
   if (
     placement.kind === 'task_worktree' &&
-    (!role.worktree || !input.task || !effectiveRepo(input.config, input.task))
+    ((!role.worktree && !mergeFix) || !input.task || !effectiveRepo(input.config, input.task))
   )
     throw new Error('Task worktree placement requires a file-changing duty and a task repository.');
   if (
@@ -791,7 +861,18 @@ export function buildSessionPolicy(input: {
     access: placement.kind,
     ...(placement.kind === 'review_copy' ? { reviewCopyMode } : {}),
     placement,
-    tools: roleSessionTools(input.config, input.role),
+    tools: mergeFix
+      ? {
+          ...sessionToolsOf(input),
+          files: [],
+          shell: [
+            ...sessionToolsOf(input).shell,
+            ...DEVELOPMENT_SHELL_TOOLS,
+            { command: `git merge ${input.task!.merge!.fix!.base}`, arguments: 'exact' },
+          ],
+        }
+      : sessionToolsOf(input),
+    ...(input.teamToolsOnly ? { teamToolsOnly: true } : {}),
     filesystem: {
       readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
       writableRoots: permissions.sandbox === 'workspace-write' ? [...new Set(ownRoots)] : [],
@@ -833,6 +914,7 @@ function buildManagedVmPolicy(input: {
   readableRoots?: string[];
   protectedPaths?: string[];
   readOnlyPaths?: string[];
+  teamToolsOnly?: boolean;
   managedVm: { boundary: { name: string; version: number } };
 }): SessionPolicy {
   const placement = input.placement;
@@ -846,7 +928,8 @@ function buildManagedVmPolicy(input: {
     execution: { profile: 'managed_vm', boundary: input.managedVm.boundary },
     access: 'member_workspace',
     placement,
-    tools: roleSessionTools(input.config, input.role),
+    tools: sessionToolsOf(input),
+    ...(input.teamToolsOnly ? { teamToolsOnly: true } : {}),
     filesystem: {
       readableRoots: [...new Set([...ownRoots, ...(input.readableRoots ?? [])])],
       writableRoots: permissions.sandbox === 'read-only' ? [] : ownRoots,

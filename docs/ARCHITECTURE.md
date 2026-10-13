@@ -32,7 +32,8 @@ Documentation map:
    (PM-328, PM-329). The app never collects or stores subscription login credentials.
 2. **English source code** (decision 10). Identifiers, comments, file names, commit
    messages, prompts for AI members: English. The Hungarian UI lives only in locale files
-   (`apps/web/src/i18n/hu.ts`, `packages/templates/src/locales/hu.ts`). Data written by
+   (`apps/web/src/i18n/hu.ts`, `apps/feedback-widget/src/i18n/hu.ts`,
+   `packages/templates/src/locales/hu.ts`). Data written by
    people and agents (task titles, notes, messages, label names) is in the project's language.
 3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
@@ -159,6 +160,28 @@ Documentation map:
   `task_covers`; `coverAttachmentId(attachments, choice)` applies it: hidden → none, even after a
   new upload, until an image is pinned; a pinned image that is gone falls back to the first image,
   and deleting the pinned file removes the row with it. No timeline event, no team tool.
+  **Files on a question** (PM-498): an `ask_human` question names at most 6 files
+  (`MAX_QUESTION_ATTACHMENTS`) of its card or its parent; the inbox item keeps a snapshot of them
+  (`QuestionAttachment`) and marks each with `goneAt` when the file is deleted (`InboxService.attachmentGone`).
+- **Message attachment** (PM-515, PM-516) — a file (at most 25 MB, the same type sniffing and
+  upload limits as the card attachment) a member sends with a team message, kept in
+  `PROJECTMAN_HOME/message-attachments` and reached only through `routes.messageAttachments*`
+  (upload, `content`/`download`/`thumbnail`, delete) and the team tool `read_message_attachment`.
+  It belongs to a project, not to a card. Upload is open to every project member (a viewer too) and
+  starts **unsent**: only its uploader sees it, at most 20 at a time (`message_attachment_limit`), and
+  the hourly sweep removes the ones older than 24 hours. `send` takes `attachmentIds` (at most 10; the
+  text may be empty with at least one): every file must be ready, unsent, of the project and the
+  sender's own, else `message_attachment_unavailable` and nothing is sent; the binding to the message
+  and the message happen in one transaction. A **sent** file is visible to exactly those who may see
+  the message (`canSeeTeamMessage`); anyone else gets `not_found`. Deleting a sent file
+  (`canDeleteMessageAttachment`) removes file and row, marks the entry in `team_messages.attachments`
+  with `goneAt`/`goneBy` (`TeamMessage.attachments`, a JSON column; old rows have none), and
+  publishes `team_message_updated`; it adds no timeline entry. The recipient's text carries the
+  block `messageAttachmentLines` under the message (name quoted with `JSON.stringify`, SI sizes) in
+  single, batch and Operator info delivery. `read_message_attachment` judges visibility through the
+  calling AI member's eyes (a guest Operator conversation through the guest's) and answers an image
+  as an image (first frame, EXIF rotation applied, WebP of at most 1568 px, 1 500 000 bytes), a
+  valid UTF-8 text of at most 100 000 bytes as text, and anything else by name, type and size.
 - **Work item and session** — every AI member works in a **fresh session per work item**:
   member × task, member × meeting or member × general chat (decision 5). A task session lives
   through the whole pipeline; later messages about the task resume it. Persistent identity
@@ -532,7 +555,8 @@ claude | codex ── transcript JSONL ────────────▶ r
   and approvals); members and profiles; sessions; admission (`admission/`: checks, deferred
   starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
   messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
-  file storage, content check, file names); inbox; invitations; the board; GitHub
+  file storage, content check, file names); feedback marks (`feedback/`: the service, the
+  screenshot store, the widget service with the tool's sessions and limits; PM-506, PM-509); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler; domain events.
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
@@ -541,6 +565,22 @@ claude | codex ── transcript JSONL ────────────▶ r
 terminal, inbox, messages, settings) with `api/` (typed client, queries, websocket cache),
 `features/`, `components/`, `lib/` and `i18n/`; `mocks/` is the in-memory fake backend behind
 the UI tests.
+
+**Feedback widget** (`apps/feedback-widget/src`, PM-510): the embeddable marking tool, built as one
+IIFE script (`dist/widget.js`, Vite library build, CSS inlined, at most 100 kB gzip: the build
+fails over it) that the server serves at `/feedback/widget.js` (PM-509). Preact in a Shadow DOM
+host, `@medv/finder` for selectors, `modern-screenshot` for the picture. It is not part of the web
+app and shares nothing with it at run time; from `packages/shared` it takes types only (`import
+type`: a value import would bundle zod). Modules: `controller.ts` (all state and flows: launch
+code, session, refresh, targeting, sending; no markup), `api.ts` (the public widget API client),
+`storage.ts` (the session token in `localStorage`, keyed by API origin and project key), `code.ts`
+(reads and removes the launch code from the address), `anchor.ts` (the pure anchor lookup and the
+list grouping), `selector.ts`, `screenshot.ts`, `environment.ts`, `ui/` (Preact views), `i18n/`
+(the widget's own Hungarian text), `styles.css` (inside the shadow root). `dev/index.html` is the
+test page: `npm run dev -w @projectman/feedback-widget` serves it on `127.0.0.1:5174`, a different
+origin from the server, as on a customer's site. Remote engine: the widget runs in the visitor's
+browser and talks to the server's public API only, so no machine-dependent part is added; the
+server only reads the built file (`feedbackWidgetFile`, PM-509).
 
 Pure rules (label refusal and label changes, gates, duty resolution, invariants, owner-only
 changes) belong in `packages/shared`, so the server and the web's test fake use the same code.
@@ -571,6 +611,11 @@ attachments/<KEY>/<TASK>/<id>   task attachments: private (0700 directories, 060
                           a file still being written is <id>.part; an image or PDF
                           an agent asked for also has <id>.<ext> (a hard link);
                           an image's thumbnail is <id>.thumb (<id>.thumb.part while written)
+feedback/<KEY>/<markId>.<ext>   screenshots of feedback marks (PM-506): private (0700 directories,
+                          0600 files), named by the generated mark id; the WebP thumbnail is
+                          <markId>.thumb (<name>.part while written); at most 2 MB, proven an image
+                          by its content; served to processors only
+message-attachments/<KEY>/<id>  files of team messages (PM-516): the same modes and names
 ```
 
 SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, `tasks`,
@@ -578,7 +623,10 @@ SQLite tables: `users`, `auth_sessions`, `invitations`, `projects`, `counters`, 
 `schedule_runs`, `deferred_starts`, `attachments`, `member_workspaces` (one per project x member x
 repository, with its reservation), `task_workspace_bindings` (a member's branch or review round of
 a task in it), `task_review_pins` (PM-183: the commit handed over with the task's current review or
-test stage); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
+test stage); the feedback tables (PM-506, migration 55): `feedback_marks`, `feedback_events` (the
+thread of a mark), `feedback_reads`, `feedback_marker_colors`, `feedback_launch_codes` (single use,
+two minutes, kept as hashes) and `feedback_sessions` (the tool's sessions on customer pages, kept as
+hashes); `sessions.execution_profile` (PM-141) is a column, not a table. Schema changes are numbered migrations in `apps/server/src/db/migrations.ts`;
 the server refuses a database a newer build migrated.
 
 ## Permission settings of an AI member (PM-164, part of PM-162)
@@ -809,7 +857,7 @@ the rollback and the evidence are in [MIGRATION.md](MIGRATION.md).
 
 A task that enters a step or release stage a reviewing or testing duty belongs to
 (`stageHandsOverForReview`, the set that gets the `review_copy` placement) is **handed over**: before the move,
-`TaskMoves.prepareHandover` reads the head of the developer's branch through `SessionOrchestrator.sourceHead`
+`TaskMoves.prepareMove` (which also decides whether the merge is checked, see "Merger setting") reads the head of the developer's branch through `SessionOrchestrator.sourceHead`
 (the member workspace's `sourceHead`, or the task worktree's `head`, both in `apps/server/src/worktree`). A
 working directory with uncommitted work refuses the move for everybody (`handover_uncommitted`); otherwise the
 commit is pinned (`task_review_pins`, one row per task, shown as `Task.reviewPin` while the task is in that stage,
@@ -866,7 +914,9 @@ commit pinned at the hand-over, run by the server.
   Every result is a `task_full_test` timeline event. A branch that moves or a dirty checkout while the run
   waits or runs never produces a verdict (`branch_moved`, `checkout_dirty`).
 - **Tests.** The domain logic is tested with a fake executor (`test/full-tests.test.ts`); the real sandbox
-  only in `test/full-test-sandbox.integration.test.ts` (macOS), which the integrating session runs.
+  only in `test/full-test-sandbox.integration.test.ts` (macOS). It cannot start a nested sandbox,
+  so it is skipped when `PROJECTMAN_FULL_TEST_SANDBOX=1` and runs outside the sandbox before
+  every live deployment (PM-493, `release-test`).
 
 When the executor is available and the task's repository sets `reviewTest`, `FullTestRuns.runsFor`
 sets `ContextPackInput.serverFullTest` in the session brief. Implementation and maintenance steps
@@ -875,16 +925,76 @@ the configured full command on the handed-over commit, PTY tests included. Other
 for targeted tests while working and one full test and type check on the handed-over commit.
 A repository can set `fullTestAtMerge: true` to delegate the full check to its integrating session
 or merge step (PM-380): developers and maintainers then run only related tests and the type check of touched
-workspaces, including at hand-over and in fix rounds. This is an instruction policy; it does not
-execute a merge test or add a pipeline step. The integrator checks the card before it enters
-the default branch, using the heavy-run queue for a full run. PM uses this mode (decision 40);
-other projects retain their existing default (absent or false). The two settings are independent:
-`fullTestAtMerge` does not disable `reviewTest`, and an available server review test retains
-precedence in the developer's instructions. Setting both requests two full checks per card,
-one before review and one before merge. To check only at merge, omit `reviewTest`. Reviewers
-without a server result also receive instructions to run only targeted tests.
-No machine boundary changes: the check runs where the integrator runs. Dependencies are
+workspaces, including at hand-over and in fix rounds. In PM, the merger uses `merge_task`; the
+server runs `npm run merge-test` in the full test sandbox, in the machine's heavy-run queue,
+before the default branch moves (decision 40, PM-386). Other projects retain their existing default
+(absent or false). With `fullTestAtMerge: true` the
+repository's `reviewTest` runs only at the merge (PM-386, PM-489): `reviewTestBeforeReview` is false, so
+`reviewTestOf` finds no test, nothing is queued or held before review and the context carries no
+`serverFullTest`. The merge step (`Merges`, "Merge (PM-452)") runs the command once on the merge result
+before the default branch moves; a repository that merges but names no `reviewTest` blocks its merge
+(`check_unavailable`). Where `requiresMerge` is true the context says the merge step runs the full check;
+where an outside integrator merges (`fullTestAtMerge` without `requireMerge`) it keeps the integrator
+wording. Reviewers without a server result receive instructions to run only targeted tests.
+No machine boundary changes: the check runs where the integrator or the merge runs. Dependencies are
 installed only when missing from the working directory.
+
+## Merge (PM-452)
+
+The system requests a merge; only the member selected by `cardMerger` starts it with `merge_task`,
+`POST /tasks/:taskKey/merge`, or the human inbox request. `mergeReadiness` and `mergeRepoOf` in shared
+configuration rules determine readiness and the forward moves that need the approved commit on the
+default branch. The source is the persistent handover (`task_handovers`, migration 47), then the review
+pin, then the card's clean branch head. Clients never see `Task.merge` or `Task.merged`.
+
+`domain/merges.ts` persists requested, queued, running, failed and blocked states in `task_merges`,
+with one running merge per project/repository in FIFO order. The card engine's `BranchMerger` prepares
+the base, validates linked PRs, builds without changing the base, checks local checkout conflicts,
+runs or reuses the approved commit's full check, checks readiness again, pushes and advances locally.
+The check goes through two steps (PM-489): `check_waiting` while the full test waits for the machine's
+heavy-run queue (PM-332), then `checking` when the executor reports that the run holds the lock
+(`FullTestExecutor.run`'s `onStarted`; on a remote engine the `full_test_started` event, sent by the
+`full_test.run` handler like `screenshot_started`). An engine that does not send the event leaves the step at
+`check_waiting` until the run ends; a reused passed run goes straight to `checking`. A repository with
+`fullTestAtMerge` and no `reviewTest` blocks (`check_unavailable`): nothing merges unchecked.
+`task_merged` stands on the member who started the merge (`startedBy`, `{ kind, handle }`); a merge found
+already in the default branch stays a system event.
+Conflicts and failed checks notify the merger and keep the card in place; a failed check tells an AI merger
+to send the card back (a fix round) if the card caused it, or to retry once and then ask a human. Operational failures notify
+the AI merger or create an alert for the human merger. Calling the same tool retries under the same id.
+Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check the ordinary move rules.
+The merger never moves the card itself. Every forward move path checks the default branch before the
+transaction, including approvals and hand-on requests; manual merges discovered there are recorded
+with `via: found` when a persistent handover exists.
+
+Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
+retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
+releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
+Release errors only log a warning. The `_merge` directory is separate from card worktrees and is never
+swept as a closed card; a failed release of a terminal row can leave a checkout for engine-side cleanup.
+
+**Does this work on a remote engine?** Yes: the server owns the durable queue, gates and inbox;
+all git operations, check checkouts, dependency copies and sandbox checks run on the card's engine
+through the existing `merge.*` and `full_test.*` contracts. PR metadata uses the existing application
+GitHub service (the default engine's `github.*` calls in cloud mode); it is independent of local git.
+Source-head reads are strict for merging: an unavailable engine or failed read cannot pass the gate
+as a code-free card. See the machine inventory entry below.
+
+`BranchMerger.readFile` and `BranchMerger.commitFiles` are for the Operator's document writing
+(PM-388, PM-494): the card merge never calls them. `RepoConfig.docs` (`project-docs.ts`) says where
+the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
+repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
+
+**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`domain/doc-writes.ts`)
+writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
+repository while `DocWrites.busy` says a write runs there, and a merge's `finally` calls `docWrites.pump()`
+before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
+for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.useDocWrites` ties the two (as
+`useFullTests` does). At most one write is open (`queued` or `running`) per project (unique index
+`doc_writes_open`). Its git work is the engine's (`prepare`, `readFile`, `commitFiles`, `checkoutConflicts`,
+`push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
+new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
+`published` when the remote already has that commit (the local branch is advanced), otherwise `queued` again.
 
 ## Heavy-run queue (PM-332)
 
@@ -925,10 +1035,125 @@ workers follow the machine's size.
   one per 4 GiB of memory, at least 1. Every `vitest.config.ts` sets `maxWorkers` to it and `minWorkers` to 1.
   `VITEST_MAX_FORKS` and `VITEST_MAX_THREADS` (the server's full test sets them from `reviewTest.maxWorkers`)
   still win: vitest takes `poolOptions.*.max*` before `maxWorkers`.
-- **The integrating session** calls the same CLI from `~/projectman-integrator/merge-test.sh`; it adjusts the
-  script itself.
+- **The server's merge check** runs the repository's `npm run merge-test` in the full test sandbox
+  before the default branch moves (PM-386, PM-490). The first-parent diff selects server/web checks;
+  shared code, scripts, configuration or unknown paths require all workspaces. The executor holds
+  the machine's lock, so the nested root scripts do not queue again.
 
 ## Machine-dependent parts (PM-341)
+
+- **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  that creates and maintains the cloud board on AWS Lightsail: `preflight` and `aws` (PM-534: the machine,
+  the firewall, the two S3 buckets, the two IAM users and their access keys), later the machine part
+  (PM-535), Cloudflare (PM-536) and the DNS move (PM-537). It calls the `aws` CLI v2 with argv (profile and
+  region from the configuration, no SDK) through the injected `CloudDeps`, never a shell. Machine
+  assumptions: the `aws` CLI v2 with the profile `i` on the owner's Mac, later `ssh`/`scp`, and the secrets
+  store `~/.config/projectman/cloud/` (directory 700, files 600, symbolic links and wider modes refused;
+  `config.json`, `cloudflare-token`, `cloud.env`), which sits under `~/.config/projectman`, a path the AI
+  sessions' sandboxes deny. No state file: resources are found by name. **Remote engine:** nothing runs on
+  an engine; this is the owner's tool and the cloud machine it provisions is the server side. The
+  `cloud.env` it writes is what the container of "Cloud deployment and backup" reads.
+
+- **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
+  `apps/server/src/domain/feedback/{service,screenshots}.ts`, `apps/server/src/api/feedback.ts`,
+  `PROJECTMAN_FEEDBACK_PUBLIC_URL` (read in `apps/server/src/index.ts` only), the table family
+  `feedback_*` and `PROJECTMAN_HOME/feedback/`. The app side (this card) is cookie authenticated and
+  runs on the server; the public entrance for the tool on customer pages (a later card) will be an
+  internet-facing address of the server, whose origin and launch codes are bound to the surface. The
+  screenshots (originals and WebP thumbnails, made with `sharp`) are files in the server's home next to
+  the database and the attachments; the card's copy goes through the attachment service. The settings
+  view shows the public address and the sessions the tool holds. Assumes one server host for the
+  database, the screenshot files and the public entrance. **Remote engine:** everything runs on the
+  server; an engine needs nothing from it and receives a mark's screenshot only as the card's
+  attachment, over the existing attachment transfer. The processing (PM-512) runs on the server too: the
+  wake-up message to the project manager (`domain/feedback/notices.ts`) is an ordinary stored team message,
+  and the feedback team tools (`domain/team-tools.ts`, `mcp/tools.ts`) are answered by the server.
+  `get_feedback { mark_id }` hands the stored screenshot's absolute path (`FeedbackScreenshotStore.locate`) only
+  to a session whose engine is the local one (`getFeedbackMark`); a session on a remote engine gets none
+  and reads the image as the card's attachment (`read_attachment`, PM-315) after
+  `create_task_from_feedback`. In the hybrid mode the `feedback` folder is carried
+  with the other data (`HYBRID_CLOUD_ENTRIES`) and the public entrance belongs to the cloud server.
+
+  **The public widget API (PM-509)** — `apps/server/src/api/feedback-widget.ts`,
+  `apps/server/src/domain/feedback/widget.ts`, routes `routes.feedbackWidgetScript()`
+  (`/feedback/widget.js`) and `routes.feedbackWidgetApi()` (`/feedback/api/v1`). Outside `/api`, so
+  its own guard applies: an `onRequest` hook checks the `Origin` (the address of some project's
+  surface, else 403 `feedback_origin_not_allowed`), answers the CORS preflight (no credentials,
+  `no-store`, `Vary: Origin`) and checks the bearer session on every request (401
+  `feedback_session_invalid`), all before the body is read. `POST /sessions` swaps a single-use launch
+  code for a session (30 days sliding, 90 days at most; token kept as a hash); marks, comments, the
+  list (`?since` cursor) and the read mark are limited per session and hour (30 marks, 120 comments,
+  in memory) and per project and day (500 marks, from the database), answering 429 with `Retry-After`.
+  The widget sees only its surface's marks and never the environment, screenshot or forward reason.
+  `/feedback` is a server prefix, so an unknown path there is a JSON 404, not the web app. The script is
+  `apps/feedback-widget/dist/widget.js` under the install directory (`feedbackWidgetFile` in
+  `index.ts`; 404 until it is built, a later card). The caller is a browser on the customer's page and
+  the public address of the server (`PROJECTMAN_FEEDBACK_PUBLIC_URL`) is the only machine assumption.
+  **Remote engine:** nothing runs on an engine; the API, its sessions and limits live on the server, and
+  the engine is not involved. Security notes: `docs/SECURITY.md` "The feedback tool's public API".
+
+- **Live release watcher (PM-387, PM-493)** — `scripts/live/*` (`npm run live`, `npm run release-test`),
+  `apps/server/test/live-*.test.ts`. Two macOS LaunchAgents (`com.projectman.live` for the server,
+  `com.projectman.live-watcher`, one round a minute) switch the owner's live checkout
+  (`~/projectman-live`) to a release the owner approved: fetch, build, release test, configuration check,
+  then pause, stop, database backup, atomic directory switch, verification, and on success tag and
+  GitHub release; on a failure it puts back the previous build and the backup. The state is a journal in
+  `~/.projectman/release/` (denied to the sessions' sandboxes in `domain/session-policy.ts`); the watcher
+  talks to the server through the control socket (`release_next`, `release_claim`, `release_report`).
+  It needs launchd (`launchctl`), the user's `gui/<uid>` domain, `git`, `npm`, `sqlite3`, `lsof`, the
+  `gh` CLI login and git access to the GitHub remote, the live checkout, the data home and its control
+  socket on one machine, and the machine's heavy-run queue. **Remote engine:** the watcher belongs to the
+  server's machine, not to an engine: it switches the one live server and its database, which never run on
+  an engine. An engine needs nothing from it; a hybrid installation (`PROJECTMAN_MODE=hybrid`) is refused
+  by the install, as another process supervisor and release path would be needed.
+  **What the plists start (PM-514):** `ProgramArguments` begins with a launcher of the live checkout
+  (`scripts/live/bin/projectman-live`, `projectman-release-watcher`; `exec "$@"`), because macOS names a
+  background item (System Settings → Login Items & Extensions) after that first element, then the stable
+  `node` path (`scripts/live/node-path.ts`: the `PATH` entry that is the running binary, not the versioned
+  Homebrew `Cellar` path, which a `brew upgrade node` removes). `live status` checks both files exist. Machine
+  assumption: macOS's background-item naming and an unsigned launcher; Homebrew's `bin` link. A remote engine
+  has no such plist.
+
+- **Feedback widget public entrance (PM-506)** — the hostname without Access for the marking widget on
+  customer pages (PM-513). Code: `PROJECTMAN_FEEDBACK_PUBLIC_URL` checked at start in
+  `apps/server/src/index.ts` (`parseFeedbackPublicUrl`; a wrong value stops the server), the host guard
+  `apps/server/src/http/feedback-host-guard.ts` (an `onRequest` hook registered first in `app.ts`; on the
+  public `Host` it answers the unknown-route 404 to every raw path except `/feedback/widget.js` and
+  `/feedback/api/v1/<segments of [A-Za-z0-9_-]>`), `PASSED_VARIABLES` in `scripts/live/plist.ts` (the
+  LaunchAgent gives the server only the variables named there),
+  `deploy/cloudflare/config.example.yml` (two rules for the hostname: `^/feedback/` to `127.0.0.1:4800`,
+  then a 404 rule) and `deploy/cloudflare/check.sh` (`FEEDBACK_ORIGIN`). Machine assumption: the tunnel
+  (`cloudflared`) runs on the server's machine and forwards to its loopback port with the original `Host`
+  (no `httpHostHeader`), which the guard reads; the Cloudflare account and the DNS record are outside the
+  repository. The hybrid cloud image uses a token-managed tunnel set in the dashboard, with the variable
+  given by whoever installs it (`docs/HYBRID.md`). **Remote engine:** the entrance belongs to the server
+  (in the hybrid mode, the cloud one); an engine receives no such traffic and needs nothing from it.
+  Security notes: `docs/SECURITY.md` "The widget's public hostname".
+
+- **Full test trial CLI (PM-386, PM-490)** — `scripts/full-test/cli.ts` runs a command in the current
+  checkout through `createFullTestExecutor`, `fullTestSandbox` and `defaultHeavyLockDir`. It reports
+  outcome, elapsed time, failed files and output tail. It needs macOS Seatbelt, srt, PTY support and
+  the machine's heavy-run queue; run it outside member sandboxes, which cannot start nested Seatbelt.
+  The checkout and common git directory are readable; the user/app homes are denied except those
+  paths. `PROJECTMAN_FULL_TEST_SANDBOX=1` marks the command for tests that cannot run there.
+  **Remote engine:** run the CLI on the engine machine with its checkout, git directory, sandbox
+  dependencies and queue. Only the command and result need to cross the existing full-test boundary.
+
+- **Provider and engine outage watch (PM-449)** — `domain/outages.ts`, `runner/runner.ts`
+  (`providerStatus`). Every 30 seconds the server checks the used providers' login
+  (`claude auth status`, `codex login status`, `--version`, Gemini login and the NanoGPT key)
+  and engine connectivity. Checks run concurrently, with a 20-second limit and no overlapping
+  rounds. The CLI and its login must live on the machine that runs the sessions.
+  **Remote engine:** checks use the existing `provider.status` RPC, including `refresh`;
+  connectivity comes from the server's engine registry. No new engine code is needed.
+  A remote engine that has not connected since server startup gets the same 120-second
+  grace as a disconnected link; existing alerts stay open until recovery is confirmed.
+  Reconnection releases waiting work even if publishing the outage update fails.
+  Each project gets a `work_outage` owner alert with affected members and waiting tasks;
+  confirmed recovery resolves it with `outage_ended` and retries deferred work. Unknown
+  checks preserve the last confirmed outage. Acknowledgement suppresses repeats for the
+  episode; open alerts and their original start times are adopted after restart.
 
 - **Engine link and machine keys** — `engine-link/{protocol,methods,rpc,event-buffer,index,version}.ts`,
   `domain/engine-registry.ts`, `db/engines.ts`, `api/engines.ts` (PM-313).
@@ -952,6 +1177,11 @@ workers follow the machine's size.
   `resolveAppVersion` reads the installation checkout's git HEAD, falling back to `dev`.
   The override must match `[A-Za-z0-9._+-]{1,64}`. This assumes a git checkout when no override is
   supplied; packaged cloud and engine builds should set the same version explicitly.
+  `resolveAppTag` (`engine-link/version.ts`, PM-541, PM-542) reads the release tag on the same checkout's HEAD
+  (`git tag --points-at HEAD`, first tag matching `RELEASE_TAG_PATTERN`; `createAppTagReader` remembers only a found
+  tag, because the release watcher tags after the switch). It reads the installation's own git checkout, so it runs
+  on the server's machine and never on a remote engine; without git, on a timeout (2 s) or with a
+  `PROJECTMAN_VERSION` override (a cloud package has no checkout) the tag is null.
   Existing inventory boundaries use these groups:
   - Session processes, trust, sandbox and terminal: `session.*`, `terminal.*`, `term`, runner events.
   - Codex project layer inspection: `session.assert_workspace_config`.
@@ -963,7 +1193,9 @@ workers follow the machine's size.
   - Machine metrics and process attribution: `machine.*` and `hello.instanceTag/pid/uid`.
   - Hook decisions and team tools: `permission.*`, `mcp.relay` (integrator credentials stay in cloud).
   - Free-disk admission: `host.free_disk`; CLI login/plan usage: `provider.status`, `usage.plan`.
-  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`.
+  - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
+    `full_test_started` event when the run got its turn in the queue (PM-489).
+  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
@@ -972,8 +1204,9 @@ workers follow the machine's size.
   beside the CLIs and connects outward to the cloud's `/engine/link` with its machine key. There is
   no database, no `/api`, no web app and no control socket; only `index.ts` reads the environment.
   Files, all under the engine's home (`PROJECTMAN_HOME`, default `~/.projectman`): `engine.json`
-  (cloud address, engine id, project workspaces, registered repos and their full-test command, the
-  highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
+  (cloud address, engine id, project workspaces, registered repos with their full-test command and the
+  optional `mergeBranch` (the one branch the cloud may merge into and push; absent: every `merge.*` call
+  is refused with `merge_not_allowed`), the highest permission mode, whether the cloud may type into a terminal), `engine.key` (the machine key,
   mode 0600; a looser mode, another owner or a link is refused at start-up), an optional link-headers
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
   secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
@@ -991,7 +1224,11 @@ workers follow the machine's size.
   `engine.json` and `engine-status.json` are in `denyWrite`. For that, `resolveEngineConfig` refuses a
   key file, a headers file or a home that lies inside a workspace, the temporary directory or the
   engine's own worktrees, after `realpath`, and the engine refuses to run (`home_in_use`) in a home that
-  holds `db.sqlite*`: give it its own, for example `PROJECTMAN_HOME=~/.projectman-engine`. Every
+  holds `db.sqlite*`: give it its own, for example `PROJECTMAN_HOME=~/.projectman-engine`. The one
+  exception is a home whose `instance.json` says `engine` (PM-318, the Mac after the move to the hybrid
+  mode, [HYBRID.md](HYBRID.md)): its stale single-machine database and secrets stay there for the way
+  back, and the sandboxes' `sensitivePaths` already put `db.sqlite*`, `secret`, `secrets` and the other
+  server data of the home in `denyRead`; `instanceMayWork('engine')` is false, so no server ever runs on it. Every
   `session.start` needs a policy (the denied paths and roots come from it), and each path in it (the
   placement, readable, writable and read-only roots, the session folders, a review copy's directories)
   must lie under the engine's roots; a task worktree's `gitDir` must be a registered repo's `.git` and its
@@ -1332,6 +1569,50 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   the folders on the engine (`folders.*`, `host.*`) and keeps the paths in the hub's mirror, so
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
+- **Message attachments (PM-516)** — `domain/message-attachments/{storage,service,image}.ts`,
+  `domain/attachments/{files,upload,thumbnail}.ts`, `api/message-attachments.ts`, `mcp/tools.ts`
+  (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
+  `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
+  `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
+  reached only through the protected REST routes and the team tool. A session never gets a path into
+  that store: `read_message_attachment` returns the content itself (an image, a small text), and for
+  what the content cannot show (PM-518) a copy in the caller's own session folder (below).
+  `domain/session-policy.ts` includes the entire store in `sensitivePaths` (PM-524), denying
+  direct file-tool and sandboxed shell access on the machine that hosts a session; authorized
+  copies in its session folder remain readable. Remote engines use the same policy for their
+  local app home and receive authorized files through the existing transfer boundary below.
+  The unsent uploads older than 24 hours are removed by an hourly sweep and at startup.
+  **Remote engine:** the server (cloud) keeps the files and the database. The tool call reaches the
+  server as `mcp.relay`, and an image travels back in the MCP result
+  as base64 inside that frame. A frame is at most `ENGINE_MAX_FRAME_BYTES` (4 MiB), hence the
+  downscale: the image is a WebP of at most 1568 px a side and 1 500 000 bytes (about 2 MB as
+  base64), made on each request (`MessageImageRenderer`, `sharp`, the server's libvips). A text is
+  at most 100 000 bytes. The home directory itself must be on one machine with the server, as for the
+  card attachments.
+- **Message file in the session folder (PM-518)** — `domain/team-tools.ts` (`readMessageAttachment`,
+  `sessionFileTarget`), `domain/message-attachments/{service,storage}.ts` (`source`, `locate`,
+  `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
+  `engine-link/{methods,engine-handlers,engine-limit}.ts` (`files.materialize_into_session`),
+  `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the
+  content of a message file is `none` (a PDF, a binary, a text too big), or an image for a provider
+  whose CLI shows no image in an MCP tool result, the server has the caller's engine put a copy at
+  `<session folder>/<id>-<name>` (0600, straight in the folder with no subdirectory since PM-523, see
+  SECURITY.md; the same path for the same bytes) and the tool answers with that path. The caller is the session the MCP token names; the
+  target is its own folder only, and a guest conversation of the Operator (no folder, `teamToolsOnly`)
+  gets none. A failure (engine offline or older, no folder, a disk error) is logged and the tool
+  answers as before, without a path. `mcpImageResults` per provider: claude and codex true (Claude Code
+  and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
+  one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
+  an image gives them the file. **Gemini and NanoGPT sessions have no session folder today**
+  (`ownFolders` in `domain/sessions.ts`: Claude, and Codex with a writing sandbox), so they get the
+  entry, and the image only where the CLI shows it.
+  **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
+  size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
+  the file with a single-use download token (`transfers.issueDownload`, the same way as
+  `files.materialize`), `files.materialize_into_session` fetches it into a scratch directory of its
+  own, checks size and checksum, and `SessionFolders.materializeFile` puts it in. The engine's limit
+  allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
+  valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
 - **Browser installation and screenshots** — `index.ts`, `domain/session-policy.ts`,
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
@@ -1454,6 +1735,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   access. Pause and shutdown act through the local runner; activation checks local instance
   markers and database use. Deployment scripts using the control client need access to that
   host's socket (see [DEPLOY.md](DEPLOY.md)); the client is not a remote engine API.
+  Release flow (PM-491, `domain/releases.ts`, `PROJECTMAN_RELEASE_TARGET`): the release watcher reads, claims and
+  reports on this same local socket, so it must run on the server's host; the instance's repository is on
+  the engine of the target project, and only `BranchMerger.isAncestor/prepare` cross the engine link
+  (see "Release of the instance"); no new boundary.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `session.pause/force_pause/release/stop` (PM-313), keep the administrative socket local, propagate pause/stop to engines
   with acknowledgements and reconnect handling, and require the existing human deployment
   decision before activation; local process exit is not proof that remote work stopped.
@@ -1462,6 +1747,10 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   shutdown pause and stop) before Litestream ships the last writes and the process ends. A
   deployment is replacing the container; the restored or rehearsed copy is a `standby` home
   (`instance.json`) that starts no session, and only one container may replicate into a replica.
+  (PM-318: `instance activate` from the `engine` role, the way back to the single-machine mode, also
+  needs the person's statement that the cloud is retired, no running engine and a database that
+  holds the cloud's `engines` row, so that a stale pre-hybrid database never replaces the cloud's work;
+  `--discard-cloud-data` states the opposite on purpose.)
 - **Native sandbox and canonical paths** — `domain/session-policy.ts`,
   `engine-host/{disk,within}.ts`, `runner/providers/claude/args.ts`, `worktree/paths.ts`, `index.ts`
   (PM-87, PM-333, PM-355, PM-312; the canonical-path and directory checks of the domain are the
@@ -1553,6 +1842,62 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Cloud mode (PM-315):** the executor of an engine is a remote one (`full_test.run/cancel`) that is
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
+- **Merge conflict fix worktrees** — `domain/{merges,sessions,worktree-sweep}.ts`,
+  `worktree/worktree-manager.ts`, `domain/session-policy.ts`, `engine-link` (PM-471).
+  The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
+  a file-changing duty, only while the card is `fixing`. Placement changes when its session
+  restarts after the turn. The checkout starts at the approved commit; the merger merges the
+  recorded conflict base, resolves mechanical conflicts, commits, and submits a resolution note.
+  Git cleanliness and ancestry are checked on the card's engine before queuing the fix head.
+  Human mergers use the same checkout (PM-481), editing directly on the card's engine machine.
+  `fix.path` is an absolute path on that engine; remote use requires the human to have filesystem
+  access to its machine, which projectman does not provide. The existing checkout metadata
+  carries this path across the server/engine boundary.
+  Assumptions: git and writable worktree storage on that engine, shared git metadata there.
+  **Remote engine:** checkout creation, head/status/ancestry reads and cleanup run on the card's
+  engine through the worktree and merge contracts; only checkout metadata, commit ids and the
+  resolution note cross the boundary. A merger assigned to another engine is refused. The
+  server stores the fix state and resolution attribution; it never edits conflict files.
+  This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
+  with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
+  `MemberWorkspaces` retains its existing work/review choices. The server's shared
+  `domain/merge-card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
+  Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
+  at startup and periodically. The engine revalidates the canonical fix path under its
+  repository mutex, refuses symlinks and leaves unregistered directories in place.
+
+- **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
+  `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
+  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `domain/merges.ts`
+  (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
+  the server keeps the queue and member authorization, and never receives git credentials.
+  Merging a card's approved commit into the repository's default branch and sending it up is git work on
+  the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
+  (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
+  with `merge-tree`/`commit-tree`, the branch not moved), `merge.checkout_conflicts`,
+  `merge.checkout_for_check` and `merge.release_check` (a detached check checkout under
+  `<worktreesRoot>/_merge/<mergeId>`, its `node_modules` copied from a source the engine limit bounds, an
+  APFS clone `cp -c` on macOS), `merge.push` (never forced, `--no-verify`) and `merge.advance` (a
+  fast-forward of the local branch, or an `update-ref` with the old value when it is checked out nowhere).
+  Every git call is an argument array with no shell, with hooks, signing and the filesystem monitor switched
+  off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
+  repository is found from the engine's own binding (`engine.json` `repos[].path`, in single-machine mode the
+  project's config), never from the call; branch, commit and merge ids are checked in `engine-limit.ts` and
+  again in the merger. **Does this work on a remote engine?** Yes, it is built for it: the git work, the
+  check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
+  of the changed files and short results cross the link, and a merge to a repo or branch not named by
+  `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
+  engine's user's git credentials for the push, and macOS APFS for the cheap dependency copy (a plain copy
+  elsewhere). Two more calls serve the Operator's project documents (PM-494, PM-388): `merge.read_file`
+  (`cat-file` of one file at a commit, or at the head of the base after the fetch of its upstream; a path
+  that fails `isRepoFilePath`, a file over 1 MiB or one that is not UTF-8 text is refused) and
+  `merge.commit_files` (a commit on `onto` with one or two files set, built in a temporary index file
+  with `hash-object`, `update-index`, `write-tree` and `commit-tree`: no ref, index or working tree is
+  touched). The engine limit bounds both like the other `merge.*` calls (the repository must be
+  registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
+  without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
+  machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
 - **Managed VM runtime boundary** — `runtime-boundary/config.ts`,
   `runtime-boundary/launcher/{client,daemon}.ts`, `runtime-boundary/egress/peer.ts`,
   `runtime-boundary/bridge/`, `runtime-boundary/worker-workspaces.ts` (PM-140, PM-141,
@@ -1570,6 +1915,40 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   confirmation that the source is retired. **Remote engine:** execute local probes and
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
+  **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
+  `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
+  hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
+  (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `feedback`, `memory`, `HYBRID_CLOUD_ENTRIES`);
+  it never holds a CLI home, provider logins, worktrees, workspaces, repositories, `github-publish`,
+  `spool`, `logs`, the instance marker, `engine.json` or `engine.key`
+  (`HYBRID_NEVER_CARRIED`, checked again by `verify --hybrid-cloud` as `forbidden_entry`). The machine
+  key is made on the Mac (`newMachineKey`), written to `engine.key` (0600, `wx`) last, and only its
+  hash enters the package's database; `engine.json` is made with it. **Does this work on a remote
+  engine?** The tool is the one place that reads the Mac's home and repositories to build the
+  engine's configuration (`engineProjects`), so it runs on the engine's machine by definition; the
+  package is the only thing that crosses to the cloud, by a person's copy, and the key never does.
+  The way back verifies the cloud's data directory as downloaded: it tolerates, and does not carry,
+  what a running cloud writes itself (`logs/`, `engine-spool/`, Litestream's `.db.sqlite-litestream`,
+  a restored copy's `instance.json`), refuses while the engine runs or its LaunchAgent is installed,
+  and moves the Mac's former entries (old database, cookie key, secrets, machine key) to
+  `pre-hybrid/<date>/`. That folder and the staging folder `.hybrid-back/` are in `sensitivePaths`
+  (fixed names, so one path denies the tree); the package (`--out`) and the downloaded copy (`--from`)
+  are the person's folders outside the home, which the sandboxes' deny-only reads do not cover, so the
+  guide tells the person to delete them after use.
+
+- **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+  `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
+  renders the plist template with this machine's absolute paths (node, the checkout, the home, the
+  `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the
+  engine starts at login and is restarted after an exit (`KeepAlive`, 30 s throttle). It is an agent,
+  not a daemon, because the CLIs of the sessions need the login keychain and the user's files. The job
+  gets only the variables the plist names (`PATH`, `PROJECTMAN_MODE=engine`, `PROJECTMAN_HOME`): no
+  API key and no integrator key. `install` runs the same preflight as `start` and refuses another
+  home's installed agent; `uninstall` leaves the logs (`<home>/logs/engine-service.{out,err}.log`).
+  **Assumptions:** macOS, `launchctl`, a logged-in user, and the checkout the command ran from being
+  the one that should run the engine (the plist names it). **Does this work on a remote engine?**
+  This is the engine's own start-up: it must run on the engine's machine, as the user who owns the
+  CLIs; nothing of it crosses to the cloud. On Linux the equivalent is a systemd user unit (not built).
 
 - **Non-interactive editors in member sessions** — `runner/env.ts` (`NON_INTERACTIVE_EDITOR_ENV`,
   `buildSessionEnv`), `runtime-boundary/launcher/daemon.ts` (`workerEnvironment`) (PM-428). Every member session gets `GIT_EDITOR`, `GIT_SEQUENCE_EDITOR`,
@@ -1653,6 +2032,23 @@ running assignee are not stored team messages (the timeline would show their Eng
 into the member's running session of the card, or the first input of a new one, like the loop watch's; only
 when admission cannot start the session now is the notice stored as a message from `system`.
 
+### Automatic stage advance (PM-445)
+
+A card in a `step` or `release` stage whose next gate lacks nothing but humans' approvals must not sit unseen.
+The rule is pure, `stageAdvance` in `packages/shared/src/config/gates.ts` (also used by the web's status line):
+`move` when no condition is missing, `approve` when only human-only labels are, `null` otherwise (never from a
+`work` or `queue` stage, never for a gate with unmet conditions). `AutoAdvance`
+(`apps/server/src/domain/tasks/auto-advance.ts`) acts on it as the system: it calls `moveToStage`, which moves the
+card or opens the same "Döntés" inbox item a person's move attempt opens (source `system`; the item names the
+label). It looks at a card when its labels or stage change, when a session of it goes idle or ends, and at every
+open card once after the start. It does not move a card a session works on (an idle one does not count), does not
+act on closed, blocked or theme cards, and does not ask again after the approvers rejected the request in the same
+stay in the stage until the card's labels change. A person's drop on the board that
+names a place replaces the system's open request, so that the place is kept with the request. It touches no
+machine-dependent part: it is server state only. Automatic moves carry their source stage and its entry
+time into the write transaction (PM-477); an asynchronous preparation that finishes after the card has
+left that stay is discarded, so it cannot undo a human's move or reopen a finished card.
+
 ### Assignee handoff (PM-342)
 
 `HandoffService` (`apps/server/src/domain/handoffs.ts`, PM-423) hands a card's work from the old assignee to the new
@@ -1731,13 +2127,198 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   assignment falls back to the usual `work_start` retry. Refusals are logged at debug level and write no timeline.
   A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
   internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
+- **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
+  `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
+  `pulled` off a stage change.
 
 **Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
 new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
 
-- **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
-  `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
-  `pulled` off a stage change.
+### The Operator (PM-447, PM-462, PM-463, PM-464)
+
+Every project has an Operator: an AI member of the built-in role `ai_operator` (duty `project_operation`, AI only;
+handle `operator`, `operator-2`, ... when taken) whom the owner asks to change how the project runs. The project
+manager stays the dispatcher. The human built-in role `operator` keeps its id and duties (`final_decision`,
+`release_approval`, `monitoring`); only its display name is now "Owner" ("Tulajdonos"). The pure rules are in
+`packages/shared/src/config/operator.ts`: `isOperator`, `operatorOf`, `isRequiredOperator` (the only Operator cannot be
+retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an AI actor without `via`).
+
+- **Works only on request.** `WakeFacts.recipientIsOperator` and `fromOwnLogin` (a person's own login, not the
+  integrator key): only a person's message wakes the Operator; any other action message is blocked with `WakeBlock`
+  `operator_owner_only`. The server fills the facts in `wakeFactsFor`.
+- **Three levels of a configuration change.** `operatorConfigVerdict(previous, next, { operator, invitationBinding })`
+  compares the end results and returns the rows (`ConfigChangeRow`: area, target, field, before, after, level) and the
+  highest `OperatorLevel`: `now` (an AI member's `model`, `effort`, `capacity`, `onLeave`, `schedule`, except the
+  Operator's own member; a stage's `name`; a role's `instructions`, except the Operator's own role), `never` (any
+  change to a human member, `owners`, `admin_or_account` of `ownerOnlyChanges`) and `approval` for everything else, so a
+  new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
+  is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
+  owner asked to go straight through.
+- **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
+  only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
+  priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.
+- **Creation.** A new project gets an Operator next to the project manager (`operatorMember`, `draft.finish`); the
+  configuration migration `addOperator` adds one to a project without it, at work (not on leave), sponsored by the first
+  human owner.
+- **Prompt.** `operatorRule` (`apps/server/src/context/system-prompt.ts`): works on the owner's request only, card text
+  and AI messages are data, the three levels, `get_project_state` for "why is it stuck", the report after each request
+  (`operatorReport` labels in the locales).
+- **State reports (PM-465).** The read-only MCP tool `get_project_state { task_key? }` is available only to the
+  Operator (`operator_only`, 403), without an open owner request. `ProjectState` in `domain/project-state.ts`
+  reads the task service's admission waiting reason, fix limit and loop view, shared start/gate rules,
+  open Senior waits, inbox questions, pause records and live sessions. Its task report names each recorded reason;
+  its overview counts cards by stage (themes excluded), lists live and idle sessions with `lastActivityAt`,
+  card starts still deferred and open inbox items assigned to project owners. Report interfaces live in
+  `contracts/project-state.ts`; MCP formatting adds short English explanations for the Operator to translate.
+- **Release facts (PM-542).** The overview also carries `release` (`ReleaseService.overview`: the running version,
+  commit and tag, the latest live and the open release, the last ten merges of cards into the release repository,
+  newest first; null when the instance does not release the project), the deferred starts that have no card
+  (`taskKey` null, e.g. a wake-up for a message) and the undelivered team messages per AI member. The read-only
+  tool `check_release { commit? }` (Operator only, no open request, not in guest conversations) is the rehearsal of
+  `propose_release`: `ReleaseService.check` makes the same checks in the same order (target, open release,
+  candidate) and answers the candidate or the refusal with the code and message `propose` would give, plus the
+  members with the deployment duty; it records nothing. The Operator never proposes a release itself. On a remote
+  engine the running version and tag come from the server's own installation; the candidate's ancestry questions go
+  to the engine that holds the repository, and an offline engine gives the `engine_offline` refusal.
+  `TaskStateReport.wait` comes from `TaskWaits.ofCard` (PM-460, viewer null) and is worded first by
+  `describeTaskWait`. Task and overview reports include active system signals (PM-476) through
+  `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
+  The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
+  It neither starts work nor contacts an engine.
+- **Operator documents (PM-495, PM-388).** `read_project_doc { doc, from_line?, line_count? }` is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool): the decision log or roadmap at the fresh head of the default branch,
+  read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
+  `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
+  own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
+  otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
+  The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
+  `domain/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
+  `docs_not_append_only`, `docs_unchanged`), then the write is queued (`doc_writes`, one open per project:
+  409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
+  "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
+  `running`; a write that ends without a waiting call updates its step (`done`, `stale` or `refused`, with the
+  refusal: `updateStep(…, refusal)`) and sends the Operator an English `info` system message, read with the owner's
+  next message. A file that changed since `base_commit` is `docs_stale`, never a blind edit. The commit carries the
+  trailers `Projectman-Operator`, `Projectman-Request` and `Projectman-Requested-By`. Never forced. The server owns
+  the queue, the lock and the step log; the git runs on the engine. No new machine-dependent part.
+- **Roadmap check at a release proposal (PM-497).** `ReleaseService.propose` emits the domain event
+  `release_proposed`; `ReleaseRoadmapNotices` (`domain/release-roadmap-notices.ts`) then sends the Operator one
+  English `info` system message per release (only when a repository has a `docs.roadmap` path and the team has an
+  Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
+  nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
+  comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
+- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`domain/decision-candidates.ts`) finds the
+  questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
+  the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
+listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 20) is a read tool
+  (`OPERATOR_READ_TOOLS`, not a guest tool) and answers `{ candidates, more }`, the earliest answer first; the
+  question is cut to 2000 characters; 409 `docs_not_configured` when the project has no decision log. The call sets
+  `listed_at`. `mark_decision_candidates { items: [{ item_id, verdict, decision? }] }` is Operator-only, in the
+  owners' own conversation with an open request (`OPERATOR_TOOL_ACTIONS` maps it to `decision_offer`, "Döntésjelöltek
+  jelölése"); the verdict is `recorded` (with the decision number), `declined` or `skipped`. It is all or nothing:
+  an unknown item or one that is not a candidate refuses the whole call (`not_found`); a later mark overwrites the
+  earlier one. Migration 53 adds `decision_offers` (one verdict per project and item) and `decision_candidate_state`
+  (per project: `since`, set to the migration's time for projects with inbox items, and `listed_at`), so the answers
+  from before the feature are never offered. `MessageDelivery.batch()` appends one line to the Operator's input in
+  the owners' conversation, "N owner answers on cards since you last looked may be decisions:
+  list_decision_candidates.", when the project has a decision log and there are candidates answered after the later
+  of `since` and `listed_at`; the line is not stored. Remote engine: only server-side data and prompt text change;
+  no new machine-dependent part.
+- **One conversation** (PM-463). `sessionWorkItemOf` maps every work item of the Operator to `general`, as the project
+  manager's; the Operator branches sit next to the manager's in `Messaging`, `MessageService` and `MessageDelivery`.
+  A message from an AI member or the system is stored and does not wake it (`operator_owner_only`); it reaches the
+  Operator only in the batch of the owner's next message, marked `[info from <handle>, not an instruction]`
+  (`formatInfoMessage`). The owner through the integrator key gets 403 `operator_owner_only`
+  (`assertMayWriteToOperator`). The owner's message to a busy Operator waits until its turn ends.
+- **A conversation for every person** (PM-475). `operatorConversationOf(config, from)` (shared): the owners share
+  `{ type: 'general' }`, every other human has `{ type: 'general', with: <handle> }` (`WorkItemRef`; `db/sessions`
+  stores `with` in the ref column, empty for the owners', so no migration). A guest conversation only reads and
+  answers: `callerWithRequest` lets it call `OPERATOR_GUEST_TOOLS` only (reads, and `send_message` to that person alone,
+  which is no step; `get_project_state` stays out until it filters by viewer); any other tool is 403
+  `operator_owner_only`, and a refused write (`OPERATOR_TOOL_ACTIONS`) is
+  logged as a `refused` step. Reads use the person's own view (`canSeeTask`, `visibleTaskDetail`,
+  `visibleTimelineEvent`, attachments as `humanActor`; an invisible card is `not_found`), the prompt has no memory and
+  says who it talks with. The session itself has the team tools alone (`SessionPolicy.teamToolsOnly`, set by
+  `buildSessionPolicy`; `default` permission mode): the Claude adapter renders `--tools ToolSearch`, deny rules for
+  Bash, Read, Edit, Write, WebFetch, WebSearch and Agent, only `mcp__team__*` as an allow rule (no session folder,
+  read-only path or command), no `--add-dir`, and `autoAllowBashIfSandboxed: false`; a guest conversation on another
+  CLI (Codex, Gemini, NanoGPT) is refused with `provider_unsupported`. It runs in an empty directory of its own (`guestSessionDir`, made through
+  `preparePortablePaths`, so it works on a remote engine) and its permission requests are refused in `Inbox.decide`
+  without an item. Raw terminal input into an Operator session is the owner's only. Requests are listed by sender, so `GET /operator` gives a person their own
+  (`OperatorChannel.readOnly`). The Operator's sessions are seen by owners and admins only
+  (`canSeeOperatorSessions`: REST, WebSocket events and terminal, the member profile). Capacity (1) counts the guest
+  conversations only (`Admission.memberLoad`): the owner's never waits; a guest conversation closes after
+  `OPERATOR_GUEST_IDLE_CLOSE_MINUTES` (5) idle. No machine-dependent part is affected.
+- **Owner requests** (migration 47, `OperatorRequests` in `domain/operator-requests.ts`). A request opens when an
+  owner's message, or the owner's answer to the Operator's question, is delivered into its session
+  (`MessageService.markRecipientDelivered`); `quote` is the first 280 characters, line breaks as spaces. It closes on
+  the session's `idle` or `ended` (the listener is registered before the delivery's own idle listener, so the next
+  batch opens a new request), when a newer one opens, or after `OPERATOR_REQUEST_TTL_MS` (30 minutes, checked when it
+  is looked up).
+- **Write guard** (`TeamToolsService.caller(ctx, tool)`). The Operator calls the reading tools (`OPERATOR_READ_TOOLS`)
+  at any time; every other tool needs an open request (`operator_no_request` 403), and the decisions of other members
+  and hand-overs, and `publish_task_branch` (publishing outside) (`OPERATOR_NEVER_TOOLS`) are never its
+  (`operator_never` 403). The guard hands the request it found on to the step log, so a request expiring between the
+  two cannot leave a write without its step. Its `ask_human` goes to the owners
+  only. Rules live in the one place `caller`; a new tool must name itself there.
+- **Step log** (`operator_steps`, `OperatorSteps.record`). One tool call is one step of the open request, done or
+  refused (`update_task`: `task_move` > `task_labels` > `task_priority` > `task_update`; `create_task`: `task_create`;
+  `send_message` to anyone but an owner: `message`; `attach_file`, `delete_attachment` and `link_pull_request` are
+  `task_update`). A move that waits for a human's approval is `awaiting_approval`. A message sent during a request
+  carries `TeamMessage.operatorRequest`. `GET /api/projects/:key/operator` returns `OperatorChannel` (the manager's
+  channel plus the last 50 requests with their steps, the newest last) to a person's own login (the owners' requests
+  to an owner, their own to anyone else; PM-475); no new WebSocket event.
+
+- **Operations and approvals** (PM-464, `domain/operator-actions.ts`). `operate` and `start_task` are Operator-only
+  MCP tools and need an open owner request. Configuration previews reuse the member service's draft mutations;
+  `operatorConfigVerdict` chooses immediate execution, an owner approval item, or refusal. Configuration commits
+  recheck the verdict and the approved change rows under the project's configuration lock. Approval decisions
+  run before inbox closure, require an owner's own login, and are serialized per inbox item. Independent edits
+  preserve proposals; changed rows, ended or restarted sessions, and changed pause identities mark them stale
+  (`operator_approval_stale` 409). Stale items remain open with only `dismiss`. Configuration commits, session
+  ends and pause changes proactively recheck proposals through `BackgroundTasks`, without delaying subsequent
+  event listeners; projects without pending proposals skip this work. Approved/rejected/stale results update the existing step
+  and record a system message without waking the Operator. Configuration history reads `Projectman-Operator`,
+  `Projectman-Request` and `Projectman-Approved-By` trailers, including reverts. Runtime operations reuse session
+  stop and pause/resume; pause freshness is checked inside the existing admission lock.
+  The Operator's Start follows the person's prerequisite override and AI label-setter path, while a fix-limit
+  hold is always refused. When the configured temporary-worker policy permits a hire, Start hires as the system,
+  sponsored by the requesting owner, and names the temporary member in its result and step. Permanent hires
+  remain approval operations.
+
+- **System signals** (PM-476, migration 50, `domain/operator-signals.ts`). Provider/engine outages,
+  cards whose `TaskWaits` reason is `nobody`, input stalls and working sessions silent for 30 minutes
+  create one signal per unresolved case. A 60-second sweep and domain events reconcile the sources.
+  The sweep checks `WorkOutages.activeIds` only after its first evaluation (`null` means not yet observed),
+  so startup card events cannot resolve an outage before provider checks finish. An acknowledged alert followed by a restart cannot
+  leave a recovered outage signal unresolved and suppress the next episode of the same outage id.
+  Admission persists refused `operator_signals` starts; notices enter the Operator's general conversation
+  as projectman input, without a team message or an owner request. A persisted `delivered_at` keeps the
+  15-minute project wake interval across restarts. Delivered signals become open when presented or when
+  the turn ends; startup recovers delivered pending rows. Undelivered rows never appear in REST or WS.
+  `send_message` may present a delivered signal to owners without a request; all other writes retain
+  the request guard. Owner acceptance records a visible message and the signal decision atomically,
+  and its delivery opens the usual owner request. Owner dismissal suppresses repeats until resolution.
+  Signal WS events reach owners only. This adds no machine-dependent part: observation, storage and
+  admission stay on the server, and notice delivery uses the existing engine session boundary.
+  Five board kinds (PM-547, migration 56) join the four, raised and closed by the same sweep from
+  `OperatorSignals.boardCases` (`pending()` rechecks a signal against it before waking the Operator):
+  `idle` (`idle:<task>:<stage>`; a work or step card whose `TaskWaits` reason is `assignee`, or `queued`
+  with an AI step owner, held by an AI member who is not on leave, with no activity for
+  `OPERATOR_IDLE_MINUTES` = 30 since the later of `wait.since` and the card's latest session activity),
+  `merge_waiting` (`merge_waiting:<task>`; a `requested` merge an AI merger has not started for
+  `OPERATOR_MERGE_WAIT_MINUTES` = 30), `merge_blocked` (`merge_blocked:<task>`; a `failed` or `blocked`
+  merge with an AI merger, at once; a person as merger gets the inbox item instead), `unreleased`
+  (`unreleased:<base>`; `ReleaseService.unreleased`, from the stored merges and the latest live release or
+  the running commit, without git or an engine; work merged for `OPERATOR_UNRELEASED_HOURS` = 24 and no
+  open release) and `ready_waiting` (one per project; a card in a later queue stage ready for a work stage
+  whose AI owner is free, not on leave, not temporary, under its capacity, with the parallel AI limit not
+  reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
+  if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
+  team is paused. All data comes from the server's database and configuration: no machine-dependent part.
+
+**Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
+steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.
 
 ## Pause and resume (PM-219, part of PM-198)
 
@@ -1794,7 +2375,48 @@ deploy; decision 32). The runner's part is `SessionRunner.pause` / `forcePause` 
   no login: whoever may open the file may pause the team, like whoever may stop the service. A file nobody
   answers on is replaced; one somebody answers on is left alone and logged. The members' sessions may not touch it
   (`sensitivePaths`). `npm run control -- pause --wait | resume | force | status`
-  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)).
+  (`scripts/control`) is its client ([DEPLOY.md](DEPLOY.md)). Since PM-491 it also takes `release_next`,
+  `release_claim` and `release_report`, the release watcher's operations (see "Release of the instance").
+
+## Release of the instance (PM-491, part of PM-387)
+
+The release flow of projectman's own instance, on the server; the watcher that deploys (PM-493) and the
+screens (PM-492) come in their own cards.
+
+- **Target.** `PROJECTMAN_RELEASE_TARGET=<project key>/<repository>` (read in `index.ts`, `parseReleaseTarget`;
+  `DomainOptions.releaseTarget`) names the project and repository that are the instance itself. Without it
+  every release operation is refused (`release_not_configured`). `appVersion` (`resolveAppVersion`) is the
+  commit the server runs; the control socket tells it in every answer, so the watcher knows a restart happened.
+- **Record.** `releases` (migration 51, `db/releases.ts`, contract `packages/shared/src/domain/release.ts`):
+  `proposed` → `approved` → `deploying` → `live` → `published`, or `rejected` / `failed`. A partial unique
+  index (`releases_open`) allows one release in `proposed`, `approved` or `deploying` for a project. A release has
+  a theme card (kind `theme`); its timeline holds `release_changed` for every change, and `ReleaseService`
+  (`domain/releases.ts`) is the only writer.
+- **Contents.** Only a commit a recorded merge of a card left on the default branch can be released
+  (`task_merges`, state `merged`; `release_commit_unknown` otherwise). The cards are those whose merge commit is
+  an ancestor of the release commit and not of the base: the last release that went live, else the running
+  version when that is a commit id. The ancestry questions go to the engine that holds the repository
+  (`BranchMerger.isAncestor`, the head through `BranchMerger.prepare`).
+- **Proposal.** `propose_release` (MCP) is for the holder of the `deployment` duty. It makes the theme card, the
+  record and an inbox item of kind `release` for the holders of the `release_approval` duty (else the owners),
+  and `preview: true` records nothing. The Devops session ends after the call.
+- **Approval.** Only a person decides, in the Rád vár: AI members (`ai_approval_forbidden`) and integrator keys
+  (`owner_approval_required`) cannot, and the owner bypass does not apply to a `release` item, so only its
+  assignees can. A rejection ends the release card and may carry a reason (`note` of `release_changed`); a
+  second decision is `inbox_item_closed`. The release card is a theme that the domain closes without a person
+  (`TaskService.closeThemeBySystem`, architect's decision): on reject, on failure and on publishing alike it
+  ends `cancelled`, because a theme is never `done` (reopening goes from `cancelled` only); the outcome is the
+  release record and its `release_changed` events.
+- **Watcher.** `release_next` returns the oldest release that is approved, deploying, or live without a tag.
+  `release_claim` (approved → deploying) records `previousCommit`, where a rollback goes. `release_report` takes
+  `live` (only while the server runs the release's commit), `failed` (cancels the card, alert `release_failed`
+  to the approvers), `published` (tag and URL; the card is closed) or `publish_failed` (alert once). An
+  operation out of order is `release_state_conflict`. The watcher's operations act on the target project only.
+
+Does this work on a remote engine? The records, the approval and the socket are the server's. Only
+`BranchMerger.isAncestor` / `prepare` cross the server/engine boundary, as they do for the merge (PM-452); the
+instance's repository is on the engine the project uses (`LOCAL_ENGINE_ID` for now). Deploying, restarting and
+publishing are the watcher's (PM-493) and act on the machine the server runs on; the control socket stays local.
 
 ## The machine and the sessions (PM-320, part of PM-300)
 
@@ -1841,6 +2463,57 @@ pid=,ppid=,uid=,rss=,%cpu=,time=,lstart=,args=` line per process), `envValues(pi
   here; a session's top processes carry the short name only.
 - **Screenshots.** `PROJECTMAN_MACHINE_FIXTURE=<json>` (`npm run shots -- … --machine <file>`,
   [SCREENSHOTS.md](SCREENSHOTS.md)) swaps the probe for fixed data that never signals; the server warns at start.
+
+## Card mover and hand-on requests (PM-439)
+
+`team.cardMover` selects the worker (default), project manager, or a named human who moves
+cards forward. `packages/shared/src/config/card-mover.ts` owns the decision: only AI and system
+forward moves from work, step or release stages request a hand-on. Queue starts, backward moves,
+refinement (`step` with the `task_breakdown` duty) and human moves retain their existing rules.
+Unresolvable movers fall back to moving.
+Human gate approvals take precedence and complete the move through the existing approval path.
+
+`TaskMoves` records one request per card in `task_hand_ons` (migration 45); `TaskStore` exposes it
+as `Task.handOn`. Repeated requests for the same source, target and mover do nothing. Replacement
+cancels the old inbox item. A human mover gets a `hand_on` inbox item; a project manager gets a
+stored system action message through the existing general conversation route. The internal
+`task_hand_on_requested` timeline event records the requester and mover. Uncommitted work refuses
+the request immediately; the review pin is created only by the actual move.
+
+## Merger setting (PM-470, part of PM-448)
+
+Who merges a card's approved work into the default branch is the project's setting, never the
+code's (decisions 47 and 48). `team.merger` is `code_reviewer` (the owner of the code review stage
+who reviewed the card), `developer` (the assignee) or `member` (a named member); absent, `defaultMerger`
+picks the code reviewer when a code review stage comes before the merge target, else the developer.
+`RepoConfig.requireMerge` says whether a repository's cards must be merged before they enter the merge
+target; absent, `requiresMerge` decides (merge unless `fullTestAtMerge`, an outside integrator merging; the
+owner switches the PM project over as PM-386 plans). The merge target is the first release stage, else the done stage. The pure rules
+(`requiresMerge`, `mergeTargetOf`, `defaultMerger`, `mergerOf`, `mergeRepoOf`, `cardMerger`,
+`mergeReadiness`, `moveMerge`, `unresolvedMerger`) live in `packages/shared/src/config/merger.ts`.
+The order of a move (PM-484): the merge waits for the same approval the move waits for (`mergeReadiness`
+needs the gate to hold), so the move's gates speak first. `moveMerge` says, for a move, `none` (no merge
+due), `due` (the gates hold: `TaskMoves.prepareMove` runs `Merges.checkGate`, and `PreparedMove.mergeChecked`
+records that it passed) or `after_gates` (an approval or condition is missing: `gate_blocked` or the
+approval request comes first, carrying `GateRequestPayload.merge`, the merger and base the approval is
+followed by). `move()` refuses a merge-requiring move that was not checked (`task_not_merged`), which
+closes the race where the approval is put on between the preparation and the write; `decide` asks for the
+merge instead of moving in that case. Every path (moves, hand-on, approval decision, `update`, board drop,
+group drop, AutoAdvance through `moveToStage`) goes through `prepareMove`.
+The invariant `merger_unresolved` is tolerated on load (`TOLERATED_ON_LOAD`) but a save cannot introduce it;
+the config migration `addMerger` writes the default merger into a valid configuration that has none.
+`PATCH /config` takes `merger` and `repoMerge` (`requireMerge: null` clears the explicit value; an
+unknown repository is `unknown_repo`). No machine-dependent part is touched: this is configuration and
+pure rules; the merge itself (PM-452) runs on the engine through `BranchMerger`.
+
+Inbox resolution checks access and attempts the move as the resolving human before closing the
+item. Refused moves leave it open. Actual movement clears the request and resolves the item if
+it reaches the requested stage, otherwise cancels it; cancellation clears it too. Configuration
+changes redirect outstanding requests while retaining the original requester. Selecting worker
+retries the requested move as the system, rechecking gates and logging refusal.
+
+No machine-dependent part is added: configuration, SQLite and domain state stay on the server;
+remote engines receive the existing messages and context packs through the existing boundary.
 
 ## GitHub
 

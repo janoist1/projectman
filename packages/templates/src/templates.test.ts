@@ -2,10 +2,12 @@ import { TEMPLATE_COLUMN_COLORS } from './templates/draft';
 import { describe, expect, it } from 'vitest';
 import {
   isHumanOnlyLabel,
+  isOperator,
   isReleaseApprovalLabel,
   labelDefinition,
   labelHolders,
   MemberHandle,
+  operatorOf,
   ProjectConfig,
   projectManagersOf,
   releaseGateAccepts,
@@ -21,6 +23,7 @@ import {
   getLocale,
   getTemplate,
   hu,
+  operatorMember,
   projectManagerMember,
   summarizeTemplate,
   templates,
@@ -48,6 +51,29 @@ function build(id: string, language = 'hu', ownerHandle = 'owner') {
   if (!template) throw new Error(`missing template ${id}`);
   return template.build(input(language, ownerHandle));
 }
+
+describe.each([{ kind: 'worker' }, { kind: 'project_manager' }, { kind: 'human', handle: 'owner' }] as const)(
+  'every template with the card mover %o',
+  (cardMover) => {
+    it.each(templates.map((t) => [t.id, t] as const))(
+      '%s works: no error, no mover warning',
+      (_id, template) => {
+        const config = template.build({ ...input('hu'), cardMover });
+        expect(validateProjectConfig(config).filter((i) => i.severity !== 'warning')).toEqual([]);
+        expect(validateProjectConfig(config).filter((i) => i.code.startsWith('mover_'))).toEqual([]);
+      },
+    );
+  },
+);
+
+it('all templates default to worker and preserve an explicitly selected mover', () => {
+  for (const template of templates) {
+    expect(template.build(input('en')).team.cardMover).toEqual({ kind: 'worker' });
+    expect(
+      template.build({ ...input('en'), cardMover: { kind: 'human', handle: 'owner' } }).team.cardMover,
+    ).toEqual({ kind: 'human', handle: 'owner' });
+  }
+});
 
 /** [id, kind, owners, gate conditions, column] per stage. */
 function shape(stages: Stage[]) {
@@ -84,6 +110,21 @@ describe('every template', () => {
         temp: false,
       });
       expect(managers[0]!.onLeave).toBeUndefined();
+    });
+
+    it.each(['hu', 'en'])('has exactly one Operator, handle operator (language %s)', (language) => {
+      const config = template.build(input(language));
+      const operators = config.team.members.filter((m) => isOperator(m));
+      expect(operators).toHaveLength(1);
+      expect(operatorOf(config)).toBe(operators[0]);
+      expect(operators[0]).toMatchObject({
+        handle: 'operator',
+        role: 'ai_operator',
+        displayName: getLocale(language).roles.ai_operator.name,
+        sponsor: 'owner',
+        temp: false,
+      });
+      expect(operators[0]).not.toHaveProperty('onLeave');
     });
 
     it('makes the owner the operator and the product owner', () => {
@@ -218,6 +259,7 @@ describe('web-client-project', () => {
       ['fe-1', 'developer', hu.specialties.frontend],
       ['be-1', 'developer', hu.specialties.backend],
       ['pm', 'project_manager', null],
+      ['operator', 'ai_operator', null],
     ]);
   });
 
@@ -292,6 +334,7 @@ describe('web-client-project', () => {
       hu.specialist(hu.specialties.frontend, hu.roles.developer.name),
       hu.specialist(hu.specialties.backend, hu.roles.developer.name),
       hu.roles.project_manager.name,
+      hu.roles.ai_operator.name,
     ]);
 
     const english = build('web-client-project', 'en');
@@ -307,6 +350,7 @@ describe('web-client-project', () => {
       'Frontend developer',
       'Backend developer',
       'Project manager',
+      'Operator',
     ]);
   });
 });
@@ -320,6 +364,7 @@ describe('small-team', () => {
       ['dev-1', 'developer'],
       ['code-review', 'code_review'],
       ['pm', 'project_manager'],
+      ['operator', 'ai_operator'],
     ]);
   });
 
@@ -355,6 +400,7 @@ describe('internal-tool', () => {
       ['code-review', 'code_review', 'Code reviewer'],
       ['qa', 'qa', 'QA'],
       ['pm', 'project_manager', 'Project manager'],
+      ['operator', 'ai_operator', 'Operator'],
     ]);
   });
 
@@ -387,6 +433,7 @@ describe('daily-routine', () => {
       ['owner', 'owner'],
       ['daily', 'maintainer'],
       ['pm', 'project_manager'],
+      ['operator', 'ai_operator'],
     ]);
     expect(shape(resolvedStages(config))).toEqual([
       ['ready', 'queue', ['owner'], [], 'ready'],

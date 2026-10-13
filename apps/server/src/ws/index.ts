@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ClientCommand, routes } from '@projectman/shared';
+import { canSeeOperatorSessions, ClientCommand, routes } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../auth/local-request';
 import type { AuthService, AuthUser } from '../auth/auth-service';
@@ -118,7 +118,7 @@ export function registerWebsocket(
             if (!access) client.projects.delete(event.projectKey);
             else {
               const taskOf = (taskKey: string) => domain.tasks.find(event.projectKey, taskKey);
-              if (canSeeProjectEvent(access, event, taskOf))
+              if (canSeeProjectEvent(access, event, taskOf, (id) => domain.sessions.isOperatorSession(id)))
                 send(
                   client,
                   visibleProjectEvent(access, event, taskOf, (id) => domain.messages.get(id)),
@@ -131,13 +131,24 @@ export function registerWebsocket(
   });
 
   /** Terminals are for internal members; typing and resizing need developer access. */
-  const requireTerminalAccess = async (client: Client, sessionId: string, minimum: HumanAccess) => {
+  const requireTerminalAccess = async (
+    client: Client,
+    sessionId: string,
+    minimum: HumanAccess,
+    options: { operatorInput?: boolean } = {},
+  ) => {
     const session = domain.sessions.find(sessionId);
     if (!session) throw notFound('session', sessionId);
     const access = await domain.accessFor(session.projectKey, client.user.email);
     if (!access || access.access === 'client' || !hasAccess(access.access, minimum)) {
       throw forbidden('insufficient_access', 'no access to this terminal');
     }
+    // The Operator's terminals are the owner's and the admin's to see (PM-475).
+    if (!canSeeOperatorSessions(access) && domain.sessions.isOperatorSession(sessionId))
+      throw forbidden('insufficient_access', 'no access to this terminal');
+    // Raw input to the Operator is a request of the owner's: an admin watches, but does not type (PM-475).
+    if (options.operatorInput && access.access !== 'owner' && domain.sessions.isOperatorSession(sessionId))
+      throw forbidden('insufficient_access', 'only the owner types into the Operator’s terminal');
   };
 
   const handle = async (client: Client, data: unknown) => {
@@ -191,7 +202,7 @@ export function registerWebsocket(
         case 'terminal_input':
           if (!client.terminals.has(command.sessionId))
             throw forbidden('not_attached', 'attach the terminal first');
-          await requireTerminalAccess(client, command.sessionId, 'developer');
+          await requireTerminalAccess(client, command.sessionId, 'developer', { operatorInput: true });
           if (authenticated(client)) runner.writeTerminal(command.sessionId, command.data);
           return;
         case 'terminal_resize':

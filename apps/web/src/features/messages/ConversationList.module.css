@@ -92,6 +92,10 @@
   font-size: 13px;
   color: var(--c-ink-3);
 }
+.preview svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
 
 .marks {
   display: flex;

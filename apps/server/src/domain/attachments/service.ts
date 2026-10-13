@@ -1,13 +1,10 @@
-import { Transform } from 'node:stream';
 import type { Readable, Writable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 import {
   attachmentPreviewOf,
   canDeleteAttachment,
   canReadAttachments,
   canUploadAttachment,
   coverAttachmentId,
-  MAX_ATTACHMENT_BYTES,
   memberOf,
 } from '@projectman/shared';
 import type { Actor, Attachment, AttachmentViewer, Task, TaskCoverChoice } from '@projectman/shared';
@@ -24,42 +21,16 @@ import type {
 import type { AttachmentRecord } from '../../db';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { DomainError, forbidden, invalid, notFound } from '../errors';
+import { DomainError, forbidden, notFound } from '../errors';
 import type { ProjectService } from '../projects';
 import type { TaskService } from '../tasks';
 import type { TimelineService } from '../timeline';
 import { KeyedMutex, SYSTEM_ACTOR, newId } from '../util';
 import { sanitizeFileName } from './file-name';
-import { SNIFF_BYTES, sniffMediaType } from './media-type';
+import { sniffMediaType } from './media-type';
 import { TEMPORARY_SUFFIX, thumbnailOwner, viewOwner } from './storage';
 import { ThumbnailMaker } from './thumbnail';
-
-const storageFailed = (message: string) =>
-  new DomainError('attachment_storage_failed', message, { status: 500 });
-
-/** Counts the bytes that pass, refuses the one that crosses the limit and keeps the first few for the content check. */
-class UploadMeter extends Transform {
-  size = 0;
-  exceeded = false;
-  head = Buffer.alloc(0);
-
-  override _transform(
-    chunk: Buffer,
-    _encoding: BufferEncoding,
-    done: (err?: Error | null, data?: Buffer) => void,
-  ) {
-    if (this.size + chunk.length > MAX_ATTACHMENT_BYTES) {
-      this.exceeded = true;
-      done(new Error('attachment too large'));
-      return;
-    }
-    if (this.head.length < SNIFF_BYTES) {
-      this.head = Buffer.concat([this.head, chunk.subarray(0, SNIFF_BYTES - this.head.length)]);
-    }
-    this.size += chunk.length;
-    done(null, chunk);
-  }
-}
+import { receiveUpload, storageFailed } from './upload';
 
 const toDto = (r: AttachmentRecord): Attachment => ({
   id: r.id,
@@ -96,8 +67,9 @@ export class AttachmentService implements AttachmentOperations {
   private readonly tasks: TaskService;
   private readonly timeline: TimelineService;
   private readonly storage: AttachmentStorage;
+  private readonly onDeleted: ((attachment: { projectKey: string; id: string }) => void) | undefined;
   private readonly deletions = new KeyedMutex();
-  private readonly thumbnails: ThumbnailMaker;
+  private readonly thumbnails: ThumbnailMaker<AttachmentRef>;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -105,7 +77,10 @@ export class AttachmentService implements AttachmentOperations {
     tasks: TaskService;
     timeline: TimelineService;
     storage: AttachmentStorage;
+    /** Told inside the deletion's unit of work, once the row is gone (PM-498: questions naming the file). */
+    onDeleted?: (attachment: { projectKey: string; id: string }) => void;
   }) {
+    this.onDeleted = deps.onDeleted;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
     this.tasks = deps.tasks;
@@ -395,36 +370,10 @@ export class AttachmentService implements AttachmentOperations {
   }
 
   /** Streams the content into the writer, counting it against the limit. */
-  private async receive(content: Readable, sink: Writable): Promise<{ size: number; head: Buffer }> {
-    const meter = new UploadMeter();
-    // A failing stream takes the others down with its error: the first one to report is the cause.
-    let failed: { from: 'source' | 'sink'; err: unknown } | undefined;
-    content.once('error', (err: unknown) => {
-      failed ??= { from: 'source', err };
-    });
-    sink.once('error', (err: unknown) => {
-      failed ??= { from: 'sink', err };
-    });
-    try {
-      await pipeline(content, meter, sink);
-    } catch (err) {
-      if (meter.exceeded) {
-        throw new DomainError(
-          'attachment_too_large',
-          `an attachment is at most ${MAX_ATTACHMENT_BYTES} bytes`,
-          {
-            status: 413,
-            details: { maxBytes: MAX_ATTACHMENT_BYTES },
-          },
-        );
-      }
-      if (failed?.from === 'sink') {
-        this.ctx.logger.error({ err: failed.err }, 'attachment content could not be written');
-        throw storageFailed('the file could not be stored');
-      }
-      throw invalid('invalid_request', 'the upload was interrupted');
-    }
-    return { size: meter.size, head: meter.head };
+  private receive(content: Readable, sink: Writable): Promise<{ size: number; head: Buffer }> {
+    return receiveUpload(content, sink, (err) =>
+      this.ctx.logger.error({ err }, 'attachment content could not be written'),
+    );
   }
 
   /** Takes back a failed upload: the file (temporary or published) and the row. A leftover is recovered at the next start. */
@@ -455,6 +404,7 @@ export class AttachmentService implements AttachmentOperations {
       // Gone already: another call or a recovery finished it, with its own event.
       if (!this.ctx.repos.attachments.remove(record.id)) return;
       this.ctx.repos.taskCovers.clearPinned(record.taskKey, record.id);
+      this.onDeleted?.({ projectKey: record.projectKey, id: record.id });
       this.timeline.append({
         projectKey: record.projectKey,
         taskKey: record.taskKey,

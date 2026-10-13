@@ -3,11 +3,18 @@ import type {
   AddRelationRef,
   Attachment,
   DeveloperLevelRequest,
+  FeedbackMarkDetail,
+  FeedbackMarkView,
+  FeedbackOutcome,
+  FeedbackStatus,
+  FocusPlace,
   MemberHandle,
+  MessageAttachmentRef,
   MessageKind,
   RelationsChange,
   TaskRelation,
   MemberView,
+  QuestionAttachment,
   QuestionOptionInput,
   Task,
   TaskDetail,
@@ -23,11 +30,65 @@ import type {
   WorkItemRef,
   BoundaryRequest,
   BoundaryGrant,
+  StaleReason,
+  TaskStartWaiting,
   SubmitBoundaryRequest,
   DecideBoundaryRequest,
+  OperatorOperation,
+  ConfigChangeRow,
+  ProjectDoc,
 } from '@projectman/shared';
 import type { CardQuestion, CardWorker } from './context';
 import type { PullRequestInfo, RemoteState } from './github';
+import type { MessageStateReport, ProjectStateReport, TaskStateReport } from './project-state';
+
+/** What read_project_doc answers: the lines asked for of a project document at one commit. */
+export interface ProjectDocRead {
+  doc: ProjectDoc;
+  repo: string;
+  path: string;
+  /** The commit the text was read at: the `base_commit` of a write. */
+  commit: string;
+  exists: boolean;
+  total_lines: number;
+  from_line: number;
+  text: string;
+}
+
+/** An owner's answer on a card that may be a decision (PM-496). */
+export interface DecisionCandidate {
+  item_id: string;
+  task_key: string | null;
+  task_title: string | null;
+  asked_by: string | null;
+  asked_at: string;
+  /** Title and body of the question, at most 2000 characters. */
+  question: string;
+  /** `option` is the text of the option that was chosen. */
+  answer: { option: string | null; note: string | null };
+  answered_by: string;
+  answered_at: string;
+  via_integrator: boolean;
+}
+
+/** The owner's verdict on one candidate; `decision` (the entry number) goes with `recorded` only. */
+export interface DecisionMark {
+  item_id: string;
+  verdict: 'recorded' | 'declined' | 'skipped';
+  decision?: string;
+}
+
+/** What list_decision_candidates answers (PM-496). */
+export interface DecisionCandidatesList {
+  candidates: DecisionCandidate[];
+  more: boolean;
+}
+
+/** What write_project_docs answers. */
+export type ProjectDocWrite =
+  | { write_id: string; state: 'published'; commit: string; paths: string[]; warning?: string }
+  | { write_id: string; state: 'queued'; waiting_for: string }
+  | { write_id: string; state: 'running' };
 
 /**
  * Team tools exposed to AI members through an MCP server ("team"), replacing the
@@ -47,6 +108,17 @@ export type SentMessageHold =
   /** The card is being handed over from the recipient (PM-342): the receiver gets the message. */
   | 'handoff';
 
+/** What became of waking the recipient (PM-543; only with delivery 'wake'). */
+export type WakeStart =
+  /** The session started or continued, and the message is in it. */
+  | { state: 'started'; sessionId: string }
+  /** It was not decided while the send waited; the start goes on in the background. */
+  | { state: 'starting' }
+  /** Admission put the start off (a leave, a pause, no capacity…); it is retried. */
+  | { state: 'waiting'; reason: TaskStartWaiting['reason'] }
+  /** The start stopped with an error (the DomainError code, else `start_failed`; `not_started`: it ran but no live session exists). */
+  | { state: 'failed'; code: string };
+
 /** What happens to a sent team message for one recipient, decided when it is sent (PM-144). */
 export interface SentMessageRecipient {
   handle: MemberHandle;
@@ -61,6 +133,12 @@ export interface SentMessageRecipient {
   waitingPermission?: { inboxItemId: string; deciders: string[]; since: string };
   /** Only with delivery 'next_input' (PM-426): why the message starts no session for the recipient. */
   noWake?: WakeBlock;
+  /** Only with delivery 'next_input' (PM-543): the message is kind info, so it starts nothing. */
+  info?: true;
+  /** Only with delivery 'next_input' (PM-543): the message was stale when sent (e.g. 'card_closed'), so it wakes nobody. */
+  stale?: StaleReason;
+  /** Only with delivery 'wake', and only when the send waited for the start (`awaitWake`). */
+  start?: WakeStart;
 }
 
 export interface ToolContext {
@@ -87,6 +165,10 @@ export type TaskSummary = Pick<
   kind?: TaskKind;
   /** Present only when a person set a priority. */
   priority?: TaskPriority;
+  /** The card's place in the project's focus (PM-437); absent when it is not in it. */
+  focus?: FocusPlace;
+  /** Who or what the card waits for, in a few words (PM-460); absent on a closed card and a theme. */
+  waitsFor?: string;
 };
 
 /**
@@ -98,6 +180,8 @@ export type TaskSummary = Pick<
 export interface TaskToolDetail extends TaskDetail {
   /** The repository the work happens in; null when there is none. */
   effectiveRepo?: string | null;
+  /** The task's place in the project's focus (PM-437); absent when it is not in it. */
+  focus?: FocusPlace;
   /** The project has several repositories and the task names none: a person has to choose. */
   repoChoiceNeeded?: boolean;
   /** The first page of the task's readable attachments (oldest first); the rest with list_attachments. */
@@ -145,6 +229,66 @@ export interface LocatedAttachmentForTool {
   path: string;
   /** The file is in the attachment directory of the session's own task, which it reads without asking. */
   readableWithoutAsking: boolean;
+}
+
+/** get_feedback without a mark: the marks a processor decides (PM-512). */
+export interface FeedbackToolList {
+  status: 'todo' | 'open' | 'all';
+  /** How many marks match; `marks` holds at most the limit asked for. */
+  total: number;
+  marks: FeedbackMarkView[];
+  /** The access of each marker in `marks` (`ai` for an AI member), by handle; a handle no longer on the team is absent. */
+  authorAccess: Record<string, string>;
+}
+
+/**
+ * get_feedback with a mark: the mark as a processor sees it, and where its screenshot can be opened.
+ * A session on the server's own machine gets the stored file's path; a session on another engine
+ * cannot reach it (the card's attachment carries the image once a card is opened).
+ */
+export interface FeedbackToolMark {
+  mark: FeedbackMarkDetail;
+  /** The access of the marker (`ai` for an AI member), or null when they are no longer on the team. */
+  authorAccess: string | null;
+  screenshot: { kind: 'none' } | { kind: 'local'; path: string } | { kind: 'remote' };
+}
+
+/** What the feedback tools that change a mark answer: the mark's state after the step. */
+export interface FeedbackToolResult {
+  markId: string;
+  status: FeedbackStatus;
+  outcome: FeedbackOutcome | null;
+  /** The card a create step opened. */
+  task?: { key: string; title: string };
+}
+
+/** The longest side, in pixels, of an image `read_message_attachment` hands over (larger ones are shrunk). */
+export const MESSAGE_IMAGE_MAX_SIDE = 1568;
+
+/**
+ * The most bytes of that image (WebP). It travels in one MCP result, and over the engine link in one
+ * `mcp.relay` frame (4 MiB at most, base64 included), hence the shrinking.
+ */
+export const MESSAGE_IMAGE_MAX_BYTES = 1_500_000;
+
+/**
+ * read_message_attachment (PM-516): a file of a team message the caller can see, opened for the
+ * model. An image comes as a WebP of at most 1568 px a side, a small text file as text, anything
+ * else (or an image too large to send) only as the entry.
+ */
+export interface MessageAttachmentReading {
+  attachment: MessageAttachmentRef;
+  message: { id: string; from: string; createdAt: string };
+  content:
+    | { kind: 'image'; data: Buffer; mimeType: 'image/webp' }
+    | { kind: 'text'; text: string }
+    | { kind: 'none'; reason: 'type' | 'too_large' };
+  /**
+   * The file in the caller's own session folder (PM-518), on the machine the session runs on:
+   * given for what the content cannot show (`none`, or an image the provider's CLI does not pass on).
+   * Absent: the content is all there is.
+   */
+  file?: { path: string };
 }
 
 /** A refused destination the session may ask for with submit_boundary_request. */
@@ -208,7 +352,99 @@ export interface ScreenshotRun {
   outputTail?: string;
 }
 
+/**
+ * What propose_release answers (PM-491): the commit and the cards of the release. In preview
+ * mode nothing was recorded, so there is no release id and no card.
+ */
+export interface ProposedRelease {
+  releaseId?: string;
+  taskKey?: string;
+  commit: string;
+  baseCommit: string | null;
+  tasks: { key: string; title: string }[];
+}
+
+/**
+ * What check_release answers (PM-542): the rehearsal of propose_release. Either the candidate, or the refusal
+ * propose_release would give now. Nothing is recorded.
+ */
+export interface ReleaseCheckResult {
+  candidate: { commit: string; baseCommit: string | null; tasks: { key: string; title: string }[] } | null;
+  refusal: { code: string; message: string } | null;
+  /** The members with the deployment duty: they may propose the release. */
+  proposers: string[];
+}
+
+/** What became of the Operator's start of a member on work without a card (PM-541). */
+export interface MemberStartResult {
+  messageId: string;
+  /** The member's line as send_message gives it, with `start` (PM-543). */
+  recipient: SentMessageRecipient;
+}
+
 export interface TeamToolsHandler {
+  getProjectState(
+    ctx: ToolContext,
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
+  ): Promise<{
+    task_key: string;
+    session_id: string | null;
+    hired: string | null;
+    /** The card's assignee after the start. */
+    assignee: string | null;
+    /** Gate labels and the members started to set them (PM-236). */
+    awaiting?: { labels: string[]; members: string[] };
+    /** Seniors the card waits for, without an assigned developer (PM-348). */
+    senior_wait?: { seniors: string[] };
+  }>;
+  startMember(
+    ctx: ToolContext,
+    args: { member: string; text: string; taskKey?: string; signalId?: string },
+  ): Promise<MemberStartResult>;
+  /**
+   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
+   * Only the Operator; needs no open request.
+   */
+  readProjectDoc(
+    ctx: ToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /**
+   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
+   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
+   */
+  writeProjectDocs(
+    ctx: ToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
+  /**
+   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
+   * Operator, not in guest conversations; needs no open request. Counts as a look.
+   */
+  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
+  /**
+   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
+   * Operator, in the owner's own conversation, during an open owner request.
+   */
+  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -255,7 +491,21 @@ export interface TeamToolsHandler {
   /** send_message: deliver a message to team members (AI sessions or human inboxes). */
   sendMessage(
     ctx: ToolContext,
-    args: { to: MemberHandle[]; text: string; taskKey?: string; kind: MessageKind },
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+      signalIds?: string[];
+      actionableSignalIds?: string[];
+      /**
+       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
+       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
+       */
+      attachments?: string[];
+    },
   ): Promise<{
     messageId: string;
     deliveredTo: MemberHandle[];
@@ -263,6 +513,8 @@ export interface TeamToolsHandler {
     recipients: SentMessageRecipient[];
     /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
     routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
+    operator: boolean;
   }>;
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
@@ -277,6 +529,20 @@ export interface TeamToolsHandler {
    * recorded before the stage move, so labels added in the same call count for the target stage's
    * gate.
    */
+  mergeTask(
+    ctx: ToolContext,
+    args: { taskKey: string; fixConflict?: boolean; resolution?: string },
+  ): Promise<{ task: Task }>;
+  /**
+   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
+   * branch's head (or `commit`); `preview` only lists what the release would contain.
+   */
+  proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
+  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
+  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
   updateTask(
     ctx: ToolContext,
     args: {
@@ -354,8 +620,17 @@ export interface TeamToolsHandler {
       recommended?: string;
       recommendationReason?: string;
       details?: string;
+      /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
+      attachmentIds?: string[];
     },
-  ): Promise<{ inboxItemId: string }>;
+  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
+  /**
+   * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
+   * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
+   * question in the project), `forbidden` `not_your_question` (the caller did not ask it), `invalid`
+   * `question_closed` (it is not pending any more).
+   */
+  withdrawQuestion(ctx: ToolContext, args: { itemId: string; reason: string }): Promise<{ itemId: string }>;
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.
@@ -378,6 +653,41 @@ export interface TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; attachmentId: string },
   ): Promise<LocatedAttachmentForTool>;
+  /**
+   * read_message_attachment: the content of a file attached to a team message, judged through the
+   * calling member's eyes (in a guest conversation of the Operator, through the guest's): a file of
+   * a message they cannot see is not found, whoever uploaded it.
+   */
+  readMessageAttachment(ctx: ToolContext, args: { attachmentId: string }): Promise<MessageAttachmentReading>;
+  /**
+   * get_feedback (PM-512, feedback processors only; else `forbidden` with `feedback_processor_only`):
+   * the marks that wait for a decision.
+   */
+  getFeedbackList(
+    ctx: ToolContext,
+    args: { status: 'todo' | 'open' | 'all'; limit: number },
+  ): Promise<FeedbackToolList>;
+  /** get_feedback with `mark_id`: one mark in full. */
+  getFeedbackMark(ctx: ToolContext, args: { markId: string }): Promise<FeedbackToolMark>;
+  /** reply_feedback: an answer in the mark's thread, in the processor's name. */
+  replyFeedback(ctx: ToolContext, args: { markId: string; body: string }): Promise<FeedbackToolResult>;
+  /** create_task_from_feedback: a card from the mark (the screenshot becomes its attachment). */
+  createTaskFromFeedback(
+    ctx: ToolContext,
+    args: { markId: string; title: string; description: string; visibility?: Visibility; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** link_feedback: the mark belongs to an existing card. */
+  linkFeedback(
+    ctx: ToolContext,
+    args: { markId: string; taskKey: string; reply?: string },
+  ): Promise<FeedbackToolResult>;
+  /** forward_feedback: the mark goes to the owners, who are alerted; the mark then waits for them. */
+  forwardFeedback(
+    ctx: ToolContext,
+    args: { markId: string; reason: string; reply: string },
+  ): Promise<FeedbackToolResult>;
+  /** close_feedback: the mark is closed, with an optional last reply. */
+  closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
   /**
    * attach_file: attaches a regular file from the calling session's working directory (as the
    * server recorded it; never a directory the caller names) in the caller's name. The path is

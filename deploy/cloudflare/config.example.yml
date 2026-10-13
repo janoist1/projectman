@@ -8,7 +8,10 @@
 # Check it with:
 #   cloudflared tunnel --config ~/.cloudflared/config.yml ingress validate
 #   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://chopper.istvan.io/hooks/x
-# (the second command must print the http_status:404 rule; /api/setup must print the 4800 rule).
+#   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://<FEEDBACK-HOSTNAME>/api/setup
+#   cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule https://<FEEDBACK-HOSTNAME>/feedback/widget.js
+# (the second command must print the http_status:404 rule; /api/setup must print the 4800 rule; on the
+# widget's hostname /api/setup must print the 404 rule and /feedback/widget.js the 4800 rule).
 
 # The tunnel's id, printed by `cloudflared tunnel create <name>`.
 tunnel: <TUNNEL-UUID>
@@ -18,6 +21,16 @@ credentials-file: /Users/<USER>/.cloudflared/<TUNNEL-UUID>.json
 
 # Rules are tried in order and the first match wins.
 ingress:
+  # The marking widget's public entrance (PM-506, PM-513): a hostname of its own, only /feedback/, and
+  # no Access application, because the widget runs on a customer's page and cannot sign in to Access.
+  # Everything else on this hostname is refused here, and the server refuses it a second time (the host
+  # guard behind PROJECTMAN_FEEDBACK_PUBLIC_URL). Again NO `httpHostHeader`: the guard reads the Host.
+  - hostname: <FEEDBACK-HOSTNAME>
+    path: ^/feedback/
+    service: http://127.0.0.1:4800
+  - hostname: <FEEDBACK-HOSTNAME>
+    service: http_status:404
+
   # The agents' internal endpoints (/hooks, /mcp) are for processes on this Mac only. They would
   # refuse a remote request anyway; the entrance does not even pass it on.
   - hostname: chopper.istvan.io

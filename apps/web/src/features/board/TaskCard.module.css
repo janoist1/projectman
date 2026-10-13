@@ -26,7 +26,8 @@
  * The cards no longer sit by what they wait for (PM-118), so what waits for a person, or is blocked,
  * is told by a stripe on the card's edge.
  */
-.card[data-phase='needs_you']:not(.selected, .compact, .fileTarget) {
+.card[data-phase='needs_you']:not(.selected, .compact, .fileTarget),
+.card[data-phase='stuck']:not(.selected, .compact, .fileTarget) {
   box-shadow:
     var(--shadow-xs),
     inset 3px 0 0 var(--c-needs);
@@ -241,6 +242,16 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* "Áll: …" (PM-468): the reason wraps in two lines, it is the news of the card. */
+.statusStuck {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  line-height: 1.35;
 }
 
 /* A worker's own sentence (PM-239): the dot and the age sit on the first line, the sentence wraps in two. */

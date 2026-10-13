@@ -597,6 +597,26 @@ export interface AmbientConfigLocations {
   codexUser?: string;
 }
 
+/**
+ * Whether a provider's CLI hands an MCP tool result's `image` content to the model (PM-518); the
+ * provider adapters' `capabilities.mcpImageResults` come from here, and so does the server when it
+ * decides whether `read_message_attachment` sends an image or puts the file in the session folder.
+ *
+ * - claude: Claude Code passes MCP image blocks on (the point of PM-516).
+ * - codex: openai/codex renders MCP tool result images to the model (PR #5600, October 2025).
+ * - gemini: not established. The Gemini CLI documents image blocks in MCP results, but its feature
+ *   request for passing them to the model as `inlineData` was open when this was checked.
+ * - nanogpt: Codex against a custom provider; whether a result image reaches the model depends on
+ *   the chosen model's input modalities, which projectman does not know.
+ * A provider not known to pass images on gets `false`: the image then comes as a file.
+ */
+export const PROVIDER_MCP_IMAGE_RESULTS: Readonly<Record<AgentProvider, boolean>> = {
+  claude: true,
+  codex: true,
+  gemini: false,
+  nanogpt: false,
+};
+
 export interface RunnerModule {
   runner: SessionRunner;
   transcripts: TranscriptReader;

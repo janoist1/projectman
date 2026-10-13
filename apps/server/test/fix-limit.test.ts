@@ -455,6 +455,20 @@ describe('fix round limit', () => {
     const resolve = (optionId: string) =>
       h.domain.inbox.resolve('AR', items()[0]!.id, { optionId }, OWNER_ACCESS);
 
+    it('stage change does not close the decision item and decision still works', async () => {
+      await owned();
+      await h.domain.tasks.moveToStage('AR', 'AR-1', 'development', aiActor('dev-1'));
+      await settle();
+      expect(task().stageId).toBe('development');
+      expect(items()).toHaveLength(1);
+      expect(items()[0]!.state).toBe('open');
+      await resolve('reassign');
+      await settle();
+      expect(record()).toMatchObject({ holdPhase: null, inboxItemId: null, extraRounds: 0 });
+      expect(task().fixLimit).toBeUndefined();
+      expect(task().assignee).not.toBe('dev-1');
+    });
+
     it('another_round lets the card go on with one more round', async () => {
       await owned();
       await resolve('another_round');

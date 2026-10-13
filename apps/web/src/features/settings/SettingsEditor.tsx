@@ -69,11 +69,32 @@ export function SettingsEditingProvider({
   );
 }
 
-/** The limits part of the configuration, as the limits section saves it. */
-function limitsBody(draft: ProjectConfig, baseVersion: string): PatchConfigRequest {
+/**
+ * The limits part of the configuration, as the limits section saves it, and what else saves the moment
+ * it changes: who merges, and which repositories require a merge (PM-453). Those two go only where they
+ * differ from the saved configuration, the merger as the kind chosen and a repository's value as
+ * true, false or null (the project's default applies).
+ */
+function limitsBody(draft: ProjectConfig, saved: ProjectConfig, baseVersion: string): PatchConfigRequest {
+  const repoMerge = draft.project.repos.flatMap((repo) => {
+    const before = saved.project.repos.find((entry) => entry.name === repo.name)?.requireMerge ?? null;
+    const requireMerge = repo.requireMerge ?? null;
+    return requireMerge === before ? [] : [{ repo: repo.name, requireMerge }];
+  });
+  const merger =
+    draft.team.merger && JSON.stringify(draft.team.merger) !== JSON.stringify(saved.team.merger)
+      ? draft.team.merger
+      : null;
+  const cardMover =
+    draft.team.cardMover && JSON.stringify(draft.team.cardMover) !== JSON.stringify(saved.team.cardMover)
+      ? draft.team.cardMover
+      : null;
   // A removed cap or warning limit is sent as null: a missing field would leave the stored one as it is.
   return {
     baseVersion,
+    ...(merger ? { merger } : {}),
+    ...(cardMover ? { cardMover } : {}),
+    ...(repoMerge.length ? { repoMerge } : {}),
     limits: {
       ...draft.team.limits,
       maxConcurrentAi: draft.team.limits.maxConcurrentAi ?? null,
@@ -147,15 +168,23 @@ export function useInstantLimits(config: ProjectConfig) {
     queue.current = queue.current.then(async () => {
       try {
         if (failed.current || !latest.current) return;
-        const result = await save.mutateAsync(limitsBody(next, latest.current.version));
+        const result = await save.mutateAsync(
+          limitsBody(next, latest.current.config, latest.current.version),
+        );
         latest.current = result;
         toast.show(t('settings.edit.saved'));
       } catch (caught) {
         failed.current = true;
         setError(caught);
-        // The control may be off screen (a phone), so the refusal is also a toast.
+        // The control may be off screen (a phone), so the refusal is also a toast, except when the control
+        // itself shows the field's error (the merger, the card mover): the toast would cover it.
         const conflict = isApiError(caught) && caught.code === 'config_conflict';
-        toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
+        const atField =
+          isApiError(caught) &&
+          (caught.details as { issues?: IssueRef[] } | undefined)?.issues?.some(
+            (issue) => issue.code === 'merger_unresolved' || issue.code.startsWith('mover_'),
+          );
+        if (!atField) toast.show(conflict ? t('settings.limits.conflict') : errorMessage(caught), 'error');
         if (conflict) await reload?.();
       } finally {
         inflight.current -= 1;

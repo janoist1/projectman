@@ -10,6 +10,7 @@ import type {
   BoundaryOperationAdapter,
   EngineAttachments,
   EngineDirectory,
+  BranchMerger,
   FullTestExecutor,
   ScreenshotExecutor,
   GithubPublisher,
@@ -22,6 +23,7 @@ import {
   attachmentToolRules,
   createAttachmentStorage,
   createDomain,
+  createMessageAttachmentStorage,
   createTemplateRegistry,
   humanActor,
 } from '../../src/domain';
@@ -29,6 +31,7 @@ import type { ScheduleTimer } from '../../src/domain/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
+import { createLocalEngine, LocalEngineDirectory } from '../../src/domain/engines';
 import {
   capturingLogger,
   createFakeRunnerModule,
@@ -123,6 +126,14 @@ export async function createDomainHarness(
     heavyLockDir?: string;
     /** The machines the sessions run on (PM-311); absent: the one local engine, built from the options above. */
     engines?: EngineDirectory;
+    merger?: BranchMerger | null;
+    /** The project and repository that are the instance itself (PM-491); absent: releases are off. */
+    releaseTarget?: { projectKey: string; repo: string };
+    /** The commit the server runs (PM-491); default `dev`. */
+    appVersion?: string;
+    /** The release tag of the running build (PM-542); absent: none. */
+    appTag?: () => Promise<string | null>;
+    engineName?: (id: string) => string | null;
     /** The attachments of a remote engine (PM-315); absent: the sessions read the stored files themselves. */
     engineAttachments?: EngineAttachments;
   } = {},
@@ -147,6 +158,7 @@ export async function createDomainHarness(
   const attachmentStorage = (opts.attachmentStorage ?? ((inner) => inner))(
     createAttachmentStorage(join(dir, 'attachments')),
   );
+  const messageAttachmentStorage = createMessageAttachmentStorage(join(dir, 'message-attachments'));
   const liveProcesses = opts.liveProcesses ?? new Set<number>();
   const workspacesDir = join(dir, 'workspaces');
   const sessionFoldersDir =
@@ -164,8 +176,41 @@ export async function createDomainHarness(
         ? join(realpathSync(dir), 'projectman-501-tmp', '0123abcd')
         : undefined;
 
+  const memberWorkspaces = opts.memberWorkspaces
+    ? (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
+        createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
+      )
+    : undefined;
+  const runningVersion = { value: opts.appVersion ?? 'dev' };
   const domain: Domain = createDomain({
-    ...(opts.engines ? { engines: opts.engines } : {}),
+    ...(opts.engines
+      ? { engines: opts.engines }
+      : opts.merger !== undefined
+        ? {
+            engines: new LocalEngineDirectory({
+              ...createLocalEngine(
+                {
+                  worktrees,
+                  memberWorkspaces,
+                  workspacesRootDir: memberWorkspaces ? workspacesDir : undefined,
+                  workspacePath: () => workspace,
+                  fullTestExecutor: opts.fullTestExecutor,
+                  claudeTmpRoots: opts.claudeTmpRoots ?? sharedClaudeTmpRoots({ uid: 'test' }),
+                },
+                log.logger,
+              ),
+              merger: opts.merger ?? undefined,
+            }),
+          }
+        : {}),
+    engineName: opts.engineName,
+    ...(opts.releaseTarget ? { releaseTarget: opts.releaseTarget } : {}),
+    ...(opts.appTag ? { appTag: opts.appTag } : {}),
+    // Read when asked, so that a test can restart "the server" on another commit (`setAppVersion`).
+    get appVersion() {
+      return runningVersion.value;
+    },
+    outageCheckMs: 3_600_000,
     ...(opts.engineAttachments ? { engineAttachments: opts.engineAttachments } : {}),
     sessionFoldersDir,
     sessionTmpDir,
@@ -192,13 +237,13 @@ export async function createDomainHarness(
     memory,
     worktrees,
     attachmentStorage,
+    feedbackDir: join(dir, 'feedback'),
+    messageAttachmentStorage,
     accounts: new AuthService({ repos, now: opts.now }),
     worktreesRootDir: join(dir, 'worktrees'),
     ...(opts.memberWorkspaces
       ? {
-          memberWorkspaces: (opts.wrapMemberWorkspaces ?? ((inner) => inner))(
-            createMemberWorkspaceManager({ rootDir: workspacesDir, logger: log.logger }),
-          ),
+          memberWorkspaces,
           workspacesRootDir: workspacesDir,
         }
       : {}),
@@ -261,6 +306,12 @@ export async function createDomainHarness(
     sessionTmpDir,
     attachmentsDir: join(dir, 'attachments'),
     attachmentStorage,
+    messageAttachmentsDir: join(dir, 'message-attachments'),
+    messageAttachmentStorage,
+    /** The commit the server runs, from now on (what a restart on a newer build changes). */
+    setAppVersion(version: string) {
+      runningVersion.value = version;
+    },
     /** The Claude Code rules a session of the task gets for the task's attachment directory. */
     async attachmentRules(taskKey: string, projectKey = 'AR') {
       return attachmentToolRules(await attachmentStorage.taskDirectory(projectKey, taskKey));

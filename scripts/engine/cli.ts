@@ -6,11 +6,13 @@
 //   npm run engine -- repo remove <KEY> <repo>
 //   npm run engine -- status
 //   npm run engine -- start
-//   (all: [--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
+//   npm run engine -- service install|uninstall|status   (macOS LaunchAgent, PM-318; deploy/mac/com.projectman.engine.plist)
+//   (all:[--home <dir>]; the home is PROJECTMAN_HOME or ~/.projectman)
 //
 // `start` runs the server in engine mode (PROJECTMAN_MODE=engine) in the foreground; stop it with Ctrl-C
 // or SIGTERM, which pauses the running sessions first. Exit status: 0 done, 1 refused or not healthy, 2 wrong usage.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runEngineCli } from './commands';
@@ -37,6 +39,17 @@ runEngineCli(process.argv.slice(2), {
     } catch (error) {
       return (error as NodeJS.ErrnoException).code === 'EPERM';
     }
+  },
+  launchd: {
+    root: root.replace(/\/$/, ''),
+    nodePath: process.execPath,
+    agentsDir: path.join(homedir(), 'Library', 'LaunchAgents'),
+    uid: process.getuid?.() ?? 0,
+    platform: process.platform,
+    launchctl: (args) => {
+      const result = spawnSync('launchctl', args, { encoding: 'utf8' });
+      return { status: result.status ?? 1, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
+    },
   },
   startEngine: (_home, env) =>
     new Promise<number>((resolve) => {

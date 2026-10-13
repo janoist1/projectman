@@ -2,8 +2,10 @@
 
 Tasks live in projectman's own database. GitHub is used for what it does best: pull
 requests, reviews, checks, merges and releases (decision 9 in [DECISIONS.md](DECISIONS.md)).
-projectman **reads** from GitHub with the owner's login and never changes anything there with it. The
-one writing path is the managed VM's publishing gate with its own, separate identity
+projectman **reads** GitHub pull requests with the owner's login. A member's merge_task (PM-452) pushes the
+approved merge commit to the default branch through the engine's git login, never through the publisher.
+The publishing gate's separate identity still cannot write the default branch. Its writing path is
+the managed VM's publishing gate
 ([Publishing from the managed VM](#publishing-from-the-managed-vm-pm-142)); everywhere else agents do
 not push (decision 21).
 
@@ -82,8 +84,11 @@ in a project with several repos such a task has no repo until a person chooses o
   manager names the branch `<TASKKEY>-<slug of the title>`), `git log <base>..<branch>` and
   `git diff <base>...<branch>`. Every worktree shares one git repository, so this works from the
   reviewer's own directory (the workspace root; a repo in a folder of it is entered with `cd`).
-  The reviewer never edits, commits, merges or pushes.
-- The owner merges the branch into the default branch. A deployment step names the branch only.
+  The reviewer never edits or commits the reviewed work, or merges or pushes manually. When selected
+  as the card merger, they use merge_task after approving the commit.
+- Where requireMerge applies, the selected member uses merge_task before the merge target; the gate
+  checks that the approved commit is in the default branch. Integrating-session repositories
+  (fullTestAtMerge) retain the owner's integration workflow. A deployment step names the branch only.
 
 ## Polling
 

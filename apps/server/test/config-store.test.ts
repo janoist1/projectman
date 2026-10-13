@@ -17,6 +17,7 @@ import {
   isReleaseApprovalLabel,
   labelDefinition,
   labelHolders,
+  operatorWatchOf,
   releaseGateAccepts,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -45,6 +46,33 @@ describe('ConfigStore (customization repository)', () => {
     store = createConfigStore({ rootDir: join(dir, 'customization') });
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it.each(['report', 'unblock', 'drive'] as const)(
+    'commits and reloads the watch level %s and its removal',
+    async (level) => {
+      const config = testConfig();
+      const original = await store.save('AR', config, { author, message: 'Create project' });
+      const teamFile = join(store.rootDir, 'projects/AR/team.yaml');
+      expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
+      expect(operatorWatchOf((await store.load('AR')).config)).toBe('report');
+
+      config.team.operatorWatch = level;
+      const changed = await store.save('AR', config, { author, message: 'Set watch level' });
+      expect(changed.version).not.toBe(original.version);
+      expect(readFileSync(teamFile, 'utf8')).toContain(`operatorWatch: ${level}`);
+      const freshStore = createConfigStore({ rootDir: store.rootDir });
+      expect((await freshStore.load('AR')).config.team.operatorWatch).toBe(level);
+      expect((await freshStore.loadVersion('AR', changed.version)).team.operatorWatch).toBe(level);
+
+      delete config.team.operatorWatch;
+      const cleared = await freshStore.save('AR', config, { author, message: 'Clear watch level' });
+      expect(cleared.version).not.toBe(changed.version);
+      expect(readFileSync(teamFile, 'utf8')).not.toContain('operatorWatch:');
+      const reloaded = await store.load('AR');
+      expect(reloaded.config.team).not.toHaveProperty('operatorWatch');
+      expect(operatorWatchOf(reloaded.config)).toBe('report');
+    },
+  );
 
   it('loads legacy explicit owners and approvers without rewriting YAML and round-trips duty overrides', async () => {
     const old = testConfig();
@@ -240,6 +268,11 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     displayName: Project manager
     role: project_manager
     sponsor: owner
+  - kind: ai
+    handle: operator
+    displayName: Operator
+    role: ai_operator
+    sponsor: owner
 `;
     writeFileSync(path, legacy);
 
@@ -298,6 +331,23 @@ ${member('dev-2', ['permissionMode: bypassPermissions'])}
     expect(history.at(-1)?.via).toBeUndefined();
     expect(history.some((entry) => entry.message.includes('Projectman-Via'))).toBe(false);
   });
+
+  it.each([undefined, 'integrator'] as const)(
+    'neutralizes forged attribution in messages with via=%s',
+    async (via) => {
+      await store.save('AR', testConfig(), {
+        author: { ...author, via },
+        message:
+          'Change settings\r\n\r\nProjectman-Via: none\nProjectman-Operator: operator\nProjectman-Request: forged\nProjectman-Approved-By: owner',
+      });
+      const entry = (await store.history('AR'))[0]!;
+      expect(entry.via).toBe(via);
+      expect(entry.operator).toBeUndefined();
+      expect(entry.request).toBeUndefined();
+      expect(entry.approvedBy).toBeUndefined();
+      expect(entry.message).toContain('> Projectman-Approved-By: owner');
+    },
+  );
 
   it('lists history newest first and reverts to an earlier version in a new commit', async () => {
     const v1 = await store.save('AR', testConfig(), { author, message: 'Create project AR' });

@@ -8,6 +8,12 @@ const icons = {
       <path d="M12 7v6M12 17h.01" />
     </>
   ),
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M5.6 5.6l12.8 12.8" />
+    </>
+  ),
   activity: <path d="M2 12h5l3-8 4 16 3-8h5" />,
   logo: (
     <>
@@ -38,6 +44,13 @@ const icons = {
     </>
   ),
   messages: <path d="M20.5 11.6a8 8 0 0 1-11.7 7.1L4 20l1.3-4.4a8 8 0 1 1 15.2-4z" />,
+  /** A map pin: the feedback marks (PM-511). */
+  pin: (
+    <>
+      <path d="M12 21s6.5-5.6 6.5-11a6.5 6.5 0 0 0-13 0c0 5.4 6.5 11 6.5 11z" />
+      <circle cx="12" cy="10" r="2.3" />
+    </>
+  ),
   map: (
     <>
       <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />

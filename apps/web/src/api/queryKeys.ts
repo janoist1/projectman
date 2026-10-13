@@ -26,6 +26,7 @@ export const queryKeys = {
   me: ['me'] as const,
   projects: ['projects'] as const,
   templates: ['templates'] as const,
+  projectPreview: (body: unknown) => ['project-preview', body] as const,
   project: (key: string) => ['project', key] as const,
   board: (key: string) => ['project', key, 'board'] as const,
   task: (key: string, taskKey: string) => ['project', key, 'task', taskKey] as const,
@@ -54,8 +55,18 @@ export const queryKeys = {
   /** "All messages" under a filter (PM-78). */
   allMessages: (key: string, filter: AllMessagesFilter) =>
     ['project', key, 'messages', 'all', filter] as const,
+  /** Feedback marks (PM-511); also the prefix of the list, the badge numbers, the settings and every mark. */
+  feedback: (key: string) => ['project', key, 'feedback'] as const,
+  feedbackList: (key: string) => ['project', key, 'feedback', 'list'] as const,
+  feedbackSummary: (key: string) => ['project', key, 'feedback', 'summary'] as const,
+  feedbackSettings: (key: string) => ['project', key, 'feedback', 'settings'] as const,
+  /** The marks of one card (the "From feedback" row of its drawer). */
+  feedbackOfTask: (key: string, taskKey: string) => ['project', key, 'feedback', 'task', taskKey] as const,
+  feedbackMark: (key: string, markId: string) => ['project', key, 'feedback', 'mark', markId] as const,
   /** The project manager's channel state (PM-429); its own prefix, reloaded on the events that change it. */
   projectManager: (key: string) => ['project', key, 'project-manager'] as const,
+  /** The viewer's Operator channel (PM-447); reloaded on the same events and on the signals. */
+  operator: (key: string) => ['project', key, 'operator'] as const,
   schedules: (key: string) => ['project', key, 'schedules'] as const,
   members: (key: string) => ['project', key, 'members'] as const,
   roles: (key: string) => ['project', key, 'roles'] as const,

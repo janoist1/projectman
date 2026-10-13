@@ -4,10 +4,13 @@ import type { Domain } from '../domain';
 import type { EngineRegistry } from '../domain';
 import { registerEngineRoutes } from './engines';
 import { registerAttachmentRoutes } from './attachments';
+import { registerMessageAttachmentRoutes } from './message-attachments';
 import { registerProviderRoutes } from './providers';
 import { registerConfigRoutes } from './config';
 import { registerInboxRoutes } from './inbox';
 import { registerInvolvementRoutes } from './involvements';
+import { registerFeedbackRoutes } from './feedback';
+import { registerFeedbackWidgetRoutes } from './feedback-widget';
 import { registerProjectFocusRoutes } from './project-focus';
 import { registerBoundaryRoutes } from './boundary';
 import { registerRuntimeBoundaryRoutes } from './runtime-boundary';
@@ -31,6 +34,8 @@ export interface ApiServices {
   auth: AuthService;
   /** The header that names the real client behind a trusted entrance (see clientAddress). */
   clientIpHeader?: string;
+  /** The built feedback widget script (PM-509); absent or missing on disk: its route answers 404. */
+  feedbackWidgetFile?: string | null;
 }
 
 /** Every route of the shared route table except auth (src/auth) and the websocket (src/ws). */
@@ -41,6 +46,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerProjectRoutes(app, services);
   registerTaskRoutes(app, domain);
   registerAttachmentRoutes(app, services);
+  registerMessageAttachmentRoutes(app, services);
   registerMemberRoutes(app, domain);
   registerRoleRoutes(app, domain);
   registerSessionRoutes(app, domain);
@@ -50,6 +56,12 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerInboxRoutes(app, domain);
   registerInvolvementRoutes(app, domain);
   registerProjectFocusRoutes(app, domain);
+  registerFeedbackRoutes(app, domain);
+  registerFeedbackWidgetRoutes(app, {
+    domain,
+    clientIpHeader: services.clientIpHeader,
+    widgetFile: services.feedbackWidgetFile ?? null,
+  });
   registerBoundaryRoutes(app, domain);
   registerRuntimeBoundaryRoutes(app, domain);
   registerConfigRoutes(app, domain);

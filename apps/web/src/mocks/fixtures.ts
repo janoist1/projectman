@@ -1,3 +1,4 @@
+import { attachmentPreviewOf } from '@projectman/shared';
 import { getLocale, roleViews, standardLabel, standardLabelsFor } from '@projectman/templates';
 import type {
   Actor,
@@ -7,6 +8,7 @@ import type {
   InboxOption,
   MemberView,
   PlanUsage,
+  OperatorSignal,
   ProjectConfig,
   ProjectSummary,
   RoleView,
@@ -28,6 +30,35 @@ import { daysAgo, hoursFromNow, minutesAgo, mockUuid } from './time';
 
 export const PROJECT_KEY = 'AC';
 export const OWNER = 'owner';
+
+/** A summary with three independent owner decisions (PM-549), opt-in for UI examples and tests. */
+export function operatorSummaryFixture(messageId: string): { body: string; signals: OperatorSignal[] } {
+  const base = {
+    state: 'open' as const,
+    subject: null,
+    inboxItemId: null,
+    messageId,
+    raisedAt: '2026-10-10T08:00:00.000Z',
+    decidedBy: null,
+    decidedAt: null,
+    resolvedAt: null,
+  };
+  return {
+    body: '**Megtettem**\n\nEllenőriztem a táblát és elindítottam a szabad fejlesztőt.\n\n**Döntés kell**\n\nHárom dologhoz kell a szavad, lent soronként dönthetsz.',
+    signals: [
+      { ...base, id: 'sig_out', kind: 'outage', actionable: false, taskKey: null, inboxItemId: 'inbox_1' },
+      {
+        ...base,
+        id: 'sig_later',
+        kind: 'stalled',
+        actionable: true,
+        taskKey: 'AC-20',
+        raisedAt: '2026-10-10T09:00:00.000Z',
+      },
+      { ...base, id: 'sig_first', kind: 'nobody', actionable: true, taskKey: 'AC-20' },
+    ],
+  };
+}
 
 export const mockUser = {
   userId: 'usr_owner',
@@ -219,6 +250,19 @@ export function buildConfig(): ProjectConfig {
           displayName: 'Projektmenedzser',
           role: 'project_manager',
           model: 'opus',
+          permissionMode: 'default',
+          capacity: 1,
+          instructions: '',
+          sponsor: 'owner',
+          temp: false,
+        },
+        {
+          kind: 'ai',
+          handle: 'operator',
+          displayName: 'Operátor',
+          role: 'ai_operator',
+          model: 'opus',
+          effort: 'high',
           permissionMode: 'default',
           capacity: 1,
           instructions: '',
@@ -477,6 +521,19 @@ export const members: MemberView[] = [
     sponsor: 'owner',
     temp: false,
   },
+  {
+    handle: 'operator',
+    displayName: 'Operátor',
+    kind: 'ai',
+    role: 'ai_operator',
+    roles: ['ai_operator'],
+    specialty: null,
+    status: 'idle',
+    activity: null,
+    currentTaskKeys: [],
+    sponsor: 'owner',
+    temp: false,
+  },
 ];
 for (const member of members) {
   const config = buildConfig().team.members.find((entry) => entry.handle === member.handle);
@@ -484,6 +541,7 @@ for (const member of members) {
     Object.assign(member, {
       provider: config.provider ?? 'claude',
       model: config.model,
+      ...(config.effort ? { effort: config.effort } : {}),
       permissionMode: config.permissionMode,
     });
 }
@@ -1751,6 +1809,69 @@ export function plainLanguageQuestion(overrides: Partial<InboxItem> = {}): Inbox
     state: 'open',
     resolution: null,
     createdAt: minutesAgo(5),
+    ...overrides,
+  };
+}
+
+/**
+ * The files `attachmentQuestion` names, as the cards hold them: an image, a HTML and a PDF of the
+ * question's own card (AC-22), a PDF of its parent (AC-20) and one that was deleted since. Tests
+ * that delete a file put the entry into `MockBackend.attachments` first.
+ */
+export const attachmentQuestionFiles = [
+  {
+    id: 'att_aq0000image1',
+    taskKey: 'AC-22',
+    fileName: 'kosar-hiba.png',
+    size: 84_200,
+    mediaType: 'image/png',
+  },
+  {
+    id: 'att_aq0000html01',
+    taskKey: 'AC-22',
+    fileName: 'jelentes.html',
+    size: 12_400,
+    mediaType: 'text/html',
+  },
+  {
+    id: 'att_aq0000pdf001',
+    taskKey: 'AC-22',
+    fileName: 'merespecifikacio.pdf',
+    size: 1_250_000,
+    mediaType: 'application/pdf',
+  },
+  {
+    id: 'att_aq0000pdf002',
+    taskKey: 'AC-20',
+    fileName: 'szerzodes-vazlat.pdf',
+    size: 310_000,
+    mediaType: 'application/pdf',
+  },
+  {
+    id: 'att_aq0000gone01',
+    taskKey: 'AC-22',
+    fileName: 'regi-terv.png',
+    size: 45_000,
+    mediaType: 'image/png',
+    goneAt: minutesAgo(2),
+  },
+] as const;
+
+/**
+ * An open question that names files (PM-498): an image, a HTML and a PDF of its own card, a PDF of
+ * the parent card and a file that was deleted since. Not part of the default inbox; tests put it
+ * into `MockBackend.inbox`.
+ */
+export function attachmentQuestion(overrides: Partial<InboxItem> = {}): InboxItem {
+  return {
+    ...plainLanguageQuestion({ id: 'inb_q_attachments' }),
+    payload: {
+      ...plainLanguageQuestion().payload,
+      attachments: attachmentQuestionFiles.map((file) => ({
+        ...file,
+        preview: attachmentPreviewOf(file.mediaType),
+      })),
+    },
     ...overrides,
   };
 }

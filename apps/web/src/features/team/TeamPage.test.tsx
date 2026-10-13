@@ -377,8 +377,9 @@ describe('TeamPage role catalogue', () => {
     const project = mockProject();
     project.render(<TeamPage />);
     const owner = (await screen.findByText(t('common.you'))).closest('tr')!;
-    expect(within(owner).getByText(t('roles.human.owner'))).toBeTruthy();
-    await waitFor(() => expect(within(owner).getByText(roleNames.operator.name)).toBeTruthy());
+    // The access level and the human operator role are both called "Tulajdonos" (PM-447): one of each.
+    expect(t('roles.human.owner')).toBe(roleNames.operator.name);
+    await waitFor(() => expect(within(owner).getAllByText(roleNames.operator.name)).toHaveLength(2));
     expect(within(owner).getByText(roleNames.product_owner.name)).toBeTruthy();
     const roster = within(screen.getByRole('region', { name: t('team.roster') }));
     const frontend = roster.getByText(project.backend.findMember('fe-1')!.displayName).closest('tr')!;

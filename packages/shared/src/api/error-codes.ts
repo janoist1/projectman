@@ -4,6 +4,13 @@
  * raises no other code.
  */
 export const ERROR_CODES = [
+  'operator_signal_closed',
+  'merge_not_merger',
+  'merge_not_ready',
+  'merge_fix_not_allowed',
+  'merge_fix_invalid',
+  'merge_fix_engine_mismatch',
+  'task_not_merged',
   'integrator_key_invalid',
   'integrator_https_required',
   'integrator_not_allowed',
@@ -43,6 +50,7 @@ export const ERROR_CODES = [
   'duplicate_repo',
   'stage_in_use',
   'missing_duty_holder',
+  'merger_unresolved',
   // Members, roles and invitations
   'handle_taken',
   'unknown_member',
@@ -58,6 +66,8 @@ export const ERROR_CODES = [
   'duplicate_role',
   'role_in_use',
   'project_manager_required',
+  'operator_required',
+  'operator_fixed',
   'project_manager_move_refused',
   'builtin_role',
   'role_id_mismatch',
@@ -121,10 +131,14 @@ export const ERROR_CODES = [
   // Attachments
   'attachment_too_large',
   'attachment_storage_failed',
+  // A file of a team message (PM-515): not usable for this send (409, `{ id }`), or too many unsent (409, `{ max }`)
+  'message_attachment_unavailable',
+  'message_attachment_limit',
   // A cover must be a ready image of the card (PM-224)
   'cover_not_an_image',
   // Inbox and messages
   'inbox_item_closed',
+  'not_an_outage_alert',
   'not_an_assignee',
   'no_assignees',
   'unknown_option',
@@ -196,6 +210,61 @@ export const ERROR_CODES = [
   'focus_item_unknown',
   'focus_full',
   'focus_task_closed',
+  // The Operator (PM-463): a message to it only from an owner's own login; a write without an open
+  // request of the owner; a tool it never calls.
+  'operator_owner_only',
+  'operator_no_request',
+  'operator_never',
+  'operator_only',
+  'operator_approval_stale',
+  // The Operator's own steps on a system signal (PM-545): no more steps left, or too soon after the last;
+  // a start_member on a card for a member with no role on it.
+  'operator_signal_budget',
+  'not_card_role',
+  // The Operator's documents (PM-495): not set up; an edit that does not apply (422); a log line that would
+  // change; no change at all; the file moved on since it was read; a write already waits or runs (409);
+  // the write did not go up (409).
+  'docs_not_configured',
+  'docs_edit_not_found',
+  'docs_edit_ambiguous',
+  'docs_not_append_only',
+  'docs_unchanged',
+  'docs_stale',
+  'docs_write_pending',
+  'docs_write_failed',
+  // The release of the instance (PM-491): not set up for this project, one is open already, nothing new
+  // to release, the commit is no recorded merge, the release is not in the state the step needs.
+  'release_not_configured',
+  'release_open',
+  'release_empty',
+  'release_commit_unknown',
+  'release_state_conflict',
+  // Feedback marks (PM-506): the project has no surface set up (409); the surface or the mark is unknown
+  // (404); the member may not mark (403, the reason in `details.reason`); only a processor decides (403); the
+  // page is not on an allowed address (403); the launch code or the tool session is not valid (401); too
+  // many marks or comments (429); the screenshot is not a real image (422) or too large (413); the page is
+  // not on the session's surface (422); the mark is closed, not closed, has a card already, or waits for the
+  // owner (409).
+  'feedback_not_configured',
+  'feedback_surface_not_found',
+  'feedback_mark_not_found',
+  'feedback_not_allowed',
+  'feedback_processor_only',
+  'feedback_origin_not_allowed',
+  'feedback_code_invalid',
+  'feedback_session_invalid',
+  'feedback_rate_limited',
+  'feedback_screenshot_invalid',
+  'feedback_screenshot_too_large',
+  'feedback_page_mismatch',
+  'feedback_closed',
+  'feedback_not_closed',
+  'feedback_task_exists',
+  'feedback_waiting_owner',
+  // The card a feedback mark was to be linked to does not exist in the project.
+  'task_not_found',
+  // Two feedback surfaces with the same id or address.
+  'duplicate_feedback_surface',
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];

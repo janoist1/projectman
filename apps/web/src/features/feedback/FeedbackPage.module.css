@@ -1,0 +1,175 @@
+.page {
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  max-width: 1240px;
+  padding: 22px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.header {
+  flex-shrink: 0;
+}
+
+.filters {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.select {
+  min-width: 190px;
+  max-width: 260px;
+}
+
+.split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 400px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+}
+
+.listPane {
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--c-line-soft);
+}
+
+.listEmpty {
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.pick {
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius-2xl);
+  background: var(--c-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.errorBox {
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.skeleton {
+  width: 100%;
+  max-width: 560px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.skeletonRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.skeletonAvatar {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--c-muted);
+}
+
+.skeletonLines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeletonLine {
+  height: 11px;
+  border-radius: 6px;
+  background: var(--c-muted);
+}
+
+.skeletonShort {
+  width: 60%;
+}
+
+.skeletonAvatar,
+.skeletonLine {
+  animation: pm-skeleton 1.4s ease-in-out infinite;
+}
+
+@keyframes pm-skeleton {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonAvatar,
+  .skeletonLine {
+    animation: none;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .split {
+    grid-template-columns: 320px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  .page {
+    padding: 10px 12px 12px;
+    gap: 10px;
+  }
+  .segments {
+    width: 100%;
+  }
+  .select {
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+  }
+  .split {
+    display: flex;
+    flex-direction: column;
+  }
+  .listPane {
+    flex: 1;
+    border-right: 0;
+  }
+  /* The picked mark fills the phone: its own back button replaces the page's header. */
+  .detailPage {
+    padding: 0;
+    gap: 0;
+  }
+  .splitDetail {
+    border: 0;
+    border-radius: 0;
+  }
+}

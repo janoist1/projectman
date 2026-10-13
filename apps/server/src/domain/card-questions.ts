@@ -1,3 +1,4 @@
+import { isPendingQuestion } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import type { CardQuestion } from '../contracts';
 import type { DomainContext } from './context';
@@ -29,13 +30,10 @@ export class CardQuestions {
     const { limit, since } = opts;
     const items = this.ctx.repos.inbox
       .list(projectKey, { kind: 'question', taskKey })
-      .filter((item) => item.state === 'open' || item.state === 'resolved')
+      .filter((item) => isPendingQuestion(item) || item.state === 'resolved')
       .filter((item) => !since || item.createdAt > since || (item.resolution?.at ?? '') > since);
     const latest = (list: InboxItem[], count: number) => list.slice(Math.max(0, list.length - count));
-    const open = latest(
-      items.filter((item) => item.state === 'open'),
-      limit,
-    );
+    const open = latest(items.filter(isPendingQuestion), limit);
     const answered = latest(
       items.filter((item) => item.state === 'resolved'),
       limit - open.length,

@@ -55,8 +55,20 @@ export const EXCLUDED_ENTRIES = [
 ] as const;
 const isTemporary = (name: string) => name.startsWith('.secret-') || name.endsWith('.tmp');
 
+/**
+ * What a package is for: `full` (absent in older packages) moves a whole installation to another machine
+ * (`apply`); `hybrid_cloud` (PM-318) is the cloud's side of the hybrid mode only, uploaded to the cloud's
+ * volume (`hybrid package`, never `apply`).
+ */
+export const PACKAGE_KINDS = ['full', 'hybrid_cloud'] as const;
+export type PackageKind = (typeof PACKAGE_KINDS)[number];
+
 export interface PackageManifest {
   version: typeof PACKAGE_VERSION;
+  /** Absent: `full`. */
+  kind?: PackageKind;
+  /** A `hybrid_cloud` package: the engine its database was prepared for (no key; the cloud keeps the hash). */
+  engine?: { id: string; name: string };
   createdAt: string;
   sourceHome: string;
   sourcePlatform: string;
@@ -131,7 +143,7 @@ export async function sha256File(path: string): Promise<string> {
   return hash.digest('hex');
 }
 
-function walkFiles(root: string): string[] {
+export function walkFiles(root: string): string[] {
   const files: string[] = [];
   const stack = [root];
   while (stack.length) {
@@ -229,7 +241,7 @@ export interface PackageResult {
   inventory: Inventory;
 }
 
-function assertSafeOutput(home: string, out: string): void {
+export function assertSafeOutput(home: string, out: string): void {
   const resolved = resolve(out);
   if (resolved === home || resolved.startsWith(home + sep))
     throw new MigrationRefused(`the package must not be inside the source home (${home})`);
@@ -422,6 +434,8 @@ export async function readPackage(dir: string): Promise<PackageManifest> {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageManifest;
   if (manifest.version !== PACKAGE_VERSION)
     throw new MigrationRefused(`unsupported package version ${String(manifest.version)}`);
+  if (manifest.kind !== undefined && !(PACKAGE_KINDS as readonly unknown[]).includes(manifest.kind))
+    throw new MigrationRefused(`unsupported package kind ${JSON.stringify(manifest.kind)}`);
   // The manifest is read from a file that was carried: nothing in it may name a place outside the package,
   // and every file a section points at must be one of the checksummed files.
   const safe = (name: unknown, what: string): string => {

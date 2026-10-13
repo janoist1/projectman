@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { QuestionCloseRule } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { t } from '../i18n/t';
 import {
   alertText,
+  approvalHintOf,
   decisionSubject,
+  gateThenMergeText,
   inboxHeading,
   questionExtras,
   resolutionLabel,
@@ -29,6 +32,144 @@ const item: InboxItem = {
   createdAt: '2026-09-30T10:00:00.000Z',
   resolution: { optionId: 'allow', by: 'system', at: '2026-09-30T10:00:00.000Z', note: null },
 };
+
+it('shows approval questions closed by the system as approved rather than answered', () => {
+  const approved: InboxItem = {
+    ...item,
+    kind: 'question',
+    payload: { question: 'May we merge?', approvalLabel: 'merge-approved' },
+    resolution: { ...item.resolution!, optionId: 'ended', rule: 'approval_given' },
+  };
+  expect(resolutionLabel(approved)).toBe(t('inbox.resolutions.approval_given'));
+  expect(resolverName(approved, new Map(), 'owner')).toBe(t('inbox.resolutionRules.approval_given'));
+});
+
+it('says why a question was closed without an answer, although its state is cancelled (PM-556)', () => {
+  const closed = (rule: QuestionCloseRule): InboxItem => ({
+    ...item,
+    kind: 'question',
+    payload: { question: 'Which font?' },
+    state: 'cancelled',
+    resolution: { ...item.resolution!, optionId: 'closed', rule },
+  });
+  for (const rule of QuestionCloseRule.options) {
+    expect(resolutionLabel(closed(rule))).toBe(t(`inbox.resolutions.${rule}`));
+    expect(resolverName(closed(rule), new Map(), 'owner')).toBe(t(`inbox.resolutionRules.${rule}`));
+  }
+  expect(resolutionLabel({ ...closed('task_done'), resolution: null })).toBe(
+    t('inbox.resolutions.cancelled'),
+  );
+});
+
+describe('approvalHintOf (PM-484)', () => {
+  const question: InboxItem = {
+    ...item,
+    id: 'inb_q',
+    kind: 'question',
+    state: 'open',
+    resolution: null,
+    assignees: ['dev-1'],
+    payload: { question: 'May we merge?', approvalLabel: 'merge-approved' },
+  };
+  const gate = (id: string, assignees: string[], label = 'merge-approved'): InboxItem => ({
+    ...item,
+    id,
+    kind: 'decision',
+    state: 'open',
+    resolution: null,
+    assignees,
+    payload: {
+      gate: {
+        requestId: 'gat_1',
+        taskKey: 'AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        stageId: 'done',
+        label,
+        requestedBy: { kind: 'ai', handle: 'dev-1' },
+      },
+    },
+  });
+  const task = { labels: ['code-review-ok'] };
+
+  it('says nothing for a question without an approval label or an item that is no open question', () => {
+    const plain = { ...question, payload: { question: 'Inline or toast?' } };
+    expect(approvalHintOf(plain, { task, items: [], myHandle: 'owner' })).toBeNull();
+    expect(
+      approvalHintOf({ ...question, state: 'resolved' }, { task, items: [], myHandle: 'owner' }),
+    ).toBeNull();
+    expect(approvalHintOf(gate('g', ['owner']), { task, items: [], myHandle: 'owner' })).toBeNull();
+  });
+
+  it('is done when the label is already on the card', () => {
+    const hint = approvalHintOf(question, {
+      task: { labels: ['merge-approved'] },
+      items: [gate('g', ['owner'])],
+      myHandle: 'owner',
+    });
+    expect(hint).toEqual({ kind: 'done', label: 'merge-approved' });
+  });
+
+  it('jumps to the open approval item the viewer may give', () => {
+    const hint = approvalHintOf(question, {
+      task,
+      items: [gate('g_other_label', ['owner'], 'release-approved'), gate('g', ['owner'])],
+      myHandle: 'owner',
+    });
+    expect(hint).toEqual({ kind: 'jump', label: 'merge-approved', gateItemId: 'g' });
+  });
+
+  it('names the approvers when the approval is for others', () => {
+    const hint = approvalHintOf(question, {
+      task,
+      items: [gate('g', ['kata', 'owner'])],
+      myHandle: 'dev-1',
+    });
+    expect(hint).toEqual({ kind: 'others', label: 'merge-approved', approvers: ['kata', 'owner'] });
+  });
+
+  it('has no request to point at when none is open (rejected, or on another card)', () => {
+    const rejected = { ...gate('g', ['owner']), state: 'cancelled' as const };
+    const elsewhere = { ...gate('h', ['owner']), taskKey: 'AR-2' };
+    const hint = approvalHintOf(question, { task, items: [rejected, elsewhere], myHandle: 'owner' });
+    expect(hint).toEqual({ kind: 'none', label: 'merge-approved', taskKey: 'AR-1' });
+  });
+});
+
+describe('gateThenMergeText (PM-484)', () => {
+  const request = (merge?: { merger: string; base: string }): InboxItem => ({
+    ...item,
+    kind: 'decision',
+    state: 'open',
+    resolution: null,
+    payload: {
+      gate: {
+        requestId: 'gat_1',
+        taskKey: 'AR-1',
+        fromStageId: 'review',
+        toStageId: 'done',
+        stageId: 'done',
+        label: 'merge-approved',
+        requestedBy: { kind: 'ai', handle: 'dev-1' },
+        ...(merge ? { merge } : {}),
+      },
+    },
+  });
+
+  it('says who merges into which branch, and "te" for the viewer', () => {
+    const merge = { merger: 'dev-1', base: 'main' };
+    expect(gateThenMergeText(request(merge), null, new Map(), 'owner')).toBe(
+      t('inbox.gateThenMerge', { merger: 'dev-1', base: 'main', to: 'done' }),
+    );
+    expect(gateThenMergeText(request(merge), null, new Map(), 'dev-1')).toBe(
+      t('inbox.gateThenMergeYou', { base: 'main', to: 'done' }),
+    );
+  });
+
+  it('leaves the line out when the request names no merge', () => {
+    expect(gateThenMergeText(request(), null, new Map(), 'owner')).toBeNull();
+  });
+});
 
 it('attributes a forwarded owner answer to the integrator', () => {
   const forwarded: InboxItem = {
@@ -86,6 +227,20 @@ describe('splitQuestion', () => {
     expect(text).toContain('AR-1');
     expect(text).toContain('AR-2');
     expect(text).toContain('AR-3');
+    expect(text).not.toContain('{');
+  });
+  it('renders the alert that parts were left in the first stage after a reminder (PM-480)', () => {
+    const alert: InboxItem = {
+      ...item,
+      kind: 'alert',
+      source: 'system',
+      payload: { alert: 'parts_left', taskKey: 'AR-1', member: 'dev-1', parts: ['AR-2', 'AR-3'] },
+    };
+    expect(inboxHeading(alert)).toBe(t('inbox.alerts.parts_left.heading'));
+    const text = alertText(alert, new Map(), null);
+    expect(text).toContain('AR-1');
+    expect(text).toContain('AR-2, AR-3');
+    expect(text).toContain('dev-1');
     expect(text).not.toContain('{');
   });
   it('keeps a short one-line question whole, without marks', () => {

@@ -53,25 +53,62 @@ tests use the SDK's own client, which behaves the same way here):
 
 ## Tools
 
-| Tool                 | Input                                                                                                                                         | Handler call                                                                                            |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `send_message`       | `to` (handles, 1–20), `text`, `task_key?`                                                                                                     | `sendMessage(ctx, { to, text, taskKey? })`                                                              |
-| `list_members`       | none                                                                                                                                          | `listMembers(ctx)`                                                                                      |
-| `list_tasks`         | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                    | `listTasks(ctx, args)`                                                                                  |
-| `get_task`           | `task_key`                                                                                                                                    | `getTask(ctx, { taskKey })`                                                                             |
-| `update_task`        | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`, `repo?` (name or `null`)       | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description?, repo? })` |
-| `create_task`        | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                     | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                            |
-| `link_pull_request`  | `task_key`, `repo` (`owner/name`), `number`                                                                                                   | `linkPullRequest(ctx, { taskKey, repo, number })`                                                       |
-| `ask_human`          | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?` | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to? })`   |
-| `save_memory`        | `note` (max 2000 chars)                                                                                                                       | `saveMemory(ctx, { note })`                                                                             |
-| `list_attachments`   | `task_key`, `offset?` (default 0), `limit?` (1–200, default 50)                                                                               | `listAttachments(ctx, { taskKey, offset, limit })`                                                      |
-| `read_attachment`    | `task_key`, `attachment_id`                                                                                                                   | `readAttachment(ctx, { taskKey, attachmentId })`                                                        |
-| `attach_file`        | `task_key`, `path` (relative to the session's working directory, or absolute inside it or inside the session folder)                          | `attachFile(ctx, { taskKey, path })`                                                                    |
-| `delete_attachment`  | `task_key`, `attachment_id`                                                                                                                   | `deleteAttachment(ctx, { taskKey, attachmentId })`                                                      |
-| `take_screenshots`   | `scenario` (1–500 chars), `widths?` (1–8 × 200–4000), `full_page?`, `scale?` (1 or 2), `timeout_seconds?` (1–600), `seed?` (`demo` or `none`) | `takeScreenshots(ctx, { scenario, widths?, fullPage?, scale?, timeoutSeconds?, seed? })`                |
-| `get_screenshot_run` | `run_id` (1–64 chars)                                                                                                                         | `getScreenshotRun(ctx, runId)`                                                                          |
-| `hand_off`           | `task_key`, `note` (1–`HANDOFF_NOTE_MAX` chars)                                                                                               | `handOff(ctx, { taskKey, note })`                                                                       |
+| Tool                        | Input                                                                                                                                                                                                     | Handler call                                                                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `send_message`              | `to` (handles, 1–20), `text`, `task_key?`, `attachments?` (1–10 file paths, as for `attach_file`; all or nothing)                                                                                         | `sendMessage(ctx, { to, text, taskKey?, attachments? })`                                                              |
+| `list_members`              | none                                                                                                                                                                                                      | `listMembers(ctx)`                                                                                                    |
+| `list_tasks`                | `status?`, `stage?`, `assignee?`, `limit?`                                                                                                                                                                | `listTasks(ctx, args)`                                                                                                |
+| `get_task`                  | `task_key`                                                                                                                                                                                                | `getTask(ctx, { taskKey })`                                                                                           |
+| `update_task`               | `task_key`, `stage_id?`, `add_labels?` (max 10), `remove_labels?` (max 10), `note?`, `title?`, `description?`, `repo?` (name or `null`)                                                                   | `updateTask(ctx, { taskKey, stageId?, addLabels?, removeLabels?, note?, title?, description?, repo? })`               |
+| `create_task`               | `title` (max 200 chars), `description?`, `labels?` (max 10), `visibility?`, `parent_key?`                                                                                                                 | `createTask(ctx, { title, description?, labels?, visibility?, parentKey? })`                                          |
+| `link_pull_request`         | `task_key`, `repo` (`owner/name`), `number`                                                                                                                                                               | `linkPullRequest(ctx, { taskKey, repo, number })`                                                                     |
+| `ask_human`                 | `question`, `options?` (1–10: labels, or `{ label, consequence? }`), `recommended?`, `recommendation_reason?`, `details?`, `task_key?`, `to?`, `attachments?` (1–6 `att_…` ids of the card or its parent) | `askHuman(ctx, { question, options?, recommended?, recommendationReason?, details?, taskKey?, to?, attachmentIds? })` |
+| `withdraw_question`         | `item_id`, `reason` (1–1000 chars)                                                                                                                                                                        | `withdrawQuestion(ctx, { itemId, reason })`                                                                           |
+| `save_memory`               | `note` (max 2000 chars)                                                                                                                                                                                   | `saveMemory(ctx, { note })`                                                                                           |
+| `list_attachments`          | `task_key`, `offset?` (default 0), `limit?` (1–200, default 50)                                                                                                                                           | `listAttachments(ctx, { taskKey, offset, limit })`                                                                    |
+| `read_attachment`           | `task_key`, `attachment_id`                                                                                                                                                                               | `readAttachment(ctx, { taskKey, attachmentId })`                                                                      |
+| `attach_file`               | `task_key`, `path` (relative to the session's working directory, or absolute inside it or inside the session folder)                                                                                      | `attachFile(ctx, { taskKey, path })`                                                                                  |
+| `delete_attachment`         | `task_key`, `attachment_id`                                                                                                                                                                               | `deleteAttachment(ctx, { taskKey, attachmentId })`                                                                    |
+| `take_screenshots`          | `scenario` (1–500 chars), `widths?` (1–8 × 200–4000), `full_page?`, `scale?` (1 or 2), `timeout_seconds?` (1–600), `seed?` (`demo` or `none`)                                                             | `takeScreenshots(ctx, { scenario, widths?, fullPage?, scale?, timeoutSeconds?, seed? })`                              |
+| `get_screenshot_run`        | `run_id` (1–64 chars)                                                                                                                                                                                     | `getScreenshotRun(ctx, runId)`                                                                                        |
+| `hand_off`                  | `task_key`, `note` (1–`HANDOFF_NOTE_MAX` chars)                                                                                                                                                           | `handOff(ctx, { taskKey, note })`                                                                                     |
+| `get_feedback`              | `mark_id?` (`fbm_…`), `status?` (`todo` default, `open`, `all`), `limit?` (1–100, default 30)                                                                                                             | `getFeedbackList(ctx, { status, limit })` or `getFeedbackMark(ctx, { markId })`                                       |
+| `reply_feedback`            | `mark_id`, `body` (1–4000 chars)                                                                                                                                                                          | `replyFeedback(ctx, { markId, body })`                                                                                |
+| `create_task_from_feedback` | `mark_id`, `title`, `description`, `visibility?`, `reply?`                                                                                                                                                | `createTaskFromFeedback(ctx, { markId, title, description, visibility?, reply? })`                                    |
+| `link_feedback`             | `mark_id`, `task_key`, `reply?`                                                                                                                                                                           | `linkFeedback(ctx, { markId, taskKey, reply? })`                                                                      |
+| `forward_feedback`          | `mark_id`, `reason` (1–1000 chars), `reply` (1–4000 chars)                                                                                                                                                | `forwardFeedback(ctx, { markId, reason, reply })`                                                                     |
+| `close_feedback`            | `mark_id`, `reply?`                                                                                                                                                                                       | `closeFeedback(ctx, { markId, reply? })`                                                                              |
 
+- The feedback tools (PM-512) are for AI members that hold the `feedback_processing` duty (by default the
+  project manager); everyone else, the Operator included, gets `forbidden` with `feedback_processor_only`.
+  The domain's refusals reach the caller as `<code>: <message>` (e.g. `feedback_waiting_owner`: an AI does not
+  act on a mark that waits for the owner). `get_feedback { mark_id }` gives the stored screenshot's path only
+  to a session that runs on the server's machine; a session on a remote engine is told to read the image
+  from the card's attachment once a card is opened from the mark.
+
+- `get_project_state { task_key? }` (PM-465) is a read-only Operator tool, available without an open owner request.
+  A task report starts with the shared TaskWait explanation, then its active system signals and recorded causes.
+  Without a task key it returns stage counts, live sessions, waiting starts, pauses, owner inbox items and signals.
+  Guest conversations cannot call it until a separate task provides a viewer filter.
+  The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
+  open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
+  undelivered team messages per AI member.
+- `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
+  not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
+  candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
+  deployment duty who may propose it. It records nothing; the Operator never proposes a release itself.
+- `read_project_doc { doc, from_line?, line_count? }` and `write_project_docs { base_commit, message, edits }`
+  (PM-495) are Operator tools for the decision log and the roadmap: the first reads the file at the fresh head of
+  the default branch (a read tool: no open request needed, not in guest conversations), the second replaces text
+  in them as one commit pushed to the default branch (the owner's own conversation and an open request only; it
+  answers `published`, `queued` or `running`). Handler methods: `readProjectDoc(ctx, { doc, fromLine?, lineCount? })`,
+  `writeProjectDocs(ctx, { baseCommit, message, edits })`. See ARCHITECTURE.md, "Operator documents".
+- `list_decision_candidates { limit? }` and `mark_decision_candidates { items }` (PM-496) are Operator tools for
+  the owner's answers on cards that may be decisions: the first lists them (a read tool: no open request, not in
+  guest conversations; `limit` 1..50, default 20; `{ candidates, more }`), the second records the owner's verdict
+  per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
+  an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
+  `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the
@@ -151,12 +188,12 @@ owner.`); they do not repeat the guidance of the description.
 Results are short plain text (a roster, a task card with the last 20 timeline events,
 "Updated AR-21: …", …). Errors are tool results with `isError: true`:
 
-| Case                                | Text                                                                   |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)  |
-| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>` |
-| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)   |
-| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)    |
+| Case                                | Text                                                                                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| input does not match the schema     | `Input validation error: …` (from the SDK; the handler is not called)                                                                                  |
+| handler throws `TeamToolError`      | `Error [not_found \| forbidden \| invalid \| gate_blocked]: <message>`; Operator refusals name their domain code, e.g. `operator_only`, in the message |
+| handler does not settle within 60 s | `Error [timeout]: …` (the action may still complete; outcome logged)                                                                                   |
+| any other exception                 | `Error [internal]: <tool> failed …` (details only in the error log)                                                                                    |
 
 ## What the handler (domain) should do
 

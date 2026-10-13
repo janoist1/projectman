@@ -1,4 +1,10 @@
-import { canSeeAllTeamMessages, canSeeTask, canSeeTeamMessage, isCardLink } from '@projectman/shared';
+import {
+  canSeeAllTeamMessages,
+  canSeeOperatorSessions,
+  canSeeTask,
+  canSeeTeamMessage,
+  isCardLink,
+} from '@projectman/shared';
 import type {
   InboxItem,
   MemberView,
@@ -75,8 +81,12 @@ export function isClient(viewer: Viewer): boolean {
 /** Internal tasks are hidden from client members (the rule lives in `packages/shared`). */
 export { canSeeTask };
 
-/** A client sees only the inbox items assigned to them. */
+/**
+ * A client sees only the inbox items assigned to them. A question the Operator still screens (PM-556) is
+ * not on anyone's "waits for you" list yet: only an owner and an admin see it.
+ */
 export function canSeeInboxItem(viewer: Viewer, item: InboxItem): boolean {
+  if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
   return !isClient(viewer) || item.assignees.includes(viewer.handle);
 }
 
@@ -99,13 +109,40 @@ export function withVisibleCardLinks(viewer: Viewer, task: Task, canSeeKey: (key
   if (!isClient(viewer)) return task;
   // The loop mark (PM-261) and the fix round limit hold (PM-262) are the team's, as the rounds of a card
   // are: a client never sees them. Nor the handoff of the card (PM-342).
-  const { loop: _loop, fixLimit: _fixLimit, handoff: _handoff, lastHandoff: _lastHandoff, ...visible } = task;
+  const {
+    loop: _loop,
+    fixLimit: _fixLimit,
+    handoff: _handoff,
+    lastHandoff: _lastHandoff,
+    merge: _merge,
+    merged: _merged,
+    ...rest
+  } = task;
+  const visible = withVisibleHolders(rest, canSeeKey);
   const hideTheme = !!visible.themeKey && !canSeeKey(visible.themeKey);
   if (!hideTheme && !visible.links.some(isCardLink)) return visible;
   const { themeKey: _theme, ...shown } = visible;
   return {
     ...(hideTheme ? shown : visible),
     links: visible.links.filter((link) => !isCardLink(link) || canSeeKey(link.ref)),
+  };
+}
+
+/**
+ * What holds the places of the member a card waits for (PM-297), as a client sees it: no session
+ * id, and no key of a card they cannot see. The element stays, so that the card says "still working".
+ */
+function withVisibleHolders<T extends Task>(task: T, canSeeKey: (key: string) => boolean): T {
+  const holders = task.startWaiting?.holders;
+  if (!task.startWaiting || !holders) return task;
+  return {
+    ...task,
+    startWaiting: {
+      ...task.startWaiting,
+      holders: holders.map(({ sessionId: _session, taskKey, ...holder }) =>
+        taskKey && canSeeKey(taskKey) ? { ...holder, taskKey } : holder,
+      ),
+    },
   };
 }
 
@@ -212,9 +249,17 @@ export function canSeeProjectEvent(
   viewer: Viewer,
   event: ProjectEvent,
   taskOf?: (taskKey: string) => Task | null | undefined,
+  isOperatorSession?: (sessionId: string) => boolean,
 ): boolean {
   // A team message reaches only those it concerns (and an owner and an admin), whatever their access.
-  if (event.type === 'team_message') return canSeeTeamMessage(viewer, event.message);
+  if (event.type === 'operator_signal') return viewer.access === 'owner';
+  if (event.type === 'team_message' || event.type === 'team_message_updated')
+    return canSeeTeamMessage(viewer, event.message);
+  // The Operator's sessions are the owner's and the admin's to see (PM-475).
+  if (!canSeeOperatorSessions(viewer) && isOperatorSession) {
+    if (event.type === 'session_upserted' && isOperatorSession(event.session.id)) return false;
+    if (event.type === 'chat_appended' && isOperatorSession(event.sessionId)) return false;
+  }
   if (!isClient(viewer)) return true;
   switch (event.type) {
     case 'task_upserted':
@@ -227,6 +272,8 @@ export function canSeeProjectEvent(
       return canSeeInboxItem(viewer, event.item);
     case 'config_changed':
     case 'member_changed':
+    // A mark names only its id: the card key and title come from the detail, which hides them from a client.
+    case 'feedback_changed':
       return true;
     default:
       // Live timeline events, member state, sessions, chat and plan usage are internal.

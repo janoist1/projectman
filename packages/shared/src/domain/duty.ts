@@ -28,6 +28,8 @@ export const DUTY_IDS = [
   'process_improvement',
   'research',
   'final_decision',
+  'project_operation',
+  'feedback_processing',
 ] as const;
 export const DutyId = z.enum(DUTY_IDS);
 export type DutyId = z.infer<typeof DutyId>;
@@ -261,6 +263,17 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     events: [],
     recommended: false,
   },
+  feedback_processing: {
+    id: 'feedback_processing',
+    group: 'communication',
+    holders: 'both',
+    prompt:
+      "Process the project's feedback marks (get_feedback): one decision per mark — answer, open a card or link one — and close what needs nothing more. Never promise a deadline, a price or scope: answer that the owner decides and forward the mark (forward_feedback).",
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
   support: {
     id: 'support',
     group: 'communication',
@@ -331,6 +344,17 @@ export const DUTIES: Record<DutyId, DutyDefinition> = {
     group: 'team',
     holders: 'human',
     prompt: '',
+    toolPolicy: 'read_only',
+    meetings: [],
+    events: [],
+    recommended: false,
+  },
+  project_operation: {
+    id: 'project_operation',
+    group: 'direction',
+    holders: 'ai',
+    prompt:
+      "Carry out the owner's requests about how the project runs, within the Operator's rules; act only when the owner asks.",
     toolPolicy: 'read_only',
     meetings: [],
     events: [],

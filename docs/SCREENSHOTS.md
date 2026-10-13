@@ -176,10 +176,11 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
     log(
       `signed in as ${me.email}: ${JSON.stringify(me.projects.map(({ key, access }) => ({ key, access })))}`,
     );
-    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1' });
+    // The question is in the card's timeline, which has its own tab of the drawer.
+    const page = await open({ as: colleague, path: '/p/AC/tasks/AC-1/timeline' });
     await page.waitForFunction((text) => document.body.innerText.includes(text), QUESTION);
     log(await snapshot(page));
-    // The question is in the card's timeline, below the fold: the highlight scrolls it into view.
+    // The highlight scrolls the question into view.
     await shoot(page, 'card-question', {
       widths: [1512, 390],
       highlight: `text=${QUESTION} >> visible=true`,
@@ -191,6 +192,25 @@ export default async ({ instance, open, shoot, snapshot, step, log }) => {
 ```sh
 npm run shots -- scripts/scenarios/card-with-question.mjs
 ```
+
+### PM-468: the outage in the UI
+
+`npm run shots -- scripts/scenarios/work-outage.mjs --widths 1512,390`. The fake Claude CLI is logged
+out (`fakeEnv`) and a message wakes a developer; the scenario waits for the server's outage alert and
+shoots "Rád vár" (the outage card), the roster ("Nem tud dolgozni" with the reason), the board card
+("Áll: …", orange) and the card's drawer (the login box), each at 1512 and 390.
+
+### PM-447: the Operator in the corner
+
+`npm run shots -- scripts/scenarios/operator.mjs --widths 1512,390`. A real Operator turn needs a running
+Operator session, so the scenario adds the Operator's answers in the browser (`page.route`, as
+`work-outage.mjs` does): the channel (`/operator`: steps, signals), its thread, the inbox, the
+configuration history and the two 409 answers (`operator_approval_stale`, `operator_signal_closed`).
+Everything else is the real UI on the real demo project. It shoots the corner (closed, first use, steps
+with "Mi változik", the four signal kinds with the count on the button and the 409), Rád vár (the
+proposal, a stale one, the 409 after approving), Beállítások › Előzmények, the Team page (the built-in
+card, its menu and editor), Üzenetek (the pm as "elosztó"), the paused team, a failed send, and a
+non-owner (invited developer) in the corner.
 
 ### PM-287: card priority
 

@@ -2,19 +2,23 @@ import {
   canManageInstancePause,
   isOnLeave,
   isOpenTask,
+  OPERATOR_SILENT_WORK_MINUTES,
   isSenior,
   isTheme,
   LOCAL_ENGINE_ID,
   memberOf,
+  operatorOf,
+  mergeReadiness,
   permissionDelegationOf,
   pullSourceStage,
   routeFor,
   seniorWaitMinutesOf,
   stageOf,
 } from '@projectman/shared';
-export { EngineRegistry, machineKeyHash } from './engine-registry';
+export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry';
 export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
-import type { EngineId, ExecutionProfile, Me } from '@projectman/shared';
+import path from 'node:path';
+import type { EngineId, ExecutionProfile, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
 import type { EngineCounters } from './engine-registry';
@@ -27,6 +31,7 @@ import type {
   EngineDirectory,
   EventBus,
   FullTestExecutor,
+  MessageAttachmentStorage,
   ScreenshotExecutor,
   GithubPublisher,
   GithubService,
@@ -58,20 +63,36 @@ import {
 } from './admission';
 import type { StartSpec } from './admission';
 import { AttachmentService } from './attachments';
+import { MessageAttachmentService } from './message-attachments';
 import { BackgroundTasks } from './background';
 import { BoardService } from './board';
+import { OperatorRequests, OperatorSteps } from './operator-requests';
+import { OperatorSignals } from './operator-signals';
 import { ProjectManagerChannels } from './project-manager';
+import { ProjectState } from './project-state';
+export { ProjectState } from './project-state';
+import { PmReplyRelay } from './pm-reply-relay';
 import { BoundaryService } from './boundary';
 import { CardQuestions } from './card-questions';
-import { createDomainContext, defaultTemplateRegistry } from './context';
+import { createDomainContext, defaultTemplateRegistry, isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
 import { GithubSync } from './github-sync';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
+import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
+import { DecisionCandidates } from './decision-candidates';
+import { DocWrites } from './doc-writes';
+import { Merges } from './merges';
+import { ReleaseRoadmapNotices } from './release-roadmap-notices';
+import { ReleaseService } from './releases';
+import type { ReleaseTarget } from './releases';
+import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
+import { ApprovalQuestions } from './approval-questions';
+import { QuestionClosing } from './question-closing';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging, RelationNotices } from './messaging';
@@ -92,18 +113,21 @@ import { conflict } from './errors';
 import { SessionCloser } from './session-closer';
 import { SessionOrchestrator } from './sessions';
 import { ScreenshotRuns } from './screenshot-runs';
-import { PrerequisiteClosures, TaskService } from './tasks';
+import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
 import { TeamToolsService } from './team-tools';
 import { TimelineService } from './timeline';
 import { InvolvementService } from './involvements';
+import { FeedbackNotices, FeedbackScreenshotStore, FeedbackService, FeedbackWidgetService } from './feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
 import { InputStallAlerts } from './input-stall-alert';
 import { UsageAlerts } from './usage-alerts';
 import { DiskGuard } from './disk-guard';
+import { WorkOutages } from './outages';
 import { WorktreeSweep } from './worktree-sweep';
 import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
+import { SYSTEM_SENDER } from '@projectman/shared';
 
 export * from './access';
 export * from './context';
@@ -131,6 +155,7 @@ export type {
   StartTaskResult,
 } from './admission';
 export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
+export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
@@ -180,6 +205,8 @@ export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TeamToolsService } from './team-tools';
 export { TimelineService } from './timeline';
+export { FeedbackService, FeedbackWidgetService } from './feedback';
+export type { FeedbackWidgetSession } from './feedback';
 export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
@@ -188,8 +215,19 @@ export { ProviderKeys } from './provider-keys';
 export type { NanogptKeyCheck } from './provider-keys';
 export { createNanogptKeyCheck } from './nanogpt-key-check';
 
+export type { ReleaseTarget } from './releases';
+
 export interface DomainOptions {
   nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
+  /**
+   * The project and repository that are this instance itself (PM-491): its releases are proposed,
+   * approved and deployed. Absent: releases are off (`release_not_configured`).
+   */
+  releaseTarget?: ReleaseTarget;
+  /** The commit the server was started from (`resolveAppVersion`); a release goes live when it equals its commit. */
+  appVersion?: string;
+  /** The release tag on the running build's commit (PM-542); absent: none. */
+  appTag?: () => Promise<string | null>;
   boundaryAdapter?: BoundaryOperationAdapter;
   /** The VM boundary (PM-140); absent or `off` everywhere but in the managed VM. */
   runtimeBoundary?: RuntimeBoundary;
@@ -220,6 +258,12 @@ export interface DomainOptions {
   engineAttachments?: EngineAttachments;
   /** Where the files of task attachments live (PROJECTMAN_HOME/attachments). */
   attachmentStorage: AttachmentStorage;
+  /** Where the screenshots of feedback marks live (PROJECTMAN_HOME/feedback, PM-506). */
+  feedbackDir: string;
+  /** The public address of the feedback widget's entrance, when there is one (settings view only). */
+  feedbackPublicUrl?: string | null;
+  /** Where the files of team message attachments live (PROJECTMAN_HOME/message-attachments, PM-516). */
+  messageAttachmentStorage: MessageAttachmentStorage;
   /** Creates the accounts of accepted invitations. */
   accounts: Pick<AuthService, 'prepareUser'>;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
@@ -295,6 +339,10 @@ export interface DomainOptions {
   doneTurnLimitMs?: number;
   /** How often refused automatic session starts are retried (default 30 s). */
   handOffRetryMs?: number;
+  /** How often used providers and engines are checked for outages (default 30 s). */
+  outageCheckMs?: number;
+  /** The registered engine's display name; absent in single-machine mode. */
+  engineName?: (id: EngineId) => string | null;
   /** How often the branch of a task in review is compared with its pinned commit (default 30 s). */
   reviewWatchMs?: number;
   /**
@@ -309,6 +357,7 @@ export interface DomainOptions {
   screenshotExecutor?: ScreenshotExecutor;
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
+  operatorSignalMs?: number;
   /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
   seniorWaitMs?: number;
   /**
@@ -402,6 +451,11 @@ export function createDomain(opts: DomainOptions) {
           freeDiskBytes: opts.freeDiskBytes,
           processExists: opts.processExists,
           workspacePath: (projectKey) => projects.cachedConfig(projectKey)?.project.workspacePath ?? null,
+          repoPath: (projectKey, repoName) => {
+            const project = projects.cachedConfig(projectKey)?.project;
+            const repo = project?.repos.find((entry) => entry.name === repoName);
+            return project && repo ? path.resolve(project.workspacePath, repo.path) : null;
+          },
           runtimeBoundary: opts.runtimeBoundary,
           appHome: opts.appHome,
           userHome: opts.userHome,
@@ -431,15 +485,32 @@ export function createDomain(opts: DomainOptions) {
   const presence = new PresenceService();
   // The deferred automatic starts live in SQLite too: a restart loads them back (see `start`).
   const deferredStarts = new DeferredStarts(opts.repos.deferredStarts);
-  const messages = new MessageService({ ctx, timeline, projects });
+  const operatorRequests = new OperatorRequests({ ctx });
+  const operatorSteps = new OperatorSteps({ ctx });
+  const messages = new MessageService({ ctx, timeline, projects, operatorRequests });
   const tasks = new TaskService({
     ctx,
     timeline,
     projects,
     inbox,
     startWaiting: deferredStarts,
+    outageOf: (task) => outages.forTask(task),
     // `sessions` is built below; the callback only runs when a task is handed over for review.
-    sourceHead: (config, task) => sessions.sourceHead(config, task),
+    sourceHead: (config, task, opts) => sessions.sourceHead(config, task, opts),
+    notifyHandOn: async (config, task, request) => {
+      const from = config.pipeline.stages.find((s) => s.id === request.fromStageId);
+      const to = config.pipeline.stages.find((s) => s.id === request.toStageId);
+      await messaging.send(
+        task.projectKey,
+        SYSTEM_SENDER,
+        {
+          to: [request.mover],
+          taskKey: task.key,
+          text: `${request.requestedBy} finished ${from?.name ?? request.fromStageId} on ${task.key}. In this project you move cards on: check the card with get_task and move it to ${to?.name ?? request.toStageId} with update_task (stage_id ${request.toStageId}), or tell ${request.requestedBy} what is missing.`,
+        },
+        { kind: 'action' },
+      );
+    },
     // `fixLimit` is built below; the callback only runs when a task is read.
     fixLimit: (task) => fixLimit.view(task),
     // `handoffs` is built below; the callback only runs when a card changes its assignee.
@@ -452,15 +523,45 @@ export function createDomain(opts: DomainOptions) {
     tasks,
     timeline,
     storage: opts.attachmentStorage,
+    onDeleted: (a) => inbox.attachmentGone(a.projectKey, a.id, isoNow(ctx)),
   });
-  const members = new MemberService({ ctx, projects, timeline, presence, inbox });
+  const feedback = new FeedbackService({
+    ctx,
+    projects,
+    tasks,
+    attachments,
+    timeline,
+    inbox,
+    screenshots: new FeedbackScreenshotStore(opts.feedbackDir),
+    publicBaseUrl: opts.feedbackPublicUrl ?? null,
+  });
+  const feedbackWidget = new FeedbackWidgetService({ ctx, projects, feedback });
+  const messageAttachments = new MessageAttachmentService({
+    ctx,
+    projects,
+    storage: opts.messageAttachmentStorage,
+  });
+  const members = new MemberService({
+    ctx,
+    projects,
+    timeline,
+    presence,
+    inbox,
+    outageOf: (key, handle) => outages.forMember(key, handle),
+  });
   const cardQuestions = new CardQuestions({ ctx });
   const roles = new RoleService({ projects });
+  const mergeCards = new MergeCardLock();
   const sessions = new SessionOrchestrator({
+    mergeCards,
+    onAuthError: (key, handle, provider, engineId) => {
+      void outages.observeAuthError(key, handle, provider, engineId).catch(() => {});
+    },
     inbox,
     ctx,
     projects,
     tasks,
+    projectFocus,
     members,
     timeline,
     runner: runnerModule.runner,
@@ -498,6 +599,7 @@ export function createDomain(opts: DomainOptions) {
   const planUsage = usage.cache;
   const disk = new DiskGuard({ ctx, projects, inbox, engines });
   const worktreeSweep = new WorktreeSweep({
+    mergeCards,
     ctx,
     projects,
     inbox,
@@ -507,6 +609,9 @@ export function createDomain(opts: DomainOptions) {
     keepMs: opts.closedWorktreeKeepMs,
   });
   const admission = new Admission({
+    onOutageRefusal: (key, handle, code, details) => {
+      void outages.observeRefusal(key, handle, code, details).catch(() => {});
+    },
     ctx,
     sessions,
     planUsage,
@@ -516,12 +621,28 @@ export function createDomain(opts: DomainOptions) {
     disk,
     engines,
   });
-  const delivery = new MessageDelivery({ ctx, sessions, messages, projects });
+  // The Operator's request ends with its turn. Registered before the delivery's idle listener below, so
+  // the owner's next message opens a new request after this one closed, not before.
+  events.on('session_idle', (session) => operatorRequests.closeForSession(session.id));
+  events.on('session_ended', (session) => operatorRequests.closeForSession(session.id));
+  const decisionCandidates = new DecisionCandidates({ ctx });
+  const delivery = new MessageDelivery({ ctx, sessions, messages, projects, decisionCandidates });
+  const pmReplyRelay = new PmReplyRelay({ ctx, sessions, messages, projects, background });
+  events.on('session_idle', (session) => pmReplyRelay.finish(session));
+  events.on('session_ended', (session) => pmReplyRelay.finish(session));
   providerKeys?.onChange(() => {
     void runnerModule.runner
       .providerStatus?.('nanogpt', { refresh: true })
       .then(() => admission.retryDeferred())
       .catch(() => ctx.logger.warn('could not refresh NanoGPT readiness'));
+  });
+  // A card waiting for a member's capacity shows what holds the places (PM-297); it is read when the card is.
+  deferredStarts.useCapacity((projectKey, handle) => {
+    const config = projects.cachedConfig(projectKey);
+    const member = config && memberOf(config, handle);
+    return config && member?.kind === 'ai'
+      ? { holders: admission.holders(config, handle), capacity: member.capacity }
+      : undefined;
   });
   const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
   const messaging = new Messaging({
@@ -533,6 +654,7 @@ export function createDomain(opts: DomainOptions) {
     delivery,
     refinement,
     engines,
+    messageAttachments,
   });
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
@@ -647,9 +769,12 @@ export function createDomain(opts: DomainOptions) {
   messaging.useFixLimit(fixLimit);
   taskStarts.useFixLimit(fixLimit);
   handOver.useFixLimit(fixLimit);
-  const messageStarts = new MessageStarts({ projects, tasks, admission, messages, delivery });
-  sessions.useQuotaRecovery(planUsage, (session, stageId) =>
-    messageStarts.resumeAfterQuota(session, stageId),
+  const autoAdvance = new AutoAdvance({ ctx, projects, tasks, sessions });
+  const messageStarts = new MessageStarts({ ctx, projects, tasks, admission, messages, delivery });
+  messaging.useMessageStarts(messageStarts);
+  inbox.useMessageStarts(messageStarts, (item) => messaging.answerWorkItem(item));
+  sessions.useQuotaRecovery(planUsage, (session, stageId, after) =>
+    messageStarts.resumeAfter(session, stageId, after),
   );
   const schedules = new ScheduleService({
     ctx,
@@ -726,6 +851,50 @@ export function createDomain(opts: DomainOptions) {
     released: () => retryDeferredStarts(),
   });
   messaging.useFullTests(fullTests);
+  const merges = new Merges({
+    cards: mergeCards,
+    ctx,
+    projects,
+    tasks,
+    sessions,
+    messaging,
+    timeline,
+    engines,
+    github: opts.github,
+    inbox,
+    background,
+    afterMerge: (task) => autoAdvance.check(task),
+  });
+  const docWrites = new DocWrites({ ctx, projects, engines, messaging, merges });
+  merges.useDocWrites(docWrites);
+  inbox.useMergeStart(async (item, by) => {
+    if (item.taskKey) await merges.start(item.projectKey, item.taskKey, { kind: 'human', handle: by.handle });
+  });
+  const releases = new ReleaseService({
+    ctx,
+    projects,
+    tasks,
+    inbox,
+    timeline,
+    engines,
+    target: opts.releaseTarget ?? null,
+    appVersion: () => opts.appVersion ?? 'dev',
+    appTag: opts.appTag ?? (async () => null),
+    // The instance's own repository is on the machine the server runs on.
+    engineId: () => LOCAL_ENGINE_ID,
+  });
+  inbox.useReleaseDecision((item, by, optionId, note) => releases.decide(item, by, optionId, note));
+  const releaseRoadmapNotices = new ReleaseRoadmapNotices({ ctx, projects, messaging });
+  events.on('release_proposed', (event) => releaseRoadmapNotices.proposed(event));
+  // The feedback processor is woken by a stored message and is "working" on its marks until its turn ends (PM-512).
+  const feedbackNotices = new FeedbackNotices({ ctx, projects, messaging });
+  events.on('feedback_needs_processor', (event) => feedbackNotices.needsProcessor(event));
+  events.on('session_idle', (session) => feedbackNotices.settle(session));
+  events.on('session_ended', (session) => feedbackNotices.settle(session));
+  tasks.useMerges(merges);
+  events.on('task_cancelled', (task) => {
+    merges.cancel(task.projectKey, task.key);
+  });
   sessions.useFullTests(fullTests);
   handOver.useFullTests(fullTests);
   const githubSync = new GithubSync({
@@ -748,6 +917,25 @@ export function createDomain(opts: DomainOptions) {
     memberWorkspaces: engines.get(LOCAL_ENGINE_ID)?.memberWorkspaces,
   });
   const openQuestionLabel = new OpenQuestionLabel({ ctx, projects, tasks, inbox });
+  const approvalQuestions = new ApprovalQuestions({ ctx, inbox, openQuestionLabel });
+  events.on('task_labels_changed', ({ task, previousLabels }) =>
+    approvalQuestions.labelsChanged(task, previousLabels),
+  );
+  // A question about a card that is done or cancelled, or that its asker no longer holds, is moot (PM-556).
+  const questionClosing = new QuestionClosing({ ctx, inbox });
+  // In the background: a listener that returns a promise holds back the listeners registered after it.
+  const closeMoot = (taskKey: string, work: () => Promise<void>): void => {
+    background.run(work, (err) =>
+      opts.logger.warn({ err, taskKey }, 'could not close the moot questions of the card'),
+    );
+  };
+  events.on('task_stage_changed', ({ task }) => {
+    if (task.status === 'done') closeMoot(task.key, () => questionClosing.taskDone(task));
+  });
+  events.on('task_cancelled', (task) => closeMoot(task.key, () => questionClosing.taskCancelled(task)));
+  events.on('task_assigned', ({ task, previous }) =>
+    closeMoot(task.key, () => questionClosing.assigneeChanged(task, previous)),
+  );
   // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
   // Remote engines are not connected yet when this is built, so a given directory always gets the runs (PM-315).
   const screenshotRuns =
@@ -761,7 +949,121 @@ export function createDomain(opts: DomainOptions) {
         })
       : undefined;
   if (screenshotRuns) sessions.onFolderRemoved((sessionId) => screenshotRuns.stopSession(sessionId));
+  const taskWaits = new TaskWaits({ ctx, members });
+  const operatorSignals = new OperatorSignals({
+    ctx,
+    projects,
+    sessions,
+    admission,
+    delivery,
+    taskWaits,
+    activeOutageIds: (projectKey) => outages.activeIds(projectKey),
+    releases,
+  });
+  messaging.useOperatorSignals(operatorSignals);
+  const finishOperatorSignals = (session: Session) => {
+    const config = projects.cachedConfig(session.projectKey);
+    if (config && session.member === operatorOf(config)?.handle) operatorSignals.finish(session.projectKey);
+  };
+  events.on('session_idle', finishOperatorSignals);
+  events.on('session_ended', finishOperatorSignals);
+  const wakeOperatorSignals = (projectKey: string) =>
+    background.run(
+      () => operatorSignals.deliver(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator signal delivery failed'),
+    );
+  events.on('work_outage_started', ({ projectKey, outageId, inboxItemId }) => {
+    operatorSignals.raise({
+      projectKey,
+      kind: 'outage',
+      caseKey: `outage:${outageId}`,
+      subject: outageId,
+      inboxItemId,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  events.on('work_outage_ended', ({ projectKey, outageId }) =>
+    operatorSignals.resolve(projectKey, `outage:${outageId}`),
+  );
+  events.on('session_input_stalled', ({ projectKey, sessionId, inboxItemId }) => {
+    const session = sessions.find(sessionId);
+    operatorSignals.raise({
+      projectKey,
+      kind: 'stalled',
+      caseKey: `stalled:${sessionId}`,
+      subject: sessionId,
+      inboxItemId,
+      taskKey: session?.workItem.type === 'task' ? session.workItem.taskKey : null,
+    });
+    wakeOperatorSignals(projectKey);
+  });
+  const sessionSignalEnded = (session: Session) => {
+    operatorSignals.resolve(session.projectKey, `stalled:${session.id}`);
+    operatorSignals.resolve(session.projectKey, `silent:${session.id}`);
+  };
+  events.on('session_input_released', sessionSignalEnded);
+  events.on('session_ended', sessionSignalEnded);
+  const unsubscribeSignalActivity = bus.subscribe((event) => {
+    if (event.type === 'session_upserted' || event.type === 'chat_appended') {
+      const id = event.type === 'session_upserted' ? event.session.id : event.sessionId;
+      const session = sessions.find(id);
+      if (
+        event.type === 'chat_appended' ||
+        !session ||
+        session.state !== 'working' ||
+        ctx.now().getTime() - Date.parse(session.lastActivityAt) < OPERATOR_SILENT_WORK_MINUTES * 60_000
+      )
+        operatorSignals.resolve(event.projectKey, `silent:${id}`);
+      if (session?.state !== 'waiting_input') operatorSignals.resolve(event.projectKey, `stalled:${id}`);
+    }
+  });
+  const checkOperatorCards = ({ task }: { task: Task }) => {
+    background.run(
+      () => operatorSignals.sweep(task.projectKey),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'operator signal card check failed'),
+    );
+  };
+  events.on('task_stage_changed', checkOperatorCards);
+  events.on('task_labels_changed', checkOperatorCards);
+  events.on('task_assigned', checkOperatorCards);
+  const operatorDeps = { ctx, projects, members, inbox, steps: operatorSteps, sessions, pauses, messages };
+  const operatorActions = new OperatorActions(operatorDeps);
+  const operatorApprovals = new OperatorApprovals({ ...operatorDeps, actions: operatorActions });
+  operatorActions.useApprovals(operatorApprovals);
+  inbox.useOperatorDecision((item, by, optionId) => operatorApprovals.apply(item, by, optionId));
+  const recheckOperatorApprovals = ({ projectKey }: { projectKey: string }): void => {
+    if (!operatorApprovals.hasPending(projectKey)) return;
+    background.run(
+      () => operatorApprovals.recheck(projectKey),
+      (err) => opts.logger.warn({ err, projectKey }, 'operator approval recheck failed'),
+    );
+  };
+  events.on('config_changed', recheckOperatorApprovals);
+  events.on('session_ended', recheckOperatorApprovals);
+  events.on('pause_changed', recheckOperatorApprovals);
+  const projectState = new ProjectState({
+    ctx,
+    projects,
+    tasks,
+    pauses,
+    deferred: deferredStarts,
+    taskWaits,
+    operatorSignals,
+    messageStarts,
+    releases,
+  });
   const teamTools = new TeamToolsService({
+    projectState,
+    docWrites,
+    decisionCandidates,
+    merges,
+    releases,
+    operatorRequests,
+    operatorSteps,
+    operatorActions,
+    taskStarts,
+    operatorSignals,
+    taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
@@ -771,6 +1073,7 @@ export function createDomain(opts: DomainOptions) {
     publishing,
     ctx,
     sessions,
+    projectFocus,
     cardQuestions,
     projects,
     tasks,
@@ -782,7 +1085,9 @@ export function createDomain(opts: DomainOptions) {
     github: opts.github,
     githubSync,
     attachments,
+    messageAttachments,
     attachmentDirectory,
+    feedback,
     materializeAttachment: opts.engineAttachments?.materialize,
     // The files and the folder of a session are on its engine.
     sessionEngine: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
@@ -806,8 +1111,33 @@ export function createDomain(opts: DomainOptions) {
       () => admission.retryDeferred(),
       (err) => opts.logger.warn({ err }, 'deferred start retry failed'),
     );
+  const outages = new WorkOutages({
+    ctx,
+    projects,
+    inbox,
+    engines,
+    runner: runnerModule.runner,
+    deferred: deferredStarts,
+    messaging,
+    members,
+    tasks,
+    retry: retryDeferredStarts,
+    engineName: opts.engineName,
+  });
+  const unsubscribeOutageKeys = providerKeys?.onChange(() => {
+    if (opts.standby) return;
+    background.run(
+      () => outages.recheckProvider('nanogpt'),
+      (err) => opts.logger.warn({ err }, 'outage key check failed'),
+    );
+  });
   // A start that waits for an engine (`engine_offline`) goes on when the engine connects (PM-311).
   const unsubscribeEngines = engines.onChange((id, online) => {
+    if (opts.standby) return;
+    background.run(
+      () => outages.engineChanged(id, online),
+      (err) => opts.logger.warn({ err }, 'outage engine check failed'),
+    );
     if (!online) return;
     // A remote engine that connects later is checked for the full test sandbox like a local one at startup.
     if (!opts.standby)
@@ -816,12 +1146,6 @@ export function createDomain(opts: DomainOptions) {
         (err) =>
           opts.logger.warn({ err, engineId: id }, 'could not check the full test sandbox of an engine'),
       );
-    // The messages that waited for the engine reach their members.
-    background.run(
-      () => messaging.releaseForEngine(id),
-      (err) => opts.logger.warn({ err, engineId: id }, 'could not release the messages held for an engine'),
-    );
-    retryDeferredStarts();
   });
   /** A deferred start as it was stored, made again by the module that made it. */
   const rebuildDeferredStart = (spec: StartSpec) => {
@@ -838,6 +1162,8 @@ export function createDomain(opts: DomainOptions) {
         return messageStarts.rebuildQuota(spec);
       case 'loop_notice':
         return loopWatch.rebuild(spec);
+      case 'operator_signals':
+        return operatorSignals.rebuild(spec);
       case 'handoff_takeover':
         return handoffs.rebuild(spec);
     }
@@ -845,6 +1171,8 @@ export function createDomain(opts: DomainOptions) {
 
   // The handoff follows what happens to the old member, the receiver and the card meanwhile.
   events.on('config_changed', (change) => handoffs.configChanged(change.projectKey, change.next));
+  // A member who may no longer mark, or a surface that is gone, ends the tool's sessions for good (PM-509).
+  events.on('config_changed', (change) => feedbackWidget.configChanged(change));
   events.on('task_cancelled', (task) => handoffs.taskClosed(task));
   events.on('task_stage_changed', (change) => {
     if (change.task.status === 'done') handoffs.taskClosed(change.task, change.actor);
@@ -852,6 +1180,26 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_ended', (session) => handoffs.sessionEnded(session));
 
   // Configuration changes: runtime state follows the roster.
+  events.on('config_changed', (change) => {
+    background.run(
+      async () => {
+        for (const task of tasks.list(change.projectKey)) {
+          if (!task.merge && !mergeReadiness(change.next, task).ready) continue;
+          try {
+            await merges.reconcile(change.projectKey, task.key);
+          } catch (err) {
+            opts.logger.warn(
+              { err, projectKey: change.projectKey, taskKey: task.key },
+              'could not reconcile a merge request after configuration changed',
+            );
+          }
+        }
+      },
+      (err) =>
+        opts.logger.warn({ err, projectKey: change.projectKey }, 'merge configuration reconciliation failed'),
+    );
+  });
+  events.on('config_changed', (change) => tasks.reconcileHandOns(change.next));
   events.on('config_changed', (change) => members.reconcile(change));
   events.on('config_changed', (change) => {
     if (!change.previous) return;
@@ -932,7 +1280,7 @@ export function createDomain(opts: DomainOptions) {
   events.on('inbox_resolved', (item) =>
     item.kind === 'decision' ? tasks.handleDecisionResolved(item) : undefined,
   );
-  events.on('inbox_resolved', (item) => (item.kind === 'question' ? messaging.answer(item) : undefined));
+  inbox.useQuestionAnswer((item, attachmentIds, close) => messaging.answer(item, attachmentIds, close));
   // The card's other workers learn what was answered, so they do not ask it again (PM-249).
   events.on('inbox_resolved', (item) =>
     item.kind === 'question' ? messaging.answeredNotice(item) : undefined,
@@ -940,6 +1288,8 @@ export function createDomain(opts: DomainOptions) {
   // An open AI question holds its card back with the waiting label; the last one closing frees it.
   events.on('inbox_resolved', (item) => openQuestionLabel.release(item));
   events.on('inbox_cancelled', (item) => openQuestionLabel.release(item));
+  // A question closed without an answer (PM-556): its asking session, when it runs, is told not to wait.
+  events.on('inbox_cancelled', (item) => messaging.closedNotice(item));
   // AI members writing round in circles on a card: the scheduling duty's holder is told first, people
   // only when that did not help (PM-261). A loop ends when the card makes progress or goes quiet.
   const loopWatch = new LoopWatch({ ctx, projects, tasks, sessions, admission, delivery, inbox, timeline });
@@ -960,6 +1310,26 @@ export function createDomain(opts: DomainOptions) {
   events.on('task_assigned', (change) => fixLimit.assigned(change));
   events.on('task_cancelled', (task) => fixLimit.closed(task));
   events.on('inbox_resolved', (item) => (item.kind === 'decision' ? fixLimit.decided(item) : undefined));
+  // A card that lacks only a human's approval for its next stage asks for it, or moves when nothing is
+  // missing (PM-445): looked at when its labels change or a session of it ends.
+  const advanceCard = (task: Task | null): void => {
+    if (!task) return;
+    background.run(
+      async () => {
+        await merges.reconcile(task.projectKey, task.key);
+        await autoAdvance.check(tasks.get(task.projectKey, task.key));
+      },
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'automatic stage advance failed'),
+    );
+  };
+  events.on('task_labels_changed', ({ task }) => advanceCard(task));
+  events.on('task_stage_changed', (change) => advanceCard(change.task));
+  const advanceSessionCard = (session: Session) =>
+    advanceCard(
+      session.workItem.type === 'task' ? tasks.find(session.projectKey, session.workItem.taskKey) : null,
+    );
+  events.on('session_idle', advanceSessionCard);
+  events.on('session_ended', advanceSessionCard);
   // A card entering review gets its pinned commit tested, and one that left or got a new pin drops its
   // old run (PM-217); the pin is saved with the move, so it is there when this runs.
   const syncFullTest = (task: { projectKey: string; key: string }) =>
@@ -1117,6 +1487,26 @@ export function createDomain(opts: DomainOptions) {
   // New relations on a card that is being worked on reach its workers and, when they may change the work, its analyst (PM-421).
   const relationNotices = new RelationNotices({ ctx, projects, tasks, sessions, messaging, inbox });
   events.on('task_relations_added', (added) => relationNotices.added(added));
+  // Parts of a broken-down card left in the first stage: their creator is told once when their turn ends,
+  // the owners when the parts are still left after the next turn (PM-480). Only says; never moves or labels.
+  const leftParts = new LeftParts({ ctx, projects, sessions, messaging, inbox, timeline });
+  const checkLeftParts = (session: Session): void => {
+    background.run(
+      () => leftParts.turnEnded(session),
+      (err) => opts.logger.warn({ err, sessionId: session.id }, 'could not look for left parts'),
+    );
+  };
+  events.on('session_idle', checkLeftParts);
+  events.on('session_ended', checkLeftParts);
+  const partChanged = (task: Task): void => {
+    background.run(
+      () => leftParts.changed(task),
+      (err) => opts.logger.warn({ err, taskKey: task.key }, 'could not close the left parts alert'),
+    );
+  };
+  events.on('task_stage_changed', (change) => partChanged(change.task));
+  events.on('task_labels_changed', ({ task }) => partChanged(task));
+  events.on('task_cancelled', (task) => partChanged(task));
   // A started session gets the messages waiting for it; waiting messages wake their recipient.
   // A session that started while the team is paused is held at once (a start that passed admission before the pause).
   events.on('session_started', (session) => pauses.sessionStarted(session));
@@ -1128,19 +1518,25 @@ export function createDomain(opts: DomainOptions) {
   events.on('session_input_released', (session) => delivery.deliverWaiting(session));
   events.on('message_waiting', ({ projectKey, handle, workItem, messageId }) => {
     background.run(
-      () => messageStarts.wake(projectKey, handle, workItem),
+      async () => {
+        // A failed start is logged (warn) and remembered by `wake` itself.
+        await messageStarts.wake(projectKey, handle, workItem);
+      },
       (err) =>
-        opts.logger.info({ err, projectKey, member: handle, messageId }, 'team message session start failed'),
+        opts.logger.warn({ err, projectKey, member: handle, messageId }, 'team message session start failed'),
     );
   });
 
   let retryTimer: ReturnType<typeof setInterval> | undefined;
+  let outageTimer: ReturnType<typeof setInterval> | undefined;
   let boundaryTimer: ReturnType<typeof setInterval> | undefined;
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
+  let operatorSignalTimer: ReturnType<typeof setInterval> | undefined;
   let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
+  let stopMessageSweep: (() => void) | undefined;
   let idleCloseTimer: ReturnType<typeof setInterval> | undefined;
   let handoffTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -1155,8 +1551,16 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    projectState,
     ctx,
-    projectManagerChannels: new ProjectManagerChannels({ ctx, projects, deferred: deferredStarts, pauses }),
+    projectManagerChannels: new ProjectManagerChannels({
+      ctx,
+      projects,
+      deferred: deferredStarts,
+      pauses,
+      operatorRequests,
+      operatorSignals,
+    }),
     bus,
     templates,
     timeline,
@@ -1173,8 +1577,14 @@ export function createDomain(opts: DomainOptions) {
     messages,
     messaging,
     sessionCloser,
+    operatorActions,
+    operatorApprovals,
+    operatorSignals,
     tasks,
     attachments,
+    feedback,
+    feedbackWidget,
+    messageAttachments,
     members,
     roles,
     sessions,
@@ -1192,10 +1602,17 @@ export function createDomain(opts: DomainOptions) {
     githubSync,
     reviewWatch,
     fullTests,
+    merges,
+    docWrites,
+    decisionCandidates,
+    releases,
     loopWatch,
     seniorWaits,
     fixLimit,
+    autoAdvance,
+    taskWaits,
     disk,
+    outages,
     worktreeSweep,
     teamTools,
     cardQuestions,
@@ -1208,11 +1625,13 @@ export function createDomain(opts: DomainOptions) {
     async start(): Promise<void> {
       await projects.syncFromStore();
       await sessions.reconcileAfterRestart();
+      for (const project of projects.summaries()) operatorSignals.finish(project.key);
       members.reconcileAfterRestart();
       inbox.expireOpenPermissions();
       await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).
       await attachments.recover();
+      await messageAttachments.recover();
       // A standby copy only shows its data: nothing below acts on the outside world or starts a session.
       if (opts.standby) {
         opts.logger.warn(
@@ -1220,6 +1639,8 @@ export function createDomain(opts: DomainOptions) {
         );
         return;
       }
+      // Uploads no message took within a day are deleted (now, and hourly).
+      stopMessageSweep = messageAttachments.startSweeping();
       githubSync.start();
       background.start();
       // Restore quota holds before schedulers or background probes can admit inference.
@@ -1229,6 +1650,9 @@ export function createDomain(opts: DomainOptions) {
       // The server's full test (PM-217): the sandbox is checked, the runs the last server left are ended
       // and the pins that still need one are queued, before the hand-overs that wait for them come back.
       await fullTests.init();
+      // The Operator's document writes the last server left are resumed before the merges queue starts.
+      await docWrites.init();
+      await merges.init();
       // What admission refused before the server stopped waits again and is retried now, as usual
       // (under admission, and not while its master switch is off)...
       if (restoredStarts > 0) retryDeferredStarts();
@@ -1240,6 +1664,11 @@ export function createDomain(opts: DomainOptions) {
       );
       // ... and the handoffs of cards that were open go on (PM-342); a note that is late falls back to the summary.
       handoffs.resumeAfterStartup();
+      // ... and the cards that lack only a human's approval, and got stuck before, ask for it (PM-445).
+      background.run(
+        () => autoAdvance.sweep(),
+        (err) => opts.logger.warn({ err }, 'automatic stage advance sweep failed'),
+      );
       handoffTimer = setInterval(
         () =>
           background.run(
@@ -1251,6 +1680,14 @@ export function createDomain(opts: DomainOptions) {
       handoffTimer.unref();
       // ... and refused hand-overs and message wake-ups retry once admission allows them.
       retryTimer = setInterval(retryDeferredStarts, opts.handOffRetryMs ?? 30_000);
+      const checkOutages = () =>
+        background.run(
+          () => outages.check(),
+          (err) => opts.logger.warn({ err }, 'outage check failed'),
+        );
+      checkOutages();
+      outageTimer = setInterval(checkOutages, opts.outageCheckMs ?? 30_000);
+      outageTimer.unref();
       retryTimer.unref();
       boundaryTimer = setInterval(
         () =>
@@ -1288,6 +1725,15 @@ export function createDomain(opts: DomainOptions) {
         opts.loopWatchMs ?? 60_000,
       );
       loopWatchTimer.unref();
+      operatorSignalTimer = setInterval(
+        () =>
+          background.run(
+            () => operatorSignals.sweep(),
+            (err) => opts.logger.warn({ err }, 'operator signal sweep failed'),
+          ),
+        opts.operatorSignalMs ?? 60_000,
+      );
+      operatorSignalTimer.unref();
       // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
       seniorWaitTimer = setInterval(
         () =>
@@ -1331,21 +1777,29 @@ export function createDomain(opts: DomainOptions) {
     },
 
     async stop(): Promise<void> {
+      if (outageTimer) clearInterval(outageTimer);
+      unsubscribeOutageKeys?.();
       unsubscribeEngines();
+      unsubscribeSignalActivity();
       usage.stop();
       if (retryTimer) clearInterval(retryTimer);
       if (boundaryTimer) clearInterval(boundaryTimer);
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       if (loopWatchTimer) clearInterval(loopWatchTimer);
+      if (operatorSignalTimer) clearInterval(operatorSignalTimer);
       if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);
+      stopMessageSweep?.();
       if (idleCloseTimer) clearInterval(idleCloseTimer);
       if (handoffTimer) clearInterval(handoffTimer);
       const drained = schedules.stop();
       githubSync.stop();
       await fullTests.stop();
+      await docWrites.stop();
+      await merges.stop();
       await screenshotRuns?.stop();
+      await outages.stop();
       await background.stop();
       pauses.dispose();
       sessions.dispose();

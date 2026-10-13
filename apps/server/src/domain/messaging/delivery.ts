@@ -1,7 +1,15 @@
-import { formatInjectedTeamMessage, formatTeamMessageBatch, memberOf, stageOf } from '@projectman/shared';
+import {
+  formatInjectedTeamMessage,
+  formatTeamMessageBatch,
+  messageTextWithAttachments,
+  isOperator,
+  memberOf,
+  stageOf,
+} from '@projectman/shared';
 import type { Session, TeamMessage, WorkItemRef } from '@projectman/shared';
 import { encodeWorkItem } from '../../db';
 import type { DomainContext } from '../context';
+import type { DecisionCandidates } from '../decision-candidates';
 import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../sessions';
 import type { ProjectService } from '../projects';
 import { senderResultLabelFor, staleReasonFor } from './staleness';
@@ -21,6 +29,7 @@ export class MessageDelivery {
   private readonly projects: ProjectService;
   private readonly flushing = new Set<string>();
   private readonly messages: MessageService;
+  private readonly decisionCandidates: Pick<DecisionCandidates, 'unseen'>;
   private messageHolds?: (session: Session) => Promise<boolean>;
   /** Messages being typed, by message and recipient. */
   private readonly claims = new Set<string>();
@@ -48,7 +57,9 @@ export class MessageDelivery {
     sessions: SessionOrchestrator;
     projects: ProjectService;
     messages: MessageService;
+    decisionCandidates: Pick<DecisionCandidates, 'unseen'>;
   }) {
+    this.decisionCandidates = deps.decisionCandidates;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.projects = deps.projects;
@@ -70,8 +81,13 @@ export class MessageDelivery {
           session,
           text ??
             (plain && !message.via
-              ? message.body
-              : formatInjectedTeamMessage(message.from, message.body, message.taskKey, message.via)),
+              ? messageTextWithAttachments(message)
+              : formatInjectedTeamMessage(
+                  message.from,
+                  messageTextWithAttachments(message),
+                  message.taskKey,
+                  message.via,
+                )),
         );
         await this.sessions.typeInto(session, typed);
         for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
@@ -194,8 +210,10 @@ export class MessageDelivery {
       !this.sessions.permissionRestartDue(current) &&
       !this.starting.has(recipientKey(current.projectKey, current.member, current.workItem))
     ) {
-      for (const message of this.messages.waiting(current.projectKey, current.member, current.workItem))
-        if (memberOf(config, message.from)?.kind === 'human') this.deliver(current, message);
+      // The Operator's messages only go in as a batch with an owner's (PM-463), never one by one.
+      if (!isOperator(memberOf(config, current.member)))
+        for (const message of this.messages.waiting(current.projectKey, current.member, current.workItem))
+          if (memberOf(config, message.from)?.kind === 'human') this.deliver(current, message);
     }
     void this.flushWaiting(session).catch((err: unknown) =>
       this.ctx.logger.warn({ err, sessionId: session.id }, 'team message batch delivery failed'),
@@ -232,6 +250,10 @@ export class MessageDelivery {
     )
       return false;
     if (!waiting.length) return false;
+    // An idle Operator is typed into only for the owner's message; an AI member's waits to ride along (PM-463).
+    const operator = !!config && isOperator(memberOf(config, current.member));
+    const wakesOperator = (m: TeamMessage) => !!config && this.messages.wakes(config, m, current.member);
+    if (operator && !waiting.some(wakesOperator)) return false;
     this.flushing.add(current.id);
     for (const message of waiting) this.claims.add(`${message.id}:${current.member}`);
     try {
@@ -248,7 +270,7 @@ export class MessageDelivery {
           batch.messages.some((m) => this.messages.wakes(config, m, current.member)))
       )
         return false;
-      if (!batch.messages.length) return false;
+      if (!batch.messages.length || (operator && !batch.messages.some(wakesOperator))) return false;
       const held = this.held.get(fresh.id) ?? [];
       let text = batch.text;
       let taken = 0;
@@ -294,6 +316,7 @@ export class MessageDelivery {
       : null;
     const messages: TeamMessage[] = [];
     let text = '';
+    const operator = isOperator(memberOf(config, handle));
     for (const message of waiting) {
       const next = [...messages, message];
       const candidate = formatTeamMessageBatch(
@@ -302,8 +325,11 @@ export class MessageDelivery {
         next.map((m) => ({
           from: m.from,
           via: m.via,
+          // What does not wake the Operator is information for it, not an instruction (PM-463).
+          ...(operator && !this.messages.wakes(config, m, handle) ? { info: true } : {}),
           taskKey: m.taskKey,
           body: m.body,
+          attachments: m.attachments,
           kind: m.kind ?? 'action',
           sentAt: m.createdAt,
           version: m.version,
@@ -315,12 +341,19 @@ export class MessageDelivery {
       messages.push(message);
       text = candidate;
     }
+    // The Operator's own conversation with an owner also learns of answers that may be decisions (PM-496).
+    if (messages.length && operator && workItem.type === 'general' && workItem.with === undefined) {
+      const unseen = this.decisionCandidates.unseen(projectKey, config);
+      const line = `${unseen} owner answers on cards since you last looked may be decisions: list_decision_candidates.`;
+      const withLine = `${text}${MESSAGE_SEPARATOR}${line}`;
+      if (unseen > 0 && withLine.length + MESSAGE_SEPARATOR.length <= MAX_FIRST_INPUT_CHARS) text = withLine;
+    }
     return { text, messages };
   }
 
   /** Types a notice with the team prefix that is not stored as a message. */
-  notice(session: Session, from: string, text: string, taskKey: string | null): void {
-    Promise.resolve()
+  notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean> {
+    return Promise.resolve()
       .then(async () => {
         const { text: typed, messageIds } = this.withHeld(
           session,
@@ -328,10 +361,12 @@ export class MessageDelivery {
         );
         await this.sessions.typeInto(session, typed);
         for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
+        return true;
       })
-      .catch((err: unknown) =>
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message'),
-      );
+      .catch((err: unknown) => {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not deliver a message');
+        return false;
+      });
   }
 
   /**
@@ -339,7 +374,10 @@ export class MessageDelivery {
    * the existing runner queue delivery of coordination and answer notices.
    */
   noticeOrHold(session: Session, from: string, text: string, taskKey: string | null): void {
-    if (session.state !== 'idle') return this.notice(session, from, text, taskKey);
+    if (session.state !== 'idle') {
+      void this.notice(session, from, text, taskKey);
+      return;
+    }
     this.keep(session, { text: formatInjectedTeamMessage(from, text, taskKey), messageId: null });
   }
 
@@ -350,7 +388,7 @@ export class MessageDelivery {
    */
   holdUntilInput(session: Session, message: TeamMessage): void {
     this.keep(session, {
-      text: formatInjectedTeamMessage(message.from, message.body, message.taskKey),
+      text: formatInjectedTeamMessage(message.from, messageTextWithAttachments(message), message.taskKey),
       messageId: message.id,
     });
   }

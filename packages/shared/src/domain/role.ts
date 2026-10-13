@@ -18,6 +18,7 @@ export type RoleHolders = z.infer<typeof RoleHolders>;
 
 export const BUILT_IN_ROLE_IDS = [
   'operator',
+  'ai_operator',
   'product_owner',
   'project_manager',
   'business_analyst',
@@ -46,8 +47,15 @@ export type BuiltInRoleId = z.infer<typeof BuiltInRoleId>;
 /** Default bundles; a team override replaces the entire bundle. */
 export const BUILT_IN_ROLE_DUTIES: Record<BuiltInRoleId, DutyId[]> = {
   operator: ['final_decision', 'release_approval', 'monitoring'],
+  ai_operator: ['project_operation'],
   product_owner: ['prioritization', 'requirements_analysis', 'testing_acceptance', 'final_decision'],
-  project_manager: ['scheduling', 'triage', 'standup_facilitation', 'refinement_facilitation'],
+  project_manager: [
+    'scheduling',
+    'triage',
+    'standup_facilitation',
+    'refinement_facilitation',
+    'feedback_processing',
+  ],
   business_analyst: ['requirements_analysis', 'task_breakdown'],
   architect: ['technical_direction', 'task_breakdown'],
   designer: ['ux_design'],

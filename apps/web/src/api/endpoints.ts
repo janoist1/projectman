@@ -12,11 +12,15 @@ import {
   DeleteAttachmentResponse,
   TaskCoverResponse,
   UploadAttachmentResponse,
+  UploadMessageAttachmentResponse,
+  DeleteMessageAttachmentResponse,
   ClosedCardsMeasure,
   MemberProfile,
   MemberMemories,
   Session,
   TeamMessage,
+  OperatorChannel,
+  OperatorSignal,
   ProjectManagerChannel,
   ProvidersView,
   CreatedInvitation,
@@ -24,12 +28,14 @@ import {
   PublicInviteView,
   RolesView,
   BoardView,
+  CheckOutageResponse,
   ConfigView,
   InboxView,
   InstancePauseView,
   Me,
   MemberView,
   ProjectPauseView,
+  ProjectPreview,
   ProjectSummary,
   ScheduleRun,
   SchedulesView,
@@ -47,6 +53,18 @@ import {
   CreatedIntegratorKey,
 } from '@projectman/shared';
 import type {
+  CloseFeedbackRequest,
+  CreateTaskFromFeedbackRequest,
+  CreateTaskFromFeedbackResponse,
+  FeedbackCommentRequest,
+  FeedbackInboxResponse,
+  FeedbackLaunchRequest,
+  FeedbackLaunchResponse,
+  FeedbackMarkDetail,
+  FeedbackSettingsView,
+  FeedbackSummary,
+  LinkFeedbackRequest,
+  StartMergeRequest,
   StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
@@ -72,6 +90,7 @@ import type {
   SetupRequest,
   StartTaskRequest,
   CreateTaskCommentRequest,
+  Task,
 } from '@projectman/shared';
 import { apiRequest } from './client';
 
@@ -134,6 +153,9 @@ export const api = {
 
   templates: () => apiRequest(routes.templates(), { schema: TemplateSummary.array() }),
   projects: () => apiRequest(routes.projects(), { schema: ProjectSummary.array() }),
+  /** What a create would make and what is wrong with it; nothing is saved. */
+  previewProject: (body: CreateProjectRequest) =>
+    apiRequest(routes.projectPreview(), { method: 'POST', body, schema: ProjectPreview }),
   createProject: (body: CreateProjectRequest) =>
     apiRequest<unknown>(routes.projects(), { method: 'POST', body }),
 
@@ -147,6 +169,9 @@ export const api = {
     apiRequest<unknown>(routes.tasks(key), { method: 'POST', body }),
   startTask: (key: string, taskKey: string, body: StartTaskRequest) =>
     apiRequest(routes.startTask(key, taskKey), { method: 'POST', body, schema: TaskDetail }),
+  /** The merger starts the merge of the card's approved work into the main branch (PM-452). */
+  startMerge: (key: string, taskKey: string, body?: StartMergeRequest) =>
+    apiRequest<{ task: Task }>(routes.taskMerge(key, taskKey), { method: 'POST', body }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),
@@ -217,6 +242,21 @@ export const api = {
     apiRequest(routes.startConversation(key, handle), { method: 'POST', schema: Session }),
   removeHuman: (key: string, handle: string) =>
     apiRequest<unknown>(routes.removeHuman(key, handle), { method: 'DELETE' }),
+  uploadMessageAttachment: (key: string, file: File, signal?: AbortSignal) => {
+    const body = new FormData();
+    body.append('file', file);
+    return apiRequest(routes.messageAttachments(key), {
+      method: 'POST',
+      body,
+      signal,
+      schema: UploadMessageAttachmentResponse,
+    });
+  },
+  deleteMessageAttachment: (key: string, id: string) =>
+    apiRequest(routes.messageAttachment(key, id), {
+      method: 'DELETE',
+      schema: DeleteMessageAttachmentResponse,
+    }),
   sendTeamMessage: (key: string, body: SendTeamMessageRequest) =>
     apiRequest(routes.sendTeamMessage(key), { method: 'POST', body, schema: TeamMessage }),
   readTeamMessage: (key: string, id: string) =>
@@ -226,6 +266,11 @@ export const api = {
   teamThreads: (key: string) => apiRequest(routes.teamThreads(key), { schema: TeamThreadsView }),
   /** The state of the project manager's channel: who it is and whether it can answer now (PM-434). */
   projectManager: (key: string) => apiRequest(routes.projectManager(key), { schema: ProjectManagerChannel }),
+  /** The viewer's own conversation with the Operator: its state, requests with steps and signals (PM-463, PM-475). */
+  operator: (key: string) => apiRequest(routes.operator(key), { schema: OperatorChannel }),
+  /** "Most ne": the owner sets a signal aside (PM-476); the answer is the signal as it is now. */
+  dismissOperatorSignal: (key: string, signalId: string) =>
+    apiRequest(routes.dismissOperatorSignal(key, signalId), { method: 'POST', schema: OperatorSignal }),
   /** One conversation with `peer` (the server's page limit) or the project's messages under the filters. */
   teamMessageList: (
     key: string,
@@ -248,6 +293,9 @@ export const api = {
   inbox: (key: string) => apiRequest(`${routes.inbox(key)}?state=all`, { schema: InboxView }),
   resolveInbox: (key: string, itemId: string, body: ResolveInboxRequest) =>
     apiRequest<unknown>(routes.resolveInbox(key, itemId), { method: 'POST', body }),
+  /** "Check now" on an outage alert (PM-466): the server looks again at once; no body. */
+  checkOutage: (key: string, itemId: string) =>
+    apiRequest(routes.checkOutage(key, itemId), { method: 'POST', schema: CheckOutageResponse }),
 
   schedules: (key: string) => apiRequest(routes.schedules(key), { schema: SchedulesView }),
   runSchedule: (key: string, handle: string) =>
@@ -265,6 +313,32 @@ export const api = {
     apiRequest(routes.instancePauseResume(), { method: 'POST', body: {}, schema: InstancePauseView }),
   forcePauseInstance: () =>
     apiRequest(routes.instancePauseForce(), { method: 'POST', body: {}, schema: InstancePauseView }),
+
+  /** Feedback marks (PM-511): the DTOs are interfaces, so the answers carry no schema. */
+  feedback: (key: string, taskKey?: string) =>
+    apiRequest<FeedbackInboxResponse>(
+      `${routes.feedback(key)}${taskKey ? `?task=${encodeURIComponent(taskKey)}` : ''}`,
+    ),
+  feedbackSummary: (key: string) => apiRequest<FeedbackSummary>(routes.feedbackSummary(key)),
+  feedbackSettings: (key: string) => apiRequest<FeedbackSettingsView>(routes.feedbackSettings(key)),
+  feedbackMark: (key: string, markId: string) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackMark(key, markId)),
+  feedbackLaunch: (key: string, body: FeedbackLaunchRequest) =>
+    apiRequest<FeedbackLaunchResponse>(routes.feedbackLaunch(key), { method: 'POST', body }),
+  feedbackMarkerLogout: (key: string, handle: string) =>
+    apiRequest<null>(routes.feedbackMarkerLogout(key, handle), { method: 'POST', body: {} }),
+  feedbackComment: (key: string, markId: string, body: FeedbackCommentRequest) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackComments(key, markId), { method: 'POST', body }),
+  feedbackRead: (key: string, markId: string) =>
+    apiRequest<null>(routes.feedbackRead(key, markId), { method: 'POST', body: {} }),
+  feedbackCreateTask: (key: string, markId: string, body: CreateTaskFromFeedbackRequest) =>
+    apiRequest<CreateTaskFromFeedbackResponse>(routes.feedbackTask(key, markId), { method: 'POST', body }),
+  feedbackLink: (key: string, markId: string, body: LinkFeedbackRequest) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackLink(key, markId), { method: 'POST', body }),
+  feedbackClose: (key: string, markId: string, body: CloseFeedbackRequest) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackClose(key, markId), { method: 'POST', body }),
+  feedbackReopen: (key: string, markId: string) =>
+    apiRequest<FeedbackMarkDetail>(routes.feedbackReopen(key, markId), { method: 'POST', body: {} }),
 
   config: (key: string) => apiRequest(routes.config(key), { schema: ConfigView }),
   patchConfig: (key: string, body: PatchConfigRequest) =>

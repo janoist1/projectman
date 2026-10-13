@@ -20,7 +20,7 @@ interface AvatarProps {
   size?: AvatarSize;
   /** AI members show their role icon by default; stacks use initials. */
   variant?: 'icon' | 'initials';
-  status?: MemberStatus | 'needs_you' | 'paused' | 'exited' | 'failed' | null;
+  status?: MemberStatus | 'needs_you' | 'paused' | 'cannot_work' | 'exited' | 'failed' | null;
   /** Border in the page colour, for overlapping stacks. */
   ring?: boolean;
   /** Accessible name; without it the avatar is decorative. */

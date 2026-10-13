@@ -102,7 +102,7 @@ describe('provider key API', () => {
         name: 'Other',
         workspacePath: h.workspace,
         templateId: 'test',
-        repos: [{ name: 'web', path: '.' }],
+        repos: [{ name: 'web', path: '.', github: 'acme/other' }],
       },
     });
     expect(second.statusCode).toBe(201);

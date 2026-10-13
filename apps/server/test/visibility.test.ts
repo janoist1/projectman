@@ -125,6 +125,54 @@ describe('client visibility', () => {
     expect(visibleTasks(developer, cards).find((t) => t.key === 'AR-1')!.themeKey).toBe('AR-8');
   });
 
+  it('gives a client no session id of what holds the places a card waits for, nor the key of a card they cannot see (PM-297)', () => {
+    const at = '2026-10-11T10:00:00.000Z';
+    const holder = { working: true, startedAt: at, lastActivityAt: at, sessionId: 'ses_1' } as const;
+    const waiting = {
+      reason: 'member_at_capacity',
+      member: 'dev-1',
+      since: at,
+      capacity: 2,
+      closeAfterMinutes: 15,
+      holders: [
+        { ...holder, kind: 'task', taskKey: 'AR-8' },
+        { ...holder, kind: 'task', taskKey: 'AR-9' },
+        { ...holder, kind: 'general' },
+      ],
+    } as const;
+    const card = { ...task('AR-1', 'shared'), startWaiting: waiting } as unknown as Task;
+    const cards = [task('AR-8', 'internal'), task('AR-9', 'shared'), card];
+    const forClient = visibleTasks(client, cards).find((t) => t.key === 'AR-1')!;
+    // The elements stay (the card still says "still working"), without what the client may not see.
+    expect(forClient.startWaiting).toEqual({
+      ...waiting,
+      holders: [
+        { kind: 'task', working: true, startedAt: at, lastActivityAt: at },
+        { kind: 'task', taskKey: 'AR-9', working: true, startedAt: at, lastActivityAt: at },
+        { kind: 'general', working: true, startedAt: at, lastActivityAt: at },
+      ],
+    });
+    // The same through a task detail and a live event.
+    const detail = {
+      task: card,
+      parent: null,
+      pullRequests: [],
+      timeline: [],
+      sessions: [],
+    } as unknown as TaskDetail;
+    const seen = (key: string) => key === 'AR-9';
+    expect(visibleTaskDetail(client, detail, seen).task.startWaiting).toEqual(forClient.startWaiting);
+    const event = { type: 'task_upserted', task: card } as unknown as ProjectEvent;
+    const taskOf = (key: string) => cards.find((t) => t.key === key);
+    expect((visibleProjectEvent(client, event, taskOf) as { task: Task }).task.startWaiting).toEqual(
+      forClient.startWaiting,
+    );
+    // A developer sees all of it, and a wait for anything else is left as it is.
+    expect(visibleTasks(developer, cards).find((t) => t.key === 'AR-1')!.startWaiting).toEqual(waiting);
+    const other = { ...card, startWaiting: { reason: 'ai_disabled', since: at } } as unknown as Task;
+    expect(visibleTasks(client, [other])[0]!.startWaiting).toEqual({ reason: 'ai_disabled', since: at });
+  });
+
   it('limits a client to their own inbox items', () => {
     const events: Array<[ProjectEvent, boolean]> = [
       [{ type: 'inbox_upserted', projectKey: 'AR', item: item(['acme-client']) }, true],

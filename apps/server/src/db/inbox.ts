@@ -23,7 +23,8 @@ interface InboxRow {
 }
 
 export interface InboxFilter {
-  state?: InboxState;
+  /** One state, or any of several (a question is pending while `open` or `screening`). */
+  state?: InboxState | readonly InboxState[];
   kind?: InboxKind;
   taskKey?: string;
   limit?: number;
@@ -55,10 +56,13 @@ export function createInboxRepository(db: Db) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     updateAssignees: db.prepare(
-      "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+      "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state IN ('open', 'screening')",
     ),
     close: db.prepare(
-      `UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND state = 'open'`,
+      `UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND state IN ('open', 'screening')`,
+    ),
+    release: db.prepare(
+      `UPDATE inbox_items SET state = 'open', payload = ?, options = ?, updated_at = ? WHERE id = ? AND state = 'screening'`,
     ),
     listOpen: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' ORDER BY seq`),
     listOpenOfKind: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' AND kind = ? ORDER BY seq`),
@@ -71,6 +75,12 @@ export function createInboxRepository(db: Db) {
          AND json_extract(payload, '$.gate.fromStageId') = ? AND json_extract(payload, '$.gate.toStageId') = ?
        ORDER BY seq`,
     ),
+    questionsWithAttachment: db.prepare(
+      `SELECT * FROM inbox_items WHERE project_key = ? AND kind = 'question'
+         AND EXISTS (SELECT 1 FROM json_each(payload, '$.attachments') WHERE json_extract(value, '$.id') = ?)
+       ORDER BY seq`,
+    ),
+    updatePayload: db.prepare('UPDATE inbox_items SET payload = ?, updated_at = ? WHERE id = ?'),
     countOpenFor: db.prepare(
       `SELECT COUNT(*) AS n FROM inbox_items
        WHERE project_key = ? AND state = 'open' AND EXISTS (SELECT 1 FROM json_each(assignees) WHERE value = ?)`,
@@ -85,6 +95,17 @@ export function createInboxRepository(db: Db) {
   };
 
   return {
+    updateOperator(
+      id: string,
+      payload: Record<string, unknown>,
+      options: InboxItem['options'],
+      at: string,
+    ): InboxItem | null {
+      db.prepare(
+        "UPDATE inbox_items SET payload = ?, options = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+      ).run(toJson(payload), toJson(options), at, id);
+      return get(id);
+    },
     updateBoundary(id: string, payload: Record<string, unknown>, assignees: string[], at: string): void {
       db.prepare('UPDATE inbox_items SET payload = ?, assignees = ?, updated_at = ? WHERE id = ?').run(
         toJson(payload),
@@ -131,33 +152,74 @@ export function createInboxRepository(db: Db) {
       statements.updateAssignees.run(toJson(assignees), at, id);
       return get(id);
     },
-    /** Changes state/resolution only while the item is still open; returns the item or null if it was not open. */
+    /**
+     * Changes state/resolution only while the item is still open or in screening; returns the item or null
+     * if it was neither.
+     */
     close(
       id: string,
-      state: Exclude<InboxState, 'open'>,
+      state: Exclude<InboxState, 'open' | 'screening'>,
       resolution: InboxItem['resolution'],
       at: string,
     ): InboxItem | null {
       const changes = statements.close.run(state, resolution ? toJson(resolution) : null, at, id).changes;
       return changes > 0 ? get(id) : null;
     },
+    /**
+     * Opens an item the Operator screened for the people (PM-556), with its new payload and options. False
+     * when the item is not in screening (it was closed meanwhile).
+     */
+    release(
+      id: string,
+      change: { payload: Record<string, unknown>; options: InboxItem['options']; at: string },
+    ): boolean {
+      return (
+        statements.release.run(toJson(change.payload), toJson(change.options), change.at, id).changes > 0
+      );
+    },
     /** Items of a project, oldest first. */
     list(projectKey: string, filter: InboxFilter = {}): InboxItem[] {
-      const signature = [filter.state && 'state', filter.kind && 'kind', filter.taskKey && 'task'].join(',');
+      const states = filter.state
+        ? typeof filter.state === 'string'
+          ? [filter.state]
+          : [...filter.state]
+        : [];
+      const signature = [
+        states.length > 0 && `state${states.length}`,
+        filter.kind && 'kind',
+        filter.taskKey && 'task',
+      ].join(',');
       let statement = lists.get(signature);
       if (!statement) {
         let sql = 'SELECT * FROM inbox_items WHERE project_key = @projectKey';
-        if (filter.state) sql += ' AND state = @state';
+        if (states.length > 0) sql += ` AND state IN (${states.map((_, i) => `@state${i}`).join(', ')})`;
         if (filter.kind) sql += ' AND kind = @kind';
         if (filter.taskKey) sql += ' AND task_key = @taskKey';
         statement = db.prepare(`${sql} ORDER BY seq DESC LIMIT @limit`);
         lists.set(signature, statement);
       }
       const params: Record<string, string | number> = { projectKey, limit: filter.limit ?? 500 };
-      if (filter.state) params.state = filter.state;
+      states.forEach((state, i) => {
+        params[`state${i}`] = state;
+      });
       if (filter.kind) params.kind = filter.kind;
       if (filter.taskKey) params.taskKey = filter.taskKey;
       return (statement.all(params) as InboxRow[]).reverse().map(toItem);
+    },
+    /**
+     * Questions answered after `after` and by no rule (PM-496), the earliest answer first. Unless
+     * `includeOffered`, the ones the owner already gave a verdict on (`decision_offers`) are left out.
+     */
+    listAnsweredQuestions(projectKey: string, after: string, includeOffered = false): InboxItem[] {
+      const rows = db
+        .prepare(
+          `SELECT * FROM inbox_items i WHERE i.project_key = ? AND i.kind = 'question' AND i.state = 'resolved'
+             AND json_extract(i.resolution, '$.at') > ? AND json_extract(i.resolution, '$.rule') IS NULL
+             AND (? OR NOT EXISTS (SELECT 1 FROM decision_offers o WHERE o.project_key = i.project_key AND o.item_id = i.id))
+           ORDER BY json_extract(i.resolution, '$.at'), i.seq`,
+        )
+        .all(projectKey, after, includeOffered ? 1 : 0) as InboxRow[];
+      return rows.map(toItem);
     },
     /** Open items across all projects, optionally of one kind. */
     listOpen(kind?: InboxKind): InboxItem[] {
@@ -178,6 +240,15 @@ export function createInboxRepository(db: Db) {
       return (statements.openGateRequests.all(projectKey, taskKey, fromStageId, toStageId) as InboxRow[]).map(
         toItem,
       );
+    },
+    /** The questions, whatever their state, that name this file (PM-498), oldest first. */
+    listQuestionsWithAttachment(projectKey: string, attachmentId: string): InboxItem[] {
+      return (statements.questionsWithAttachment.all(projectKey, attachmentId) as InboxRow[]).map(toItem);
+    },
+    /** Replaces the payload of an item in any state (PM-498: a file of a question was deleted). */
+    updatePayload(id: string, payload: Record<string, unknown>, at: string): InboxItem | null {
+      const changes = statements.updatePayload.run(toJson(payload), at, id).changes;
+      return changes > 0 ? get(id) : null;
     },
     countOpenFor(projectKey: string, handle: string): number {
       return (statements.countOpenFor.get(projectKey, handle) as { n: number }).n;

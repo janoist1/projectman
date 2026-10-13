@@ -7,16 +7,24 @@ import {
   integratorConfigRefusal,
   isTheme,
   memberOf,
+  operatorFixedChange,
+  isOperatorActor,
+  operatorConfigVerdict,
+  operatorApprovalOf,
+  canonical,
   ownerOnlyChanges,
+  unknownPatchRepo,
   validateProjectConfig,
 } from '@projectman/shared';
 import type {
   Actor,
+  CardMover,
   ConfigVersionEntry,
   CreateProjectRequest,
   HumanAccess,
   OwnerOnlyChange,
   PatchConfigRequest,
+  ProjectPreview,
   ProjectSummary,
 } from '@projectman/shared';
 import { ConfigStoreError } from '../config/errors';
@@ -29,12 +37,30 @@ import { conflict, DomainError, forbidden, invalid, notFound, ownerLoginRequired
 import type { TimelineService } from './timeline';
 import { humanActor, KeyedMutex } from './util';
 
+/** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
+function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {
+  const fixed = operatorFixedChange(previous, next);
+  if (fixed) {
+    throw conflict(
+      'operator_fixed',
+      'the Operator is fixed: only its model, provider and effort can change',
+      fixed,
+    );
+  }
+}
+
 export interface LoadedProject {
   config: ProjectConfig;
   version: string;
 }
 
 export interface Author {
+  operator?: string;
+  request?: string;
+  approvedBy?: string;
+  /** Internal provenance, never accepted from an HTTP request. */
+  operatorRequestId?: string;
+  operatorApprovalId?: string;
   via?: 'integrator';
   name: string;
   email: string;
@@ -81,7 +107,15 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   release_approvers: 'only an owner may change the release approvers',
   owners: 'only an owner may change who is an owner',
   permissions: 'only an owner may change the permission mode or the approver of an AI member',
+  review_test: 'only an owner may change the full test of a repository',
+  operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
 };
+
+/** The card mover a create request names; absent means the worker. */
+function cardMoverOfRequest(choice: CreateProjectRequest['cardMover']): CardMover {
+  if (choice === 'creator') return { kind: 'human', handle: OWNER_HANDLE };
+  return { kind: choice ?? 'worker' };
+}
 
 function fromConfigError(err: unknown): never {
   if (err instanceof ConfigStoreError) {
@@ -186,46 +220,65 @@ export class ProjectService {
     return this.configStore.history(key, limit).catch(fromConfigError);
   }
 
+  async versionConfig(key: string, version: string): Promise<ProjectConfig> {
+    return this.configStore.loadVersion(key, version).catch(fromConfigError);
+  }
+
+  /**
+   * The configuration a create would save: the template's, with the request's name, workspace,
+   * repositories and card mover. Reads no disk and changes nothing.
+   */
+  buildConfig(req: CreateProjectRequest, creator: Author): ProjectConfig {
+    const template = this.templates.get(req.templateId);
+    if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
+    const built = template.build({
+      key: req.key,
+      name: req.name,
+      workspacePath: req.workspacePath,
+      language: DEFAULT_PROJECT_LANGUAGE,
+      owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
+      cardMover: cardMoverOfRequest(req.cardMover),
+    });
+    const parsed = ProjectConfig.safeParse({
+      ...built,
+      project: {
+        ...built.project,
+        key: req.key,
+        name: req.name,
+        workspacePath: req.workspacePath,
+        templateId: req.templateId,
+        ...(req.repos ? { repos: req.repos } : {}),
+      },
+    });
+    if (!parsed.success) {
+      throw new DomainError('invalid_config', 'template produced an invalid configuration', {
+        status: 422,
+        details: { schemaIssues: parsed.error.issues },
+      });
+    }
+    return parsed.data;
+  }
+
+  /** What a create with this request would make and what is wrong with it; no side effects. */
+  preview(req: CreateProjectRequest, creator: Author): ProjectPreview {
+    const config = this.buildConfig(req, creator);
+    return { config, issues: validateProjectConfig(config) };
+  }
+
   async create(req: CreateProjectRequest, creator: Author): Promise<ProjectSummary> {
     return this.locks.run(`config:${req.key}`, async () => {
       if (this.has(req.key) || (await this.configStore.list()).includes(req.key)) {
         throw conflict('project_exists', `project ${req.key} already exists`);
       }
-      const template = this.templates.get(req.templateId);
-      if (!template) throw invalid('unknown_template', `unknown template: ${req.templateId}`);
+      const config = this.buildConfig(req, creator);
       if (!isAbsolute(req.workspacePath) || !(await this.isDirectory(req.key, req.workspacePath))) {
         throw invalid('workspace_not_found', `workspace directory not found: ${req.workspacePath}`);
       }
-
-      const built = template.build({
-        key: req.key,
-        name: req.name,
-        workspacePath: req.workspacePath,
-        language: DEFAULT_PROJECT_LANGUAGE,
-        owner: { handle: OWNER_HANDLE, displayName: creator.name, email: creator.email },
-      });
-      const parsed = ProjectConfig.safeParse({
-        ...built,
-        project: {
-          ...built.project,
-          key: req.key,
-          name: req.name,
-          workspacePath: req.workspacePath,
-          templateId: req.templateId,
-          ...(req.repos ? { repos: req.repos } : {}),
-        },
-      });
-      if (!parsed.success) {
-        throw new DomainError('invalid_config', 'template produced an invalid configuration', {
-          status: 422,
-          details: { schemaIssues: parsed.error.issues },
-        });
-      }
-      const config = parsed.data;
       // The rule is the invariant's (one place); creation answers it with a code of its own.
       if (validateProjectConfig(config).some((issue) => issue.code === 'duplicate_repo')) {
         throw invalid('duplicate_repo', 'repository names must be unique');
       }
+      assertOperatorFixed(null, config);
       if (projectAccessFor(config, creator.email)?.access !== 'owner') {
         throw new DomainError('invalid_config', 'template did not make the creator an owner', {
           status: 422,
@@ -275,10 +328,14 @@ export class ProjectService {
     return this.edit(
       key,
       { ...meta, message: patch.message, expectedVersion: patch.baseVersion },
-      (current) => ({
-        next: applyConfigPatch(current, patch),
-        message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
-      }),
+      (current) => {
+        const unknownRepo = unknownPatchRepo(current, patch);
+        if (unknownRepo !== null) throw invalid('unknown_repo', `unknown repository: ${unknownRepo}`);
+        return {
+          next: applyConfigPatch(current, patch),
+          message: patch.pipeline ? 'Update pipeline' : patch.limits ? 'Update limits' : 'Update project',
+        };
+      },
     );
   }
 
@@ -407,16 +464,52 @@ export class ProjectService {
     key: string,
     previous: ProjectConfig,
     next: ProjectConfig,
-    meta: Pick<ConfigChangeMeta, 'actor' | 'invitationBinding'>,
+    meta: Pick<ConfigChangeMeta, 'actor' | 'author' | 'invitationBinding'>,
   ): void {
     const member = memberOf(previous, meta.actor.handle);
-    if (meta.actor.kind !== 'system') {
+    if (isOperatorActor(previous, meta.actor)) {
+      const request = meta.author.operatorRequestId
+        ? this.ctx.repos.operatorRequests.get(meta.author.operatorRequestId)
+        : null;
+      if (
+        !request ||
+        request.projectKey !== key ||
+        meta.author.operator !== meta.actor.handle ||
+        meta.author.via
+      )
+        throw forbidden('operator_no_request', 'the Operator commit needs an owner request');
+      const verdict = operatorConfigVerdict(previous, next, { operator: meta.actor.handle! });
+      if (verdict.level === 'never')
+        throw forbidden('operator_never', 'the Operator cannot make this change');
+      const item = meta.author.operatorApprovalId
+        ? this.ctx.repos.inbox.get(meta.author.operatorApprovalId)
+        : null;
+      const approval = item ? operatorApprovalOf(item) : null;
+      const approver = memberOf(previous, meta.author.approvedBy);
+      if (
+        meta.author.operatorApprovalId &&
+        (!item ||
+          item.projectKey !== key ||
+          item.state !== 'open' ||
+          item.source !== meta.actor.handle ||
+          !approval ||
+          approval.stale ||
+          approval.requestId !== request.id ||
+          approver?.kind !== 'human' ||
+          approver.access !== 'owner' ||
+          canonical(approval.changes) !== canonical(verdict.changes))
+      )
+        throw conflict('operator_approval_stale', 'the approved configuration change no longer matches');
+      if (verdict.level === 'approval' && !approval)
+        throw forbidden('owner_approval_required', 'the Operator change needs approval');
+    } else if (meta.actor.kind !== 'system') {
       if (meta.actor.kind !== 'human' || member?.kind !== 'human')
         throw forbidden('insufficient_access', 'only human members may change the configuration');
       ProjectService.assertChangeAllowed(previous, next, member.access, meta.invitationBinding);
     } else {
       ProjectService.assertChangeAllowed(previous, next, 'admin');
     }
+    assertOperatorFixed(previous, next);
     if (meta.actor.via === 'integrator') {
       const refusal = integratorConfigRefusal(previous, next);
       if (refusal) throw ownerLoginRequired(refusal);

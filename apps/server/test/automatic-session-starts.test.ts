@@ -19,10 +19,15 @@ const humanMessage = (h: DomainHarness, taskKey = 'AR-1') =>
     taskKey,
   });
 
-/** The owner may also record code reviews, so the reviewer can be retired without orphaning the gate. */
+/**
+ * The owner also owns the code review step and may record code reviews, so the reviewer can be
+ * retired without orphaning the step or the gate.
+ */
 const reviewersBesidesCr = (c: ProjectConfig) => {
   for (const label of c.pipeline.labels)
     if (label.group === 'code-review') label.setBy = { duties: ['code_review'], members: ['owner'] };
+  const review = c.pipeline.stages.find((stage) => stage.id === 'code_review')!;
+  review.owners = [...(review.owners ?? []), 'owner'];
 };
 
 describe('automatic session admission and retries', () => {

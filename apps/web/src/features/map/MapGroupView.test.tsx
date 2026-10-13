@@ -253,7 +253,7 @@ describe('the zoomed group view (PM-407)', () => {
 
       await heading('Webshop epic');
       const waiting = card('AC-24');
-      expect(waiting.textContent).toContain('AC-17 +1');
+      expect(waiting.textContent).toContain('AC-17, AC-18');
       // AC-17 is the one the label names, and it is on the map: arrow only. AC-18 is the row's.
       await waitFor(() => expect(edges()).toEqual(['AC-17>AC-24']));
       expect(waiting.querySelector('p')?.textContent).toContain('AC-18');

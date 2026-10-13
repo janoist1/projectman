@@ -205,6 +205,21 @@ describe('themes on the timeline (PM-192)', () => {
   });
 });
 
+describe('parts left after a breakdown on the timeline (PM-480)', () => {
+  const left = (phase: string) =>
+    describeEvent(
+      { ...creation, type: 'task_parts_left', data: { phase, member: 'dev-1', parts: ['AC-2', 'AC-3'] } },
+      context,
+    ).text;
+
+  it('says the member was reminded, and later that the owner was told', () => {
+    expect(left('told')).toBe(t('timeline.events.parts_left_told', { name: 'dev-1', parts: 'AC-2, AC-3' }));
+    expect(left('alerted')).toBe(
+      t('timeline.events.parts_left_alerted', { name: 'dev-1', parts: 'AC-2, AC-3' }),
+    );
+  });
+});
+
 describe('card relations on the timeline (PM-192)', () => {
   const relation = (type: 'task_relation_added' | 'task_relation_removed', kind: string, ref: string) =>
     describeEvent({ ...creation, type, data: { kind, ref } }, context).text;
@@ -292,6 +307,22 @@ describe('repository changes on the timeline', () => {
   it('names only the field when the event does not say what it changed to', () => {
     expect(text({ fields: ['repo'] })).toBe(
       t('timeline.events.task_updated', { fields: t('timeline.fields.repo') }),
+    );
+  });
+});
+
+describe('the hand-on request on the timeline (PM-461)', () => {
+  it('says who finished, who takes the card on and where it goes', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_hand_on_requested',
+      actor: { kind: 'system', handle: null },
+      data: { fromStageId: 'dev', toStageId: 'review', mover: 'kata', requestedBy: 'be-1' },
+    };
+    const { text } = describeEvent(event, context);
+    expect(text).toBe('be-1 végzett; kata viszi tovább ide: review');
+    expect(text).toBe(
+      t('timeline.events.task_hand_on_requested', { requestedBy: 'be-1', mover: 'kata', to: 'review' }),
     );
   });
 });
@@ -644,6 +675,74 @@ describe('the handoff rows (PM-342)', () => {
     );
     expect(restarted({ reason: 'lost', lastHandoffId: 'hnd_1' })).toBe(
       t('timeline.events.session_conversation_restarted.lostNote', { member: 'fe-1' }),
+    );
+  });
+});
+
+describe('the merge event with a fixed conflict (PM-471)', () => {
+  const merged = (data: Record<string, unknown>) =>
+    describeEvent(
+      {
+        ...creation,
+        type: 'task_merged',
+        data: { base: 'main', commit: 'a'.repeat(40), mergeCommit: 'b'.repeat(40), via: 'tool', ...data },
+      },
+      context,
+    );
+
+  it('keeps what the merger wrote about the conflict for its own fold', () => {
+    const note = 'Kept both imports in **board.ts**.';
+    expect(merged({ resolution: { note, commit: 'c'.repeat(40) } }).resolution).toBe(note);
+  });
+
+  it('has no resolution when there is none or it is blank', () => {
+    expect(merged({}).resolution).toBeUndefined();
+    expect(merged({ resolution: { note: '  ', commit: 'c' } }).resolution).toBeUndefined();
+  });
+});
+
+describe('the rows of a question the Operator screens (PM-556)', () => {
+  const row = (type: TimelineEvent['type'], data: Record<string, unknown>) =>
+    describeEvent({ ...creation, type, actor: { kind: 'system', handle: null }, data }, context).text;
+  const asker = 'dev-1';
+
+  it('words each outcome of the screening', () => {
+    const base = { inboxItemId: 'inb_1', asker, note: 'It is clear.' };
+    expect(row('question_screened', { ...base, outcome: 'answered', answer: 'Yes' })).toBe(
+      t('timeline.events.question_screened_answered', { asker: 'dev-1', answer: 'Yes' }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'forwarded', forwardedTo: 'dev-2' })).toBe(
+      t('timeline.events.question_screened_forwarded', { asker: 'dev-1', to: 'dev-2', note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'moot' })).toBe(
+      t('timeline.events.question_screened_moot', { asker: 'dev-1', note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'decision' })).toBe(
+      t('timeline.events.question_screened_decision', { note: base.note }),
+    );
+    expect(row('question_screened', { ...base, outcome: 'todo' })).toBe(
+      t('timeline.events.question_screened_todo', { note: base.note }),
+    );
+  });
+
+  it('words the fallback, the closing and the answer delivery', () => {
+    expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'timeout' })).toBe(
+      t('timeline.events.question_screening_skipped_timeout', { asker: 'dev-1' }),
+    );
+    expect(row('question_screening_skipped', { inboxItemId: 'inb_1', asker, reason: 'unavailable' })).toBe(
+      t('timeline.events.question_screening_skipped_unavailable', { asker: 'dev-1' }),
+    );
+    expect(row('question_closed', { inboxItemId: 'inb_1', asker, rule: 'task_done', note: null })).toBe(
+      t('timeline.events.question_closed', { asker: 'dev-1', reason: t('inbox.resolutions.task_done') }),
+    );
+    expect(
+      row('question_closed', { inboxItemId: 'inb_1', asker, rule: 'withdrawn', note: 'Never mind' }),
+    ).toBe(t('timeline.events.question_closed_withdrawn', { asker: 'dev-1', note: 'Never mind' }));
+    expect(row('question_answer_delivery', { inboxItemId: 'inb_1', asker, state: 'waiting' })).toBe(
+      t('timeline.events.question_answer_waiting', { asker: 'dev-1' }),
+    );
+    expect(row('question_answer_delivery', { inboxItemId: 'inb_1', asker, state: 'delivered' })).toBe(
+      t('timeline.events.question_answer_delivered'),
     );
   });
 });

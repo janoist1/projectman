@@ -2,12 +2,16 @@ import {
   aiLimitReached,
   compareStartClass,
   DEFAULT_AGENT_PROVIDER,
+  OUTAGE_REFUSALS,
   pausesOnPlanUsage,
   isHandleOnLeave,
   isOpenTask,
+  isOperator,
+  isSessionAtWork,
   isTheme,
   isWorkingOnTask,
   isWorkPaused,
+  memberOf,
   openPrerequisites,
   seniorsOf,
   sessionWorkItemOf,
@@ -16,6 +20,7 @@ import {
 } from '@projectman/shared';
 import type {
   AiMemberConfig,
+  CapacityHolder,
   EngineId,
   FocusPlace,
   ProjectConfig,
@@ -43,6 +48,9 @@ import {
   isDeferrable,
   waitingOf,
 } from './rules';
+
+/** What an `attempt` came to (PM-543): the start ran or no longer applies, or admission put it off. */
+export type AttemptOutcome = { kind: 'done' } | { kind: 'deferred'; waiting: TaskStartWaiting };
 
 export interface AdmissionRequest {
   config: ProjectConfig;
@@ -95,6 +103,12 @@ export class Admission {
   private pull: FocusPulling | undefined;
   private retrying: Promise<void> | null = null;
   private retryAgain = false;
+  private readonly onOutageRefusal?: (
+    projectKey: string,
+    handle: string,
+    code: string,
+    details?: Record<string, unknown>,
+  ) => void;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -103,6 +117,12 @@ export class Admission {
     tasks: TaskService;
     projects: Pick<ProjectService, 'config'>;
     deferred: DeferredStarts;
+    onOutageRefusal?: (
+      projectKey: string,
+      handle: string,
+      code: string,
+      details?: Record<string, unknown>,
+    ) => void;
     disk?: Pick<DiskGuard, 'assertRoom'>;
     /** The engines (PM-311): a member whose engine is not connected waits (`engine_offline`). */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
@@ -115,6 +135,7 @@ export class Admission {
     this.tasks = deps.tasks;
     this.projects = deps.projects;
     this.deferred = deps.deferred;
+    this.onOutageRefusal = deps.onOutageRefusal;
   }
 
   /** Runs `fn` alone among admission decisions and the starts they allow (across projects). */
@@ -130,23 +151,64 @@ export class Admission {
    * session, does not count.
    */
   memberLoad(config: ProjectConfig, handle: string, excludeTaskKey?: string): number {
-    const taskKeys = new Set<string>();
-    let chats = 0;
+    return this.holders(config, handle, excludeTaskKey).length;
+  }
+
+  /**
+   * What takes the member's places (PM-297): exactly the set `memberLoad` counts, one element per
+   * task (its sessions together) and one per other running session.
+   */
+  holders(config: ProjectConfig, handle: string, excludeTaskKey?: string): CapacityHolder[] {
+    const holders: CapacityHolder[] = [];
+    const ofTask = new Map<string, CapacityHolder>();
+    // The Operator's capacity is for the people who are not owners: the owners' conversation never counts (PM-475).
+    const operator = isOperator(memberOf(config, handle));
     for (const s of this.sessions.list(config.project.key, { member: handle })) {
       if (!this.sessions.isRunning(s.id)) continue;
-      if (s.workItem.type !== 'task') chats++;
-      else if (s.workItem.taskKey !== excludeTaskKey) {
-        const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
-        if (
-          task &&
-          isOpenTask(task) &&
-          !isTheme(task) &&
-          (isWorkingOnTask(config, task, handle, s.state) || this.sessions.awaitsFirstTurn(s.id))
-        )
-          taskKeys.add(task.key);
+      const awaitsFirstTurn = this.sessions.awaitsFirstTurn(s.id);
+      const working = isSessionAtWork(s, { awaitsFirstTurn, pendingInput: false, messageOnItsWay: false });
+      if (s.workItem.type !== 'task') {
+        if (operator && !(s.workItem.type === 'general' && s.workItem.with)) continue;
+        holders.push({
+          kind: s.workItem.type,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        });
+        continue;
+      }
+      if (s.workItem.taskKey === excludeTaskKey) continue;
+      const task = this.ctx.repos.tasks.get(s.workItem.taskKey);
+      if (
+        !task ||
+        !isOpenTask(task) ||
+        isTheme(task) ||
+        !(isWorkingOnTask(config, task, handle, s.state) || awaitsFirstTurn)
+      )
+        continue;
+      const held = ofTask.get(task.key);
+      if (!held) {
+        const holder: CapacityHolder = {
+          kind: 'task',
+          taskKey: task.key,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        };
+        ofTask.set(task.key, holder);
+        holders.push(holder);
+        continue;
+      }
+      held.working ||= working;
+      if (s.startedAt < held.startedAt) held.startedAt = s.startedAt;
+      if (s.lastActivityAt > held.lastActivityAt) {
+        held.lastActivityAt = s.lastActivityAt;
+        held.sessionId = s.id;
       }
     }
-    return chats + taskKeys.size;
+    return holders;
   }
 
   /** Whether an open task is assigned to the member; a temp worker carries one task at a time. */
@@ -184,6 +246,7 @@ export class Admission {
       throw conflict('ai_limit_reached', `${busy} AI sessions are working (limit ${max})`, { busy, max });
     }
     const provider = member?.provider ?? DEFAULT_AGENT_PROVIDER;
+    this.sessions.assertProviderCooldown(provider);
     // The engine the member's sessions run on must be connected (PM-311): the start waits for it.
     const engineId = member ? this.assertEngineOnline(projectKey, member.handle) : undefined;
     // A provider that is not logged in cannot run the session (PM-324): the start waits for the login.
@@ -256,21 +319,37 @@ export class Admission {
         );
       return result;
     }
-    await this.check(request);
-    return this.sessions.ensureSession(projectKey, request.member.handle, requested, {
-      messages: request.messages,
-      cause: request.cause,
-    });
+    try {
+      await this.check(request);
+      return await this.sessions.ensureSession(projectKey, request.member.handle, requested, {
+        messages: request.messages,
+        cause: request.cause,
+      });
+    } catch (err) {
+      const refusal = err as { code?: unknown; details?: unknown } | null;
+      if (typeof refusal?.code === 'string' && OUTAGE_REFUSALS.some((code) => code === refusal.code)) {
+        this.onOutageRefusal?.(
+          projectKey,
+          request.member.handle,
+          refusal.code,
+          refusal.details && typeof refusal.details === 'object'
+            ? (refusal.details as Record<string, unknown>)
+            : undefined,
+        );
+      }
+      throw err;
+    }
   }
 
   /**
    * One attempt of an automatic start, alone among admission decisions. A refusal that can
    * clear keeps the start, with why it waits, for the retry loop; other failures propagate.
-   * Its task is published again when why it waits changed.
+   * Its task is published again when why it waits changed. Says what became of the attempt (PM-543):
+   * `done` (the start ran, or no longer applies) or `deferred` with why it waits.
    */
-  async attempt(start: AutomaticStart): Promise<void> {
-    await this.exclusive(() =>
-      this.publishingWaitingChanges(start.taskKey, async () => {
+  async attempt(start: AutomaticStart): Promise<AttemptOutcome> {
+    return this.exclusive(() =>
+      this.publishingWaitingChanges(start.taskKey, async (): Promise<AttemptOutcome> => {
         // The previous deferral of this start stays stored until the attempt settles.
         const previous = this.deferred.take(start.key);
         const since = previous?.start.stillValid(this.taskOf(start)) ? previous.waiting : undefined;
@@ -295,10 +374,11 @@ export class Admission {
               },
               start.log.deferred,
             );
-          return;
+          return { kind: 'deferred', waiting };
         }
         // The start happened, or it no longer applies.
         this.deferred.drop(start.key);
+        return { kind: 'done' };
       }),
     );
   }
@@ -511,11 +591,11 @@ export class Admission {
     return task && task.projectKey === start.projectKey ? task : null;
   }
 
-  private async publishingWaitingChanges(taskKey: string | null, fn: () => Promise<void>): Promise<void> {
+  private async publishingWaitingChanges<T>(taskKey: string | null, fn: () => Promise<T>): Promise<T> {
     const task = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
     const before = task ? JSON.stringify(this.deferred.waitingFor(task)) : undefined;
     try {
-      await fn();
+      return await fn();
     } finally {
       const latest = taskKey ? this.ctx.repos.tasks.get(taskKey) : null;
       if (latest && before !== JSON.stringify(this.deferred.waitingFor(latest))) this.tasks.publish(latest);

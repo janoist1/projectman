@@ -15,6 +15,7 @@ import type {
   ProjectConfig,
   Stage,
   Task,
+  WorkOutage,
   TaskFixLimit,
   TaskLoop,
   TaskReviewPin,
@@ -22,6 +23,7 @@ import type {
   TimelineEvent,
 } from '@projectman/shared';
 import type { TaskPatch } from '../../db';
+import { mergeState, mergedState } from '../../db';
 import type { DomainContext } from '../context';
 import { requireHuman } from '../access';
 import { invalid, notFound } from '../errors';
@@ -52,6 +54,7 @@ export class TaskStore {
   readonly timeline: TimelineService;
   readonly projects: ProjectService;
   private readonly startWaiting: StartWaitingReader;
+  private readonly outageOf?: (task: Task) => WorkOutage | undefined;
   private readonly fixLimit: ((task: Task) => TaskFixLimit | undefined) | undefined;
 
   constructor(deps: {
@@ -59,6 +62,7 @@ export class TaskStore {
     timeline: TimelineService;
     projects: ProjectService;
     startWaiting: StartWaitingReader;
+    outageOf?: (task: Task) => WorkOutage | undefined;
     /** The fix round limit hold on a card (PM-262), shown on it. */
     fixLimit?: (task: Task) => TaskFixLimit | undefined;
   }) {
@@ -66,34 +70,60 @@ export class TaskStore {
     this.timeline = deps.timeline;
     this.projects = deps.projects;
     this.startWaiting = deps.startWaiting;
+    this.outageOf = deps.outageOf;
     this.fixLimit = deps.fixLimit;
   }
 
   view(task: Task): Task {
     const {
       startWaiting: _,
+      outage: _outage,
       reviewPin: __,
       coverAttachmentId: ___,
       loop: ____,
       fixLimit: _____,
       handoff: ______,
       lastHandoff: _______,
+      merge: _merge,
+      merged: _merged,
+      handOn: ________,
       ...rest
     } = task;
     const startWaiting = this.startWaiting.waitingFor(task) ?? this.repoWaiting(task);
+    const outage = this.outageOf?.(task);
     const reviewPin = this.reviewPin(task);
     const cover = this.cover(task);
     const loop = this.loop(task);
     const fixLimit = this.fixLimit?.(task);
     const handoffs = this.handoffs(task);
+    const openMerge = this.ctx.repos.taskMerges.open(task.projectKey, task.key);
+    const lastMerge = this.ctx.repos.taskMerges.latestMerged(task.projectKey, task.key);
+    const merge = openMerge ? mergeState(openMerge) : undefined;
+    const merged = lastMerge ? mergedState(lastMerge) : undefined;
+    const record = this.ctx.repos.taskHandOns.get(task.projectKey, task.key);
+    const handOn =
+      record && isOpenTask(task)
+        ? {
+            fromStageId: record.fromStageId,
+            toStageId: record.toStageId,
+            mover: record.mover,
+            requestedBy: record.requestedBy,
+            requestedAt: record.requestedAt,
+            inboxItemId: record.inboxItemId,
+          }
+        : undefined;
     return {
       ...rest,
       ...(startWaiting ? { startWaiting } : {}),
+      ...(outage ? { outage } : {}),
       ...(reviewPin ? { reviewPin } : {}),
       ...(cover ? { coverAttachmentId: cover } : {}),
       ...(loop ? { loop } : {}),
       ...(fixLimit ? { fixLimit } : {}),
       ...handoffs,
+      ...(merge ? { merge } : {}),
+      ...(merged ? { merged } : {}),
+      ...(handOn ? { handOn } : {}),
     };
   }
 

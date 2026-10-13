@@ -3,6 +3,7 @@ import type {
   Actor,
   EgressAllowance,
   InboxItem,
+  Release,
   Session,
   Task,
   TaskRelationKind,
@@ -25,6 +26,10 @@ export interface AddedRelation {
  * clients see goes out through the event bus (the websocket) instead.
  */
 export interface DomainEventMap {
+  work_outage_started: { projectKey: string; outageId: string; inboxItemId: string };
+  work_outage_ended: { projectKey: string; outageId: string };
+  session_input_stalled: { projectKey: string; sessionId: string; inboxItemId: string };
+  pause_changed: { projectKey: string };
   /** A configuration change was committed (also a project's creation or import). */
   config_changed: ConfigChange;
   /** A human resolved an inbox item. */
@@ -33,6 +38,8 @@ export interface DomainEventMap {
   inbox_cancelled: InboxItem;
   /** A member's tool question went to its AI decider (PM-169): the decider is woken to answer it. */
   permission_delegated: InboxItem;
+  /** A release was proposed (PM-497), after its record and approval request committed. */
+  release_proposed: { release: Release };
   /** A task entered another stage (after the change committed). */
   task_stage_changed: StageChange;
   /** An operation put relations on cards (PM-421), after it committed; both cards of each, from their own side. */
@@ -75,6 +82,8 @@ export interface DomainEventMap {
   session_input_released: Session;
   /** A stored message waits for an AI recipient that has no running session for its work item. */
   message_waiting: { projectKey: string; handle: string; workItem: WorkItemRef; messageId: string };
+  /** A feedback mark waits for a processor's decision (PM-512): a new mark, or a marker's comment on one. */
+  feedback_needs_processor: { projectKey: string; markId: string };
   /** An owner closed a network allowance (PM-140): the egress proxy ends its open tunnels. */
   egress_allowance_revoked: EgressAllowance;
   /** A member may no longer work in a project (removed, on leave, AI off): its tunnels end. */

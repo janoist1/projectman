@@ -1,0 +1,172 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--c-line);
+  border-left: 3px solid var(--role-operator-fg);
+  border-radius: var(--radius-lg);
+  background: var(--c-surface);
+  min-width: 0;
+}
+
+.card[data-state='open'] {
+  border-color: var(--c-needs-border, var(--c-line));
+  border-left-color: var(--c-needs-text);
+  background: var(--c-needs-bg);
+}
+
+/* A signal that is settled recedes: muted text, a neutral stripe. */
+.card[data-state='accepted'],
+.card[data-state='dismissed'],
+.card[data-state='resolved'] {
+  border-left-color: var(--c-line);
+}
+
+.card[data-state='accepted'] .title,
+.card[data-state='dismissed'] .title,
+.card[data-state='resolved'] .title,
+.card[data-state='accepted'] .body,
+.card[data-state='dismissed'] .body,
+.card[data-state='resolved'] .body {
+  color: var(--c-ink-3);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--c-ink-4);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: 800;
+  line-height: 1.35;
+  color: var(--c-ink);
+  overflow-wrap: anywhere;
+}
+
+.key {
+  color: var(--c-accent-text);
+}
+
+.body {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--c-ink-2);
+  overflow-wrap: anywhere;
+}
+
+.body p {
+  margin: 0;
+}
+
+.details {
+  align-self: flex-start;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  color: var(--c-accent-text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.closed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-ink-3);
+}
+
+.error {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--c-blocked-text);
+}
+
+.group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-needs-border);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-needs-text);
+}
+.count {
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--c-ink-4);
+}
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--c-needs-border);
+}
+.row:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+.rowTitle {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 800;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.row:not([data-state='open']) .rowTitle {
+  color: var(--c-ink-3);
+}
+.card[data-state='resolved'] .group {
+  border-color: var(--c-line);
+  color: var(--c-ink-4);
+}
+.card[data-state='resolved'] .row {
+  border-color: var(--c-line);
+}
+.rowActions {
+  composes: actions;
+  animation: decision-in 150ms ease-out;
+}
+.rowClosed {
+  composes: closed;
+  animation: decision-in 150ms ease-out;
+}
+@keyframes decision-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rowActions,
+  .rowClosed {
+    animation: none;
+  }
+}

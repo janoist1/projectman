@@ -1,5 +1,5 @@
-import type { TeamMessage } from '@projectman/shared';
-import { CardVersion, MessageKind, MessageSubject } from '@projectman/shared';
+import type { Actor, TeamMessage } from '@projectman/shared';
+import { CardVersion, MessageAttachmentRef, MessageKind, MessageSubject } from '@projectman/shared';
 import type { Statement } from 'better-sqlite3';
 import type { Db } from './database';
 import { parseJson, toJson } from './json';
@@ -16,17 +16,28 @@ interface MessageRow {
   created_at: string;
   delivered_at: string | null;
   answer: string | null;
+  relayed: string | null;
+  operator_request: string | null;
+  operator_signal: string | null;
   via: 'integrator' | null;
   origin: string | null;
   kind: string | null;
   version: string | null;
   subject: string | null;
+  attachments: string | null;
 }
 
 /** A message without its body: who it is between and who read it. */
 export type MessageSummary = Pick<TeamMessage, 'id' | 'from' | 'to' | 'receipts'>;
 
 type SummaryRow = Pick<MessageRow, 'id' | 'from_handle' | 'to_handles' | 'receipts'>;
+
+/** The files of a stored message; NULL (every message from before files) and anything unreadable: none. */
+const attachmentsOf = (json: string | null): MessageAttachmentRef[] | undefined => {
+  if (!json) return undefined;
+  const parsed = MessageAttachmentRef.array().safeParse(parseJson(json, null));
+  return parsed.success && parsed.data.length > 0 ? parsed.data : undefined;
+};
 
 const toMessage = (r: MessageRow): TeamMessage => ({
   id: r.id,
@@ -45,11 +56,15 @@ const toMessage = (r: MessageRow): TeamMessage => ({
     ? { subject: MessageSubject.parse(parseJson(r.subject, null)) }
     : {}),
   ...(r.receipts ? { receipts: parseJson(r.receipts, []) } : {}),
+  ...(attachmentsOf(r.attachments) ? { attachments: attachmentsOf(r.attachments) } : {}),
   ...(r.via ? { via: r.via } : {}),
   ...(r.origin
     ? { origin: parseJson<NonNullable<TeamMessage['origin']>>(r.origin, { kind: 'note', eventId: '' }) }
     : {}),
   ...(r.answer ? { answer: parseJson(r.answer, { inboxItemId: '', question: '', answer: '' }) } : {}),
+  ...(r.relayed ? { relayed: parseJson(r.relayed, { sessionId: '', inReplyTo: '' }) } : {}),
+  ...(r.operator_request ? { operatorRequest: r.operator_request } : {}),
+  ...(r.operator_signal ? { operatorSignal: r.operator_signal } : {}),
 });
 
 export function createMessageRepository(db: Db) {
@@ -61,10 +76,16 @@ export function createMessageRepository(db: Db) {
         AND CASE WHEN json_valid(subject) THEN json_extract(subject, '$.inboxItemId') ELSE NULL END IS ?
         AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
         AND seq > (SELECT seq FROM team_messages WHERE id = ?) LIMIT 1`),
-    insert: db.prepare(
-      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    hasNote: db.prepare(
+      `SELECT 1 FROM team_messages WHERE project_key = ? AND from_handle = ?
+       AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
+       AND instr(body, ?) > 0 LIMIT 1`,
     ),
+    insert: db.prepare(
+      `INSERT INTO team_messages (id, project_key, from_handle, to_handles, task_key, body, created_at, delivered_at, receipts, answer, via, origin, kind, version, subject, relayed, operator_request, operator_signal, attachments)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ),
+    setAttachments: db.prepare('UPDATE team_messages SET attachments = ? WHERE id = ?'),
     countUnread: db.prepare(
       `SELECT COUNT(*) AS n FROM team_messages WHERE project_key = ?
        AND EXISTS (SELECT 1 FROM json_each(to_handles) WHERE value = ?)
@@ -110,6 +131,10 @@ export function createMessageRepository(db: Db) {
         message.id,
       );
     },
+    /** Whether `from` already sent `to` a message whose text holds `marker` (a once-only note's own key). */
+    hasNote(projectKey: string, from: string, to: string, marker: string): boolean {
+      return !!statements.hasNote.get(projectKey, from, to, marker);
+    },
     insert(m: TeamMessage): void {
       statements.insert.run(
         m.id,
@@ -127,7 +152,25 @@ export function createMessageRepository(db: Db) {
         m.kind ?? null,
         m.version ? toJson(m.version) : null,
         m.subject ? toJson(m.subject) : null,
+        m.relayed ? toJson(m.relayed) : null,
+        m.operatorRequest ?? null,
+        m.operatorSignal ?? null,
+        m.attachments?.length ? toJson(m.attachments) : null,
       );
+    },
+    /**
+     * The file of the message is deleted: its entry keeps its place and gets `goneAt`/`goneBy`.
+     * Returns the changed message; null when there is no such message or file, or it was gone already.
+     */
+    markAttachmentGone(messageId: string, attachmentId: string, at: string, by: Actor): TeamMessage | null {
+      const message = get(messageId);
+      const entry = message?.attachments?.find((a) => a.id === attachmentId);
+      if (!message?.attachments || !entry || entry.goneAt) return null;
+      const attachments = message.attachments.map((a) =>
+        a.id === attachmentId ? { ...a, goneAt: at, goneBy: by } : a,
+      );
+      statements.setAttachments.run(toJson(attachments), messageId);
+      return get(messageId);
     },
     /**
      * Most recent messages, oldest first. `member` and `participant` both match sender or recipient and

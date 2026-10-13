@@ -43,7 +43,7 @@ export function toApiError(error: unknown): { status: number; body: ApiError } {
   return { status: 500, body: apiError('internal_error', 'internal server error') };
 }
 
-const SERVER_PREFIXES = ['/api', '/ws', '/hooks', '/mcp'];
+const SERVER_PREFIXES = ['/api', '/ws', '/hooks', '/mcp', '/feedback'];
 
 /**
  * Consistent ApiError responses for every error and unknown route. With `spaIndex`,

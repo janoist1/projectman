@@ -62,15 +62,17 @@ describe('stage gates', () => {
 
   it('an approval label: the task moves only after the approver approves, who then holds the label', async () => {
     const task = await taskInCodeReview();
-    await h.domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok'] }, aiActor('cr'));
     const events: ServerEvent[] = [];
     h.domain.bus.subscribe((e) => events.push(e));
+    await h.domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok'] }, aiActor('cr'));
+    // The system asked for the approval when the label was set (PM-445); asking again finds that request.
+    await flush();
     const { pendingApproval } = await h.domain.tasks.moveToStage('AR', task.key, 'merge', aiActor('dev-1'));
     const decision = pendingApproval[0]!;
     expect(decision).toMatchObject({
       kind: 'decision',
       assignees: ['owner'],
-      source: 'dev-1',
+      source: 'system',
       taskKey: task.key,
     });
     expect(gateRequestOf(decision)).toMatchObject({
@@ -111,12 +113,13 @@ describe('stage gates', () => {
 
   it('refuses a move nobody may approve and says why', async () => {
     const task = await taskInCodeReview();
-    await h.domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok'] }, aiActor('cr'));
     await h.domain.projects.update('AR', { actor: OWNER_ACTOR, author: OWNER }, (draft) => {
       draft.pipeline.labels.find((label) => label.id === 'merge-ok')!.notByAuthor = true;
       return 'The merge approver may not merge their own work';
     });
     h.domain.tasks.assign('AR', task.key, 'owner', OWNER_ACTOR);
+    await h.domain.tasks.changeLabels('AR', task.key, { add: ['code-review-ok'] }, aiActor('cr'));
+    await flush();
     const err = await rejection(h.domain.tasks.moveToStage('AR', task.key, 'merge', OWNER_ACTOR));
     expect(err).toMatchObject({
       code: 'self_review_forbidden',

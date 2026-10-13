@@ -9,8 +9,9 @@ import { AvatarStack } from '../components/Avatar';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import type { IconName } from '../components/Icon';
+import { useFeedbackNav } from '../features/feedback/useFeedbackNav';
 import { openPauses } from '../features/pause/pauseView';
-import { PmButton } from '../features/pm/PmButton';
+import { OperatorButton } from '../features/operator/OperatorButton';
 import { joinNames, t } from '../i18n/t';
 import { nameOf } from '../lib/members';
 import { useMediaQuery } from '../lib/hooks';
@@ -29,8 +30,8 @@ import { MachineIndicator } from '../features/machine/MachineIndicator';
  *   1181-1499 plan usages collapse into a single combined button ("AI-keret {percent} ˅") with a shared dropdown
  *             (COMBINED_PLAN_USAGE_QUERY); the machine meter's button turns into a badge below 1280 (PM-322)
  *   <= 1180   the plan usage and the presence are hidden (CSS)
- *   >= 1500   the Projektmenedzser button (PM-429) shows the avatar and the display name (cut at 18 characters);
- *   901-1499  avatar and "PM"; <= 900 the avatar only (CSS in PmButton.module.css)
+ *   >= 1500   the Operator button (PM-429, PM-447) shows the avatar and the display name (cut at 18 characters);
+ *   901-1499  avatar and "Op"; <= 900 the avatar only (CSS in OperatorButton.module.css)
  *   <= 900    "Új feladat" is an icon only: COMPACT_NEW_TASK_QUERY
  *   < 768     the phone header replaces the bar (a plan usage badge, an icon-only new task)
  */
@@ -43,17 +44,22 @@ interface NavItem {
   label: string;
   active: boolean;
   badge?: number;
+  /** What the badge counts, for the screen reader; the inbox's wording when absent. */
+  badgeText?: 'feedback';
 }
 
 function useNavItems(inboxCount: number): {
   main: NavItem[];
   /** The "how we work" page: on the rail and in the phone's account menu, not in the tab bar; a client has none. */
   howWeWork: NavItem | null;
+  /** The feedback marks (PM-511): on the rail and in the phone's account menu, not in the tab bar. */
+  feedback: NavItem | null;
   settings: NavItem;
 } {
   const { key, can } = useProject();
   // The server counts the viewer's unread messages across their conversations (PM-78).
   const unread = useTeamThreads(key).data?.unreadCount ?? 0;
+  const feedbackNav = useFeedbackNav();
   const { pathname } = useLocation();
   const base = `/p/${key}`;
   const under = (path: string) => pathname === path || pathname.startsWith(`${path}/`);
@@ -79,6 +85,16 @@ function useNavItems(inboxCount: number): {
         badge: unread,
       },
     ],
+    feedback: feedbackNav.visible
+      ? {
+          to: `${base}/feedback`,
+          icon: 'pin',
+          label: t('nav.feedback'),
+          active: under(`${base}/feedback`),
+          badge: feedbackNav.badge,
+          badgeText: 'feedback' as const,
+        }
+      : null,
     howWeWork: can.readConfig
       ? {
           to: `${base}/how-we-work`,
@@ -96,14 +112,18 @@ function useNavItems(inboxCount: number): {
   };
 }
 
-function BadgeText({ count }: { count: number }) {
-  return <span className="visually-hidden">, {t('nav.inboxCount', { count })}</span>;
+function BadgeText({ count, kind }: { count: number; kind?: NavItem['badgeText'] }) {
+  return (
+    <span className="visually-hidden">
+      , {kind === 'feedback' ? t('nav.feedbackCount', { count }) : t('nav.inboxCount', { count })}
+    </span>
+  );
 }
 
 /** Left navigation rail (desktop and tablet). */
 export function NavRail({ inboxCount }: { inboxCount: number }) {
   const { key, openPause, can } = useProject();
-  const { main, howWeWork, settings } = useNavItems(inboxCount);
+  const { main, feedback, howWeWork, settings } = useNavItems(inboxCount);
   const pause = useBoard(key).data?.pause;
   const canPause = can.pauseTeam && pause !== undefined && openPauses(pause).length === 0;
   return (
@@ -111,7 +131,7 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
       <Link to={`/p/${key}`} className={styles.logo} aria-label={t('app.name')}>
         <Icon name="logo" size={20} strokeWidth={2.4} />
       </Link>
-      {main.map((item) => (
+      {(feedback ? [...main, feedback] : main).map((item) => (
         <Link
           key={item.to}
           to={item.to}
@@ -125,7 +145,7 @@ export function NavRail({ inboxCount }: { inboxCount: number }) {
               <span className={styles.railBadge} aria-hidden="true">
                 {item.badge}
               </span>
-              <BadgeText count={item.badge} />
+              <BadgeText count={item.badge} kind={item.badgeText} />
             </>
           ) : null}
         </Link>
@@ -347,7 +367,7 @@ export function TopBar({
           {t('pause.button')}
         </Button>
       ) : null}
-      <PmButton variant="bar" />
+      <OperatorButton variant="bar" />
       <InboxPill count={inboxCount} />
       {can.createTasks ? (
         <Button
@@ -378,6 +398,7 @@ export function MobileHeader({
   const { key, openNewTask, openPause, can, search, setSearch } = useProject();
   const [searching, setSearching] = useState(search !== '');
   const canPause = can.pauseTeam && board !== undefined && openPauses(board.pause).length === 0;
+  const feedbackNav = useFeedbackNav();
   if (searching) {
     return (
       <header className={styles.mobileHeader}>
@@ -416,7 +437,7 @@ export function MobileHeader({
       />
       <EngineIndicator phone />
       <MachineIndicator phone />
-      <PmButton variant="phone" />
+      <OperatorButton variant="phone" />
       {can.createTasks ? (
         <Button
           variant="primary"
@@ -430,6 +451,7 @@ export function MobileHeader({
       <AccountMenu
         settingsPath={`/p/${key}/settings`}
         howWeWorkPath={can.readConfig ? `/p/${key}/how-we-work` : null}
+        feedback={feedbackNav.visible ? { to: `/p/${key}/feedback`, badge: feedbackNav.badge } : null}
         placement="below"
         onPause={canPause ? openPause : undefined}
       />

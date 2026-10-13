@@ -1,8 +1,10 @@
 import {
   hasStepOnTask,
+  isMergeRunningFor,
   isOpenTask,
   isRefining,
   isSessionAtWork,
+  OPERATOR_GUEST_IDLE_CLOSE_MINUTES,
   SESSION_IDLE_CLOSE_MINUTES,
   stageIndex,
 } from '@projectman/shared';
@@ -20,7 +22,8 @@ const MINUTE_MS = 60_000;
  * Closes the sessions that are done (PM-288), so that their CLI processes do not hold the machine's
  * memory. A session closes when its member's step on the card is done (the card moved on, or the
  * refinement turn passed to another member), or after `SESSION_IDLE_CLOSE_MINUTES` of silence. It never
- * closes while it works, nor a meeting's. The conversation stays: a message, an answer or a hand-over
+ * closes while it works, nor a meeting's. The session of a member whose merge the server queues or runs
+ * closes at once as well, as the member has nothing to wait for (PM-552). The conversation stays: a message, an answer or a hand-over
  * resumes it. A session that is in a turn when its step ends is marked, and closes at its next idle
  * moment (`sessionIdle`); the periodic `sweep` catches what no event did.
  */
@@ -97,6 +100,12 @@ export class SessionCloser {
    * member meanwhile, and then the session stays open.
    */
   async sessionIdle(session: Session): Promise<void> {
+    // The member's merge runs on the server: nothing to wait for here, whatever else is marked (PM-552).
+    const mergeStop = this.mergeRunningStop(session);
+    if (mergeStop) {
+      await this.tryClose(session, mergeStop);
+      return;
+    }
     const stop = this.sessions.pendingClose(session.id);
     if (!stop) return;
     await this.closeMarked(session, stop);
@@ -113,14 +122,23 @@ export class SessionCloser {
       if (session.workItem.type === 'meeting') continue;
       if (!this.sessions.isRunning(session.id) || this.sessions.isPaused(session)) continue;
       try {
+        const mergeStop = this.mergeRunningStop(session);
+        if (mergeStop) {
+          await this.tryClose(session, mergeStop);
+          continue;
+        }
         const marked = this.sessions.pendingClose(session.id);
         if (marked) {
           await this.closeMarked(session, marked);
           continue;
         }
         const silent = Math.floor((now - Date.parse(session.lastActivityAt)) / MINUTE_MS);
-        if (silent >= SESSION_IDLE_CLOSE_MINUTES)
-          await this.tryClose(session, { kind: 'idle', idleMinutes: silent });
+        // A guest's conversation with the Operator frees the one place sooner (PM-475).
+        const limit =
+          session.workItem.type === 'general' && session.workItem.with
+            ? OPERATOR_GUEST_IDLE_CLOSE_MINUTES
+            : SESSION_IDLE_CLOSE_MINUTES;
+        if (silent >= limit) await this.tryClose(session, { kind: 'idle', idleMinutes: silent });
       } catch (err) {
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not close an idle session');
       }
@@ -132,6 +150,17 @@ export class SessionCloser {
     return this.sessions
       .list(task.projectKey, { taskKey: task.key })
       .filter((s) => s.workItem.type === 'task' && this.sessions.isRunning(s.id));
+  }
+
+  /**
+   * The reason to close a task session whose member started the card's merge while the server queues or
+   * runs it (PM-552); null for any other session. A failure or a block wakes the member by message.
+   */
+  private mergeRunningStop(session: Session): SessionStop | null {
+    if (session.workItem.type !== 'task') return null;
+    const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
+    if (!task || !isMergeRunningFor(task.merge, session.member)) return null;
+    return { kind: 'merge_running', taskKey: task.key };
   }
 
   /** Whether the session's member has a step on the session's card now (a task session only). */

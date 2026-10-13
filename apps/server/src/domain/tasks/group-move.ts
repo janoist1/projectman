@@ -1,4 +1,9 @@
-import { groupPlacement, stageHandsOverForReview, subtasksMovingAlong } from '@projectman/shared';
+import {
+  groupPlacement,
+  mergeRepoOf,
+  stageHandsOverForReview,
+  subtasksMovingAlong,
+} from '@projectman/shared';
 import type {
   Actor,
   BoardGroupItem,
@@ -10,13 +15,13 @@ import type {
 } from '@projectman/shared';
 import { DomainError } from '../errors';
 import type { BoardOrder } from './board-order';
-import type { Handover, TaskMoves } from './moves';
+import type { PreparedMove, TaskMoves } from './moves';
 import type { Effect, TaskStore } from './store';
 
 type BlockedItem = Extract<BoardGroupItem, { outcome: 'blocked' }>;
 
 /** What was read about a card before the unit of work (the one thing that needs an await). */
-export type PreparedCard = { handover: Handover | null } | { blocked: BoardGroupItem };
+export type PreparedCard = PreparedMove | { blocked: BoardGroupItem };
 
 /**
  * A collecting card dragged to another column with the subtasks that stand in its column (PM-121).
@@ -54,9 +59,13 @@ export class BoardGroupMove {
     const prepared = new Map<string, PreparedCard>();
     for (const card of cards) {
       try {
-        prepared.set(card.key, { handover: await this.moves.prepareHandover(config, card, target.id) });
+        prepared.set(card.key, await this.moves.prepareMove(config, card, target.id));
       } catch (error) {
-        if (!(error instanceof DomainError) || error.code !== 'handover_uncommitted') throw error;
+        if (
+          !(error instanceof DomainError) ||
+          !['handover_uncommitted', 'task_not_merged'].includes(error.code)
+        )
+          throw error;
         prepared.set(card.key, { blocked: blockedItem(card.key, error) });
       }
     }
@@ -96,7 +105,11 @@ export class BoardGroupMove {
         continue;
       }
       // A subtask that came into the column since the request was read has no hand-over read for it.
-      if (!cardPrepared && handsOver && card.key !== parent.key) {
+      if (
+        !cardPrepared &&
+        (handsOver || mergeRepoOf(config, card, card.stageId, target.id)) &&
+        card.key !== parent.key
+      ) {
         items.push({ taskKey: card.key, outcome: 'skipped', reason: 'changed' });
         continue;
       }
@@ -106,7 +119,7 @@ export class BoardGroupMove {
         target,
         req,
         actor,
-        cardPrepared?.handover ?? null,
+        cardPrepared ?? { handover: null, mergeChecked: false },
         previous,
         effects,
         reranked,
@@ -134,7 +147,7 @@ export class BoardGroupMove {
     target: Stage,
     req: BoardMoveRequest,
     actor: Actor,
-    handover: Handover | null,
+    prepared: PreparedMove,
     previous: string | null,
     effects: Effect[],
     reranked: string[],
@@ -143,7 +156,7 @@ export class BoardGroupMove {
     try {
       const result = this.store.ctx.unitOfWork(() =>
         this.moves.move(config, card, target.id, actor, cardEffects, {
-          handover,
+          ...prepared,
           despitePrerequisites: req.despitePrerequisites,
           placement: groupPlacement(req.placement, previous),
         }),
@@ -162,7 +175,8 @@ export class BoardGroupMove {
       return { taskKey: card.key, outcome: 'skipped', reason: 'changed' };
     } catch (error) {
       if (!(error instanceof DomainError)) throw error;
-      if (error.code === 'gate_blocked') return blockedItem(card.key, error);
+      if (error.code === 'gate_blocked' || error.code === 'task_not_merged')
+        return blockedItem(card.key, error);
       if (error.code === 'task_closed') return { taskKey: card.key, outcome: 'skipped', reason: 'closed' };
       if (NO_APPROVER.has(error.code)) return noApproverItem(card.key, error);
       throw error;
@@ -204,7 +218,12 @@ function blockedItem(taskKey: string, error: DomainError): BlockedItem {
   return {
     taskKey,
     outcome: 'blocked',
-    code: error.code === 'handover_uncommitted' ? 'handover_uncommitted' : 'gate_blocked',
+    code:
+      error.code === 'task_not_merged'
+        ? 'task_not_merged'
+        : error.code === 'handover_uncommitted'
+          ? 'handover_uncommitted'
+          : 'gate_blocked',
     message: error.message,
     unmet: details.unmet ?? [],
     approvals: details.approvals ?? [],

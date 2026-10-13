@@ -23,6 +23,7 @@ import {
   writeSecretFile,
 } from '../src/engine-link/engine-config';
 import type { MethodParams } from '../src/engine-link';
+import { InstanceMarkerError, writeInstanceMarker } from '../src/instance';
 import { createFakeRunnerModule } from './helpers/fakes';
 import type { FakeRunnerModule } from './helpers/fakes';
 import { FakeGithub } from './helpers/fakes';
@@ -256,6 +257,19 @@ describe('engine process', () => {
       expect(error).toBeInstanceOf(EngineConfigError);
       expect((error as EngineConfigError).code).toBe('home_in_use');
       expect((error as EngineConfigError).message).toContain('PROJECTMAN_HOME=~/.projectman-engine');
+    });
+
+    it('starts in the home of a move to the hybrid mode: the marker says the old database is a leftover (PM-318)', async () => {
+      writeFileSync(path.join(home, 'db.sqlite'), '');
+      writeInstanceMarker(home, 'engine', 'hybrid engine of the cloud');
+      await startEngine();
+      await cloud.connected();
+      expect(statSync(path.join(home, 'db.sqlite')).size).toBe(0); // never opened, never changed
+    });
+
+    it('refuses a home with a damaged marker, before it listens (PM-318)', async () => {
+      writeFileSync(path.join(home, 'instance.json'), '{nope');
+      await expect(build()).rejects.toBeInstanceOf(InstanceMarkerError);
     });
 
     it('refuses a missing configuration with the way to fix it', async () => {

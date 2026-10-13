@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { routes } from '@projectman/shared';
 import type {
+  FullTestResult,
   FullTestSpec,
   PermissionBroker,
   RunnerEvent,
@@ -15,6 +16,7 @@ import type {
   ScreenshotRunSpec,
   StartSessionSpec,
 } from '../../contracts';
+import { MergeError } from '../../contracts';
 import type { EngineEvent } from '../protocol';
 import { createCloudRemote } from './index';
 import type { CloudDomain, CloudRemote } from './index';
@@ -477,6 +479,29 @@ describe('cloud mode remote parts', () => {
       expect(folders.of('s1')).toBeUndefined();
     });
 
+    it('has the engine fetch a message file with a single-use token and put it into a session folder (PM-518)', async () => {
+      const engine = await online();
+      engine.answer('files.materialize_into_session', () => ({ path: '/fictional/folders/s1/f/x.pdf' }));
+      const folders = remote.directory.get('eng_a' as never)!.sessionFolders!;
+      const file = path.join(spool, 'x.pdf');
+      writeFileSync(file, 'abc');
+      const sha = createHash('sha256').update('abc').digest('hex');
+      const reply = await folders.materializeFile('s1', {
+        name: 'msa_1-x.pdf',
+        source: { path: file, size: 3, sha256: sha },
+      });
+      expect(reply).toEqual({ path: '/fictional/folders/s1/f/x.pdf' });
+      const sent = engine.requests.at(-1)!;
+      expect(sent.method).toBe('files.materialize_into_session');
+      expect(sent.params).toMatchObject({
+        sessionId: 's1',
+        name: 'msa_1-x.pdf',
+        size: 3,
+        sha256: sha,
+        downloadToken: expect.stringMatching(/^[A-Za-z0-9_-]{20,}$/),
+      });
+    });
+
     it('keeps the folders of the sessions the engine runs when it sweeps', async () => {
       const engine = await online('eng_a', { running: [running('live')] });
       engine.answer('folders.make', () => null);
@@ -515,6 +540,108 @@ describe('cloud mode remote parts', () => {
       );
       finish({ exitCode: null, timedOut: false, aborted: true, output: '' });
       await expect(run).resolves.toMatchObject({ aborted: true });
+    });
+
+    it('reports a full test started by the engine, once, and only for its own run', async () => {
+      const engine = await online();
+      let finish: (value: FullTestResult) => void = () => {};
+      engine.answer(
+        'full_test.run',
+        () =>
+          new Promise<FullTestResult>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      const onStarted = vi.fn();
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const run = executor.run(fullTestSpec('f1'), new AbortController().signal, onStarted);
+      await vi.waitFor(() =>
+        expect(engine.requests.some((item) => item.method === 'full_test.run')).toBe(true),
+      );
+      await engine.emit({ kind: 'full_test_started', runId: 'other' } as never);
+      expect(onStarted).not.toHaveBeenCalled();
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' } as never);
+      expect(onStarted).toHaveBeenCalledTimes(1);
+      finish({ outcome: 'passed', exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' });
+      await expect(run).resolves.toMatchObject({ outcome: 'passed' });
+      // The run is over: a late event reaches nobody.
+      await engine.emit({ kind: 'full_test_started', runId: 'f1' } as never);
+      expect(onStarted).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends the merge calls with the repository named and not a path, and keeps the error codes', async () => {
+      const engine = await online();
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const sha = 'a'.repeat(40);
+      const state = {
+        local: sha,
+        remote: null,
+        relation: 'same' as const,
+        contains: { local: false, remote: null },
+        checkout: null,
+      };
+      engine.answer('merge.prepare', () => state);
+      engine.answer('merge.release_check', () => null);
+      engine.answer('merge.push', () => ({ ok: false, reason: 'non_fast_forward', message: 'fetch first' }));
+      engine.answer('merge.build', () => {
+        throw Object.assign(new Error('no identity'), { code: 'no_identity' });
+      });
+      engine.answer('merge.advance', () => {
+        throw Object.assign(new Error('not allowed'), { code: 'merge_not_allowed' });
+      });
+      const merger = remote.directory.get('eng_a' as never)!.merger!;
+      expect(await merger.prepare(ref, { base: 'main', commit: sha })).toEqual(state);
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.prepare',
+        params: { ref, base: 'main', commit: sha },
+      });
+      await expect(merger.releaseCheck(ref, { mergeId: 'mrg_abcdefgh1' })).resolves.toBeUndefined();
+      expect(await merger.push(ref, { base: 'main', mergeCommit: sha })).toEqual({
+        ok: false,
+        reason: 'non_fast_forward',
+        message: 'fetch first',
+      });
+      // The engine's MergeError comes out as a MergeError, like a local merger's.
+      const built = await merger.build(ref, { onto: sha, commit: sha, message: 'Merge' }).catch((e) => e);
+      expect(built).toBeInstanceOf(MergeError);
+      expect(built).toMatchObject({ code: 'no_identity', message: 'no identity' });
+      // A refusal of the link stays a call error with its link code.
+      const refused = await merger.advance(ref, { base: 'main', from: sha, to: sha }).catch((e) => e);
+      expect(refused).not.toBeInstanceOf(MergeError);
+      expect(refused).toMatchObject({ code: 'merge_not_allowed' });
+    });
+
+    it('sends the document read and commit with the repository named, and returns their results', async () => {
+      const engine = await online();
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const sha = 'a'.repeat(40);
+      engine.answer('merge.read_file', () => ({ commit: sha, text: 'log\n' }));
+      engine.answer('merge.commit_files', () => ({ commit: 'b'.repeat(40), changed: ['docs/log.md'] }));
+      const merger = remote.directory.get('eng_a' as never)!.merger!;
+      expect(await merger.readFile(ref, { at: { base: 'main' }, path: 'docs/log.md' })).toEqual({
+        commit: sha,
+        text: 'log\n',
+      });
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.read_file',
+        params: { ref, at: { base: 'main' }, path: 'docs/log.md' },
+      });
+      const files = [{ path: 'docs/log.md', text: 'new\n' }];
+      expect(await merger.commitFiles(ref, { onto: sha, files, message: 'Docs' })).toEqual({
+        commit: 'b'.repeat(40),
+        changed: ['docs/log.md'],
+      });
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.commit_files',
+        params: { ref, onto: sha, files, message: 'Docs' },
+      });
+      // The engine's MergeError comes out as a MergeError.
+      engine.answer('merge.read_file', () => {
+        throw Object.assign(new Error('over 1 MiB'), { code: 'invalid_input' });
+      });
+      const refused = await merger.readFile(ref, { at: { commit: sha }, path: 'big.md' }).catch((e) => e);
+      expect(refused).toBeInstanceOf(MergeError);
+      expect(refused).toMatchObject({ code: 'invalid_input' });
     });
 
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {

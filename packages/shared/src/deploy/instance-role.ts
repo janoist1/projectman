@@ -12,18 +12,21 @@ import { z } from 'zod';
  * - `standby`: a rehearsal or a not yet released copy. The server starts and shows its data, but runs
  *   no scheduler, no GitHub polling and no automatic starts, and refuses every AI session start;
  * - `retired`: the home was moved away. The server refuses to start on it at all.
+ * - `engine` (PM-318): the home of a hybrid engine. The board moved to the cloud, this home keeps the
+ *   machine's work (worktrees, CLI homes, transcripts) and is started as the engine only; the old
+ *   single-machine database in it is a leftover that no server of any mode starts on.
  *
  * A malformed marker is not read as "active": the server stops, so a damaged file never lets a copy
  * work. Only a person changes a role (`scripts/migrate/cli.ts instance`); nothing in the server does.
  */
 export const INSTANCE_MARKER_FILE = 'instance.json';
 
-export const INSTANCE_ROLES = ['active', 'standby', 'retired'] as const;
+export const INSTANCE_ROLES = ['active', 'standby', 'retired', 'engine'] as const;
 export type InstanceRole = (typeof INSTANCE_ROLES)[number];
 
 export const InstanceMarker = z.strictObject({
   version: z.literal(1),
-  role: z.enum(['standby', 'retired']),
+  role: z.enum(['standby', 'retired', 'engine']),
   /** Why the home has this role, in a person's words (shown in the refusal). */
   reason: z.string().min(1).max(500),
   /** When the role was set (ISO 8601). */

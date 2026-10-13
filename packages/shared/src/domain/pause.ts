@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HumanAccess, MemberHandle } from './member';
+import { Release, ReleaseReport } from './release';
 import { PausePoint, WorkItemRef } from './session';
 
 /** What a pause covers (PM-219): the whole instance, or one project. Not a single member. */
@@ -96,12 +97,26 @@ export const ControlRequest = z.discriminatedUnion('op', [
   z.object({ op: z.literal('resume') }),
   z.object({ op: z.literal('force') }),
   z.object({ op: z.literal('status') }),
+  /** The release watcher (PM-491): the next release to act on, if any. */
+  z.object({ op: z.literal('release_next') }),
+  /** The watcher starts the deploy of an approved release; `previousCommit` is what runs now. */
+  z.object({ op: z.literal('release_claim'), releaseId: z.string(), previousCommit: z.string().nullable() }),
+  z.object({ op: z.literal('release_report'), releaseId: z.string(), report: ReleaseReport }),
 ]);
 export type ControlRequest = z.infer<typeof ControlRequest>;
 
-/** One JSON line back: the instance's pause as it is after the request (null: none is open). */
+/**
+ * One JSON line back: the instance's pause as it is after the request (null: none is open). Every
+ * answer carries `appVersion`, the commit the answering server runs; `release_next` answers with the
+ * release to act on (null: none), the release ops with the release as it is after the request.
+ */
 export const ControlResponse = z.discriminatedUnion('ok', [
-  z.object({ ok: z.literal(true), pause: PauseStatus.nullable() }),
+  z.object({
+    ok: z.literal(true),
+    pause: PauseStatus.nullable(),
+    release: Release.nullable().optional(),
+    appVersion: z.string().nullable().optional(),
+  }),
   z.object({ ok: z.literal(false), error: z.object({ code: z.string(), message: z.string() }) }),
 ]);
 export type ControlResponse = z.infer<typeof ControlResponse>;

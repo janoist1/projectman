@@ -1,9 +1,11 @@
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { roleSessionAccess, sessionPermissions } from '@projectman/shared';
 import type { SessionPolicy, StartSessionSpec } from '../src/contracts';
 import { attachmentToolRules, sensitivePaths, sessionSandbox } from '../src/domain/session-policy';
 import { buildSettings, buildClaudeArgs } from '../src/runner/providers/claude/args';
 import { buildCodexArgs, NANOGPT_CODEX_PROVIDER, tomlValue } from '../src/runner/providers/codex/args';
+import { decideToolCall } from '../src/runner/tool-decision';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 
@@ -59,6 +61,54 @@ function codexOverrides(args: string[]) {
 }
 
 describe('provider-neutral session policy', () => {
+  it('grants a lead developer writes only to their named merge-fix placement', () => {
+    const task = {
+      repo: 'web',
+      merge: {
+        id: 'm',
+        repo: 'web',
+        base: 'main',
+        merger: 'lead',
+        toStageId: 'done',
+        requestedAt: 'now',
+        state: 'fixing' as const,
+        landed: 'nowhere' as const,
+        fix: { by: 'lead', branch: 'merge-fix/AR-1', base: 'a'.repeat(40), startedAt: 'now' },
+      },
+    };
+    const placement = {
+      kind: 'task_worktree' as const,
+      path: copy,
+      gitDir: sharedGit,
+      mergeFix: { branch: task.merge.fix.branch },
+    };
+    const build = (member: string, currentTask = task, currentPlacement = placement) =>
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'lead_developer',
+        member,
+        task: currentTask,
+        placement: currentPlacement,
+        permissionMode: 'acceptEdits',
+      });
+    const p = build('lead');
+    expect(p.filesystem.writableRoots).toEqual([copy]);
+    expect(p.tools.shell).toContainEqual({ command: `git merge ${task.merge.fix.base}`, arguments: 'exact' });
+    expect(p.tools.files).toEqual([]);
+    expect(() => build('other')).toThrow(/file-changing duty/);
+    expect(() => build('lead', task, { ...placement, mergeFix: { branch: 'task/AR-1' } })).toThrow(
+      /file-changing duty/,
+    );
+    expect(() =>
+      buildSessionPolicy({
+        config: testConfig(),
+        role: 'lead_developer',
+        member: 'lead',
+        task: { ...task, merge: { ...task.merge, state: 'failed' } },
+        placement,
+      }),
+    ).toThrow(/file-changing duty/);
+  });
   it.each(['codex', 'nanogpt'] as const)(
     'renders the member cache and development data for %s sandboxed commands',
     (provider) => {
@@ -460,21 +510,29 @@ describe('provider-neutral session policy', () => {
         '/Users/anna/.claude.json',
         '/Users/anna/.codex',
         '/Users/anna/.npmrc',
+        // The AWS CLI's keys and caches and the Cloudflare tunnel certificate and Access tokens (PM-533).
+        '/Users/anna/.aws',
+        '/Users/anna/.cloudflared',
         '/Users/anna/.projectman/db.sqlite*',
         '/Users/anna/.projectman/secret',
         '/Users/anna/.projectman/logs',
         '/Users/anna/.projectman/customization',
         '/Users/anna/.projectman/memory',
+        // Message files follow recipient visibility; sessions get authorized copies (PM-524).
+        '/Users/anna/.projectman/message-attachments',
         // The control socket pauses the whole team (PM-219): not for the members.
         '/Users/anna/.projectman/control.sock',
         // The Gemini CLI's login, and the secret store and the providers' CLI homes (PM-324).
         '/Users/anna/.gemini',
         '/Users/anna/.projectman/secrets',
         '/Users/anna/.projectman/providers',
+        // The release watcher's journal and database backups (PM-493).
+        '/Users/anna/.projectman/release',
       ]),
     );
     // The whole home is not denied: worktrees, workspaces and attachments live there.
     expect(deniedPaths).not.toContain('/Users/anna/.projectman');
+    expect(deniedPaths).not.toContain('/Users/anna/.projectman/attachments');
     // The member's own saved tool outputs and the plan mode's plan file stay reachable.
     expect(deniedPaths).not.toContain('/Users/anna/.claude');
     for (const permissionMode of ['default', 'acceptEdits', 'auto', 'plan', undefined]) {
@@ -501,8 +559,14 @@ describe('provider-neutral session policy', () => {
           'Edit(//Users/anna/.projectman/db.sqlite*)',
           'Read(//Users/anna/.projectman/secret/**)',
           'Read(//Users/anna/.gemini/**)',
+          'Read(//Users/anna/.aws/**)',
+          'Read(//Users/anna/.cloudflared/**)',
+          'Edit(//Users/anna/.cloudflared/**)',
           'Read(//Users/anna/.projectman/secrets/**)',
           'Edit(//Users/anna/.projectman/providers/**)',
+          'Read(//Users/anna/.projectman/message-attachments)',
+          'Read(//Users/anna/.projectman/message-attachments/**)',
+          'Edit(//Users/anna/.projectman/message-attachments/**)',
           'WebFetch(domain:localhost)',
           'WebFetch(domain:127.0.0.1)',
         ]),
@@ -522,10 +586,60 @@ describe('provider-neutral session policy', () => {
     expect(sandbox.denyRead).toEqual(
       expect.arrayContaining([
         '/Users/anna/.gemini',
+        '/Users/anna/.aws',
+        '/Users/anna/.cloudflared',
         '/Users/anna/.projectman/secrets',
         '/Users/anna/.projectman/providers',
+        '/Users/anna/.projectman/message-attachments',
       ]),
     );
+  });
+
+  it('keeps the AWS and Cloudflare logins unreadable on every provider (PM-533)', () => {
+    const home = '/Users/anna';
+    const deniedPaths = sensitivePaths({ userHome: home, appHome: `${home}/.projectman` });
+    const files = [`${home}/.aws/credentials`, `${home}/.cloudflared/x.json`];
+    const p = buildSessionPolicy({
+      config: testConfig(),
+      role: 'developer',
+      task: { repo: 'web' },
+      placement: development().placement,
+      deniedPaths,
+    });
+    // Claude: the permission rules for the file tools, and the decision of the hook for every tool.
+    const deny = buildSettings({
+      hookUrl: 'http://fake/hooks',
+      permissionTimeoutMs: 1000,
+      allowedTools: [],
+      policy: p,
+    }).permissions.deny;
+    for (const file of files) {
+      const dir = path.dirname(file);
+      expect(deny).toEqual(expect.arrayContaining([`Read(/${dir}/**)`, `Edit(/${dir}/**)`]));
+      // The Gemini hook and the Claude permission hook share the decision.
+      expect(decideToolCall(p, { category: 'read', paths: [file] }, { home })).toEqual({
+        decision: 'deny',
+        reason: 'denied_path',
+      });
+      expect(decideToolCall(p, { category: 'edit', paths: [file] }, { home })).toEqual({
+        decision: 'deny',
+        reason: 'denied_path',
+      });
+    }
+    // The shell's sandbox of Claude closes the same directories.
+    const sandbox = sessionSandbox(p, { userHome: home, appHome: `${home}/.projectman` })!;
+    expect(sandbox.denyRead).toEqual(expect.arrayContaining([`${home}/.aws`, `${home}/.cloudflared`]));
+    // Codex: both directories are denied in the permission profile.
+    const codex = codexOverrides(
+      buildCodexArgs({
+        spec: spec(p, false),
+        realCwd: source,
+        hookUrl: 'http://fake/hooks',
+        permissionTimeoutMs: 1000,
+      }).args,
+    ).get('permissions.projectman');
+    expect(codex).toContain(`"${home}/.aws"="deny"`);
+    expect(codex).toContain(`"${home}/.cloudflared"="deny"`);
   });
 
   it.each([false, true])('renders semantic grants on both providers with resume=%s', (resume) => {

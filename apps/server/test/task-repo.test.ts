@@ -9,6 +9,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harnes
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import { settle } from './helpers/fakes';
+import { makeLocalOnly, makeRepoless } from './helpers/test-template';
 
 /**
  * PM-68: where the work of a task without a repository of its own happens. The test project has one
@@ -17,8 +18,8 @@ import { settle } from './helpers/fakes';
 const twoRepos = (config: ProjectConfig): void => {
   config.project.repos.push({ name: 'api', path: 'api', github: 'acme/api', defaultBranch: 'main' });
 };
-const localOnly = (config: ProjectConfig): void => void delete config.project.repos[0]!.github;
-const noRepos = (config: ProjectConfig): void => void (config.project.repos = []);
+const localOnly = makeLocalOnly;
+const noRepos = makeRepoless;
 
 const onTask = (taskKey: string): WorkItemRef => ({ type: 'task', taskKey });
 const code = async (promise: Promise<unknown>): Promise<string> => (await rejection(promise)).code;

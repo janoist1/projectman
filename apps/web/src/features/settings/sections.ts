@@ -6,6 +6,7 @@ export const SETTINGS_SECTIONS = [
   'limits',
   'project',
   'repos',
+  'feedback',
   'history',
   'engines',
   'providers',

@@ -85,6 +85,10 @@ export interface ScreenshotExecutor {
 export interface FullTestExecutor {
   /** Whether the sandbox can run here; `reason` says why not. */
   available(): Promise<{ ok: true } | { ok: false; reason: string }>;
-  /** Aborting the signal stops the run (the whole process group); it ends as `error` / `killed`. Never throws for a run that failed. */
-  run(spec: FullTestSpec, signal: AbortSignal): Promise<FullTestResult>;
+  /**
+   * Aborting the signal stops the run (the whole process group); it ends as `error` / `killed`. Never throws for a run that failed.
+   * `onStarted` is called once the run got its turn in the machine's heavy-run queue (at once without
+   * the queue), before it runs; never for a run stopped while it waited.
+   */
+  run(spec: FullTestSpec, signal: AbortSignal, onStarted?: () => void): Promise<FullTestResult>;
 }

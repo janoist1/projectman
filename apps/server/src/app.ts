@@ -20,10 +20,11 @@ import { serializeRequest } from './auth/request-logging';
 import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
-import type { ControlPause, ControlSocket } from './control';
+import type { ControlPause, ControlRelease, ControlSocket } from './control';
 import { createContextPackBuilder, createMemberMemoryStore } from './context';
 import type {
   AttachmentStorage,
+  MessageAttachmentStorage,
   BoundaryOperationAdapter,
   ContextPackBuilder,
   FullTestExecutor,
@@ -44,10 +45,16 @@ import type {
 } from './contracts';
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
-import { createAttachmentStorage, createDomain, createEventBus } from './domain';
+import {
+  createAttachmentStorage,
+  createDomain,
+  createEventBus,
+  createMessageAttachmentStorage,
+} from './domain';
 import { freeBytesOf } from './engine-host';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubPublisher, createGithubService, createTokenFileReader } from './github';
+import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
 import { assertHomeMayStart } from './instance';
 import { createMcpModule } from './mcp';
 import { createReadinessBoundary, createRunnerModule, ManagedVmUnavailableError } from './runner';
@@ -153,6 +160,8 @@ export interface AppModules {
   templates?: TemplateRegistry;
   /** The files of task attachments (default: PROJECTMAN_HOME/attachments). */
   attachmentStorage?: AttachmentStorage;
+  /** The files of team message attachments (default: PROJECTMAN_HOME/message-attachments). */
+  messageAttachmentStorage?: MessageAttachmentStorage;
   /** The VM boundary (default: from `runtimeBoundary` in the options, else none). Tests pass a fake. */
   runtimeBoundary?: RuntimeBoundary;
   /** The worker accounts of the boundary (default: /etc/passwd). */
@@ -193,6 +202,13 @@ export interface BuildAppOptions {
   /** Tests: the cloud mode's setup code instead of a random one (PM-317). */
   setupCode?: string;
   appVersion?: string;
+  /** The release tag on the running build's commit (`createAppTagReader`, PM-542); absent: no tag known. */
+  appTag?: () => Promise<string | null>;
+  /**
+   * The project and repository that are this instance itself (`PROJECTMAN_RELEASE_TARGET`, PM-491):
+   * its releases are proposed, approved and deployed. Absent: releases are off.
+   */
+  releaseTarget?: { projectKey: string; repo: string };
   /** PROJECTMAN_HOME: database, customization repository, memory, worktrees, attachments, cookie secret. */
   home: string;
   /** How the agent CLIs reach this server (hooks, MCP); default: the default host and port. */
@@ -303,6 +319,13 @@ export interface BuildAppOptions {
    */
   githubPublishTokenFile?: string;
   /**
+   * The public address of the feedback widget's entrance (PROJECTMAN_FEEDBACK_PUBLIC_URL, PM-506), when
+   * the installation has one; the settings view shows it. Absent: the settings say there is none.
+   */
+  feedbackPublicUrl?: string;
+  /** The built feedback widget (apps/feedback-widget/dist/widget.js, PM-509); null or missing: its route answers 404. */
+  feedbackWidgetFile?: string | null;
+  /**
    * How long stopping the server (a signal) lets the sessions come to a safe point before it closes
    * (PM-219): the team is paused first. Default `APP_DEFAULTS.shutdownPauseMs`; 0 switches the pause off.
    */
@@ -374,9 +397,18 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   const home = resolve(options.home);
   // A retired copy never starts, a standby copy only shows its data (PM-143): checked before anything
   // in the home is created or opened.
-  const standby = assertHomeMayStart(home) === 'standby';
+  const standby = assertHomeMayStart(home, options.engineMode ?? 'single') === 'standby';
   const attachmentsDir = join(home, 'attachments');
-  for (const dir of [home, join(home, 'memory'), join(home, 'worktrees'), attachmentsDir]) {
+  const feedbackDir = join(home, 'feedback');
+  const messageAttachmentsDir = join(home, 'message-attachments');
+  for (const dir of [
+    home,
+    join(home, 'memory'),
+    join(home, 'worktrees'),
+    attachmentsDir,
+    feedbackDir,
+    messageAttachmentsDir,
+  ]) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
   }
   // The mark every session of this instance carries in its environment (PM-320): the first 16 hex digits
@@ -401,6 +433,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
   });
   let repos: Repositories | null = null;
   try {
+    // The widget's public hostname serves only its own paths (PM-513). Registered first, so it runs
+    // before the cookie, auth and every other hook, and a bad address stops the start.
+    if (options.feedbackPublicUrl)
+      registerFeedbackHostGuard(app, parseFeedbackPublicUrl(options.feedbackPublicUrl));
     await app.register(fastifyCookie, { secret: loadOrCreateSecret(home) });
     await app.register(fastifyWebsocket, {
       options: { maxPayload: options.engineMode === 'cloud' ? ENGINE_MAX_FRAME_BYTES : 1024 * 1024 },
@@ -540,6 +576,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     const auth = new AuthService({ repos, now: options.now });
 
     const domain = createDomain({
+      appVersion: options.appVersion ?? 'dev',
+      ...(options.appTag ? { appTag: options.appTag } : {}),
+      ...(options.releaseTarget ? { releaseTarget: options.releaseTarget } : {}),
+      engineName: (id) => engineRegistry?.list().find((engine) => engine.id === id)?.name ?? null,
       runtimeBoundary,
       ...(boundaryConfig
         ? { egress: { base: boundaryConfig.egress.base, grantHours: boundaryConfig.egress.grantHours } }
@@ -603,6 +643,10 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       memory,
       worktrees,
       attachmentStorage: modules.attachmentStorage ?? createAttachmentStorage(attachmentsDir),
+      feedbackDir,
+      feedbackPublicUrl: options.feedbackPublicUrl ?? null,
+      messageAttachmentStorage:
+        modules.messageAttachmentStorage ?? createMessageAttachmentStorage(messageAttachmentsDir),
       accounts: auth,
       worktreesRootDir: join(home, 'worktrees'),
       appHome: home,
@@ -687,7 +731,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
     engineRegistry?.useCounters((id) => domain.engineCounters(id));
     engineLinks?.register(app);
     remote?.transfers.register(app);
-    registerApiRoutes(app, { domain, auth, clientIpHeader, engineRegistry });
+    registerApiRoutes(app, {
+      domain,
+      auth,
+      clientIpHeader,
+      engineRegistry,
+      feedbackWidgetFile: options.feedbackWidgetFile,
+    });
     registerWebsocket(app, { domain, auth, heartbeatMs: options.wsHeartbeatMs });
     domain.runnerModule.registerHookRoutes(app);
     mcpModule.registerRoutes(app);
@@ -733,6 +783,13 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
           false,
         ).pause,
     };
+    // The release watcher (PM-493) reads the approved release and reports on the same socket.
+    const controlRelease: ControlRelease = {
+      appVersion: () => domain.releases.appVersion(),
+      next: () => domain.releases.next(),
+      claim: (releaseId, previousCommit) => domain.releases.claim(releaseId, previousCommit),
+      report: (releaseId, report) => domain.releases.report(releaseId, report),
+    };
     let controlSocket: ControlSocket | undefined;
     app.addHook('onReady', async () => {
       await domain.start();
@@ -741,6 +798,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
         controlSocket = await startControlSocket({
           path: join(home, CONTROL_SOCKET_NAME),
           pause: controlPause,
+          release: controlRelease,
           log: log.child({ module: 'control' }),
         });
       }

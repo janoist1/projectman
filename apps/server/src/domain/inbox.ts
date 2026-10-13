@@ -5,10 +5,16 @@ import {
   canDecidePermission,
   effectiveSessionPermissions,
   gateRequestOf,
+  handOnRequestOf,
+  isPendingQuestion,
   memberOf,
+  operatorApprovalOf,
+  OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
+  PENDING_INBOX_STATES,
   routePermissionRequest,
+  withQuestionAttachmentGone,
 } from '@projectman/shared';
 import type {
   Actor,
@@ -20,8 +26,12 @@ import type {
   InboxResolutionRule,
   InboxState,
   ProjectConfig,
+  QuestionCloseRule,
+  ResolveInboxRequest,
   Session,
   TimelineEventData,
+  TaskStartWaiting,
+  WorkItemRef,
 } from '@projectman/shared';
 import { APPROVER_NONE_REFUSAL, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
 import type {
@@ -37,11 +47,15 @@ import type { DomainContext } from './context';
 import { engineIdOf } from './engines';
 import { conflict, forbidden, invalid, notFound } from './errors';
 import type { ProjectService } from './projects';
+import type { MessageStarts } from './admission';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from './session-policy';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId } from './util';
+import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
+const GUEST_CONVERSATION_REFUSAL =
+  'This conversation has the team tools only: you read what the person can see and answer them. Nothing else is allowed, and nobody is asked.';
+
 export const PERMISSION_OPTIONS: InboxOption[] = [
   { id: 'allow', label: 'allow', style: 'primary' },
   { id: 'allow_session', label: 'allow_session', style: 'secondary' },
@@ -134,6 +148,110 @@ export class InboxService {
   private readonly engines: EngineDirectory;
   private readonly attachmentDirectory?: (projectKey: string, taskKey: string) => Promise<string>;
   private readonly waiters = new Map<string, (item: InboxItem) => void>();
+  private mergeStart?: (item: InboxItem, by: Resolver) => Promise<void>;
+  private questionAnswer?: (
+    item: InboxItem,
+    attachmentIds: readonly string[],
+    close: () => InboxItem,
+  ) => Promise<InboxItem | null>;
+
+  useQuestionAnswer(answer: NonNullable<InboxService['questionAnswer']>): void {
+    this.questionAnswer = answer;
+  }
+
+  private messageStarts?: Pick<MessageStarts, 'waitingReason'>;
+  private answerWorkItem?: (item: InboxItem) => Promise<WorkItemRef>;
+
+  useMessageStarts(
+    starts: Pick<MessageStarts, 'waitingReason'>,
+    answerWorkItem: (item: InboxItem) => Promise<WorkItemRef>,
+  ): void {
+    this.messageStarts = starts;
+    this.answerWorkItem = answerWorkItem;
+  }
+
+  /** Enrich only visible HTTP results; previews are never stored or sent through websocket events. */
+  async withAskerStart(projectKey: string, items: InboxItem[]): Promise<InboxItem[]> {
+    const starts = this.messageStarts;
+    const answerWorkItem = this.answerWorkItem;
+    if (!starts || !answerWorkItem) return items;
+    const checks = new Map<string, Promise<TaskStartWaiting['reason'] | null>>();
+    return Promise.all(
+      items.map(async (item) => {
+        if (!isPendingQuestion(item)) return item;
+        try {
+          const config = await this.projects.config(projectKey);
+          if (memberOf(config, item.source)?.kind !== 'ai') return item;
+          const workItem = await answerWorkItem(item);
+          const key = JSON.stringify([item.source, workItem]);
+          let check = checks.get(key);
+          if (!check) {
+            check = starts.waitingReason(projectKey, item.source, workItem).catch(() => null);
+            checks.set(key, check);
+          }
+          const reason = await check;
+          return reason ? { ...item, askerStart: { reason } } : item;
+        } catch {
+          return item;
+        }
+      }),
+    );
+  }
+
+  useMergeStart(start: (item: InboxItem, by: Resolver) => Promise<void>): void {
+    this.mergeStart = start;
+  }
+
+  resolveMergeRequest(id: string, by: string): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'merge', by, at, note: null }, at);
+    if (item) this.publish(item);
+  }
+
+  private releaseDecision?: (item: InboxItem, by: Resolver, optionId: string, note: string | null) => void;
+
+  /** The release service (PM-491) decides a release approval item; it closes the item itself, in its transaction. */
+  useReleaseDecision(
+    decide: (item: InboxItem, by: Resolver, optionId: string, note: string | null) => void,
+  ): void {
+    this.releaseDecision = decide;
+  }
+
+  /** Close a release approval item as part of the transaction that decided its release. */
+  resolveRelease(id: string, by: string, optionId: string, note: string | null): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId, by, at, note }, at);
+    if (item) this.publish(item);
+  }
+
+  private handOnMove?: (item: InboxItem, by: Resolver) => Promise<void>;
+  private readonly resolutionLocks = new KeyedMutex();
+  private operatorDecision?: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>;
+
+  useOperatorDecision(decide: (item: InboxItem, by: Resolver, optionId: string) => Promise<void>): void {
+    this.operatorDecision = decide;
+  }
+
+  staleOperator(id: string, payload: Record<string, unknown>): void {
+    const updated = this.ctx.repos.inbox.updateOperator(
+      id,
+      payload,
+      [OPERATOR_DISMISS_OPTION],
+      isoNow(this.ctx),
+    );
+    if (updated) this.publish(updated);
+  }
+
+  useHandOnMove(move: (item: InboxItem, by: Resolver) => Promise<void>): void {
+    this.handOnMove = move;
+  }
+
+  /** Close a hand-on item as part of the transaction that actually moved its card. */
+  resolveHandOn(id: string, by: string): void {
+    const at = isoNow(this.ctx);
+    const item = this.ctx.repos.inbox.close(id, 'resolved', { optionId: 'move', by, at, note: null }, at);
+    if (item) this.publish(item);
+  }
 
   constructor(deps: {
     ctx: DomainContext;
@@ -188,9 +306,35 @@ export class InboxService {
     return item;
   }
 
+  updateOpenPayload(id: string, payload: Record<string, unknown>): InboxItem | null {
+    const item = this.ctx.repos.inbox.get(id);
+    if (!item || item.state !== 'open') return null;
+    const updated = this.ctx.repos.inbox.updateOpen(id, payload, item.assignees, isoNow(this.ctx));
+    if (updated) this.publish(updated);
+    return updated;
+  }
+
+  /**
+   * A file was deleted (PM-498): every question that names it, open or answered, marks it gone and is
+   * published again. Items that do not name it are not touched.
+   */
+  attachmentGone(projectKey: string, attachmentId: string, at: string): void {
+    for (const item of this.ctx.repos.inbox.listQuestionsWithAttachment(projectKey, attachmentId)) {
+      const payload = withQuestionAttachmentGone(item.payload, attachmentId, at);
+      if (!payload) continue;
+      const updated = this.ctx.repos.inbox.updatePayload(item.id, payload, at);
+      if (updated) this.publish(updated);
+    }
+  }
+
   list(
     projectKey: string,
-    filter: { state?: InboxState; kind?: InboxKind; taskKey?: string; limit?: number } = {},
+    filter: {
+      state?: InboxState | readonly InboxState[];
+      kind?: InboxKind;
+      taskKey?: string;
+      limit?: number;
+    } = {},
   ) {
     return this.ctx.repos.inbox.list(projectKey, filter);
   }
@@ -222,13 +366,19 @@ export class InboxService {
    * A human picks an option. Only assignees may resolve; owners may also answer permission
    * requests and questions, but gate decisions belong to the named approvers only.
    */
-  async resolve(
+  async resolve(projectKey: string, id: string, req: ResolveInboxRequest, by: Resolver): Promise<InboxItem> {
+    return this.resolutionLocks.run(id, () => this.resolveLocked(projectKey, id, req, by));
+  }
+
+  private async resolveLocked(
     projectKey: string,
     id: string,
-    req: { optionId: string; note?: string },
+    req: ResolveInboxRequest,
     by: Resolver,
   ): Promise<InboxItem> {
     const item = this.get(projectKey, id);
+    if (req.attachmentIds !== undefined && item.kind !== 'question')
+      throw invalid('invalid_request', 'only questions accept attachments', { field: 'attachmentIds' });
     if (by.via && !['question', 'alert'].includes(item.kind))
       throw forbidden(
         'owner_approval_required',
@@ -237,6 +387,9 @@ export class InboxService {
       );
     if (item.state !== 'open')
       throw conflict('inbox_item_closed', `inbox item ${id} is ${item.state}`, { id, state: item.state });
+    const operator = operatorApprovalOf(item);
+    if (operator?.stale && req.optionId !== 'dismiss')
+      throw conflict('operator_approval_stale', 'the proposal is stale; dismiss it');
     if (!item.options.some((o) => o.id === req.optionId)) {
       throw invalid('unknown_option', `unknown option: ${req.optionId}`);
     }
@@ -253,46 +406,96 @@ export class InboxService {
       if (refusal) throw forbidden(refusal, APPROVAL_REFUSALS[refusal]);
     }
     const isAssignee = item.assignees.includes(by.handle);
-    if (!isAssignee && !(item.kind !== 'decision' && by.access === 'owner')) {
+    if (!isAssignee && !(item.kind !== 'decision' && item.kind !== 'release' && by.access === 'owner')) {
       throw forbidden('not_an_assignee', 'only the assignees may resolve this item');
     }
     const note = req.note?.trim() ? req.note.trim() : null;
-    if (item.kind === 'question' && req.optionId === ANSWER_OPTION.id && !note) {
+    if (
+      item.kind === 'question' &&
+      req.optionId === ANSWER_OPTION.id &&
+      !note &&
+      !req.attachmentIds?.length
+    ) {
       throw invalid('answer_required', 'a free-text answer needs a note');
     }
-    const at = isoNow(this.ctx);
-    const resolved = this.ctx.repos.inbox.close(
-      id,
-      'resolved',
-      { optionId: req.optionId, by: by.handle, at, note, ...(by.via ? { via: by.via } : {}) },
-      at,
-    );
-    if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
-    this.publish(resolved);
-
-    if (resolved.kind === 'permission') {
-      this.timeline.append({
-        projectKey,
-        taskKey: resolved.taskKey,
-        sessionId: resolved.sessionId,
-        actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
-        type: 'permission_resolved',
-        data: {
-          inboxItemId: id,
-          decision: req.optionId === 'deny' ? 'deny' : 'allow',
-          optionId: req.optionId,
-        },
-      });
-    } else if (resolved.kind === 'question') {
-      this.timeline.append({
-        projectKey,
-        taskKey: resolved.taskKey,
-        sessionId: resolved.sessionId,
-        actor: humanActor(by.handle),
-        type: 'question_answered',
-        data: { inboxItemId: id, answer: answerText(resolved) },
-      });
+    if (item.kind === 'merge_request') {
+      if (!this.mergeStart) throw conflict('inbox_item_closed', 'the merge request is no longer available');
+      await this.mergeStart(item, by);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
     }
+    if (item.kind === 'release') {
+      if (!this.releaseDecision)
+        throw conflict('inbox_item_closed', 'the release approval is no longer available');
+      // The decision closes the item in its own transaction; a refused one leaves it open.
+      this.releaseDecision(item, by, req.optionId, note);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    }
+    if (item.kind === 'hand_on') {
+      if (!handOnRequestOf(item) || !this.handOnMove)
+        throw conflict('inbox_item_closed', 'the hand-on request is no longer available');
+      // The move closes the item in its own transaction; a refused move leaves it open.
+      await this.handOnMove(item, by);
+      const resolved = this.get(projectKey, id);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    }
+    if (operator) {
+      if (!this.operatorDecision) throw forbidden('operator_never', 'Operator decisions are unavailable');
+      await this.operatorDecision(item, by, req.optionId);
+    }
+    const at = isoNow(this.ctx);
+    const resolution = {
+      optionId: req.optionId,
+      by: by.handle,
+      at,
+      note,
+      ...(by.via ? { via: by.via } : {}),
+    };
+    const close = (): InboxItem => {
+      const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
+      if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer open`);
+      this.publish(resolved);
+
+      if (resolved.kind === 'permission') {
+        this.timeline.append({
+          projectKey,
+          taskKey: resolved.taskKey,
+          sessionId: resolved.sessionId,
+          actor: { ...humanActor(by.handle), ...(by.via ? { via: by.via } : {}) },
+          type: 'permission_resolved',
+          data: {
+            inboxItemId: id,
+            decision: req.optionId === 'deny' ? 'deny' : 'allow',
+            optionId: req.optionId,
+          },
+        });
+      } else if (resolved.kind === 'question') {
+        this.timeline.append({
+          projectKey,
+          taskKey: resolved.taskKey,
+          sessionId: resolved.sessionId,
+          actor: humanActor(by.handle),
+          type: 'question_answered',
+          data: { inboxItemId: id, answer: answerText(resolved) },
+        });
+      }
+      return resolved;
+    };
+    const answered =
+      item.kind === 'question' && this.questionAnswer
+        ? await this.questionAnswer(
+            { ...item, state: 'resolved', resolution },
+            req.attachmentIds ?? [],
+            close,
+          )
+        : null;
+    if (!answered && req.attachmentIds?.length)
+      throw invalid('invalid_request', 'only AI questions accept attachments', { field: 'attachmentIds' });
+    const resolved = answered ?? this.ctx.unitOfWork(close);
 
     this.waiters.get(id)?.(resolved);
     await this.ctx.events.emit('inbox_resolved', resolved);
@@ -461,6 +664,46 @@ export class InboxService {
     return resolved;
   }
 
+  /**
+   * Closes a question that still waits for its answer (open, or with the Operator for screening) because
+   * nothing is left to answer (PM-556): `cancelled`, resolved by `by` with the rule. Null when the item is
+   * not a pending question. The timeline records `question_closed`; the asking member's running session is
+   * told by the `inbox_cancelled` listener (`MessagingService.closedNotice`).
+   */
+  closeQuestion(
+    id: string,
+    close: { rule: QuestionCloseRule; by: string; note: string | null },
+  ): Promise<InboxItem | null> {
+    return this.resolutionLocks.run(id, async () => {
+      const current = this.ctx.repos.inbox.get(id);
+      if (!current || !isPendingQuestion(current)) return null;
+      const at = isoNow(this.ctx);
+      const closed = this.ctx.unitOfWork(() => {
+        const item = this.ctx.repos.inbox.close(
+          id,
+          'cancelled',
+          { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule },
+          at,
+        );
+        if (!item) return null;
+        this.publish(item);
+        this.timeline.append({
+          projectKey: item.projectKey,
+          taskKey: item.taskKey,
+          sessionId: item.sessionId,
+          actor: close.by === 'system' ? SYSTEM_ACTOR : aiActor(close.by),
+          type: 'question_closed',
+          data: { inboxItemId: item.id, asker: item.source, rule: close.rule, note: close.note },
+        });
+        return item;
+      });
+      if (!closed) return null;
+      this.waiters.get(id)?.(closed);
+      await this.ctx.events.emit('inbox_cancelled', closed);
+      return closed;
+    });
+  }
+
   /** Closes an open item without a decision (e.g. a stale gate request); returns null if not open. */
   cancel(id: string): InboxItem | null {
     return this.close(id, 'cancelled');
@@ -476,9 +719,10 @@ export class InboxService {
   }
 
   reassignRemovedHuman(projectKey: string, handle: string, owners: string[]): void {
+    // A question the Operator still screens (PM-556) has its assignees too: it goes to them when released.
     for (const item of this.ctx.repos.inbox
-      .listOpen()
-      .filter((i) => i.projectKey === projectKey && i.assignees.includes(handle))) {
+      .list(projectKey, { state: PENDING_INBOX_STATES, limit: 100_000 })
+      .filter((i) => i.assignees.includes(handle))) {
       const remaining = item.assignees.filter((h) => h !== handle);
       const updated = this.ctx.repos.inbox.updateAssignees(
         item.id,
@@ -489,11 +733,15 @@ export class InboxService {
     }
   }
 
-  /** Cancels open questions and permission requests raised by a member (e.g. when it is retired). */
+  /**
+   * Cancels open questions and permission requests raised by a member (e.g. when it is retired).
+   * A decision and a release approval outlive their proposer: the release record stays `proposed`
+   * until a human resolves the item, so cancelling it would leave the open release stuck.
+   */
   cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
     const cancelled: InboxItem[] = [];
-    for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {
-      if (item.source !== handle || item.kind === 'decision') continue;
+    for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
+      if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
       const closed = this.cancel(item.id);
       if (closed) cancelled.push(closed);
     }
@@ -546,6 +794,16 @@ export class InboxService {
     // before it gets here; this is the same rule one step further, should one arrive anyway.
     if (this.ctx.repos.sessions.executionProfile(session.id) === 'managed_vm')
       return { behavior: 'deny', message: MANAGED_VM_NO_LOCAL_APPROVAL };
+    // The Operator's conversation with someone who is not an owner has the team tools alone (PM-475):
+    // anything else is refused at once, and never becomes an item for the owner to approve.
+    if (session.workItem.type === 'general' && session.workItem.with !== undefined) {
+      this.refused(session, {
+        toolName: request.toolName,
+        summary: summarizeToolInput(request.toolInput, session.cwd) || request.toolName,
+        by: 'approver_none',
+      });
+      return { behavior: 'deny', message: GUEST_CONVERSATION_REFUSAL };
+    }
     const config = await this.projects.config(session.projectKey);
     const summary = summarizeToolInput(request.toolInput, session.cwd);
     const taskKey = session.workItem.type === 'task' ? session.workItem.taskKey : null;
@@ -601,6 +859,8 @@ export class InboxService {
               cwd: typeof toolCwd === 'string' ? toolCwd : session.cwd,
               role: member.role,
               provider: session.provider,
+              member: session.member,
+              branch: session.branch,
             },
             task,
             toolName: request.toolName,

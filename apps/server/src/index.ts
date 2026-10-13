@@ -9,12 +9,13 @@ import type { BuildAppOptions, LoopbackHost, RunMode } from './app';
 import { assertEngineProfile, buildEngineApp, ENGINE_DEFAULT_PORT } from './engine-app';
 import { defaultSessionTmpRoot } from './engine-host';
 import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
+import { parseFeedbackPublicUrl } from './http/feedback-host-guard';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { createServerLogStream, serverLogFile } from './logging/server-log';
 import { loadBoundaryConfig } from './runtime-boundary';
 import { createShutdown } from './shutdown';
 import { createNanogptKeyCheck } from './domain';
-import { resolveAppVersion } from './engine-link';
+import { createAppTagReader, resolveAppVersion } from './engine-link';
 import { EngineConfigError } from './engine-link/engine-config';
 
 /**
@@ -94,6 +95,14 @@ interface ServerConfig {
   machineFixture: boolean;
 }
 
+/** `PROJECTMAN_RELEASE_TARGET`: `<project key>/<repository>`; anything else stops the start. */
+function parseReleaseTarget(value: string): { projectKey: string; repo: string } {
+  const [projectKey, repo, ...rest] = value.split('/');
+  if (!projectKey || !repo || rest.length > 0)
+    throw new Error(`invalid PROJECTMAN_RELEASE_TARGET: ${value} (<project key>/<repository>)`);
+  return { projectKey, repo };
+}
+
 async function configFromEnv(
   env: NodeJS.ProcessEnv,
   engineMode: Exclude<RunMode, 'engine'>,
@@ -133,6 +142,10 @@ async function configFromEnv(
     throw new Error(
       `invalid PROJECTMAN_SHUTDOWN_PAUSE_MS: ${env.PROJECTMAN_SHUTDOWN_PAUSE_MS} (milliseconds; 0 turns it off)`,
     );
+  // The public address of the feedback widget's entrance (PM-506, PM-513): a wrong value stops the start,
+  // because the host guard (http/feedback-host-guard) is built from it.
+  const feedbackPublicUrl = env.PROJECTMAN_FEEDBACK_PUBLIC_URL?.trim() || undefined;
+  if (feedbackPublicUrl) parseFeedbackPublicUrl(feedbackPublicUrl);
   // Cloning node_modules into task worktrees (PM-332): on unless turned off; anything else stops the start.
   const cloneDependencies = env.PROJECTMAN_CLONE_DEPENDENCIES || 'on';
   if (cloneDependencies !== 'on' && cloneDependencies !== 'off')
@@ -145,6 +158,10 @@ async function configFromEnv(
   const machineFixture = env.PROJECTMAN_MACHINE_FIXTURE
     ? parseMachineFixture(env.PROJECTMAN_MACHINE_FIXTURE)
     : undefined;
+  // The project and repository that are this instance itself (PM-491): `<project key>/<repository>`.
+  const releaseTarget = env.PROJECTMAN_RELEASE_TARGET?.trim()
+    ? parseReleaseTarget(env.PROJECTMAN_RELEASE_TARGET.trim())
+    : undefined;
   return {
     port,
     host,
@@ -152,6 +169,8 @@ async function configFromEnv(
     app: {
       engineMode,
       appVersion: await resolveAppVersion(installDir, env.PROJECTMAN_VERSION),
+      appTag: createAppTagReader(installDir, env.PROJECTMAN_VERSION),
+      ...(releaseTarget ? { releaseTarget } : {}),
       modules: machineFixture
         ? {
             createMachineProbe: (opts) => createFixtureProbe(machineFixture, opts),
@@ -205,6 +224,8 @@ async function configFromEnv(
       vmReadinessReport: env.PROJECTMAN_VM_READINESS_REPORT || undefined,
       vmReadinessMaxAgeMs: reportMinutes > 0 ? reportMinutes * 60_000 : undefined,
       githubPublishTokenFile: env.PROJECTMAN_GITHUB_PUBLISH_TOKEN_FILE || undefined,
+      feedbackPublicUrl,
+      feedbackWidgetFile: join(installDir, 'apps', 'feedback-widget', 'dist', 'widget.js'),
       shutdownPauseMs,
     },
   };

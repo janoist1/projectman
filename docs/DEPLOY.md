@@ -339,6 +339,54 @@ the tailnet section above to the public address. The result goes on PM-200 (stat
 or cookies). Also try the login once from a browser in a private window with an email address
 that is **not** on the list: it must be refused at Access.
 
+### 7. A public entrance for the marking widget (PM-506, PM-513)
+
+The marking widget runs on a customer's web page and cannot sign in to Access, so its paths
+(`/feedback/widget.js` and `/feedback/api/v1/*`) need an entrance without Access. It is **a
+second hostname on the same tunnel**, with **no Access application**, which passes `^/feedback/`
+and nothing else. Do **not** open the Access application `chopper.istvan.io` with a Bypass policy
+(step 3 forbids it). The example below uses `jelolo.example.com`; choose the real name.
+
+1. **DNS**: `cloudflared tunnel route dns projectman jelolo.example.com` creates the proxied
+   CNAME to the tunnel (the same as step 4 did for `chopper`).
+2. **Tunnel**: the two rules for `<FEEDBACK-HOSTNAME>` in
+   [config.example.yml](../deploy/cloudflare/config.example.yml), before the `chopper` rules: path
+   `^/feedback/` to `http://127.0.0.1:4800`, and a `http_status:404` rule for the rest of that
+   hostname. Again no `httpHostHeader`: the server's guard below reads the original `Host`. Check
+   with `cloudflared tunnel --config ~/.cloudflared/config.yml ingress rule
+https://jelolo.example.com/api/setup` (the 404 rule) and `.../feedback/widget.js` (the 4800
+   rule), then restart the tunnel service.
+3. **Server**: set `PROJECTMAN_FEEDBACK_PUBLIC_URL=https://jelolo.example.com` in the live
+   instance's environment. `npm run live -- install` takes it from the installing shell with the
+   other variables (`PASSED_VARIABLES` in `scripts/live/plist.ts`), so export it and install
+   again; the server restarts with it. The value is `https` (or `http` on a loopback host, for
+   development), the hostname only: no path, query or `#` (a trailing `/` is fine). A wrong
+   value stops the server at start with a message that names the variable.
+
+**Why there is no Access application, and why it is safe enough.** The widget is a script on
+somebody else's site: it has no Access login and no Cloudflare cookie, so Access in front of it
+would only block it. What stands in its place is the widget's own session: it starts with a
+one-time code the person gets from the app (valid 120 seconds, bound to the page's origin), the
+token it yields is limited to marking and commenting in one project, it can be revoked, and CORS
+answers only the instance's registered surface addresses (see "The feedback tool's
+public API" and "The widget's public hostname" in [SECURITY.md](SECURITY.md)). Nothing of the application is reachable on this hostname, by two
+locks that do not depend on each other: the tunnel passes only `^/feedback/`, and **the server's
+host guard** answers the ordinary unknown-route 404 to every request whose `Host` is the public
+address unless its raw path is exactly `/feedback/widget.js` or `/feedback/api/v1/` followed by
+`[A-Za-z0-9_-]` segments. `..`, `.`, `%`-encoding, `\`, `//` and capital letters are all
+refused there, because Cloudflare's `^/feedback/` lets `/feedback/../api/setup` through and the
+guard must not depend on how a router would read it.
+
+**Verify**: run `check.sh` with the extra variable (no Access login is needed for this part):
+
+```sh
+FEEDBACK_ORIGIN=https://jelolo.example.com LOGIN_JSON=$PWD/login.json bash deploy/cloudflare/check.sh
+```
+
+Without Access it expects `GET /feedback/widget.js` 200; `OPTIONS /feedback/api/v1/marks` from a
+foreign `Origin` 403 with no `access-control-allow-origin`; and `GET /`, `/api/setup`, `/ws`,
+`/hooks/x`, `/mcp/x` and `/feedback/../api/setup` (sent as written, `curl --path-as-is`) 404.
+
 ### Inviting somebody
 
 The invitation link is built from the address in the browser (`InviteDialog`), so create the
@@ -423,6 +471,113 @@ admins, the instance's owners).
 
 A pause made by hand survives a restart and is not lifted by the start: the team waits until someone resumes
 it. Only the pause of the stop itself ends with the start.
+
+## The live instance on a Mac: LaunchAgents and the release watcher (PM-387, PM-493)
+
+The owner's live instance (`~/projectman-live`, data in `~/.projectman`, port 4800) runs under two
+LaunchAgents in `~/Library/LaunchAgents`, written by `npm run live`:
+
+- `com.projectman.live` runs `node apps/server/dist/index.js` through a launcher (see "What macOS shows"; not `npm start`, so launchd's SIGTERM
+  reaches the server and the stop pauses the team first). `KeepAlive`, `ThrottleInterval 10`, and an
+  `ExitTimeOut` of the shutdown pause plus 30 s (90 s by default; it follows `PROJECTMAN_SHUTDOWN_PAUSE_MS`
+  of the installing shell). Logs: `~/.projectman/logs/live-server.log`.
+- `com.projectman.live-watcher` runs one watcher round every 60 s (`StartInterval`, no `KeepAlive`, so
+  never two at once). Logs: `~/.projectman/logs/live-watcher.log`.
+
+**What macOS shows (PM-514).** System Settings → General → Login Items & Extensions → "Allow in the
+Background" names a LaunchAgent after the first element of its `ProgramArguments`. The files therefore do
+not start `node` but a launcher of the checkout, which runs the command it is given:
+`~/projectman-live/scripts/live/bin/projectman-live` (the server) and
+`~/projectman-live/scripts/live/bin/projectman-release-watcher` (the watcher; each is `exec "$@"` and
+nothing else). The list shows two items, "projectman-live" and "projectman-release-watcher", next to any other
+node-based item. The items carry no developer signature, so macOS may still label them "Item from unidentified
+developer": that is the label of an unsigned file, not a sign of another program. To check which item is which,
+press the (i) button of an item: it shows the plist in Finder (`~/Library/LaunchAgents/com.projectman.live.plist`
+or `…live-watcher.plist`); its `ProgramArguments` starts with the launcher and then names node. The launchers
+are files of the checkout, so a release brings them along; `npm run live -- status` lists the launcher and
+node of each file and exits 1 when one does not exist.
+
+**The node path.** The install writes the stable path of `node`, not `process.execPath`: under Homebrew
+that is `/opt/homebrew/Cellar/node/<version>/bin/node`, which a `brew upgrade node` removes, after which the
+server would not start (`KeepAlive` does not help). The install takes the first `node` on the installing
+shell's `PATH` that is the running binary and has no `Cellar` directory in its name (`/opt/homebrew/bin/node`),
+and prints it (`node: …`, with a warning when only a versioned path exists). A file from before this change
+starts node itself (it appears as "node" in macOS), and `status` says so: run `npm run live -- install` once
+more. After an upgrade that moves node, `status` shows `node: … (MISSING …)` and exits 1; install again.
+
+launchd gives a job no shell environment. The server file therefore carries an allowlist taken from the
+shell that runs the install (`PATH`, `HOME`, `PORT`, `PROJECTMAN_HOME`, `PROJECTMAN_RELEASE_TARGET` and, when
+set there, the names in `PASSED_VARIABLES` of `scripts/live/plist.ts`). Billing variables, the integrator key
+and `PROJECTMAN_VERSION` (which would falsify the commit the watcher compares) are never written. The
+install prints the variable names, never the values. Only `PROJECTMAN_MODE=single` is served: a hybrid
+installation is refused.
+
+```sh
+npm run live -- install [--root ~/projectman-live] [--home ~/.projectman] [--port 4800] [--remote <github url>]
+npm run live -- status      # agents, running commit, pause, journal, latest backup, remote, gh login; exit 1 if an agent is not loaded
+npm run live -- uninstall   # stops both agents, removes both files; the server stays stopped
+```
+
+Run `install` in the checkout's shell session where `git ls-remote <remote>` and `gh auth status` work: the
+watcher needs both (it fetches the release commit, pushes the tag and creates the GitHub release). The
+remote is `--remote`, or the origin of the live checkout (a local-path origin is followed to its own
+origin); it must be a GitHub URL. The install pauses the team, stops a server that runs now (a loaded
+agent, or a process on the port that was started by hand), loads both agents, checks that the new server
+answers with the checkout's commit and resumes. If it does not come up, the agents are removed and the
+pause stays open: start the server by hand and run `npm run control -- resume`. The install and the
+uninstall refuse while a release is in progress (a journal exists).
+
+### What a round does
+
+The owner approves a release in the app (PM-491, PM-492). Each round asks `release_next` on the control
+socket; with nothing approved, or a pause the owners opened, it does nothing. For an approved release it:
+
+1. claims it (`release_claim`, with the live commit as the previous one) and writes the journal;
+2. **fetch** — clones the remote into `~/projectman-live-next`, checks that the commit is on `origin/main`,
+   checks it out; **build** — `npm ci`, `npm run build`; **test** — `npm run release-test` through the
+   heavy-run queue (`npm run heavy`, up to an hour of waiting): the test files that name
+   `process.env.PROJECTMAN_FULL_TEST_SANDBOX === '1'`, which the merge sandbox leaves out, run here with
+   the sandbox variables unset; **config_check** — every project in `~/.projectman/customization` loads with
+   the new build's loaders. A failure here reports the release failed; the live server was not touched;
+3. **pause** (`release <id>`), **stop** (`bootout`), **backup** (`sqlite3 .backup` into
+   `~/.projectman/release/backups/db-<time>-<previous commit>.sqlite`, mode 0600, `integrity_check`, the
+   newest ten are kept), **switch** (`~/projectman-live` becomes `~/projectman-live-prev-<commit>`, the
+   next build takes its place, `bootstrap`), **verify** (up to 2 minutes: the port listens,
+   `/api/setup` answers 200, the control socket reports the new commit);
+4. on success: resume, `release_report live`, then the **tag** (`vYYYY.M.D`, `.N` for the second release of
+   a day, annotated, pushed) and `gh release create --verify-tag`, then `release_report published`. Only the
+   two newest `-prev-` and `-failed-` directories are kept (the one just replaced always stays);
+5. on a failure from the pause on: the **rollback** puts back the previous build (the new one is kept as
+   `~/projectman-live-failed-<commit>`), restores the database from the backup, starts the old server,
+   checks its commit, resumes, and reports the release failed with `rolledBack: true`.
+
+Publishing a live release that failed (no network, GitHub refused) is reported as `publish_failed` and
+retried at most once an hour; the release stays live meanwhile.
+
+The journal (`~/.projectman/release/journal.json`, mode 0600) records the step before it starts. A round
+that was stopped (a reboot, a kill) is continued from it by the next one, and every part of the rollback can be
+repeated. Everything the watcher keeps is in `~/.projectman/release/` (journal, lock, backups): the
+sessions' sandboxes deny it, as the backups hold all data.
+
+### By hand
+
+- **Back to the previous build** (the new build is live but wrong, and the watcher is not in the middle of a
+  release): `launchctl bootout gui/$(id -u)/com.projectman.live`; move `~/projectman-live` aside and
+  `~/projectman-live-prev-<commit>` to `~/projectman-live`; if the new build migrated the database, restore the
+  newest backup (stop first; remove `db.sqlite-wal` and `-shm`; `cp` the backup to `db.sqlite.tmp`, `chmod 600`,
+  `mv` over `db.sqlite`; the older build refuses a database a newer build migrated); `launchctl bootstrap
+gui/$(id -u) ~/Library/LaunchAgents/com.projectman.live.plist`; `npm run control -- resume`.
+- **An unreadable or unfitting journal**: the watcher logs it every minute and touches nothing. Look at the
+  release in the app and at `npm run live -- status`; if the live server runs the old commit and the release is
+  `deploying`, delete the journal and the `-next` directory, and the watcher reports the release failed
+  ("lost its journal"); if the new commit is live, resume the pause (`npm run control -- resume`), delete the
+  journal and the watcher reports it live and publishes it. Deleting the journal is the only thing the
+  watcher cannot do for itself.
+- **A pause that was left open** (`release <id>` is the watcher's, anything else a person's):
+  `npm run control -- resume`.
+
+`switch-live.sh` and `config-dry-run.ts` of the integrator's folder are retired by this: the watcher does
+the switch, the backup, the rollback and the configuration check.
 
 ## Cloud deployment of the hybrid mode (PM-317)
 

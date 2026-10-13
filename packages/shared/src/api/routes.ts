@@ -6,6 +6,10 @@
  */
 export const routes = {
   projectManager: (key: string) => `/api/projects/${key}/project-manager`,
+  /** GET the Operator's channel with its requests and steps (`OperatorChannel`, PM-463) of the viewer's own conversation (PM-475); a person's own login only. */
+  operator: (key: string) => `/api/projects/${key}/operator`,
+  dismissOperatorSignal: (key: string, signalId: string) =>
+    `/api/projects/${key}/operator/signals/${signalId}/dismiss`,
   engines: () => '/api/engines',
   engineStatus: () => '/api/engines/status',
   revokeEngine: (id: string) => `/api/engines/${id}/revoke`,
@@ -44,10 +48,12 @@ export const routes = {
 
   templates: () => '/api/templates',
   projects: () => '/api/projects',
+  projectPreview: () => '/api/projects/preview',
   project: (key: string) => `/api/projects/${key}`,
   board: (key: string) => `/api/projects/${key}/board`,
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
+  taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>
@@ -123,15 +129,66 @@ export const routes = {
   /** POST `{ ids }`: marks the viewer's unread messages among them read in one request (PM-78). */
   readTeamMessages: (key: string) => `/api/projects/${key}/messages/read`,
 
+  /** POST uploads one file for a message (multipart/form-data, field "file"); the answer is `UploadMessageAttachmentResponse`. */
+  messageAttachments: (key: string) => `/api/projects/${key}/message-attachments`,
+  /** DELETE removes the file (`DeleteMessageAttachmentResponse`). */
+  messageAttachment: (key: string, id: string) => `/api/projects/${key}/message-attachments/${id}`,
+  /** GET/HEAD: inline when the content is a supported image or PDF, otherwise as a download. */
+  messageAttachmentContent: (key: string, id: string) =>
+    `/api/projects/${key}/message-attachments/${id}/content`,
+  /** GET/HEAD: always as a download. */
+  messageAttachmentDownload: (key: string, id: string) =>
+    `/api/projects/${key}/message-attachments/${id}/download`,
+  /** GET/HEAD: a small WebP preview (at most 640 px) of an image; 404 for anything else. */
+  messageAttachmentThumbnail: (key: string, id: string) =>
+    `/api/projects/${key}/message-attachments/${id}/thumbnail`,
+
   /** GET (internal members; query `days`): the cards closed lately with their rounds and tokens (PM-222). */
   closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,
 
   inbox: (key: string) => `/api/projects/${key}/inbox`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
+  checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 
   config: (key: string) => `/api/projects/${key}/config`,
   patchConfig: (key: string) => `/api/projects/${key}/config`,
   revertConfig: (key: string) => `/api/projects/${key}/config/revert`,
+
+  /** GET (`FeedbackInboxResponse`; `?task=KEY` only the marks of that card) the project's feedback marks (PM-506). */
+  feedback: (key: string) => `/api/projects/${key}/feedback`,
+  /** GET `FeedbackSummary`: the badge numbers. */
+  feedbackSummary: (key: string) => `/api/projects/${key}/feedback/summary`,
+  /** GET `FeedbackSettingsView` (owner, admin). */
+  feedbackSettings: (key: string) => `/api/projects/${key}/feedback/settings`,
+  /** POST (`FeedbackLaunchRequest` -> `FeedbackLaunchResponse`): the address that starts the tool on a surface. */
+  feedbackLaunch: (key: string) => `/api/projects/${key}/feedback/launch`,
+  /** POST (owner, admin): ends every tool session of the member. */
+  feedbackMarkerLogout: (key: string, handle: string) =>
+    `/api/projects/${key}/feedback/markers/${handle}/logout`,
+  /** GET `FeedbackMarkDetail`. */
+  feedbackMark: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}`,
+  /** GET (processors): the screenshot; `?thumb=1` the small one. */
+  feedbackScreenshot: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/screenshot`,
+  /** POST (`FeedbackCommentRequest` -> `FeedbackMarkDetail`). */
+  feedbackComments: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/comments`,
+  /** POST: the viewer has read the mark's thread (204). */
+  feedbackRead: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/read`,
+  /** POST (`CreateTaskFromFeedbackRequest` -> `CreateTaskFromFeedbackResponse`, processors). */
+  feedbackTask: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/task`,
+  /** POST (`LinkFeedbackRequest` -> `FeedbackMarkDetail`, processors). */
+  feedbackLink: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/link`,
+  /** POST (`CloseFeedbackRequest` -> `FeedbackMarkDetail`, processors). */
+  feedbackClose: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/close`,
+  /** POST (processors): opens a closed mark again. */
+  feedbackReopen: (key: string, markId: string) => `/api/projects/${key}/feedback/${markId}/reopen`,
+
+  /**
+   * The public widget API of the feedback tool (PM-506, PM-509). Not under `/api`: it is cross-origin
+   * and carries its own bearer session, which the `/api` guard would refuse. `rest` starts with `/`.
+   */
+  feedbackWidgetApi: (rest = '') => `/feedback/api/v1${rest}`,
+  /** GET: the widget script the customer's page embeds. */
+  feedbackWidgetScript: () => '/feedback/widget.js',
 
   websocket: () => '/ws',
   mcp: (token: string) => `/mcp/${token}`,

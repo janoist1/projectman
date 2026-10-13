@@ -107,12 +107,20 @@ export function describeEvent(
         (remaining.length > 0 ? `still waiting for ${remaining.join(', ')}` : 'no prerequisite is open now')
       );
     }
+    case 'task_parts_left':
+      return text('phase') === 'alerted'
+        ? `told the owners that ${list('parts').join(', ')} stayed in the first stage after ${text('member') ?? '?'}'s reminder`
+        : `reminded ${text('member') ?? '?'} that ${list('parts').join(', ')} are left in the first stage`;
     case 'task_note':
       return `note: ${text('text') ?? ''}`.trimEnd();
     case 'attachment_added':
       return `attached the file ${text('fileName') ?? '?'}`;
     case 'attachment_deleted':
       return `deleted the attachment ${text('fileName') ?? '?'}`;
+    case 'feedback_linked':
+      return data.created === true
+        ? `created this card from the feedback mark ${text('markId') ?? '?'}`
+        : `linked the feedback mark ${text('markId') ?? '?'} to this card`;
     case 'team_message': {
       const to = list('to').length > 0 ? list('to') : [text('to')].filter((h): h is string => !!h);
       const recipients = to.length > 0 ? ` to ${to.map((h) => style.code(h)).join(', ')}` : '';

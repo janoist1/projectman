@@ -2,16 +2,20 @@
 
 Read `docs/ARCHITECTURE.md` first. Decisions and their reasons: `docs/DECISIONS.md`. What
 comes next and the owner's open questions: `docs/ROADMAP.md`.
-`docs/DECISIONS.md` records the owner's decisions: add an entry only for a decision the owner
-made. A choice of your own that the owner should confirm goes to them as a question.
+`docs/DECISIONS.md` records the owner's decisions and `docs/ROADMAP.md` the plan. Only the
+Operator writes them, at the owner's request or after the owner's yes (decision 50); nobody
+changes them on a card branch. An owner decision made on a card is offered by the Operator
+(`list_decision_candidates`, `mark_decision_candidates`). A choice of your own that the owner
+should confirm still goes to them as a question.
 
 ## Language
 
 - **All source code is English**: identifiers, comments, file and folder names, commit
   messages, test names, log messages, error codes.
 - The UI language is Hungarian, but Hungarian text lives **only** in locale files:
-  `apps/web/src/i18n/hu.ts` (UI) and `packages/templates/src/locales/hu.ts` (default
-  display names in templates). Components use `t('some.key')`; never hardcode UI text.
+  `apps/web/src/i18n/hu.ts` (UI), `apps/feedback-widget/src/i18n/hu.ts` (the embeddable
+  feedback widget's own text) and `packages/templates/src/locales/hu.ts` (default display
+  names in templates). Components use `t('some.key')`; never hardcode UI text.
 - Prompt text for AI members (role instructions, context pack) is English; it tells the
   agent to communicate in the project's language.
 
@@ -71,6 +75,7 @@ These rules apply to every member, including Codex:
 | web        | `apps/web/**`                                                                                                                             |
 | github     | `apps/server/src/github/**`                                                                                                               |
 | context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                               |
+| widget     | `apps/feedback-widget/**`                                                                                                                 |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
@@ -98,6 +103,8 @@ npm test             # all workspaces; waits its turn in the machine's heavy-run
 npm run dev          # server (4700) + web (5173)
 npm run shots -- <scenario>  # screenshots of a disposable instance (docs/SCREENSHOTS.md); queues too
 npm run heavy -- <command>   # any other heavy command, at its turn (--label, --max-wait <s>)
+npm run merge-test          # merge checks selected from HEAD's first-parent diff (-- --all forces all)
+npm run full-test -- --workers 4 --timeout 60 -- npm run merge-test -- --all  # macOS, outside member sandboxes
 npx vitest related <files> --run   # while working: the tests of what you changed, in the workspace (no queue)
 npm run typecheck -w <workspace>  # type check only the workspaces you touched (no queue)
 ```
@@ -112,16 +119,20 @@ in the context pack. Gemini's native `command_status` follows a running command;
 `schedule` wakeups are an optional path described there. Do not finish the turn while the
 command is still running. Developers run only related tests (`npx vitest related <files> --run`
 inside the affected workspace) and the type check of the workspaces they touched, including
-before hand-over and in fix rounds. They never run the full suite. The integrating session
-checks each card once before it enters `main`; shared code, `packages/shared` or configuration
-changes require a full run. Workspace checks do not queue; the integrating session's full run
-uses the heavy-run queue above (decision 40, PM-380). If a heavy command says its queue cannot be used
+before hand-over and in fix rounds. They never run the full suite. The merger (`team.merger`,
+`claude` in PM) merges with `merge_task`. The server runs the card's single full check at merge,
+before `main` moves: `npm run merge-test` in the full test sandbox, in the machine's queue.
+Shared code or configuration changes require the whole suite; workspace checks do not queue
+(decision 40, PM-380, PM-386). If a heavy command says its queue cannot be used
 (exit status 78), it did not run: note this on your card and ask for the command to run outside
 your sandbox; never run it another way (PM-346).
 
 `npm run dev` keeps its data in `~/.projectman-dev` unless `PROJECTMAN_HOME` is set. The
-owner's live instance is a separate checkout (`~/projectman-live`, `npm start` on port 4800,
-data in `~/.projectman`), updated only with the owner's approval. Never run a development
+owner's live instance is a separate checkout (`~/projectman-live`, port 4800, data in
+`~/.projectman`), updated only with the owner's approval. It runs under the `com.projectman.live`
+LaunchAgent (`npm run live -- install|status|uninstall`, `docs/DEPLOY.md`); after the owner approves
+a release in the app, the `com.projectman.live-watcher` agent builds, tests and switches it, with
+a rollback, then tags and publishes it. Never run a development
 build against `~/.projectman`: a database migrated by a newer build is refused by older ones.
 Open development instances at `http://127.0.0.1:5173`; the live instance's login cookie is on
 `localhost`.
@@ -129,5 +140,6 @@ Open development instances at `http://127.0.0.1:5173`; the live instance's login
 ## Git
 
 English, imperative commit messages ("Add session runner state machine"). Commit your
-work on your branch; do not push. The integrating session merges verified work into `main`
-and pushes `main` (decision 21); the repository is public.
+work on your branch; do not push. The merger member merges verified work and pushes `main`
+through `merge_task` (decision 21, PM-386); the repository is public. Nobody commits to `main`
+or switches branches in the default branch's checkout: `main` moves only through merging.

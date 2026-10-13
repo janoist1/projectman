@@ -78,6 +78,18 @@ export interface EngineSessionFolders {
   remove(sessionId: string): Promise<void>;
   sweep(keep: (sessionId: string) => boolean): Promise<string[]>;
   releaseTmpRoot(): Promise<void>;
+  /**
+   * Puts a file into the session's own folder, `<folder>/<name>` (PM-518, PM-523), and
+   * names its path there: a message attachment the session's agent opens with its own tools.
+   * `source` is the stored file on the server's machine with its size and SHA-256; a remote engine
+   * fetches it with a single-use download token, a local one copies it. The file is made exclusively
+   * (0600); one already there with the same checksum is the answer as it is. Rejects for a session
+   * with no folder on this engine, and for a name that is not a plain file name.
+   */
+  materializeFile(
+    sessionId: string,
+    input: { name: string; source: { path: string; size: number; sha256: string } },
+  ): Promise<{ path: string }>;
 }
 
 export type WorkspaceFileRefusalReason =
@@ -133,6 +145,106 @@ export interface WorkspaceFileOptions {
 /** Why a screenshot scenario is not taken (`EngineHost.resolveScenario`). */
 export type ScenarioRefusal = 'missing' | 'outside' | 'not_file';
 
+/** A repository of a project on the engine: the engine finds its path from its own binding, never from the call. */
+export interface MergeRepoRef {
+  projectKey: string;
+  repo: string;
+}
+
+export interface MergeBaseState {
+  /** The local default branch's commit. */
+  local: string;
+  /** The default branch's upstream (`<base>@{upstream}`) after the fetch; null: no remote pair. */
+  remote: { name: string; commit: string } | null;
+  /** The local branch against the remote one; 'same' without a remote. */
+  relation: 'same' | 'local_behind' | 'local_ahead' | 'diverged';
+  /** Whether `commit` is already reachable from the local and from the remote branch (null: no remote). */
+  contains: { local: boolean; remote: boolean | null };
+  /** The worktree that has the default branch checked out; null: none. */
+  checkout: string | null;
+}
+
+export type MergeBuildResult =
+  | { ok: true; mergeCommit: string; changed: string[] } // paths differing between onto and mergeCommit, at most 1000
+  | { ok: false; conflict: string[] }; // sorted, at most 50
+
+export type MergePushResult =
+  { ok: true } | { ok: false; reason: 'non_fast_forward' | 'rejected' | 'unreachable'; message: string };
+
+export type MergeAdvanceResult =
+  { ok: true } | { ok: false; reason: 'checkout_in_the_way' | 'moved'; message: string; paths: string[] };
+
+export const MERGE_ERROR_CODES = [
+  'invalid_input',
+  'unknown_object',
+  'no_remote',
+  'no_identity',
+  'git_failed',
+] as const;
+export type MergeErrorCode = (typeof MERGE_ERROR_CODES)[number];
+
+/**
+ * An error of a merge call that is the caller's to read (`message` is safe to show). The same class
+ * comes out of a local merger and out of a remote engine's proxy.
+ */
+export class MergeError extends Error {
+  readonly code: MergeErrorCode;
+  constructor(code: MergeErrorCode, message: string) {
+    super(message);
+    this.name = 'MergeError';
+    this.code = code;
+  }
+}
+
+/**
+ * The git work of merging a card's approved commit into the repository's default branch and sending it
+ * up (PM-448). It runs on the engine, where the repository and the machine's git identity are; the
+ * server only orchestrates. Absent on an `EngineHost`: the engine does not merge.
+ */
+export interface BranchMerger {
+  /** Fetches the upstream of `base` (when it has one), then reports the state; rejects when `base` or `commit` is unknown. */
+  prepare(ref: MergeRepoRef, input: { base: string; commit: string }): Promise<MergeBaseState>;
+  /** Whether `ancestor` is reachable from `commit`; null when either is unknown here. */
+  isAncestor(ref: MergeRepoRef, input: { ancestor: string; commit: string }): Promise<boolean | null>;
+  /** The merge commit of `commit` onto `onto` (parents: onto, commit); no ref, index or working tree is touched. */
+  build(
+    ref: MergeRepoRef,
+    input: { onto: string; commit: string; message: string },
+  ): Promise<MergeBuildResult>;
+  /** Uncommitted paths of the default branch's checkout that `changed` also touches; [] when it is not checked out. */
+  checkoutConflicts(ref: MergeRepoRef, input: { base: string; changed: string[] }): Promise<string[]>;
+  /** A detached worktree of `mergeCommit` for the check, with the dependencies of `depsFrom`. */
+  checkoutForCheck(
+    ref: MergeRepoRef,
+    input: { mergeId: string; mergeCommit: string; depsFrom: string | null },
+  ): Promise<{ path: string; gitDir: string }>;
+  /** Removes that worktree; a missing one is fine. */
+  releaseCheck(ref: MergeRepoRef, input: { mergeId: string }): Promise<void>;
+  /** Pushes `mergeCommit` to `base` of the upstream remote, never forced; the remote is read here, not taken from the call. */
+  push(ref: MergeRepoRef, input: { base: string; mergeCommit: string }): Promise<MergePushResult>;
+  /** Moves the local `base` from `from` to `to`, a descendant of `from`. */
+  advance(ref: MergeRepoRef, input: { base: string; from: string; to: string }): Promise<MergeAdvanceResult>;
+  /**
+   * The text of `path` at `commit`, or at the head of `base` after fetching its upstream (the upstream's
+   * commit, else the local branch's). text null: no such file there. Rejects (invalid_input) a path that
+   * fails isRepoFilePath, a file over 1 MiB or one that is not UTF-8 text; unknown_object for an unknown commit.
+   * For the Operator's documents (PM-388).
+   */
+  readFile(
+    ref: MergeRepoRef,
+    input: { at: { commit: string } | { base: string }; path: string },
+  ): Promise<{ commit: string; text: string | null }>;
+  /**
+   * A commit whose parent is `onto` and whose tree is onto's with these files' text set (created when
+   * absent). No ref, index or working tree is touched; the machine's git identity, like build (no_identity).
+   * changed: the paths whose content differs from onto. For the Operator's documents (PM-388).
+   */
+  commitFiles(
+    ref: MergeRepoRef,
+    input: { onto: string; files: { path: string; text: string }[]; message: string },
+  ): Promise<{ commit: string; changed: string[] }>;
+}
+
 export interface EngineHost {
   readonly id: EngineId;
   /** The engine's operating system when it is not this process's (a remote engine, PM-315); absent: this machine's. */
@@ -142,6 +254,8 @@ export interface EngineHost {
   readonly memberWorkspaces?: MemberWorkspaceManager;
   readonly fullTestExecutor?: FullTestExecutor;
   readonly screenshotExecutor?: ScreenshotExecutor;
+  /** Merges into a repository's default branch and sends it up (PM-448); absent: the engine does not merge. */
+  readonly merger?: BranchMerger;
   /** The session folders of this engine; absent: they are off. */
   readonly sessionFolders?: EngineSessionFolders;
   /** null: not measurable (no start is refused for disk space). */

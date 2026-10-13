@@ -361,7 +361,11 @@
     display: none;
   }
   .taskRow {
+    flex-wrap: wrap;
     padding: 8px 12px 0;
+  }
+  .taskRow .hint {
+    flex-basis: 100%;
   }
   .taskSelect {
     flex: 1;

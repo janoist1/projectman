@@ -16,7 +16,7 @@ import { actorOf, requireAccess } from './context';
 import { parseBody } from './validation';
 
 /** What a multipart request may carry on top of the file: boundaries and part headers. */
-const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+export const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 
 type TaskParams = { Params: { key: string; taskKey: string } };
 type AttachmentParams = { Params: { key: string; taskKey: string; id: string } };
@@ -26,9 +26,9 @@ type AttachmentParams = { Params: { key: string; taskKey: string; id: string } }
  * origin. A PDF is sandboxed too (the viewer needs no more than the file itself).
  */
 // Replaces the auth hook's header on these responses, so it repeats the frame-ancestors directive.
-const CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox; frame-ancestors 'none'";
+export const CONTENT_SECURITY_POLICY = "default-src 'none'; sandbox; frame-ancestors 'none'";
 
-const tooLarge = () =>
+export const tooLarge = () =>
   new DomainError('attachment_too_large', `an attachment is at most ${MAX_ATTACHMENT_BYTES} bytes`, {
     status: 413,
     details: { maxBytes: MAX_ATTACHMENT_BYTES },

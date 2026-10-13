@@ -13,6 +13,7 @@ import {
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
+import { Chip } from '../../components/Chip';
 import { ErrorBanner } from '../../components/ErrorBanner';
 import { LeaveChip } from '../../components/LeaveChip';
 import { Markdown } from '../../components/Markdown';
@@ -37,6 +38,10 @@ import type { ThreadEntry } from './conversations';
 import { DeliveryStatus } from './DeliveryStatus';
 import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
+import { MessageAttachments } from './MessageAttachments';
+import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
+import { useFileDrop } from '../board/useFileDrop';
+import attachmentStyles from './MessageAttachments.module.css';
 
 /** An opened thread marks its incoming messages read after this long, so a glance in passing does not. */
 export const READ_AFTER_MS = 1000;
@@ -81,6 +86,7 @@ export function ConversationThread({
   const send = useSendTeamMessage(key);
   const toast = useToast();
   const isMobile = useIsMobile();
+  const uploads = useMessageAttachmentUploads(key);
   const visible = useDocumentVisible();
   const member = members.get(peer);
   // The project manager has one conversation (PM-434): a card only marks the message, it never picks a thread.
@@ -186,6 +192,11 @@ export function ConversationThread({
   const gone = Boolean(board.data) && !member;
   const unknown = gone && conversation.isSuccess && entries.length === 0;
   const retired = member?.status === 'retired' || gone;
+  const fileDrop = useFileDrop({
+    allowed: canSend && !retired && !send.isPending && !isMobile,
+    onFiles: uploads.add,
+    isolate: true,
+  });
   const headName = useRef<HTMLDivElement>(null);
   // On a phone the thread is a page of its own: the focus goes to its title.
   useEffect(() => {
@@ -266,7 +277,17 @@ export function ConversationThread({
   }
 
   return (
-    <section className={styles.thread} aria-label={t('messages.thread.label', { name })}>
+    <section
+      className={styles.thread}
+      aria-label={t('messages.thread.label', { name })}
+      data-message-composer
+      {...fileDrop.props}
+    >
+      {fileDrop.state && !isMobile ? (
+        <div className={attachmentStyles.drop} role="status">
+          {t('attachments.dropActive')}
+        </div>
+      ) : null}
       <header className={styles.head}>
         {isMobile ? (
           <ButtonLink
@@ -284,7 +305,17 @@ export function ConversationThread({
             <span className={styles.nameText}>{name}</span>
             <LeaveChip member={member} />
           </div>
-          <div className={styles.role}>{roleLabel(member, roles)}</div>
+          <div className={styles.role}>
+            {roleLabel(member, roles)}
+            {marksOnly ? (
+              <>
+                {' '}
+                <Chip tone="accent" title={t('pm.distributorTitle')}>
+                  {t('pm.distributor')}
+                </Chip>
+              </>
+            ) : null}
+          </div>
         </div>
         {member ? (
           <ButtonLink to={`/p/${key}/team/${peer}`} variant="ghost" size="sm">
@@ -319,7 +350,9 @@ export function ConversationThread({
                 <p className={styles.emptyBody}>
                   {member?.kind === 'human'
                     ? t('messages.thread.emptyHuman')
-                    : t(marksOnly ? 'messages.thread.emptyMarkBody' : 'messages.thread.emptyBody')}
+                    : marksOnly
+                      ? t('pm.emptyThread')
+                      : t('messages.thread.emptyBody')}
                 </p>
               </div>
             ) : (
@@ -388,12 +421,26 @@ export function ConversationThread({
             ) : null}
           </div>
           <Composer
+            attachments={uploads}
             autoFocus={!isMobile && ready && entries.length === 0}
             label={t('messages.composer.label', { name })}
             placeholder={t('messages.composer.placeholder')}
             disabled={send.isPending}
             onSend={(text) =>
-              send.mutateAsync({ to: [peer], text, ...(task ? { taskKey: task } : {}) }).then(() => undefined)
+              send
+                .mutateAsync({
+                  to: [peer],
+                  text,
+                  ...(uploads.items.length
+                    ? {
+                        attachmentIds: uploads.items.flatMap((item) =>
+                          item.attachment ? [item.attachment.id] : [],
+                        ),
+                      }
+                    : {}),
+                  ...(task ? { taskKey: task } : {}),
+                })
+                .then(() => undefined)
             }
           />
         </div>
@@ -469,7 +516,8 @@ function MessageBubble({
           <TaskChip projectKey={projectKey} taskKey={message.taskKey} title={titles.get(message.taskKey)} />
         ) : null}
         <div className={styles.bubble}>
-          <Markdown text={message.body} />
+          {message.body.trim() ? <Markdown text={message.body} /> : null}
+          <MessageAttachments files={message.attachments ?? []} from={message.from} />
         </div>
         <div className={styles.meta}>
           <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>

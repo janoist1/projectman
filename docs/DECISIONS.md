@@ -270,7 +270,8 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     merge commit the live instance runs. The GitHub release has the same name and a short English
     summary of what changed, with the card keys. The integrator creates both after the switch,
     once the new build runs. The releases before v2026.10.5.5 were tagged afterwards from the live
-    switch backups, without GitHub releases.
+    switch backups, without GitHub releases. The roadmap update before a release moved from the
+    integrator to the Operator (decision 50).
 36. **The virtual-machine direction is dropped.** Decided by the owner on 2026-10-06 (board
     triage; „felesleges nekünk menedzselni még egy réteget, ha nem elengedhetetlen a rendszer
     futásához”). This supersedes decision 25. The members keep running on the owner's machine in
@@ -335,3 +336,46 @@ Open questions waiting for the owner are listed in [ROADMAP.md](ROADMAP.md).
     the AI work runs on an engine on the Mac (PM-286, PM-311 to PM-318). Critical bugs still come
     first; the architect checks the October 4 plans against the current code before development
     starts.
+46. **Each project chooses who moves cards on.** Decided by the owner on 2026-10-10
+    (PM-439, implemented by PM-457). The worker is the default and retains the existing behaviour;
+    alternatively the project manager or a named human moves cards forward. An AI worker's or
+    the system's forward move from work, step or release becomes a hand-on request for that
+    mover: the card stays put and appears in the human's inbox or reaches the project manager
+    as a message. Queue starts, refinement, backward moves and human moves keep their existing
+    rules. Human approval gates keep going to the approver in every mode, and approval advances
+    the card automatically.
+47. **Members merge, never the system.** Decided by the owner on 2026-10-10, overriding the
+    PM-448 plan in which the server merged a card when it entered Done (PM-452). Nothing is
+    merged automatically: a member does it, AI or human. For a developed card, the senior
+    developer or the developer who built the card merges it. "Done means merged" (PM-448)
+    still holds; the system may give the member a tool and check that the work is in the main
+    branch, but it does not merge on its own.
+48. **The board helps, the members work.** Decided by the owner on 2026-10-10 as a principle to
+    decide the details by. The board (the app) records, connects, reminds, checks and enforces
+    the rules (gates, approvals); it never works on the result: it writes no code, merges and
+    pushes nothing, and makes no decision. Every piece of work is done by a member, AI or
+    human, and shows whose it is. Decisions belong to people or to a member a person entrusted
+    with them; the board asks for them and records them. Who does a kind of work is set per
+    project, as a duty in the project's configuration, never fixed in the app: in projectman
+    the senior developer merges (decision 47), another project may choose differently.
+49. **A card's conversation always has a recipient.** Decided by the owner on 2026-10-11
+    (PM-488). When nobody else is on the card (no one works on it, no assignee, no stage owner
+    but the writer), the project manager is the default recipient and passes the message on to
+    the member it is meant for; the screen says so. There is no note without a recipient: it
+    would be mixed up with the card's notes.
+50. **The Operator keeps the decision log and the roadmap.** Decided by the owner on 2026-10-10
+    (PM-447, „Operatoré a sarok és a napló”) and made concrete on 2026-10-11 (PM-388). The
+    Operator writes `docs/DECISIONS.md` and `docs/ROADMAP.md`, in the merge slot, and nobody
+    else changes them on a card branch; this entry is the last one written by hand on a card.
+    It writes down what the owner tells it and what the owner accepts from its offers: „Amit
+    neki mondasz, és amit ő ajánl”, and updates the roadmap „Döntéskor, kérésre és release
+    előtt” (when a decision changes the plan, on request, and before a release). The Operator
+    offers the owner's answers to card questions as decision candidates (PM-496); the owner's
+    yes or no is remembered, so a candidate is not offered twice. This modifies decision 35
+    only in who updates the roadmap before a release.
+51. **The board runs in the cloud.** Decided by the owner on 2026-10-12, so that the board is
+    reachable while the Mac is off. Host: an AWS Lightsail instance (2 GB) running the
+    `deploy/cloud` container, behind Cloudflare Tunnel and Access at chopper.istvan.io (PM-532).
+    A container is a deployment option under `deploy/`; the projectman core does not depend on
+    Docker. The public entrance from the Mac (PM-200, `docs/DEPLOY.md`) is dropped; Fly.io stays
+    only as an alternative.

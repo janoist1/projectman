@@ -30,6 +30,8 @@ export function issueTarget(path: string, config: ProjectConfig): IssueTarget | 
   const starts = (prefix: string) => normalized === prefix || normalized.startsWith(`${prefix}.`);
   if (starts('team.members')) return { section: 'team' };
   if (starts('team.limits')) return { section: 'limits' };
+  if (starts('team.merger')) return { section: 'team', field: 'merger' };
+  if (starts('team.cardMover')) return { section: 'team', field: 'cardMover' };
   if (starts('team')) return { section: 'duties' };
   if (starts('project.repos')) return { section: 'repos' };
   if (starts('project')) return { section: 'project' };

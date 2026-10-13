@@ -58,6 +58,12 @@
   color: var(--c-accent-text);
 }
 
+/* The Operator's own colour (PM-447): its built-in marks. */
+.operator {
+  background: var(--role-operator-bg);
+  color: var(--role-operator-fg);
+}
+
 .needs {
   background: var(--c-needs-bg);
   color: var(--c-needs-text);

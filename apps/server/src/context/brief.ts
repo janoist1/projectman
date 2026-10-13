@@ -1,9 +1,19 @@
-import { developerLevelText, isCardLink, refinementSteps, refinementTurn } from '@projectman/shared';
+import {
+  developerLevelText,
+  effectiveRepo,
+  isMergeFixer,
+  repoOf,
+  requiresMerge,
+  isCardLink,
+  refinementSteps,
+  refinementTurn,
+} from '@projectman/shared';
 import type { Attachment, Task } from '@projectman/shared';
 import {
   describeAttachment,
   describeLink,
   describeTheme,
+  focusPlaceText,
   recentTimeline,
   relationLines,
 } from '../agent-text';
@@ -57,6 +67,7 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   const style = promptStyle(input.project);
   const sections: string[] = [];
   const testLine = fullTestLine(input.project, task);
+  const mergeRepo = repoOf(input.project, effectiveRepo(input.project, task));
 
   sections.push(
     [
@@ -82,6 +93,37 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   );
 
   sections.push(['## Description', description(task.description)].join('\n'));
+  const fixing = isMergeFixer(task.merge, input.member.handle);
+  if (mergeRepo && requiresMerge(mergeRepo) && !fixing)
+    sections.push(
+      `Before the merge target, the card merger must use merge_task to merge its approved commit into ${code(mergeRepo.defaultBranch)} and push it when the branch has an upstream. AI members must never merge or push manually. The project manager must not request a manual git merge.`,
+    );
+
+  if (task.merge?.merger === input.member.handle) {
+    const merge = task.merge;
+    if (fixing && merge.fix)
+      sections.push(
+        [
+          '## Merge fix',
+          `Branch: ${merge.fix.branch}; base: ${merge.fix.base}; approved commit: ${merge.commit}.`,
+          `In your writable merge-fix worktree run git merge ${merge.fix.base}. Resolve only mechanical conflicts (adjacent lines, imports, text files), then commit. Call merge_task with resolution (1–2000 characters) describing what and where you fixed.`,
+          'For a conflict affecting behavior, do not resolve it: send the card back with update_task and explain why, counting a fix round. Never push manually.',
+        ].join('\n'),
+      );
+    sections.push(
+      [
+        '## Merge',
+        `Repository: ${merge.repo}; base: ${merge.base}; approved commit: ${merge.commit ?? task.reviewPin?.commit ?? 'read by merge_task'}.`,
+        fixing
+          ? 'State: fixing. Follow the Merge fix steps above.'
+          : merge.state === 'queued' || merge.state === 'running'
+            ? `State: ${merge.state}. The server runs the merge; do not wait for it: end your turn. Your session closes and the result arrives as a team message.`
+            : `State: ${merge.state}. Use merge_task to start or retry. For a conflict failure call merge_task with fix_conflict; otherwise send the card back with update_task and explain why.`,
+        ...(merge.failure ? [JSON.stringify(merge.failure)] : []),
+        ...(merge.block ? [JSON.stringify(merge.block)] : []),
+      ].join('\n'),
+    );
+  }
 
   // A card handed over to the member, or a conversation that replaces one that could not go on (PM-342).
   for (const block of [previousConversationBlock(input), handoffBlock(input)])
@@ -99,6 +141,9 @@ export function buildBrief(input: ContextPackInput, situation: Situation): strin
   // The theme the card belongs to (PM-192), its own or its parent's; left out when it has none, so the
   // brief of a card without a theme does not grow (PM-181).
   if (input.theme) sections.push(['## Theme', describeTheme(input.theme, style)].join('\n'));
+
+  // The project's focus (PM-437); left out when it has no open item.
+  if (input.focus) sections.push(focusSection(input.focus));
 
   const related = input.relatedSessions ?? [];
   if (related.length > 0) sections.push(relatedSessionsSection(task.key, related));
@@ -151,6 +196,23 @@ function refinementSection(input: ContextPackInput, task: Task): string | null {
     'This card is being worked out before development, one step at a time.',
     `- Steps needed: ${needed.length > 0 ? needed.map((id) => `${labelRef(id, labels)} (${task.labels.includes(id) ? 'done' : 'to do'})`).join(', ') : 'none'}`,
     `- On turn: ${onTurn}`,
+  ].join('\n');
+}
+
+/**
+ * The project's focus (PM-437): what the team works on now, in order, and where the card stands in it.
+ * Only people set it; there is no team tool for it.
+ */
+function focusSection(focus: NonNullable<ContextPackInput['focus']>): string {
+  return [
+    '## Project focus',
+    'What the team works on now, in this order. Urgent cards come first even outside it. Only people set it.',
+    ...focus.items.map(
+      (item) => `${item.position}. ${item.key}${item.kind === 'theme' ? ' (theme)' : ''} ${item.title}`,
+    ),
+    focus.place
+      ? `Your card is in the focus: ${focusPlaceText(focus.place)}.`
+      : 'Your card is not in the focus.',
   ].join('\n');
 }
 

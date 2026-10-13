@@ -1,8 +1,10 @@
 import type { Actor } from '../domain/event';
 import type { WorkItemRef } from '../domain/session';
 import { stageIndex } from './gates';
+import { cardMoverOf, isHandOnMove } from './card-mover';
 import { isOnLeave } from './leave';
 import { memberOf } from './lookup';
+import { isOperator } from './operator-member';
 import type { AiMemberConfig, MemberConfig, ProjectConfig } from './schema';
 
 /** The built-in role of the project manager every project requires (PM-429). */
@@ -24,6 +26,19 @@ export function projectManagerOf(config: Pick<ProjectConfig, 'team'>): AiMemberC
   return managers.find((m) => !isOnLeave(m)) ?? managers[0] ?? null;
 }
 
+/**
+ * The project manager among member views (`MemberView`): the same choice as `projectManagerOf`; a temp or
+ * retired one never counts (PM-488).
+ */
+export function projectManagerAmong<
+  M extends { kind: string; role: string; temp: boolean; onLeave?: boolean; status?: string },
+>(members: Iterable<M>): M | null {
+  const managers = [...members].filter(
+    (m) => m.kind === 'ai' && m.role === PROJECT_MANAGER_ROLE && !m.temp && m.status !== 'retired',
+  );
+  return managers.find((m) => !m.onLeave) ?? managers[0] ?? null;
+}
+
 /** Whether `handle` is the team's only AI project manager: it cannot be retired or lose the role. */
 export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, handle: string): boolean {
   const managers = projectManagersOf(config);
@@ -31,14 +46,16 @@ export function isRequiredProjectManager(config: Pick<ProjectConfig, 'team'>, ha
 }
 
 /**
- * The only stage move a project manager makes on its own: from a queue stage that is not the
- * first into a later work stage. Anything else needs the owner.
+ * A project manager starts cards from a later queue into work, and hands cards on when
+ * selected as the project's card mover. Other stage moves need the owner.
  */
 export function projectManagerMoveRefusal(
-  config: Pick<ProjectConfig, 'pipeline'>,
+  config: Pick<ProjectConfig, 'team' | 'pipeline'>,
   fromStageId: string,
   toStageId: string,
 ): 'project_manager_move_refused' | null {
+  if (cardMoverOf(config).kind === 'project_manager' && isHandOnMove(config, fromStageId, toStageId))
+    return null;
   const from = stageIndex(config.pipeline, fromStageId);
   const to = stageIndex(config.pipeline, toStageId);
   if (from <= 0 || to <= from) return 'project_manager_move_refused';
@@ -67,10 +84,15 @@ export function actorMoveRefusal(
     : null;
 }
 
-/** Where a member's work item runs: a project manager's card work runs in its one general conversation. */
+/**
+ * Where a member's work item runs: a project manager's and the Operator's card work runs in their one
+ * general conversation (PM-434, PM-463).
+ */
 export function sessionWorkItemOf(
   member: MemberConfig | null | undefined,
   workItem: WorkItemRef,
 ): WorkItemRef {
-  return isProjectManager(member) && workItem.type === 'task' ? { type: 'general' } : workItem;
+  return (isProjectManager(member) || isOperator(member)) && workItem.type === 'task'
+    ? { type: 'general' }
+    : workItem;
 }

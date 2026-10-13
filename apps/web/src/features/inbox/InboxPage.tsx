@@ -1,8 +1,10 @@
 import clsx from 'clsx';
-import { useMemo, useState } from 'react';
-import { InboxKind } from '@projectman/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
+import { Outlet, useMatch } from 'react-router';
+import { InboxKind, handOnRequestOf, operatorApprovalOf } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
-import { useBoard, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
+import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
@@ -15,10 +17,14 @@ import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
   decisionLine,
+  approvalHintOf,
   decisionSubject,
   decisionToast,
   boundaryOf,
   detailsHrefFor,
+  handOnResolvedText,
+  handOnToast,
+  inboxItemDomId,
   isAssignedTo,
   isAutomaticDecision,
   isPositiveResolution,
@@ -26,9 +32,17 @@ import {
   resolutionNote,
   resolverName,
 } from '../../lib/inbox';
+import { errorMessage } from '../../lib/errors';
+import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
+import type { PipelineIndex } from '../../lib/pipeline';
+import { DrawerBaseContext } from '../board/drawerBase';
+import type { DrawerBase } from '../board/drawerBase';
+import { moveErrorText } from '../board/moveTask';
+import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
 import { FoldedCommand } from './PermissionParts';
+import { ReleaseSubject } from './ReleaseInbox';
 import styles from './InboxPage.module.css';
 
 type KindFilter = 'all' | InboxKind;
@@ -40,17 +54,22 @@ function RecentRow({
   item,
   members,
   myHandle,
+  pipeline,
   onRevoke,
 }: {
   item: InboxItem;
   members: MemberIndex;
   myHandle: string | null;
+  pipeline?: PipelineIndex | null | undefined;
   onRevoke?: ((id: string) => void) | undefined;
 }) {
   const positive = isPositiveResolution(item);
   const note = resolutionNote(item);
   const boundary = boundaryOf(item);
-  const subject = decisionSubject(item);
+  const subject =
+    item.kind === 'hand_on' && item.state === 'resolved'
+      ? handOnResolvedText(item, members, myHandle, pipeline)
+      : decisionSubject(item);
   return (
     <li className={styles.recentItem}>
       <span
@@ -63,6 +82,10 @@ function RecentRow({
         <span className={styles.recentLine}>{decisionLine(item, members, myHandle)}</span>
         {item.kind === 'permission' ? (
           <FoldedCommand text={subject} className={styles.recentCode} lines={1} />
+        ) : item.kind === 'release' && item.taskKey ? (
+          <span className={styles.recentSubject}>
+            <ReleaseSubject taskKey={item.taskKey} title={item.title} />
+          </span>
         ) : (
           <span className={styles.recentSubject}>{subject}</span>
         )}
@@ -100,12 +123,14 @@ function RecentDecisions({
   automatic,
   members,
   myHandle,
+  pipeline,
   onRevoke,
 }: {
   items: InboxItem[];
   automatic: InboxItem[];
   members: MemberIndex;
   myHandle: string | null;
+  pipeline?: PipelineIndex | null | undefined;
   onRevoke?: (id: string) => void;
 }) {
   // Nothing decided yet: no empty box.
@@ -117,7 +142,14 @@ function RecentDecisions({
       </h2>
       <ul className={styles.recentList}>
         {items.map((item) => (
-          <RecentRow key={item.id} item={item} members={members} myHandle={myHandle} onRevoke={onRevoke} />
+          <RecentRow
+            key={item.id}
+            item={item}
+            members={members}
+            myHandle={myHandle}
+            pipeline={pipeline}
+            onRevoke={onRevoke}
+          />
         ))}
       </ul>
       {automatic.length > 0 ? (
@@ -138,10 +170,11 @@ function RecentDecisions({
 
 /** Everything that waits for the viewer, by kind. */
 export function InboxPage() {
-  const { key, myHandle, isOwner } = useProject();
+  const { key, myHandle, isOwner, can } = useProject();
   const isMobile = useIsMobile();
   const inbox = useInbox(key);
   const board = useBoard(key);
+  const config = useConfig(key, can.readConfig).data?.config;
   const { members, pipeline } = useProjectIndexes(key);
   const resolve = useResolveInbox(key, myHandle);
   const revoke = useRevokeBoundary(key);
@@ -173,14 +206,54 @@ export function InboxPage() {
     [board.data],
   );
 
-  if (inbox.isPending) return <LoadingState />;
-  if (inbox.isError) return <ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />;
+  // A card's drawer opens over the page (the nested route) and closes back here (PM-501).
+  const drawerBase = useMemo<DrawerBase>(
+    () => ({
+      close: `/p/${key}/inbox`,
+      card: (taskKey, sub) => `/p/${key}/inbox/tasks/${taskKey}${sub ? `/${sub}` : ''}`,
+    }),
+    [key],
+  );
+  const openedKey = useMatch('/p/:projectKey/inbox/tasks/:taskKey/*')?.params.taskKey ?? null;
+  // The item whose card row opened the drawer: closing it, the focus returns to that row's link.
+  const openedFrom = useRef<string | null>(null);
+  useEffect(() => {
+    if (openedKey) return;
+    const itemId = openedFrom.current;
+    openedFrom.current = null;
+    if (!itemId) return;
+    document
+      .getElementById(inboxItemDomId(itemId))
+      ?.querySelector<HTMLElement>('[data-inbox-card-link]')
+      ?.focus();
+  }, [openedKey]);
+  const rememberOpener = (event: MouseEvent<HTMLElement>) => {
+    const link = (event.target as Element).closest('[data-inbox-card-link]');
+    const id = link?.closest('article')?.id;
+    if (id) openedFrom.current = id.slice(inboxItemDomId('').length);
+  };
+  // The drawer of a card opened by its address shows before the list does.
+  const withDrawer = (page: ReactNode) => (
+    <DrawerBaseContext.Provider value={drawerBase}>
+      {page}
+      <Outlet />
+    </DrawerBaseContext.Provider>
+  );
+
+  // The card row links to the drawer while the board loads (or failed) and when the card is on it; a card
+  // the loaded board does not have is plain text.
+  const taskHrefOf = (item: InboxItem): string | null =>
+    item.taskKey && (!board.data || titles.has(item.taskKey)) ? drawerBase.card(item.taskKey) : null;
+
+  if (inbox.isPending) return withDrawer(<LoadingState />);
+  if (inbox.isError)
+    return withDrawer(<ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />);
 
   const visible = filter === 'all' ? mine : mine.filter((item) => item.kind === filter);
   const latest = mine[0];
 
-  return (
-    <div className={styles.page}>
+  return withDrawer(
+    <div className={styles.page} onClick={rememberOpener}>
       <div className={styles.main}>
         <PageHeader
           className={styles.header}
@@ -221,15 +294,59 @@ export function InboxPage() {
               pipeline={pipeline}
               labels={board.data?.labels}
               mobile={isMobile}
-              taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? item.taskKey) : null}
+              taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? null) : null}
+              taskHref={taskHrefOf(item)}
               detailsHref={detailsHrefFor(item, key)}
+              approvalHint={approvalHintOf(item, {
+                task: board.data?.tasks.find((task) => task.key === item.taskKey),
+                items: items ?? [],
+                myHandle,
+              })}
+              cardHref={item.taskKey ? `/p/${key}/tasks/${item.taskKey}` : null}
               pending={resolve.isPending && resolve.variables?.item.id === item.id}
+              error={
+                // A refused "Tovább" says why on its card (the gate), not in a toast.
+                item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
+                  ? moveErrorText(
+                      resolve.error,
+                      board.data?.labels ?? [],
+                      refusalFactsOf({
+                        task: board.data?.tasks.find((task) => task.key === item.taskKey),
+                        config,
+                        members,
+                        myHandle,
+                        target: pipeline?.stageById.get(handOnRequestOf(item)?.toStageId ?? '')?.name ?? '',
+                      }),
+                    )
+                  : // A refused release decision (the integrator's key is no approval) says why on its card.
+                    item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
+                    ? errorMessage(resolve.error)
+                    : null
+              }
+              stale={
+                // A stale Operator approval says so on its card, not in a toast.
+                operatorApprovalOf(item) !== null &&
+                resolve.isError &&
+                resolve.variables?.item.id === item.id &&
+                isStaleError(resolve.error)
+              }
               onResolve={(target, body) =>
                 resolve.mutate(
                   { item: target, body },
                   {
-                    onSuccess: () => toast.show(decisionToast(target, body.optionId, myHandle), 'ok'),
-                    onError: () => toast.show(t('inbox.resolveFailed'), 'error'),
+                    onSuccess: () => {
+                      const text =
+                        operatorApprovalOf(target) !== null
+                          ? operatorDecisionToast(target, body.optionId)
+                          : target.kind === 'hand_on'
+                            ? handOnToast(target, pipeline)
+                            : decisionToast(target, body.optionId, myHandle);
+                      if (text) toast.show(text, 'ok');
+                    },
+                    onError: (error) => {
+                      if (target.kind !== 'hand_on' && target.kind !== 'release' && !isStaleError(error))
+                        toast.show(t('inbox.resolveFailed'), 'error');
+                    },
                   },
                 )
               }
@@ -249,6 +366,7 @@ export function InboxPage() {
             automatic={automatic}
             members={members}
             myHandle={myHandle}
+            pipeline={pipeline}
             onRevoke={onRevoke}
           />
         ) : null}
@@ -260,10 +378,11 @@ export function InboxPage() {
             automatic={automatic}
             members={members}
             myHandle={myHandle}
+            pipeline={pipeline}
             onRevoke={onRevoke}
           />
         </aside>
       )}
-    </div>
+    </div>,
   );
 }

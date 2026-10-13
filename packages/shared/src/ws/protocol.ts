@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { EngineStatusView } from '../domain/engine';
-import { MemberView, PlanUsage } from '../api/dto';
+import { MemberView, PlanUsage, OperatorSignal } from '../api/dto';
 import { ChatItem } from '../chat/chat';
 import { TimelineEvent } from '../domain/event';
 import { InboxItem } from '../domain/inbox';
@@ -13,6 +13,7 @@ import { Task, TaskKey } from '../domain/task';
 
 /** Server -> browser events over the /ws websocket (JSON text frames). */
 export const ServerEvent = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('operator_signal'), projectKey: z.string(), signal: OperatorSignal }),
   z.object({ type: z.literal('engine_changed'), engine: EngineStatusView }),
   z.object({ type: z.literal('hello'), serverTime: z.string() }),
   z.object({ type: z.literal('task_upserted'), projectKey: z.string(), task: Task }),
@@ -42,6 +43,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('inbox_upserted'), projectKey: z.string(), item: InboxItem }),
   z.object({ type: z.literal('team_message'), projectKey: z.string(), message: TeamMessage }),
+  /** A stored message changed without being a new one (a file of it was deleted, PM-515): no timeline entry goes with it. */
+  z.object({ type: z.literal('team_message_updated'), projectKey: z.string(), message: TeamMessage }),
   z.object({
     type: z.literal('chat_appended'),
     projectKey: z.string(),
@@ -63,6 +66,8 @@ export const ServerEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('task_attachments_changed'), projectKey: z.string(), taskKey: TaskKey }),
   /** The project's focus changed (PM-427); internal members only. */
   z.object({ type: z.literal('project_focus_changed'), projectKey: z.string(), focus: ProjectFocus }),
+  /** A feedback mark changed (PM-506): every human member, a client included, refetches. It names no card. */
+  z.object({ type: z.literal('feedback_changed'), projectKey: z.string(), markId: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() }),
 ]);
 export type ServerEvent = z.infer<typeof ServerEvent>;

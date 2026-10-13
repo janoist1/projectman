@@ -212,7 +212,7 @@ describe('scheduler', () => {
     await settle();
     expect(h.runner.isRunning(dev.id)).toBe(true);
     await h.domain.teamTools.sendMessage(ctx, {
-      kind: 'action',
+      kind: 'info',
       to: ['owner'],
       text: 'Five notes that do not block',
     });

@@ -5,7 +5,9 @@ import {
   BuiltInRoleId,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_PROJECT_LANGUAGE,
+  defaultMerger,
   FALLBACK_PERMISSION_MODE,
+  isOperator,
   isProjectManager,
   LabelDefinition,
   type MemberConfig,
@@ -16,7 +18,12 @@ import {
   releaseApprovers,
   releaseGateAccepts,
 } from '@projectman/shared';
-import { DAILY_WORKER_SCHEDULE, migrateLegacyConfig, projectManagerMember } from '@projectman/templates';
+import {
+  DAILY_WORKER_SCHEDULE,
+  migrateLegacyConfig,
+  operatorMember,
+  projectManagerMember,
+} from '@projectman/templates';
 
 export interface MigrationContext {
   projectKey: string;
@@ -220,6 +227,109 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
   return raw;
 }
 
+/** Existing projects retain worker-driven handovers (PM-457). */
+export function addCardMover(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (team && team.cardMover === undefined) team.cardMover = { kind: 'worker' };
+  return raw;
+}
+
+/**
+ * A project without an Operator (PM-447) gets one, sponsored by the first human owner. Not on leave: it
+ * works only on the owner's message, so it costs nothing while idle. Without a human owner nothing is
+ * added, as for the project manager.
+ */
+function addOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const config = asRecord(raw);
+  const team = asRecord(config?.team);
+  if (!config || !team || !Array.isArray(team.members)) return raw;
+  const members = team.members.map(asRecord).filter((m): m is Record<string, unknown> => m !== undefined);
+  if (members.some((m) => isOperator(m as unknown as MemberConfig))) return raw;
+  const owner = members.find((m) => m.kind === 'human' && m.access === 'owner');
+  if (typeof owner?.handle !== 'string') return raw;
+  const language = asRecord(config.project)?.language;
+  const member = operatorMember({
+    language: typeof language === 'string' ? language : DEFAULT_PROJECT_LANGUAGE,
+    sponsor: owner.handle,
+    taken: members.flatMap((m) => (typeof m.handle === 'string' ? [m.handle] : [])),
+  });
+  team.members.push(member);
+  logger.warn({ projectKey, member: member.handle }, 'Added the Operator');
+  return raw;
+}
+
+/**
+ * The Operator is fixed (PM-473): on every Operator the leave and the schedule go, the capacity is 1
+ * and the instructions are the built-in ones (none of its own); the `ai_operator` role override goes
+ * and the temp workers are no longer hired for that role. The name, sponsor, model, provider, effort,
+ * permission mode, approver and network stay as they are (and are fixed from now on, bar the model,
+ * provider and effort): setting them back could loosen what the owner tightened. Runs on every read,
+ * so an earlier version restored from history comes back fixed as well; a second run changes nothing.
+ */
+function fixOperator(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team) return raw;
+  for (const member of rawAiMembers(raw)) {
+    if (!isOperator(member as unknown as MemberConfig)) continue;
+    const fields: string[] = [];
+    // A stated `onLeave: false` is dropped silently: it is the default, nothing is put back.
+    if (member.onLeave === true) fields.push('onLeave');
+    delete member.onLeave;
+    if (member.schedule !== undefined) fields.push('schedule');
+    delete member.schedule;
+    if (member.capacity !== undefined && member.capacity !== 1) {
+      member.capacity = 1;
+      fields.push('capacity');
+    }
+    if (member.instructions !== undefined && member.instructions !== '') {
+      member.instructions = '';
+      fields.push('instructions');
+    }
+    if (fields.length) logger.warn({ projectKey, member: member.handle, fields }, 'Fixed the Operator');
+  }
+  const overrides = asRecord(team.roleOverrides);
+  if (overrides && overrides.ai_operator !== undefined) {
+    delete overrides.ai_operator;
+    logger.warn({ projectKey, fields: ['roleOverrides.ai_operator'] }, 'Fixed the Operator');
+  }
+  const tempWorkers = asRecord(asRecord(team.limits)?.tempWorkers);
+  if (tempWorkers && tempWorkers.role === 'ai_operator') {
+    tempWorkers.role = 'developer';
+    logger.warn({ projectKey, fields: ['limits.tempWorkers.role'] }, 'Fixed the Operator');
+  }
+  return raw;
+}
+
+/**
+ * A project without a merger (PM-470) gets the one its pipeline implies: the code reviewer when a code
+ * review stage comes before the merge target, else the developer. A configuration that does not parse is
+ * left alone: at run time the same rule (`mergerOf`) applies to the missing value.
+ */
+export function addMerger(raw: unknown): unknown {
+  const team = asRecord(asRecord(raw)?.team);
+  if (!team || team.merger !== undefined) return raw;
+  const parsed = ProjectConfig.safeParse(raw);
+  if (parsed.success) team.merger = defaultMerger(parsed.data);
+  return raw;
+}
+
+/**
+ * The project manager role (PM-506) carries the feedback processing duty. A built-in role without an
+ * override gets it from the defaults; an override replaces the whole bundle, so the duty is appended
+ * to the override's list when it is missing. Idempotent.
+ */
+export function addFeedbackProcessing(raw: unknown, { projectKey, logger }: MigrationContext): unknown {
+  const override = asRecord(asRecord(asRecord(asRecord(raw)?.team)?.roleOverrides)?.project_manager);
+  if (!override || !Array.isArray(override.duties) || override.duties.includes('feedback_processing'))
+    return raw;
+  override.duties.push('feedback_processing');
+  logger.warn(
+    { projectKey, fields: ['roleOverrides.project_manager.duties'] },
+    'Added the feedback processing duty to the project manager role override',
+  );
+  return raw;
+}
+
 /**
  * Upgrades a merged, not yet validated project configuration of an older shape, in memory: the
  * customization files keep their content until the next save. Used wherever the store reads
@@ -232,20 +342,43 @@ function addProjectManager(raw: unknown, { projectKey, logger }: MigrationContex
  *   - a label a release gate requires that more than the release approval duty's holders may set
  *     is narrowed to that duty (above), after the conversion of legacy gates;
  *   - the removed message storm threshold (`messageBurst`) is dropped (above);
- *   - a project without an AI project manager gets one, on leave (above).
+ *   - a project without an AI project manager gets one, on leave (above);
+ *   - a missing card mover becomes worker (above);
+ *   - a project without an Operator gets one, at work (above);
+ *   - the Operator is fixed: no leave, no schedule, capacity 1, no instructions of its own, no role
+ *     override, and temp workers are not hired for its role (above);
+ *   - a missing merger becomes the code reviewer or the developer, by the pipeline (above), judged on
+ *     the fixed configuration;
+ *   - an override of the project manager role gets the feedback processing duty (above), last.
  * Stage kinds from before decision 18 (review, deploy, …) are read by the pipeline schema
  * itself (packages/shared/src/domain/pipeline.ts).
  */
 export function migrateProjectConfig(raw: unknown, context: MigrationContext): unknown {
-  return addProjectManager(
-    migrateReleaseApproval(
-      migrateLegacyConfig(
-        migrateCodexBypass(
-          migrateScheduledRole(dropMessageBurst(migrateShadowingRoles(raw, context), context), context),
+  return addFeedbackProcessing(
+    addMerger(
+      fixOperator(
+        addOperator(
+          addCardMover(
+            addProjectManager(
+              migrateReleaseApproval(
+                migrateLegacyConfig(
+                  migrateCodexBypass(
+                    migrateScheduledRole(
+                      dropMessageBurst(migrateShadowingRoles(raw, context), context),
+                      context,
+                    ),
+                    context,
+                  ),
+                ),
+                context,
+              ),
+              context,
+            ),
+          ),
           context,
         ),
+        context,
       ),
-      context,
     ),
     context,
   );

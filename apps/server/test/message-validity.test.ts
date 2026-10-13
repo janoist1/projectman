@@ -321,7 +321,7 @@ describe('versioned message wake-up', () => {
     await flush();
     expect(round).not.toHaveBeenCalled();
     expect(repin).not.toHaveBeenCalled();
-    expect(result.recipients).toEqual([{ handle: 'cr', delivery: 'next_input' }]);
+    expect(result.recipients).toEqual([{ handle: 'cr', delivery: 'next_input', info: true }]);
     expect(h.domain.sessions.list('AR', { member: 'cr' })).toEqual([]);
     expect(h.repos.messages.get(result.messageId)).toMatchObject({
       kind: 'info',

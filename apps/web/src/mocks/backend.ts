@@ -45,6 +45,8 @@ import {
   InvitationView,
   LoginRequest,
   MAX_ATTACHMENT_BYTES,
+  MAX_UNSENT_MESSAGE_ATTACHMENTS,
+  canDeleteMessageAttachment,
   OCTET_STREAM,
   PR_MERGED_LABEL,
   PatchConfigRequest,
@@ -57,6 +59,7 @@ import {
   SendTeamMessageRequest,
   SetupRequest,
   StartTaskRequest,
+  StartMergeRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
@@ -64,8 +67,10 @@ import {
   aiLimitReached,
   aiLabelSetters,
   applyConfigPatch,
+  unknownPatchRepo,
   approvalRefusal,
   attachmentPreviewOf,
+  withQuestionAttachmentGone,
   canDeleteAttachment,
   canReadAttachments,
   canSeeTask,
@@ -81,15 +86,20 @@ import {
   evaluateStart,
   expiredLabels,
   gateRequestOf,
+  questionPayloadOf,
+  handOnDecision,
+  handOnRequestOf,
   holdersAllow,
   isBuiltInRole,
   isHandleOnLeave,
   isOnLeave,
+  isRequiredOperator,
   isRequiredProjectManager,
   isOpenTask,
   openPrerequisites,
   projectRefines,
   isWorkingOnTask,
+  isSessionAtWork,
   labelDefinition,
   labelHolders,
   memberDuties,
@@ -97,6 +107,9 @@ import {
   memberRoles,
   modelForProvider,
   nextCronRun,
+  OPERATOR_DISMISS_OPTION,
+  operatorApprovalOf,
+  operatorOf,
   projectManagerOf,
   noApproverReason,
   approverBlocker,
@@ -124,8 +137,19 @@ import {
   taskSeq,
   taskWorkOf,
   introducedErrors,
+  validateProjectConfig,
+  DEFAULT_PROJECT_LANGUAGE,
+  ProjectConfig,
   mergeTokenUsage,
+  alertPayloadOf,
+  cardMerger,
+  hasAccess,
+  mergeReadiness,
+  moveMerge,
+  mergeRequestOf,
+  releaseApprovalOf,
   ALERT_SEEN_OPTION,
+  WorkOutageAlert,
   limitTokens,
   LOOP_LET_RUN_OPTION,
   LOOP_STOP_OPTION,
@@ -164,8 +188,14 @@ import {
   DEFAULT_CLOSED_CARDS_DAYS,
   isClosedSince,
   measureClosedCard,
+  taskWait,
+  waitHolders,
+  waitWorkers,
 } from '@projectman/shared';
 import type {
+  MessageAttachment,
+  MessageAttachmentRef,
+  CapacityHolder,
   EngineStatusView,
   EngineView,
   HandoffFallbackReason,
@@ -199,6 +229,9 @@ import type {
   HumanAccess,
   GateRequestPayload,
   InboxItem,
+  OperatorApprovalPayload,
+  OperatorRequestView,
+  OperatorSignal,
   InvitationView as Invitation,
   LabelChangeReason,
   LabelChangeRefusal,
@@ -207,8 +240,12 @@ import type {
   RelationsChange,
   MemberUsage,
   MemberView,
+  MergeBlockReason,
+  MergeFailure,
+  TaskMergeState,
+  TaskMerged,
   PlanUsage,
-  ProjectConfig,
+  ReleaseStep,
   ScheduleRun,
   ServerEvent,
   Session,
@@ -223,15 +260,18 @@ import type {
   TimelineEvent,
   TimelineEventData,
   TimelineEventType,
+  WorkOutage,
 } from '@projectman/shared';
 import {
   aiMemberDefaults,
   defaultMemberHandle,
   defaultMemberName,
+  getTemplate,
   humanMemberHandle,
   roleViews,
 } from '@projectman/templates';
 import * as fixtures from './fixtures';
+import { MockFeedback } from './feedback';
 import { MockPauses } from './pauses';
 import { mockId, mockUuid, nowIso } from './time';
 
@@ -359,6 +399,18 @@ function parseBody<T>(
   return result.success ? result.data : null;
 }
 
+/** How a merge the fake runs ends: it lands, hits a conflict, fails its check, or is blocked at the push. */
+export type MockMergeOutcome = 'merged' | 'conflict' | 'check_failed' | 'blocked';
+
+/** The steps a running merge goes through, one `advanceMerge` each. */
+const MERGE_STEPS = ['merging', 'check_waiting', 'checking', 'pushing', 'finishing'] as const;
+
+/** A stable, commit-looking id for a card's mock work. */
+function mockCommit(task: Pick<Task, 'key'>, salt: string): string {
+  const digits = task.key.replace(/\D/g, '').padStart(4, '0');
+  return `${salt}${digits}c0ffee1234567890abcdef1234567890ab`.slice(0, 40);
+}
+
 /**
  * In-memory stand-in for the projectman server, the fake behind the UI tests. It implements
  * the REST routes from the shared route table and publishes the same websocket events the
@@ -369,6 +421,8 @@ export class MockBackend {
   /** Cloud mode before the first setup (PM-317): the setup asks for this code; null is single-machine mode. */
   setupCode: string | null = null;
   viewerHandle: string = fixtures.OWNER;
+  /** A release decision is refused with `owner_approval_required`, like an integrator key's (PM-491). */
+  refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
   configVersion = fixtures.projectSummary.configVersion;
@@ -383,6 +437,19 @@ export class MockBackend {
   }
   /** Where each card's fix rounds are counted from and the rounds people let it have (PM-262). */
   private fixLimitState = new Map<string, { countedFrom: string | null; extraRounds: number }>();
+  /** The stage a card stood in when its merge was requested (the server keeps it on the merge row). */
+  private mergeFrom = new Map<string, string>();
+  /** How a card's merge ends once `advanceMerge` has run it through its steps; absent: it merges. */
+  private mergeOutcomes = new Map<string, MockMergeOutcome>();
+  private mergeFixNotes = new Map<string, string>();
+  private mergeFixErrors = new Map<string, 'uncommitted' | 'missing_commit' | 'missing_base'>();
+
+  setMergeFixError(taskKey: string, reason?: 'uncommitted' | 'missing_commit' | 'missing_base'): void {
+    if (reason) this.mergeFixErrors.set(taskKey, reason);
+    else this.mergeFixErrors.delete(taskKey);
+  }
+  /** Why a move into the target is refused while the work is not merged; absent: `not_merged`. */
+  private mergeRefusals = new Map<string, 'not_merged' | 'not_on_remote' | 'engine_unavailable'>();
   /** The cards that wait for a Senior (PM-348): since when, the question asked and the answer given. */
   private seniorWaits = new Map<
     string,
@@ -390,6 +457,7 @@ export class MockBackend {
   >();
   scheduleRuns: ScheduleRun[] = [];
   attachments: Attachment[] = [];
+  messageAttachments: MessageAttachment[] = [];
   /** A person's cover choice per task (PM-224); a task without one has the automatic cover. */
   covers = new Map<string, TaskCoverChoice>();
   providerLoggedIn = { claude: true, codex: true, gemini: true, nanogpt: true };
@@ -437,6 +505,19 @@ export class MockBackend {
   inbox: InboxItem[] = clone(fixtures.inbox);
   boundaryGrants = new Map<string, BoundaryGrant>();
   messages: TeamMessage[] = clone(fixtures.teamMessages);
+  /** The feedback marks (PM-511); a project starts without surfaces and marks, a test or scenario fills it. */
+  readonly feedback: MockFeedback = new MockFeedback({
+    config: () => this.config,
+    viewerHandle: () => this.viewerHandle,
+    findTask: (key) => this.findTask(key),
+    createCard: (input) => this.createTask(input),
+    addTimeline: (taskKey, who, type, data) => void this.addTimeline(taskKey, who, type, data),
+    emit: (event) => this.emit(event),
+  });
+  /** What the owner asked the Operator for, with its steps (PM-447); a test or a scenario fills it. */
+  operatorRequests: OperatorRequestView[] = [];
+  /** The Operator's proactive signals (PM-476); the owner's channel returns them, a guest's does not. */
+  operatorSignals: OperatorSignal[] = [];
   memories: Record<string, string> = {
     'fe-1': 'Acme checkout uses fictional fixtures. Keep the cart usable on small screens.',
   };
@@ -518,7 +599,11 @@ export class MockBackend {
 
   /** Publishes a project event to every subscribed connection. */
   emit(event: ServerEvent): void {
-    if (event.type === 'team_message' && !canSeeTeamMessage(this.taskViewer(), event.message)) return;
+    if (
+      (event.type === 'team_message' || event.type === 'team_message_updated') &&
+      !canSeeTeamMessage(this.taskViewer(), event.message)
+    )
+      return;
     const projectKey = 'projectKey' in event ? event.projectKey : null;
     for (const [connection, projects] of this.connections) {
       if (projectKey === null || projects.has(projectKey)) connection.deliver(event);
@@ -657,6 +742,19 @@ export class MockBackend {
       taskKey: attachment.taskKey,
     });
     this.syncCover(attachment.taskKey);
+    this.markQuestionAttachmentGone(id);
+  }
+
+  /** Every item that names the deleted file, open or answered, marks it gone and is published again (as the server does). */
+  private markQuestionAttachmentGone(attachmentId: string): void {
+    const at = nowIso();
+    this.inbox = this.inbox.map((item) => {
+      const payload = withQuestionAttachmentGone(item.payload, attachmentId, at);
+      if (!payload) return item;
+      const updated = { ...item, payload };
+      this.emit({ type: 'inbox_upserted', projectKey: item.projectKey, item: clone(updated) });
+      return updated;
+    });
   }
 
   /** A session that has not exited or failed. */
@@ -671,6 +769,9 @@ export class MockBackend {
     Object.assign(task, patch, { updatedAt: nowIso() });
     if (patch.links) Object.assign(task, withPrMergedLabel(task, this.config));
     this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
+    // What decides whether a card is ready to merge, and by whom, changed: the request follows.
+    if ('stageId' in patch || 'labels' in patch || 'assignee' in patch || 'repo' in patch)
+      this.reconcileMerge(task);
     return task;
   }
 
@@ -1186,8 +1287,10 @@ export class MockBackend {
     sessionId?: string,
     /** What the message answers: the card thread shows it as a question and its answer (PM-249). */
     answer?: TeamMessageAnswer,
+    relayed?: TeamMessage['relayed'],
+    attachments?: MessageAttachmentRef[],
   ): TeamMessage {
-    const refusal = this.teamMessageRefusal(from, recipients, text);
+    const refusal = this.teamMessageRefusal(from, recipients, text, Boolean(attachments?.length));
     if (refusal) throw new Error(`The server refuses this team message: ${JSON.stringify(refusal.body)}`);
     const to = teamRecipients(from, recipients);
     const body = text.trim();
@@ -1207,6 +1310,8 @@ export class MockBackend {
         readAt: null,
       })),
       ...(answer ? { answer } : {}),
+      ...(relayed ? { relayed } : {}),
+      ...(attachments?.length ? { attachments: clone(attachments) } : {}),
     };
     this.messages.push(message);
     this.emit({ type: 'team_message', projectKey: message.projectKey, message: clone(message) });
@@ -1239,8 +1344,14 @@ export class MockBackend {
    * The server's refusal of a team message, or null: 400 invalid_request with `details.field`
    * "text" or "to" for an empty text or no recipient but the sender, 404 for unknown members.
    */
-  private teamMessageRefusal(from: string, to: readonly string[], text: string): MockResponse | null {
-    if (!text.trim()) return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
+  private teamMessageRefusal(
+    from: string,
+    to: readonly string[],
+    text: string,
+    hasAttachments = false,
+  ): MockResponse | null {
+    if (!text.trim() && !hasAttachments)
+      return error(400, 'invalid_request', 'The message text is empty', { field: 'text' });
     const recipients = teamRecipients(from, to);
     if (!recipients.length)
       return error(400, 'invalid_request', 'The message names no recipient but its sender', { field: 'to' });
@@ -1259,6 +1370,197 @@ export class MockBackend {
     if (index === -1) this.inbox.push(item);
     else this.inbox[index] = item;
     this.emit({ type: 'inbox_upserted', projectKey: item.projectKey, item: clone(item) });
+  }
+
+  /**
+   * An outage (PM-468): the open `work_outage` alert for the owners, `outage` on the AI members and
+   * on the cards that stand on it. Returns the alert. `endOutage` / a check that finds it healed
+   * (`outageRecovers`) closes it the way the server does.
+   */
+  startOutage(outage: WorkOutage, members: readonly string[], tasks: readonly string[]): InboxItem {
+    for (const handle of members) {
+      const member = this.findMember(handle);
+      if (member) member.outage = clone(outage);
+      this.memberChanged(handle);
+    }
+    for (const key of tasks) this.updateTask(key, { outage: clone(outage) });
+    const payload: WorkOutageAlert = {
+      alert: 'work_outage',
+      outage,
+      members: [...members],
+      tasks: [...tasks],
+      checkedAt: nowIso(),
+    };
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: 'system',
+      sessionId: null,
+      taskKey: null,
+      title: 'Work is stopped by an outage',
+      body: null,
+      payload,
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /**
+   * The Devops proposes a release (PM-491, PM-492): the release card (a theme), the approval item for
+   * the owners and the first `release_changed` row. Returns the item. The cards of the release are
+   * listed with their titles from the board; a key the board does not know keeps its key as title.
+   */
+  proposeRelease(input: {
+    commit: string;
+    baseCommit?: string | null;
+    summary: string;
+    taskKeys: readonly string[];
+    title?: string;
+    proposedBy?: string;
+  }): InboxItem {
+    const title = input.title ?? `Release ${input.commit.slice(0, 8)}`;
+    const card = this.createTask({ title, kind: 'theme' }).body as Task;
+    const proposedBy = input.proposedBy ?? 'fe-1';
+    const releaseId = mockId('rel');
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'release',
+      assignees: boundaryOwners(this.config),
+      source: proposedBy,
+      sessionId: null,
+      taskKey: card.key,
+      title,
+      body: input.summary,
+      payload: {
+        release: {
+          releaseId,
+          commit: input.commit,
+          baseCommit: input.baseCommit ?? null,
+          tasks: input.taskKeys.map((key) => ({ key, title: this.findTask(key)?.title ?? key })),
+          summary: input.summary,
+        },
+      },
+      options: [
+        { id: 'approve', label: 'approve', style: 'primary' },
+        { id: 'reject', label: 'reject', style: 'danger' },
+      ],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.addTimeline(card.key, proposedBy, 'release_changed', {
+      releaseId,
+      state: 'proposed',
+      previousState: null,
+      commit: input.commit,
+    });
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /** The release watcher reports a state of the release on its card (a deploy step, `live`, `published`). */
+  releaseChanged(
+    taskKey: string,
+    data: { state: string; commit: string } & Record<string, unknown>,
+  ): TimelineEvent {
+    return this.addTimeline(taskKey, null, 'release_changed', {
+      releaseId: 'rel_mock',
+      previousState: null,
+      ...data,
+    });
+  }
+
+  /** A deploy failed (PM-491): the `release_failed` alert for the owners and the `failed` row on the card. */
+  failRelease(input: {
+    taskKey: string;
+    commit: string;
+    step: ReleaseStep;
+    message: string;
+    rolledBack: boolean;
+  }): InboxItem {
+    const failure = { step: input.step, message: input.message, rolledBack: input.rolledBack };
+    this.releaseChanged(input.taskKey, { state: 'failed', commit: input.commit, failure });
+    const item: InboxItem = {
+      id: mockId('inb'),
+      projectKey: fixtures.PROJECT_KEY,
+      kind: 'alert',
+      assignees: boundaryOwners(this.config),
+      source: 'system',
+      sessionId: null,
+      taskKey: input.taskKey,
+      title: `Release ${input.commit.slice(0, 8)} failed in ${input.step}`,
+      body: input.message,
+      payload: {
+        alert: 'release_failed',
+        releaseId: 'rel_mock',
+        taskKey: input.taskKey,
+        commit: input.commit,
+        step: input.step,
+        message: input.message,
+        rolledBack: input.rolledBack,
+      },
+      options: [ALERT_SEEN_OPTION],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    };
+    this.upsertInbox(item);
+    return item;
+  }
+
+  /** The outage ends by itself: the markers go, the alert is resolved with the rule `outage_ended`. */
+  endOutage(itemId: string): InboxItem | undefined {
+    const item = this.inbox.find((entry) => entry.id === itemId);
+    if (!item || item.state !== 'open') return undefined;
+    const alert = WorkOutageAlert.safeParse(item.payload);
+    if (alert.success) {
+      for (const handle of alert.data.members) {
+        const member = this.findMember(handle);
+        if (member) delete member.outage;
+        this.memberChanged(handle);
+      }
+      for (const key of alert.data.tasks) this.updateTask(key, { outage: undefined });
+    }
+    const resolved: InboxItem = {
+      ...item,
+      state: 'resolved',
+      resolution: {
+        optionId: ALERT_SEEN_OPTION.id,
+        by: 'system',
+        at: nowIso(),
+        note: null,
+        rule: 'outage_ended',
+      },
+    };
+    this.upsertInbox(resolved);
+    return resolved;
+  }
+
+  /** Whether the next "check now" finds the outage gone; off until a test or a scenario turns it on. */
+  outageRecovers = false;
+
+  private checkOutage(itemId: string): MockResponse {
+    const item = this.inbox.find((entry) => entry.id === itemId);
+    if (!item) return error(404, 'not_found', 'Unknown inbox item');
+    // The server's order: a closed item first, then an item that is no outage alert.
+    if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already closed');
+    if (WorkOutageAlert.safeParse(item.payload).success === false)
+      return error(409, 'not_an_outage_alert', 'The item is not an outage alert');
+    const checkedAt = nowIso();
+    if (this.outageRecovers) {
+      const resolved = this.endOutage(itemId)!;
+      return ok(clone({ item: resolved, stillFailing: false, checkedAt }));
+    }
+    const refreshed: InboxItem = { ...item, payload: { ...item.payload, checkedAt } };
+    this.upsertInbox(refreshed);
+    return ok(clone({ item: refreshed, stillFailing: true, checkedAt }));
   }
 
   /**
@@ -1309,7 +1611,7 @@ export class MockBackend {
         ...clone(label),
         holders: labelHolders(this.config, label),
       })),
-      tasks: clone(this.tasks.filter((task) => this.canSee(task))),
+      tasks: this.tasks.filter((task) => this.canSee(task)).map((task) => this.forViewer(task)),
       members: this.members.filter((member) => member.status !== 'retired').map((m) => this.viewOf(m)),
       openInboxCount: this.inbox.filter(
         (item) => item.state === 'open' && item.assignees.includes(this.owner),
@@ -1489,6 +1791,13 @@ export class MockBackend {
       });
     }
     if (path === '/api/templates') return ok(clone(fixtures.templates));
+    if (path === '/api/projects/preview' && method === 'POST') {
+      const input = parseBody(CreateProjectRequest, body);
+      if (!input) return error(400, 'invalid_request', 'Invalid project');
+      const draft = this.projectDraft(input);
+      if ('status' in draft) return draft;
+      return ok({ config: draft, issues: validateProjectConfig(draft) });
+    }
     if (path === '/api/projects') {
       if (method === 'POST') {
         const input = parseBody(CreateProjectRequest, body);
@@ -1496,6 +1805,14 @@ export class MockBackend {
         if (input.key === fixtures.PROJECT_KEY || this.extraProjects.some((p) => p.key === input.key)) {
           return error(409, 'project_exists', 'Project key already exists');
         }
+        // Like the server: a configuration that does not work is refused, with the issues.
+        const draft = this.projectDraft(input);
+        if ('status' in draft) return draft;
+        const blocking = validateProjectConfig(draft).filter((issue) => issue.severity !== 'warning');
+        if (blocking.length > 0)
+          return error(422, 'invalid_config', 'configuration violates the team invariants', {
+            issues: blocking,
+          });
         this.extraProjects.push({ key: input.key, name: input.name, templateId: input.templateId });
         return ok({
           key: input.key,
@@ -1705,6 +2022,11 @@ export class MockBackend {
         return error(403, 'insufficient_access', 'Developer access required');
     }
     if (rest.startsWith('/invites')) return this.handleInvitations(method, rest, body);
+    if (rest === '/feedback' || rest.startsWith('/feedback/'))
+      return (
+        this.feedback.handle(method, rest.slice('/feedback'.length), body, query) ??
+        error(404, 'not_found', 'Unknown route')
+      );
     if (rest === '' && method === 'GET')
       return ok({
         ...fixtures.projectSummary,
@@ -1716,6 +2038,9 @@ export class MockBackend {
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
+    if (rest === '/operator' && method === 'GET') return this.operatorChannel();
+    const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);
+    if (signalMatch && method === 'POST') return this.dismissOperatorSignal(signalMatch[1]!);
     if (/^\/pause(\/resume|\/force)?$/.test(rest)) return this.projectPause(method, rest);
     if (rest === '/measure/closed-cards' && method === 'GET') {
       if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
@@ -1765,6 +2090,9 @@ export class MockBackend {
       const refused = this.applyLabels(task, input, this.viewerActor(), { comment: input.comment });
       return refused ?? ok(this.taskDetail(task));
     }
+    if ((m = /^\/message-attachments(?:\/(msa_[a-z0-9]+)(?:\/(content|download|thumbnail))?)?$/.exec(rest))) {
+      return this.handleMessageAttachments(method, m[1], m[2], body);
+    }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/attachments(?:\/(att_[a-z0-9]+))?$/.exec(rest))) {
       return this.handleAttachments(method, m[1]!, m[2], body);
     }
@@ -1776,6 +2104,9 @@ export class MockBackend {
     }
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/board-move$/.exec(rest)) && method === 'POST') {
       return this.boardMove(m[1]!, body);
+    }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge$/.exec(rest)) && method === 'POST') {
+      return this.startMerge(m[1]!, body);
     }
 
     if (
@@ -2032,6 +2363,7 @@ export class MockBackend {
             : [],
           capacity: original.kind === 'ai' ? original.capacity : null,
           capacityUsed: original.kind === 'ai' && internal ? this.memberLoad(handle) : 0,
+          ...(original.kind === 'ai' && internal ? { capacityHolders: this.memberHolders(handle) } : {}),
           ...(original.kind === 'ai' && internal ? { usage: this.memberUsage(handle) } : {}),
           ...(original.kind === 'human' && ['owner', 'admin'].includes(viewer.role) && original.email
             ? { email: original.email }
@@ -2041,7 +2373,18 @@ export class MockBackend {
     }
     if (rest === '/inbox') {
       this.refreshBoundaryInbox();
-      return ok({ items: clone(this.inbox) });
+      // A client sees only the items addressed to them, and an Operator proposal is its assignees' to see
+      // (the server lists it for no one else).
+      const client = this.findMember(this.viewerHandle)?.role === 'client';
+      return ok({
+        items: clone(
+          this.inbox.filter(
+            (item) =>
+              (!client || item.assignees.includes(this.viewerHandle)) &&
+              (!operatorApprovalOf(item) || item.assignees.includes(this.viewerHandle)),
+          ),
+        ),
+      });
     }
     if ((m = /^\/boundary\/([\w-]+)$/.exec(rest)) && method === 'GET') {
       this.refreshBoundaryInbox();
@@ -2059,6 +2402,7 @@ export class MockBackend {
       return this.decideBoundary(m[1]!, body, m[2] === 'revoke');
     if ((m = /^\/inbox\/([\w-]+)\/resolve$/.exec(rest)) && method === 'POST')
       return this.resolve(m[1]!, body);
+    if ((m = /^\/inbox\/([\w-]+)\/check$/.exec(rest)) && method === 'POST') return this.checkOutage(m[1]!);
 
     if (rest === '/config') {
       if (method === 'PATCH') return this.patchConfig(body);
@@ -2101,6 +2445,39 @@ export class MockBackend {
     return issues.length > 0 ? error(400, 'config_invalid', 'Invalid configuration', { issues }) : null;
   }
 
+  /** The configuration a create would save: the template's, with the request's name, workspace, repos and mover. */
+  private projectDraft(input: CreateProjectRequest): ProjectConfig | MockResponse {
+    const template = getTemplate(input.templateId);
+    if (!template) return error(400, 'unknown_template', `unknown template: ${input.templateId}`);
+    const built = template.build({
+      key: input.key,
+      name: input.name,
+      workspacePath: input.workspacePath,
+      language: DEFAULT_PROJECT_LANGUAGE,
+      owner: { handle: 'owner', displayName: 'Owner', email: 'owner@example.com' },
+      cardMover:
+        input.cardMover === 'creator'
+          ? { kind: 'human', handle: 'owner' }
+          : { kind: input.cardMover ?? 'worker' },
+    });
+    const parsed = ProjectConfig.safeParse({
+      ...built,
+      project: {
+        ...built.project,
+        key: input.key,
+        name: input.name,
+        workspacePath: input.workspacePath,
+        templateId: input.templateId,
+        ...(input.repos ? { repos: input.repos } : {}),
+      },
+    });
+    return parsed.success
+      ? parsed.data
+      : error(422, 'invalid_config', 'template produced an invalid configuration', {
+          schemaIssues: parsed.error.issues,
+        });
+  }
+
   private patchConfig(body: unknown): MockResponse {
     const member = memberOf(this.config, this.viewerHandle);
     if (member?.kind !== 'human' || !['owner', 'admin'].includes(member.access)) {
@@ -2116,6 +2493,8 @@ export class MockBackend {
     if (input.baseVersion !== this.configVersion) {
       return error(409, 'config_conflict', 'Configuration changed', { currentVersion: this.configVersion });
     }
+    if (unknownPatchRepo(this.config, input) !== null)
+      return error(400, 'unknown_repo', 'Unknown repository');
     const next = applyConfigPatch(this.config, input);
     const failure = this.configChangeFailure(next);
     if (failure) return failure;
@@ -2126,6 +2505,8 @@ export class MockBackend {
         (input.pipeline ? 'Update pipeline' : input.limits ? 'Update limits' : 'Update project');
       this.commitConfig(message);
       this.addTimeline(null, this.viewerHandle, 'config_changed', { version: this.configVersion, message });
+      // Who merges, and which repositories need a merge, decide the cards' merge requests.
+      if (input.merger || input.repoMerge) this.reconcileMerges();
     }
     return ok({ config: clone(this.config), version: this.configVersion, history: clone(this.history) });
   }
@@ -2625,6 +3006,68 @@ export class MockBackend {
     return { kind: 'human', handle: this.viewerHandle };
   }
 
+  /** Message files have no card association; visibility follows the message or the unsent uploader. */
+  private handleMessageAttachments(
+    method: string,
+    id: string | undefined,
+    content: string | undefined,
+    body: unknown,
+  ): MockResponse {
+    const viewer = this.taskViewer();
+    if (!id && method === 'POST') {
+      const file = body instanceof FormData ? body.get('file') : null;
+      if (!(file instanceof File)) return error(400, 'invalid_request', 'Missing file');
+      if (file.size > MAX_ATTACHMENT_BYTES) return error(413, 'attachment_too_large', 'Too large');
+      if (
+        this.messageAttachments.filter(
+          (item) => !item.messageId && item.uploadedBy.handle === this.viewerHandle,
+        ).length >= MAX_UNSENT_MESSAGE_ATTACHMENTS
+      )
+        return error(409, 'message_attachment_limit', 'Too many unsent files');
+      const attachment: MessageAttachment = {
+        id: `${mockId('msa')}0000`,
+        projectKey: fixtures.PROJECT_KEY,
+        fileName: file.name,
+        size: file.size,
+        mediaType: file.type in INLINE_MEDIA_TYPES ? file.type : OCTET_STREAM,
+        preview: attachmentPreviewOf(file.type),
+        uploadedBy: this.viewerActor(),
+        createdAt: nowIso(),
+      };
+      this.messageAttachments.push(attachment);
+      return { status: 201, body: { attachment: clone(attachment) } };
+    }
+    const attachment = this.messageAttachments.find((file) => file.id === id);
+    const message = attachment?.messageId
+      ? this.messages.find((entry) => entry.id === attachment.messageId)
+      : undefined;
+    if (
+      !attachment ||
+      (attachment.messageId
+        ? !message || !canSeeTeamMessage(viewer, message)
+        : attachment.uploadedBy.kind !== 'human' || attachment.uploadedBy.handle !== this.viewerHandle)
+    )
+      return error(404, 'not_found', 'Unknown attachment');
+    if ((method === 'GET' || method === 'HEAD') && content) return ok(clone(attachment));
+    if (method === 'DELETE' && !content) {
+      if (!canDeleteMessageAttachment(viewer, attachment))
+        return error(403, 'insufficient_access', 'Cannot delete attachment');
+      this.messageAttachments = this.messageAttachments.filter((file) => file.id !== id);
+      if (message) {
+        message.attachments = message.attachments?.map((file) =>
+          file.id === id ? { ...file, goneAt: nowIso(), goneBy: this.viewerActor() } : file,
+        );
+        this.emit({
+          type: 'team_message_updated',
+          projectKey: fixtures.PROJECT_KEY,
+          message: clone(message),
+        });
+      }
+      return ok({ id, deleted: true });
+    }
+    return error(404, 'not_found', 'Unknown route');
+  }
+
   /**
    * The task's attachments, with the server's answers: a task the viewer may not see is unknown,
    * and the shared rules decide who uploads and who deletes. The bytes are not served (the UI
@@ -2685,13 +3128,47 @@ export class MockBackend {
     return ok({ task: clone(task) });
   }
 
+  /** Why the card stands still, by the shared rule (PM-460), as the server serves it to the team. */
+  private taskWaitOf(task: Task) {
+    const roster = this.members.map((member) => this.viewOf(member));
+    const linked = task.links.flatMap((link) => {
+      const other = link.kind === 'prerequisite' ? this.findTask(link.ref) : undefined;
+      return other ? [other] : [];
+    });
+    return taskWait({
+      task,
+      config: this.config,
+      openItems: this.inbox.filter((item) => item.taskKey === task.key && item.state === 'open'),
+      workers: waitWorkers(task, this.config, roster),
+      holders: waitHolders(task, roster),
+      openPrerequisites: openPrerequisites(task, linked).map((card) => card.key),
+      viewer: this.viewerHandle,
+    });
+  }
+
+  /** A task as the viewer sees it: the merge is the team's, a client never gets it (like the server). */
+  private forViewer(task: Task): Task {
+    if (this.findMember(this.viewerHandle)?.role !== 'client') return clone(task);
+    const { merge: _merge, merged: _merged, ...visible } = task;
+    return clone(visible);
+  }
+
   private taskDetail(task: Task) {
+    const client = this.findMember(this.viewerHandle)?.role === 'client';
+    const wait = client ? null : this.taskWaitOf(task);
     return {
-      task: clone(task),
+      ...(wait ? { wait } : {}),
+      task: this.forViewer(task),
       parent: task.parentKey ? clone(this.findTask(task.parentKey) ?? null) : null,
       subtasks: clone(this.tasks.filter((child) => child.parentKey === task.key)),
       pullRequests: this.taskPullRequests(task),
-      timeline: clone(this.timeline.filter((event) => event.taskKey === task.key)),
+      timeline: clone(
+        this.timeline.filter(
+          (event) =>
+            event.taskKey === task.key &&
+            !(client && (event.type.startsWith('task_merge_') || event.type === 'task_merged')),
+        ),
+      ),
       sessions: clone(this.taskSessions(task.key)),
       ...(this.findMember(this.viewerHandle)?.role === 'client'
         ? {}
@@ -2853,6 +3330,8 @@ export class MockBackend {
       if (task.status === 'cancelled') return error(409, 'task_closed', 'Task is cancelled');
       const target = stageOf(this.config, input.stageId!);
       if (!target) return error(400, 'unknown_stage', 'Unknown stage');
+      const unmerged = this.mergeGate(task, target.id, labels.labels);
+      if (unmerged) return unmerged;
       const evaluation = evaluateMove(
         { ...task, ...patch, labels: labels.labels },
         this.config,
@@ -3159,8 +3638,23 @@ export class MockBackend {
     if (!plan.added.length && !plan.removed.length) return null;
     this.updateTask(task.key, { labels: plan.labels });
     this.recordLabels(task, plan, actor, opts);
+    this.closeApprovalQuestions(task, plan.added);
     this.continueLabelWait(task);
     return null;
+  }
+
+  /** The card's open questions that ask for a label just put on close by themselves (PM-486, rule approval_given). */
+  private closeApprovalQuestions(task: Task, added: readonly string[]): void {
+    for (const item of [...this.inbox]) {
+      if (item.state !== 'open' || item.kind !== 'question' || item.taskKey !== task.key) continue;
+      const label = questionPayloadOf(item)?.approvalLabel;
+      if (!label || !added.includes(label)) continue;
+      this.upsertInbox({
+        ...item,
+        state: 'resolved',
+        resolution: { optionId: 'ended', by: 'system', at: nowIso(), note: null, rule: 'approval_given' },
+      });
+    }
   }
 
   /** Takes off the labels that expire on an event (the task moving back, its PR changing). */
@@ -3176,12 +3670,434 @@ export class MockBackend {
     const target = stageOf(this.config, stageId);
     if (!target) return error(400, 'unknown_stage', 'Unknown stage');
     if (task.stageId === target.id) return ok(clone(task));
+    const unmerged = this.mergeGate(task, target.id);
+    if (unmerged) return unmerged;
     const evaluation = evaluateMove(task, this.config, task.stageId, target.id);
     if (evaluation.unmet.length) return gateBlockedError(evaluation);
     if (evaluation.approvals.length)
       return this.requestApproval(task, target, evaluation.approvals, actor, placement);
+    // An AI member finishing a step in front of a human-owned stage asks the card mover to take the card on.
+    const decision = handOnDecision(this.config, actor, task.stageId, target.id);
+    if (decision.kind === 'request') return this.requestHandOn(task, target, decision.mover, actor);
     this.applyMove(task, target, actor, {}, placement);
     return ok(clone(task));
+  }
+
+  /** Writes a card's merge state and its merged result, and announces the card. */
+  private writeMerge(task: Task, merge: TaskMergeState | undefined, merged?: TaskMerged): void {
+    if (merge) task.merge = merge;
+    else delete task.merge;
+    if (merged) task.merged = merged;
+    task.updatedAt = nowIso();
+    this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
+  }
+
+  /** The open request items of a merge end: resolved by the one who started it, else cancelled. */
+  private closeMergeItems(task: Task, mergeId: string, by?: string): void {
+    for (const item of this.inbox) {
+      if (item.state !== 'open' || item.taskKey !== task.key) continue;
+      const request = mergeRequestOf(item);
+      const alert = alertPayloadOf(item);
+      if (request?.mergeId === mergeId && by)
+        this.upsertInbox({
+          ...item,
+          state: 'resolved',
+          resolution: { optionId: 'merge', by, at: nowIso(), note: null },
+        });
+      else if (
+        request?.mergeId === mergeId ||
+        (alert?.alert === 'merge_blocked' && alert.mergeId === mergeId)
+      )
+        this.upsertInbox({ ...item, state: 'cancelled' });
+    }
+  }
+
+  /** A human merger gets a "merge" item for a requested or failed merge; an AI merger reads the card. */
+  private notifyMerge(task: Task): void {
+    const merge = task.merge;
+    if (!merge || (merge.state !== 'requested' && merge.state !== 'failed')) return;
+    if (memberOf(this.config, merge.merger)?.kind !== 'human') return;
+    if (this.inbox.some((item) => item.state === 'open' && mergeRequestOf(item)?.mergeId === merge.id))
+      return;
+    this.upsertInbox({
+      id: mockId('inb'),
+      projectKey: task.projectKey,
+      kind: 'merge_request',
+      assignees: [merge.merger],
+      source: 'system',
+      sessionId: null,
+      taskKey: task.key,
+      title: `Merge ${task.key} into ${merge.base}`,
+      body: null,
+      payload: {
+        mergeRequest: {
+          taskKey: task.key,
+          mergeId: merge.id,
+          repo: merge.repo,
+          base: merge.base,
+          ...(merge.failure ? { failure: merge.failure } : {}),
+        },
+      },
+      options: [{ id: 'merge', label: 'Merge', style: 'primary' }],
+      state: 'open',
+      resolution: null,
+      createdAt: nowIso(),
+    });
+  }
+
+  /**
+   * Opens, keeps or cancels the card's merge request the way the server's reconcile does: a request
+   * stands while the card is ready to merge and its merger is the one the configuration names.
+   */
+  private reconcileMerge(task: Task): void {
+    const open = task.status !== 'done' && task.status !== 'cancelled';
+    const ready = open ? mergeReadiness(this.config, task) : null;
+    const merger = cardMerger(this.config, task, null);
+    const existing = task.merge;
+    if (existing) {
+      if (existing.state === 'queued' || existing.state === 'running') return;
+      const stays =
+        existing.state === 'blocked' &&
+        open &&
+        task.stageId === this.mergeFrom.get(task.key) &&
+        !ready?.ready;
+      if (existing.merger === merger && (ready?.ready || stays)) {
+        this.notifyMerge(task);
+        return;
+      }
+      this.closeMergeItems(task, existing.id);
+      this.writeMerge(task, undefined);
+    }
+    if (!ready?.ready || !merger || task.merged?.repo === ready.repo.name) return;
+    const merge: TaskMergeState = {
+      id: mockId('merge'),
+      repo: ready.repo.name,
+      base: ready.repo.defaultBranch,
+      toStageId: ready.target.id,
+      merger,
+      requestedAt: nowIso(),
+      state: 'requested',
+      landed: 'nowhere',
+      commit: mockCommit(task, 'a1'),
+      branch: `${task.key}-work`,
+    };
+    this.mergeFrom.set(task.key, task.stageId);
+    this.writeMerge(task, merge);
+    this.addTimeline(task.key, null, 'task_merge_requested', {
+      mergeId: merge.id,
+      merger,
+      repo: merge.repo,
+      base: merge.base,
+      toStageId: merge.toStageId,
+    });
+    this.notifyMerge(task);
+  }
+
+  /** Reconciles every card (a test or a scenario seeds the requests this way, once the cards are in place). */
+  reconcileMerges(): void {
+    for (const task of this.tasks) this.reconcileMerge(task);
+  }
+
+  /** Chooses how the card's merge ends once it has run its steps (`advanceMerge`). */
+  setMergeOutcome(taskKey: string, outcome: MockMergeOutcome): void {
+    this.mergeOutcomes.set(taskKey, outcome);
+  }
+
+  /** Chooses why a move into the target is refused while the card's work is not merged. */
+  setMergeRefusal(taskKey: string, reason: 'not_merged' | 'not_on_remote' | 'engine_unavailable'): void {
+    this.mergeRefusals.set(taskKey, reason);
+  }
+
+  /** The merge route: only the card's merger starts it; a started merge waits in the queue. */
+  private startMerge(taskKey: string, body?: unknown): MockResponse {
+    const parsed = StartMergeRequest.safeParse(body ?? {});
+    if (!parsed.success) return error(400, 'invalid_request', 'Invalid merge request');
+    const options = parsed.data;
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    const viewer = memberOf(this.config, this.viewerHandle);
+    if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
+      return error(403, 'insufficient_access', 'Requires developer access');
+    this.reconcileMerge(task);
+    const merge = task.merge;
+    if (options.fixConflict || options.resolution !== undefined) {
+      if (!merge || merge.merger !== this.viewerHandle)
+        return error(409, 'merge_fix_not_allowed', 'Only the merger may fix conflicts', {
+          reason: 'not_merger',
+        });
+      if (
+        (options.fixConflict && options.resolution !== undefined) ||
+        (options.fixConflict
+          ? merge.state !== 'failed' || merge.failure?.reason !== 'conflict'
+          : merge.state !== 'fixing' || !merge.fix)
+      )
+        return error(409, 'merge_fix_not_allowed', 'The merge is not in the required conflict state', {
+          reason: 'not_conflict',
+        });
+      const ready = mergeReadiness(this.config, task);
+      if (!ready.ready)
+        return error(409, 'merge_not_ready', 'The card is not ready', { reason: ready.reason });
+      if (options.fixConflict) {
+        this.mergeFixNotes.delete(taskKey);
+        this.writeMerge(task, {
+          ...merge,
+          state: 'fixing',
+          fix: {
+            by: this.viewerHandle,
+            base: merge.failure!.base,
+            branch: `merge-fix/${taskKey}`,
+            path: `/mock/worktrees/${this.config.project.key}/_merge-fix/${taskKey}-${merge.repo}`,
+            startedAt: nowIso(),
+          },
+        });
+        return ok({ task: clone(task) });
+      }
+      const reason = this.mergeFixErrors.get(taskKey);
+      if (reason) return error(409, 'merge_fix_invalid', 'Invalid committed fix', { reason });
+      this.mergeFixNotes.set(taskKey, options.resolution!);
+      this.addTimeline(taskKey, this.viewerHandle, 'task_note', { text: options.resolution!, mentions: [] });
+    }
+    // The fix of a conflict is the merger's tool, not the button (PM-471): the server refuses a start meanwhile.
+    if (merge?.state === 'fixing' && options.resolution === undefined)
+      return error(409, 'merge_fix_not_allowed', 'Submit the committed fix with resolution', {
+        reason: 'not_conflict',
+      });
+    const merger = merge?.merger ?? cardMerger(this.config, task, null);
+    if (!merger || merger !== this.viewerHandle)
+      return error(403, 'merge_not_merger', 'Only the card merger may start the merge');
+    const ready = mergeReadiness(this.config, task);
+    if (!ready.ready)
+      return error(409, 'merge_not_ready', 'The card is not ready to merge', { reason: ready.reason });
+    if (merge?.state === 'queued' || merge?.state === 'running') return ok({ task: clone(task) });
+    if (!merge) return error(409, 'merge_not_ready', 'The card has no work to merge', { reason: 'no_merge' });
+    const { block: _block, failure: _failure, ...kept } = merge;
+    this.writeMerge(task, {
+      ...kept,
+      state: 'queued',
+      step: 'queued',
+      ...(options.resolution !== undefined
+        ? { commit: mockCommit(task, 'd4'), branch: merge.fix!.branch }
+        : {}),
+      startedBy: this.viewerHandle,
+      startedAt: nowIso(),
+    });
+    this.closeMergeItems(task, merge.id, this.viewerHandle);
+    return ok({ task: clone(task) });
+  }
+
+  /**
+   * Moves a card's merge one step on: queued to running, each step of the run, then its end (merged by
+   * default; `setMergeOutcome` chooses a conflict, a failed check or a block). Returns the new state.
+   */
+  advanceMerge(taskKey: string): TaskMergeState | undefined {
+    const task = this.findTask(taskKey);
+    const merge = task?.merge;
+    if (!task || !merge || (merge.state !== 'queued' && merge.state !== 'running')) return merge;
+    const outcome = this.mergeOutcomes.get(taskKey) ?? 'merged';
+    const repo = this.config.project.repos.find((entry) => entry.name === merge.repo);
+    if (merge.state === 'queued') {
+      this.writeMerge(task, { ...merge, state: 'running', step: 'merging' });
+      return task.merge;
+    }
+    const step = merge.step === 'queued' || !merge.step ? 'merging' : merge.step;
+    if (outcome === 'conflict' && step === 'merging')
+      return this.failMerge(task, merge, {
+        reason: 'conflict',
+        at: nowIso(),
+        base: mockCommit(task, 'b2'),
+        files: ['src/checkout/cart.ts', 'src/checkout/cart.test.ts'],
+      });
+    if (outcome === 'check_failed' && step === 'checking')
+      return this.failMerge(task, merge, {
+        reason: 'check_failed',
+        at: nowIso(),
+        base: mockCommit(task, 'b2'),
+        command: repo?.reviewTest?.command ?? 'npm test',
+        outputTail: 'FAIL src/checkout/cart.test.ts\n  expected 3 items, got 2',
+      });
+    if (outcome === 'blocked' && step === 'pushing') return this.blockMerge(task, merge, 'push_rejected');
+    const next = MERGE_STEPS[MERGE_STEPS.indexOf(step) + 1];
+    if (next) {
+      this.writeMerge(task, {
+        ...merge,
+        step: next,
+        ...(next === 'pushing' && repo?.reviewTest
+          ? { check: { command: repo.reviewTest.command, status: 'passed' as const } }
+          : {}),
+      });
+      return task.merge;
+    }
+    const merged: TaskMerged = {
+      ...(this.mergeFixNotes.has(taskKey)
+        ? {
+            resolution: {
+              note: this.mergeFixNotes.get(taskKey)!,
+              commit: merge.commit ?? mockCommit(task, 'a1'),
+            },
+          }
+        : {}),
+      via: 'tool',
+      mergeCommit: mockCommit(task, 'c3'),
+      commit: merge.commit ?? mockCommit(task, 'a1'),
+      repo: merge.repo,
+      base: merge.base,
+      at: nowIso(),
+      ...(merge.startedBy ? { by: merge.startedBy } : {}),
+      ...(merge.check ? { check: merge.check } : {}),
+      ...(repo?.github ? { pushed: { remote: 'origin' } } : {}),
+    };
+    this.closeMergeItems(task, merge.id);
+    this.writeMerge(task, undefined, merged);
+    this.addTimeline(task.key, merge.startedBy ?? null, 'task_merged', { ...merged, mergeId: merge.id });
+    this.mergeFixNotes.delete(taskKey);
+    return undefined;
+  }
+
+  /** Runs a queued or running merge to its end. */
+  runMerge(taskKey: string): void {
+    for (let step = 0; step < MERGE_STEPS.length + 3; step += 1) {
+      const state = this.findTask(taskKey)?.merge?.state;
+      if (state !== 'queued' && state !== 'running') return;
+      this.advanceMerge(taskKey);
+    }
+  }
+
+  /** A merge that failed: the conflict or the check, kept on the card, the merger asked again. */
+  private failMerge(task: Task, merge: TaskMergeState, failure: MergeFailure): TaskMergeState {
+    const { block: _block, ...kept } = merge;
+    this.writeMerge(task, { ...kept, state: 'failed', step: undefined, failure });
+    this.addTimeline(task.key, null, 'task_merge_failed', { ...failure, mergeId: merge.id });
+    this.notifyMerge(task);
+    return task.merge!;
+  }
+
+  /** A merge that could not go on: a human merger gets an alert with a retry. */
+  private blockMerge(task: Task, merge: TaskMergeState, reason: MergeBlockReason): TaskMergeState {
+    const message = 'The push to the remote was rejected.';
+    const { failure: _failure, ...kept } = merge;
+    this.writeMerge(task, {
+      ...kept,
+      state: 'blocked',
+      step: undefined,
+      block: { reason, message, at: nowIso() },
+    });
+    this.addTimeline(task.key, null, 'task_merge_blocked', {
+      mergeId: merge.id,
+      repo: merge.repo,
+      base: merge.base,
+      reason,
+      message,
+      landed: merge.landed,
+    });
+    if (memberOf(this.config, merge.merger)?.kind === 'human')
+      this.upsertInbox({
+        id: mockId('inb'),
+        projectKey: task.projectKey,
+        kind: 'alert',
+        assignees: [merge.merger],
+        source: 'system',
+        sessionId: null,
+        taskKey: task.key,
+        title: message,
+        body: null,
+        payload: { alert: 'merge_blocked', taskKey: task.key, mergeId: merge.id, reason, message },
+        options: [ALERT_SEEN_OPTION],
+        state: 'open',
+        resolution: null,
+        createdAt: nowIso(),
+      });
+    return task.merge!;
+  }
+
+  /**
+   * The gate of a move into the merge target: the work has to be merged first. The refusal names the
+   * merger and the branch, and opens the card's merge request as the server's gate does.
+   */
+  private mergeGate(task: Task, stageId: string, labels: string[] = task.labels): MockResponse | null {
+    // Only when the move's own gates hold (PM-484): a missing approval is asked for first, as the server does.
+    const due = moveMerge(this.config, { ...task, labels }, task.stageId, stageId);
+    if (due.kind !== 'due') return null;
+    const repo = due.repo;
+    if (task.merged?.repo === repo.name) return null;
+    this.reconcileMerge(task);
+    return error(409, 'task_not_merged', 'The approved commit is not on the default branch', {
+      reason: this.mergeRefusals.get(task.key) ?? 'not_merged',
+      merger: cardMerger(this.config, task, null),
+      base: repo.defaultBranch,
+    });
+  }
+
+  /** Moves a card in the name of a member (a test or a scenario seeds an AI member's move this way). */
+  moveAs(taskKey: string, stageId: string, handle: string): MockResponse {
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    const member = memberOf(this.config, handle);
+    return this.move(task, stageId, { kind: member?.kind ?? 'human', handle });
+  }
+
+  /** The card mover is asked to take the card on: a "Vidd tovább" item for a person, a note for the card. */
+  private requestHandOn(task: Task, target: Stage, mover: string, actor: Actor): MockResponse {
+    const requestedBy = actor.handle ?? 'system';
+    const previous = task.handOn;
+    if (
+      previous?.fromStageId === task.stageId &&
+      previous.toStageId === target.id &&
+      previous.mover === mover
+    )
+      return ok(clone(task));
+    this.clearHandOn(task);
+    let inboxItemId: string | null = null;
+    if (memberOf(this.config, mover)?.kind === 'human') {
+      const item: InboxItem = {
+        id: mockId('inb'),
+        projectKey: task.projectKey,
+        kind: 'hand_on',
+        assignees: [mover],
+        source: requestedBy,
+        sessionId: null,
+        taskKey: task.key,
+        title: task.title,
+        body: null,
+        payload: {
+          handOn: { taskKey: task.key, fromStageId: task.stageId, toStageId: target.id, requestedBy },
+        },
+        options: [{ id: 'move', label: 'move', style: 'primary' }],
+        state: 'open',
+        resolution: null,
+        createdAt: nowIso(),
+      };
+      this.upsertInbox(item);
+      inboxItemId = item.id;
+    }
+    this.updateTask(task.key, {
+      handOn: {
+        fromStageId: task.stageId,
+        toStageId: target.id,
+        mover,
+        requestedBy,
+        requestedAt: nowIso(),
+        inboxItemId,
+      },
+    });
+    this.addTimeline(task.key, null, 'task_hand_on_requested', {
+      fromStageId: task.stageId,
+      toStageId: target.id,
+      mover,
+      requestedBy,
+    });
+    return ok(clone(task));
+  }
+
+  /** The request ends: an item still open (the card moved another way) is cancelled. */
+  private clearHandOn(task: Task): void {
+    const request = task.handOn;
+    if (!request) return;
+    const item = request.inboxItemId
+      ? this.inbox.find((entry) => entry.id === request.inboxItemId)
+      : undefined;
+    if (item?.state === 'open') this.upsertInbox({ ...item, state: 'cancelled' });
+    delete task.handOn;
+    this.emit({ type: 'task_upserted', projectKey: task.projectKey, task: clone(task) });
   }
 
   /** The open cards of a board column (themes and closed cards stand outside the order). */
@@ -3321,6 +4237,15 @@ export class MockBackend {
           outcome: 'approval_pending',
           inboxItemIds: failure.details?.inboxItemIds ?? [],
         });
+      else if (failure.code === 'task_not_merged')
+        items.push({
+          taskKey: card.key,
+          outcome: 'blocked',
+          code: 'task_not_merged',
+          message: 'The approved commit is not on the default branch',
+          unmet: [],
+          approvals: [],
+        });
       else if (failure.code === 'task_closed')
         items.push({ taskKey: card.key, outcome: 'skipped', reason: 'closed' });
       else if (NO_APPROVER_CODES.has(failure.code))
@@ -3387,6 +4312,11 @@ export class MockBackend {
     const nobody = this.noApproverError(task, target, approvals);
     if (nobody) return nobody;
     const requestId = mockId('gat');
+    // The merge that follows the approval (PM-484), so that the request can say who merges and into what.
+    const afterGates = moveMerge(this.config, task, task.stageId, target.id);
+    const merger = afterGates.kind === 'after_gates' ? cardMerger(this.config, task, null) : null;
+    const merge =
+      afterGates.kind === 'after_gates' && merger ? { merger, base: afterGates.repo.defaultBranch } : null;
     const items = approvals.map((approval): InboxItem => {
       const gate: GateRequestPayload = {
         requestId,
@@ -3397,6 +4327,7 @@ export class MockBackend {
         label: approval.label,
         requestedBy: actor,
         ...(placement ? { placement } : {}),
+        ...(merge ? { merge } : {}),
       };
       const item: InboxItem = {
         id: mockId('inb'),
@@ -3453,6 +4384,7 @@ export class MockBackend {
       this.expireLabels(task, 'moved_back');
     // Requests made from the previous stage are stale now.
     for (const item of this.openDecisions(task)) this.upsertInbox({ ...item, state: 'cancelled' });
+    this.clearHandOn(task);
   }
 
   /** Ends the "waiting for approval" status after a rejected or dropped request. */
@@ -3511,6 +4443,10 @@ export class MockBackend {
       this.settleWaiting(task, by, {
         gateBlocked: { to: target.id, unmet: evaluation.unmet, approvals: evaluation.approvals },
       });
+      return;
+    }
+    if (this.mergeGate(task, target.id)) {
+      this.settleWaiting(task, by, { gateBlocked: { to: target.id, reason: 'task_not_merged' } });
       return;
     }
     this.applyMove(
@@ -4157,6 +5093,8 @@ export class MockBackend {
         'project_manager_required',
         'the only AI project manager cannot be retired; hire another one first',
       );
+    if (isRequiredOperator(this.config, handle))
+      return error(409, 'operator_required', 'the Operator cannot be retired');
     const target = input.handoverTo ? this.findMember(input.handoverTo) : undefined;
     const next = clone(this.config);
     next.team.members = next.team.members.filter((m) => m.handle !== handle);
@@ -4276,17 +5214,53 @@ export class MockBackend {
 
   /** What the member is working on now (see `isWorkingOnTask`), plus its live other chats. */
   private memberLoad(handle: string): number {
-    const live = this.sessions.filter((s) => s.member === handle && this.isLive(s));
-    const keys = new Set(
-      live.flatMap((s) => {
-        if (s.workItem.type !== 'task') return [];
-        const task = this.findTask(s.workItem.taskKey);
-        return task && isOpenTask(task) && isWorkingOnTask(this.config, task, handle, s.state)
-          ? [task.key]
-          : [];
-      }),
-    );
-    return keys.size + live.filter((s) => s.workItem.type !== 'task').length;
+    return this.memberHolders(handle).length;
+  }
+
+  /** What takes the member's places (PM-297): one element per task, one per other live session. */
+  private memberHolders(handle: string): CapacityHolder[] {
+    const holders: CapacityHolder[] = [];
+    const ofTask = new Map<string, CapacityHolder>();
+    for (const s of this.sessions) {
+      if (s.member !== handle || !this.isLive(s)) continue;
+      const working = isSessionAtWork(s, {
+        awaitsFirstTurn: false,
+        pendingInput: false,
+        messageOnItsWay: false,
+      });
+      if (s.workItem.type !== 'task') {
+        holders.push({
+          kind: s.workItem.type,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        });
+        continue;
+      }
+      const task = this.findTask(s.workItem.taskKey);
+      if (!task || !isOpenTask(task) || !isWorkingOnTask(this.config, task, handle, s.state)) continue;
+      const held = ofTask.get(task.key);
+      if (!held) {
+        const holder: CapacityHolder = {
+          kind: 'task',
+          taskKey: task.key,
+          sessionId: s.id,
+          working,
+          startedAt: s.startedAt,
+          lastActivityAt: s.lastActivityAt,
+        };
+        ofTask.set(task.key, holder);
+        holders.push(holder);
+        continue;
+      }
+      held.working ||= working;
+      if (s.lastActivityAt > held.lastActivityAt) {
+        held.lastActivityAt = s.lastActivityAt;
+        held.sessionId = s.id;
+      }
+    }
+    return holders;
   }
 
   /** Like the server, a session records the agent CLI it runs: the member's provider. */
@@ -4342,17 +5316,58 @@ export class MockBackend {
 
   private humanTeamMessage(body: unknown): MockResponse {
     const viewer = this.findMember(this.viewerHandle);
-    if (!viewer || !['owner', 'admin', 'developer', 'client'].includes(viewer.role))
+    if (!viewer || viewer.kind !== 'human')
       return error(403, 'insufficient_access', 'Developer or client required');
     const input = parseBody(SendTeamMessageRequest, body);
     if (!input) return error(400, 'invalid_request', 'Invalid message');
+    if (viewer.role === 'viewer' || this.viewerAccess() === 'viewer') {
+      const operator = operatorOf(this.config);
+      if (!operator || input.to.some((handle) => handle !== operator.handle))
+        return error(403, 'insufficient_access', 'Viewers may write to the Operator alone');
+    }
     if (input.taskKey) {
       const task = this.findTask(input.taskKey);
       if (!task || !this.canSee(task)) return error(404, 'not_found', 'Unknown task');
     }
-    const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text);
+    const ids = input.attachmentIds ?? [];
+    const attached = ids.map((id) => this.messageAttachments.find((file) => file.id === id));
+    if (
+      attached.some(
+        (file) =>
+          !file ||
+          file.messageId ||
+          file.uploadedBy.kind !== 'human' ||
+          file.uploadedBy.handle !== this.viewerHandle,
+      )
+    )
+      return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
+    const refusal = this.teamMessageRefusal(this.viewerHandle, input.to, input.text, ids.length > 0);
     if (refusal) return refusal;
-    const message = this.sendTeamMessage(this.viewerHandle, input.to, input.taskKey ?? null, input.text);
+    // "Igen, intézd" accepts the Operator's open signal with the message itself (PM-476).
+    const signal = input.operatorSignal
+      ? this.operatorSignals.find((entry) => entry.id === input.operatorSignal)
+      : undefined;
+    if (input.operatorSignal) {
+      if (!signal) return error(404, 'not_found', 'Unknown signal');
+      if (signal.state !== 'open')
+        return error(409, 'operator_signal_closed', 'The signal is no longer open');
+    }
+    const message = this.sendTeamMessage(
+      this.viewerHandle,
+      input.to,
+      input.taskKey ?? null,
+      input.text,
+      undefined,
+      undefined,
+      undefined,
+      attached as MessageAttachmentRef[],
+    );
+    for (const file of attached) file!.messageId = message.id;
+    if (signal) {
+      signal.state = 'accepted';
+      signal.decidedBy = this.viewerHandle;
+      signal.decidedAt = nowIso();
+    }
     return { status: 202, body: clone(message) };
   }
 
@@ -4398,6 +5413,97 @@ export class MockBackend {
     if (session?.state === 'working' || session?.state === 'waiting_permission')
       return ok({ member, state: 'working', sessionId });
     return ok({ member, state: 'available', sessionId });
+  }
+
+  /**
+   * The viewer's Operator channel (PM-447): every human member has one; a viewer who is not an owner reads and
+   * answers only (`readOnly`, no signals). The state follows the project manager's rules.
+   */
+  private operatorChannel(): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (!viewer || viewer.kind !== 'human') return error(403, 'insufficient_access', 'A member is required');
+    const operator = operatorOf(this.config);
+    const session = operator
+      ? this.sessions.find((s) => s.member === operator.handle && s.workItem.type === 'general')
+      : undefined;
+    const sessionId = session?.id ?? null;
+    const readOnly = viewer.role !== 'owner';
+    const rest = {
+      requests: clone(this.operatorRequests),
+      readOnly,
+      signals: readOnly ? [] : clone(this.operatorSignals),
+      openSignals: readOnly ? 0 : this.operatorSignals.filter((s) => s.state === 'open').length,
+    };
+    if (!operator) return ok({ member: null, state: 'missing', sessionId, ...rest });
+    const member = {
+      handle: operator.handle,
+      displayName: operator.displayName,
+      onLeave: isOnLeave(operator),
+    };
+    if (this.pauses.isPaused())
+      return ok({
+        member,
+        state: 'waiting',
+        waiting: { reason: 'team_paused', since: nowIso() },
+        sessionId,
+        ...rest,
+      });
+    if (session?.state === 'starting') return ok({ member, state: 'starting', sessionId, ...rest });
+    if (session?.state === 'working' || session?.state === 'waiting_permission')
+      return ok({ member, state: 'working', sessionId, ...rest });
+    return ok({ member, state: 'available', sessionId, ...rest });
+  }
+
+  /** "Most ne": only the owner sets an open signal aside; a closed one is a 409 the card shows. */
+  private dismissOperatorSignal(id: string): MockResponse {
+    const viewer = this.findMember(this.viewerHandle);
+    if (viewer?.role !== 'owner') return error(403, 'operator_owner_only', 'Only the owner may decide');
+    const signal = this.operatorSignals.find((entry) => entry.id === id);
+    if (!signal) return error(404, 'not_found', 'Unknown signal');
+    if (signal.state !== 'open') return error(409, 'operator_signal_closed', 'The signal is no longer open');
+    signal.state = 'dismissed';
+    signal.decidedBy = viewer.handle;
+    signal.decidedAt = nowIso();
+    return ok(clone(signal));
+  }
+
+  /**
+   * An Operator proposal decided in the inbox. Approving after the configuration moved on makes the item stale
+   * (the server's 409 `operator_approval_stale`, the card then offers only "Rendben"); "dismiss" closes a stale one.
+   */
+  private resolveOperatorApproval(
+    item: InboxItem,
+    payload: OperatorApprovalPayload,
+    optionId: string,
+    by: string,
+  ): MockResponse {
+    const step = this.operatorRequests
+      .flatMap((request) => request.steps)
+      .find((candidate) => candidate.id === payload.stepId);
+    if (
+      optionId === 'approve' &&
+      (payload.stale || (payload.baseVersion !== null && payload.baseVersion !== this.configVersion))
+    ) {
+      this.upsertInbox({
+        ...item,
+        options: [OPERATOR_DISMISS_OPTION],
+        payload: {
+          ...item.payload,
+          operator: { ...payload, stale: payload.stale ?? { reason: 'config_changed', at: nowIso() } },
+        },
+      });
+      if (step) step.status = 'stale';
+      return error(409, 'operator_approval_stale', 'The proposal is out of date');
+    }
+    if (step)
+      step.status = optionId === 'approve' ? 'approved' : optionId === 'reject' ? 'rejected' : 'stale';
+    const resolved: InboxItem = {
+      ...item,
+      state: 'resolved',
+      resolution: { optionId, by, at: nowIso(), note: null },
+    };
+    this.upsertInbox(resolved);
+    return ok(clone(resolved));
   }
 
   private startConversation(handle: string): MockResponse {
@@ -4662,7 +5768,10 @@ export class MockBackend {
   private resolve(itemId: string, body: unknown): MockResponse {
     const input = parseBody(ResolveInboxRequest, body);
     const item = this.inbox.find((entry) => entry.id === itemId);
-    if (!item || !input) return error(404, 'not_found', 'Unknown inbox item');
+    if (!input) return error(400, 'invalid_request', 'Invalid inbox resolution');
+    if (!item) return error(404, 'not_found', 'Unknown inbox item');
+    if (input.attachmentIds !== undefined && item.kind !== 'question')
+      return error(400, 'invalid_request', 'Only questions accept attachmentIds', { field: 'attachmentIds' });
     if (item.state !== 'open') return error(409, 'inbox_item_closed', 'Already resolved');
     if (!item.options.some((option) => option.id === input.optionId)) {
       return error(400, 'unknown_option', `Unknown option ${input.optionId}`);
@@ -4670,6 +5779,12 @@ export class MockBackend {
     const viewer = memberOf(this.config, this.viewerHandle);
     if (viewer?.kind !== 'human') return error(403, 'ai_approval_forbidden', 'Only humans may approve');
     if (item.kind === 'boundary') return error(403, 'insufficient_access', 'Use the boundary endpoint');
+    const operatorApproval = operatorApprovalOf(item);
+    if (operatorApproval) {
+      if (!item.assignees.includes(viewer.handle) && viewer.access !== 'owner')
+        return error(403, 'not_an_assignee', 'Only assignees may decide');
+      return this.resolveOperatorApproval(item, operatorApproval, input.optionId, viewer.handle);
+    }
     const gate = item.kind === 'decision' && input.optionId === 'approve' ? gateRequestOf(item) : null;
     if (gate?.label) {
       // Approving puts the label on in the approver's name: the label rules apply up front.
@@ -4680,8 +5795,50 @@ export class MockBackend {
     if (!item.assignees.includes(viewer.handle) && !(item.kind !== 'decision' && viewer.access === 'owner'))
       return error(403, 'not_an_assignee', 'Only assignees may decide');
     const note = input.note?.trim() || null;
-    if (item.kind === 'question' && input.optionId === 'answer' && !note) {
+    const attached = (input.attachmentIds ?? []).map((id) =>
+      this.messageAttachments.find((file) => file.id === id),
+    );
+    if (
+      attached.some(
+        (file) =>
+          !file ||
+          file.projectKey !== item.projectKey ||
+          file.messageId ||
+          file.uploadedBy.kind !== 'human' ||
+          file.uploadedBy.handle !== viewer.handle,
+      )
+    )
+      return error(409, 'message_attachment_unavailable', 'Attachment unavailable');
+    if (attached.length && memberOf(this.config, item.source)?.kind !== 'ai')
+      return error(400, 'invalid_request', 'Only AI questions accept attachments', {
+        field: 'attachmentIds',
+      });
+    if (item.kind === 'question' && input.optionId === 'answer' && !note && !attached.length) {
       return error(400, 'answer_required', 'A free-text answer needs a note');
+    }
+    if (item.kind === 'hand_on') {
+      // Taking the card on is a move under the gates: refused, the item stays open.
+      const request = handOnRequestOf(item);
+      const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+      if (!request || !task) return error(404, 'not_found', 'Unknown task');
+      const unmerged = this.mergeGate(task, request.toStageId);
+      if (unmerged) return unmerged;
+      const evaluation = evaluateMove(task, this.config, task.stageId, request.toStageId);
+      if (evaluation.unmet.length || evaluation.approvals.length) return gateBlockedError(evaluation);
+    }
+    if (item.kind === 'merge_request') {
+      // Resolving the request starts the merge: the same route, the same rules.
+      const request = mergeRequestOf(item);
+      if (!request) return error(404, 'not_found', 'Unknown merge request');
+      const started = this.startMerge(request.taskKey);
+      if (started.status >= 400) return started;
+    }
+    const release = releaseApprovalOf(item);
+    if (item.kind === 'release') {
+      if (!release || !item.taskKey) return error(404, 'not_found', 'Unknown release');
+      // The integrator's key is no approval: the server refuses it the same way.
+      if (this.refuseReleaseApproval)
+        return error(403, 'owner_approval_required', 'Only an owner decides a release');
     }
     const resolved: InboxItem = {
       ...item,
@@ -4689,7 +5846,17 @@ export class MockBackend {
       resolution: { optionId: input.optionId, by: viewer.handle, at: nowIso(), note },
     };
     this.upsertInbox(resolved);
-    this.afterResolve(resolved);
+    if (release && item.taskKey) {
+      const approved = input.optionId === 'approve';
+      this.addTimeline(item.taskKey, viewer.handle, 'release_changed', {
+        releaseId: release.releaseId,
+        state: approved ? 'approved' : 'rejected',
+        previousState: 'proposed',
+        commit: release.commit,
+        ...(!approved && note ? { note } : {}),
+      });
+    }
+    this.afterResolve(resolved, attached as MessageAttachmentRef[]);
     return ok(clone(resolved));
   }
 
@@ -4822,7 +5989,7 @@ export class MockBackend {
   }
 
   /** What the server does with a decision: record it, answer the asker, apply a gate decision. */
-  private afterResolve(item: InboxItem): void {
+  private afterResolve(item: InboxItem, attachments: MessageAttachmentRef[] = []): void {
     const resolution = item.resolution!;
     const sessionId = item.sessionId;
     if (loopDecisionOf(item)) {
@@ -4864,11 +6031,32 @@ export class MockBackend {
         sessionId,
       );
       const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
-      this.sendTeamMessage(resolution.by, [item.source], item.taskKey, answer, undefined, {
-        inboxItemId: item.id,
-        question,
+      const message = this.sendTeamMessage(
+        resolution.by,
+        [item.source],
+        item.taskKey,
         answer,
-      });
+        undefined,
+        {
+          inboxItemId: item.id,
+          question,
+          answer,
+        },
+        undefined,
+        attachments,
+      );
+      for (const attachment of attachments) {
+        const stored = this.messageAttachments.find((file) => file.id === attachment.id);
+        if (stored) stored.messageId = message.id;
+      }
+      return;
+    }
+    if (item.kind === 'hand_on') {
+      const request = handOnRequestOf(item);
+      const task = item.taskKey ? this.findTask(item.taskKey) : undefined;
+      const target = request ? stageOf(this.config, request.toStageId) : undefined;
+      if (task && target && task.stageId !== target.id)
+        this.applyMove(task, target, { kind: 'human', handle: resolution.by }, {});
       return;
     }
     const gate = item.kind === 'decision' ? gateRequestOf(item) : null;

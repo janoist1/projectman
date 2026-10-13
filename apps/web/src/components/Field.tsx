@@ -214,7 +214,7 @@ interface ChoiceCardProps {
   checked: boolean;
   onChange: (value: string) => void;
   title: ReactNode;
-  description?: string;
+  description?: ReactNode;
   leading?: ReactNode;
 }
 

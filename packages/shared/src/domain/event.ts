@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import type { DeveloperLevel } from './developer-level';
 import type { FullTestErrorReason } from './full-test';
+import type { MergeBlockReason, MergeFailure, TaskMerged } from './merge';
+import type { QuestionCloseRule, QuestionTodo, ScreeningOutcome } from './inbox';
 import type { SessionStop } from './involvement';
 import type { LabelChangeReason } from './label';
 import type { HandoffFallbackReason, HandoffReason, PreviousConversationReason } from './handoff';
@@ -8,8 +10,9 @@ import type { CardVersion, MessageKind } from './message';
 import { MemberHandle, type AgentProvider } from './member';
 import type { PauseScopeKind, PauseSource } from './pause';
 import type { GateCondition } from './pipeline';
+import type { ReleaseFailure, ReleaseState } from './release';
 import { TaskKey } from './task';
-import type { TaskPriority } from './task';
+import type { TaskPriority, TaskStartWaiting } from './task';
 
 /** Who did something. Every step is attributed to a human, an AI member or the system. */
 export const Actor = z.object({
@@ -25,6 +28,7 @@ export const TimelineEventType = z.enum([
   'task_created',
   'task_updated',
   'task_stage_changed',
+  'task_hand_on_requested',
   'task_assigned',
   'task_level_changed',
   'task_senior_wait',
@@ -35,9 +39,11 @@ export const TimelineEventType = z.enum([
   'task_relation_removed',
   'task_theme_changed',
   'task_prerequisite_closed',
+  'task_parts_left',
   'task_note',
   'attachment_added',
   'attachment_deleted',
+  'feedback_linked',
   'schedule_started',
   'schedule_skipped',
   'session_started',
@@ -52,11 +58,20 @@ export const TimelineEventType = z.enum([
   'permission_escalated',
   'question_asked',
   'question_answered',
+  'question_screened',
+  'question_screening_skipped',
+  'question_closed',
+  'question_answer_delivery',
   'refinement_turn',
   'task_loop',
   'task_fix_limit',
   'task_handoff',
   'task_full_test',
+  'task_merge_requested',
+  'task_merge_failed',
+  'task_merged',
+  'task_merge_blocked',
+  'release_changed',
   'member_hired',
   'member_retired',
   'config_changed',
@@ -84,6 +99,12 @@ export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 /** Known payload shapes per event type (documentation for producers and renderers). */
 export interface TimelineEventData {
+  task_hand_on_requested: {
+    fromStageId: string;
+    toStageId: string;
+    mover: string;
+    requestedBy: string;
+  };
   boundary_changed: {
     requestId: string;
     operation: string;
@@ -158,6 +179,31 @@ export interface TimelineEventData {
     reason?: 'member_removed' | 'handover';
     from?: string;
   };
+  task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  task_merge_failed: MergeFailure & { mergeId: string };
+  task_merged: TaskMerged & { mergeId?: string };
+  task_merge_blocked: {
+    mergeId: string;
+    repo: string;
+    base: string;
+    reason: MergeBlockReason;
+    message: string;
+    landed: 'nowhere' | 'remote';
+    mergeCommit?: string;
+  };
+  /** The release of the instance changed state (PM-491), on the release card; `previousState` null: it was proposed. */
+  release_changed: {
+    releaseId: string;
+    state: ReleaseState;
+    previousState: ReleaseState | null;
+    commit: string;
+    tag?: string;
+    url?: string;
+    failure?: ReleaseFailure;
+    publishError?: string;
+    /** The reason the person gave when they rejected the release (state `rejected` only); absent when none. */
+    note?: string;
+  };
   /** The recommended developer of the card was set or changed (PM-347); `previous` null: there was none. */
   task_level_changed: {
     level: DeveloperLevel;
@@ -209,11 +255,25 @@ export interface TimelineEventData {
    * Recorded on every open card that needed it.
    */
   task_prerequisite_closed: { ref: string; status: string; remaining: string[] };
+  /**
+   * Parts of this card, created by `member` when they broke it down, were left in the first stage (PM-480).
+   * `told`: the system reminded the member once (`messageId`); `alerted`: the owners were told, because
+   * the parts were still left after the member's next turn (`inboxItemId`). The system actor writes both.
+   */
+  task_parts_left: {
+    phase: 'told' | 'alerted';
+    member: string;
+    parts: string[];
+    messageId?: string;
+    inboxItemId?: string;
+  };
   task_note: { text: string; mentions?: string[]; importedAuthor?: string; importedAt?: string };
   /** The file name is the sanitised metadata; the audit keeps it after the attachment is deleted. */
   attachment_added: { attachmentId: string; fileName: string; size: number; mediaType: string };
   /** The actor is who deleted it; the uploader is in the matching `attachment_added`. */
   attachment_deleted: { attachmentId: string; fileName: string; size: number; mediaType: string };
+  /** A feedback mark was tied to the card (PM-506): `created` the card was opened from it, else it was linked. */
+  feedback_linked: { markId: string; created: boolean };
   schedule_started: { runId: string; member: string; scheduledFor: string };
   schedule_skipped: { runId: string; member: string; scheduledFor: string; reason: string };
   /**
@@ -300,8 +360,39 @@ export interface TimelineEventData {
     assignees: string[];
     reason?: string;
   };
-  question_asked: { inboxItemId: string; question: string };
+  /**
+   * `screening`: the Operator screens the question first (PM-556); `unscreened`: it was asked again
+   * without screening, replacing `previousItemId`, for `reason`.
+   */
+  question_asked: {
+    inboxItemId: string;
+    question: string;
+    screening?: true;
+    unscreened?: { reason: string; previousItemId: string };
+  };
   question_answered: { inboxItemId: string; answer: string };
+  /** The Operator decided about a question of `asker` (PM-556); `note` is its reason or background. */
+  question_screened: {
+    inboxItemId: string;
+    asker: string;
+    outcome: ScreeningOutcome;
+    note: string;
+    forwardedTo?: string;
+    answer?: string;
+    todo?: QuestionTodo;
+    feedbackId?: string;
+  };
+  /** A question of `asker` went to the people with no Operator outcome (PM-556). */
+  question_screening_skipped: { inboxItemId: string; asker: string; reason: 'timeout' | 'unavailable' };
+  /** A pending question of `asker` was closed without an answer by `rule` (PM-556). */
+  question_closed: { inboxItemId: string; asker: string; rule: QuestionCloseRule; note: string | null };
+  /** The answer of a question waits for the session of `asker`, or reached it (PM-556). */
+  question_answer_delivery: {
+    inboxItemId: string;
+    asker: string;
+    state: 'waiting' | 'delivered';
+    reason?: TaskStartWaiting['reason'];
+  };
   /**
    * The turn on a card that is being refined changed (PM-254): `label` is the label the step lacks
    * and `member` the AI member started for it (null: nobody, the people who may set it were told, or

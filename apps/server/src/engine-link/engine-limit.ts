@@ -9,6 +9,14 @@ import {
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
 } from '../domain/session-policy';
+import {
+  isBranchName,
+  isCommitFileSet,
+  isCommitId,
+  isMergeId,
+  isMergeMessage,
+  isRepoFilePath,
+} from '../engine-host/merge-input';
 import { isWithin } from '../engine-host/within';
 import { BILLING_ENV_VARS } from '../runner';
 import { engineFiles } from './engine-config';
@@ -188,6 +196,35 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       refuse('repo_not_registered', `${projectKey} is not registered on this engine`);
   };
 
+  /**
+   * A merge call's repository (PM-451): registered, and with a `mergeBranch`. The merge and the push run
+   * with this machine's git login, so the cloud can reach only the one branch the owner named here.
+   */
+  const mergeRepo = (ref: { projectKey: string; repo: string }) => {
+    const entry = config.repos.find((repo) => repo.project === ref.projectKey && repo.repo === ref.repo);
+    if (!entry)
+      return refuse('repo_not_registered', `${ref.projectKey}/${ref.repo} is not registered on this engine`);
+    if (!entry.mergeBranch)
+      return refuse(
+        'merge_not_allowed',
+        `${ref.projectKey}/${ref.repo} may not be merged into from the cloud`,
+      );
+    return { ...entry, mergeBranch: entry.mergeBranch };
+  };
+  const mergeBase = async (ref: { projectKey: string; repo: string }, base: string) => {
+    const entry = mergeRepo(ref);
+    if (!(await isBranchName(base))) refuse('invalid_params', 'The base is not a branch name');
+    if (base !== entry.mergeBranch)
+      refuse('merge_not_allowed', `Only ${entry.mergeBranch} may be merged into from the cloud`);
+    return entry;
+  };
+  const commitIds = (...ids: string[]) => {
+    for (const id of ids) if (!isCommitId(id)) refuse('invalid_params', 'Not a commit id');
+  };
+  const mergeIdOf = (id: string) => {
+    if (!isMergeId(id)) refuse('invalid_params', 'Not a merge id');
+  };
+
   const withDenials = <T extends { denyRead?: string[]; denyWrite?: string[]; deniedEnvVars?: string[] }>(
     sandbox: T,
   ): T => ({
@@ -326,6 +363,13 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       return params;
     },
     'worktree.ensureForTask': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.ensureMergeFix': ([arg]) => {
+      commitIds(arg.commit);
+      return [{ ...arg, project: bind(arg.project, arg.repoName) }];
+    },
+    'worktree.findMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.removeMergeFix': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
+    'worktree.listMergeFixes': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.find': ([arg]) => [{ ...arg, project: bind(arg.project, arg.repoName) }],
     'worktree.status': (params) => {
       inside(params[0], 'The worktree');
@@ -474,11 +518,96 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
       inside(params.dir, 'The image directory');
       return params;
     },
+    'merge.prepare': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.commit);
+      return params;
+    },
+    'merge.is_ancestor': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.ancestor, params.commit);
+      return params;
+    },
+    'merge.build': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.onto, params.commit);
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      return params;
+    },
+    'merge.checkout_conflicts': async (params) => {
+      await mergeBase(params.ref, params.base);
+      if (params.changed.some((entry) => entry.includes('\0') || entry.length > 4096))
+        refuse('invalid_params', 'Not a path');
+      return params;
+    },
+    'merge.checkout_for_check': (params) => {
+      const entry = mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      commitIds(params.mergeCommit);
+      if (params.depsFrom !== null)
+        inside(params.depsFrom, 'The dependencies path', [
+          ...present([paths.worktreesRoot]).map(resolveReal),
+          resolveReal(entry.path),
+        ]);
+      return params;
+    },
+    'merge.release_check': (params) => {
+      mergeRepo(params.ref);
+      mergeIdOf(params.mergeId);
+      return params;
+    },
+    'merge.push': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.mergeCommit);
+      return params;
+    },
+    'merge.advance': async (params) => {
+      await mergeBase(params.ref, params.base);
+      commitIds(params.from, params.to);
+      return params;
+    },
+    'merge.read_file': async (params) => {
+      if ('base' in params.at) await mergeBase(params.ref, params.at.base);
+      else {
+        mergeRepo(params.ref);
+        commitIds(params.at.commit);
+      }
+      if (!isRepoFilePath(params.path)) refuse('invalid_params', 'Not a path inside the repository');
+      return params;
+    },
+    'merge.commit_files': (params) => {
+      mergeRepo(params.ref);
+      commitIds(params.onto);
+      if (!isCommitFileSet(params.files))
+        refuse(
+          'invalid_params',
+          'Not a set of 1 to 2 different files inside the repository, each text under 1 MiB',
+        );
+      if (!isMergeMessage(params.message) || params.message.trim().length === 0)
+        refuse('invalid_params', 'Not a commit message');
+      return params;
+    },
     'files.export': (params) => {
       const allowed = limit.exportRoots(params.sessionId);
       if (!path.isAbsolute(params.root) || !allowed.includes(resolveReal(params.root)))
         refuse('path_outside_roots', 'Files can be exported from a running session’s own directories only');
       limit.token(params.uploadToken);
+      return params;
+    },
+    'files.materialize_into_session': (params) => {
+      limit.token(params.downloadToken);
+      // The session's own folder is the only place: the engine knows it from `folders.make`.
+      if (!sessions.get(params.sessionId)?.folder)
+        refuse('invalid_params', 'The session has no folder on this engine');
+      if (
+        !params.name ||
+        params.name.length > 255 ||
+        params.name === '.' ||
+        params.name === '..' ||
+        /[/\\\0]/.test(params.name)
+      )
+        refuse('invalid_params', 'Invalid file name');
       return params;
     },
     'files.materialize': (params) => {

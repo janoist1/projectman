@@ -2,16 +2,23 @@ import {
   DEFAULT_AGENT_PROVIDER,
   formatInjectedTeamMessage,
   isOpenTask,
+  isOperator,
   isProjectManager,
   isRefining,
   isTheme,
   labelDefinition,
   memberOf,
+  operatorOf,
+  ownerHandles,
   messageRoute,
+  messageWakeBlock,
+  messageWakes,
+  operatorConversationOf,
   projectRefines,
   routeFor,
   sameWorkItem,
   sessionWorkItemOf,
+  QuestionCloseRule,
   quoteOf,
   stageHandsOverForReview,
   stageOf,
@@ -28,10 +35,13 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
-import type { EngineDirectory, SentMessageRecipient } from '../../contracts';
+import type { EngineDirectory, SentMessageRecipient, WakeStart } from '../../contracts';
 import type { RefinementSteps } from '../admission';
+import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { DomainError, invalid } from '../errors';
+import { DomainError, forbidden, invalid, conflict } from '../errors';
+import type { MessageAttachmentService } from '../message-attachments';
+import type { OperatorSignals } from '../operator-signals';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -40,7 +50,10 @@ import type { TaskService } from '../tasks';
 import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
-import { recipientHasCardRole, wakeBlockFor, wakesFor } from './staleness';
+import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
+
+/** How long a send that asks for the start's result (`awaitWake`) waits for it before it answers "starting" (PM-543). */
+export const WAKE_REPLY_WAIT_MS = 5000;
 
 export interface SendOptions {
   origin?: TeamMessage['origin'];
@@ -69,6 +82,24 @@ export interface SendOptions {
    * session on a family card (`place`, step 2). Internal, not a contract.
    */
   ownCard?: boolean;
+  /** The owner's request to the Operator this message is sent during (PM-463). Internal, not a contract. */
+  operatorRequest?: string;
+  operatorSignal?: string;
+  signalActionable?: boolean;
+  operatorSignals?: { id: string; actionable: boolean }[];
+  /** Runs synchronously in the message transaction, before binding files or recording the message. */
+  beforeRecord?: () => void;
+  /**
+   * The send waits (at most `WAKE_REPLY_WAIT_MS`) for the wake-up of each recipient that gets no running
+   * session's input, and reports what became of it (`SentMessageRecipient.start`, PM-543). Without it the
+   * wake-up goes on in the background (`message_waiting`) and the send is not slowed. Internal, not a contract.
+   */
+  awaitWake?: boolean;
+}
+
+/** What the send needs to wake a recipient and learn the result (`MessageStarts.wake`). */
+export interface MessageWaker {
+  wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart>;
 }
 
 /**
@@ -80,6 +111,10 @@ export interface SendOptions {
  * Humans read theirs in the app. A message never goes to its own sender.
  */
 export class Messaging {
+  private operatorSignals?: OperatorSignals;
+  useOperatorSignals(signals: OperatorSignals): void {
+    this.operatorSignals = signals;
+  }
   /** A card start mapped to the permanent channel still gives the manager its assignment. */
   async projectManagerStart(
     projectKey: string,
@@ -108,6 +143,7 @@ export class Messaging {
   private readonly messages: MessageService;
   private readonly delivery: MessageDelivery;
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
+  private readonly messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
   private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
   private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
   private fullTests:
@@ -127,7 +163,10 @@ export class Messaging {
     refinement: Pick<RefinementSteps, 'turnMember'>;
     /** The engines (PM-315): a message to a member whose engine is not connected waits for it. */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
+    /** The files a message carries (PM-516): checked before the message is sent, bound to it as it is recorded. */
+    messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
   }) {
+    this.messageAttachments = deps.messageAttachments;
     this.engines = deps.engines;
     this.ctx = deps.ctx;
     this.projects = deps.projects;
@@ -136,6 +175,18 @@ export class Messaging {
     this.messages = deps.messages;
     this.delivery = deps.delivery;
     this.refinement = deps.refinement;
+  }
+
+  private waker: MessageWaker | undefined;
+  private wakeReplyWaitMs = WAKE_REPLY_WAIT_MS;
+
+  /**
+   * Binds the session starts (PM-543): a send with `awaitWake` calls them directly instead of emitting
+   * `message_waiting`. They are built after this class. `replyWaitMs` is for tests.
+   */
+  useMessageStarts(waker: MessageWaker, replyWaitMs = WAKE_REPLY_WAIT_MS): void {
+    this.waker = waker;
+    this.wakeReplyWaitMs = replyWaitMs;
   }
 
   /** Binds the fix round limit (PM-262); it sends messages itself, so it is built after this class. */
@@ -160,7 +211,7 @@ export class Messaging {
   async send(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null },
+    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<TeamMessage> {
     return (await this.sendReporting(projectKey, from, input, opts)).message;
@@ -170,12 +221,15 @@ export class Messaging {
   async sendReporting(
     projectKey: string,
     from: string,
-    input: { to: string[]; text: string; taskKey?: string | null },
+    input: { to: string[]; text: string; taskKey?: string | null; attachmentIds?: string[] },
     opts: SendOptions = {},
   ): Promise<{ message: TeamMessage; recipients: SentMessageRecipient[] }> {
     const config = await this.projects.config(projectKey);
     const text = input.text.trim();
-    if (!text) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    const attachmentIds = input.attachmentIds ?? [];
+    // Empty text is a message of files alone (PM-516).
+    if (!text && attachmentIds.length === 0)
+      throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
     const recipients = unique(input.to).filter((handle) => handle !== from);
     if (recipients.length === 0)
       throw invalid('invalid_request', 'the message names no recipient but its sender', { field: 'to' });
@@ -185,6 +239,44 @@ export class Messaging {
         status: 404,
         details: { what: 'member', id: unknown[0], ids: unknown },
       });
+    const operator = isOperator(memberOf(config, from));
+    const signals =
+      opts.operatorSignals ??
+      (operator && opts.operatorSignal !== undefined
+        ? [{ id: opts.operatorSignal, actionable: opts.signalActionable ?? false }]
+        : []);
+    if (
+      opts.operatorSignals !== undefined &&
+      (!operator ||
+        opts.operatorSignal !== undefined ||
+        signals.length === 0 ||
+        signals.length > 20 ||
+        new Set(signals.map((s) => s.id)).size !== signals.length)
+    )
+      throw invalid('invalid_request', 'invalid signal presentation arguments');
+    if (signals.length > 0) {
+      if (recipients.some((handle) => !ownerHandles(config).includes(handle)))
+        throw invalid('invalid_request', 'signals go only to owners');
+      for (const signal of signals) this.operatorSignals!.presentation(projectKey, signal.id);
+    }
+    if (opts.operatorSignal !== undefined && !operator) {
+      if (
+        !ownerHandles(config).includes(from) ||
+        (opts.actor && (opts.actor.kind !== 'human' || opts.actor.handle !== from || opts.actor.via)) ||
+        recipients.length !== 1 ||
+        recipients[0] !== operatorOf(config)?.handle
+      ) {
+        throw conflict(
+          'operator_signal_closed',
+          'only an owner using their own login may accept a signal addressed to the Operator',
+        );
+      }
+    }
+    if (!opts.origin) this.assertMayWriteToOperator(config, from, recipients, opts.actor);
+    const sender = opts.actor ?? humanActor(from);
+    // The files are checked before anything else is done for the message (a refusal leaves nothing behind)
+    // and bound to it in its own unit of work below.
+    if (attachmentIds.length > 0) this.messageAttachments.assertSendable(projectKey, sender, attachmentIds);
     const taskKey = input.taskKey ?? null;
     const task = taskKey ? this.tasks.get(projectKey, taskKey) : null;
     const humans = recipients.filter((handle) => memberOf(config, handle)?.kind === 'human');
@@ -227,35 +319,60 @@ export class Messaging {
       .map((handle) => {
         const hold = this.holdOf(config, task, from, handle, opts);
         if (hold) return { handle, hold, workItem: routeFor(taskKey), running: null };
-        return { handle, hold: null, ...this.place(projectKey, config, handle, workItem, !!opts.ownCard) };
+        return {
+          handle,
+          hold: null,
+          ...this.place(projectKey, config, handle, workItem, !!opts.ownCard, from),
+        };
       });
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
       if (!sameWorkItem(where, routeFor(taskKey))) routes[handle] = where;
-    const message = this.messages.record({
-      projectKey,
-      from,
-      to: recipients,
-      taskKey,
-      body: text,
-      actor: opts.actor ?? humanActor(from),
-      sessionId: opts.sessionId ?? null,
-      humanRecipients: humans,
-      delivered: recipients.every((handle) => humans.includes(handle)),
-      routes,
-      answer: opts.answer,
-      origin: opts.origin,
-      kind: opts.kind ?? 'action',
-      subject: opts.subject,
-      version: task
-        ? {
-            stageId: task.stageId,
-            commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
-            reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
-          }
-        : undefined,
+    const version = task
+      ? {
+          stageId: task.stageId,
+          commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
+          reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
+        }
+      : undefined;
+    const message = this.ctx.unitOfWork(() => {
+      opts.beforeRecord?.();
+      if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
+        this.operatorSignals!.decision(projectKey, opts.operatorSignal, from, true);
+      const id = newId('msg');
+      const attachments =
+        attachmentIds.length > 0
+          ? this.messageAttachments.bindForSend(projectKey, sender, attachmentIds, id)
+          : undefined;
+      const recorded = this.messages.record({
+        id,
+        projectKey,
+        from,
+        to: recipients,
+        taskKey,
+        body: text,
+        attachments,
+        actor: sender,
+        sessionId: opts.sessionId ?? null,
+        humanRecipients: humans,
+        delivered: recipients.every((handle) => humans.includes(handle)),
+        routes,
+        answer: opts.answer,
+        origin: opts.origin,
+        kind: opts.kind ?? 'action',
+        subject: opts.subject,
+        operatorRequest: opts.operatorRequest,
+        operatorSignal: operator ? (signals.length === 1 ? signals[0]!.id : undefined) : opts.operatorSignal,
+        version,
+      });
+      for (const signal of signals)
+        this.operatorSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
+      return recorded;
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
+    // The wake-ups the send waits for (`awaitWake`): not emitted as events, but started below.
+    const awaited: { handle: string; workItem: WorkItemRef }[] = [];
+    const waker = opts.awaitWake ? this.waker : undefined;
     for (const { handle, workItem: where, running, hold } of placed)
       decided.set(
         handle,
@@ -269,8 +386,18 @@ export class Messaging {
               running,
               message,
               opts.untilInput === true && opts.kind === 'info',
+              waker ? () => awaited.push({ handle, workItem: where }) : undefined,
             ),
       );
+    if (waker) {
+      const starts = await Promise.all(
+        awaited.map(({ handle, workItem: where }) => this.awaitStart(waker, projectKey, handle, where)),
+      );
+      awaited.forEach(({ handle }, index) => {
+        const entry = decided.get(handle);
+        if (entry) decided.set(handle, { ...entry, start: starts[index]! });
+      });
+    }
     return {
       message,
       recipients: recipients.map((handle) => ({
@@ -297,6 +424,18 @@ export class Messaging {
     const session = this.sessions.get(projectKey, sessionId);
     const body = text.trim();
     if (!body) throw invalid('invalid_request', 'the message text is empty', { field: 'text' });
+    const config = await this.projects.config(projectKey);
+    this.assertMayWriteToOperator(config, from, [session.member], actor);
+    // A person writes into their own conversation with the Operator, not into another person's (PM-475).
+    if (
+      isOperator(memberOf(config, session.member)) &&
+      memberOf(config, from)?.kind === 'human' &&
+      !sameWorkItem(session.workItem, operatorConversationOf(config, from))
+    )
+      throw forbidden(
+        'operator_owner_only',
+        'a person writes to the Operator only in their own conversation',
+      );
     const input = actor.via
       ? formatInjectedTeamMessage(
           from,
@@ -337,6 +476,24 @@ export class Messaging {
       this.delivery.deliverWithFirstInput(session.member, [message], started.firstInput);
     else this.delivery.deliver(started?.session ?? session, message, input);
     return message;
+  }
+
+  /**
+   * A person writes to the Operator only with their own login (PM-463, PM-475): through the integrator key
+   * it is refused with 403 operator_owner_only. AI members and the system pass: their messages are stored and
+   * reach the Operator as information with the owner's next one, and wake nobody.
+   */
+  private assertMayWriteToOperator(
+    config: ProjectConfig,
+    from: string,
+    recipients: readonly string[],
+    actor?: Actor,
+  ): void {
+    if (!recipients.some((handle) => isOperator(memberOf(config, handle)))) return;
+    const sender = memberOf(config, from);
+    if (sender?.kind !== 'human') return;
+    if (actor?.via)
+      throw forbidden('operator_owner_only', "only a person's own login may write to the Operator");
   }
 
   /** Labels that notify the assignee (e.g. "QA: failed") reach them as a message from whoever set them. */
@@ -472,31 +629,56 @@ export class Messaging {
     for (const worker of workers) this.delivery.noticeOrHold(worker, 'projectman', text, task.key);
   }
 
+  /**
+   * A pending question was closed without an answer (PM-556): its asking member's session, when it runs,
+   * is told why and not to wait for the answer. Not stored as a message, and starts no session.
+   */
+  async closedNotice(item: InboxItem): Promise<void> {
+    const rule = QuestionCloseRule.safeParse(item.resolution?.rule);
+    if (item.kind !== 'question' || !rule.success || !item.sessionId) return;
+    const session = this.sessions.find(item.sessionId);
+    if (!session || !this.sessions.isRunning(session.id)) return;
+    const question =
+      typeof item.payload.question === 'string' && item.payload.question.trim()
+        ? item.payload.question
+        : item.title;
+    const note = item.resolution?.note?.trim();
+    const text =
+      `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" was closed: ${QUESTION_CLOSE_REASONS[rule.data]}. ` +
+      `Do not wait for its answer.${note ? ` Note: ${truncate(note, ANSWER_NOTICE_LIMIT)}` : ''}`;
+    await this.delivery.notice(session, 'projectman', text, item.taskKey);
+  }
+
   /** A human answered an AI member's `ask_human` question: the answer goes back to the asking session. */
-  async answer(item: InboxItem): Promise<void> {
+  async answer(
+    item: InboxItem,
+    attachmentIds: readonly string[],
+    close: () => InboxItem,
+  ): Promise<InboxItem | null> {
     const resolution = item.resolution;
-    if (item.kind !== 'question' || !resolution) return;
+    if (item.kind !== 'question' || !resolution) return null;
     const config = await this.projects.config(item.projectKey);
     const asker = memberOf(config, item.source);
-    if (asker?.kind !== 'ai') return;
+    if (asker?.kind !== 'ai') return null;
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
-    const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
-    const manager = Boolean(isProjectManager(asker));
-    await this.send(
+    const workItem = await this.answerWorkItem(item);
+    let closed: InboxItem | null = null;
+    const result = await this.sendReporting(
       item.projectKey,
       resolution.by,
       {
         to: [asker.handle],
         text: `Answer to your question "${question}":\n\n${answerText(item)}`,
         taskKey: item.taskKey,
+        attachmentIds: [...attachmentIds],
       },
       {
+        awaitWake: true,
+        beforeRecord: () => {
+          closed = close();
+        },
         sessionId: item.sessionId,
-        workItem: manager
-          ? { type: 'general' }
-          : session?.member === asker.handle
-            ? session.workItem
-            : routeFor(item.taskKey),
+        workItem,
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
         actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
@@ -504,6 +686,44 @@ export class Messaging {
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
       },
     );
+    const recipient = result.recipients.find((r) => r.handle === asker.handle);
+    if (recipient?.start?.state === 'waiting')
+      this.messages.recordAnswerDelivery(result.message, asker.handle, {
+        state: 'waiting',
+        reason: recipient.start.reason,
+        since: isoNow(this.ctx),
+      });
+    else if (
+      recipient?.start?.state === 'started' ||
+      recipient?.delivery === 'typed_now' ||
+      recipient?.delivery === 'after_turn'
+    )
+      this.messages.recordAnswerDelivery(result.message, asker.handle, {
+        state: 'delivered',
+        at: isoNow(this.ctx),
+      });
+    return closed ? this.ctx.repos.inbox.get(item.id) : null;
+  }
+
+  /** The same effective route for sending an answer and previewing its admission. */
+  async answerWorkItem(item: InboxItem): Promise<WorkItemRef> {
+    const config = await this.projects.config(item.projectKey);
+    const asker = memberOf(config, item.source);
+    const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
+    const workItem: WorkItemRef =
+      isProjectManager(asker) || isOperator(asker)
+        ? { type: 'general' }
+        : session?.member === item.source
+          ? session.workItem
+          : routeFor(item.taskKey);
+    return this.place(
+      item.projectKey,
+      config,
+      item.source,
+      workItem,
+      false,
+      item.resolution?.by ?? item.assignees[0],
+    ).workItem;
   }
 
   /**
@@ -523,8 +743,14 @@ export class Messaging {
     handle: string,
     workItem: WorkItemRef,
     ownCard = false,
+    from?: string,
   ): { workItem: WorkItemRef; running: Session | null } {
-    workItem = sessionWorkItemOf(memberOf(config, handle), workItem);
+    const recipient = memberOf(config, handle);
+    // The Operator has one conversation per person who is not an owner, and one for the others (PM-475).
+    workItem =
+      from !== undefined && isOperator(recipient) && (workItem.type === 'task' || workItem.type === 'general')
+        ? operatorConversationOf(config, from)
+        : sessionWorkItemOf(recipient, workItem);
     const own = this.sessions.findRunning(projectKey, handle, workItem);
     if (own || workItem.type !== 'task') return { workItem, running: own };
     // Meant for the work on this card (an analyst check): not for the member's session on a family card.
@@ -557,7 +783,7 @@ export class Messaging {
   ): 'handoff' | 'refinement_turn' | 'fix_limit' | 'full_test' | 'engine' | null {
     // The project manager runs on the engine too: no engine, no delivery, whatever its other holds are.
     if (this.heldForEngine(config.project.key, handle)) return 'engine';
-    if (isProjectManager(memberOf(config, handle))) return null;
+    if (isProjectManager(memberOf(config, handle)) || isOperator(memberOf(config, handle))) return null;
     if (this.heldForHandoff(task, handle)) return 'handoff';
     if (this.heldForTurn(config, task, handle, opts)) return 'refinement_turn';
     if (this.heldForFixLimit(config, task, from, handle)) return 'fix_limit';
@@ -574,6 +800,17 @@ export class Messaging {
     if (!this.engines) return false;
     const engineId = this.engines.engineFor(projectKey, handle);
     return engineId === null || this.engines.get(engineId) === null;
+  }
+
+  pendingTaskKeys(projectKey: string, handle: string): string[] {
+    return [
+      ...new Set(
+        this.ctx.repos.messages.pending(projectKey, handle).flatMap((message) => {
+          const route = messageRoute(message, handle);
+          return route.type === 'task' ? [route.taskKey] : [];
+        }),
+      ),
+    ];
   }
 
   /**
@@ -697,7 +934,8 @@ export class Messaging {
     const task = this.tasks.find(session.projectKey, session.workItem.taskKey);
     if (!task) return false;
     const config = await this.projects.config(session.projectKey);
-    if (isProjectManager(memberOf(config, session.member))) return false;
+    const member = memberOf(config, session.member);
+    if (isProjectManager(member) || isOperator(member)) return false;
     return (
       this.heldForHandoff(task, session.member) ||
       this.heldForTurn(config, task, session.member, {}) ||
@@ -725,7 +963,35 @@ export class Messaging {
     });
   }
 
-  /** A running recipient gets the message typed in; otherwise it waits for a wake-up. Returns what was decided. */
+  /**
+   * The wake-up of one recipient, and its result: `starting` when it is not decided within the wait
+   * (the start goes on), `failed` when it could not even be tried (PM-543).
+   */
+  private async awaitStart(
+    waker: MessageWaker,
+    projectKey: string,
+    handle: string,
+    workItem: WorkItemRef,
+  ): Promise<WakeStart> {
+    const start = waker.wake(projectKey, handle, workItem).catch((err: unknown): WakeStart => ({
+      state: 'failed',
+      code: err instanceof DomainError ? err.code : 'start_failed',
+    }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<WakeStart>((resolve) => {
+      timer = setTimeout(() => resolve({ state: 'starting' }), this.wakeReplyWaitMs);
+    });
+    try {
+      return await Promise.race([start, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * A running recipient gets the message typed in; otherwise it waits for a wake-up. Returns what was decided.
+   * `onWake` takes the wake-up from the `message_waiting` event: the caller starts it (PM-543).
+   */
   private deliverOrWake(
     config: ProjectConfig,
     projectKey: string,
@@ -734,14 +1000,31 @@ export class Messaging {
     running: Session | null,
     message: TeamMessage,
     untilInput = false,
+    onWake?: () => void,
   ): Omit<SentMessageRecipient, 'handle'> {
-    const wakes = wakesFor(this.ctx, config, message, handle);
-    const block = wakes ? null : wakeBlockFor(this.ctx, config, message, handle);
+    const wake = () =>
+      onWake
+        ? onWake()
+        : void this.ctx.events.emit('message_waiting', {
+            projectKey,
+            handle,
+            workItem,
+            messageId: message.id,
+          });
+    const stale = staleReasonFor(this.ctx, config, message, handle);
+    const facts = wakeFactsFor(this.ctx, config, message, handle);
+    const wakes = messageWakes(message, facts, stale);
+    const block = wakes ? null : messageWakeBlock(message, facts, stale);
     const notWoken: Omit<SentMessageRecipient, 'handle'> = {
       delivery: 'next_input',
       ...(block ? { noWake: block } : {}),
+      ...(!wakes && !block && (message.kind ?? 'action') === 'info' ? { info: true as const } : {}),
+      ...(!wakes && stale ? { stale } : {}),
     };
     if (!running && !wakes) return notWoken;
+    const operator = isOperator(memberOf(config, handle));
+    // The Operator takes what does not wake it (an AI member's message) only with the owner's next one (PM-463).
+    if (operator && !wakes) return notWoken;
     if (running && running.state === 'waiting_permission' && memberOf(config, message.from)?.kind !== 'human')
       return {
         delivery: 'after_turn',
@@ -767,14 +1050,16 @@ export class Messaging {
       } catch (err) {
         if (!(err instanceof DomainError) || err.code !== 'provider_rate_limited') throw err;
         if (!wakes) return notWoken;
-        void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+        wake();
         return { delivery: 'wake' };
       }
-      if (memberOf(config, message.from)?.kind === 'human') this.delivery.deliver(running, message);
+      // The Operator's messages go in as one batch (the owner's and the information waiting with it).
+      if (!operator && memberOf(config, message.from)?.kind === 'human')
+        this.delivery.deliver(running, message);
       else this.delivery.deliverWaiting(running);
       return { delivery: running.state === 'idle' ? 'typed_now' : 'after_turn' };
     }
-    void this.ctx.events.emit('message_waiting', { projectKey, handle, workItem, messageId: message.id });
+    wake();
     return { delivery: 'wake' };
   }
 }
@@ -782,6 +1067,16 @@ export class Messaging {
 /** How much of a question and of its answer the notice to the card's other workers carries. */
 const QUESTION_NOTICE_LIMIT = 200;
 const ANSWER_NOTICE_LIMIT = 500;
+
+/** Why a question was closed without an answer, as the asking member's notice says it (PM-556). */
+const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
+  task_done: 'the card it was about is done',
+  task_cancelled: 'the card it was about was cancelled',
+  handed_off: 'the card it was about was handed to someone else',
+  assignee_changed: 'the card it was about has a new assignee',
+  withdrawn: 'it was withdrawn',
+  operator_moot: 'the Operator found it moot: nothing is left to answer',
+};
 
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */
 function startReason(config: ProjectConfig, cause: SessionStartCause | null): string {

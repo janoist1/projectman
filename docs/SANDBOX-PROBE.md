@@ -289,7 +289,7 @@ Credential files are only counted (`wc -c`), never printed.
 5. Record each line as `pass`, `fail` or `unverified` with the raw output in the task, and the
    summary in PROVIDERS.md (the "Manual run" line under the sandbox table). A command the sandbox
    refuses but the developer needs is a finding: `allowRead` may grow by it, never by the app home,
-   `~/.ssh`, `~/.config/gh`, `~/.codex`, another `~/.claude` path or `~/.npmrc`.
+   `~/.ssh`, `~/.config/gh`, `~/.codex`, `~/.aws`, `~/.cloudflared`, another `~/.claude` path or `~/.npmrc`.
 
 ## PM-353: a Claude session's own Claude Code temporary root
 

@@ -5,6 +5,7 @@ import path from 'node:path';
 import type { FastifyBaseLogger } from 'fastify';
 import type { EngineId, MemberHandle } from '@projectman/shared';
 import type {
+  BranchMerger,
   EngineDirectory,
   EngineHost,
   EnginePaths,
@@ -15,9 +16,10 @@ import type {
   WorkspaceFile,
   WorktreeManager,
 } from '../../contracts';
-import { WorkspaceFileRefusal } from '../../contracts';
+import { MERGE_ERROR_CODES, MergeError, WorkspaceFileRefusal } from '../../contracts';
+import type { MergeErrorCode } from '../../contracts';
 import { conflict } from '../../domain/errors';
-import type { EngineMethod, MethodParams } from '../methods';
+import type { EngineMethod, MethodParams, MethodResult } from '../methods';
 import { EngineCallError } from '../rpc';
 import type { CallOptions } from '../rpc';
 import type { RemoteHub } from './hub';
@@ -34,6 +36,11 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const FULL_TEST_GRACE_MS = 60_000;
 const SCREENSHOT_GRACE_MS = 60_000;
 const CANCEL_TIMEOUT_MS = 10_000;
+// One git step of the engine's merger waits up to 120 s. These are the engine's worst cases (steps in a
+// row, and the five-minute dependency copy), so the cloud never gives up before the engine has.
+const MERGE_WAIT_MS = 600_000; // up to five git steps
+const MERGE_NETWORK_WAIT_MS = 900_000; // a fetch or a push, and the git steps around it
+const MERGE_CHECKOUT_WAIT_MS = 1_200_000; // clearing a leftover, adding the worktree, the copy, the clean-up
 
 export interface RemoteEngineDirectory extends EngineDirectory {
   /** The host of an engine even when it does not count as available (for the engine's own settings view). */
@@ -55,9 +62,12 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
   const hosts = new Map<EngineId, EngineHost>();
   /** The runs of the screenshot executors waiting for their `screenshot_started`. */
   const started = new Map<string, () => void>();
+  /** The runs of the full-test executors waiting for their `full_test_started`. */
+  const fullStarted = new Map<string, () => void>();
 
   hub.onEvent((_id, event) => {
     if (event.kind === 'screenshot_started') started.get(event.runId)?.();
+    if (event.kind === 'full_test_started') fullStarted.get(event.runId)?.();
   });
   // A folder the cloud made for a session that is not in the engine's `hello` is gone with the process.
   hub.onConnect(({ id, hello }) => {
@@ -80,6 +90,12 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       refreshDependencies: (cwd) => call('worktree.refreshDependencies', [cwd]),
       head: (cwd) => call('worktree.head', [cwd]),
       ensureForTask: (args) => call('worktree.ensureForTask', [args]),
+      ensureMergeFix: (args) => call('worktree.ensureMergeFix', [args]),
+      findMergeFix: (args) => call('worktree.findMergeFix', [args]),
+      removeMergeFix: async (args) => {
+        await call('worktree.removeMergeFix', [args]);
+      },
+      listMergeFixes: (args) => call('worktree.listMergeFixes', [args]),
       find: (args) => call('worktree.find', [args]),
       status: (cwd) => call('worktree.status', [cwd]),
       remove: async (args) => {
@@ -161,6 +177,17 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
           if (!linkDown(err)) throw err;
         });
       },
+      async materializeFile(sessionId, { name, source }) {
+        // The engine fetches the stored file with a single-use token and checks its size and checksum.
+        const downloadToken = transfers.issueDownload(id, source);
+        return call('files.materialize_into_session', {
+          downloadToken,
+          sessionId,
+          name,
+          sha256: source.sha256,
+          size: source.size,
+        });
+      },
     };
 
     const fullTestExecutor: FullTestExecutor = {
@@ -168,8 +195,10 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
         // The engine's own sandbox answers at the run; here only whether it can be reached at all.
         return hub.link(id) ? { ok: true } : { ok: false, reason: 'engine_offline' };
       },
-      async run(spec, signal) {
+      async run(spec, signal, onStarted) {
         const startedAt = now();
+        // An older engine never sends `full_test_started`: the caller stays at its waiting step.
+        if (onStarted) fullStarted.set(spec.runId, onStarted);
         const cancel = () => {
           call('full_test.cancel', { runId: spec.runId }, { timeoutMs: CANCEL_TIMEOUT_MS }).catch(() => {});
         };
@@ -188,6 +217,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
             outputTail: '',
           };
         } finally {
+          fullStarted.delete(spec.runId);
           signal.removeEventListener('abort', cancel);
         }
       },
@@ -223,6 +253,43 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       },
     };
 
+    // The engine's `MergeError` crosses the link as a module error: it comes out here as the same class,
+    // so the caller reads a remote merger like a local one. A refusal of the link itself (`merge_not_allowed`,
+    // a timeout, link down) stays an `EngineCallError`.
+    const merge = async <M extends EngineMethod>(
+      method: M,
+      params: MethodParams<M>,
+      timeoutMs: number,
+    ): Promise<MethodResult<M>> => {
+      try {
+        return await call(method, params, { timeoutMs });
+      } catch (error) {
+        if (
+          error instanceof EngineCallError &&
+          error.linkCode === 'module_error' &&
+          (MERGE_ERROR_CODES as readonly string[]).includes(error.code)
+        )
+          throw new MergeError(error.code as MergeErrorCode, error.message);
+        throw error;
+      }
+    };
+    const merger: BranchMerger = {
+      prepare: (ref, input) => merge('merge.prepare', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      isAncestor: (ref, input) => merge('merge.is_ancestor', { ref, ...input }, MERGE_WAIT_MS),
+      build: (ref, input) => merge('merge.build', { ref, ...input }, MERGE_WAIT_MS),
+      checkoutConflicts: (ref, input) => merge('merge.checkout_conflicts', { ref, ...input }, MERGE_WAIT_MS),
+      checkoutForCheck: (ref, input) =>
+        merge('merge.checkout_for_check', { ref, ...input }, MERGE_CHECKOUT_WAIT_MS),
+      releaseCheck: async (ref, input) => {
+        await merge('merge.release_check', { ref, ...input }, MERGE_WAIT_MS);
+      },
+      push: (ref, input) => merge('merge.push', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      advance: (ref, input) => merge('merge.advance', { ref, ...input }, MERGE_WAIT_MS),
+      // A read of a base fetches its upstream first.
+      readFile: (ref, input) => merge('merge.read_file', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      commitFiles: (ref, input) => merge('merge.commit_files', { ref, ...input }, MERGE_WAIT_MS),
+    };
+
     return {
       id,
       get platform() {
@@ -236,6 +303,7 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       memberWorkspaces,
       fullTestExecutor,
       screenshotExecutor,
+      merger,
       get sessionFolders() {
         return helloOf().paths.sessionFoldersRoot ? sessionFolders : undefined;
       },

@@ -1,7 +1,17 @@
+import { TaskKey } from '@projectman/shared';
+
 import type { ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { type TeamToolsHandler, type ToolContext } from '../contracts';
+import type { TeamToolsHandler, ToolContext } from '../contracts';
 
+/**
+ * The team tools as the agent sees them (mcp__team__<name>). Names, descriptions and input
+ * schemas are the prompt: they tell the model when and how to use each tool. Rules that are
+ * not about one tool (the project's language, being concise, recording results on the task)
+ * are stated once in the member's system prompt (src/context), which both providers receive;
+ * they are not repeated here. Input is validated by the MCP SDK against the zod schema before
+ * `run` is called.
+ */
 export const TEAM_TOOL_NAMES = [
   'operate',
   'read_project_doc',
@@ -135,3 +145,9 @@ export interface TeamToolGroup {
   readonly module: string;
   readonly tools: readonly TeamTool[];
 }
+
+export const MAX_PATH_CHARS = 4_096;
+
+export const unique = <T>(items: T[]): T[] => [...new Set(items)];
+
+export const taskKeyInput = TaskKey.describe('Task key, e.g. "AR-21".');

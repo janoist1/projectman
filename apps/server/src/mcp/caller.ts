@@ -10,7 +10,7 @@ import {
   operatorWatchOf,
   TaskKey,
 } from '@projectman/shared';
-import type { ErrorCode, OperatorAction, ProjectConfig, Session, Task } from '@projectman/shared';
+import type { ErrorCode, OperatorAction, ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type { EngineHost, WorkspaceFile, ToolContext } from '../contracts';
 import { isWithin } from '../domain/command-paths';
@@ -110,6 +110,7 @@ export function toToolError(err: unknown): unknown {
   return new TeamToolError('invalid', err.message);
 }
 
+/** A tool's caller and, for the Operator, the owner request the call runs for (null for any other caller). */
 export interface CallerWithRequest {
   config: ProjectConfig;
   request: ReturnType<OperatorRequests['openFor']>;
@@ -169,6 +170,7 @@ export class ToolCaller {
     this.operatorSignals = deps.operatorSignals;
     this.sessionEngine = deps.sessionEngine;
   }
+  /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
   private readonly signalStepsRunning = new Set<string>();
   /**
    * `caller`, plus the owner request the guard let the Operator's call through on (null for any other

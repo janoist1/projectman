@@ -1,3 +1,6 @@
+import { MemberTools } from '../mcp/members';
+import { TaskTools } from '../mcp/tasks';
+import { AttachmentTools } from '../mcp/attachments';
 import { ToolCaller } from '../mcp/caller';
 import {
   canManageInstancePause,
@@ -1036,6 +1039,31 @@ export function createDomain(opts: DomainOptions) {
   });
   const teamTools = new TeamToolsService({
     calls: toolCaller,
+    tools: {
+      members: new MemberTools({ calls: toolCaller, members }),
+      tasks: new TaskTools({
+        calls: toolCaller,
+        ctx,
+        tasks,
+        timeline,
+        attachments,
+        sessions,
+        cardQuestions,
+        projectFocus,
+        taskWaits,
+        closer: sessionCloser,
+      }),
+      attachments: new AttachmentTools({
+        calls: toolCaller,
+        ctx,
+        tasks,
+        attachments,
+        messageAttachments,
+        attachmentDirectory,
+        materializeAttachment: opts.engineAttachments?.materialize,
+        sessionEngine,
+      }),
+    },
     projectState,
     docWrites,
     decisionCandidates,
@@ -1045,35 +1073,24 @@ export function createDomain(opts: DomainOptions) {
     operatorSteps,
     operatorActions,
     taskStarts,
-    operatorSignals,
     questionScreening,
-    taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
     fixLimit,
     handoffs,
-    closer: sessionCloser,
     boundary,
     ctx,
     sessions,
-    projectFocus,
-    cardQuestions,
     projects,
     tasks,
-    members,
     messaging,
     inbox,
     timeline,
     memory: opts.memory,
     github: opts.github,
     githubSync,
-    attachments,
     messageAttachments,
-    attachmentDirectory,
     feedback,
-    materializeAttachment: opts.engineAttachments?.materialize,
-    // The files and the folder of a session are on its engine.
-    sessionEngine,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

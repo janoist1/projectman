@@ -6,9 +6,11 @@ import { createTeamMcpServer, DEFAULT_TOOL_TIMEOUT_MS, type TeamServerDeps } fro
 
 export {
   TEAM_TOOLS,
+  TEAM_TOOL_GROUPS,
   TEAM_TOOL_NAMES,
   toolOutputText,
   type TeamToolName,
+  type TeamToolGroup,
   type ToolImage,
   type ToolOutput,
 } from './tools';

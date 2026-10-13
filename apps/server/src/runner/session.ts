@@ -3,7 +3,7 @@ import os from 'node:os';
 import { posix as posixPath } from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { FastifyBaseLogger } from 'fastify';
-import { COMPACTING_PROVIDERS, MANAGED_VM_NO_LOCAL_APPROVAL } from '../contracts';
+import { COMPACTING_PROVIDERS } from '../contracts';
 import type {
   PauseOptions,
   PauseOutcome,
@@ -83,9 +83,8 @@ export interface SessionDeps {
   /** Starts the process (default: node-pty). */
   spawnPty?: SpawnPty;
   /**
-   * The worker home of a session started through the launcher (PM-140): `~` in a hook's
-   * transcript path means this home, and a transcript anywhere else is ignored, so a worker
-   * cannot make the server read a file of the server's or of another worker's.
+   * The CLI's conversation root (Gemini): transcript paths and reads stay confined to it,
+   * and native tool decisions receive this provider-controlled directory.
    */
   transcriptRoot?: string;
 }
@@ -276,7 +275,7 @@ export class AgentSession {
     );
   }
 
-  /** Drives a process started elsewhere (the launcher's relayed terminal, PM-140). */
+  /** Drives a process started elsewhere (a relayed terminal). */
   attach(proc: PtyProcess): void {
     this.proc = proc;
     proc.onData((data) => {
@@ -294,7 +293,7 @@ export class AgentSession {
     this.emitState();
   }
 
-  /** The transcript file a hook names, or null when it lies outside the worker home. */
+  /** The transcript file a hook names, or null when it lies outside the CLI conversation root. */
   private transcriptFile(raw: string): string | null {
     const root = this.deps.transcriptRoot;
     if (!root) return expandHome(raw);
@@ -1004,14 +1003,6 @@ export class AgentSession {
       this.apply({ kind: 'pre_tool', activity, needsInput: true });
       return null;
     }
-    // The managed VM profile has no local approvals (PM-141): the CLI is started so that it asks
-    // nothing, and a request that comes anyway is neither shown to a human nor judged by the
-    // command rules; it is refused with the way forward, and the session carries on.
-    if (this.spec.policy?.execution?.profile === 'managed_vm') {
-      this.log.warn({ sessionId: this.id, toolName }, 'managed VM session asked for a local approval');
-      if (!payload.agent_id) this.noteToolEnd(payload);
-      return this.adapter.denyOutput(MANAGED_VM_NO_LOCAL_APPROVAL);
-    }
     if (!payload.agent_id) this.waitingTool = toolName;
     return this.permissions.request(payload, activity, withdrawn);
   }
@@ -1027,7 +1018,7 @@ export class AgentSession {
     if (!payload.transcript_path || payload.agent_id) return;
     const path = this.transcriptFile(payload.transcript_path);
     if (path === null) {
-      this.log.warn({ sessionId: this.id }, 'ignored a transcript path outside the worker home');
+      this.log.warn({ sessionId: this.id }, 'ignored a transcript path outside the CLI conversation root');
       return;
     }
     if (path === this.transcriptPath) return;
@@ -1037,13 +1028,14 @@ export class AgentSession {
     this.transcriptPath = path;
     const root = this.deps.transcriptRoot;
     if (root) {
-      // A symlinked directory in the worker home must not lead the server elsewhere: the real
-      // directory of the transcript (the file itself may not exist yet) must be in the real home.
+      // A symlinked directory in the conversation root must not lead the server elsewhere: the real
+      // directory of the transcript (the file itself may not exist yet) must be in the real conversation root.
       void Promise.all([realpath(posixPath.dirname(path)), realpath(root)])
         .then(([real, realRoot]) => {
           if (this.transcriptPath !== path || this.hasExited) return;
           if (real === realRoot || real.startsWith(`${realRoot}/`)) this.followTranscript(path, first);
-          else this.log.warn({ sessionId: this.id }, 'ignored a transcript outside the worker home');
+          else
+            this.log.warn({ sessionId: this.id }, 'ignored a transcript outside the CLI conversation root');
         })
         .catch(() => {
           // Its directory is not there yet: the next hook tries again.
@@ -1056,7 +1048,7 @@ export class AgentSession {
 
   private followTranscript(path: string, first: boolean): void {
     this.deps.emit({ type: 'transcript_path', sessionId: this.id, path });
-    // A worker's file is read only through the confined tailer (Codex plan usage reads it plainly).
+    // A provider's confined transcript is read only through the tailer (Codex plan usage reads it plainly).
     if (!this.deps.transcriptRoot) this.adapter.noteTranscript?.(path);
     this.tailer?.stop();
     const parser = this.adapter.createTranscriptParser({
@@ -1190,14 +1182,17 @@ export class AgentSession {
   /**
    * A subagent stopped (PM-178): its own transcript, which its SubagentStop hook names, is read
    * whole once and its token usage reported. Like the main transcript, a worker's file is read
-   * only inside the worker home. A subagent still running when the session ends is not counted.
+   * only inside the CLI conversation root. A subagent still running when the session ends is not counted.
    */
   private async readSubagentUsage(raw: string): Promise<void> {
     const parser = this.parser;
     if (!parser?.subagentUsage) return;
     const path = this.transcriptFile(raw);
     if (path === null) {
-      this.log.warn({ sessionId: this.id }, 'ignored a subagent transcript outside the worker home');
+      this.log.warn(
+        { sessionId: this.id },
+        'ignored a subagent transcript outside the CLI conversation root',
+      );
       return;
     }
     try {

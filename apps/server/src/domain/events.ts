@@ -1,7 +1,6 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type {
   Actor,
-  EgressAllowance,
   InboxItem,
   Release,
   Session,
@@ -84,10 +83,6 @@ export interface DomainEventMap {
   message_waiting: { projectKey: string; handle: string; workItem: WorkItemRef; messageId: string };
   /** A feedback mark waits for a processor's decision (PM-512): a new mark, or a marker's comment on one. */
   feedback_needs_processor: { projectKey: string; markId: string };
-  /** An owner closed a network allowance (PM-140): the egress proxy ends its open tunnels. */
-  egress_allowance_revoked: EgressAllowance;
-  /** A member may no longer work in a project (removed, on leave, AI off): its tunnels end. */
-  egress_member_inactive: { projectKey: string; member: string };
 }
 
 export type DomainEventType = keyof DomainEventMap;

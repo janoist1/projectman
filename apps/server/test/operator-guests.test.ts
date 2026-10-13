@@ -226,8 +226,6 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     for (const call of [
       () => h.domain.teamTools.createTask(context, { title: 'New card' }),
       () => h.domain.teamTools.saveMemory(context, { note: 'secret' }),
-      () => h.domain.teamTools.getRemoteState(context, { taskKey: 'AR-2' }),
-      () => h.domain.teamTools.listNetworkDenials(context),
       () => h.domain.teamTools.askHuman(context, { question: 'May I?' }),
     ])
       expect(await refusal(call())).toMatch(/^operator_owner_only:/);

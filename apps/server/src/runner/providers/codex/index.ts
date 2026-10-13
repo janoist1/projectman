@@ -12,7 +12,7 @@ import type { ProviderAdapter, SessionTiming, TranscriptLineParser } from '../ty
 import { buildCodexArgs, codexCliReadRoot, codexDeniedPaths } from './args';
 import { CodexPlanUsage } from './plan-usage';
 import { CodexTranscriptParser } from './transcript';
-import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../managed-vm';
+import { assertCodexMemberWorkspace, inspectCodexMcpServers, type AmbientIssue } from '../../ambient-config';
 
 /** A fail-closed local Codex start; details contain version and setting names, never values. */
 export class CodexStartError extends Error {
@@ -187,7 +187,6 @@ export function createCodexAdapter(opts: CodexAdapterOptions): ProviderAdapter {
 
     async launch({ spec, hookUrl, permissionTimeoutMs, cliPath }) {
       if (
-        spec.policy?.execution?.profile !== 'managed_vm' &&
         cliPath &&
         codexCliReadRoot(cliPath, codexDeniedPaths({ spec, codexHome: opts.codexHome })).kind === 'misplaced'
       )

@@ -9,7 +9,6 @@ import { createEngineRepository } from './engines';
 export type { EngineRecord } from './engines';
 import { createIntegratorKeyRepository } from './integrator-keys';
 import { createBoundaryRepository } from './boundary';
-import { createEgressRepository } from './egress';
 import { createFeedbackRepository } from './feedback';
 export type {
   FeedbackEventRecord,
@@ -117,7 +116,6 @@ export function createRepositories(db: Db) {
     messages: createMessageRepository(db),
     inbox: createInboxRepository(db),
     boundary: createBoundaryRepository(db),
-    egress: createEgressRepository(db),
     memberState: createMemberStateRepository(db),
     feedback: createFeedbackRepository(db),
     /** Runs `fn` in a single SQLite transaction. */

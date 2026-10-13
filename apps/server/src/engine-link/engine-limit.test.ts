@@ -746,18 +746,6 @@ describe('engine local limit', () => {
         'invalid_params',
       );
     });
-
-    it('checks the branch export upload token', async () => {
-      await refused(
-        make(),
-        'workspace.export_branch',
-        {
-          uploadToken: 'no/token',
-          key: { project: { project: { key: 'PM', repos: [] } }, repoName: 'projectman' },
-        },
-        'invalid_params',
-      );
-    });
   });
 
   describe('machine.signal', () => {

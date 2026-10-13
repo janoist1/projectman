@@ -222,7 +222,6 @@ export const MODULES: readonly ModuleEntry[] = [
       'domain/xargs-feed.ts',
       'domain/worktree-commands.ts',
       'domain/in-place-edits.ts',
-      'domain/egress.ts',
     ],
     sealed: false,
   },
@@ -295,7 +294,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'service',
     target: 'services/github',
     pass: 'split',
-    paths: ['domain/github-sync.ts', 'domain/pull-requests.ts', 'domain/publishing.ts', 'github/'],
+    paths: ['domain/github-sync.ts', 'domain/pull-requests.ts', 'github/'],
     sealed: false,
   },
   {
@@ -394,14 +393,6 @@ export const MODULES: readonly ModuleEntry[] = [
     sealed: false,
   },
   {
-    id: 'runtime-boundary',
-    layer: 'engine',
-    target: 'runtime-boundary',
-    pass: 'delete',
-    paths: ['runtime-boundary/'],
-    sealed: false,
-  },
-  {
     id: 'api',
     layer: 'connector',
     target: 'api',
@@ -479,11 +470,6 @@ export const MODULES: readonly ModuleEntry[] = [
 export const EXCEPTIONS: readonly DependencyException[] = [
   { from: 'api', to: 'assembly', removedBy: 'api' },
   {
-    from: 'api',
-    to: 'runtime-boundary',
-    removedBy: 'api',
-  },
-  {
     from: 'auth',
     to: 'assembly',
     removedBy: 'auth',
@@ -507,11 +493,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'services/project-docs',
     to: 'services/merges',
     removedBy: 'services/project-docs',
-  },
-  {
-    from: 'runtime/permissions',
-    to: 'services/boundary',
-    removedBy: 'runtime/permissions',
   },
   {
     from: 'runtime/sessions',

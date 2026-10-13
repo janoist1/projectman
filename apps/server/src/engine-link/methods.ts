@@ -378,7 +378,7 @@ const workspaces = {
     checkout,
   ),
   checkoutReview: method(z.tuple([key, source, text]), checkout),
-} satisfies ManagerMethods<Omit<MemberWorkspaceManager, 'exportBranch'>>;
+} satisfies ManagerMethods<MemberWorkspaceManager>;
 const transcriptOptions = z.strictObject({
   provider: AgentProvider.optional(),
   self: text.optional(),
@@ -435,7 +435,6 @@ export const methods = {
   'workspace.resolveSource': workspaces.resolveSource,
   'workspace.checkoutTaskBranch': workspaces.checkoutTaskBranch,
   'workspace.checkoutReview': workspaces.checkoutReview,
-  'workspace.export_branch': method(z.strictObject({ key, branch: text, uploadToken: text }), EngineUploaded),
   'github.is_available': method(empty, z.boolean()),
   'github.get_pull_request': method(z.strictObject({ repo: text, number: int.min(1) }), PullRequest),
   'github.find_pull_requests_for_branch': method(

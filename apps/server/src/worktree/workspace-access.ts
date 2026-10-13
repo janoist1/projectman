@@ -5,9 +5,7 @@ import { git } from './git';
  * Settings for every git command the server runs in a member workspace or reads from one. The
  * member controls those repositories (their config, hooks and attributes), so this git runs no
  * hooks or fsmonitor, reads no system or global configuration (`isolatedConfig` locally), and
- * transfers objects only over local paths. Filters a repository's own configuration defines still
- * apply to a checkout: where that matters, the commands run as the member's worker account
- * (`WorkspaceAccess` of the managed VM, PM-140), never as the server.
+ * transfers objects only over local paths. Filters a repository's own configuration defines still apply to a checkout.
  */
 export const SAFE_GIT_SETTINGS = [
   '-c',

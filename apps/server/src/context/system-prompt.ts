@@ -374,7 +374,7 @@ function workItemSection(input: ContextPackInput, situation: Situation): string 
 
 /**
  * A Codex member's own session folder and temporary directory (PM-339), when its sandbox has them
- * (`portable.env` carries the folder: only a writing Codex sandbox outside the managed VM gets
+ * (`portable.env` carries the folder: only a writing Codex sandbox gets
  * one). No browsers and no screenshots yet: the image-making path comes with its own card.
  */
 function codexSessionFolderSection({ member, sandbox }: ContextPackInput): string {
@@ -425,9 +425,6 @@ function unattendedCommandsSection({
     ].join('\n');
   }
   if (workItem.type !== 'task') return '';
-  // The managed VM profile (PM-141) has no command rules: nothing waits for a human, so there is no
-  // form to write commands in (the legacy rules of PM-104/105/109/116 stay in the legacy path).
-  if (sessionPolicy?.execution?.profile === 'managed_vm') return '';
   const worktree = roleUsesWorktree(project, member.role);
   return [
     '# Commands that run without asking',
@@ -459,19 +456,6 @@ function approverText(member: ContextPackInput['member']): string {
 
 function sessionPolicySection({ sessionPolicy: policy, member }: ContextPackInput): string {
   if (!policy) return '';
-  if (policy.execution?.profile === 'managed_vm') {
-    const research = policy.permissions.sandbox === 'read-only';
-    return [
-      '# Session policy',
-      `Execution profile: managed VM. Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
-      research
-        ? 'Your member mode is research-only (plan): you read and report; you do not change files.'
-        : 'You work freely in your own workspace: shell commands (with substitution, redirections and pipes), installs, test runs of any kind, and commits run without asking, in any form. Nothing waits for a human, and nothing needs a special form.',
-      'The limits are outside your session: your own account, the protected paths and the network gate. A step that leaves the machine is decided at that gate, not by a prompt; for a registered external operation use submit_boundary_request. Do not look for a way around a refusal there: report it instead.',
-      'A permission request that reaches you anyway is refused, not queued for a human.',
-      "Your task branch reaches GitHub only through publish_task_branch: commit, then pass the full commit id (git rev-parse HEAD). You hold no GitHub credentials, so do not push or open a pull request with git or gh; the default branch and other members' branches are never published. get_remote_state shows what GitHub has.",
-    ].join('\n');
-  }
   return [
     '# Session policy',
     `Placement: ${policy.access}; working directory: ${code(policy.placement.path)}.`,
@@ -507,18 +491,7 @@ function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackIn
   const pinMoves = pin
     ? 'If the branch moves on from it while the task is here, the system stops the review and sends the task back to development, and the developer hands it over again.'
     : '';
-  if (placement?.kind === 'member_workspace' && placement.use === 'home') {
-    return [
-      '# Your workspace',
-      `You work in your own directory ${code(placement.path)}: it has no repository, and it stays yours across sessions.`,
-    ].join('\n');
-  }
-  const work =
-    placement?.kind === 'task_worktree'
-      ? placement.workspace
-      : placement?.kind === 'member_workspace'
-        ? placement.workspace
-        : undefined;
+  const work = placement?.kind === 'task_worktree' ? placement.workspace : undefined;
   if (placement && work) {
     const { branch, baseCommit } = work;
     return [
@@ -528,12 +501,7 @@ function workspaceSection({ sessionPolicy: policy, task, member }: ContextPackIn
       'It has no remote. Teammates who review or test your work get your committed branch from here; uncommitted files never reach them.',
     ].join('\n');
   }
-  const round =
-    placement?.kind === 'review_copy'
-      ? placement
-      : placement?.kind === 'member_workspace'
-        ? placement.review
-        : undefined;
+  const round = placement?.kind === 'review_copy' ? placement : undefined;
   if (placement && round?.sourceBranch) {
     return [
       '# Review round',

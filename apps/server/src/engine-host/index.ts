@@ -74,8 +74,6 @@ export interface LocalEngineHostOptions {
   sessionTmpDir?: string;
   /** The heavy-run queue folder: the temporary root must not overlap its parent. */
   heavyLockDir?: string;
-  /** The session folders are off whatever the roots say (the managed VM). */
-  sessionFoldersOff?: boolean;
   claudeTmpBase?: string;
   claudeTmpRoots?: readonly string[];
   freeDiskBytes?: () => Promise<number | null>;
@@ -83,14 +81,14 @@ export interface LocalEngineHostOptions {
 
 /**
  * The session folders of an engine (PM-268, PM-339): `undefined` when they are off, which they are
- * when no root is configured, in the managed VM, and when the root is not a safe directory (logged).
+ * when no root is configured and when the root is not a safe directory (logged).
  * A temporary root that is not safe turns off only the Codex folders.
  */
 function prepareSessionFolders(
   opts: LocalEngineHostOptions,
   logger: FastifyBaseLogger,
 ): EngineSessionFolders | undefined {
-  if (!opts.sessionFoldersDir || opts.sessionFoldersOff) return undefined;
+  if (!opts.sessionFoldersDir) return undefined;
   try {
     prepareSessionFoldersRoot(opts.sessionFoldersDir);
     // One registry for the sessions (which make the folders) and the team tools (which attach from them).

@@ -1192,6 +1192,34 @@ describe('system prompt', () => {
       expect(operatorPrompt('en')).not.toContain('mark_decision_candidates');
     });
 
+    it('tells the Operator to read facts from tools, to check first, to start members itself and to follow through (PM-544)', () => {
+      const operator = operatorPrompt('en');
+      for (const line of [
+        'State a fact only from a tool result you read in this turn, and name the tool',
+        'Never answer from memory or from an earlier turn.',
+        'Before you ask anyone for a release, run check_release.',
+        'start a member it names as proposer with start_member',
+        'Releasing is never yours.',
+        'start the merger (team.merger; list_members names it) with start_member',
+        'Merging is never yours, and never send the owner or an integrator to do it.',
+        'start_task for work on a card, start_member for work without a card',
+        'Do not count on a message to wake anyone',
+        'Never ask the owner to write to a member, to open another conversation or tool, to run a command, or to ask an integrator.',
+        'Follow through. Read what every start and message gives back',
+        'or with message_id for start_member and send_message',
+        'never ask them to start it.',
+        'record the gap with create_task (it starts in the first stage)',
+        '(only a decision or an approval the owner must give; if nothing: ',
+      ])
+        expect(operator).toContain(line);
+      expect(operator).not.toContain('do not guess from what you remember');
+      for (const handle of ['code-review', 'fe-1', 'pm']) {
+        const other = roleOf(builder.build(input({ handle })).appendSystemPrompt);
+        for (const key of ['check_release', 'team.merger', 'Do not count on a message to wake anyone'])
+          expect(other).not.toContain(key);
+      }
+    });
+
     it('writes the labels of the report in the language of the project', () => {
       expect(operatorPrompt('en')).toContain('each opening with its bold label: **Done**');
       expect(operatorPrompt('hu')).not.toContain('**Done**');

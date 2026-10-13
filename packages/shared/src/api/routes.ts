@@ -147,6 +147,8 @@ export const routes = {
   closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,
 
   inbox: (key: string) => `/api/projects/${key}/inbox`,
+  /** GET (owner, admin; query `since`, ISO): the questions the Operator screened, newest first (PM-556). */
+  screenedQuestions: (key: string) => `/api/projects/${key}/inbox/screened`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
   checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 

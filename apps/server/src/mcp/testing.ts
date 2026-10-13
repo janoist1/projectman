@@ -278,6 +278,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('markDecisionCandidates', ctx, args);
       return { marked: args.items.length };
     },
+    async screenQuestion(ctx, args) {
+      await enter('screenQuestion', ctx, args);
+      return { inboxItemId: args.itemId, outcome: args.outcome };
+    },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);
       throw new TeamToolError('not_found', 'Unknown boundary request.');

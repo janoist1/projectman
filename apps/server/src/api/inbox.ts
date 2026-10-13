@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { InboxKind, InboxState, ResolveInboxRequest, routes } from '@projectman/shared';
-import type { InboxItem, InboxView } from '@projectman/shared';
+import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
 import type { Domain } from '../domain';
 import { canSeeInboxItem } from '../domain/visibility';
 import { requireAccess } from './context';
@@ -16,6 +16,11 @@ const InboxQuery = z.object({
   kind: InboxKind.optional(),
   /** "true" limits the list to items assigned to the current user. */
   mine: z.enum(['true', 'false', '1', '0']).optional(),
+});
+
+const ScreenedQuery = z.object({
+  /** ISO time: `today` counts the screened questions asked since it. */
+  since: z.string().datetime({ offset: true }),
 });
 
 export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void {
@@ -35,6 +40,17 @@ export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void 
       .filter((item) => canSeeInboxItem(access, item) && (!mine || item.assignees.includes(access.handle)));
     return { items };
   });
+
+  /** The questions the Operator screened (PM-558): a look for the owners and admins, who can see all of them. */
+  app.get<ProjectParams>(
+    routes.screenedQuestions(':key'),
+    async (request): Promise<ScreenedQuestionsResponse> => {
+      const key = request.params.key;
+      await requireAccess(domain, request, key, { minimum: 'admin' });
+      const { since } = parseBody(ScreenedQuery, request.query);
+      return domain.inbox.screenedQuestions(key, since);
+    },
+  );
 
   /** Assignees resolve items; owners may also answer permission requests and questions. */
   app.post<ItemParams>(routes.resolveInbox(':key', ':itemId'), async (request): Promise<InboxItem> => {

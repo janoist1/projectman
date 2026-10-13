@@ -19,6 +19,7 @@ import {
   sameWorkItem,
   sessionWorkItemOf,
   QuestionCloseRule,
+  questionPayloadOf,
   quoteOf,
   stageHandsOverForReview,
   stageOf,
@@ -46,7 +47,7 @@ import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../sessions';
 import type { TaskService } from '../tasks';
-import { actorHandle, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
+import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { MessageDelivery } from './delivery';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
@@ -327,13 +328,18 @@ export class Messaging {
     const routes: Record<string, WorkItemRef> = {};
     for (const { handle, workItem: where } of placed)
       if (!sameWorkItem(where, routeFor(taskKey))) routes[handle] = where;
-    const version = task
-      ? {
-          stageId: task.stageId,
-          commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
-          reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
-        }
-      : undefined;
+    // The Operator's answer to a question and a forward of one (PM-558) are never stale: they keep no version.
+    const unversioned =
+      opts.origin?.kind === 'question_forward' ||
+      (opts.origin?.kind === 'answer' && memberOf(config, from)?.kind === 'ai');
+    const version =
+      task && !unversioned
+        ? {
+            stageId: task.stageId,
+            commit: (await this.sessions.sourceHead(config, task))?.commit ?? null,
+            reviewCommit: this.tasks.get(projectKey, task.key).reviewPin?.commit ?? null,
+          }
+        : undefined;
     const message = this.ctx.unitOfWork(() => {
       opts.beforeRecord?.();
       if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
@@ -601,6 +607,8 @@ export class Messaging {
   async answeredNotice(item: InboxItem): Promise<void> {
     const resolution = item.resolution;
     if (item.kind !== 'question' || !resolution || !item.taskKey) return;
+    // A forwarded question is not answered yet: the member it went to answers the asker.
+    if (resolution.rule === 'operator_forwarded') return;
     const task = this.tasks.find(item.projectKey, item.taskKey);
     if (!task || !isOpenTask(task)) return;
     const config = await this.projects.config(item.projectKey);
@@ -644,11 +652,16 @@ export class Messaging {
     const note = item.resolution?.note?.trim();
     const text =
       `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" was closed: ${QUESTION_CLOSE_REASONS[rule.data]}. ` +
-      `Do not wait for its answer.${note ? ` Note: ${truncate(note, ANSWER_NOTICE_LIMIT)}` : ''}`;
+      `Do not wait for its answer.${note ? ` Note: ${truncate(note, ANSWER_NOTICE_LIMIT)}` : ''}` +
+      (rule.data === 'operator_moot' ? ` ${reaskHint(item.id)}` : '');
     await this.delivery.notice(session, 'projectman', text, item.taskKey);
   }
 
-  /** A human answered an AI member's `ask_human` question: the answer goes back to the asking session. */
+  /**
+   * A human answered an AI member's `ask_human` question: the answer goes back to the asking session. The
+   * Operator answers one it screens the same way (PM-558): the actor is then the AI member and the text
+   * says how to ask a person after all.
+   */
   async answer(
     item: InboxItem,
     attachmentIds: readonly string[],
@@ -662,13 +675,22 @@ export class Messaging {
     const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
     const session = item.sessionId ? this.sessions.find(item.sessionId) : null;
     const manager = Boolean(isProjectManager(asker) || isOperator(asker));
+    const byOperator = resolution.rule === 'operator_answered';
+    const todo = questionPayloadOf(item)?.screening?.todo;
     let closed: InboxItem | null = null;
     await this.send(
       item.projectKey,
       resolution.by,
       {
         to: [asker.handle],
-        text: `Answer to your question "${question}":\n\n${answerText(item)}`,
+        text:
+          todo && !byOperator
+            ? `Answer to your question "${question}":\n\nThe Operator turned it into a task for a person: ` +
+              `${todo.what} (where: ${todo.where}; expected: ${todo.expected}). The person's result:\n\n${answerText(item)}`
+            : `Answer to your question "${question}":\n\n${answerText(item)}` +
+              (byOperator
+                ? `\n\n(This answer is from the Operator, not from a person. ${reaskHint(item.id)})`
+                : ''),
         taskKey: item.taskKey,
         attachmentIds: [...attachmentIds],
       },
@@ -684,9 +706,71 @@ export class Messaging {
             : routeFor(item.taskKey),
         // The answer to the member's own question is never held back by the refinement line.
         duringRefinement: true,
-        actor: { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
+        actor:
+          memberOf(config, resolution.by)?.kind === 'ai'
+            ? aiActor(resolution.by)
+            : { ...humanActor(resolution.by), ...(resolution.via ? { via: resolution.via } : {}) },
         origin: { kind: 'answer', inboxItemId: item.id },
         answer: { inboxItemId: item.id, question, answer: answerText(item) },
+      },
+    );
+    return closed;
+  }
+
+  /**
+   * The Operator passes a screened question to another member (PM-558): the member gets an action message
+   * (origin `question_forward`, so it wakes even with no role on the card) and the asking member an info
+   * message saying where it went and how to ask a person after all. `close` runs in the transaction of the
+   * message to the recipient. Returns the closed item.
+   */
+  async forwardQuestion(
+    item: InboxItem,
+    forward: { to: string; note: string },
+    close: () => InboxItem,
+  ): Promise<InboxItem | null> {
+    const resolution = item.resolution;
+    if (item.kind !== 'question' || !resolution) return null;
+    const asker = item.source;
+    const question = typeof item.payload.question === 'string' ? item.payload.question : item.title;
+    const details = typeof item.payload.details === 'string' ? item.payload.details.trim() : '';
+    const by = resolution.by;
+    let closed: InboxItem | null = null;
+    await this.send(
+      item.projectKey,
+      by,
+      {
+        to: [forward.to],
+        taskKey: item.taskKey,
+        text:
+          `\`${asker}\` asked a person${item.taskKey ? ` on ${item.taskKey}` : ''}, and the Operator passed the question on to you, ` +
+          `because answering it is your part of the work:\n\n${question}` +
+          (details ? `\n\nDetails from \`${asker}\`:\n${details}` : '') +
+          `\n\nThe Operator's note: ${forward.note}\n\nAnswer \`${asker}\` yourself with send_message.`,
+      },
+      {
+        beforeRecord: () => {
+          closed = close();
+        },
+        kind: 'action',
+        actor: aiActor(by),
+        origin: { kind: 'question_forward', inboxItemId: item.id },
+        duringRefinement: true,
+      },
+    );
+    await this.send(
+      item.projectKey,
+      by,
+      {
+        to: [asker],
+        taskKey: item.taskKey,
+        text:
+          `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" went to \`${forward.to}\`, not to a person: ` +
+          `${forward.note} \`${forward.to}\` answers you with a message. ${reaskHint(item.id)}`,
+      },
+      {
+        kind: 'info',
+        actor: aiActor(by),
+        duringRefinement: true,
       },
     );
     return closed;
@@ -1033,6 +1117,14 @@ export class Messaging {
 /** How much of a question and of its answer the notice to the card's other workers carries. */
 const QUESTION_NOTICE_LIMIT = 200;
 const ANSWER_NOTICE_LIMIT = 500;
+
+/** How the asking member gets its question to a person after all, once the Operator handled it (PM-558). */
+function reaskHint(inboxItemId: string): string {
+  return (
+    `If that does not settle it, ask a person: call ask_human again with reask_of "${inboxItemId}" and ` +
+    'reask_reason (why it is not settled); that question goes straight to a person, without screening.'
+  );
+}
 
 /** Why a question was closed without an answer, as the asking member's notice says it (PM-556). */
 const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {

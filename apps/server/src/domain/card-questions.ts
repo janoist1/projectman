@@ -33,9 +33,9 @@ export class CardQuestions {
       .filter((item) => isPendingQuestion(item) || item.state === 'resolved')
       .filter((item) => !since || item.createdAt > since || (item.resolution?.at ?? '') > since);
     const latest = (list: InboxItem[], count: number) => list.slice(Math.max(0, list.length - count));
-    const open = latest(items.filter(isPendingQuestion), limit);
+    const open = latest(items.filter(stillOpen), limit);
     const answered = latest(
-      items.filter((item) => item.state === 'resolved'),
+      items.filter((item) => !stillOpen(item)),
       limit - open.length,
     );
     // The repository lists oldest first (by its sequence): filtering keeps that order, also for items
@@ -61,6 +61,14 @@ export class CardQuestions {
   }
 }
 
+/**
+ * Waits for an answer: still with a person or the Operator, or passed on to a member by the Operator
+ * (PM-558), whose answer comes as a message, not on the question.
+ */
+function stillOpen(item: InboxItem): boolean {
+  return isPendingQuestion(item) || item.resolution?.rule === 'operator_forwarded';
+}
+
 function toCardQuestion(
   item: InboxItem,
   askedEventId: string | null,
@@ -71,7 +79,7 @@ function toCardQuestion(
     typeof payload?.question === 'string' && payload.question.trim() ? payload.question : item.title;
   const base = { inboxItemId: item.id, asker: item.source, question, askedAt: item.createdAt, askedEventId };
   const resolution = item.resolution;
-  if (item.state !== 'resolved' || !resolution) return { ...base, state: 'open' };
+  if (stillOpen(item) || item.state !== 'resolved' || !resolution) return { ...base, state: 'open' };
   return {
     ...base,
     state: 'answered',

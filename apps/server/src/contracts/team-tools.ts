@@ -16,6 +16,8 @@ import type {
   MemberView,
   QuestionAttachment,
   QuestionOptionInput,
+  QuestionTodo,
+  ScreeningOutcome,
   Task,
   TaskDetail,
   TaskKind,
@@ -622,8 +624,34 @@ export interface TeamToolsHandler {
       details?: string;
       /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
       attachmentIds?: string[];
+      /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
+      reaskOf?: string;
+      reaskReason?: string;
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
+  ): Promise<{
+    inboxItemId: string;
+    approvalLabel?: string;
+    attachments?: QuestionAttachment[];
+    /** An AI member's question waits for the Operator's screening before the people see it (PM-558). */
+    screening?: true;
+  }>;
+  /**
+   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
+   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
+   * guest conversation; needs no open request.
+   */
+  screenQuestion(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: ScreeningOutcome;
+      note: string;
+      answer?: string;
+      forwardTo?: MemberHandle;
+      todo?: QuestionTodo;
+    },
+  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.

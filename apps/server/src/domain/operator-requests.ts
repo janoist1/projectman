@@ -45,6 +45,13 @@ export const OPERATOR_READ_TOOLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The team tools the Operator may call with no owner request open and no step logged (PM-558): the
+ * screening of an AI member's question is its standing duty, answered on the question's own record.
+ * Never in a guest conversation.
+ */
+export const OPERATOR_SCREENING_TOOLS: ReadonlySet<string> = new Set(['screen_question']);
+
+/**
  * The team tools the Operator never calls, request or not: decisions of other members, handovers and
  * publishing outside the machine.
  */

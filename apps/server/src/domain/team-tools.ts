@@ -19,8 +19,10 @@ import {
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   operatorSignalStepRefusal,
   operatorWatchOf,
+  QUESTION_SCREENING_MINUTES,
   questionChoices,
   questionApprovalLabel,
+  questionPayloadOf,
   sessionWorkItemOf,
   TaskStatus as TaskStatusSchema,
   TaskKey,
@@ -37,6 +39,8 @@ import type {
   ProjectConfig,
   QuestionAttachment,
   QuestionOptionInput,
+  QuestionTodo,
+  ScreeningOutcome,
   Session,
   Task,
   TaskKind,
@@ -103,6 +107,7 @@ import {
   OPERATOR_GUEST_TOOLS,
   OPERATOR_NEVER_TOOLS,
   OPERATOR_READ_TOOLS,
+  OPERATOR_SCREENING_TOOLS,
   OPERATOR_TOOL_ACTIONS,
 } from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
@@ -112,6 +117,7 @@ import type { MessageAttachmentService } from './message-attachments';
 import type { Viewer } from './visibility';
 import type { OperatorActions } from './operator-actions';
 import type { OperatorSignals } from './operator-signals';
+import type { QuestionScreening } from './question-screening';
 import type { TaskStarts } from './admission';
 import type { OperatorOperation, ProjectDoc } from '@projectman/shared';
 import type { ProjectDocRead, ProjectDocWrite } from '../contracts';
@@ -460,6 +466,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly signalStepsRunning = new Set<string>();
   private readonly operatorActions: OperatorActions;
   private readonly operatorSignals: OperatorSignals;
+  private readonly questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
   private readonly taskStarts: TaskStarts;
   private readonly boundary: BoundaryService;
   private readonly egress: EgressService | null;
@@ -560,6 +567,8 @@ export class TeamToolsService implements TeamToolsHandler {
     operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
     operatorActions: OperatorActions;
     operatorSignals: OperatorSignals;
+    /** The Operator's screening of AI members' questions (PM-558): `ask_human` hands a new question to it. */
+    questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
     taskStarts: TaskStarts;
     /** The Operator's project documents (PM-495): `read_project_doc` and `write_project_docs`. */
     docWrites: Pick<DocWrites, 'read' | 'request'>;
@@ -573,6 +582,7 @@ export class TeamToolsService implements TeamToolsHandler {
     this.operatorSteps = deps.operatorSteps;
     this.operatorActions = deps.operatorActions;
     this.operatorSignals = deps.operatorSignals;
+    this.questionScreening = deps.questionScreening;
     this.taskStarts = deps.taskStarts;
     this.screenshots = deps.screenshots;
     this.sessionEngine = deps.sessionEngine;
@@ -1586,8 +1596,16 @@ export class TeamToolsService implements TeamToolsHandler {
       recommendationReason?: string;
       details?: string;
       attachmentIds?: string[];
+      /** The question asked again after the Operator screened it away (PM-558), and why a person must see it. */
+      reaskOf?: string;
+      reaskReason?: string;
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }> {
+  ): Promise<{
+    inboxItemId: string;
+    approvalLabel?: string;
+    attachments?: QuestionAttachment[];
+    screening?: true;
+  }> {
     return this.guard(async () => {
       const config = await this.caller(ctx, 'ask_human');
       const question = args.question.trim();
@@ -1595,6 +1613,13 @@ export class TeamToolsService implements TeamToolsHandler {
       const taskKey = this.taskKeyFor(ctx, args.taskKey);
       // The Operator asks only the owners (PM-463): an answer of anyone else would not be a request to it.
       const operator = isOperator(memberOf(config, ctx.member));
+      const unscreened = this.reask(ctx, args.reaskOf, args.reaskReason);
+      // Every other AI member's question goes through the Operator first (PM-558); a re-ask does not.
+      const screened =
+        this.questionScreening.enabled &&
+        !operator &&
+        !unscreened &&
+        memberOf(config, ctx.member)?.kind === 'ai';
       let assignees: string[];
       if (args.to && args.to.length > 0) {
         const notHuman = args.to.filter((h) => memberOf(config, h)?.kind !== 'human');
@@ -1667,8 +1692,19 @@ export class TeamToolsService implements TeamToolsHandler {
         sessionId: ctx.sessionId,
         taskKey,
         title: question,
+        ...(screened ? { state: 'screening' as const } : {}),
         payload: {
           question,
+          ...(screened
+            ? {
+                screening: {
+                  until: new Date(
+                    this.ctx.now().getTime() + QUESTION_SCREENING_MINUTES * 60_000,
+                  ).toISOString(),
+                },
+              }
+            : {}),
+          ...(unscreened ? { unscreened } : {}),
           options: choices.map((choice) => choice.label),
           ...(approvalLabel ? { approvalLabel } : {}),
           ...(recommendedIndex >= 0 ? { recommended: options[recommendedIndex]!.id } : {}),
@@ -1685,13 +1721,155 @@ export class TeamToolsService implements TeamToolsHandler {
         sessionId: ctx.sessionId,
         actor: aiActor(ctx.member),
         type: 'question_asked',
-        data: { inboxItemId: item.id, question },
+        data: {
+          inboxItemId: item.id,
+          question,
+          ...(screened ? { screening: true as const } : {}),
+          ...(unscreened ? { unscreened } : {}),
+        },
       });
+      // An Operator that cannot take it gives the question to the people before this call returns; one that
+      // can is woken without waiting for its session.
+      const hopeless = screened && this.questionScreening.cannotScreen(ctx.projectKey, config);
+      if (screened) {
+        const handed = this.questionScreening.enqueue(ctx.projectKey).catch((err: unknown) => {
+          this.ctx.logger.warn({ err, inboxItemId: item.id }, 'could not hand a question to the screening');
+        });
+        if (hopeless) await handed;
+        else void handed;
+      }
       return {
         inboxItemId: item.id,
         ...(approvalLabel ? { approvalLabel } : {}),
         ...(attachments.length > 0 ? { attachments } : {}),
+        ...(screened && !hopeless ? { screening: true as const } : {}),
       };
+    });
+  }
+
+  /**
+   * A question asked again after the Operator answered, forwarded or closed it (PM-558): the new question
+   * goes to the people unscreened, once per earlier question. Returns what the new item records, or null for
+   * an ordinary question. Throws `reask_not_allowed` before anything is written.
+   */
+  private reask(
+    ctx: ToolContext,
+    reaskOf: string | undefined,
+    reaskReason: string | undefined,
+  ): { reason: string; previousItemId: string } | null {
+    const reason = reaskReason?.trim();
+    if (reaskOf === undefined && reason === undefined) return null;
+    if (!reaskOf || !reason)
+      throw new TeamToolError('invalid', 'reask_not_allowed: reask_of and reask_reason go together.');
+    const previous = this.ctx.repos.inbox.get(reaskOf);
+    if (!previous || previous.projectKey !== ctx.projectKey || previous.kind !== 'question')
+      throw new TeamToolError('invalid', 'reask_not_allowed: there is no such question of yours.');
+    if (previous.source !== ctx.member)
+      throw new TeamToolError('invalid', 'reask_not_allowed: only the member who asked may ask again.');
+    const outcome = questionPayloadOf(previous)?.screening?.outcome;
+    if (outcome !== 'answered' && outcome !== 'forwarded' && outcome !== 'moot')
+      throw new TeamToolError(
+        'invalid',
+        'reask_not_allowed: the Operator did not answer, forward or close that question.',
+      );
+    const asked = this.inbox
+      .list(ctx.projectKey, { kind: 'question', limit: 100_000 })
+      .some((item) => questionPayloadOf(item)?.unscreened?.previousItemId === reaskOf);
+    if (asked)
+      throw new TeamToolError('invalid', 'reask_not_allowed: that question was already asked again.');
+    return { reason, previousItemId: reaskOf };
+  }
+
+  /**
+   * The Operator settles a question it screens (PM-558): it answers it, passes it to a member, closes it as
+   * moot, or sends it on to the people as a decision or a todo. Only the Operator, and not from a guest
+   * conversation. Throws before anything changes when the fields do not fit the outcome.
+   */
+  async screenQuestion(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: ScreeningOutcome;
+      note: string;
+      answer?: string;
+      forwardTo?: string;
+      todo?: QuestionTodo;
+    },
+  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }> {
+    return this.guard(async () => {
+      const config = await this.projects.config(ctx.projectKey);
+      if (!isOperator(memberOf(config, ctx.member)))
+        throw new TeamToolError('forbidden', 'operator_only: only the Operator may screen questions.');
+      await this.callerWithRequest(ctx, 'screen_question');
+      const { outcome } = args;
+      const note = args.note.trim();
+      const answer = args.answer?.trim();
+      const forwardTo = args.forwardTo?.trim();
+      const fieldError = (problem: string) =>
+        new TeamToolError('invalid', `invalid_outcome_fields: ${problem}`);
+      if (!note) throw fieldError('note is required with every outcome.');
+      if ((outcome === 'answered') !== (answer !== undefined && answer !== ''))
+        throw fieldError(
+          outcome === 'answered' ? 'answered needs an answer.' : 'only answered takes an answer.',
+        );
+      if ((outcome === 'forwarded') !== (forwardTo !== undefined))
+        throw fieldError(
+          outcome === 'forwarded' ? 'forwarded needs forward_to.' : 'only forwarded takes forward_to.',
+        );
+      if ((outcome === 'todo') !== (args.todo !== undefined))
+        throw fieldError(
+          outcome === 'todo' ? 'todo needs the todo fields.' : 'only todo takes the todo fields.',
+        );
+      const item = this.ctx.repos.inbox.get(args.itemId);
+      if (!item || item.projectKey !== ctx.projectKey || item.kind !== 'question')
+        throw new TeamToolError('not_found', `No question ${args.itemId} in this project.`);
+      const asker = memberOf(config, item.source);
+      // A moot question may also be one that already went to the people, if an AI member asked it.
+      const mootOpen =
+        outcome === 'moot' && item.state === 'open' && asker?.kind === 'ai' && !isOperator(asker);
+      if (item.state !== 'screening' && !mootOpen)
+        throw new TeamToolError(
+          'invalid',
+          `question_not_screening: ${item.id} is not waiting for the Operator (it is ${item.state}).`,
+        );
+      if (forwardTo !== undefined) {
+        const recipient = memberOf(config, forwardTo);
+        if (recipient?.kind !== 'ai' || isOperator(recipient) || forwardTo === item.source)
+          throw fieldError(
+            `forward_to must be an AI member of the project other than the asker and the Operator; ${forwardTo} is not.`,
+          );
+      }
+      const by = ctx.member;
+      const settled =
+        outcome === 'decision' || outcome === 'todo'
+          ? await this.inbox.releaseScreened(item.id, {
+              outcome,
+              by,
+              note,
+              ...(args.todo ? { todo: args.todo } : {}),
+            })
+          : await this.inbox.settleScreened(
+              item.id,
+              {
+                outcome,
+                by,
+                note,
+                ...(answer ? { answer } : {}),
+                ...(forwardTo ? { forwardedTo: forwardTo } : {}),
+              },
+              outcome === 'answered'
+                ? (resolved, close) => this.messaging.answer(resolved, [], close)
+                : outcome === 'forwarded'
+                  ? (resolved, close) =>
+                      this.messaging.forwardQuestion(resolved, { to: forwardTo!, note }, close)
+                  : undefined,
+            );
+      if (!settled)
+        throw new TeamToolError(
+          'invalid',
+          `question_not_screening: ${item.id} is not waiting for the Operator any more.`,
+        );
+      return { inboxItemId: item.id, outcome };
     });
   }
 
@@ -2153,6 +2331,8 @@ export class TeamToolsService implements TeamToolsHandler {
         throw new TeamToolError('invalid', 'invalid_request: unknown signal in this project.');
       return { config, request, guest: null, signalId: signalStep.signalId };
     }
+    // Screening an AI member's question is the Operator's standing duty: no owner request, no step.
+    if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request, guest: null };
     if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal) {
       if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
       throw new TeamToolError(

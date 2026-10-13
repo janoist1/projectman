@@ -44,6 +44,7 @@ export interface AppHarnessOptions {
   app?: Pick<
     BuildAppOptions,
     | 'doneCleanupDelayMs'
+    | 'screenQuestions'
     | 'doneTurnLimitMs'
     | 'clientIpHeader'
     | 'freeDiskBytes'
@@ -174,6 +175,8 @@ export async function createAppHarness(
       webDistDir: opts.webDistDir ?? null,
       planUsageTtlMs: 0,
       doneCleanupDelayMs: 0,
+      // Questions go to the people at once, unless a test is about the Operator's screening (PM-558).
+      screenQuestions: false,
       // The tests must not depend on how full the disk they run on is.
       freeDiskBytes: async () => null,
       // Only the tests of the control command open the socket (PM-219).

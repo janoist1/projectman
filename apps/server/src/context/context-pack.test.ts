@@ -1157,6 +1157,24 @@ describe('system prompt', () => {
       expect(operator).not.toContain('anything about yourself');
     });
 
+    it('tells the Operator how to screen the questions of AI members, and nobody else (PM-558)', () => {
+      const operator = operatorPrompt('en');
+      for (const text of [
+        'a "question screening" notice',
+        'Call screen_question for every question in the notice, always with a note.',
+        'in the decision log (DECISIONS.md), in the roadmap (ROADMAP.md), in the code or in an earlier owner answer; name the source in the note',
+        'forwarded: when answering is another AI member',
+        'moot: when the question is obsolete',
+        'todo: when only a person can do it; give the exact step (what, where, expected).',
+        'decision: everything else. Always choose decision for an approval, a release, human access, a cost or fee, a change of scope or deadline',
+        "start or move nothing on the board, change no settings, and never decide in the owner's name.",
+      ])
+        expect(operator).toContain(text);
+      expect(roleOf(builder.build(input({ handle: 'fe-1' })).appendSystemPrompt)).not.toContain(
+        'screen_question',
+      );
+    });
+
     it('offers the roadmap check at a proposed release only when the project has a roadmap (PM-497)', () => {
       const line =
         'When a system note says a release was proposed, offer the roadmap check in your next answer to the owner; write only after a yes.';

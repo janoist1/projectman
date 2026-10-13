@@ -108,6 +108,15 @@ tests use the SDK's own client, which behaves the same way here):
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558) is the Operator's tool for
+  the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
+  `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
+  `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
+  (`invalid_outcome_fields`). Only the Operator, not in guest conversations, no open request needed; a question
+  no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
+  `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
+  question again unscreened (`reask_not_allowed` otherwise). Handler method: `screenQuestion(ctx, { itemId,
+  outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operator".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

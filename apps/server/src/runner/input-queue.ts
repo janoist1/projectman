@@ -7,7 +7,8 @@ import { ENTER_KEY, messageKeystrokes } from './typing';
  * is idle and settled; then it is typed (typing.ts) and Enter is pressed. Until the CLI
  * reports the prompt (UserPromptSubmit) nothing else is typed: Enter is pressed again if the
  * session stays idle (an autocomplete may have eaten it), and after a timeout the queue moves
- * on anyway.
+ * on anyway. A caller of `enqueueSubmitted` hears whether the CLI took the message: after the
+ * timeout it is told it did not (PM-571), and must not count the message as delivered.
  */
 
 /** What the queue needs from its session. */
@@ -38,6 +39,8 @@ export interface InputQueueHost {
 
 interface QueuedMessage {
   text: string;
+  /** The message counts as done once typed (`enqueue`), or only once the CLI took it (`enqueueSubmitted`). */
+  untilSubmitted: boolean;
   resolve(): void;
   reject(err: Error): void;
 }
@@ -48,6 +51,19 @@ interface AwaitedSubmit {
   /** A slash command, or a prompt passed on the command line: Enter is never pressed again. */
   command: boolean;
   timeoutMs: number;
+  /** Settles the caller of `enqueueSubmitted`: resolved when the CLI took the prompt, rejected when it did not. */
+  settle?: { resolve(): void; reject(err: Error): void };
+}
+
+/**
+ * A typed message was never reported as submitted: it may still sit in the CLI's prompt box, so the
+ * message did not reach the agent and must not count as delivered (PM-571).
+ */
+export class NotSubmittedError extends Error {
+  constructor(sessionId: string) {
+    super(`Session ${sessionId} did not take the typed message`);
+    this.name = 'NotSubmittedError';
+  }
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -83,7 +99,12 @@ export class InputQueue {
   unhold(first?: string): void {
     this.held = false;
     if (first?.trim() && !this.closed) {
-      this.queue.unshift({ text: first, resolve: () => undefined, reject: () => undefined });
+      this.queue.unshift({
+        text: first,
+        untilSubmitted: false,
+        resolve: () => undefined,
+        reject: () => undefined,
+      });
     }
     this.pump();
   }
@@ -105,9 +126,22 @@ export class InputQueue {
 
   /** Queues a message; it is typed once the session is idle. Resolves once typed. */
   enqueue(text: string): Promise<void> {
+    return this.add(text, false);
+  }
+
+  /**
+   * Queues a message like `enqueue`, but resolves only once the CLI took it (UserPromptSubmit); a
+   * slash command reports none, so it resolves once typed. Rejects with `NotSubmittedError` when the
+   * CLI did not take the typed message in time (PM-571): it did not reach the agent.
+   */
+  enqueueSubmitted(text: string): Promise<void> {
+    return this.add(text, true);
+  }
+
+  private add(text: string, untilSubmitted: boolean): Promise<void> {
     if (this.closed) return Promise.reject(new Error(`Session ${this.host.sessionId} is not running`));
     return new Promise<void>((resolve, reject) => {
-      this.queue.push({ text, resolve, reject });
+      this.queue.push({ text, untilSubmitted, resolve, reject });
       this.pump();
     });
   }
@@ -143,7 +177,9 @@ export class InputQueue {
    * waiting for the typed message to be submitted.
    */
   submitted(): void {
+    const pending = this.awaitingSubmit;
     this.awaitingSubmit = null;
+    pending?.settle?.resolve();
   }
 
   /**
@@ -161,6 +197,9 @@ export class InputQueue {
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
     this.pumpTimer = null;
+    const pending = this.awaitingSubmit;
+    this.awaitingSubmit = null;
+    pending?.settle?.reject(this.exitedError());
     for (const message of this.queue.splice(0)) message.reject(this.exitedError());
   }
 
@@ -182,8 +221,14 @@ export class InputQueue {
       if (this.closed) throw this.exitedError();
       this.host.write(ENTER_KEY);
       // A slash command reports no UserPromptSubmit and may open a dialog: never press Enter blindly.
-      this.awaitSubmit(message.text.trim().startsWith('/'), timing.submitTimeoutMs);
-      message.resolve();
+      const command = message.text.trim().startsWith('/');
+      if (message.untilSubmitted && !command) {
+        // Settled by `submitted` (taken), the give-up (not taken) or `close` (the process is gone).
+        this.awaitSubmit(false, timing.submitTimeoutMs, { resolve: message.resolve, reject: message.reject });
+      } else {
+        this.awaitSubmit(command, timing.submitTimeoutMs);
+        message.resolve();
+      }
     } catch (err) {
       message.reject(err instanceof Error ? err : new Error(String(err)));
     } finally {
@@ -192,8 +237,8 @@ export class InputQueue {
     }
   }
 
-  private awaitSubmit(command: boolean, timeoutMs: number): void {
-    this.awaitingSubmit = { at: Date.now(), retries: 0, command, timeoutMs };
+  private awaitSubmit(command: boolean, timeoutMs: number, settle?: AwaitedSubmit['settle']): void {
+    this.awaitingSubmit = { at: Date.now(), retries: 0, command, timeoutMs, settle };
     this.timer(() => this.checkSubmitted(), this.host.timing.enterRetryMs);
   }
 
@@ -215,6 +260,7 @@ export class InputQueue {
         'typed message was not reported as submitted',
       );
       this.awaitingSubmit = null;
+      pending.settle?.reject(new NotSubmittedError(this.host.sessionId));
       this.pump();
       this.host.onChange?.();
       return;

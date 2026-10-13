@@ -57,6 +57,7 @@ export const hu = {
       provider_resume: 'a szolgáltatói keret újra elérhető',
       pause_resume: 'a szünet véget ért',
       handoff: 'a kártya felelőse változott',
+      question_screening: 'a kérdésére az Operátor válasza vagy továbbadása',
     },
     stops: {
       assignee_change: 'a felelős módosításához',
@@ -3490,6 +3491,13 @@ export const hu = {
       dismiss: 'Tudomásul véve',
       approval_given: 'Lezárva: a jóváhagyás megtörtént',
       feedback_handled: 'Lezárva: a jelölés el van intézve',
+      // A question closed without an answer (PM-556).
+      task_done: 'Tárgytalan: a kártya Kész',
+      task_cancelled: 'Tárgytalan: a kártya megszakítva',
+      handed_off: 'Tárgytalan: átadta a kártyát',
+      assignee_changed: 'Tárgytalan: a kártya új felelőst kapott',
+      withdrawn: 'Visszavonta',
+      operator_moot: 'Tárgytalan: az Operátor szerint',
     },
     /** Rules by which the system decided an item itself. */
     resolutionRules: {
@@ -3501,6 +3509,14 @@ export const hu = {
       senior_wait_ended: 'Automatikus',
       approval_given: 'Automatikus',
       feedback_handled: 'Automatikus',
+      operator_answered: 'Az Operátor megválaszolta',
+      operator_forwarded: 'Az Operátor továbbadta',
+      operator_moot: 'Az Operátor tárgytalannak zárta',
+      task_done: 'A kártya Kész lett',
+      task_cancelled: 'A kártya megszakadt',
+      handed_off: 'Átadták a kártyát',
+      assignee_changed: 'Új felelőse lett a kártyának',
+      withdrawn: 'Visszavonták',
     },
     /** The folded row of the history for what the system decided by a rule. */
     automaticDecisions: '{count} automatikus döntés',
@@ -4070,6 +4086,20 @@ export const hu = {
       permission_denied: 'Elutasítva',
       question_asked: 'Kérdés: {question}',
       question_answered: 'Válasz: {answer}',
+      // The Operator's screening of a question (PM-556); the row names who acted.
+      question_screened_answered: 'Megválaszolta {asker} kérdését: „{answer}”',
+      question_screened_forwarded: 'Továbbadta {to} részére {asker} kérdését: {note}',
+      question_screened_moot: 'Tárgytalannak zárta {asker} kérdését: {note}',
+      question_screened_decision: 'Döntésként továbbengedte neked: {note}',
+      question_screened_todo: 'Teendőként továbbengedte neked: {note}',
+      question_screening_skipped_timeout:
+        '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: az Operátor nem válaszolt időben',
+      question_screening_skipped_unavailable:
+        '{asker} kérdése 10 perc után az Operátor szűrése nélkül került hozzád: nem volt elérhető',
+      question_closed: '{asker} kérdése lezárult: {reason}',
+      question_closed_withdrawn: '{asker} visszavonta a kérdését: {note}',
+      question_answer_waiting: 'A válaszod vár {asker} indulására',
+      question_answer_delivered: 'Megkapta.',
       member_hired: 'Felvéve: {handle}',
       member_retired: 'Elbocsátva: {handle}',
       member_retired_handover: 'Elbocsátva: {handle}, a munkái átkerültek: {to}',

@@ -183,7 +183,7 @@ describe('refinementTurn', () => {
 describe('turnStalled', () => {
   const question = (
     source: string,
-    state: 'open' | 'resolved' = 'open',
+    state: 'open' | 'resolved' | 'screening' = 'open',
     kind: 'question' | 'alert' = 'question',
   ) => ({
     kind,
@@ -201,6 +201,10 @@ describe('turnStalled', () => {
 
   it('is no stall while an AI member has an open question', () => {
     expect(turnStalled([question('analyst')], config())).toBe(false);
+  });
+
+  it('is no stall while an AI member’s question is screened by the Operator (PM-556)', () => {
+    expect(turnStalled([question('analyst', 'screening')], config())).toBe(false);
   });
 });
 

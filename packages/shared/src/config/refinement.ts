@@ -126,6 +126,10 @@ export function turnStalled(
 ): boolean {
   return !items.some(
     (item) =>
-      item.kind === 'question' && item.state === 'open' && memberOf(config, item.source)?.kind === 'ai',
+      // Pending: open, or with the Operator for screening (`isPendingQuestion`; a type-only import here
+      // keeps this module out of the domain import cycle).
+      item.kind === 'question' &&
+      (item.state === 'open' || item.state === 'screening') &&
+      memberOf(config, item.source)?.kind === 'ai',
   );
 }

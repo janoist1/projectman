@@ -5,6 +5,7 @@ import {
   ReleaseState,
   FullTestErrorReason,
   LabelChangeReason,
+  QuestionCloseRule,
   TaskRelationKind,
   TaskPriority,
 } from '@projectman/shared';
@@ -836,6 +837,57 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
       };
     case 'question_answered':
       return normal(t('timeline.events.question_answered', { answer: str(d.answer) }));
+    case 'question_screened': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      const note = str(d.note);
+      switch (d.outcome) {
+        case 'answered':
+          return normal(t('timeline.events.question_screened_answered', { asker, answer: str(d.answer) }));
+        case 'forwarded':
+          return normal(
+            t('timeline.events.question_screened_forwarded', {
+              asker,
+              note,
+              to: nameOf(str(d.forwardedTo), ctx.members, ctx.myHandle),
+            }),
+          );
+        case 'decision':
+          return normal(t('timeline.events.question_screened_decision', { note }));
+        case 'todo':
+          return normal(t('timeline.events.question_screened_todo', { note }));
+        default:
+          return normal(t('timeline.events.question_screened_moot', { asker, note }));
+      }
+    }
+    case 'question_screening_skipped':
+      return normal(
+        t(
+          d.reason === 'unavailable'
+            ? 'timeline.events.question_screening_skipped_unavailable'
+            : 'timeline.events.question_screening_skipped_timeout',
+          { asker: nameOf(str(d.asker), ctx.members, ctx.myHandle) },
+        ),
+      );
+    case 'question_closed': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      if (d.rule === 'withdrawn')
+        return normal(t('timeline.events.question_closed_withdrawn', { asker, note: str(d.note) }));
+      const reason = QuestionCloseRule.safeParse(d.rule);
+      return normal(
+        t('timeline.events.question_closed', {
+          asker,
+          reason: reason.success ? t(`inbox.resolutions.${reason.data}`) : str(d.note),
+        }),
+      );
+    }
+    case 'question_answer_delivery': {
+      const asker = nameOf(str(d.asker), ctx.members, ctx.myHandle);
+      return normal(
+        d.state === 'waiting'
+          ? t('timeline.events.question_answer_waiting', { asker })
+          : t('timeline.events.question_answer_delivered'),
+      );
+    }
     case 'member_hired':
       return normal(t('timeline.events.member_hired', { handle: str(d.handle) }));
     case 'member_retired':

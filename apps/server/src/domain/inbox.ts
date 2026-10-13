@@ -6,11 +6,13 @@ import {
   effectiveSessionPermissions,
   gateRequestOf,
   handOnRequestOf,
+  isPendingQuestion,
   memberOf,
   operatorApprovalOf,
   OPERATOR_DISMISS_OPTION,
   permissionDelegationOf,
   permissionDelegationState,
+  PENDING_INBOX_STATES,
   routePermissionRequest,
   withQuestionAttachmentGone,
 } from '@projectman/shared';
@@ -24,6 +26,7 @@ import type {
   InboxResolutionRule,
   InboxState,
   ProjectConfig,
+  QuestionCloseRule,
   ResolveInboxRequest,
   Session,
   TimelineEventData,
@@ -284,7 +287,12 @@ export class InboxService {
 
   list(
     projectKey: string,
-    filter: { state?: InboxState; kind?: InboxKind; taskKey?: string; limit?: number } = {},
+    filter: {
+      state?: InboxState | readonly InboxState[];
+      kind?: InboxKind;
+      taskKey?: string;
+      limit?: number;
+    } = {},
   ) {
     return this.ctx.repos.inbox.list(projectKey, filter);
   }
@@ -614,6 +622,46 @@ export class InboxService {
     return resolved;
   }
 
+  /**
+   * Closes a question that still waits for its answer (open, or with the Operator for screening) because
+   * nothing is left to answer (PM-556): `cancelled`, resolved by `by` with the rule. Null when the item is
+   * not a pending question. The timeline records `question_closed`; the asking member's running session is
+   * told by the `inbox_cancelled` listener (`MessagingService.closedNotice`).
+   */
+  closeQuestion(
+    id: string,
+    close: { rule: QuestionCloseRule; by: string; note: string | null },
+  ): Promise<InboxItem | null> {
+    return this.resolutionLocks.run(id, async () => {
+      const current = this.ctx.repos.inbox.get(id);
+      if (!current || !isPendingQuestion(current)) return null;
+      const at = isoNow(this.ctx);
+      const closed = this.ctx.unitOfWork(() => {
+        const item = this.ctx.repos.inbox.close(
+          id,
+          'cancelled',
+          { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule },
+          at,
+        );
+        if (!item) return null;
+        this.publish(item);
+        this.timeline.append({
+          projectKey: item.projectKey,
+          taskKey: item.taskKey,
+          sessionId: item.sessionId,
+          actor: close.by === 'system' ? SYSTEM_ACTOR : aiActor(close.by),
+          type: 'question_closed',
+          data: { inboxItemId: item.id, asker: item.source, rule: close.rule, note: close.note },
+        });
+        return item;
+      });
+      if (!closed) return null;
+      this.waiters.get(id)?.(closed);
+      await this.ctx.events.emit('inbox_cancelled', closed);
+      return closed;
+    });
+  }
+
   /** Closes an open item without a decision (e.g. a stale gate request); returns null if not open. */
   cancel(id: string): InboxItem | null {
     return this.close(id, 'cancelled');
@@ -629,9 +677,10 @@ export class InboxService {
   }
 
   reassignRemovedHuman(projectKey: string, handle: string, owners: string[]): void {
+    // A question the Operator still screens (PM-556) has its assignees too: it goes to them when released.
     for (const item of this.ctx.repos.inbox
-      .listOpen()
-      .filter((i) => i.projectKey === projectKey && i.assignees.includes(handle))) {
+      .list(projectKey, { state: PENDING_INBOX_STATES, limit: 100_000 })
+      .filter((i) => i.assignees.includes(handle))) {
       const remaining = item.assignees.filter((h) => h !== handle);
       const updated = this.ctx.repos.inbox.updateAssignees(
         item.id,
@@ -649,7 +698,7 @@ export class InboxService {
    */
   cancelOpenFromSource(projectKey: string, handle: string): InboxItem[] {
     const cancelled: InboxItem[] = [];
-    for (const item of this.ctx.repos.inbox.list(projectKey, { state: 'open' })) {
+    for (const item of this.ctx.repos.inbox.list(projectKey, { state: PENDING_INBOX_STATES })) {
       if (item.source !== handle || item.kind === 'decision' || item.kind === 'release') continue;
       const closed = this.cancel(item.id);
       if (closed) cancelled.push(closed);

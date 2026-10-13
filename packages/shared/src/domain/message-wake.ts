@@ -43,6 +43,8 @@ export interface WakeFacts {
   recipientIsOperator: boolean;
   /** The sender is a person with their own login, not acting through the integrator key (PM-475). */
   fromOwnLogin: boolean;
+  /** The message answers or passes on a question (origin `answer` or `question_forward`, PM-556): it wakes like a person's. */
+  answersQuestion: boolean;
 }
 
 /**
@@ -58,6 +60,7 @@ export function messageWakeBlock(
 ): WakeBlock | null {
   if ((message.kind ?? 'action') !== 'action' || stale !== null) return null;
   if (facts.recipientIsOperator) return facts.fromHuman && facts.fromOwnLogin ? null : 'operator_owner_only';
+  if (facts.answersQuestion) return null;
   return !facts.fromHuman && facts.fromAi && !facts.recipientHasRole ? 'no_card_role' : null;
 }
 
@@ -69,6 +72,7 @@ export function messageWakes(
   if (facts.recipientIsOperator) return facts.fromHuman && facts.fromOwnLogin;
   return (
     facts.fromHuman ||
+    facts.answersQuestion ||
     ((message.kind ?? 'action') === 'action' &&
       stale === null &&
       messageWakeBlock(message, facts, stale) === null)

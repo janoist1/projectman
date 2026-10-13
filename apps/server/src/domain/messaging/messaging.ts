@@ -18,6 +18,7 @@ import {
   routeFor,
   sameWorkItem,
   sessionWorkItemOf,
+  QuestionCloseRule,
   quoteOf,
   stageHandsOverForReview,
   stageOf,
@@ -627,6 +628,26 @@ export class Messaging {
     for (const worker of workers) this.delivery.noticeOrHold(worker, 'projectman', text, task.key);
   }
 
+  /**
+   * A pending question was closed without an answer (PM-556): its asking member's session, when it runs,
+   * is told why and not to wait for the answer. Not stored as a message, and starts no session.
+   */
+  async closedNotice(item: InboxItem): Promise<void> {
+    const rule = QuestionCloseRule.safeParse(item.resolution?.rule);
+    if (item.kind !== 'question' || !rule.success || !item.sessionId) return;
+    const session = this.sessions.find(item.sessionId);
+    if (!session || !this.sessions.isRunning(session.id)) return;
+    const question =
+      typeof item.payload.question === 'string' && item.payload.question.trim()
+        ? item.payload.question
+        : item.title;
+    const note = item.resolution?.note?.trim();
+    const text =
+      `Your question "${truncate(question, QUESTION_NOTICE_LIMIT)}" was closed: ${QUESTION_CLOSE_REASONS[rule.data]}. ` +
+      `Do not wait for its answer.${note ? ` Note: ${truncate(note, ANSWER_NOTICE_LIMIT)}` : ''}`;
+    await this.delivery.notice(session, 'projectman', text, item.taskKey);
+  }
+
   /** A human answered an AI member's `ask_human` question: the answer goes back to the asking session. */
   async answer(
     item: InboxItem,
@@ -1012,6 +1033,16 @@ export class Messaging {
 /** How much of a question and of its answer the notice to the card's other workers carries. */
 const QUESTION_NOTICE_LIMIT = 200;
 const ANSWER_NOTICE_LIMIT = 500;
+
+/** Why a question was closed without an answer, as the asking member's notice says it (PM-556). */
+const QUESTION_CLOSE_REASONS: Record<QuestionCloseRule, string> = {
+  task_done: 'the card it was about is done',
+  task_cancelled: 'the card it was about was cancelled',
+  handed_off: 'the card it was about was handed to someone else',
+  assignee_changed: 'the card it was about has a new assignee',
+  withdrawn: 'it was withdrawn',
+  operator_moot: 'the Operator found it moot: nothing is left to answer',
+};
 
 /** Why a session joined a card, as the joined notice says it (empty when nothing is known). */
 function startReason(config: ProjectConfig, cause: SessionStartCause | null): string {

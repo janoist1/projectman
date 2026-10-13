@@ -7,6 +7,7 @@ import {
   messageWakeBlock,
   operatorWatchOf,
   ownerHandles,
+  PENDING_INBOX_STATES,
   sessionWorkItemOf,
   stageOf,
   startBlock,
@@ -79,7 +80,7 @@ export class ProjectState {
         ),
       ],
       openQuestions: ctx.repos.inbox
-        .list(projectKey, { taskKey, kind: 'question', state: 'open' })
+        .list(projectKey, { taskKey, kind: 'question', state: PENDING_INBOX_STATES })
         .map((q) => ({ id: q.id, from: q.source, at: q.createdAt, title: q.title })),
       session: session ? sessionReport(session) : null,
       holds: [

@@ -23,7 +23,8 @@ interface InboxRow {
 }
 
 export interface InboxFilter {
-  state?: InboxState;
+  /** One state, or any of several (a question is pending while `open` or `screening`). */
+  state?: InboxState | readonly InboxState[];
   kind?: InboxKind;
   taskKey?: string;
   limit?: number;
@@ -55,10 +56,13 @@ export function createInboxRepository(db: Db) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ),
     updateAssignees: db.prepare(
-      "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state = 'open'",
+      "UPDATE inbox_items SET assignees = ?, updated_at = ? WHERE id = ? AND state IN ('open', 'screening')",
     ),
     close: db.prepare(
-      `UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND state = 'open'`,
+      `UPDATE inbox_items SET state = ?, resolution = ?, updated_at = ? WHERE id = ? AND state IN ('open', 'screening')`,
+    ),
+    release: db.prepare(
+      `UPDATE inbox_items SET state = 'open', payload = ?, options = ?, updated_at = ? WHERE id = ? AND state = 'screening'`,
     ),
     listOpen: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' ORDER BY seq`),
     listOpenOfKind: db.prepare(`SELECT * FROM inbox_items WHERE state = 'open' AND kind = ? ORDER BY seq`),
@@ -148,30 +152,56 @@ export function createInboxRepository(db: Db) {
       statements.updateAssignees.run(toJson(assignees), at, id);
       return get(id);
     },
-    /** Changes state/resolution only while the item is still open; returns the item or null if it was not open. */
+    /**
+     * Changes state/resolution only while the item is still open or in screening; returns the item or null
+     * if it was neither.
+     */
     close(
       id: string,
-      state: Exclude<InboxState, 'open'>,
+      state: Exclude<InboxState, 'open' | 'screening'>,
       resolution: InboxItem['resolution'],
       at: string,
     ): InboxItem | null {
       const changes = statements.close.run(state, resolution ? toJson(resolution) : null, at, id).changes;
       return changes > 0 ? get(id) : null;
     },
+    /**
+     * Opens an item the Operator screened for the people (PM-556), with its new payload and options. False
+     * when the item is not in screening (it was closed meanwhile).
+     */
+    release(
+      id: string,
+      change: { payload: Record<string, unknown>; options: InboxItem['options']; at: string },
+    ): boolean {
+      return (
+        statements.release.run(toJson(change.payload), toJson(change.options), change.at, id).changes > 0
+      );
+    },
     /** Items of a project, oldest first. */
     list(projectKey: string, filter: InboxFilter = {}): InboxItem[] {
-      const signature = [filter.state && 'state', filter.kind && 'kind', filter.taskKey && 'task'].join(',');
+      const states = filter.state
+        ? typeof filter.state === 'string'
+          ? [filter.state]
+          : [...filter.state]
+        : [];
+      const signature = [
+        states.length > 0 && `state${states.length}`,
+        filter.kind && 'kind',
+        filter.taskKey && 'task',
+      ].join(',');
       let statement = lists.get(signature);
       if (!statement) {
         let sql = 'SELECT * FROM inbox_items WHERE project_key = @projectKey';
-        if (filter.state) sql += ' AND state = @state';
+        if (states.length > 0) sql += ` AND state IN (${states.map((_, i) => `@state${i}`).join(', ')})`;
         if (filter.kind) sql += ' AND kind = @kind';
         if (filter.taskKey) sql += ' AND task_key = @taskKey';
         statement = db.prepare(`${sql} ORDER BY seq DESC LIMIT @limit`);
         lists.set(signature, statement);
       }
       const params: Record<string, string | number> = { projectKey, limit: filter.limit ?? 500 };
-      if (filter.state) params.state = filter.state;
+      states.forEach((state, i) => {
+        params[`state${i}`] = state;
+      });
       if (filter.kind) params.kind = filter.kind;
       if (filter.taskKey) params.taskKey = filter.taskKey;
       return (statement.all(params) as InboxRow[]).reverse().map(toItem);

@@ -81,8 +81,12 @@ export function isClient(viewer: Viewer): boolean {
 /** Internal tasks are hidden from client members (the rule lives in `packages/shared`). */
 export { canSeeTask };
 
-/** A client sees only the inbox items assigned to them. */
+/**
+ * A client sees only the inbox items assigned to them. A question the Operator still screens (PM-556) is
+ * not on anyone's "waits for you" list yet: only an owner and an admin see it.
+ */
 export function canSeeInboxItem(viewer: Viewer, item: InboxItem): boolean {
+  if (item.state === 'screening') return canSeeAllTeamMessages(viewer);
   return !isClient(viewer) || item.assignees.includes(viewer.handle);
 }
 

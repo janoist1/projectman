@@ -1,4 +1,10 @@
-import { isRefining, labelDefinition, stageOf, WAITING_ANSWER_LABEL } from '@projectman/shared';
+import {
+  isRefining,
+  labelDefinition,
+  PENDING_INBOX_STATES,
+  stageOf,
+  WAITING_ANSWER_LABEL,
+} from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
@@ -82,7 +88,7 @@ export class OpenQuestionLabel {
 
   private openAutoQuestions(projectKey: string, taskKey: string): InboxItem[] {
     return this.inbox
-      .list(projectKey, { state: 'open', kind: 'question', taskKey })
+      .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey })
       .filter((item) => item.payload.autoLabel === true);
   }
 }

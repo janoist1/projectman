@@ -143,6 +143,32 @@ const hold = (over: Partial<FixLimit> = {}): FixLimit => ({
 
 const handles = (result: ReturnType<typeof wait>) => result?.next.map((member) => member.handle);
 
+it('ignores legacy refinement completion notices while retaining actionable alerts', () => {
+  const notice = item({
+    kind: 'alert',
+    payload: {
+      alert: 'refinement',
+      taskKey: 'AC-1',
+      label: null,
+      reason: 'done',
+    },
+  });
+  const task = card({ stageId: 'ready', labels: ['scope-ok'] });
+  expect(wait(task, { openItems: [notice], viewer: 'owner' })).toEqual(wait(task));
+  for (const reason of ['manual_step', 'stalled']) {
+    const action = item({
+      ...notice,
+      payload: {
+        alert: 'refinement',
+        taskKey: 'AC-1',
+        label: 'scope-ok',
+        reason,
+      },
+    });
+    expect(wait(task, { openItems: [action], viewer: 'owner' })?.reason).toBe('inbox');
+  }
+});
+
 const gateItem = (assignees: string[], over: Partial<InboxItem> = {}) =>
   item({
     kind: 'decision',

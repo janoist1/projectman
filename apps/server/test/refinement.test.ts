@@ -212,7 +212,7 @@ describe('Refinement line', () => {
     expect(h.domain.sessions.pendingClose(dev.id)).toBeUndefined();
   });
 
-  it('removes the label, moves the card and tells who prioritises when the chain ends', async () => {
+  it('removes the label and moves the card without an acknowledgement alert when the chain ends', async () => {
     await prepare();
     await label({ add: ['refine'] });
     await vi.waitFor(() => expect(members()).toEqual(['ana']));
@@ -227,13 +227,57 @@ describe('Refinement line', () => {
     expect(task().labels).toEqual(expect.arrayContaining(['scope-ok', 'design-ok']));
     expect(turn()?.data).toMatchObject({ label: null, member: null, reason: 'done' });
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
-    expect(alerts('done')).toHaveLength(1);
-    expect(alerts('done')[0]).toMatchObject({ assignees: ['owner'], state: 'open' });
+    expect(alerts('done')).toHaveLength(0);
+    const notices = () =>
+      h.domain.messages.list('AR', { taskKey: 'AR-1' }).filter((message) => message.from === 'system');
+    await vi.waitFor(() => expect(notices()).toHaveLength(1));
+    expect(notices()[0]).toMatchObject({ to: ['pm'], kind: 'action' });
     // The card is in the queue stage before development: nobody is started for it.
     await flush();
     expect(members()).toEqual(['ana', 'des']);
-    expect(alerts('done')).toHaveLength(1);
+    expect(alerts('done')).toHaveLength(0);
+    await h.domain.refinement.changed(task());
+    expect(notices()).toHaveLength(1);
   });
+
+  it.each(['human', 'operator', 'timeline'] as const)(
+    'routes completion to %s without an inbox alert',
+    async (route) => {
+      h = await createDomainHarness({
+        persistent: true,
+        adjust: (config) => {
+          setup()(config);
+          if (route === 'human') config.team.cardMover = { kind: 'human', handle: 'owner' };
+        },
+      });
+      if (route !== 'human') {
+        // Older configurations can lack the now-required project manager.
+        const config = structuredClone(await h.domain.projects.config('AR'));
+        config.team.members = config.team.members.filter(
+          (member) =>
+            member.kind !== 'ai' ||
+            (member.role !== 'project_manager' && (route !== 'timeline' || member.role !== 'ai_operator')),
+        );
+        vi.spyOn(h.domain.projects, 'config').mockResolvedValue(config);
+      }
+      await h.domain.tasks.create('AR', { title: 'Ready card', labels: ['scope-ok'] }, OWNER_ACTOR);
+      await label({ add: ['refine'] });
+      await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
+      await flush();
+      expect(alerts('done')).toEqual([]);
+      const messages = h.domain.messages.list('AR', { taskKey: 'AR-1' });
+      if (route === 'timeline') expect(messages).toEqual([]);
+      else
+        expect(messages).toEqual([
+          expect.objectContaining({
+            to: [route === 'human' ? 'owner' : 'operator'],
+            kind: route === 'human' ? 'info' : 'action',
+          }),
+        ]);
+      await h.domain.refinement.changed(task());
+      expect(h.domain.messages.list('AR', { taskKey: 'AR-1' })).toHaveLength(messages.length);
+    },
+  );
 
   it('goes on when a person sets a label, and goes back when an earlier one is removed', async () => {
     await prepare();
@@ -295,9 +339,7 @@ describe('Refinement line', () => {
     await label({ add: ['sign-off'] });
     await vi.waitFor(() => expect(task().stageId).toBe('ready'));
     expect(alerts('manual_step')[0]).toMatchObject({ state: 'cancelled' });
-    expect(h.domain.inbox.list('AR', { kind: 'alert', state: 'open' }).map((i) => alertPayloadOf(i))).toEqual(
-      [expect.objectContaining({ alert: 'refinement', reason: 'done' })],
-    );
+    expect(h.domain.inbox.list('AR', { kind: 'alert', state: 'open' })).toEqual([]);
   });
 
   it('alerts once when the turn ended without the label, and does not start the member again', async () => {
@@ -735,14 +777,14 @@ describe('Refinement line', () => {
     await label({ add: ['scope-ok'] }, aiActor('ana'));
     endTurn('ana');
 
-    await vi.waitFor(() => expect(alerts('done')).toHaveLength(1));
+    await vi.waitFor(() => expect(turn()?.data.reason).toBe('done'));
     expect(task().stageId).toBe('plan');
     expect(turn()?.data).toMatchObject({ label: null, member: null, reason: 'done' });
     expect(h.domain.refinement.turnMember('AR', 'AR-1')).toBeNull();
 
     await h.domain.refinement.changed(task());
     await flush();
-    expect(alerts('done')).toHaveLength(1);
+    expect(alerts('done')).toHaveLength(0);
   });
 
   /** PM-255: a message about a card that is being refined waits for its AI recipient's turn. */

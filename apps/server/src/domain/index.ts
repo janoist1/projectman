@@ -652,7 +652,28 @@ export function createDomain(opts: DomainOptions) {
       ? { holders: admission.holders(config, handle), capacity: member.capacity }
       : undefined;
   });
-  const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
+  const refinement = new RefinementSteps({
+    projects,
+    tasks,
+    sessions,
+    admission,
+    delivery,
+    inbox,
+    timeline,
+    notifyDone: async (task, recipient) => {
+      const config = await projects.config(task.projectKey);
+      await messaging.send(
+        task.projectKey,
+        SYSTEM_SENDER,
+        {
+          to: [recipient],
+          taskKey: task.key,
+          text: `${task.key} is worked out and ready for development. Check the card with get_task and start it according to the team's priorities and capacity.`,
+        },
+        { kind: memberOf(config, recipient)?.kind === 'ai' ? 'action' : 'info' },
+      );
+    },
+  });
   const messaging = new Messaging({
     ctx,
     projects,

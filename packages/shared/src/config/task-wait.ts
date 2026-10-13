@@ -303,7 +303,12 @@ export function taskWait(input: TaskWaitInput): TaskWait | null {
     return null;
 
   // A question the Operator still screens (PM-556) is a pending question too: the card waits for its answer.
-  const items = input.openItems.filter((item) => item.state === 'open' || isPendingQuestion(item));
+  const items = input.openItems.filter((item) => {
+    const alert = alertPayloadOf(item);
+    // Legacy completion notices ask for acknowledgement, not an action on the card.
+    if (alert?.alert === 'refinement' && alert.reason === 'done') return false;
+    return item.state === 'open' || isPendingQuestion(item);
+  });
   const waiting = task.startWaiting;
 
   if (waiting?.reason === 'prerequisite_open') {

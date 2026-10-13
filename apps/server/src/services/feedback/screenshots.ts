@@ -6,8 +6,8 @@ import sharp from 'sharp';
 import { FeedbackMarkId, MAX_FEEDBACK_SCREENSHOT_BYTES } from '@projectman/shared';
 import type { FeedbackScreenshotUpload } from '@projectman/shared';
 import type { StoredFeedbackScreenshot } from '../../db';
-import { DomainError } from '../errors';
-import { sniffMediaType } from '../attachments/media-type';
+import { DomainError } from '../../domain/errors';
+import { sniffMediaType } from '../../domain/attachments';
 
 /** The longest side of a screenshot's thumbnail, in pixels. */
 const THUMBNAIL_MAX_SIDE = 640;

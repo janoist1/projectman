@@ -1,12 +1,12 @@
 import { dutyMembers, isOnLeave, SYSTEM_SENDER } from '@projectman/shared';
 import type { MemberConfig, Session } from '@projectman/shared';
 import type { FeedbackMarkRecord } from '../../db';
-import type { DomainContext } from '../context';
-import { isoNow } from '../context';
-import type { DomainEventMap } from '../events';
-import type { Messaging } from '../messaging';
-import type { ProjectService } from '../projects';
-import { KeyedMutex, SYSTEM_ACTOR } from '../util';
+import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../domain/context';
+import type { DomainEventMap } from '../../domain/events';
+import type { Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../domain/util';
 
 /**
  * Wakes the feedback processor (PM-512). A new mark, or a marker's comment on an open one, sends the

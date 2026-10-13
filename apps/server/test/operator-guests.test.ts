@@ -11,6 +11,7 @@ import { OPERATOR_GUEST_TOOLS } from '../src/domain/operator-requests';
 import { humanActor } from '../src/domain/util';
 import { buildClaudeArgs, buildSettings } from '../src/runner/providers/claude/args';
 import { canSeeProjectEvent } from '../src/domain/visibility';
+import { waitFor } from '../src/runner/test-helpers';
 import { pdfBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
@@ -51,9 +52,17 @@ async function setup(opts: { appHome?: string; sessionFolders?: boolean } = {}):
 }
 
 /** A person writes to the Operator with their own login. */
-async function say(from: string, text = 'Hello') {
+async function say(from: string, text = 'Hello', { waitsAtCapacity = false } = {}) {
   const result = await h.domain.messaging.sendReporting('AR', from, { to: ['operator'], text });
-  await settle();
+  if (waitsAtCapacity) await settle();
+  else
+    await waitFor(
+      () => {
+        const session = from === 'owner' ? ownerConversation() : conversationWith(from);
+        return session && h.runner.started.some((spec) => spec.sessionId === session.id);
+      },
+      { what: `${from}’s Operator conversation to start` },
+    );
   return result;
 }
 const operatorSessions = (): Session[] => h.domain.sessions.list('AR', { member: 'operator' });
@@ -140,7 +149,7 @@ describe('the Operator talks with every person in a conversation of their own (P
     await setup();
     await say('cleo');
     expect(h.runner.started).toHaveLength(1);
-    await say('dana');
+    await say('dana', 'Hello', { waitsAtCapacity: true });
     // The client’s session is still running (it only idles): the developer waits for the free place.
     expect(conversationWith('dana')).toBeUndefined();
     expect(h.runner.started).toHaveLength(1);
@@ -167,9 +176,10 @@ describe('the Operator talks with every person in a conversation of their own (P
     await setup();
     await say('cleo');
     const cleo = conversationWith('cleo')!;
-    await say('dana');
+    await say('dana', 'Hello', { waitsAtCapacity: true });
     expect(conversationWith('dana')).toBeUndefined();
     await finish(cleo);
+    await waitFor(() => conversationWith('dana'), { what: 'the waiting Operator conversation' });
     expect(conversationWith('dana')).toBeDefined();
     // The client’s next message continues the same conversation.
     await say('cleo', 'Back again');
@@ -275,15 +285,20 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
     const forCleo = await sendPdf('cleo');
     const forOperator = await sendPdf('operator');
     await say('cleo', 'What did you send me?');
-    const guest = await h.domain.teamTools.readMessageAttachment(toolOf(conversationWith('cleo')), {
+    const guestSession = await waitFor(() => conversationWith('cleo'), {
+      what: 'the guest’s Operator conversation',
+    });
+    const guest = await h.domain.teamTools.readMessageAttachment(toolOf(guestSession), {
       attachmentId: forCleo.id,
     });
     expect(guest.content).toEqual({ kind: 'none', reason: 'type' });
     expect(guest.file).toBeUndefined();
 
     await h.domain.messaging.sendReporting('AR', 'owner', { to: ['operator'], text: 'And this?' });
-    await settle();
-    const own = await h.domain.teamTools.readMessageAttachment(toolOf(ownerConversation()), {
+    const ownerSession = await waitFor(ownerConversation, {
+      what: 'the owner’s Operator conversation',
+    });
+    const own = await h.domain.teamTools.readMessageAttachment(toolOf(ownerSession), {
       attachmentId: forOperator.id,
     });
     expect(own.file?.path).toContain(`${forOperator.id}-plan.pdf`);

@@ -454,7 +454,24 @@ export interface AttachmentToolsHandler {
   ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
-export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler {
+/** The tools of services/boundary (PM-607). */
+export interface BoundaryToolsHandler {
+  /** submit_boundary_request: one registered external operation; the requester is the calling session. */
+  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
+  /** get_boundary_request: a request the caller raised or may decide, with its grant. */
+  getBoundaryRequest(
+    ctx: ToolContext,
+    args: { requestId: string },
+  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
+  /** decide_boundary_request: delegated requests only; owner exceptions stay with the owner. */
+  decideBoundaryRequest(
+    ctx: ToolContext,
+    args: DecideBoundaryRequest & { requestId: string },
+  ): Promise<BoundaryRequest>;
+}
+
+export interface TeamToolsHandler
+  extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler, BoundaryToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -525,15 +542,6 @@ export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, 
   takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
   /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
   getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
-  submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
-  getBoundaryRequest(
-    ctx: ToolContext,
-    args: { requestId: string },
-  ): Promise<{ request: BoundaryRequest; grant: BoundaryGrant | null }>;
-  decideBoundaryRequest(
-    ctx: ToolContext,
-    args: DecideBoundaryRequest & { requestId: string },
-  ): Promise<BoundaryRequest>;
   /**
    * decide_permission_request: the AI decider answers a member's tool question delegated to it
    * (PM-169), or hands it to a person (`escalate`). The reason is required.

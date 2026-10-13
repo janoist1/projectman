@@ -104,6 +104,17 @@ describe('boundary requests', () => {
     expect(h.domain.sessions.list('AR', { member: 'pm' })).toHaveLength(0);
   });
 
+  it('lets the decide tool take only delegated requests and leaves owner exceptions to the owner', async () => {
+    const request = await submit({ operation: 'spend' });
+    await expect(
+      h.domain.teamTools.decideBoundaryRequest(
+        { ...toolContext(requester), member: 'cr' },
+        { requestId: request.id, ...allow },
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden', message: 'this boundary request requires an owner' });
+    expect(h.repos.inbox.get(request.id)!.resolution).toBeFalsy();
+  });
+
   it.each([
     ['spend', 'cost'],
     ['production_change', 'production'],

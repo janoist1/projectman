@@ -93,6 +93,13 @@ tests use the SDK's own client, which behaves the same way here):
   The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
   open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
   undelivered team messages per AI member.
+- `prioritize_merge { task_key, reason }` (PM-576) puts the card's queued merge at the front of its repository's
+  merge queue. The card's merger and the Operator (in an owner's open request, logged as the step `task_update`)
+  may call it; it answers `moved` or `not moved` (first already). The running merge is not interrupted, a card
+  whose merge is not queued (none, requested, running, failed…) is refused with `merge_not_prioritizable`,
+  someone else with `merge_not_merger`. The reason and the cards it went ahead of go on the card's timeline
+  (`task_merge_prioritized`). Handler method: `prioritizeMerge(ctx, { taskKey, reason })`. An owner does the
+  same in the UI (`POST …/tasks/:taskKey/merge/prioritize`, the "Előre" button of the queued merge box).
 - `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
   not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
   candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the
@@ -109,6 +116,15 @@ tests use the SDK's own client, which behaves the same way here):
   per item (`recorded` with an optional `decision` number, `declined`, `skipped`; the owner's own conversation and
   an open request only; all or nothing). Handler methods: `listDecisionCandidates(ctx, { limit? })`,
   `markDecisionCandidates(ctx, { items })`. See ARCHITECTURE.md, "Decision candidates".
+- `screen_question { item_id, outcome, note, answer?, forward_to?, todo? }` (PM-558) is the Operator's tool for
+  the questions AI members ask people (`ask_human` puts them in the inbox state `screening` first). Outcomes:
+  `answered` (needs `answer`), `forwarded` (needs `forward_to`), `moot`, `decision`, `todo` (needs `todo`
+  `{ what, where, expected }`); `note` is always required, a field the outcome does not take is refused
+  (`invalid_outcome_fields`). Only the Operator, not in guest conversations, no open request needed; a question
+  no longer in screening answers `question_not_screening` (moot still works). `ask_human` answers
+  `{ screening: true }` for a screened question and takes `reask_of` + `reask_reason` (together) to ask a settled
+  question again unscreened (`reask_not_allowed` otherwise). Handler method: `screenQuestion(ctx, { itemId,
+  outcome, note, answer?, forwardTo?, todo? })`. See ARCHITECTURE.md, "The Operator".
 - `hand_off` (PM-342) is for the member a card is being handed over from, after the system told it to
   write the handoff note: only that member, while the handoff is open (`handoff_not_open` otherwise,
   also when the time ran out and the summary stands in). It records the note and the state of the

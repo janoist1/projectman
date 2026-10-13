@@ -137,6 +137,39 @@ describe('the merge box in the drawer (PM-453)', () => {
     expect(project.backend.findTask('AC-27')!.merge).toBeUndefined();
   });
 
+  it('lets the merger put a queued merge first, with a reason that is required (PM-576)', async () => {
+    const project = mergeProject();
+    withoutMergeItems(project.backend);
+    startMerge(project.backend);
+    project.render(drawer, route);
+    const box = await screen.findByRole('region', { name: t('task.merge.queued.title') });
+    fireEvent.click(within(box).getByRole('button', { name: t('task.merge.queued.prioritize.open') }));
+    fireEvent.click(within(box).getByRole('button', { name: t('task.merge.queued.prioritize.submit') }));
+    expect(await within(box).findByText(t('task.merge.queued.prioritize.required'))).toBeTruthy();
+    expect(project.requests.some((request) => request.path.endsWith('/merge/prioritize'))).toBe(false);
+    fireEvent.change(within(box).getByLabelText(t('task.merge.queued.prioritize.label')), {
+      target: { value: 'AC-30 waits for it' },
+    });
+    fireEvent.click(within(box).getByRole('button', { name: t('task.merge.queued.prioritize.submit') }));
+    const request = await waitFor(() => {
+      const found = project.requests.find((item) => item.path.endsWith('/tasks/AC-27/merge/prioritize'));
+      expect(found).toBeTruthy();
+      return found!;
+    });
+    expect(request.method).toBe('POST');
+    expect(await within(box).findByText(t('task.merge.queued.prioritize.first'))).toBeTruthy();
+  });
+
+  it('offers no prioritize button before the merge is queued or while it runs (PM-576)', async () => {
+    const project = mergeProject();
+    withoutMergeItems(project.backend);
+    startMerge(project.backend);
+    project.backend.advanceMerge('AC-27');
+    project.render(drawer, route);
+    await screen.findByRole('region', { name: t('task.merge.running.title', { base: 'main' }) });
+    expect(screen.queryByRole('button', { name: t('task.merge.queued.prioritize.open') })).toBeNull();
+  });
+
   it('shows the wait for the machine’s test queue in the check’s row, then the check running', async () => {
     const project = mergeProject();
     project.backend.config.project.repos.forEach((repo) => {

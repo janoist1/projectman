@@ -68,6 +68,7 @@ export const TimelineEventType = z.enum([
   'task_handoff',
   'task_full_test',
   'task_merge_requested',
+  'task_merge_prioritized',
   'task_merge_failed',
   'task_merged',
   'task_merge_blocked',
@@ -180,6 +181,8 @@ export interface TimelineEventData {
     from?: string;
   };
   task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
+  /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */
+  task_merge_prioritized: { mergeId: string; repo: string; reason: string; ahead: string[] };
   task_merge_failed: MergeFailure & { mergeId: string };
   task_merged: TaskMerged & { mergeId?: string };
   task_merge_blocked: {

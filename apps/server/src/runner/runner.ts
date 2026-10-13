@@ -420,7 +420,7 @@ export class SessionManager implements SessionRunner {
   sendUserMessage(sessionId: string, text: string): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) return Promise.reject(new Error(`session ${sessionId} is not running`));
-    return session.enqueue(text);
+    return session.send(text);
   }
 
   async compact(sessionId: string, instruction: string): Promise<boolean> {

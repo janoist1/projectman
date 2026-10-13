@@ -15,6 +15,7 @@ Documentation map:
 | this file                                                                  | concepts, invariants, runtime structure, module map, storage        |
 | [DECISIONS.md](DECISIONS.md)                                               | what the owner decided and why (numbered, append-only)              |
 | [ROADMAP.md](ROADMAP.md)                                                   | what is built, what comes next, open questions for the owner        |
+| [LESSONS.md](LESSONS.md)                                                   | what building projectman taught us: challenges and lessons          |
 | [PROVIDERS.md](PROVIDERS.md)                                               | Claude Code and Codex: flags, hooks, permissions, login, plan usage |
 | [design/labels.md](design/labels.md), [design/duties.md](design/duties.md) | labels and gates; roles as duty bundles (reference, built)          |
 | [design/phase2.md](design/phase2.md)                                       | the phase 2 proposal (meetings, retro loop, "Rendszer", notices)    |
@@ -966,6 +967,21 @@ Success records `Task.merged` with `via: tool`, then asks AutoAdvance to check t
 The merger never moves the card itself. Every forward move path checks the default branch before the
 transaction, including approvals and hand-on requests; manual merges discovered there are recorded
 with `via: found` when a persistent handover exists.
+
+**Queue order (PM-576).** One merge runs per repository (the full check runs on main merged with the card, so
+a second one in parallel would check against a stale main), but the order of the waiting ones is a member's
+decision, not the server's: by default it is the order of the requests (`task_merges.created_at`, `rowid`; a
+retry keeps its place). The queue reads `ORDER BY prioritized_at IS NULL, prioritized_at DESC, created_at,
+rowid` (`QUEUE_ORDER` in `db/task-merges.ts`; `prioritized_at` is a nullable column, migration 58, and
+`created_at` is never rewritten). The card's merger or the Operator (in an owner's request, step `task_update`)
+calls the team tool `prioritize_merge { task_key, reason }`, an owner does the same with the "Előre" button of the
+queued merge box (`POST /api/projects/:key/tasks/:taskKey/merge/prioritize`, body `{ reason }`); both land in
+`Merges.prioritize`: it allows the card's merger, an owner and the Operator only, takes a `queued` merge only
+(`merge_not_prioritizable` otherwise), sets `prioritized_at`, writes `task_merge_prioritized` (`mergeId`, `repo`,
+`reason`, `ahead`: the keys of the queued cards it went ahead of) on the card with the caller as its actor, and
+pumps the queue. The mark is cleared when the merge starts running. A merge already first changes nothing (no
+event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
+involved; no new machine-dependent part.
 
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
@@ -2316,6 +2332,27 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   reached; raised at once, delivered only after `OPERATOR_READY_WAITING_MINUTES` = 30, silently closed
   if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
   team is paused. All data comes from the server's database and configuration: no machine-dependent part.
+
+  **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
+  the Operator's own and not a human's) is created in the inbox state `screening` with
+  `payload.screening.until` = now + `QUESTION_SCREENING_MINUTES` (10); no person sees it. `QuestionScreening`
+  (`domain/question-screening.ts`) wakes the Operator for it through admission like `operator_signals`
+  (deferred start kind `question_screening`, no capacity, the Operator's general conversation, one notice with a
+  JSON line per question; `deliveredAt` is written after the first input). The Operator settles each question with
+  `screen_question` (an Operator-only tool, not in guest conversations, no owner request, no `OPERATOR_NEVER_TOOLS`
+  entry): `answered` and `forwarded` resolve the item (`operator_answered`, `operator_forwarded`) and carry the
+  answer or the forward through `Messaging` (`answer` with an AI actor and the re-ask hint; `forwardQuestion`: an
+  `action` message with origin `question_forward` to the recipient, which wakes it without a card role, and an
+  `info` message to the asker); `moot` cancels it (`operator_moot`); `decision` and `todo` release it to the
+  people (`InboxService.releaseScreened`; a todo's options become Done and Cannot do it, and Cannot do it needs
+  a reason). Every outcome writes a `question_screened` timeline event. The fallback gives the question to the
+  people: at once (`unavailable`: no Operator, AI off, the Operator on leave, the team paused, admission defers
+  the start or it throws) or when `until` passes (`timeout`, `QuestionScreening.sweep`, a 30-second timer and a
+  startup sweep); `screen_question` then answers `question_not_screening`, except `moot`. An asker may ask a
+  settled question again with `ask_human` `reask_of` and `reask_reason`, once per question; the new question is
+  `open` and carries `payload.unscreened`. `GET /api/projects/:key/inbox/screened?since=` (owner, admin) lists the
+  latest 20 screened questions and the count of today's. Only database rows and the existing admission and
+  messaging paths: no machine-dependent part.
 
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.

@@ -60,6 +60,7 @@ import {
   SetupRequest,
   StartTaskRequest,
   StartMergeRequest,
+  PrioritizeMergeRequest,
   UpdateMemberRequest,
   UpdateSessionRequest,
   UpdateTaskRequest,
@@ -2108,6 +2109,9 @@ export class MockBackend {
     if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge$/.exec(rest)) && method === 'POST') {
       return this.startMerge(m[1]!, body);
     }
+    if ((m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/merge\/prioritize$/.exec(rest)) && method === 'POST') {
+      return this.prioritizeMerge(m[1]!, body);
+    }
 
     if (
       (m = /^\/tasks\/([A-Z][A-Z0-9]*-\d+)\/(cancel|reopen|close-theme)$/.exec(rest)) &&
@@ -3883,6 +3887,42 @@ export class MockBackend {
     });
     this.closeMergeItems(task, merge.id, this.viewerHandle);
     return ok({ task: clone(task) });
+  }
+
+  /**
+   * The prioritize route: the card's merger or an owner puts its queued merge first. The fake has no queue
+   * order of its own; it keeps the timeline entry the server writes, listing the queued merges of the repository.
+   */
+  private prioritizeMerge(taskKey: string, body?: unknown): MockResponse {
+    const parsed = PrioritizeMergeRequest.safeParse(body ?? {});
+    if (!parsed.success) return error(400, 'invalid_request', 'Invalid prioritize request');
+    const task = this.findTask(taskKey);
+    if (!task) return error(404, 'not_found', 'Unknown task');
+    const viewer = memberOf(this.config, this.viewerHandle);
+    if (viewer?.kind === 'human' && !hasAccess(viewer.access, 'developer'))
+      return error(403, 'insufficient_access', 'Requires developer access');
+    const merge = task.merge;
+    const owner = viewer?.kind === 'human' && viewer.access === 'owner';
+    if (merge && merge.merger !== this.viewerHandle && !owner)
+      return error(403, 'merge_not_merger', 'Only the card merger or an owner may move a merge forward');
+    if (!merge || merge.state !== 'queued')
+      return error(409, 'merge_not_prioritizable', 'Only a queued merge can be moved forward', {
+        reason: !merge ? 'no_merge' : merge.state === 'running' ? 'running' : 'not_queued',
+      });
+    const ahead = this.tasks
+      .filter(
+        (other) =>
+          other.key !== task.key && other.merge?.state === 'queued' && other.merge.repo === merge.repo,
+      )
+      .map((other) => other.key);
+    if (ahead.length === 0) return ok({ task: clone(task), moved: false });
+    this.addTimeline(taskKey, this.viewerHandle, 'task_merge_prioritized', {
+      mergeId: merge.id,
+      repo: merge.repo,
+      reason: parsed.data.reason,
+      ahead,
+    });
+    return ok({ task: clone(task), moved: true });
   }
 
   /**

@@ -16,6 +16,8 @@ import type {
   MemberView,
   QuestionAttachment,
   QuestionOptionInput,
+  QuestionTodo,
+  ScreeningOutcome,
   Task,
   TaskDetail,
   TaskKind,
@@ -534,6 +536,14 @@ export interface TeamToolsHandler {
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
   ): Promise<{ task: Task }>;
   /**
+   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
+   * repository's queue, with the reason; `moved` is false when it was first already.
+   */
+  prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }>;
+  /**
    * propose_release (PM-491): the member with the deployment duty proposes releasing the default
    * branch's head (or `commit`); `preview` only lists what the release would contain.
    */
@@ -622,8 +632,34 @@ export interface TeamToolsHandler {
       details?: string;
       /** Ids of files of the question's card or its parent (PM-498), at most `MAX_QUESTION_ATTACHMENTS`. */
       attachmentIds?: string[];
+      /** The earlier question the Operator settled, and why a person must see this one (PM-558); only together. */
+      reaskOf?: string;
+      reaskReason?: string;
     },
-  ): Promise<{ inboxItemId: string; approvalLabel?: string; attachments?: QuestionAttachment[] }>;
+  ): Promise<{
+    inboxItemId: string;
+    approvalLabel?: string;
+    attachments?: QuestionAttachment[];
+    /** An AI member's question waits for the Operator's screening before the people see it (PM-558). */
+    screening?: true;
+  }>;
+  /**
+   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
+   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
+   * guest conversation; needs no open request.
+   */
+  screenQuestion(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: ScreeningOutcome;
+      note: string;
+      answer?: string;
+      forwardTo?: MemberHandle;
+      todo?: QuestionTodo;
+    },
+  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
   /**
    * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
    * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such

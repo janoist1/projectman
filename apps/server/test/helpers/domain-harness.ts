@@ -65,6 +65,8 @@ export async function createDomainHarness(
     now?: () => Date;
     scheduleTimer?: ScheduleTimer;
     handOffRetryMs?: number;
+    /** True: the Operator screens AI members' questions first (PM-558); default false in tests. */
+    screenQuestions?: boolean;
     doneTurnLimitMs?: number;
     /** The database lives in a file, so that a restart can open it again. */
     persistent?: boolean;
@@ -255,6 +257,8 @@ export async function createDomainHarness(
     now: opts.now,
     scheduleTimer: opts.scheduleTimer,
     doneCleanupDelayMs: 0,
+    // Questions go to the people at once, unless a test is about the Operator's screening (PM-558).
+    screenQuestions: opts.screenQuestions ?? false,
     doneTurnLimitMs: opts.doneTurnLimitMs,
     handOffRetryMs: opts.handOffRetryMs,
     // Tests call `domain.reviewWatch.check()` themselves: the timer must not fire on its own.

@@ -46,7 +46,8 @@ export const CODEX_TIMING: SessionTiming = {
   /** Codex treats an Enter within 120 ms of pasted input as a newline. */
   enterDelayMs: 250,
   enterRetryMs: 1_500,
-  maxEnterRetries: 2,
+  /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
+  maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
   /** The first prompt waits for the MCP servers and the session to start. */
   argumentSubmitTimeoutMs: 60_000,

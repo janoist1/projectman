@@ -65,6 +65,7 @@ import type {
   FeedbackSummary,
   LinkFeedbackRequest,
   StartMergeRequest,
+  PrioritizeMergeRequest,
   StopOrphansRequest,
   BoardMoveRequest,
   SendTeamMessageRequest,
@@ -172,6 +173,12 @@ export const api = {
   /** The merger starts the merge of the card's approved work into the main branch (PM-452). */
   startMerge: (key: string, taskKey: string, body?: StartMergeRequest) =>
     apiRequest<{ task: Task }>(routes.taskMerge(key, taskKey), { method: 'POST', body }),
+  /** The merger or an owner puts the card's queued merge at the front of the queue (PM-576). */
+  prioritizeMerge: (key: string, taskKey: string, body: PrioritizeMergeRequest) =>
+    apiRequest<{ task: Task; moved: boolean }>(routes.taskMergePrioritize(key, taskKey), {
+      method: 'POST',
+      body,
+    }),
 
   attachments: (key: string, taskKey: string) =>
     apiRequest(routes.taskAttachments(key, taskKey), { schema: AttachmentListResponse }),

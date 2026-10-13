@@ -217,6 +217,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async prioritizeMerge(ctx, args) {
+      await enter('prioritizeMerge', ctx, args);
+      return { task: findTask(args.taskKey).task, moved: true };
+    },
     async proposeRelease(ctx, args) {
       await enter('proposeRelease', ctx, args);
       const commit = args.commit ?? '0'.repeat(40);
@@ -277,6 +281,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
     async markDecisionCandidates(ctx, args) {
       await enter('markDecisionCandidates', ctx, args);
       return { marked: args.items.length };
+    },
+    async screenQuestion(ctx, args) {
+      await enter('screenQuestion', ctx, args);
+      return { inboxItemId: args.itemId, outcome: args.outcome };
     },
     async getBoundaryRequest(ctx, args) {
       await enter('getBoundaryRequest', ctx, args);

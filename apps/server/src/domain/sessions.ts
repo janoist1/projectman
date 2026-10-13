@@ -1063,7 +1063,10 @@ export class SessionOrchestrator {
       .length;
   }
 
-  /** Types text into a running session (queued by the runner until the session is idle). */
+  /**
+   * Types text into a running session (queued by the runner until the session is idle). Resolves once
+   * the session took it; rejects when it did not (PM-571), so the caller leaves the message waiting.
+   */
   typeInto(session: Session, text: string): Promise<void> {
     this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER);
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
@@ -2833,6 +2836,15 @@ export class SessionOrchestrator {
       switch (event.type) {
         case 'first_input_sent': {
           this.settleFirstInput(session.id, true);
+          return;
+        }
+        case 'first_input_failed': {
+          // The messages in it stay waiting (not delivered); the delivery retries them (PM-571).
+          this.ctx.logger.warn(
+            { sessionId: session.id, member: session.member },
+            'the first input was typed but the session did not take it',
+          );
+          this.settleFirstInput(session.id, false);
           return;
         }
         case 'state': {

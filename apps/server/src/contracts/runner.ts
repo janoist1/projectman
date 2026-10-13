@@ -192,6 +192,12 @@ export type RunnerEvent =
    */
   | { type: 'first_input_sent'; sessionId: string }
   /**
+   * The first input was typed but the CLI never took it (no prompt report in time, PM-571): the
+   * process lives on, the text may still sit in its prompt box, and the messages in that input did
+   * not reach the agent.
+   */
+  | { type: 'first_input_failed'; sessionId: string }
+  /**
    * The agent CLI's own conversation id, when the runner learns it instead of choosing it
    * (Codex: from the first hook). Store it as the session's `claudeSessionId` to resume later.
    */
@@ -341,7 +347,12 @@ export interface SessionRunner {
    */
   assertWorkspaceConfig?(input: { provider: AgentProvider; cwd: string; engineId?: EngineId }): Promise<void>;
   start(spec: StartSessionSpec): Promise<RunningSessionInfo>;
-  /** Types a user message into the session once it is idle (queued otherwise); resolves when typed. */
+  /**
+   * Types a user message into the session once it is idle (queued otherwise); resolves once the CLI
+   * took it (reported the prompt). Rejects when the process ended first, or when the message was
+   * typed but the CLI did not take it in time (PM-571): it did not reach the agent, so the caller
+   * must not count it as delivered. A slash command reports no prompt, so it resolves once typed.
+   */
   sendUserMessage(sessionId: string, text: string): Promise<void>;
   /**
    * Compacts the session's conversation (PM-213): types the CLI's compaction command with

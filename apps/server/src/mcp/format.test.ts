@@ -996,6 +996,23 @@ describe('formatQuestionAsked', () => {
   });
 });
 
+describe('formatQuestionAsked while the Operator screens', () => {
+  it('says the Operator looks first, that a person gets it within ten minutes, and how to ask again', () => {
+    const out = formatQuestionAsked(
+      'inb_1',
+      undefined,
+      { question: 'Ship it?', recommended: 'Yes' },
+      undefined,
+      undefined,
+      true,
+    );
+    expect(out).toContain('Question inb_1 went to the Operator first');
+    expect(out).toContain('A person gets it within 10 minutes at the latest');
+    expect(out).toContain('reask_of and reask_reason');
+    expect(out).not.toContain('is waiting in the inbox');
+  });
+});
+
 describe('formatQuestionAsked with files', () => {
   it('lists the files by name and card on their own line, and not at all without files', () => {
     const asked = { question: 'Ship it?', recommended: 'Yes' };

@@ -27,7 +27,8 @@ export const CLAUDE_TIMING: SessionTiming = {
   /** agent-office uses 120 ms. */
   enterDelayMs: 120,
   enterRetryMs: 1_500,
-  maxEnterRetries: 2,
+  /** A busy machine swallows Enter (PM-571): press it on every check within the submit timeout. */
+  maxEnterRetries: 4,
   submitTimeoutMs: 8_000,
   argumentSubmitTimeoutMs: 30_000,
   startupCheckMs: 1_000,

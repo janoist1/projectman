@@ -51,6 +51,8 @@ export class MessageDelivery {
    * stored message kept the same way (PM-421, `holdUntilInput`) counts as delivered once typed.
    */
   private readonly held = new Map<string, HeldNotice[]>();
+  /** Sessions a typed message was not taken by (PM-571), with the pending retry (`retryLater`). */
+  private readonly retries = new Map<string, { attempts: number; timer: NodeJS.Timeout | null }>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -77,7 +79,11 @@ export class MessageDelivery {
     const plain = this.asWritten.has(claim);
     Promise.resolve()
       .then(async () => {
-        const { text: typed, messageIds } = this.withHeld(
+        const {
+          text: typed,
+          messageIds,
+          kept,
+        } = this.withHeld(
           session,
           text ??
             (plain && !message.via
@@ -89,17 +95,66 @@ export class MessageDelivery {
                   message.via,
                 )),
         );
-        await this.sessions.typeInto(session, typed);
+        try {
+          await this.sessions.typeInto(session, typed);
+        } catch (err) {
+          this.restoreHeld(session, kept);
+          throw err;
+        }
+        this.typedOk(session);
         for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
       })
       .then(() => {
         this.asWritten.delete(claim);
         return this.messages.markRecipientDelivered(message.id, session.member);
       })
-      .catch((err: unknown) =>
-        this.ctx.logger.warn({ err, messageId: message.id }, 'team message delivery failed'),
-      )
+      .catch((err: unknown) => {
+        this.ctx.logger.warn({ err, messageId: message.id }, 'team message delivery failed');
+        this.retryLater(session);
+      })
       .finally(() => this.claims.delete(claim));
+  }
+
+  /**
+   * A message typed into a session that did not take it (the CLI never reported the prompt, PM-571)
+   * is not delivered: it stays waiting, and is typed again after a growing pause while the session
+   * runs, so a busy machine does not leave it lost. Past `RETRY_DELAYS_MS` it is left to the
+   * session's next idle moment, with an error in the log.
+   */
+  private retryLater(session: Session): void {
+    const retry = this.retries.get(session.id) ?? { attempts: 0, timer: null };
+    this.retries.set(session.id, retry);
+    if (retry.timer) return;
+    if (retry.attempts >= RETRY_DELAYS_MS.length) {
+      this.retries.delete(session.id);
+      this.ctx.logger.error(
+        { sessionId: session.id, member: session.member },
+        'team messages could not be typed into the session; they stay waiting for its next idle moment',
+      );
+      return;
+    }
+    const delay = RETRY_DELAYS_MS[retry.attempts]!;
+    retry.attempts += 1;
+    retry.timer = setTimeout(() => {
+      retry.timer = null;
+      try {
+        const current = this.sessions.find(session.id);
+        if (current && this.sessions.isRunning(current.id)) this.deliverWaiting(current);
+        else this.retries.delete(session.id);
+      } catch (err) {
+        this.ctx.logger.warn({ err, sessionId: session.id }, 'retrying the team messages failed');
+        this.retries.delete(session.id);
+      }
+    }, delay);
+    retry.timer.unref();
+  }
+
+  /** Typing worked: the retry count starts over. */
+  private typedOk(session: Session): void {
+    const retry = this.retries.get(session.id);
+    if (!retry) return;
+    if (retry.timer) retry.attempts = 0;
+    else this.retries.delete(session.id);
   }
 
   /** Binds the card's existing refinement and fix-limit holds after messaging is built. */
@@ -129,7 +184,12 @@ export class MessageDelivery {
     try {
       const batch = await this.batch(projectKey, handle, workItem, waiting);
       result = await start(batch.messages.length ? [batch.text] : []);
-      this.deliverWithFirstInput(handle, result.messagesSent ? batch.messages : [], result.firstInput);
+      this.deliverWithFirstInput(
+        handle,
+        result.messagesSent ? batch.messages : [],
+        result.firstInput,
+        result.session,
+      );
     } finally {
       this.starting.delete(recipient);
     }
@@ -142,12 +202,28 @@ export class MessageDelivery {
    * (a lost login, a start-up dialog, a crash) never got them, so they stay waiting for the next
    * session (PM-189). Until then nothing types them again.
    */
-  deliverWithFirstInput(handle: string, messages: TeamMessage[], firstInput: Promise<boolean>): void {
+  deliverWithFirstInput(
+    handle: string,
+    messages: TeamMessage[],
+    firstInput: Promise<boolean>,
+    session?: Session,
+  ): void {
     const claims = messages.map((message) => `${message.id}:${handle}`);
     for (const claim of claims) this.claims.add(claim);
     firstInput
       .then((typed) => {
-        if (typed) for (const message of messages) this.messages.markRecipientDelivered(message.id, handle);
+        if (typed) {
+          for (const message of messages) this.messages.markRecipientDelivered(message.id, handle);
+          return;
+        }
+        // The input may not have been taken by a session that lives on (PM-571): type the messages again.
+        if (session && messages.length > 0) {
+          this.ctx.logger.warn(
+            { sessionId: session.id, handle },
+            'team messages in the first input not taken',
+          );
+          this.retryLater(session);
+        }
       })
       .catch((err: unknown) => this.ctx.logger.warn({ err }, 'team message delivery failed'))
       .finally(() => {
@@ -279,7 +355,14 @@ export class MessageDelivery {
         text += MESSAGE_SEPARATOR + notice.text;
         taken++;
       }
-      await this.sessions.typeInto(fresh, text);
+      try {
+        await this.sessions.typeInto(fresh, text);
+      } catch (err) {
+        // Not taken by the session (PM-571), or it ended: the messages stay waiting, and are tried again.
+        this.retryLater(fresh);
+        throw err;
+      }
+      this.typedOk(fresh);
       // Keep notices on failure, and preserve ones appended while the input was being typed.
       const remaining = (this.held.get(fresh.id) ?? []).slice(taken);
       if (remaining.length) this.held.set(fresh.id, remaining);
@@ -355,11 +438,17 @@ export class MessageDelivery {
   notice(session: Session, from: string, text: string, taskKey: string | null): Promise<boolean> {
     return Promise.resolve()
       .then(async () => {
-        const { text: typed, messageIds } = this.withHeld(
-          session,
-          formatInjectedTeamMessage(from, text, taskKey),
-        );
-        await this.sessions.typeInto(session, typed);
+        const {
+          text: typed,
+          messageIds,
+          kept,
+        } = this.withHeld(session, formatInjectedTeamMessage(from, text, taskKey));
+        try {
+          await this.sessions.typeInto(session, typed);
+        } catch (err) {
+          this.restoreHeld(session, kept);
+          throw err;
+        }
         for (const id of messageIds) this.messages.markRecipientDelivered(id, session.member);
         return true;
       })
@@ -405,14 +494,23 @@ export class MessageDelivery {
   }
 
   /** `text` with the notices kept for the session in front of it, and the stored messages among them; they are taken out. */
-  private withHeld(session: Session, text: string): { text: string; messageIds: string[] } {
+  private withHeld(
+    session: Session,
+    text: string,
+  ): { text: string; messageIds: string[]; kept: HeldNotice[] } {
     const kept = this.held.get(session.id);
-    if (!kept) return { text, messageIds: [] };
+    if (!kept) return { text, messageIds: [], kept: [] };
     this.held.delete(session.id);
     return {
       text: [...kept.map((notice) => notice.text), text].join(MESSAGE_SEPARATOR),
       messageIds: kept.flatMap((notice) => (notice.messageId ? [notice.messageId] : [])),
+      kept,
     };
+  }
+
+  /** The notices `withHeld` took out go back, ahead of the newer ones: their text was not taken (PM-571). */
+  private restoreHeld(session: Session, kept: HeldNotice[]): void {
+    if (kept.length) this.held.set(session.id, [...kept, ...(this.held.get(session.id) ?? [])]);
   }
 }
 
@@ -421,6 +519,9 @@ interface HeldNotice {
   text: string;
   messageId: string | null;
 }
+
+/** Pauses before a message the session did not take is typed again (PM-571); the last one repeats no more. */
+const RETRY_DELAYS_MS = [10_000, 30_000, 60_000, 120_000, 300_000];
 
 function recipientKey(projectKey: string, handle: string, workItem: WorkItemRef): string {
   const wi = encodeWorkItem(workItem);

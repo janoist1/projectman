@@ -7,6 +7,7 @@ export const ERROR_CODES = [
   'operator_signal_closed',
   'merge_not_merger',
   'merge_not_ready',
+  'merge_not_prioritizable',
   'merge_fix_not_allowed',
   'merge_fix_invalid',
   'merge_fix_engine_mismatch',
@@ -143,6 +144,12 @@ export const ERROR_CODES = [
   'no_assignees',
   'unknown_option',
   'answer_required',
+  // The Operator screens AI members' questions (PM-558): a task the person cannot do needs a reason; the
+  // question is not in screening; the outcome's fields do not fit; the question may not be asked again unscreened.
+  'todo_reason_required',
+  'question_not_screening',
+  'invalid_outcome_fields',
+  'reask_not_allowed',
   'ai_approval_forbidden',
   'not_a_recipient',
   // AI work: admission, task starts, schedules and sessions

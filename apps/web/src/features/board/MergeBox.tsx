@@ -1,13 +1,13 @@
 import clsx from 'clsx';
 import type { ReactNode } from 'react';
 import { useRef, useState } from 'react';
-import { isMergeFixer } from '@projectman/shared';
+import { isMergeFixer, PRIORITIZE_MERGE_REASON_MAX } from '@projectman/shared';
 import type { ProjectConfig, StartMergeRequest, Task, TaskMergeState } from '@projectman/shared';
-import { useStartMerge } from '../../api/queries';
+import { usePrioritizeMerge, useStartMerge } from '../../api/queries';
 import { useProject } from '../../app/contexts';
 import { Button } from '../../components/Button';
 import { Fold } from '../../components/Fold';
-import { TextAreaField } from '../../components/Field';
+import { TextAreaField, TextField } from '../../components/Field';
 import { Icon } from '../../components/Icon';
 import { Spinner } from '../../components/States';
 import { t } from '../../i18n/t';
@@ -95,6 +95,84 @@ function StepList({ steps }: { steps: { id: string; state: StepState; text: stri
   );
 }
 
+/**
+ * "Előre" on a queued merge (PM-576): the card's merger or an owner puts it at the front of the queue, with
+ * the reason that goes on the timeline. The running merge is not interrupted.
+ */
+function PrioritizeAction({ taskKey }: { taskKey: string }) {
+  const { key } = useProject();
+  const prioritize = usePrioritizeMerge(key);
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [invalid, setInvalid] = useState(false);
+  if (prioritize.isSuccess && !open) {
+    return (
+      <p className={styles.text} role="status">
+        {t(
+          prioritize.data.moved ? 'task.merge.queued.prioritize.done' : 'task.merge.queued.prioritize.first',
+        )}
+      </p>
+    );
+  }
+  if (!open) {
+    return (
+      <div className={box.actions}>
+        <Button variant="secondary" size="md" className={box.action} onClick={() => setOpen(true)}>
+          {t('task.merge.queued.prioritize.open')}
+        </Button>
+      </div>
+    );
+  }
+  const submit = () => {
+    if (!reason.trim()) return setInvalid(true);
+    prioritize.mutate({ taskKey, body: { reason: reason.trim() } }, { onSuccess: () => setOpen(false) });
+  };
+  return (
+    <>
+      <TextField
+        label={t('task.merge.queued.prioritize.label')}
+        maxLength={PRIORITIZE_MERGE_REASON_MAX}
+        readOnly={prioritize.isPending}
+        value={reason}
+        error={invalid ? t('task.merge.queued.prioritize.required') : null}
+        hint={t('task.merge.queued.prioritize.hint')}
+        onChange={(event) => {
+          setReason(event.target.value);
+          setInvalid(false);
+        }}
+      />
+      {prioritize.isError ? (
+        <p role="alert" className={styles.error}>
+          {errorMessage(prioritize.error)}
+        </p>
+      ) : null}
+      <div className={box.actions}>
+        <Button
+          variant="primary"
+          size="md"
+          className={box.action}
+          loading={prioritize.isPending}
+          disabled={prioritize.isPending}
+          onClick={submit}
+        >
+          {prioritize.isPending
+            ? t('task.merge.queued.prioritize.submitting')
+            : t('task.merge.queued.prioritize.submit')}
+        </Button>
+        <Button
+          variant="secondary"
+          size="md"
+          className={box.action}
+          disabled={prioritize.isPending}
+          onClick={() => setOpen(false)}
+        >
+          {t('task.merge.queued.prioritize.cancel')}
+        </Button>
+      </div>
+    </>
+  );
+}
+
 /** The reasons whose stop leaves the work merged and checked, with the push still to do. */
 const PUSH_REASONS = new Set(['push_rejected', 'remote_unreachable', 'remote_moved', 'base_out_of_sync']);
 
@@ -104,7 +182,7 @@ const PUSH_REASONS = new Set(['push_rejected', 'remote_unreachable', 'remote_mov
  * viewer who is the merger sees the buttons; for everyone else it says who acts and when.
  */
 export function MergeBox({ task, members, myHandle, config, asked = false, onSendBack }: MergeBoxProps) {
-  const { key } = useProject();
+  const { key, isOwner } = useProject();
   const start = useStartMerge(key);
   const merge = task.merge;
   const fixKey = `${merge?.id}/${merge?.fix?.startedAt}`;
@@ -185,7 +263,10 @@ export function MergeBox({ task, members, myHandle, config, asked = false, onSen
       return frame(
         t('task.merge.queued.title'),
         'accent',
-        <p className={styles.text}>{t('task.merge.queued.text')}</p>,
+        <>
+          <p className={styles.text}>{t('task.merge.queued.text')}</p>
+          {you || isOwner ? <PrioritizeAction key={merge.id} taskKey={task.key} /> : null}
+        </>,
       );
     case 'running': {
       const started =

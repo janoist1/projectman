@@ -54,6 +54,9 @@ export const routes = {
 
   tasks: (key: string) => `/api/projects/${key}/tasks`,
   taskMerge: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}/merge`,
+  /** POST: puts the card's queued merge at the front of its repository's queue (`PrioritizeMergeRequest`, PM-576). */
+  taskMergePrioritize: (key: string, taskKey: string) =>
+    `/api/projects/${key}/tasks/${taskKey}/merge/prioritize`,
   task: (key: string, taskKey: string) => `/api/projects/${key}/tasks/${taskKey}`,
   /** GET: a closed handoff of the card with its note or summary (`TaskHandoffRecord`, PM-342). */
   taskHandoff: (key: string, taskKey: string, id: string) =>
@@ -147,6 +150,8 @@ export const routes = {
   closedCardsMeasure: (key: string) => `/api/projects/${key}/measure/closed-cards`,
 
   inbox: (key: string) => `/api/projects/${key}/inbox`,
+  /** GET (owner, admin; query `since`, ISO): the questions the Operator screened, newest first (PM-556). */
+  screenedQuestions: (key: string) => `/api/projects/${key}/inbox/screened`,
   resolveInbox: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/resolve`,
   checkOutage: (key: string, itemId: string) => `/api/projects/${key}/inbox/${itemId}/check`,
 

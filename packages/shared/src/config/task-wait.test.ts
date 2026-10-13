@@ -154,7 +154,9 @@ it('ignores legacy refinement completion notices while retaining actionable aler
     },
   });
   const task = card({ stageId: 'ready', labels: ['scope-ok'] });
-  expect(wait(task, { openItems: [notice], viewer: 'owner' })).toEqual(wait(task));
+  for (const viewer of ['owner', 'dev-1', null]) {
+    expect(wait(task, { openItems: [notice], viewer })).toEqual(wait(task));
+  }
   for (const reason of ['manual_step', 'stalled']) {
     const action = item({
       ...notice,

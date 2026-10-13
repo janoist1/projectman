@@ -1200,7 +1200,8 @@ describe('system prompt', () => {
         'Before you ask anyone for a release, run check_release.',
         'start a member it names as proposer with start_member',
         'Releasing is never yours.',
-        'start the member get_task shows the card waiting for (the merger) with start_member',
+        'start the merger (here: ',
+        ') with start_member, the text naming the card.',
         'Merging is never yours, and never send the owner or an integrator to do it.',
         'start_task for work on a card, start_member for work without a card',
         'Do not count on a message to wake anyone',
@@ -1217,11 +1218,30 @@ describe('system prompt', () => {
         const other = roleOf(builder.build(input({ handle })).appendSystemPrompt);
         for (const key of [
           'check_release',
-          'the merger) with start_member',
+          'start the merger (here: ',
           'Do not count on a message to wake anyone',
         ])
           expect(other).not.toContain(key);
       }
+    });
+
+    it('names the merger the team resolves to in the merge rule (PM-544)', () => {
+      const promptWith = (
+        merger: { kind: 'code_reviewer' } | { kind: 'developer' } | { kind: 'member'; handle: string },
+      ) => {
+        const project = buildProject();
+        project.team.merger = merger;
+        return roleOf(builder.build(input({ project, handle: 'operator' })).appendSystemPrompt);
+      };
+      expect(promptWith({ kind: 'member', handle: 'code-review' })).toContain(
+        'start the merger (here: code-review) with start_member',
+      );
+      expect(promptWith({ kind: 'developer' })).toContain(
+        "start the merger (here: the card's assignee) with start_member",
+      );
+      expect(promptWith({ kind: 'code_reviewer' })).toContain(
+        "start the merger (here: the card's code reviewer, the owner of its code review stage) with start_member",
+      );
     });
 
     it('writes the labels of the report in the language of the project', () => {

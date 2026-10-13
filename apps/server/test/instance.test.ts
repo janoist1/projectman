@@ -156,7 +156,9 @@ describe('startInstance', () => {
       ]);
       await instance.say('AC', sessionId, 'CALLS please');
       await instance.waitIdle('AC', sessionId);
-      const inbox = await instance.api('/api/projects/AC/inbox');
+      // The template has an Operator, so the AI member's question first waits in screening (PM-558): the
+      // default list shows only open items, `state=all` shows it in whatever state the Operator left it.
+      const inbox = await instance.api('/api/projects/AC/inbox?state=all');
       expect(JSON.stringify(inbox)).toContain('Which colour should the basket button be?');
     },
     SLOW,

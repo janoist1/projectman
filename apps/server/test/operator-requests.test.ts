@@ -184,6 +184,7 @@ describe('the Operator’s write guard (PM-463)', () => {
       () => h.domain.teamTools.sendMessage(tool(), { to: ['owner'], text: 'Done', kind: 'info' }),
       () => h.domain.teamTools.askHuman(tool(), { question: 'Anything?' }),
       () => h.domain.teamTools.saveMemory(tool(), { note: 'a note' }),
+      () => h.domain.teamTools.withdrawQuestion(tool(), { itemId: 'inb_any', reason: 'Moot.' }),
     ];
     for (const call of calls) expect(await refusal(call())).toMatch(/^operator_no_request:/);
     await expect(h.domain.teamTools.getTask(tool(), { taskKey: 'AR-1' })).resolves.toBeTruthy();

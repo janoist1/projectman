@@ -200,6 +200,9 @@ describe('team MCP endpoint', () => {
     expect(schema('ask_human').properties.recommendation_reason.type).toBe('string');
     expect(schema('ask_human').properties.details.type).toBe('string');
     expect(schema('save_memory').required).toEqual(['note']);
+    expect(schema('withdraw_question').required.sort()).toEqual(['item_id', 'reason']);
+    expect(schema('withdraw_question').properties.reason).toMatchObject({ minLength: 1, maxLength: 1000 });
+    expect(byName.get('withdraw_question')!.annotations?.readOnlyHint).toBeFalsy();
     expect(byName.get('get_task')!.annotations?.readOnlyHint).toBe(true);
     expect(byName.get('list_tasks')!.annotations?.readOnlyHint).toBe(true);
     expect(schema('list_tasks').properties.limit.maximum).toBe(200);
@@ -1192,6 +1195,22 @@ describe('team tools', () => {
     expect(h.handler.calls[0]?.args).toEqual({ taskKey: 'AR-21' });
     expect(out).toContain('AR-21 on acme/web: main is at aaaaaaaaaaaa, AR-21-work at bbbbbbbbbbbb.');
     expect(out).toContain('2 commit(s) ahead of and 0 behind main');
+  });
+
+  it('withdraw_question passes the question and the reason on and confirms', async () => {
+    const h = await startServer();
+    const client = await connect(h, 'token-dev');
+
+    const out = text(
+      await call(client, 'withdraw_question', { item_id: 'inbox_1', reason: 'Decided in chat.' }),
+    );
+
+    expect(h.handler.calls[0]).toEqual({
+      method: 'withdrawQuestion',
+      ctx: devContext,
+      args: { itemId: 'inbox_1', reason: 'Decided in chat.' },
+    });
+    expect(out).toBe('Question inbox_1 withdrawn.');
   });
 
   it('ask_human queues the question and tells the model not to wait', async () => {

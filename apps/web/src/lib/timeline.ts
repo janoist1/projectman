@@ -306,6 +306,14 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
           merger: nameOf(str(d.merger), ctx.members, ctx.myHandle),
         }),
       );
+    case 'task_merge_prioritized': {
+      const before = str(d.before);
+      return normal(
+        before
+          ? t('timeline.events.task_merge_prioritized_before', { before, reason: str(d.reason) })
+          : t('timeline.events.task_merge_prioritized', { reason: str(d.reason) }),
+      );
+    }
     case 'task_merge_failed': {
       const files = strings(d.files);
       const check = str(d.command);

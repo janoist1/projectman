@@ -110,6 +110,14 @@ export function createTaskMergeRepository(db: Db) {
         )[0] ?? null
       );
     },
+    /** The repository's open merges that wait or failed (not the running one), in queue order. */
+    waitingOf(projectKey: string, repo: string) {
+      return read(
+        "SELECT * FROM task_merges WHERE project_key = ? AND repo = ? AND state IN ('requested','queued','failed','blocked','fixing') ORDER BY created_at, rowid",
+        projectKey,
+        repo,
+      );
+    },
     latestMerged(projectKey: string, taskKey: string) {
       return (
         read(

@@ -92,6 +92,12 @@ tests use the SDK's own client, which behaves the same way here):
   The overview also carries the `release` block (PM-542: the running version, commit and tag, the latest live and the
   open release, the latest merges into the default branch), the starts that wait without a card (`general`) and the
   undelivered team messages per AI member.
+- `prioritize_merge { task_key, reason }` (PM-576) puts the card's merge at the front of its repository's merge
+  queue. The card's merger (any card's merger may move the cards it merges) and the Operator (in an owner's open
+  request, logged as the step `merge_prioritize`) may call it; it answers `moved` or `not moved` (first already).
+  The running merge is not interrupted, a card with no merge or a running one is refused with
+  `merge_not_prioritizable`, someone else with `merge_not_merger`. The reason goes on the card's timeline
+  (`task_merge_prioritized`). Handler method: `prioritizeMerge(ctx, { taskKey, reason })`.
 - `check_release { commit? }` (PM-542) is a read-only Operator tool, available without an open owner request and
   not in guest conversations. It is the preview of `propose_release`: the same checks, the answer is either the
   candidate or the refusal (same code and message) `propose_release` would give now, plus the members with the

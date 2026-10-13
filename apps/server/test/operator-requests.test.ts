@@ -306,6 +306,50 @@ describe('the Operator’s step log (PM-463)', () => {
     expect(refused.refusal!.message).toContain('no-such-stage');
   });
 
+  it('lets the Operator put a merge first for an open request, as one step, and not without one (PM-576)', async () => {
+    await setup();
+    await h.domain.tasks.create('AR', { title: 'Second card' }, OWNER_ACTOR);
+    const merge = (taskKey: string, at: string) =>
+      h.repos.taskMerges.save({
+        id: `merge-${taskKey}`,
+        projectKey: 'AR',
+        taskKey,
+        repo: 'web',
+        base: 'main',
+        fromStageId: 'code_review',
+        toStageId: 'done',
+        merger: 'dev-1',
+        requestedAt: at,
+        state: 'requested',
+        landed: 'nowhere',
+        createdAt: at,
+        updatedAt: at,
+      });
+    merge('AR-1', '2026-10-11T09:00:00.000Z');
+    merge('AR-2', '2026-10-11T09:30:00.000Z');
+    await ask('Merge AR-2 first');
+    await endTurn();
+    await expect(
+      h.domain.teamTools.prioritizeMerge(tool(), { taskKey: 'AR-2', reason: 'it unblocks AR-1' }),
+    ).rejects.toThrow(/operator_no_request/);
+    await ask('Merge AR-2 first, please');
+    const result = await h.domain.teamTools.prioritizeMerge(tool(), {
+      taskKey: 'AR-2',
+      reason: 'it unblocks AR-1',
+    });
+    expect(result.moved).toBe(true);
+    expect(h.repos.taskMerges.waitingOf('AR', 'web').map((row) => row.taskKey)).toEqual(['AR-2', 'AR-1']);
+    expect(steps().map((s) => [s.action, s.status, s.taskKey])).toEqual([
+      ['merge_prioritize', 'done', 'AR-2'],
+    ]);
+    expect(
+      h.domain.timeline.list('AR', { taskKey: 'AR-2' }).find((e) => e.type === 'task_merge_prioritized'),
+    ).toMatchObject({
+      actor: { handle: 'operator' },
+      data: { reason: 'it unblocks AR-1', before: 'AR-1' },
+    });
+  });
+
   it('does not log a message to the owner as a step, and tags the messages sent during the request', async () => {
     await setup();
     await ask('Report back');

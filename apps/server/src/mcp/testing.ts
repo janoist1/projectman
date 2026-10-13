@@ -217,6 +217,10 @@ export function createFakeTeamToolsHandler(): FakeTeamToolsHandler {
       await enter('mergeTask', ctx, args);
       return { task: findTask(args.taskKey).task };
     },
+    async prioritizeMerge(ctx, args) {
+      await enter('prioritizeMerge', ctx, args);
+      return { task: findTask(args.taskKey).task, moved: true };
+    },
     async proposeRelease(ctx, args) {
       await enter('proposeRelease', ctx, args);
       const commit = args.commit ?? '0'.repeat(40);

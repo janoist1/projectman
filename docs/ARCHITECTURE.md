@@ -967,6 +967,17 @@ The merger never moves the card itself. Every forward move path checks the defau
 transaction, including approvals and hand-on requests; manual merges discovered there are recorded
 with `via: found` when a persistent handover exists.
 
+**Queue order (PM-576).** One merge runs per repository (the full check runs on main merged with the card, so
+a second one in parallel would check against a stale main), but the order of the waiting ones is a member's
+decision, not the server's: by default it is the order of the requests (`task_merges.created_at`, `rowid`; a
+retry keeps its place). The card's merger, or the Operator in an owner's request (step `merge_prioritize`), calls
+the team tool `prioritize_merge { task_key, reason }`: `Merges.prioritize` sets the merge's `created_at` 1 ms
+before the earliest waiting merge of the repository (`taskMerges.waitingOf`; no migration), writes
+`task_merge_prioritized` (`mergeId`, `repo`, `reason`, `before`: the card it went ahead of) on the card with the
+caller as its actor, and pumps the queue. The running merge is not interrupted; a merge that is running or
+missing is refused (`merge_not_prioritizable`), a merge already first is left as it is. Remote engine: the queue
+is on the server and the engine is not involved; no new machine-dependent part.
+
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
 releases its check worktree in finally; startup also releases the known queued and blocked worktrees.

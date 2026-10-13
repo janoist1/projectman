@@ -913,6 +913,89 @@ describe('member initiated merge', () => {
     expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual(['approved-AR-1', 'approved-AR-2']);
   });
 
+  describe('queue order (PM-576)', () => {
+    const prioritize = (key: string, actor = aiActor('dev-1'), operator = false) =>
+      h!.domain.merges.prioritize('AR', key, actor, 'the others depend on it', operator);
+    const prioritized = (key: string) =>
+      h!.domain.timeline
+        .list('AR', { taskKey: key })
+        .filter((event) => event.type === 'task_merge_prioritized');
+    async function threeCards() {
+      await setup({
+        adjust: (config) => {
+          const member = config.team.members.find((m) => m.handle === 'dev-2')!;
+          if (member.kind === 'ai') member.capacity = 3;
+        },
+      });
+      await card('AR-2', 'web', 'dev-2');
+      await card('AR-3', 'web', 'dev-2');
+      const gate = deferred<Awaited<ReturnType<BranchMerger['build']>>>();
+      merger.build.mockReturnValueOnce(gate.promise);
+      await start();
+      await start('AR-2');
+      await start('AR-3');
+      await vi.waitFor(() => expect(merger.build).toHaveBeenCalledTimes(1));
+      return gate;
+    }
+
+    it('merges the prioritized card next, without interrupting the running one, and records who and why', async () => {
+      const gate = await threeCards();
+      const result = await prioritize('AR-3');
+      expect(result.moved).toBe(true);
+      expect(row('AR-1')?.state).toBe('running');
+      expect(prioritized('AR-3')).toMatchObject([
+        {
+          actor: { handle: 'dev-1' },
+          data: { reason: 'the others depend on it', before: 'AR-2', repo: 'web' },
+        },
+      ]);
+      gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+      await merged('AR-2');
+      expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
+        'approved-AR-1',
+        'approved-AR-3',
+        'approved-AR-2',
+      ]);
+    });
+
+    it('keeps the order of the requests when nobody prioritizes', async () => {
+      const gate = await threeCards();
+      gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+      await merged('AR-3');
+      expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
+        'approved-AR-1',
+        'approved-AR-2',
+        'approved-AR-3',
+      ]);
+    });
+
+    it('leaves a card that is first already, and refuses the running one and a card with no merge', async () => {
+      const gate = await threeCards();
+      expect((await prioritize('AR-2')).moved).toBe(false);
+      expect(prioritized('AR-2')).toHaveLength(0);
+      expect((await prioritize('AR-3')).moved).toBe(true);
+      expect((await prioritize('AR-3')).moved).toBe(false);
+      expect(prioritized('AR-3')).toHaveLength(1);
+      await expect(prioritize('AR-1')).rejects.toMatchObject({
+        code: 'merge_not_prioritizable',
+        details: { reason: 'running' },
+      });
+      gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+      await merged('AR-3');
+      await expect(prioritize('AR-3')).rejects.toMatchObject({ code: 'merge_not_prioritizable' });
+    });
+
+    it('lets only the card merger or the Operator decide', async () => {
+      const gate = await threeCards();
+      await expect(prioritize('AR-3', aiActor('dev-2'))).rejects.toMatchObject({ code: 'merge_not_merger' });
+      expect(prioritized('AR-3')).toHaveLength(0);
+      expect((await prioritize('AR-3', aiActor('operator'), true)).moved).toBe(true);
+      expect(prioritized('AR-3')).toMatchObject([{ actor: { handle: 'operator' } }]);
+      gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+      await merged('AR-2');
+    });
+  });
+
   it.each(['move', 'update', 'board', 'hand_on'] as const)(
     'gates the %s path without starting a merge',
     async (route) => {

@@ -90,6 +90,7 @@ export const OPERATOR_TOOL_ACTIONS: Readonly<Record<string, OperatorAction>> = {
   operate: 'config_change',
   write_project_docs: 'docs_write',
   mark_decision_candidates: 'decision_offer',
+  prioritize_merge: 'merge_prioritize',
 };
 
 export interface OpenOperatorRequest {

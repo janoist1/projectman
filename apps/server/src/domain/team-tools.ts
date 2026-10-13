@@ -1353,6 +1353,20 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
 
+  async prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }> {
+    return this.guard(async () => {
+      const caller = await this.callerWithRequest(ctx, 'prioritize_merge');
+      const taskKey = this.validTaskKey(ctx, args.taskKey);
+      const operator = isOperator(memberOf(caller.config, ctx.member));
+      return this.recorded(caller, operator ? { action: 'merge_prioritize', taskKey } : null, () =>
+        this.merges.prioritize(ctx.projectKey, taskKey, aiActor(ctx.member), args.reason, operator),
+      );
+    });
+  }
+
   async proposeRelease(
     ctx: ToolContext,
     args: { title: string; summary: string; commit?: string; preview?: boolean },

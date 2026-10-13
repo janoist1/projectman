@@ -268,6 +268,48 @@ export class Merges {
     });
   }
 
+  /**
+   * Puts the card's merge at the front of its repository's queue (PM-576). The card's merger decides it for the
+   * cards it merges, the Operator (`operator`) for any; the running merge is not interrupted. The queue is ordered
+   * by `created_at`, so the merge goes 1 ms before the earliest waiting one and keeps its place through retries.
+   * Without a merge to move, or already first, nothing changes (`moved` false).
+   */
+  async prioritize(
+    projectKey: string,
+    taskKey: string,
+    actor: Actor,
+    reason: string,
+    operator = false,
+  ): Promise<{ task: Task; moved: boolean }> {
+    return this.cards.run(projectKey, taskKey, async () => {
+      const { ctx, tasks } = this.deps;
+      const task = tasks.get(projectKey, taskKey);
+      const row = ctx.repos.taskMerges.open(projectKey, taskKey);
+      if (!row)
+        throw conflict('merge_not_prioritizable', 'the card has no merge to move forward', {
+          reason: 'no_merge',
+        });
+      if (!operator && row.merger !== actorHandle(actor))
+        throw forbidden('merge_not_merger', 'only the card merger or the Operator may move a merge forward');
+      if (row.state === 'running')
+        throw conflict('merge_not_prioritizable', 'the merge is running already', { reason: 'running' });
+      const first = ctx.repos.taskMerges.waitingOf(projectKey, row.repo)[0];
+      if (!first || first.id === row.id) return { task, moved: false };
+      ctx.unitOfWork(() => {
+        this.save(row, { createdAt: new Date(Date.parse(first.createdAt) - 1).toISOString() });
+        this.deps.timeline.append({
+          projectKey,
+          taskKey,
+          actor,
+          type: 'task_merge_prioritized',
+          data: { mergeId: row.id, repo: row.repo, reason, before: first.taskKey },
+        });
+      });
+      this.pump();
+      return { task: tasks.get(projectKey, taskKey), moved: true };
+    });
+  }
+
   private engine(task: Task) {
     return this.deps.engines.get(this.deps.sessions.cardEngineId(task.projectKey, task));
   }

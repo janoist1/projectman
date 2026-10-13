@@ -5,6 +5,9 @@ import {
   operatorOf,
   projectManagersOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  OPERATOR_SIGNAL_STEP_KINDS,
+  operatorSignalBudget,
+  operatorWatchOf,
   OperatorSignal,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   aiLimitReached,
@@ -23,6 +26,7 @@ import {
 import type {
   OperatorSignalKind,
   OperatorSignalStepTargets,
+  OperatorWatch,
   ProjectConfig,
   Stage,
   Task,
@@ -57,6 +61,21 @@ const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
   'unreleased',
   'ready_waiting',
 ]);
+
+const WAKE_NEVER =
+  'On a signal never merge, release, approve, move a card, or set a label or a setting; stalled, silent, outage and nobody signals always go to the owners.';
+const WAKE_ONE_MESSAGE =
+  'Send the owners one message for the whole wake-up (send_message with signal_ids; the signals to decide in actionable_signal_ids); write nothing if you did nothing and nothing needs a decision.';
+const WAKE_CHECK = 'Projectman system signals. Check get_project_state and session activity first.';
+const WAKE_STEP =
+  'Where a signal has a step, you may take it yourself with its signal_id after weighing it, within steps_left and not before next_step_at; a signal with follow_up true was acted on, so tell the owners what you did and what became of it.';
+
+/** The wake-up text by level; it says in short what `operatorRule` (context/system-prompt.ts) says. */
+const WAKE_HEADERS: Record<OperatorWatch, string> = {
+  report: `${WAKE_CHECK} Change nothing until an owner says yes. ${WAKE_ONE_MESSAGE}`,
+  unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_ONE_MESSAGE}`,
+  drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_ONE_MESSAGE}`,
+};
 
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
@@ -166,7 +185,7 @@ export class OperatorSignals {
     projectKey: string,
     signalId: string,
   ): Promise<{ signal: OperatorSignalRecord; allowed: OperatorSignalStepTargets }> {
-    const { ctx, projects, taskWaits } = this.deps;
+    const { ctx, projects } = this.deps;
     const signal = ctx.repos.operatorSignals.get(signalId);
     if (!signal || signal.projectKey !== projectKey)
       throw invalid('invalid_request', 'unknown signal in this project');
@@ -178,6 +197,13 @@ export class OperatorSignals {
       !this.caseHolds(config, signal)
     )
       throw conflict('operator_signal_closed', 'the signal is no longer open');
+    return { signal, allowed: this.stepTargetsOf(config, signal) };
+  }
+
+  /** The targets by the case alone, whether or not the signal is open for the Operator yet. */
+  private stepTargetsOf(config: ProjectConfig, signal: OperatorSignalRecord): OperatorSignalStepTargets {
+    const { ctx, taskWaits } = this.deps;
+    const projectKey = signal.projectKey;
     const startable = (handles: readonly string[]) =>
       handles.filter((handle) => {
         const member = memberOf(config, handle);
@@ -203,7 +229,17 @@ export class OperatorSignals {
     } else if (signal.kind === 'ready_waiting') {
       allowed.members = startable(projectManagersOf(config).map((m) => m.handle));
     }
-    return { signal, allowed };
+    return allowed;
+  }
+
+  /** The one step a signal allows at this level, as the Operator is told (the budget is told apart). */
+  private stepOf(level: OperatorWatch, config: ProjectConfig, signal: OperatorSignalRecord) {
+    if (!OPERATOR_SIGNAL_STEP_KINDS[level].includes(signal.kind)) return null;
+    const allowed = this.stepTargetsOf(config, signal);
+    if (allowed.startTask) return { tool: 'start_task' as const, task_key: allowed.startTask, members: [] };
+    return allowed.members.length
+      ? { tool: 'start_member' as const, task_key: allowed.taskKey, members: allowed.members }
+      : null;
   }
 
   /** The Operator took a step on the signal: it is shown again if the case still stands in half an hour. */
@@ -527,19 +563,37 @@ export class OperatorSignals {
           throw conflict('team_paused', 'the team is paused');
         const signals = this.pending(projectKey);
         if (!signals.length) return;
+        const level = operatorWatchOf(config);
+        const now = isoNow(ctx);
         const text =
-          'Projectman system signals. Check get_project_state and session activity before reporting each signal to the owners. Change nothing until an owner says yes.\n' +
+          `${WAKE_HEADERS[level]}\n` +
           signals
-            .map((s) =>
-              JSON.stringify({
+            .map((s) => {
+              const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
+              const budget = operatorSignalBudget(
+                level,
+                steps.filter((step) => step.status !== 'refused').map((step) => step.at),
+                now,
+              );
+              return JSON.stringify({
                 ...OperatorSignal.parse(s),
                 facts: s.inboxItemId
                   ? ctx.repos.inbox.get(s.inboxItemId)?.payload
                   : s.subject
                     ? ctx.repos.sessions.get(s.subject)?.activity
                     : null,
-              }),
-            )
+                step: this.stepOf(level, config, s),
+                steps_left: budget.left,
+                next_step_at: budget.nextAt,
+                steps: steps.map((step) => ({
+                  at: step.at,
+                  member: step.member,
+                  task_key: step.taskKey,
+                  status: step.status,
+                })),
+                follow_up: steps.length > 0,
+              });
+            })
             .join('\n');
         const workItem = { type: 'general' } as const;
         // A signal shown again after an own step is shown from the start (PM-545): the Operator may present it anew.

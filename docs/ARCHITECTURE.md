@@ -524,30 +524,30 @@ Each module gets one pass: `none` keeps it unchanged; `move` relocates it;
 `split` gives it a narrow plain TypeScript interface; `split-tool` does that and
 adopts the chosen tool (Effect) in the same pass; `delete` removes it.
 
-| Layer | Contents | Runs on |
-| --- | --- | --- |
-| `contracts` | Shared interfaces and engine ports | Server and engine |
-| `infra` | Storage, configuration, logging and common helpers | Server; engine where needed (logging, identity and helpers) |
-| `core` | Project, task, member, message and inbox rules | Server |
-| `runtime` | Admission, sessions, delivery, permissions, watches and context | Server; engine-local enforcement through contracts |
-| `service` | Independent capabilities such as merges, tests and releases | Server; machine operations through engine ports |
-| `engine` | CLIs, worktrees, host operations and server/engine transport | Execution host; remote adapters also run on the server |
-| `connector` | API, MCP, websocket, HTTP, control and auth adapters | Server; engine-side HTTP/MCP relay where needed |
-| `assembly` | Application startup and dependency wiring | Server or engine entry point |
+| Layer       | Contents                                                        | Runs on                                                     |
+| ----------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
+| `contracts` | Shared interfaces and engine ports                              | Server and engine                                           |
+| `infra`     | Storage, configuration, logging and common helpers              | Server; engine where needed (logging, identity and helpers) |
+| `core`      | Project, task, member, message and inbox rules                  | Server                                                      |
+| `runtime`   | Admission, sessions, delivery, permissions, watches and context | Server; engine-local enforcement through contracts          |
+| `service`   | Independent capabilities such as merges, tests and releases     | Server; machine operations through engine ports             |
+| `engine`    | CLIs, worktrees, host operations and server/engine transport    | Execution host; remote adapters also run on the server      |
+| `connector` | API, MCP, websocket, HTTP, control and auth adapters            | Server; engine-side HTTP/MCP relay where needed             |
+| `assembly`  | Application startup and dependency wiring                       | Server or engine entry point                                |
 
 Imports within a module are unrestricted. Across modules, dependencies go only
 downward according to this table (type imports count too):
 
-| Layer | May import |
-| --- | --- |
-| `contracts` | `contracts` |
-| `infra` | `contracts`, `infra` |
-| `core` | `contracts`, `infra`, `core` |
-| `runtime` | `contracts`, `infra`, `core`, `runtime` |
-| `service` | `contracts`, `infra`, `core` |
-| `engine` | `contracts`, `infra`, `engine` |
+| Layer       | May import                                                      |
+| ----------- | --------------------------------------------------------------- |
+| `contracts` | `contracts`                                                     |
+| `infra`     | `contracts`, `infra`                                            |
+| `core`      | `contracts`, `infra`, `core`                                    |
+| `runtime`   | `contracts`, `infra`, `core`, `runtime`                         |
+| `service`   | `contracts`, `infra`, `core`                                    |
+| `engine`    | `contracts`, `infra`, `engine`                                  |
 | `connector` | `contracts`, `infra`, `core`, `runtime`, `service`, `connector` |
-| `assembly` | All layers |
+| `assembly`  | All layers                                                      |
 
 Services do not call other services, and runtime and services do not call each
 other: they communicate through the core. Connectors and runtime reach engine
@@ -573,7 +573,7 @@ packages count as contracts and are accessible to every layer.
 | `core/attachments` | Task and message attachment storage and processing. |
 | `runtime/admission` | Admission, deferred starts, handovers and refinement. |
 | `runtime/sessions` | Session orchestration, policy, pause and workspace selection. |
-| `runtime/delivery` | Session input queuing and message delivery. |
+| `runtime/delivery` | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)). |
 | `runtime/permissions` | Command parsing and execution permission rules. |
 | `runtime/watchers` | Runtime health, review, disk and worktree watches. |
 | `runtime/usage` | Provider quota, plan usage and managed provider keys. |
@@ -624,6 +624,15 @@ The first extension point is `TaskService.registerMergeGate(gate: MergeGate)` (P
 The merge service supplies the facts for “done only after merging”; the rule that
 decides which move requires a merge and when to check it (`moveMerge`, `mergeRepoOf`)
 stays in `packages/shared` and is applied by task moves.
+
+**Effect (PM-590, a trial on a branch):** two programs are written with the `effect` package, each
+behind a plain TypeScript facade, so nothing outside them sees an Effect type: the runner's input
+queue (`runner/input-queue.ts`, a timer-heavy state machine) and the message delivery
+(`runtime/delivery/`, formerly `domain/messaging/delivery.ts`, which `domain/messaging` still
+re-exports as `MessageDelivery`). Their timers and background work are fibers in the module's
+`Scope`; `MessageDelivery.close()` ends it at the server's shutdown (before `pauses.dispose()`).
+Where Effect may be used, the pinned version and the rules are in [EFFECT.md](EFFECT.md); read it
+before touching or writing Effect code.
 
 **Packages** (TypeScript source, used directly by both apps):
 
@@ -1239,7 +1248,7 @@ workers follow the machine's size.
     `full_test_started` event when the run got its turn in the queue (PM-489).
   - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
-  **Module:** `engine-link`
+    **Module:** `engine-link`
 
 - **Engine process** — `engine-app.ts`, `engine-link/{engine-client,engine-handlers,engine-limit,engine-audit,engine-config,engine-status,engine-transfer}.ts`,
   `scripts/engine/{cli,commands}.ts`, `index.ts` (`engineMain`), `app.ts` (`parseMode`) (PM-314).
@@ -1768,7 +1777,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `index.ts` (PM-243; PM-311, PM-312). Task worktrees default to
   `~/.projectman/worktrees/<project>/<task>-<repo>`; git links them to the main repository's
   common git directory. Canonical paths, branch ownership and cleanup are local filesystem
-  operations. PM-368's `domain/messaging/{messaging,delivery}.ts` also uses
+  operations. PM-368's `domain/messaging/messaging.ts` and `runtime/delivery/delivery.ts` also use
   `SessionOrchestrator.sourceHead` to snapshot the local branch for sent messages and input batches;
   PM-342's `domain/handoffs.ts` uses it for the branch, last commit and uncommitted state of a handoff note or fallback.
   **Remote engine (engine mode, PM-314: runs in the engine process):** use `worktree.*` and `workspace.*`, run this git query beside the worktrees and return the attributed branch head

@@ -1784,6 +1784,7 @@ export function createDomain(opts: DomainOptions) {
       await screenshotRuns?.stop();
       await outages.stop();
       await background.stop();
+      await delivery.close();
       pauses.dispose();
       sessions.dispose();
       // The folders still being removed finish before the temporary root is released.

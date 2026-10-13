@@ -68,15 +68,15 @@ These rules apply to every member, including Codex:
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                      |
-| mcp        | `apps/server/src/mcp/**`                                                                                                                  |
-| core       | `apps/server/src/{db,domain,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
-| web        | `apps/web/**`                                                                                                                             |
-| github     | `apps/server/src/github/**`                                                                                                               |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                               |
-| widget     | `apps/feedback-widget/**`                                                                                                                 |
+| Workstream | Owns                                                                                                                                              |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                              |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                          |
+| core       | `apps/server/src/{db,domain,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
+| web        | `apps/web/**`                                                                                                                                     |
+| github     | `apps/server/src/github/**`                                                                                                                       |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                       |
+| widget     | `apps/feedback-widget/**`                                                                                                                         |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its
@@ -94,6 +94,8 @@ module row. Do not add dependency exceptions: each refactor slice removes its ow
 - `verbatimModuleSyntax`: use `import type` for type-only imports.
 - Validate data at boundaries with zod (HTTP bodies, hook payloads, MCP args, YAML).
 - Prettier config in `.prettierrc.json` (`npm run format`).
+- Effect (the `effect` package) is used only where `docs/EFFECT.md` allows it, behind a plain
+  TypeScript facade; read that file before writing or changing Effect code.
 - Tests: vitest, `*.test.ts` next to the code or under `test/`. Use temp directories;
   never touch real user repositories (e.g. client projects) or `~/.claude` in tests.
   Server test helpers live in `apps/server/test/helpers/` (domain harness, app harness with

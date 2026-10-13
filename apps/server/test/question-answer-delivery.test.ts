@@ -87,7 +87,7 @@ describe('question answer delivery (PM-560)', () => {
       await gate;
       await check(request);
     });
-    h.domain.messaging.useMessageStarts(h.domain.messageStarts, 1);
+    h.domain.messaging.registerWaker(h.domain.messageStarts, 1);
     const resolved = await answer(id);
     expect(resolved.payload.answerDelivery).toBeUndefined();
     release();

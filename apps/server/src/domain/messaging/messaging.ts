@@ -36,13 +36,12 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
-import type { EngineDirectory, SentMessageRecipient, WakeStart } from '../../contracts';
+import type { EngineDirectory, SentMessageHold, SentMessageRecipient, WakeStart } from '../../contracts';
 import type { RefinementSteps } from '../admission';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { DomainError, forbidden, invalid, conflict } from '../errors';
 import type { MessageAttachmentService } from '../message-attachments';
-import type { OperatorSignals } from '../operator-signals';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
@@ -103,6 +102,18 @@ export interface MessageWaker {
   wake(projectKey: string, handle: string, workItem: WorkItemRef): Promise<WakeStart>;
 }
 
+/** What presenting or accepting Operator signals records with the message (PM-593). */
+export interface MessageSignals {
+  presentation(projectKey: string, signalId: string): void;
+  decision(projectKey: string, signalId: string, by: string, accepted: boolean): void;
+  present(projectKey: string, signalId: string, messageId: string, actionable: boolean): void;
+}
+/** A card-level hold another module answers; who is held stays messaging's rule. */
+export type CardHoldReason = Extract<SentMessageHold, 'fix_limit' | 'full_test'>;
+export interface CardHold {
+  holds(task: Task, config: ProjectConfig): boolean;
+}
+
 /**
  * The one way team messages are sent (REST, the send_message team tool, label and @mention
  * notices, answers to AI questions): validated the same way, recorded with a receipt per
@@ -112,9 +123,9 @@ export interface MessageWaker {
  * Humans read theirs in the app. A message never goes to its own sender.
  */
 export class Messaging {
-  private operatorSignals?: OperatorSignals;
-  useOperatorSignals(signals: OperatorSignals): void {
-    this.operatorSignals = signals;
+  private messageSignals?: MessageSignals;
+  registerSignals(signals: MessageSignals): void {
+    this.messageSignals = signals;
   }
   /** A card start mapped to the permanent channel still gives the manager its assignment. */
   async projectManagerStart(
@@ -146,13 +157,7 @@ export class Messaging {
   private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
   private readonly messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
   private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
-  private fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean } | undefined;
-  private fullTests:
-    | {
-        holds(task: Task, config: ProjectConfig): boolean;
-        sync(projectKey: string, taskKey: string): Promise<void>;
-      }
-    | undefined;
+  private readonly cardHolds = new Map<CardHoldReason, CardHold>();
 
   constructor(deps: {
     ctx: DomainContext;
@@ -185,22 +190,14 @@ export class Messaging {
    * Binds the session starts (PM-543): a send with `awaitWake` calls them directly instead of emitting
    * `message_waiting`. They are built after this class. `replyWaitMs` is for tests.
    */
-  useMessageStarts(waker: MessageWaker, replyWaitMs = WAKE_REPLY_WAIT_MS): void {
+  registerWaker(waker: MessageWaker, replyWaitMs = WAKE_REPLY_WAIT_MS): void {
     this.waker = waker;
     this.wakeReplyWaitMs = replyWaitMs;
   }
 
-  /** Binds the fix round limit (PM-262); it sends messages itself, so it is built after this class. */
-  useFixLimit(fixLimit: { heldFor(task: Task, config: ProjectConfig): boolean }): void {
-    this.fixLimit = fixLimit;
-  }
-
-  /** Binds the server's full test before review (PM-217); it sends messages itself, so it is built after this class. */
-  useFullTests(fullTests: {
-    holds(task: Task, config: ProjectConfig): boolean;
-    sync(projectKey: string, taskKey: string): Promise<void>;
-  }): void {
-    this.fullTests = fullTests;
+  /** A later registration for the same reason replaces the earlier one. */
+  registerCardHold(reason: CardHoldReason, hold: CardHold): void {
+    this.cardHolds.set(reason, hold);
   }
 
   /**
@@ -258,7 +255,7 @@ export class Messaging {
     if (signals.length > 0) {
       if (recipients.some((handle) => !ownerHandles(config).includes(handle)))
         throw invalid('invalid_request', 'signals go only to owners');
-      for (const signal of signals) this.operatorSignals!.presentation(projectKey, signal.id);
+      for (const signal of signals) this.messageSignals!.presentation(projectKey, signal.id);
     }
     if (opts.operatorSignal !== undefined && !operator) {
       if (
@@ -306,9 +303,7 @@ export class Messaging {
           );
         });
       // A new commit pinned: its full test is queued before the reviewers get this message (PM-217).
-      await this.fullTests?.sync(projectKey, task.key).catch((err: unknown) => {
-        this.ctx.logger.warn({ err, taskKey: task.key }, 'could not queue the full test of the new round');
-      });
+      await this.ctx.events.emit('task_review_round', { projectKey, taskKey: task.key, from });
     }
     // Where each AI recipient gets it is decided before it is recorded: the receipt keeps the
     // route when it is not the default place, so the message is found there while it waits.
@@ -344,7 +339,7 @@ export class Messaging {
     const message = this.ctx.unitOfWork(() => {
       opts.beforeRecord?.();
       if (opts.operatorSignal !== undefined && !isOperator(memberOf(config, from)))
-        this.operatorSignals!.decision(projectKey, opts.operatorSignal, from, true);
+        this.messageSignals!.decision(projectKey, opts.operatorSignal, from, true);
       const id = newId('msg');
       const attachments =
         attachmentIds.length > 0
@@ -372,7 +367,7 @@ export class Messaging {
         version,
       });
       for (const signal of signals)
-        this.operatorSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
+        this.messageSignals!.present(projectKey, signal.id, recorded.id, signal.actionable);
       return recorded;
     });
     const decided = new Map<string, Omit<SentMessageRecipient, 'handle'>>();
@@ -969,7 +964,7 @@ export class Messaging {
    */
   private heldForFixLimit(config: ProjectConfig, task: Task | null, from: string, handle: string): boolean {
     if (!task || task.assignee !== handle || memberOf(config, from)?.kind === 'human') return false;
-    return this.fixLimit?.heldFor(task, config) ?? false;
+    return this.cardHolds.get('fix_limit')?.holds(task, config) ?? false;
   }
 
   /**
@@ -981,7 +976,7 @@ export class Messaging {
     if (!task || task.assignee === handle || memberOf(config, from)?.kind === 'human') return false;
     const stage = stageOf(config, task.stageId);
     if (!stage || !stageOwners(config, stage).includes(handle)) return false;
-    return this.fullTests?.holds(task, config) ?? false;
+    return this.cardHolds.get('full_test')?.holds(task, config) ?? false;
   }
 
   /**

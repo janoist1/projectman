@@ -188,7 +188,7 @@ export class TaskMoves {
     this.labels = deps.labels;
     this.inbox = deps.inbox;
     this.sourceHead = deps.sourceHead;
-    this.inbox.useHandOnMove(async (item, by) => {
+    this.inbox.registerDecider('hand_on', async (item, by) => {
       const request = handOnRequestOf(item)!;
       const config = await this.store.projects.config(item.projectKey);
       const actor = humanActor(by.handle);

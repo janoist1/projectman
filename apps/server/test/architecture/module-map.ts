@@ -517,7 +517,7 @@ export const EXCEPTIONS: readonly DependencyException[] = [
   {
     from: 'core/inbox',
     to: 'runtime/admission',
-    removedBy: 'PM-577 5c',
+    removedBy: 'core/inbox',
   },
   {
     from: 'core/members',
@@ -557,7 +557,7 @@ export const EXCEPTIONS: readonly DependencyException[] = [
   {
     from: 'core/messages',
     to: 'services/operator',
-    removedBy: 'PM-577 5c',
+    removedBy: 'core/messages',
   },
   {
     from: 'core/messages',

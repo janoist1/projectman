@@ -64,3 +64,21 @@ describe('merge_task', () => {
     expect(result).toContain('resolution');
   });
 });
+
+describe('prioritize_merge', () => {
+  it('requires a reason and tells whether the merge moved', async () => {
+    const tool = TEAM_TOOLS.find((tool) => tool.name === 'prioritize_merge')!;
+    expect(tool.inputSchema.safeParse({ task_key: 'AR-21' }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ task_key: 'AR-21', reason: '  ' }).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ task_key: 'AR-21', reason: 'x'.repeat(501) }).success).toBe(false);
+    const handler = createFakeTeamToolsHandler();
+    const task = sampleTaskDetail().task;
+    const move = vi.spyOn(handler, 'prioritizeMerge').mockResolvedValue({ task, moved: true });
+    const ctx = { projectKey: 'AR', member: 'fe-1', taskKey: 'AR-21', sessionId: 'session-1' };
+    const args = { task_key: 'AR-21', reason: 'AR-22 and AR-23 test against its fix' };
+    expect(await tool.run({ ctx, handler, args })).toContain('AR-21 merges next');
+    expect(move).toHaveBeenCalledWith(ctx, { taskKey: 'AR-21', reason: args.reason });
+    move.mockResolvedValue({ task, moved: false });
+    expect(await tool.run({ ctx, handler, args })).toContain('first in the queue already');
+  });
+});

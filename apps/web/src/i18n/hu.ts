@@ -861,6 +861,8 @@ export const hu = {
         'A fejlesztő munkafájában mentetlen változás van, ezért a feladat nem adható át átnézésre. Az átnéző csak a mentett (commitolt) munkát látja: előbb mentsd el a változásokat egy commitban, utána add át újra.',
       merge_not_merger: 'A beolvasztást csak a kártya beolvasztója indíthatja.',
       merge_not_ready: 'A kártya még nem áll készen a beolvasztásra.',
+      merge_not_prioritizable:
+        'Csak a sorban álló beolvasztás vehető előre; ez most nem áll sorban (vagy már fut).',
       merge_fix_not_allowed: 'Csak a beolvasztó javíthat ütközés miatt sikertelen beolvasztást.',
       merge_fix_invalid:
         'A javítás nincs commitolva, vagy hiányzik belőle a jóváhagyott commit vagy az alap.',
@@ -1859,6 +1861,17 @@ export const hu = {
       queued: {
         title: 'Beolvasztás: sorra vár',
         text: 'Egy másik beolvasztás fut ebben a tárhelyben.',
+        prioritize: {
+          open: 'Előre',
+          label: 'Miért kerüljön előre?',
+          hint: 'A futó beolvasztást nem szakítja meg; az idővonalon az indok is látszik.',
+          required: 'Írd le röviden, miért kerüljön előre.',
+          submit: 'Előre veszem',
+          submitting: 'Előre vétel…',
+          cancel: 'Mégse',
+          first: 'Ez már a sor elején áll: a futó beolvasztás után ez következik.',
+          done: 'Előre került: a futó beolvasztás után ez következik.',
+        },
       },
       running: {
         title: 'Beolvasztás a {base} ágba',
@@ -3989,6 +4002,8 @@ export const hu = {
       task_stage_changed: 'Továbbvitte: {from} → {to}',
       task_hand_on_requested: '{requestedBy} végzett; {mover} viszi tovább ide: {to}',
       task_merge_requested: 'Beolvasztásra vár: {merger}.',
+      task_merge_prioritized: 'Előre vette a beolvasztási sorban. Indok: {reason}',
+      task_merge_prioritized_ahead: 'Előre vette a beolvasztási sorban ezek elé: {ahead}. Indok: {reason}',
       task_merged: 'Beolvasztotta a {base} ágba: {commit}{parts}',
       task_merged_found: 'Bent van a {base} ágban: {commit} (kézzel beolvasztva).',
       merged_checked: 'ellenőrzés: {check}, sikeres',

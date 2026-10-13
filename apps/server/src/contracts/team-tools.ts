@@ -534,6 +534,14 @@ export interface TeamToolsHandler {
     args: { taskKey: string; fixConflict?: boolean; resolution?: string },
   ): Promise<{ task: Task }>;
   /**
+   * prioritize_merge (PM-576): the card's merger or the Operator puts the card's merge at the front of its
+   * repository's queue, with the reason; `moved` is false when it was first already.
+   */
+  prioritizeMerge(
+    ctx: ToolContext,
+    args: { taskKey: string; reason: string },
+  ): Promise<{ task: Task; moved: boolean }>;
+  /**
    * propose_release (PM-491): the member with the deployment duty proposes releasing the default
    * branch's head (or `commit`); `preview` only lists what the release would contain.
    */

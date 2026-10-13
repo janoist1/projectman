@@ -84,6 +84,7 @@ export const TEAM_TOOL_NAMES = [
   'get_project_state',
   'list_tasks',
   'merge_task',
+  'prioritize_merge',
   'propose_release',
   'check_release',
   'update_task',
@@ -781,6 +782,29 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       if (state === 'queued' || state === 'running')
         return `${mergeId}. The server runs the merge and its full check. Do not wait for it: end your turn now. Your session closes, and a failure or a block wakes you with a team message.`;
       return mergeId;
+    },
+  }),
+
+  defineTool({
+    name: 'prioritize_merge',
+    title: 'Move a merge to the front of the queue',
+    readOnly: false,
+    description:
+      "Only the card's merger, or the Operator during an open owner request. One merge runs at a time per repository, in the order the cards were requested; use this to decide that this card's queued merge goes next, e.g. a fix that the queued cards' tests depend on. Only a merge that waits in the queue can move (not one that is not started yet or already runs). The merge that runs now is not interrupted. The reason goes on the card's timeline: say who or what it unblocks. A merge already at the front is left as it is (moved: false).",
+    input: {
+      task_key: TaskKey,
+      reason: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .describe('Why this card goes first; it is shown on the timeline.'),
+    },
+    async run({ ctx, args, handler }) {
+      const { moved } = await handler.prioritizeMerge(ctx, { taskKey: args.task_key, reason: args.reason });
+      return moved
+        ? `moved: ${args.task_key} merges next, after the one that runs now.`
+        : `not moved: ${args.task_key} is first in the queue already.`;
     },
   }),
 

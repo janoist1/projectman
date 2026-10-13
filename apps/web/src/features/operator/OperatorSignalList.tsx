@@ -125,20 +125,18 @@ function SignalRow({
           {t('operator.signal.details')} →
         </Link>
       ) : null}
-      {signal.state === 'open' && !readOnly ? (
+      {signal.state === 'open' && signal.actionable && !readOnly ? (
         <div className={styles.rowActions}>
-          {signal.actionable ? (
-            <Button
-              aria-describedby={titleId}
-              variant="primary"
-              size="md"
-              loading={send.isPending}
-              disabled={busy}
-              onClick={accept}
-            >
-              {t('operator.signal.accept')}
-            </Button>
-          ) : null}
+          <Button
+            aria-describedby={titleId}
+            variant="primary"
+            size="md"
+            loading={send.isPending}
+            disabled={busy}
+            onClick={accept}
+          >
+            {t('operator.signal.accept')}
+          </Button>
           <Button
             aria-describedby={titleId}
             variant="secondary"

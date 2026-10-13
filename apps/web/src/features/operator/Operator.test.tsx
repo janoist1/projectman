@@ -527,6 +527,7 @@ describe('a signal the Operator raised', () => {
       name: t('operator.signal.accept'),
     });
     expect(accept.getAttribute('aria-describedby')).toBe(rows()[0]!.querySelector('h4')!.id);
+    expect(within(rows()[2]! as HTMLElement).queryByRole('button')).toBeNull();
     fireEvent.click(accept);
     await waitFor(() =>
       expect(posted(project, '/messages')[0]?.body).toMatchObject({ operatorSignal: 'sig_first' }),
@@ -541,15 +542,16 @@ describe('a signal the Operator raised', () => {
     expect(document.activeElement).toBe(
       within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.accept') }),
     );
-    fireEvent.click(
-      within(rows()[2]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
-    );
-    await waitFor(() => expect(posted(project, '/operator/signals/sig_out/dismiss')).toHaveLength(1));
-    await within(card).findByText(new RegExp(t('operator.signal.dismissed')));
+    expect(within(rows()[2]! as HTMLElement).queryByRole('button')).toBeNull();
+    project.backend.operatorSignals.find((s) => s.id === 'sig_out')!.state = 'resolved';
     fireEvent.click(
       within(rows()[1]! as HTMLElement).getByRole('button', { name: t('operator.signal.dismiss') }),
     );
     await waitFor(() => expect(card.getAttribute('data-state')).toBe('resolved'));
+    expect(within(rows()[2]! as HTMLElement).getByRole('status').textContent).toContain(
+      t('operator.signal.resolved'),
+    );
+    expect(posted(project, '/operator/signals/sig_out/dismiss')).toHaveLength(0);
     expect(group.textContent).toBe(t('operator.signal.group'));
     expect(document.activeElement).toBe(group);
     expect(within(card).queryByRole('button')).toBeNull();
@@ -609,17 +611,22 @@ describe('a signal the Operator raised', () => {
     expect(await screen.findByText(new RegExp(t('operator.signal.dismissed')))).toBeTruthy();
   });
 
-  it('has no yes button when nothing can be done, and a card without a presenting message stands alone', async () => {
-    const project = mockProject();
-    project.backend.operatorSignals = [signal({ id: 'sig_1', kind: 'silent', actionable: false })];
-    renderLayout(project);
-    fireEvent.click(await button());
-    const heading = await screen.findByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' });
-    expect(heading).toBeTruthy();
-    expect(screen.getByText(t('operator.signal.bodies.silent'))).toBeTruthy();
-    expect(screen.queryByRole('button', { name: t('operator.signal.accept') })).toBeNull();
-    expect(screen.getByRole('button', { name: t('operator.signal.dismiss') })).toBeTruthy();
-  });
+  it.each([false, true])(
+    'has no buttons on a non-actionable card (presenting message: %s)',
+    async (hasMessage) => {
+      const project = mockProject();
+      const message = hasMessage ? presenting(project) : null;
+      project.backend.operatorSignals = [
+        signal({ id: 'sig_1', kind: 'silent', actionable: false, messageId: message?.id ?? null }),
+      ];
+      renderLayout(project);
+      fireEvent.click(await button());
+      const heading = await screen.findByRole('heading', { name: 'AC-20: a munkamenet nem ad jelet' });
+      expect(heading).toBeTruthy();
+      expect(screen.getByText(message?.body ?? t('operator.signal.bodies.silent'))).toBeTruthy();
+      expect(within(heading.closest('article')!).queryByRole('button')).toBeNull();
+    },
+  );
 
   it('shows the four kinds by their own title', async () => {
     const project = mockProject();

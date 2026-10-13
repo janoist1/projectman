@@ -394,7 +394,14 @@ Documentation map:
   (a running session only gets a notice), a person gets a `manual_step` alert. Nothing is done
   while a session is mid-turn on the card; a step is not handed out twice (its member's turn
   ending without the label raises one `stalled` alert). When every label is on, the system takes
-  `refine` off, moves the card to the stage before development and tells who prioritises (`done`).
+  `refine` off and moves the card to the stage before development. Completion (`done`, PM-594)
+  sends a team message to the configured card mover, otherwise the project manager, otherwise
+  the Operator (`info` for a human, `action` for an AI member). Without a recipient, only the
+  `refinement_turn` timeline event remains. The project manager can start for this system message;
+  the Operator receives it with the owner's next message under the existing wake rule (PM-447/475).
+  Legacy `done` alerts are cancelled at startup (`RefinementSteps.reconcile`) and when the card is
+  next examined (`closeAlerts`). The shared `isInformationalAlert` predicate also excludes them
+  from `taskWait`, so an acknowledgement never makes the card wait for their recipient.
   Every change of turn is a `refinement_turn` timeline event (`turnMember` reads the latest). A
   turn left open when `refine` comes off (or the card leaves the stage) is closed with `stopped`,
   so putting `refine` back begins a new turn (PM-420). A

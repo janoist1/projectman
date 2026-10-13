@@ -340,6 +340,14 @@ export function isTheme(task: Pick<Task, 'kind'>): boolean {
   return task.kind === 'theme';
 }
 
+/** Automatic work starts skip themes and cards with open subtasks (PM-586). */
+export function canAutomaticallyStartTask(
+  task: Pick<Task, 'key' | 'kind'>,
+  tasks: readonly Pick<Task, 'parentKey' | 'status'>[],
+): boolean {
+  return !isTheme(task) && !tasks.some((child) => child.parentKey === task.key && isOpenTask(child));
+}
+
 /** Sequence number of a task key ("AR-21" -> 21). */
 export function taskSeq(key: string): number {
   return Number(key.slice(key.lastIndexOf('-') + 1));

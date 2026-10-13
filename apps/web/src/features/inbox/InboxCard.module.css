@@ -305,6 +305,17 @@
   line-height: 1.2;
 }
 
+/* The buttons of a todo (Done, Cannot do it, Attach a file): full width, one under the other. */
+.mobile .todoActions {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.mobile .todoActions > button {
+  flex: 0 0 auto;
+  width: 100%;
+}
+
 .mobile .details {
   min-height: 40px;
   align-self: flex-start;

@@ -3585,8 +3585,10 @@ export const hu = {
     },
     /** The card of a question that closed while the viewer was answering it (PM-556). */
     closedWhileOpen: {
-      withReason: 'Ez a kérdés közben lezárult: {reason}. A válaszod nem ment el.',
-      plain: 'Ez a kérdés közben lezárult. A válaszod nem ment el.',
+      leadWithReason: 'Ez a kérdés közben lezárult:',
+      leadPlain: 'Ez a kérdés közben lezárult.',
+      withReason: '{reason}. A válaszod nem ment el.',
+      plain: 'A válaszod nem ment el.',
       dismiss: 'Rendben',
     },
     /** The asker cannot start now, so the viewer's answer waits for the member (PM-556). */
@@ -3619,6 +3621,8 @@ export const hu = {
       answered: 'Megválaszolta',
       forwarded: 'Továbbadta',
       moot: 'Tárgytalan',
+      forwardedTo: '{name} kapta meg: {note}',
+      forwardedToPlain: '{name} kapta meg.',
       at: 'Operátornál',
       until: 'Legkésőbb {time}-kor hozzád kerül.',
     },

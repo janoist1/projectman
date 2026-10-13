@@ -391,6 +391,9 @@ export function InboxCard({
         <Heading className={styles.title}>{heading}</Heading>
         <div className={styles.goneBox} role="status">
           <p>
+            <strong>
+              {reason ? t('inbox.closedWhileOpen.leadWithReason') : t('inbox.closedWhileOpen.leadPlain')}
+            </strong>{' '}
             {reason ? t('inbox.closedWhileOpen.withReason', { reason }) : t('inbox.closedWhileOpen.plain')}
           </p>
           <div className={styles.actions}>
@@ -721,7 +724,13 @@ export function InboxCard({
           ) : null}
         </div>
       ) : (
-        <div className={clsx(styles.actions, item.kind === 'permission' && styles.actionsTop)}>
+        <div
+          className={clsx(
+            styles.actions,
+            item.kind === 'permission' && styles.actionsTop,
+            todo && styles.todoActions,
+          )}
+        >
           {answering && !todo ? (
             <Button variant="primary" size={buttonSize} onClick={submitAnswer} disabled={answerBlocked}>
               {t('inbox.answerSubmit')}

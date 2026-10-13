@@ -98,8 +98,8 @@
 
 /* The answer waits for the member to start. */
 .recentWait {
-  background: var(--c-accent-bg);
-  color: var(--c-accent);
+  background: var(--c-needs-bg);
+  color: var(--c-needs-text);
 }
 
 .groupHeading {

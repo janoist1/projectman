@@ -4,7 +4,6 @@ import type { InboxItem } from '@projectman/shared';
 import { useScreenedQuestions } from '../../api/queries';
 import { Button } from '../../components/Button';
 import { Chip } from '../../components/Chip';
-import { Icon } from '../../components/Icon';
 import { t } from '../../i18n/t';
 import { decisionSubject, operatorTrailMark, operatorTrailNote } from '../../lib/inbox';
 import { nameOf } from '../../lib/members';
@@ -30,12 +29,9 @@ function TrailRow({
   taskHref: string | null;
 }) {
   const mark = operatorTrailMark(item);
-  const note = operatorTrailNote(item);
+  const note = operatorTrailNote(item, members, myHandle);
   return (
     <li className={styles.item}>
-      <span className={styles.icon} aria-hidden="true">
-        <Icon name="minus" size={12} strokeWidth={3} />
-      </span>
       <span className={styles.text}>
         <span className={styles.line}>
           <Chip tone={mark === 'at' ? 'accent' : 'neutral'} size="sm">

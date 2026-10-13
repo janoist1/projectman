@@ -42,18 +42,6 @@
   border-top: 0;
 }
 
-.icon {
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--c-muted);
-  color: var(--c-ink-4);
-}
-
 .text {
   display: flex;
   flex-direction: column;

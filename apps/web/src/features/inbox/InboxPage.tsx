@@ -251,13 +251,33 @@ export function InboxPage() {
     shownOpen.current = new Set(mine.map((item) => item.id));
   }, [items, mine, myHandle]);
   const dismissGone = (id: string) => {
+    // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
+    // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
+    const notice = document.getElementById(inboxItemDomId(id));
+    const titles = Array.from(document.querySelectorAll<HTMLElement>('[data-inbox-title]')).filter(
+      (title) => !notice?.contains(title),
+    );
+    const next = titles.find(
+      (title) => notice && notice.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const previous = titles.findLast(
+      (title) => notice && notice.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    const hadFocus =
+      !document.activeElement ||
+      document.activeElement === document.body ||
+      notice?.contains(document.activeElement);
     setLingering((current) => {
-      const next = new Map(current);
-      next.delete(id);
-      return next;
+      const nextMap = new Map(current);
+      nextMap.delete(id);
+      return nextMap;
     });
-    // The focus goes on to the first card, so it does not fall to the page.
-    window.requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-inbox-title]')?.focus());
+    // The cards may be built again when the groups go (the heading element is a new one): look it up by its card.
+    const targetId = (next ?? previous)?.closest('article')?.id;
+    if (hadFocus && targetId)
+      window.requestAnimationFrame(() =>
+        document.getElementById(targetId)?.querySelector<HTMLElement>('[data-inbox-title]')?.focus(),
+      );
   };
 
   // A card's drawer opens over the page (the nested route) and closes back here (PM-501).

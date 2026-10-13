@@ -91,9 +91,9 @@ describe('the screened question helpers (PM-561)', () => {
     asked({ screening: { until: '2026-09-30T10:10:00.000Z', ...screening } }, overrides);
   const todoItem = screened({ outcome: 'todo', todo: { what: 'Run it', where: ' ', expected: 'No errors' } });
 
-  it('makes only an open todo a kind of its own', () => {
+  it('makes a todo a kind of its own, also after it closed', () => {
     expect(displayKindOf(todoItem)).toBe('todo');
-    expect(displayKindOf({ ...todoItem, state: 'resolved' })).toBe('question');
+    expect(displayKindOf({ ...todoItem, state: 'cancelled' })).toBe('todo');
     expect(displayKindOf(asked({}))).toBe('question');
     expect(todoRows(todoItem).map((row) => row.value)).toEqual(['Run it', 'No errors']);
   });
@@ -180,8 +180,23 @@ describe('the screened question helpers (PM-561)', () => {
     expect(operatorTrailMark(screened({ outcome: 'answered' }))).toBe('answered');
     expect(operatorTrailMark(screened({ outcome: 'forwarded' }))).toBe('forwarded');
     expect(operatorTrailMark(screened({ outcome: 'moot' }))).toBe('moot');
-    expect(operatorTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }))).toBe('Not needed.');
-    expect(operatorTrailNote(screened({ outcome: 'moot' }))).toBeNull();
+    const members = new Map();
+    expect(operatorTrailNote(screened({ outcome: 'moot', note: ' Not needed. ' }), members, 'owner')).toBe(
+      'Not needed.',
+    );
+    expect(operatorTrailNote(screened({ outcome: 'moot' }), members, 'owner')).toBeNull();
+  });
+
+  it('names who a forwarded question went to', () => {
+    const members = new Map();
+    const forwarded = (note?: string) =>
+      screened({ outcome: 'forwarded', forwardedTo: 'claude', ...(note ? { note } : {}) });
+    expect(operatorTrailNote(forwarded('Ez a vezetőre tartozik'), members, 'owner')).toBe(
+      t('inbox.operatorTrail.forwardedTo', { name: 'claude', note: 'Ez a vezetőre tartozik' }),
+    );
+    expect(operatorTrailNote(forwarded(), members, 'owner')).toBe(
+      t('inbox.operatorTrail.forwardedToPlain', { name: 'claude' }),
+    );
   });
 });
 

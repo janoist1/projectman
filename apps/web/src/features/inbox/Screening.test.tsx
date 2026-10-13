@@ -271,6 +271,29 @@ describe('a question that closes while it is open (PM-561)', () => {
     await waitFor(() => expect(cardsWith('inb_todo')).toHaveLength(0), { timeout: 2000 });
   });
 
+  it('moves the focus to the title of another card after "Rendben"', async () => {
+    const project = renderInbox([
+      todo(),
+      question('inb_other', { options: [{ id: 'yes', label: 'Igen', style: 'primary' }] }),
+    ]);
+    const card = (await screen.findByText('Kérdés inb_todo')).closest('article')!;
+    fireEvent.change(within(card).getByRole('textbox'), { target: { value: 'félig kész válasz' } });
+    act(() =>
+      applyServerEvent(project.client, {
+        type: 'inbox_upserted',
+        projectKey: 'AC',
+        item: closed(todo(), 'task_done'),
+      }),
+    );
+    const notice = (await screen.findByText(/A válaszod nem ment el/)).closest('[role="status"]')!;
+    fireEvent.click(
+      within(notice as HTMLElement).getByRole('button', { name: t('inbox.closedWhileOpen.dismiss') }),
+    );
+    await waitFor(() => expect(cardsWith('inb_todo')).toHaveLength(0), { timeout: 2000 });
+    await waitFor(() => expect(document.activeElement?.hasAttribute('data-inbox-title')).toBe(true));
+    expect(document.activeElement?.closest('article')?.textContent).toContain('Kérdés inb_other');
+  });
+
   it('disappears quietly when nothing was typed in it', async () => {
     const project = renderInbox([
       todo(),
@@ -370,6 +393,12 @@ describe('"Az Operátor intézte" (PM-561)', () => {
     expect(within(fold).getByText('A terv szerint igen')).toBeTruthy();
     expect(within(fold).getByText(t('inbox.operatorTrail.answered'))).toBeTruthy();
     expect(within(fold).getByText(t('inbox.operatorTrail.forwarded'))).toBeTruthy();
+    // A forwarded question says who got it.
+    expect(
+      within(fold).getByText(
+        t('inbox.operatorTrail.forwardedTo', { name: 'dev', note: 'Ez a fejlesztőre tartozik' }),
+      ),
+    ).toBeTruthy();
     expect(within(fold).getByText(t('inbox.operatorTrail.at'))).toBeTruthy();
     // The question the Operator still holds is not in the viewer's list.
     expect(screen.queryByRole('article', { name: /inb_t3/ })).toBeNull();

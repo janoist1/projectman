@@ -793,9 +793,9 @@ export function screeningOf(item: InboxItem): QuestionScreening | null {
   return item.kind === 'question' ? (questionPayloadOf(item)?.screening ?? null) : null;
 }
 
-/** A question the Operator made a todo of that still waits for the viewer: "Teendő", not "Kérdés" (PM-556). */
+/** A question the Operator made a todo of: "Teendő", not "Kérdés" (PM-556), also after it closed. */
 export function isTodo(item: InboxItem): boolean {
-  return item.kind === 'question' && item.state === 'open' && screeningOf(item)?.outcome === 'todo';
+  return item.kind === 'question' && screeningOf(item)?.outcome === 'todo';
 }
 
 /** The kind a card shows: a todo is its own kind. */
@@ -924,14 +924,26 @@ export function operatorTrailMark(item: InboxItem): OperatorTrailMark {
   return outcome === 'answered' || outcome === 'forwarded' ? outcome : 'moot';
 }
 
-/** The line under a trail row: the Operator's note, or for a question still with the Operator when it goes to the people. */
-export function operatorTrailNote(item: InboxItem): string | null {
+/**
+ * The line under a trail row: the Operator's note (for a forwarded question, who got it), or for a question
+ * still with the Operator when it goes to the people.
+ */
+export function operatorTrailNote(
+  item: InboxItem,
+  members: MemberIndex,
+  myHandle: string | null,
+): string | null {
   const screening = screeningOf(item);
   if (item.state === 'screening' && screening)
     return t('inbox.operatorTrail.until', { time: formatTime(screening.until) });
   const note = screening?.note?.trim();
-  if (note) return note;
-  return null;
+  if (screening?.outcome === 'forwarded' && screening.forwardedTo) {
+    const name = nameOf(screening.forwardedTo, members, myHandle);
+    return note
+      ? t('inbox.operatorTrail.forwardedTo', { name, note })
+      : t('inbox.operatorTrail.forwardedToPlain', { name });
+  }
+  return note || null;
 }
 
 export function isAssignedTo(item: InboxItem, handle: string | null): boolean {

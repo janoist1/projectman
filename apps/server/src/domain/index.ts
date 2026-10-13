@@ -1,3 +1,4 @@
+import { ToolCaller } from '../mcp/caller';
 import {
   canManageInstancePause,
   isOnLeave,
@@ -1023,7 +1024,18 @@ export function createDomain(opts: DomainOptions) {
     messageStarts,
     releases,
   });
+  const sessionEngine = (sessionId: string) => engines.get(sessions.engineOf(sessionId)) ?? undefined;
+  const toolCaller = new ToolCaller({
+    ctx,
+    projects,
+    tasks,
+    operatorRequests,
+    operatorSteps,
+    operatorSignals,
+    sessionEngine,
+  });
   const teamTools = new TeamToolsService({
+    calls: toolCaller,
     projectState,
     docWrites,
     decisionCandidates,
@@ -1061,7 +1073,7 @@ export function createDomain(opts: DomainOptions) {
     feedback,
     materializeAttachment: opts.engineAttachments?.materialize,
     // The files and the folder of a session are on its engine.
-    sessionEngine: (sessionId) => engines.get(sessions.engineOf(sessionId)) ?? undefined,
+    sessionEngine,
   });
   const agentQuestions = new AgentQuestions({
     ctx,

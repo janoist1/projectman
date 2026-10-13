@@ -1,3 +1,14 @@
+import {
+  ToolCaller,
+  toToolError,
+  toFileToolError,
+  refusalOf,
+  isOwner,
+  OWNER_ONLY,
+  type CallerWithRequest,
+  type SignalStep,
+  type GuestView,
+} from '../mcp/caller';
 import path from 'node:path';
 import {
   AttachmentId,
@@ -11,31 +22,24 @@ import {
   isOpenTask,
   isOperator,
   isTheme,
-  MAX_ATTACHMENT_BYTES,
   memberOf,
   MessageAttachmentId,
   messageRoute,
   needsRepoChoice,
-  OPERATOR_SIGNAL_STEP_GAP_MINUTES,
-  operatorSignalStepRefusal,
-  operatorWatchOf,
   QUESTION_SCREENING_MINUTES,
   questionChoices,
   questionApprovalLabel,
   questionPayloadOf,
   sessionWorkItemOf,
   TaskStatus as TaskStatusSchema,
-  TaskKey,
 } from '@projectman/shared';
 import type {
   Actor,
   Attachment,
-  ErrorCode,
   FeedbackMarkDetail,
   InboxOption,
   MemberView,
   OperatorAction,
-  OperatorStepStatus,
   ProjectConfig,
   QuestionAttachment,
   QuestionOptionInput,
@@ -55,7 +59,7 @@ import type {
   DecideBoundaryRequest,
 } from '@projectman/shared';
 import { taskWaitShort } from '../agent-text';
-import { PROVIDER_MCP_IMAGE_RESULTS, TeamToolError, WorkspaceFileRefusal } from '../contracts';
+import { PROVIDER_MCP_IMAGE_RESULTS, TeamToolError } from '../contracts';
 import type {
   AttachmentOperations,
   AttachmentPage,
@@ -82,16 +86,13 @@ import type {
   TeamToolsHandler,
   ToolContext,
 } from '../contracts';
-import { isWithin } from './command-paths';
 import type { DomainContext } from './context';
-import { isoNow } from './context';
 import type { BoundaryService } from './boundary';
 import { QUESTION_LIMIT } from './card-questions';
 import type { CardQuestions } from './card-questions';
 import { DomainError } from './errors';
 import { engineIdOf } from './engines';
 import type { FeedbackService } from './feedback';
-import type { ApprovalRequirement, UnmetCondition } from '@projectman/shared';
 import type { FixLimitDecision, FixLimitWatch } from './fix-limit';
 import type { HandoffService } from './handoffs';
 import type { GithubSync } from './github-sync';
@@ -101,13 +102,6 @@ import type { MemberService } from './members';
 import type { Messaging } from './messaging';
 import { recipientHasCardRole } from './messaging';
 import type { OpenQuestionLabel } from './open-question-label';
-import {
-  OPERATOR_GUEST_TOOLS,
-  OPERATOR_NEVER_TOOLS,
-  OPERATOR_READ_TOOLS,
-  OPERATOR_SCREENING_TOOLS,
-  OPERATOR_TOOL_ACTIONS,
-} from './operator-requests';
 import type { OperatorRequests, OperatorSteps } from './operator-requests';
 import { canSeeTask, clientCanSeeTimelineEvent, visibleTaskDetail, visibleTimelineEvent } from './visibility';
 import { sessionFileName } from './message-attachments';
@@ -139,29 +133,6 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ATTACHMENTS_IN_TASK = 20;
 const MAX_ATTACHMENT_PAGE = 200;
 
-/** Explains a blocked stage move to the agent in plain English. */
-function describeGateBlock(err: DomainError): string {
-  const details = (err.details ?? {}) as { unmet?: UnmetCondition[]; approvals?: ApprovalRequirement[] };
-  const reasons = (details.unmet ?? []).map((u) => {
-    if (u.condition.type !== 'has_label')
-      return `the label "${u.condition.label}" is on the task and holds it back (stage "${u.stageId}")`;
-    const setters = u.setters?.length ? `; only ${u.setters.join(' or ')} may set it` : '';
-    return `the label "${u.condition.label}" is missing (required to enter stage "${u.stageId}"${setters})`;
-  });
-  if (reasons.length === 0 && details.approvals?.length) {
-    reasons.push(
-      ...details.approvals.map(
-        (a) =>
-          `stage "${a.stageId}" needs a human approval (label "${a.label}", from ${a.approvers.join(' or ')})`,
-      ),
-    );
-  }
-  return reasons.length > 0
-    ? `The stage move is blocked: ${reasons.join('; ')}. Nothing from this call was recorded; ` +
-        'send the labels and the note again, without stage_id or once the gate is met.'
-    : err.message;
-}
-
 /** The send_message refusals of the messaging module, in the words the agent reads. */
 function toMessageToolError(err: unknown): unknown {
   if (!(err instanceof DomainError)) return err;
@@ -190,45 +161,6 @@ function toAttachmentToolError(err: unknown, taskKey: string, id: string): unkno
       `${taskKey} has no attachment ${id} (or it is being deleted); list them with list_attachments.`,
     );
   return err;
-}
-
-/** attach_file refusals: the file's own (path, kind, size, change), and the size limit hit while reading. */
-function toFileToolError(err: unknown, requested: string, done: 'attached' | 'sent' = 'attached'): unknown {
-  if (err instanceof WorkspaceFileRefusal)
-    return new TeamToolError(
-      err.reason === 'outside' ? 'forbidden' : 'invalid',
-      // The refusal may not name the file; with several files the caller must know which one.
-      `${err.message.includes(requested) ? '' : `${requested}: `}${err.message} Nothing was ${done}.`,
-    );
-  if (err instanceof DomainError && err.code === 'attachment_too_large')
-    return new TeamToolError(
-      'invalid',
-      `${requested} grew past ${MAX_ATTACHMENT_BYTES} bytes while it was read; nothing was ${done}.`,
-    );
-  return err;
-}
-
-/** A refused call as the step log keeps it: the named error code, or the nearest one of the tool error. */
-function refusalOf(err: unknown): { code: ErrorCode; message: string } {
-  if (err instanceof DomainError) return { code: err.code, message: err.message };
-  if (err instanceof TeamToolError) {
-    const named = /^([a-z_]+):/.exec(err.message)?.[1];
-    if (named && (ERROR_CODES as readonly string[]).includes(named))
-      return { code: named as ErrorCode, message: err.message };
-    const byTool = {
-      not_found: 'not_found',
-      forbidden: 'unauthorized',
-      invalid: 'invalid_request',
-      gate_blocked: 'gate_blocked',
-    } as const;
-    return { code: byTool[err.code], message: err.message };
-  }
-  return { code: 'internal_error', message: err instanceof Error ? err.message : String(err) };
-}
-
-/** The owners of the project: the people the Operator may report and ask. */
-function isOwner(config: ProjectConfig, handle: string): boolean {
-  return ownerHandles(config).includes(handle);
 }
 
 /** The most lines read_project_doc returns in one call. */
@@ -267,45 +199,7 @@ function feedbackResult(mark: Pick<FeedbackMarkDetail, 'id' | 'status' | 'outcom
   return { markId: mark.id, status: mark.status, outcome: mark.outcome };
 }
 
-function toToolError(err: unknown): unknown {
-  if (err instanceof TeamToolError || !(err instanceof DomainError)) return err;
-  if (err.code === 'operator_signal_closed')
-    return new TeamToolError('invalid', `${err.code}: ${err.message}`);
-  if (err.code === 'not_found') return new TeamToolError('not_found', err.message);
-  if (err.status === 403) return new TeamToolError('forbidden', err.message);
-  if (err.code === 'gate_blocked' || err.code === 'approval_requested') {
-    return new TeamToolError('gate_blocked', describeGateBlock(err));
-  }
-  return new TeamToolError('invalid', err.message);
-}
-
 /** A tool's caller and, for the Operator, the owner request the call runs for (null for any other caller). */
-interface CallerWithRequest {
-  config: ProjectConfig;
-  request: ReturnType<OperatorRequests['openFor']>;
-  /** The person the Operator talks with when they are not an owner: it reads what they see and answers them (PM-475). */
-  guest: GuestView | null;
-  /** The system signal the call acts on (PM-545); with no owner request, `request` is the signal round. */
-  signalId?: string;
-  /** The call holds its signal's step slot (`signalStepsRunning`) until `recorded` logs the step. */
-  holdsSignalStep?: boolean;
-}
-
-/** The Operator's own step on a system signal, as the guard sees it (PM-545). */
-interface SignalStep {
-  signalId: string;
-  tool: 'start_task' | 'start_member';
-  member: string | null;
-  taskKey: string | null;
-}
-
-interface GuestView {
-  handle: string;
-  viewer: Viewer;
-}
-
-const OWNER_ONLY = 'operator_owner_only';
-
 /** What the feedback tools use of the feedback service. */
 type FeedbackTools = Pick<
   FeedbackService,
@@ -325,6 +219,7 @@ type FeedbackTools = Pick<
  * to the calling AI member.
  */
 export class TeamToolsService implements TeamToolsHandler {
+  private readonly calls: ToolCaller;
   private readonly projectState: ProjectState;
   private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
   private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
@@ -429,7 +324,6 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly operatorRequests: Pick<OperatorRequests, 'openFor' | 'roundFor' | 'openRound'>;
   private readonly operatorSteps: Pick<OperatorSteps, 'record' | 'ofSignal'>;
   /** Signals with an own step of the Operator running now (PM-545); one at a time, whatever the budget left. */
-  private readonly signalStepsRunning = new Set<string>();
   private readonly operatorActions: OperatorActions;
   private readonly operatorSignals: OperatorSignals;
   private readonly questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
@@ -471,6 +365,7 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 
   constructor(deps: {
+    calls: ToolCaller;
     projectState: ProjectState;
     boundary: BoundaryService;
     ctx: DomainContext;
@@ -539,6 +434,7 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The owners' answers that may be decisions (PM-496). */
     decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {
+    this.calls = deps.calls;
     this.projectState = deps.projectState;
     this.docWrites = deps.docWrites;
     this.decisionCandidates = deps.decisionCandidates;
@@ -723,10 +619,7 @@ export class TeamToolsService implements TeamToolsHandler {
    * for them (PM-475). Without a guest (any other caller) it is `validTaskKey`.
    */
   private visibleTaskKey(ctx: ToolContext, guest: GuestView | null, taskKey: string): string {
-    const key = this.validTaskKey(ctx, taskKey);
-    if (guest && !canSeeTask(guest.viewer, this.tasks.get(ctx.projectKey, key)))
-      throw new TeamToolError('not_found', `Task ${key} does not exist in this project.`);
-    return key;
+    return this.calls.visibleTaskKey(ctx, guest, taskKey);
   }
 
   async listTasks(ctx: ToolContext, args: ListTasksInput): Promise<TaskSummary[]> {
@@ -1195,30 +1088,7 @@ export class TeamToolsService implements TeamToolsHandler {
     requested: string,
     done: 'attached' | 'sent',
   ): Promise<WorkspaceFile> {
-    const session = this.callerSession(ctx);
-    const engine = this.sessionEngine?.(session.id);
-    if (!engine) throw new TeamToolError('invalid', 'The engine your session runs on is not connected.');
-    const recorded = engine.sessionFolders?.of(session.id);
-    const folder = recorded && (await engine.isRealDirectory(recorded)) ? recorded : null;
-    const inFolder =
-      folder !== null && path.isAbsolute(requested) && isWithin(folder, path.resolve(requested));
-    const place = inFolder
-      ? { name: 'your session folder' }
-      : {
-          name: 'your working directory',
-          ...(folder ? { other: { name: 'your session folder', path: folder } } : {}),
-        };
-    return engine
-      .openWorkspaceFile(inFolder ? folder : session.cwd, requested, {
-        maxBytes: MAX_ATTACHMENT_BYTES,
-        place,
-        // The sandbox lets the session empty and replace its own folder, so it must be its own real path.
-        exactRoot: inFolder,
-        sessionId: session.id,
-      })
-      .catch((err: unknown) => {
-        throw toFileToolError(err, requested, done);
-      });
+    return this.calls.openSessionFile(ctx, requested, done);
   }
 
   /**
@@ -1986,7 +1856,7 @@ export class TeamToolsService implements TeamToolsHandler {
    * decisions; `tool` is the MCP name of the tool being called.
    */
   private async caller(ctx: ToolContext, tool: string): Promise<ProjectConfig> {
-    return (await this.callerWithRequest(ctx, tool)).config;
+    return this.calls.caller(ctx, tool);
   }
 
   async operate(ctx: ToolContext, args: { title: string; operation: OperatorOperation }) {
@@ -2302,163 +2172,12 @@ export class TeamToolsService implements TeamToolsHandler {
     signal?: { ids: string[]; to: string[] },
     signalStep?: SignalStep,
   ): Promise<CallerWithRequest> {
-    const config = await this.projects.config(ctx.projectKey);
-    const member = memberOf(config, ctx.member);
-    if (member?.kind !== 'ai')
-      throw new TeamToolError(
-        'forbidden',
-        `${ctx.member} is not an active AI member of this team, so the team tools are not available.`,
-      );
-    const operator = isOperator(member);
-    const request = operator ? this.operatorRequests.openFor(ctx.sessionId) : null;
-    const guest = operator ? this.guestOf(ctx, config, request) : null;
-    if (signal) {
-      // Signals are the owners' business: never from a guest conversation, never to anyone else.
-      if (
-        tool !== 'send_message' ||
-        !operator ||
-        guest ||
-        signal.ids.length === 0 ||
-        signal.to.some((handle) => !isOwner(config, handle))
-      )
-        throw new TeamToolError(
-          'invalid',
-          'invalid_request: only the Operator may present signals to owners.',
-        );
-      for (const id of signal.ids) this.operatorSignals.presentation(ctx.projectKey, id);
-    }
-    if (!operator) return { config, request: null, guest: null };
-    if (guest) {
-      // A conversation with someone who is not an owner only reads and answers (PM-475).
-      if (!OPERATOR_GUEST_TOOLS.has(tool)) {
-        this.recordRefusedWrite({ config, request, guest }, tool);
-        throw new TeamToolError(
-          'forbidden',
-          `${OWNER_ONLY}: ${tool} is not for a conversation with ${guest.handle}.`,
-        );
-      }
-      return { config, request, guest };
-    }
-    if (OPERATOR_NEVER_TOOLS.has(tool))
-      throw new TeamToolError(
-        'forbidden',
-        `operator_never: ${tool} is not for the Operator. Decisions of other members, hand-overs and publishing outside are not its to do; tell the owner what you found.`,
-      );
-    if (signalStep && request) {
-      // An open owner request authorizes the call; the signal is only logged with the step.
-      if (this.ctx.repos.operatorSignals.get(signalStep.signalId)?.projectKey !== ctx.projectKey)
-        throw new TeamToolError('invalid', 'invalid_request: unknown signal in this project.');
-      return { config, request, guest: null, signalId: signalStep.signalId };
-    }
-    // Screening an AI member's question is the Operator's standing duty: no owner request, no step.
-    if (OPERATOR_SCREENING_TOOLS.has(tool)) return { config, request, guest: null };
-    if (!request && !OPERATOR_READ_TOOLS.has(tool) && !signal) {
-      if (signalStep) return this.signalStepCaller(ctx, config, signalStep);
-      throw new TeamToolError(
-        'forbidden',
-        `operator_no_request: ${tool} writes, and the Operator writes only for an open request of an owner. ` +
-          "There is none (its round is over or it timed out); wait for the owner's next message.",
-      );
-    }
-    return { config, request, guest: null };
-  }
-
-  /**
-   * The Operator's own step on a system signal without an owner's request (PM-545): the project's level,
-   * the signal's targets and the signal's budget of steps decide; a refusal is no step. The step then hangs
-   * on the session's signal round.
-   */
-  private async signalStepCaller(
-    ctx: ToolContext,
-    config: ProjectConfig,
-    step: SignalStep,
-  ): Promise<CallerWithRequest> {
-    const level = operatorWatchOf(config);
-    const refuse: (code: string, text: string) => never = (code, text) => {
-      throw new TeamToolError('forbidden', `${code}: ${text}`);
-    };
-    const noRequest = `${step.tool} writes, and the Operator writes only for an open request of an owner`;
-    if (level === 'report')
-      refuse('operator_no_request', `${noRequest}; this project lets it only report signals.`);
-    const { signal, allowed } = await this.operatorSignals
-      .stepTargets(ctx.projectKey, step.signalId)
-      .catch((err: unknown) => {
-        if (err instanceof DomainError) throw new TeamToolError('invalid', `${err.code}: ${err.message}`);
-        throw err;
-      });
-    const refusal = operatorSignalStepRefusal({
-      level,
-      kind: signal.kind,
-      tool: step.tool,
-      target: { member: step.member, taskKey: step.taskKey },
-      allowed,
-      stepsAt: this.operatorSteps
-        .ofSignal(signal.id)
-        .filter((s) => s.status !== 'refused')
-        .map((s) => s.at),
-      now: isoNow(this.ctx),
-    });
-    if (refusal?.code === 'operator_no_request')
-      refuse(
-        'operator_no_request',
-        `${noRequest}. At level ${level} a ${signal.kind} signal does not allow this call (${refusal.reason}).`,
-      );
-    if (refusal)
-      refuse(
-        'operator_signal_budget',
-        refusal.reason === 'used'
-          ? 'this signal has no step left; tell the owner what you did and what became of it.'
-          : `the last step on this signal was less than ${OPERATOR_SIGNAL_STEP_GAP_MINUTES} minutes ago; retry after ${refusal.retryAt}.`,
-      );
-    // The budget counts logged steps, and a step is logged only after it ran: a call that arrives while
-    // another step on this signal is running would pass the count too. No await between the count and here.
-    if (this.signalStepsRunning.has(signal.id))
-      refuse(
-        'operator_signal_budget',
-        'a step on this signal is still running; wait for its result before you take another.',
-      );
-    this.signalStepsRunning.add(signal.id);
-    return {
-      config,
-      request: this.operatorRequests.openRound(ctx.projectKey, ctx.sessionId),
-      guest: null,
-      signalId: signal.id,
-      holdsSignalStep: true,
-    };
-  }
-
-  /**
-   * The person the Operator's session talks with when they are not an owner (a `with` conversation, or a
-   * request of someone who is no owner), as their view of the project; null in the owner's conversation.
-   */
-  private guestOf(
-    ctx: ToolContext,
-    config: ProjectConfig,
-    request: ReturnType<OperatorRequests['openFor']>,
-  ): GuestView | null {
-    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
-    const handle =
-      (workItem?.type === 'general' ? workItem.with : undefined) ??
-      (request && !isOwner(config, request.fromHandle) ? request.fromHandle : undefined);
-    if (handle === undefined) return null;
-    const person = memberOf(config, handle);
-    // Someone no longer in the team sees nothing: the narrowest access there is.
-    const access = person?.kind === 'human' ? person.access : 'client';
-    return { handle, viewer: { access, handle } };
+    return this.calls.callerWithRequest(ctx, tool, signal, signalStep);
   }
 
   /** Logs a write the Operator was refused in a guest's conversation as a refused step of its request. */
   private recordRefusedWrite(who: CallerWithRequest, tool: string, member?: string): void {
-    const action = OPERATOR_TOOL_ACTIONS[tool];
-    if (!action || !who.request) return;
-    this.operatorSteps.record({
-      requestId: who.request.id,
-      action,
-      taskKey: null,
-      member: member && memberOf(who.config, member) ? member : null,
-      status: 'refused',
-      refusal: { code: 'operator_owner_only', message: `${tool} is for the project owner's request` },
-    });
+    return this.calls.recordRefusedWrite(who, tool, member);
   }
 
   /**
@@ -2466,7 +2185,7 @@ export class TeamToolsService implements TeamToolsHandler {
    * Any other caller (`request` null), and a call that is no step (`step` null), just runs.
    */
   private async recorded<T>(
-    { config, request, signalId, holdsSignalStep }: CallerWithRequest,
+    who: CallerWithRequest,
     step: {
       action: OperatorAction;
       taskKey?: string | null;
@@ -2479,51 +2198,12 @@ export class TeamToolsService implements TeamToolsHandler {
     /** A refusal that is no refusal: the change waits for a human's approval. */
     awaitsApproval?: (err: unknown) => boolean,
   ): Promise<T> {
-    try {
-      if (!step || !request) return await run();
-      const target = {
-        action: step.action,
-        taskKey: step.taskKey && TaskKey.safeParse(step.taskKey).success ? step.taskKey : null,
-        member: step.member && memberOf(config, step.member) ? step.member : null,
-        ...(signalId ? { signalId } : {}),
-      };
-      let result: T;
-      try {
-        result = await run();
-      } catch (err) {
-        this.operatorSteps.record(
-          awaitsApproval?.(err)
-            ? { requestId: request.id, ...target, status: 'awaiting_approval' }
-            : { requestId: request.id, ...target, status: 'refused', refusal: refusalOf(err) },
-        );
-        throw err;
-      }
-      this.operatorSteps.record({
-        requestId: request.id,
-        ...target,
-        ...(step.madeTask ? { taskKey: step.madeTask(result) } : {}),
-        ...(step.madeMember ? { member: step.madeMember(result) } : {}),
-        status: 'done',
-      });
-      // An own step on a signal: the signal is shown to the Operator again if its case still stands later (PM-545).
-      if (signalId && request.source === 'signal') this.operatorSignals.stepTaken(signalId);
-      return result;
-    } finally {
-      // The step is logged now (or the call failed): the signal's slot is free, the budget counts it.
-      if (holdsSignalStep && signalId) this.signalStepsRunning.delete(signalId);
-    }
+    return this.calls.recorded(who, step, run, awaitsApproval);
   }
 
   /** A task key of the caller's project. */
   private validTaskKey(ctx: ToolContext, taskKey: string): string {
-    if (!TaskKey.safeParse(taskKey).success)
-      throw new TeamToolError(
-        'invalid',
-        `Invalid task key "${taskKey}"; task keys look like "${ctx.projectKey}-12".`,
-      );
-    if (!this.tasks.find(ctx.projectKey, taskKey))
-      throw new TeamToolError('not_found', `Task ${taskKey} does not exist in this project.`);
-    return taskKey;
+    return this.calls.validTaskKey(ctx, taskKey);
   }
 
   private validAttachmentId(id: string): string {
@@ -2541,13 +2221,7 @@ export class TeamToolsService implements TeamToolsHandler {
    * this project.
    */
   private callerSession(ctx: ToolContext): Session {
-    const session = this.ctx.repos.sessions.get(ctx.sessionId);
-    if (!session || session.projectKey !== ctx.projectKey || session.member !== ctx.member)
-      throw new TeamToolError(
-        'forbidden',
-        'Your session is not known to the server, so no file can be attached.',
-      );
-    return session;
+    return this.calls.callerSession(ctx);
   }
 
   /** The explicit task key, else the session's task, else null. */
@@ -2584,10 +2258,6 @@ export class TeamToolsService implements TeamToolsHandler {
   }
 
   private async guard<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      return await fn();
-    } catch (err) {
-      throw toToolError(err);
-    }
+    return this.calls.guard(fn);
   }
 }

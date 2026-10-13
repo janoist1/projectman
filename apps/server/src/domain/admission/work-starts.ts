@@ -1,10 +1,10 @@
 import { evaluateStart, stageOf } from '@projectman/shared';
-import type { Task } from '@projectman/shared';
+import type { StagePull, Task } from '@projectman/shared';
 import { DomainError } from '../errors';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../tasks';
-import { SYSTEM_AUTHOR } from '../util';
+import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 import type { LabelWait, LabelWaitRequest, SeniorWait, SeniorWaitRequest, TaskStarts } from './task-starts';
@@ -128,6 +128,64 @@ export class WorkStarts implements LabelWait, SeniorWait {
       seniors: wait.seniors,
       ...(wait.waitDecidedBy ? { waitDecidedBy: wait.waitDecidedBy } : {}),
     });
+  }
+
+  /**
+   * PM-427: pulls the card from the stage before development into `to`, to `developer`, in the system's
+   * name, and starts the developer's session. Alone among admission decisions (`exclusive`); the card is
+   * checked again there, so a Start button or a move that took it first wins and nothing happens (false).
+   * A refusal before the assignment propagates (nothing was changed). When the start fails after it (the
+   * card is in `to`, with the developer), the work start carries on after the lock is released, as for a
+   * card moved into the stage: it runs now and waits in the store when admission refuses. True: the card
+   * was pulled.
+   */
+  async pull(input: {
+    projectKey: string;
+    taskKey: string;
+    from: string;
+    to: string;
+    developer: string;
+    pulled: StagePull;
+  }): Promise<boolean> {
+    const { projectKey, taskKey, from, to, developer, pulled } = input;
+    let assigned = false;
+    const done = await this.admission.exclusive(async () => {
+      try {
+        return await this.starts.startLocked(projectKey, taskKey, {
+          actor: SYSTEM_ACTOR,
+          author: SYSTEM_AUTHOR,
+          automatic: true,
+          assignee: developer,
+          pulled,
+          stillWanted: (t) => t.status === 'active' && t.stageId === from && t.assignee === null,
+          onAssigned: () => {
+            assigned = true;
+          },
+        });
+      } catch (err) {
+        const task = this.tasks.find(projectKey, taskKey);
+        if (assigned && task?.status === 'active' && task.stageId === to && task.assignee === developer)
+          return null;
+        throw err;
+      }
+    });
+    if (done) {
+      // The card is started: an automatic start of it that waited has nothing left to do.
+      this.admission.discardStale(done.task);
+      return assigned;
+    }
+    await this.attempt(
+      this.startFor({
+        kind: 'work_start',
+        projectKey,
+        taskKey,
+        from,
+        to,
+        actor: SYSTEM_ACTOR,
+        assignee: developer,
+      }),
+    );
+    return true;
   }
 
   /** A start deferred when the server stopped, made again from what was stored; null when its task is gone. */

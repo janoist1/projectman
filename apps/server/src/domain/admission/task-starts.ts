@@ -24,6 +24,7 @@ import type {
   ProjectConfig,
   Session,
   Stage,
+  StagePull,
   Task,
 } from '@projectman/shared';
 import { ownerHandles } from '../access';
@@ -79,6 +80,8 @@ export interface StartTaskOptions {
    * start waits for. A person's Start of such a card is answered with the waiting card instead.
    */
   automatic?: boolean;
+  /** Why the system pulls the card into the work stage ahead of its turn (PM-427): recorded on the stage change. */
+  pulled?: StagePull;
 }
 
 export interface StartTaskResult {
@@ -281,7 +284,13 @@ export class TaskStarts {
       opts.onAssigned?.(member.handle);
     }
     if (needsMove) {
-      const result = await this.tasks.moveToStage(projectKey, taskKey, workStage.id, opts.actor);
+      const result = await this.tasks.moveToStage(
+        projectKey,
+        taskKey,
+        workStage.id,
+        opts.actor,
+        opts.pulled ? { pulled: opts.pulled } : {},
+      );
       if (!result.moved) throw approvalRequestedError(result.pendingApproval);
     }
     let session: Session | null = null;

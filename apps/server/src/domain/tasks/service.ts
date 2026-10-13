@@ -661,6 +661,10 @@ export class TaskService {
               : {}),
           },
         });
+      if (patch.priority !== undefined) {
+        const prioritized = next;
+        effects.push(() => this.ctx.events.emit('task_priority_changed', { task: prioritized, actor }));
+      }
       if (patch.description !== undefined)
         effects.push(() => this.ctx.events.emit('task_description_changed', { task: next, actor }));
       if (level) this.recordDeveloperLevel(next, level, actor, sessionId, effects);
@@ -914,7 +918,7 @@ export class TaskService {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed'>,
+    opts?: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'pulled'>,
   ): Promise<MoveResult> {
     return this.moves.moveToStage(projectKey, taskKey, stageId, actor, opts);
   }

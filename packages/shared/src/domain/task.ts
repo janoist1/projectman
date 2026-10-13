@@ -18,7 +18,7 @@ export type TaskKey = z.infer<typeof TaskKey>;
 export const TaskStatus = z.enum(['active', 'waiting', 'blocked', 'done', 'cancelled']);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
-/** Informational only: priority never changes ordering or starts work. */
+/** Urgent starts first and is pulled into development (PM-427); the other levels only inform. */
 export const TaskPriority = z.enum(['urgent', 'high', 'normal', 'low']);
 export type TaskPriority = z.infer<typeof TaskPriority>;
 export const TASK_PRIORITIES: readonly TaskPriority[] = TaskPriority.options;

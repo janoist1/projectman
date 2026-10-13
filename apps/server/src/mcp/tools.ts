@@ -268,7 +268,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     name: 'get_project_state',
     title: 'Read project state',
     description:
-      "Operator only, in the owners' conversation or a system-signal turn; unavailable in guest conversations. Read why a card is waiting, or the project overview: stages, live and idle sessions, waiting starts, pauses and open owner inbox items. This read needs no open owner request. Explain the result to the owner in the project language.",
+      "Operator only, in the owners' conversation or a system-signal turn; unavailable in guest conversations. The source of every fact the Operator states about the running system: the running version and release, why a card is waiting, what became of a start or a message, or the project overview (stages, live and idle sessions, waiting starts, pauses and open owner inbox items). This read needs no open owner request. Explain the result to the owner in the project language.",
     readOnly: true,
     input: {
       task_key: TaskKey.optional().describe(
@@ -568,7 +568,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'Send a message to teammates (humans or AI members). AI members receive it in their session for ' +
       'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
       'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
-      "message. Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
+      'message. The Operator starts work with start_task or start_member and uses this for information and replies. ' +
+      "Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
     input: {
       to: z
         .array(MemberHandle)

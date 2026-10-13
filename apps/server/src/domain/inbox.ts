@@ -13,7 +13,10 @@ import {
   permissionDelegationOf,
   permissionDelegationState,
   PENDING_INBOX_STATES,
+  questionPayloadOf,
   routePermissionRequest,
+  TODO_CANNOT_OPTION,
+  TODO_DONE_OPTION,
   withQuestionAttachmentGone,
 } from '@projectman/shared';
 import type {
@@ -27,7 +30,10 @@ import type {
   InboxState,
   ProjectConfig,
   QuestionCloseRule,
+  QuestionScreening,
+  QuestionTodo,
   ResolveInboxRequest,
+  ScreenedQuestionsResponse,
   Session,
   TimelineEventData,
   TaskStartWaiting,
@@ -51,6 +57,9 @@ import type { MessageStarts } from './admission';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from './session-policy';
 import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
+
+/** How many screened questions the screened-questions list returns (PM-558). */
+const SCREENED_QUESTIONS_LIMIT = 20;
 
 /** Built-in option ids; the web app translates them (labels repeat the id). */
 const GUEST_CONVERSATION_REFUSAL =
@@ -88,6 +97,40 @@ export interface CreateInboxItemInput {
   body?: string | null;
   payload: Record<string, unknown>;
   options: InboxOption[];
+  /** `screening`: the Operator looks at an AI member's question first and no person sees it yet (PM-556). */
+  state?: 'open' | 'screening';
+}
+
+/** What the Operator settled about a question it screens, with no person involved (PM-558). */
+export interface ScreeningSettlement {
+  outcome: 'answered' | 'forwarded' | 'moot';
+  by: string;
+  /** The reason; the owner and the timeline see it. */
+  note: string;
+  /** Outcome `answered`: the answer the asking member gets. */
+  answer?: string;
+  /** Outcome `forwarded`: the member the question went to. */
+  forwardedTo?: string;
+}
+
+/** What the Operator decided to send on to the people, or why the system did (PM-558). */
+export interface ScreeningRelease {
+  /** The Operator's outcome; none when the system released the question (`fallback`). */
+  outcome?: 'decision' | 'todo';
+  by?: string;
+  note?: string;
+  todo?: QuestionTodo;
+  fallback?: 'timeout' | 'unavailable';
+}
+
+/** `payload` with the screening record changed by `patch`; the record starts at `at` when it had none. */
+function withScreening(
+  payload: Record<string, unknown>,
+  patch: Partial<QuestionScreening>,
+  at: string,
+): Record<string, unknown> {
+  const current = (payload.screening ?? {}) as Partial<QuestionScreening>;
+  return { ...payload, screening: { until: at, ...current, ...patch } };
 }
 
 export interface Resolver {
@@ -291,7 +334,7 @@ export class InboxService {
       body: input.body ?? null,
       payload: input.payload,
       options: input.options,
-      state: 'open',
+      state: input.state ?? 'open',
       resolution: null,
       createdAt: isoNow(this.ctx),
     };
@@ -337,6 +380,31 @@ export class InboxService {
     } = {},
   ) {
     return this.ctx.repos.inbox.list(projectKey, filter);
+  }
+
+  /**
+   * The questions the Operator screens or settled without a person (PM-558): in screening now, or answered,
+   * forwarded or found moot. Newest first by the Operator's decision (else the asking time), at most
+   * `SCREENED_QUESTIONS_LIMIT`; `today` counts all of them asked at or after `since`.
+   */
+  screenedQuestions(projectKey: string, since: string): ScreenedQuestionsResponse {
+    const screened = this.ctx.repos.inbox
+      .list(projectKey, { kind: 'question', limit: 100_000 })
+      .map((item) => ({ item, screening: questionPayloadOf(item)?.screening }))
+      .filter(
+        ({ item, screening }) =>
+          screening &&
+          (item.state === 'screening' ||
+            screening.outcome === 'answered' ||
+            screening.outcome === 'forwarded' ||
+            screening.outcome === 'moot'),
+      )
+      .map(({ item, screening }) => ({ item, at: screening?.at ?? item.createdAt }));
+    screened.sort((a, b) => b.at.localeCompare(a.at));
+    return {
+      items: screened.slice(0, SCREENED_QUESTIONS_LIMIT).map(({ item }) => item),
+      today: screened.filter(({ item }) => item.createdAt >= since).length,
+    };
   }
 
   /** The decision items of one gate request of a task, oldest first. */
@@ -418,6 +486,8 @@ export class InboxService {
     ) {
       throw invalid('answer_required', 'a free-text answer needs a note');
     }
+    if (item.kind === 'question' && req.optionId === TODO_CANNOT_OPTION.id && !note)
+      throw invalid('todo_reason_required', 'say why the task cannot be done');
     if (item.kind === 'merge_request') {
       if (!this.mergeStart) throw conflict('inbox_item_closed', 'the merge request is no longer available');
       await this.mergeStart(item, by);
@@ -672,20 +742,39 @@ export class InboxService {
    */
   closeQuestion(
     id: string,
-    close: { rule: QuestionCloseRule; by: string; note: string | null },
+    close: {
+      rule: QuestionCloseRule;
+      by: string;
+      note: string | null;
+      /** The Operator found the question moot (PM-558): the screening record keeps the outcome too. */
+      screened?: ScreeningSettlement;
+    },
   ): Promise<InboxItem | null> {
     return this.resolutionLocks.run(id, async () => {
       const current = this.ctx.repos.inbox.get(id);
       if (!current || !isPendingQuestion(current)) return null;
       const at = isoNow(this.ctx);
       const closed = this.ctx.unitOfWork(() => {
-        const item = this.ctx.repos.inbox.close(
+        let item = this.ctx.repos.inbox.close(
           id,
           'cancelled',
           { optionId: 'closed', by: close.by, at, note: close.note, rule: close.rule },
           at,
         );
         if (!item) return null;
+        if (close.screened) {
+          item =
+            this.ctx.repos.inbox.updatePayload(
+              id,
+              withScreening(
+                current.payload,
+                { outcome: close.screened.outcome, by: close.screened.by, at, note: close.screened.note },
+                at,
+              ),
+              at,
+            ) ?? item;
+          this.appendScreened(item, close.screened);
+        }
         this.publish(item);
         this.timeline.append({
           projectKey: item.projectKey,
@@ -701,6 +790,149 @@ export class InboxService {
       this.waiters.get(id)?.(closed);
       await this.ctx.events.emit('inbox_cancelled', closed);
       return closed;
+    });
+  }
+
+  /**
+   * The question leaves the Operator's screening for the people (PM-558): it opens, with the Operator's
+   * outcome (`decision`: a person decides; `todo`: a person does something, the options become Done and
+   * Cannot do it) or, with no outcome, because the system gave up waiting (`fallback`). Null when the item
+   * is not in screening any more (closed or released meanwhile). The timeline records `question_screened`,
+   * or `question_screening_skipped` for a fallback.
+   */
+  releaseScreened(id: string, release: ScreeningRelease): Promise<InboxItem | null> {
+    return this.resolutionLocks.run(id, async () => {
+      const current = this.ctx.repos.inbox.get(id);
+      if (!current || current.kind !== 'question' || current.state !== 'screening') return null;
+      const at = isoNow(this.ctx);
+      const { outcome, fallback } = release;
+      const payload = withScreening(
+        current.payload,
+        {
+          at,
+          ...(outcome ? { outcome } : {}),
+          ...(release.by ? { by: release.by } : {}),
+          ...(release.note ? { note: release.note } : {}),
+          ...(release.todo ? { todo: release.todo } : {}),
+          ...(fallback ? { fallback } : {}),
+        },
+        at,
+      );
+      const options = outcome === 'todo' ? [TODO_DONE_OPTION, TODO_CANNOT_OPTION] : current.options;
+      const released = this.ctx.unitOfWork(() => {
+        if (!this.ctx.repos.inbox.release(id, { payload, options, at })) return null;
+        const item = this.ctx.repos.inbox.get(id)!;
+        if (outcome && release.by) {
+          this.appendScreened(item, {
+            outcome,
+            by: release.by,
+            note: release.note ?? '',
+            ...(release.todo ? { todo: release.todo } : {}),
+          });
+        } else if (fallback) {
+          this.timeline.append({
+            projectKey: item.projectKey,
+            taskKey: item.taskKey,
+            sessionId: item.sessionId,
+            actor: SYSTEM_ACTOR,
+            type: 'question_screening_skipped',
+            data: { inboxItemId: item.id, asker: item.source, reason: fallback },
+          });
+        }
+        return item;
+      });
+      if (!released) return null;
+      this.publish(released);
+      return released;
+    });
+  }
+
+  /**
+   * The Operator settles a question it screens with no person involved (PM-558): `answered` and `forwarded`
+   * resolve it (`operator_answered`, `operator_forwarded`), `moot` closes it (`operator_moot`). `deliver`
+   * carries the answer or the forward to the asking member or to the recipient: it calls `close` inside the
+   * message transaction, so the item closes only when the message is recorded. Null when the question is not
+   * waiting for it any more. `inbox_resolved` follows an answer and a forward (the label comes off); a moot
+   * question raises `inbox_cancelled`, as every closed question does.
+   */
+  settleScreened(
+    id: string,
+    settlement: ScreeningSettlement,
+    deliver?: (item: InboxItem, close: () => InboxItem) => Promise<InboxItem | null>,
+  ): Promise<InboxItem | null> {
+    if (settlement.outcome === 'moot')
+      return this.closeQuestion(id, {
+        rule: 'operator_moot',
+        by: settlement.by,
+        note: settlement.note,
+        screened: settlement,
+      });
+    return this.resolutionLocks.run(id, async () => {
+      const item = this.ctx.repos.inbox.get(id);
+      if (!item || item.kind !== 'question' || item.state !== 'screening') return null;
+      const at = isoNow(this.ctx);
+      const answered = settlement.outcome === 'answered';
+      const resolution = {
+        optionId: answered ? ANSWER_OPTION.id : 'forward',
+        by: settlement.by,
+        at,
+        note: answered ? (settlement.answer ?? '') : settlement.note,
+        rule: answered ? ('operator_answered' as const) : ('operator_forwarded' as const),
+      };
+      const close = (): InboxItem => {
+        const resolved = this.ctx.repos.inbox.close(id, 'resolved', resolution, at);
+        if (!resolved) throw conflict('inbox_item_closed', `inbox item ${id} is no longer waiting`);
+        const withRecord =
+          this.ctx.repos.inbox.updatePayload(
+            id,
+            withScreening(
+              item.payload,
+              {
+                outcome: settlement.outcome,
+                by: settlement.by,
+                at,
+                note: settlement.note,
+                ...(settlement.forwardedTo ? { forwardedTo: settlement.forwardedTo } : {}),
+              },
+              at,
+            ),
+            at,
+          ) ?? resolved;
+        this.publish(withRecord);
+        this.appendScreened(withRecord, settlement);
+        return withRecord;
+      };
+      const delivered = deliver ? await deliver({ ...item, state: 'resolved', resolution }, close) : null;
+      const resolved = delivered ?? this.ctx.unitOfWork(close);
+      this.waiters.get(id)?.(resolved);
+      await this.ctx.events.emit('inbox_resolved', resolved);
+      return resolved;
+    });
+  }
+
+  /** The timeline entry of what the Operator decided about a question (PM-558). */
+  private appendScreened(
+    item: InboxItem,
+    outcome: Pick<ScreeningSettlement, 'by' | 'note' | 'answer' | 'forwardedTo'> & {
+      outcome: TimelineEventData['question_screened']['outcome'];
+      todo?: QuestionTodo;
+    },
+  ): void {
+    this.timeline.append({
+      projectKey: item.projectKey,
+      taskKey: item.taskKey,
+      sessionId: item.sessionId,
+      actor: aiActor(outcome.by),
+      type: 'question_screened',
+      data: {
+        inboxItemId: item.id,
+        asker: item.source,
+        outcome: outcome.outcome,
+        note: outcome.note,
+        ...(outcome.forwardedTo ? { forwardedTo: outcome.forwardedTo } : {}),
+        ...(outcome.answer ? { answer: outcome.answer } : {}),
+        ...(outcome.todo ? { todo: outcome.todo } : {}),
+      },
     });
   }
 

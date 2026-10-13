@@ -69,6 +69,7 @@ export const TEAM_TOOL_NAMES = [
   'write_project_docs',
   'list_decision_candidates',
   'mark_decision_candidates',
+  'screen_question',
   'start_task',
   'start_member',
   'submit_boundary_request',
@@ -417,6 +418,50 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     },
     async run({ ctx, args, handler }) {
       return JSON.stringify(await handler.markDecisionCandidates(ctx, { items: args.items }));
+    },
+  }),
+  defineTool({
+    name: 'screen_question',
+    title: 'Screen an AI member’s question',
+    readOnly: false,
+    description:
+      'Only the Operator, not in a guest conversation; needs no owner request. Settle a question an AI member asked a person, which waits for you in the inbox state screening (the notice lists them). Always give note, the reason or background (the owner and the timeline see it). Outcomes: answered (a fact you found on the card, in the decision log, the roadmap, the code or an earlier owner answer; needs answer, name the source in note; the member is told the answer is yours and may ask a person again), forwarded (answering is another AI member’s part of the work; needs forward_to, an AI member other than the asker and you; that member is woken), moot (the question is obsolete; also works on a question that already went to the people), decision (a person must decide: it opens in the inbox as asked), todo (only a person can do it; needs todo with the exact step: what, where, expected; the inbox shows Done / Cannot do it). Other fields than the outcome needs are refused (invalid_outcome_fields). After the ten minutes are over the question belongs to the people: question_not_screening, except moot.',
+    input: {
+      item_id: z.string().min(1).max(100).describe('The question’s inbox item id from the notice.'),
+      outcome: z.enum(['answered', 'forwarded', 'moot', 'decision', 'todo']),
+      note: z.string().trim().min(1).max(2000).describe('Why, or the source of the answer. Always required.'),
+      answer: z.string().trim().min(1).max(10000).optional().describe('The answer; only with answered.'),
+      forward_to: MemberHandle.optional().describe(
+        'The AI member to pass the question to; only with forwarded.',
+      ),
+      todo: z
+        .strictObject({
+          what: z.string().trim().min(1).max(2000).describe('What the person has to do.'),
+          where: z.string().trim().min(1).max(500).describe('Where: the place, screen or system.'),
+          expected: z.string().trim().min(1).max(1000).describe('What result is expected back.'),
+        })
+        .optional()
+        .describe('The exact step for a person; only with todo.'),
+    },
+    check(args, issue) {
+      if ((args.outcome === 'answered') !== (args.answer !== undefined))
+        issue('answer', 'answer goes with the outcome answered, and only with it.');
+      if ((args.outcome === 'forwarded') !== (args.forward_to !== undefined))
+        issue('forward_to', 'forward_to goes with the outcome forwarded, and only with it.');
+      if ((args.outcome === 'todo') !== (args.todo !== undefined))
+        issue('todo', 'todo goes with the outcome todo, and only with it.');
+    },
+    async run({ ctx, args, handler }) {
+      return JSON.stringify(
+        await handler.screenQuestion(ctx, {
+          itemId: args.item_id,
+          outcome: args.outcome,
+          note: args.note,
+          ...(args.answer !== undefined ? { answer: args.answer } : {}),
+          ...(args.forward_to !== undefined ? { forwardTo: args.forward_to } : {}),
+          ...(args.todo ? { todo: args.todo } : {}),
+        }),
+      );
     },
   }),
   defineTool({
@@ -1236,7 +1281,9 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
       'option by what happens if it is picked, not by technical names, and always recommend one option ' +
       'with a one-sentence reason. Put code, file names and technical reasoning into details; the inbox ' +
       'shows it folded. When the answer needs a look at a file of the card or its parent, name it in ' +
-      'attachments instead of describing where to find it.',
+      'attachments instead of describing where to find it. The Operator looks at your question first: it ' +
+      'may answer it, pass it to a member, close it as moot, or send it on to the people (within 10 ' +
+      'minutes at the latest). It tells you which, in a team message.',
     input: {
       question: z
         .string()
@@ -1321,8 +1368,30 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
           "Ids (att_…) of the files the human needs to look at to answer, on the question's card or its " +
             'parent (list_attachments gives them). They show on the question as files to open. At most 6.',
         ),
+      reask_of: z
+        .string()
+        .trim()
+        .min(1)
+        .max(100)
+        .optional()
+        .describe(
+          'Only when the Operator answered, forwarded or closed your earlier question and you still need a ' +
+            "person's answer: that question's id. The new question then goes to the people without the " +
+            'Operator looking at it. Once per earlier question; needs reask_reason.',
+        ),
+      reask_reason: z
+        .string()
+        .trim()
+        .min(1)
+        .max(1000)
+        .optional()
+        .describe(
+          'Why a person must see it after all (the Operator’s answer was not enough). Needs reask_of.',
+        ),
     },
     check(args, issue) {
+      if ((args.reask_of === undefined) !== (args.reask_reason === undefined))
+        issue('reask_of', 'reask_of and reask_reason go together: give both or neither.');
       const labels = questionChoices(args.options).map((choice) => choice.label);
       if (args.recommended !== undefined && !labels.includes(args.recommended)) {
         issue(
@@ -1342,7 +1411,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     async run({ ctx, args, handler }) {
       const taskKey = args.task_key ?? ctx.taskKey;
       const to = args.to ? unique(args.to) : undefined;
-      const { inboxItemId, approvalLabel, attachments } = await handler.askHuman(ctx, {
+      const { inboxItemId, approvalLabel, attachments, screening } = await handler.askHuman(ctx, {
         question: args.question,
         ...(args.options ? { options: args.options } : {}),
         ...(args.recommended ? { recommended: args.recommended } : {}),
@@ -1351,6 +1420,8 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         ...(taskKey ? { taskKey } : {}),
         ...(to ? { to } : {}),
         ...(args.attachments ? { attachmentIds: unique(args.attachments) } : {}),
+        ...(args.reask_of !== undefined ? { reaskOf: args.reask_of } : {}),
+        ...(args.reask_reason !== undefined ? { reaskReason: args.reask_reason } : {}),
       });
       return formatQuestionAsked(
         inboxItemId,
@@ -1361,6 +1432,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
         },
         approvalLabel,
         attachments,
+        screening === true,
       );
     },
   }),

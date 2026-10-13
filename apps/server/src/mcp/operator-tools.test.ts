@@ -141,6 +141,35 @@ describe('Operator MCP tools', () => {
     expect(refused([{ item_id: 'inb_1', verdict: 'maybe' }])).toBe(false);
   });
 
+  it('screen_question takes the fields of its outcome only and forwards them (PM-558)', async () => {
+    const tool = TEAM_TOOLS.find((t) => t.name === 'screen_question')!;
+    expect(tool.annotations.readOnlyHint).toBe(false);
+    const handler = createFakeTeamToolsHandler();
+    const todo = { what: 'Renew the certificate', where: 'Hosting panel', expected: 'The new expiry date' };
+    const args = tool.inputSchema.parse({ item_id: 'inb_1', outcome: 'todo', note: 'Needs a login', todo });
+    expect(JSON.parse(toolOutputText(await tool.run({ ctx: devContext, args, handler })))).toEqual({
+      inboxItemId: 'inb_1',
+      outcome: 'todo',
+    });
+    expect(handler.calls[0]).toMatchObject({
+      method: 'screenQuestion',
+      args: { itemId: 'inb_1', outcome: 'todo', note: 'Needs a login', todo },
+    });
+    const ok = (input: Record<string, unknown>) =>
+      tool.inputSchema.safeParse({ item_id: 'inb_1', note: 'Why', ...input }).success;
+    expect(ok({ outcome: 'moot' })).toBe(true);
+    expect(ok({ outcome: 'answered', answer: 'Yes' })).toBe(true);
+    expect(ok({ outcome: 'forwarded', forward_to: 'dev-1' })).toBe(true);
+    expect(ok({ outcome: 'answered' })).toBe(false);
+    expect(ok({ outcome: 'moot', answer: 'Yes' })).toBe(false);
+    expect(ok({ outcome: 'forwarded' })).toBe(false);
+    expect(ok({ outcome: 'decision', forward_to: 'dev-1' })).toBe(false);
+    expect(ok({ outcome: 'todo' })).toBe(false);
+    expect(ok({ outcome: 'decision', todo })).toBe(false);
+    expect(ok({ outcome: 'decision', note: '' })).toBe(false);
+    expect(ok({ outcome: 'maybe' })).toBe(false);
+  });
+
   it('maps start_task arguments to the shared start handler', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'start_task')!;
     const handler = createFakeTeamToolsHandler();

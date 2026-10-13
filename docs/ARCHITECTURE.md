@@ -2312,6 +2312,27 @@ listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 2
   if it ends before). `idle`, `merge_waiting` and `ready_waiting` do not exist while AI is off or the
   team is paused. All data comes from the server's database and configuration: no machine-dependent part.
 
+  **Question screening (PM-556, PM-558).** An AI member's `ask_human` question (the project manager's too, not
+  the Operator's own and not a human's) is created in the inbox state `screening` with
+  `payload.screening.until` = now + `QUESTION_SCREENING_MINUTES` (10); no person sees it. `QuestionScreening`
+  (`domain/question-screening.ts`) wakes the Operator for it through admission like `operator_signals`
+  (deferred start kind `question_screening`, no capacity, the Operator's general conversation, one notice with a
+  JSON line per question; `deliveredAt` is written after the first input). The Operator settles each question with
+  `screen_question` (an Operator-only tool, not in guest conversations, no owner request, no `OPERATOR_NEVER_TOOLS`
+  entry): `answered` and `forwarded` resolve the item (`operator_answered`, `operator_forwarded`) and carry the
+  answer or the forward through `Messaging` (`answer` with an AI actor and the re-ask hint; `forwardQuestion`: an
+  `action` message with origin `question_forward` to the recipient, which wakes it without a card role, and an
+  `info` message to the asker); `moot` cancels it (`operator_moot`); `decision` and `todo` release it to the
+  people (`InboxService.releaseScreened`; a todo's options become Done and Cannot do it, and Cannot do it needs
+  a reason). Every outcome writes a `question_screened` timeline event. The fallback gives the question to the
+  people: at once (`unavailable`: no Operator, AI off, the Operator on leave, the team paused, admission defers
+  the start or it throws) or when `until` passes (`timeout`, `QuestionScreening.sweep`, a 30-second timer and a
+  startup sweep); `screen_question` then answers `question_not_screening`, except `moot`. An asker may ask a
+  settled question again with `ask_human` `reask_of` and `reask_reason`, once per question; the new question is
+  `open` and carries `payload.unscreened`. `GET /api/projects/:key/inbox/screened?since=` (owner, admin) lists the
+  latest 20 screened questions and the count of today's. Only database rows and the existing admission and
+  messaging paths: no machine-dependent part.
+
 **Remote engine:** no machine-dependent part: pure rules, a template, configuration and database rows (requests and
 steps live on the server; the tool calls already cross the MCP boundary); the inventory below does not change.
 

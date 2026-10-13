@@ -66,6 +66,7 @@ import { BackgroundTasks } from './background';
 import { BoardService } from './board';
 import { OperatorRequests, OperatorSteps } from './operator-requests';
 import { OperatorSignals } from './operator-signals';
+import { QuestionScreening } from './question-screening';
 import { ProjectManagerChannels } from './project-manager';
 import { ProjectState } from './project-state';
 export { ProjectState } from './project-state';
@@ -356,6 +357,13 @@ export interface DomainOptions {
   /** How often the open loops of cards are looked at for an end (default 60 s, PM-261). */
   loopWatchMs?: number;
   operatorSignalMs?: number;
+  /** How often the questions the Operator screens are looked at for the fallback (default 30 s, PM-558). */
+  questionScreeningMs?: number;
+  /**
+   * Whether the Operator screens AI members' questions first (default true, PM-558). False sends every
+   * question to the people at once; for tests that are not about screening.
+   */
+  screenQuestions?: boolean;
   /** How often the cards that wait for the Senior are looked at for the wait limit (default 60 s, PM-348). */
   seniorWaitMs?: number;
   /**
@@ -947,6 +955,15 @@ export function createDomain(opts: DomainOptions) {
     releases,
   });
   messaging.useOperatorSignals(operatorSignals);
+  const questionScreening = new QuestionScreening({
+    ctx,
+    projects,
+    sessions,
+    admission,
+    delivery,
+    inbox,
+    enabled: opts.screenQuestions ?? true,
+  });
   const finishOperatorSignals = (session: Session) => {
     const config = projects.cachedConfig(session.projectKey);
     if (config && session.member === operatorOf(config)?.handle) operatorSignals.finish(session.projectKey);
@@ -1049,6 +1066,7 @@ export function createDomain(opts: DomainOptions) {
     operatorActions,
     taskStarts,
     operatorSignals,
+    questionScreening,
     taskWaits,
     screenshots: screenshotRuns,
     openQuestionLabel,
@@ -1150,6 +1168,8 @@ export function createDomain(opts: DomainOptions) {
         return loopWatch.rebuild(spec);
       case 'operator_signals':
         return operatorSignals.rebuild(spec);
+      case 'question_screening':
+        return questionScreening.rebuild(spec);
       case 'handoff_takeover':
         return handoffs.rebuild(spec);
     }
@@ -1509,6 +1529,7 @@ export function createDomain(opts: DomainOptions) {
   let reviewWatchTimer: ReturnType<typeof setInterval> | undefined;
   let loopWatchTimer: ReturnType<typeof setInterval> | undefined;
   let operatorSignalTimer: ReturnType<typeof setInterval> | undefined;
+  let questionScreeningTimer: ReturnType<typeof setInterval> | undefined;
   let seniorWaitTimer: ReturnType<typeof setInterval> | undefined;
   let diskTimer: ReturnType<typeof setInterval> | undefined;
   let sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -1583,6 +1604,7 @@ export function createDomain(opts: DomainOptions) {
     decisionCandidates,
     releases,
     loopWatch,
+    questionScreening,
     seniorWaits,
     fixLimit,
     autoAdvance,
@@ -1710,6 +1732,16 @@ export function createDomain(opts: DomainOptions) {
         opts.operatorSignalMs ?? 60_000,
       );
       operatorSignalTimer.unref();
+      // The Operator looks at the AI members' questions first; the ones it does not settle in time go to the
+      // people (PM-558). A question that waited through a restart is looked at now.
+      const sweepQuestionScreening = () =>
+        background.run(
+          () => questionScreening.sweep(),
+          (err) => opts.logger.warn({ err }, 'question screening sweep failed'),
+        );
+      sweepQuestionScreening();
+      questionScreeningTimer = setInterval(sweepQuestionScreening, opts.questionScreeningMs ?? 30_000);
+      questionScreeningTimer.unref();
       // A card that waited for the Senior past the wait limit asks the owners, once (PM-348).
       seniorWaitTimer = setInterval(
         () =>
@@ -1763,6 +1795,7 @@ export function createDomain(opts: DomainOptions) {
       if (reviewWatchTimer) clearInterval(reviewWatchTimer);
       if (loopWatchTimer) clearInterval(loopWatchTimer);
       if (operatorSignalTimer) clearInterval(operatorSignalTimer);
+      if (questionScreeningTimer) clearInterval(questionScreeningTimer);
       if (seniorWaitTimer) clearInterval(seniorWaitTimer);
       if (diskTimer) clearInterval(diskTimer);
       if (sweepTimer) clearInterval(sweepTimer);

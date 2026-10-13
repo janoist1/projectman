@@ -8,7 +8,7 @@ import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from '.
 import type { DomainHarness } from './helpers/domain-harness';
 import { pullRequest } from './helpers/fakes';
 import { makeLocalOnly } from './helpers/test-template';
-import { aiActor } from '../src/domain';
+import { aiActor, humanActor } from '../src/domain';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -914,8 +914,8 @@ describe('member initiated merge', () => {
   });
 
   describe('queue order (PM-576)', () => {
-    const prioritize = (key: string, actor = aiActor('dev-1'), operator = false) =>
-      h!.domain.merges.prioritize('AR', key, actor, 'the others depend on it', operator);
+    const prioritize = (key: string, actor = aiActor('dev-1')) =>
+      h!.domain.merges.prioritize('AR', key, actor, 'the others depend on it');
     const prioritized = (key: string) =>
       h!.domain.timeline
         .list('AR', { taskKey: key })
@@ -946,15 +946,39 @@ describe('member initiated merge', () => {
       expect(prioritized('AR-3')).toMatchObject([
         {
           actor: { handle: 'dev-1' },
-          data: { reason: 'the others depend on it', before: 'AR-2', repo: 'web' },
+          data: { reason: 'the others depend on it', ahead: ['AR-2'], repo: 'web' },
         },
       ]);
+      const third = row('AR-3')!;
+      expect(third.prioritizedAt).toBeDefined();
       gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
       await merged('AR-2');
       expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
         'approved-AR-1',
         'approved-AR-3',
         'approved-AR-2',
+      ]);
+      // The mark goes when the merge starts running.
+      expect(h!.repos.taskMerges.get(third.id)?.prioritizedAt).toBeUndefined();
+    });
+
+    it('puts the latest decision first and keeps created_at untouched', async () => {
+      const gate = await threeCards();
+      const created = row('AR-2')!.createdAt;
+      expect((await prioritize('AR-3')).moved).toBe(true);
+      expect((await prioritize('AR-2')).moved).toBe(true);
+      expect(prioritized('AR-2')).toMatchObject([{ data: { ahead: ['AR-3'] } }]);
+      expect(row('AR-2')!.createdAt).toBe(created);
+      expect(h!.repos.taskMerges.waitingOf('AR', 'web').map((item) => item.taskKey)).toEqual([
+        'AR-2',
+        'AR-3',
+      ]);
+      gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
+      await merged('AR-3');
+      expect(merger.build.mock.calls.map((call) => call[1].commit)).toEqual([
+        'approved-AR-1',
+        'approved-AR-2',
+        'approved-AR-3',
       ]);
     });
 
@@ -985,14 +1009,29 @@ describe('member initiated merge', () => {
       await expect(prioritize('AR-3')).rejects.toMatchObject({ code: 'merge_not_prioritizable' });
     });
 
-    it('lets only the card merger or the Operator decide', async () => {
+    it('refuses a merge that is not queued yet', async () => {
+      await setup();
+      await h!.domain.merges.reconcile('AR', 'AR-1');
+      expect(row()?.state).toBe('requested');
+      await expect(prioritize('AR-1')).rejects.toMatchObject({
+        code: 'merge_not_prioritizable',
+        details: { reason: 'not_queued' },
+      });
+    });
+
+    it('lets the card merger, an owner and the Operator decide, and nobody else', async () => {
       const gate = await threeCards();
       await expect(prioritize('AR-3', aiActor('dev-2'))).rejects.toMatchObject({ code: 'merge_not_merger' });
+      await expect(prioritize('AR-3', humanActor('guest'))).rejects.toMatchObject({
+        code: 'merge_not_merger',
+      });
       expect(prioritized('AR-3')).toHaveLength(0);
-      expect((await prioritize('AR-3', aiActor('operator'), true)).moved).toBe(true);
+      expect((await prioritize('AR-3', aiActor('operator'))).moved).toBe(true);
       expect(prioritized('AR-3')).toMatchObject([{ actor: { handle: 'operator' } }]);
+      expect((await prioritize('AR-2', OWNER_ACTOR)).moved).toBe(true);
+      expect(prioritized('AR-2')).toMatchObject([{ actor: { handle: 'owner' } }]);
       gate.resolve({ ok: true, mergeCommit: 'first', changed: [] });
-      await merged('AR-2');
+      await merged('AR-3');
     });
   });
 

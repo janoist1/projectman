@@ -320,7 +320,8 @@ describe('the Operator’s step log (PM-463)', () => {
         toStageId: 'done',
         merger: 'dev-1',
         requestedAt: at,
-        state: 'requested',
+        state: 'queued',
+        step: 'queued',
         landed: 'nowhere',
         createdAt: at,
         updatedAt: at,
@@ -338,15 +339,13 @@ describe('the Operator’s step log (PM-463)', () => {
       reason: 'it unblocks AR-1',
     });
     expect(result.moved).toBe(true);
-    expect(h.repos.taskMerges.waitingOf('AR', 'web').map((row) => row.taskKey)).toEqual(['AR-2', 'AR-1']);
-    expect(steps().map((s) => [s.action, s.status, s.taskKey])).toEqual([
-      ['merge_prioritize', 'done', 'AR-2'],
-    ]);
+    expect(h.repos.taskMerges.get('merge-AR-2')?.prioritizedAt).toBeDefined();
+    expect(steps().map((s) => [s.action, s.status, s.taskKey])).toEqual([['task_update', 'done', 'AR-2']]);
     expect(
       h.domain.timeline.list('AR', { taskKey: 'AR-2' }).find((e) => e.type === 'task_merge_prioritized'),
     ).toMatchObject({
       actor: { handle: 'operator' },
-      data: { reason: 'it unblocks AR-1', before: 'AR-1' },
+      data: { reason: 'it unblocks AR-1', ahead: ['AR-1'] },
     });
   });
 

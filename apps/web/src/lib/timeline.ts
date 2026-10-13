@@ -307,10 +307,13 @@ export function describeEvent(event: TimelineEvent, ctx: TimelineContext): Descr
         }),
       );
     case 'task_merge_prioritized': {
-      const before = str(d.before);
+      const ahead = strings(d.ahead);
       return normal(
-        before
-          ? t('timeline.events.task_merge_prioritized_before', { before, reason: str(d.reason) })
+        ahead.length
+          ? t('timeline.events.task_merge_prioritized_ahead', {
+              ahead: ahead.join(', '),
+              reason: str(d.reason),
+            })
           : t('timeline.events.task_merge_prioritized', { reason: str(d.reason) }),
       );
     }

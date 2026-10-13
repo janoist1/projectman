@@ -6,6 +6,13 @@ export const StartMergeRequest = z.object({
   resolution: z.string().trim().min(1).max(2000).optional(),
 });
 export type StartMergeRequest = z.infer<typeof StartMergeRequest>;
+
+/** The reason a queued merge is put at the front of the queue, in the person's words (PM-576). */
+export const PRIORITIZE_MERGE_REASON_MAX = 500;
+export const PrioritizeMergeRequest = z.object({
+  reason: z.string().trim().min(1).max(PRIORITIZE_MERGE_REASON_MAX),
+});
+export type PrioritizeMergeRequest = z.infer<typeof PrioritizeMergeRequest>;
 import { BoardPlacement } from '../domain/board-order';
 import { DEVELOPER_LEVEL_REASON_MAX, DeveloperLevel } from '../domain/developer-level';
 import { DutyId } from '../domain/duty';
@@ -102,7 +109,6 @@ export const OperatorAction = z.enum([
   'project_resume',
   'docs_write',
   'decision_offer',
-  'merge_prioritize',
 ]);
 export type OperatorAction = z.infer<typeof OperatorAction>;
 export const OperatorStepStatus = z.enum([

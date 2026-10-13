@@ -788,7 +788,7 @@ export const TEAM_TOOLS: readonly TeamTool[] = [
     title: 'Move a merge to the front of the queue',
     readOnly: false,
     description:
-      "Only the card's merger, or the Operator during an open owner request. One merge runs at a time per repository, in the order the cards were requested; use this to decide that this card's merge goes next, e.g. a fix that the queued cards' tests depend on. The merge that runs now is not interrupted. The reason goes on the card's timeline: say who or what it unblocks. A merge already at the front is left as it is (moved: false). Retries keep the place.",
+      "Only the card's merger, or the Operator during an open owner request. One merge runs at a time per repository, in the order the cards were requested; use this to decide that this card's queued merge goes next, e.g. a fix that the queued cards' tests depend on. Only a merge that waits in the queue can move (not one that is not started yet or already runs). The merge that runs now is not interrupted. The reason goes on the card's timeline: say who or what it unblocks. A merge already at the front is left as it is (moved: false).",
     input: {
       task_key: TaskKey,
       reason: z

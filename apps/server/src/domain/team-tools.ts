@@ -1361,8 +1361,8 @@ export class TeamToolsService implements TeamToolsHandler {
       const caller = await this.callerWithRequest(ctx, 'prioritize_merge');
       const taskKey = this.validTaskKey(ctx, args.taskKey);
       const operator = isOperator(memberOf(caller.config, ctx.member));
-      return this.recorded(caller, operator ? { action: 'merge_prioritize', taskKey } : null, () =>
-        this.merges.prioritize(ctx.projectKey, taskKey, aiActor(ctx.member), args.reason, operator),
+      return this.recorded(caller, operator ? { action: 'task_update', taskKey } : null, () =>
+        this.merges.prioritize(ctx.projectKey, taskKey, aiActor(ctx.member), args.reason),
       );
     });
   }

@@ -1165,5 +1165,12 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
     CREATE INDEX operator_steps_signal ON operator_steps(signal_id) WHERE signal_id IS NOT NULL;
     ALTER TABLE operator_signals ADD COLUMN follow_up_at TEXT;`,
   },
+  {
+    version: 58,
+    name: 'merge queue priority',
+    // PM-576: a queued merge the merger (or the Operator) put forward carries the time of that decision;
+    // the queue puts such merges first, the latest decision first, and the rest by created_at as before.
+    sql: `ALTER TABLE task_merges ADD COLUMN prioritized_at TEXT;`,
+  },
 ];
 export const LATEST_SCHEMA_VERSION = migrations.reduce((max, m) => Math.max(max, m.version), 0);

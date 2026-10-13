@@ -136,6 +136,27 @@ describe('member merge API', () => {
     const viewer = await addHumanAndLogin(h.app, { handle: 'reader', access: 'viewer' });
     expect((await inject(h.app, 'POST', routes.taskMerge('AR', 'AR-1'), viewer)).statusCode).toBe(403);
   });
+  it.each([undefined, '', '   ', 'x'.repeat(501), 42])(
+    'validates the reason before moving a merge forward: %s',
+    async (reason) => {
+      const response = await inject(h.app, 'POST', routes.taskMergePrioritize('AR', 'AR-1'), cookie, {
+        reason,
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: { code: 'invalid_request' } });
+    },
+  );
+  it('refuses to move a merge forward for a read-only member and for a card with no queued merge', async () => {
+    const body = { reason: 'the next card needs it' };
+    const none = await inject(h.app, 'POST', routes.taskMergePrioritize('AR', 'AR-1'), cookie, body);
+    expect(none.statusCode).toBe(409);
+    expect(none.json()).toMatchObject({
+      error: { code: 'merge_not_prioritizable', details: { reason: 'no_merge' } },
+    });
+    const viewer = await addHumanAndLogin(h.app, { handle: 'reader', access: 'viewer' });
+    const refused = await inject(h.app, 'POST', routes.taskMergePrioritize('AR', 'AR-1'), viewer, body);
+    expect(refused.statusCode).toBe(403);
+  });
   it('returns 409 when the named merger is not ready', async () => {
     const loaded = await h.app.projectman.domain.projects.load('AR');
     await h.app.projectman.domain.projects.patch(

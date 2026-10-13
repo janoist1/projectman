@@ -182,7 +182,7 @@ export interface TimelineEventData {
   };
   task_merge_requested: { mergeId: string; merger: string; repo: string; base: string; toStageId: string };
   /** The card went to the front of the repository's merge queue; `before`: the card it went ahead of (null: none waited). */
-  task_merge_prioritized: { mergeId: string; repo: string; reason: string; before: string | null };
+  task_merge_prioritized: { mergeId: string; repo: string; reason: string; ahead: string[] };
   task_merge_failed: MergeFailure & { mergeId: string };
   task_merged: TaskMerged & { mergeId?: string };
   task_merge_blocked: {

@@ -15,6 +15,25 @@ const creation: TimelineEvent = {
 };
 const context = { pipeline: null, members: new Map(), myHandle: 'owner', openInboxIds: new Set<string>() };
 
+describe('merge queue timeline text (PM-576)', () => {
+  it('names the cards a merge was put ahead of and the reason', () => {
+    const event: TimelineEvent = {
+      ...creation,
+      type: 'task_merge_prioritized',
+      data: { mergeId: 'm1', repo: 'web', reason: 'AC-3 depends on it', ahead: ['AC-2', 'AC-4'] },
+    };
+    expect(describeEvent(event, context).text).toBe(
+      t('timeline.events.task_merge_prioritized_ahead', {
+        ahead: 'AC-2, AC-4',
+        reason: 'AC-3 depends on it',
+      }),
+    );
+    expect(describeEvent({ ...event, data: { ...event.data, ahead: [] } }, context).text).toBe(
+      t('timeline.events.task_merge_prioritized', { reason: 'AC-3 depends on it' }),
+    );
+  });
+});
+
 describe('creation timeline labels', () => {
   it('names previous and new priority, including setting and clearing', () => {
     for (const [previousPriority, priority] of [

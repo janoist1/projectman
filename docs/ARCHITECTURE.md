@@ -970,13 +970,17 @@ with `via: found` when a persistent handover exists.
 **Queue order (PM-576).** One merge runs per repository (the full check runs on main merged with the card, so
 a second one in parallel would check against a stale main), but the order of the waiting ones is a member's
 decision, not the server's: by default it is the order of the requests (`task_merges.created_at`, `rowid`; a
-retry keeps its place). The card's merger, or the Operator in an owner's request (step `merge_prioritize`), calls
-the team tool `prioritize_merge { task_key, reason }`: `Merges.prioritize` sets the merge's `created_at` 1 ms
-before the earliest waiting merge of the repository (`taskMerges.waitingOf`; no migration), writes
-`task_merge_prioritized` (`mergeId`, `repo`, `reason`, `before`: the card it went ahead of) on the card with the
-caller as its actor, and pumps the queue. The running merge is not interrupted; a merge that is running or
-missing is refused (`merge_not_prioritizable`), a merge already first is left as it is. Remote engine: the queue
-is on the server and the engine is not involved; no new machine-dependent part.
+retry keeps its place). The queue reads `ORDER BY prioritized_at IS NULL, prioritized_at DESC, created_at,
+rowid` (`QUEUE_ORDER` in `db/task-merges.ts`; `prioritized_at` is a nullable column, migration 58, and
+`created_at` is never rewritten). The card's merger or the Operator (in an owner's request, step `task_update`)
+calls the team tool `prioritize_merge { task_key, reason }`, an owner does the same with the "Előre" button of the
+queued merge box (`POST /api/projects/:key/tasks/:taskKey/merge/prioritize`, body `{ reason }`); both land in
+`Merges.prioritize`: it allows the card's merger, an owner and the Operator only, takes a `queued` merge only
+(`merge_not_prioritizable` otherwise), sets `prioritized_at`, writes `task_merge_prioritized` (`mergeId`, `repo`,
+`reason`, `ahead`: the keys of the queued cards it went ahead of) on the card with the caller as its actor, and
+pumps the queue. The mark is cleared when the merge starts running. A merge already first changes nothing (no
+event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
+involved; no new machine-dependent part.
 
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt

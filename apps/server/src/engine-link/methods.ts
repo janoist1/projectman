@@ -178,6 +178,7 @@ type ContractResults = {
   'machine.processes': MachineProbe['processes'];
   'machine.signal': MachineProbe['signal'];
   'host.free_disk': EngineHost['freeDiskBytes'];
+  'host.heavy_run_sessions': EngineHost['heavyRunSessions'];
   'host.is_directory': EngineHost['isDirectory'];
   'host.resolve_git_dir': EngineHost['resolveGitDir'];
   'host.realpath': EngineHost['realpath'];
@@ -204,6 +205,7 @@ type ContractResults = {
 /** Named wire parameters are projections of the engine contract's argument tuples. */
 type ContractParams = {
   'host.free_disk': Record<string, never>;
+  'host.heavy_run_sessions': Record<string, never>;
   'host.is_directory': { path: Parameters<EngineHost['isDirectory']>[0] };
   'host.resolve_git_dir': { repoPath: Parameters<EngineHost['resolveGitDir']>[0] };
   'host.realpath': { path: Parameters<EngineHost['realpath']>[0] };
@@ -451,6 +453,7 @@ export const methods = {
   'screenshots.run': method(z.strictObject({ runId: text, spec: screenshotSpec }), screenshotEnded),
   'screenshots.cancel': method(z.strictObject({ runId: text }), done),
   'host.free_disk': method(empty, z.number().nonnegative().nullable()),
+  'host.heavy_run_sessions': method(empty, texts),
   'host.is_directory': method(z.strictObject({ path: text }), z.boolean()),
   'host.resolve_git_dir': method(z.strictObject({ repoPath: text }), text.nullable()),
   'host.realpath': method(z.strictObject({ path: text }), text.nullable()),

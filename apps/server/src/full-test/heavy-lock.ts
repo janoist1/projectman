@@ -193,6 +193,33 @@ export async function readHeavyQueue(
   return { holder, waiting };
 }
 
+/** Live holder and waiter session ids (PM-569). Reads only; an unreadable queue gives no sessions. */
+export async function readHeavyRunSessions(
+  dir: string,
+  options: { staleMs?: number } = {},
+): Promise<string[]> {
+  try {
+    const paths = layout(dir);
+    const holder = await readEntry(paths.owner);
+    const entries = await listTickets(paths.queue);
+    if (holder?.entry) entries.push({ ...holder, entry: holder.entry, file: paths.owner });
+    const now = Date.now();
+    return [
+      ...new Set(
+        entries
+          .filter(
+            ({ entry, mtimeMs }) =>
+              now - mtimeMs <= (options.staleMs ?? DEFAULT_STALE_MS) && pidAlive(entry.pid),
+          )
+          .map(({ entry }) => entry.sessionId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    ];
+  } catch {
+    return [];
+  }
+}
+
 /** Resolves after `ms`, or rejects with the signal's reason. The timer keeps the process alive: it is waiting. */
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

@@ -14,7 +14,13 @@ import { FULL_TEST_GIT_CONFIG, fullTestEnv, runDirOf, runPaths, srtSettings, SHO
 import type { RunPaths } from './sandbox';
 
 export { failedFiles, failureReport, outputTail, stripAnsi } from './output';
-export { acquireHeavyLock, defaultHeavyLockDir, HeavyLockError, readHeavyQueue } from './heavy-lock';
+export {
+  acquireHeavyLock,
+  defaultHeavyLockDir,
+  HeavyLockError,
+  readHeavyQueue,
+  readHeavyRunSessions,
+} from './heavy-lock';
 export type { HeavyLock, HeavyLockEntry, HeavyLockOptions } from './heavy-lock';
 export { runSandboxed, srtCli } from './run-sandboxed';
 export type { SandboxedEnd, SandboxedRun } from './run-sandboxed';

@@ -48,6 +48,7 @@ import {
   createMessageAttachmentStorage,
 } from './domain';
 import { freeBytesOf } from './engine-host';
+import { readHeavyRunSessions } from './full-test';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
 import { createGithubService } from './github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
@@ -508,6 +509,7 @@ export async function buildApp(options: BuildAppOptions): Promise<FastifyInstanc
       ...(options.screenQuestions !== undefined ? { screenQuestions: options.screenQuestions } : {}),
       doneTurnLimitMs: options.doneTurnLimitMs,
       freeDiskBytes: options.freeDiskBytes ?? (() => freeBytesOf(home)),
+      heavyRunSessions: options.heavyLockDir ? () => readHeavyRunSessions(options.heavyLockDir!) : undefined,
     });
     const mcpModule = (modules.createMcpModule ?? createMcpModule)({
       handler: domain.teamTools,

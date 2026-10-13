@@ -37,7 +37,12 @@ import { createEngineEventBuffer } from './engine-link/event-buffer';
 import { ENGINE_RELAY_WAIT_MS } from './engine-link/protocol';
 import { EngineCallError } from './engine-link/rpc';
 import type { EngineEvent, Hello } from './engine-link/protocol';
-import { createFullTestExecutor, createScreenshotExecutor, defaultHeavyLockDir } from './full-test';
+import {
+  createFullTestExecutor,
+  createScreenshotExecutor,
+  defaultHeavyLockDir,
+  readHeavyRunSessions,
+} from './full-test';
 import { freeBytesOf } from './engine-host';
 import { nonLocalReason } from './http/local-guard';
 import { assertHomeMayStart } from './instance';
@@ -345,6 +350,7 @@ export async function buildEngineApp(options: EngineAppOptions): Promise<EngineA
           heavyLockDir,
         }),
       freeDiskBytes: () => freeBytesOf(home),
+      heavyRunSessions: () => readHeavyRunSessions(heavyLockDir),
       workspacePath: (projectKey) =>
         resolved.projects.find((entry) => entry.project === projectKey)?.workspacePath ?? null,
       // The engine's own binding (`engine.json`), never the cloud's paths (PM-451).

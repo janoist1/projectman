@@ -624,7 +624,15 @@ export function createDomain(opts: DomainOptions) {
       ? { holders: admission.holders(config, handle), capacity: member.capacity }
       : undefined;
   });
-  const refinement = new RefinementSteps({ projects, tasks, sessions, admission, delivery, inbox, timeline });
+  const refinement = new RefinementSteps({
+    projects,
+    tasks,
+    sessions,
+    admission,
+    delivery,
+    inbox,
+    timeline,
+  });
   const messaging = new Messaging({
     ctx,
     projects,
@@ -635,6 +643,23 @@ export function createDomain(opts: DomainOptions) {
     refinement,
     engines,
     messageAttachments,
+  });
+  refinement.useNotify(async (task, recipient) => {
+    try {
+      const config = await projects.config(task.projectKey);
+      await messaging.send(
+        task.projectKey,
+        SYSTEM_SENDER,
+        {
+          to: [recipient],
+          taskKey: task.key,
+          text: `${task.key} is worked out and ready for development. Check the card with get_task and start it according to the team's priorities and capacity.`,
+        },
+        { kind: memberOf(config, recipient)?.kind === 'ai' ? 'action' : 'info' },
+      );
+    } catch (err) {
+      opts.logger.warn({ err, taskKey: task.key, recipient }, 'refinement completion notice failed');
+    }
   });
   sessions.useProjectManagerStarts((projectKey, handle, taskKey, cause) =>
     messaging.projectManagerStart(projectKey, handle, taskKey, cause),
@@ -1602,6 +1627,7 @@ export function createDomain(opts: DomainOptions) {
       await sessions.reconcileAfterRestart();
       for (const project of projects.summaries()) operatorSignals.finish(project.key);
       members.reconcileAfterRestart();
+      for (const project of projects.summaries()) refinement.reconcile(project.key);
       inbox.expireOpenPermissions();
       await boundary.sweep();
       // Uploads and deletions the last run left half done (files and rows share no transaction).

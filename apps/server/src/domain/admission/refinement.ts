@@ -2,11 +2,15 @@ import {
   ALERT_SEEN_OPTION,
   REFINE_LABEL,
   alertPayloadOf,
+  cardMoverHandle,
   dutyMembers,
   formatInjectedTeamMessage,
   isOnLeave,
   isOpenTask,
+  isInformationalAlert,
   memberOf,
+  operatorOf,
+  projectManagerOf,
   PENDING_INBOX_STATES,
   refinementTurn,
   turnStalled,
@@ -58,7 +62,8 @@ const ENGAGED = new Set<Session['state']>(['starting', 'working', 'waiting_permi
  * ends. A step that was handed to a member is not handed again (no restart for the same step): when
  * its turn ends without the label, the owners get one `stalled` alert. When every label is on, the
  * card leaves refinement: the system takes `refine` off, moves it to the stage before development and
- * tells the people who prioritise (`done`). Every change of turn is a `refinement_turn` event on the
+ * tells the configured card mover, project manager or Operator (`done`) through a team message.
+ * Every change of turn is a `refinement_turn` event on the
  * card. A refused start waits like a hand-over does, and is retried by the usual events and timer.
  * The card moves only when its labels change, it changes stage, or a session on it goes idle or ends.
  */
@@ -70,6 +75,7 @@ export class RefinementSteps {
   private readonly delivery: MessageDelivery;
   private readonly inbox: InboxService;
   private readonly timeline: TimelineService;
+  private notifyDone?: (task: Task, recipient: string) => Promise<void>;
   /** One look at a card at a time, so that two events do not hand the same step out twice. */
   private readonly cards = new KeyedMutex();
 
@@ -89,6 +95,18 @@ export class RefinementSteps {
     this.delivery = deps.delivery;
     this.inbox = deps.inbox;
     this.timeline = deps.timeline;
+  }
+
+  /** Bound after Messaging, which depends on this service's turnMember. */
+  useNotify(notify: (task: Task, recipient: string) => Promise<void>): void {
+    this.notifyDone = notify;
+  }
+
+  /** Retire old acknowledgement-only items at startup without altering the timeline. */
+  reconcile(projectKey: string): void {
+    for (const item of this.inbox.list(projectKey, { kind: 'alert', state: 'open', limit: 100_000 })) {
+      if (isInformationalAlert(item)) this.inbox.cancel(item.id);
+    }
   }
 
   /** Label change and stage change listener. */
@@ -269,7 +287,7 @@ export class RefinementSteps {
     if (latest && !isClosedTurn(latest.reason)) this.append(task, null, null, 'stopped');
   }
 
-  /** Every label is on: `refine` goes, the card moves to the stage before development, people are told. */
+  /** Every label is on: `refine` goes, the card moves before development and its starter is told. */
   private async finish(config: ProjectConfig, task: Task, targetStageId: string | null): Promise<void> {
     const { projectKey, key: taskKey } = task;
     let changed = false;
@@ -287,7 +305,9 @@ export class RefinementSteps {
     const latest = this.recorded(projectKey, taskKey);
     if (!changed && (!latest || isClosedTurn(latest.reason))) return;
     this.append(task, null, null, 'done');
-    this.alert(config, task, null, 'done', []);
+    const recipient =
+      cardMoverHandle(config) ?? projectManagerOf(config)?.handle ?? operatorOf(config)?.handle;
+    if (recipient) await this.notifyDone?.(task, recipient);
   }
 
   /**
@@ -378,7 +398,11 @@ export class RefinementSteps {
   /** The open alerts that wait for a step other than `label` are over: the step was done or the card moved on. */
   private closeAlerts(task: Task, label: string | null): void {
     for (const { item, payload } of this.alertsOf(task)) {
-      if (item.state !== 'open' || payload.reason === 'done') continue;
+      if (item.state !== 'open') continue;
+      if (isInformationalAlert(item)) {
+        this.inbox.cancel(item.id);
+        continue;
+      }
       if (payload.label !== label) this.inbox.cancel(item.id);
     }
   }

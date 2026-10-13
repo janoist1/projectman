@@ -509,6 +509,12 @@ export function alertPayloadOf(item: Pick<InboxItem, 'kind' | 'payload'>): Alert
   return parsed.success ? parsed.data : null;
 }
 
+/** Legacy completion notices require no decision or action on their card. */
+export function isInformationalAlert(item: Pick<InboxItem, 'kind' | 'payload'>): boolean {
+  const alert = alertPayloadOf(item);
+  return alert?.alert === 'refinement' && alert.reason === 'done';
+}
+
 /** At most this many files on one question (PM-498). */
 export const MAX_QUESTION_ATTACHMENTS = 6;
 

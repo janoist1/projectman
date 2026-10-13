@@ -908,11 +908,19 @@ export function createDomain(opts: DomainOptions) {
   );
   // A question about a card that is done or cancelled, or that its asker no longer holds, is moot (PM-556).
   const questionClosing = new QuestionClosing({ ctx, inbox });
-  events.on('task_stage_changed', (change) => {
-    if (change.task.status === 'done') return questionClosing.taskDone(change.task);
+  // In the background: a listener that returns a promise holds back the listeners registered after it.
+  const closeMoot = (taskKey: string, work: () => Promise<void>): void => {
+    background.run(work, (err) =>
+      opts.logger.warn({ err, taskKey }, 'could not close the moot questions of the card'),
+    );
+  };
+  events.on('task_stage_changed', ({ task }) => {
+    if (task.status === 'done') closeMoot(task.key, () => questionClosing.taskDone(task));
   });
-  events.on('task_cancelled', (task) => questionClosing.taskCancelled(task));
-  events.on('task_assigned', ({ task, previous }) => questionClosing.assigneeChanged(task, previous));
+  events.on('task_cancelled', (task) => closeMoot(task.key, () => questionClosing.taskCancelled(task)));
+  events.on('task_assigned', ({ task, previous }) =>
+    closeMoot(task.key, () => questionClosing.assigneeChanged(task, previous)),
+  );
   // The screenshots of the Codex members (PM-351): a session that ends stops its run before its folder goes.
   // Remote engines are not connected yet when this is built, so a given directory always gets the runs (PM-315).
   const screenshotRuns =

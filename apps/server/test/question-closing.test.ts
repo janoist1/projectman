@@ -3,7 +3,7 @@ import type { InboxItem, ProjectConfig } from '@projectman/shared';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
-import { flush } from './helpers/fakes';
+import { flush, settle } from './helpers/fakes';
 import { aiActor, SYSTEM_ACTOR } from '../src/domain';
 
 const WAITING = 'waiting-answer';
@@ -114,10 +114,12 @@ describe('a question that became moot', () => {
     });
 
     it('tells the running asking session why the question closed', async () => {
-      const id = await ask('dev-1', 'AR-1', 'Which font?');
+      // Not on AR-1, whose sessions end with a cancel: the asking session of AR-2 goes on running.
+      await h.domain.tasks.create('AR', { title: 'Second card' }, OWNER_ACTOR);
+      const id = await ask('dev-1', 'AR-2', 'Which font?');
       const before = typedInto().length;
-      await h.domain.tasks.cancel('AR', 'AR-1', {}, OWNER_ACTOR);
-      await flush();
+      await h.domain.tasks.cancel('AR', 'AR-2', {}, OWNER_ACTOR);
+      await settle();
 
       const added = typedInto().slice(before);
       expect(added.some((text) => text.includes('Your question "Which font?" was closed'))).toBe(true);

@@ -1,5 +1,6 @@
 import {
   aiLimitReached,
+  compareStartClass,
   DEFAULT_AGENT_PROVIDER,
   OUTAGE_REFUSALS,
   pausesOnPlanUsage,
@@ -14,12 +15,14 @@ import {
   openPrerequisites,
   seniorsOf,
   sessionWorkItemOf,
+  startClass,
   workStageOf,
 } from '@projectman/shared';
 import type {
   AiMemberConfig,
   CapacityHolder,
   EngineId,
+  FocusPlace,
   ProjectConfig,
   Task,
   TaskStartWaiting,
@@ -66,6 +69,14 @@ export interface AdmissionRequest {
   cause?: SessionStartCause;
 }
 
+/** What `retryDeferred` asks of the focus pull (PM-427). */
+export interface FocusPulling {
+  /** Key -> place of the project's open cards the focus covers. */
+  places(projectKey: string): ReadonlyMap<string, FocusPlace>;
+  /** One round: pulls the cards free developers take, at the end of the retry loop. */
+  run(): Promise<void>;
+}
+
 /**
  * Admission: every AI session start that no person asked for directly (task start, stage
  * hand-over, message wake-up, schedule run) passes the same checks, in this order: the
@@ -89,6 +100,9 @@ export class Admission {
   private readonly disk?: Pick<DiskGuard, 'assertRoom'>;
   private readonly engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
   private readonly locks = new KeyedMutex();
+  private pull: FocusPulling | undefined;
+  private retrying: Promise<void> | null = null;
+  private retryAgain = false;
   private readonly onOutageRefusal?: (
     projectKey: string,
     handle: string,
@@ -412,17 +426,34 @@ export class Admission {
    * Retries the deferred starts that still apply; the others are dropped. A start that waits for
    * the project's master switch is left alone while the switch is off, and one that waits for a
    * member on leave while the member is away: a retry could only be refused and logged again,
-   * and turning the switch on or calling the member back retries them. The cards that wait for a Senior
-   * go first (older first, as the others do): a Senior who frees up is not taken by an older card that
-   * waits for any free developer (PM-348).
+   * and turning the switch on or calling the member back retries them. The order is `retryOrder`'s; the
+   * focus pull (PM-427) goes last. Rounds do not overlap: a start being retried is out of the store,
+   * so a second round meanwhile would not see it (and one that fails puts it back after the round that
+   * saw the change). A round asked for while one runs makes the running one go once more, and both
+   * callers get the result of the last.
    */
-  async retryDeferred(): Promise<void> {
+  retryDeferred(): Promise<void> {
+    if (this.retrying) {
+      this.retryAgain = true;
+      return this.retrying;
+    }
+    this.retrying = (async () => {
+      try {
+        do {
+          this.retryAgain = false;
+          await this.retryRound();
+        } while (this.retryAgain);
+      } finally {
+        this.retrying = null;
+      }
+    })();
+    return this.retrying;
+  }
+
+  private async retryRound(): Promise<void> {
     await this.sessions.refreshProviderQuota();
     const configs = new Map<string, ProjectConfig | null>();
-    const entries = this.deferred.list();
-    const waitsForSenior = (entry: DeferredStart) => entry.waiting.reason === 'senior_busy';
-    const ordered = [...entries.filter(waitsForSenior), ...entries.filter((entry) => !waitsForSenior(entry))];
-    for (const entry of ordered) {
+    for (const entry of this.retryOrder()) {
       if (!this.deferred.holds(entry)) continue;
       const { start } = entry;
       const task = this.taskOf(start);
@@ -470,6 +501,60 @@ export class Admission {
         this.ctx.logger.warn({ err, ...start.log.fields() }, start.log.retryFailed);
       }
     }
+    // After the loop and without the lock: the pull takes it for each card it starts (it is not reentrant).
+    try {
+      await this.pull?.run();
+    } catch (err) {
+      this.ctx.logger.warn({ err }, 'focus pull failed');
+    }
+  }
+
+  /**
+   * The order the deferred starts are retried in (PM-427): urgent cards, then the focus cards by their
+   * place, then the rest; within one class the cards that wait for a Senior go first (older first, as the
+   * others do): a Senior who frees up is not taken by an older card that waits for any free developer
+   * (PM-348); then the order the store lists them in. The places are read once per project.
+   */
+  private retryOrder(): DeferredStart[] {
+    const places = new Map<string, ReadonlyMap<string, FocusPlace>>();
+    const placesOf = (projectKey: string) => {
+      let known = places.get(projectKey);
+      if (!known) {
+        known = this.pull?.places(projectKey) ?? new Map<string, FocusPlace>();
+        places.set(projectKey, known);
+      }
+      return known;
+    };
+    const ranked = this.deferred.list().map((entry) => ({
+      entry,
+      class: startClass(this.taskOf(entry.start), placesOf(entry.start.projectKey)),
+      senior: entry.waiting.reason === 'senior_busy',
+    }));
+    return ranked
+      .sort((a, b) => compareStartClass(a.class, b.class) || Number(b.senior) - Number(a.senior))
+      .map((item) => item.entry);
+  }
+
+  /**
+   * Binds the focus pull (PM-427; it needs the starts, which need this class, so it is bound after): its
+   * round runs at the end of `retryDeferred`, and its places order the deferred starts.
+   */
+  usePull(pull: FocusPulling): void {
+    this.pull = pull;
+  }
+
+  /** The members a stored deferred start of the project waits for (`FocusPull` leaves them out: they are not free). */
+  membersWaitedFor(projectKey: string): Set<string> {
+    const members = new Set<string>();
+    for (const { start, waiting } of this.deferred.list()) {
+      if (start.projectKey !== projectKey) continue;
+      const waitsFor = start.waitsFor();
+      if (waitsFor) members.add(waitsFor);
+      if (waiting.member) members.add(waiting.member);
+      // A Senior card waits for its Seniors (PM-348): a freed Senior goes to it, not to a pulled card.
+      for (const senior of waiting.seniors ?? []) members.add(senior);
+    }
+    return members;
   }
 
   /** Whether this start waits in the deferred-start store now. */

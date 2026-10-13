@@ -276,8 +276,11 @@ describe('automatic start of unassigned cards moved into a work stage', () => {
     await h.domain.tasks.cancel('AR', waits[1]!, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);
     await h.domain.tasks.update('AR', waits[2]!, { assignee: 'dev-2' }, OWNER_ACTOR);
     expect(waiting(waits[2]!)).toBeUndefined();
-    // What the move and the cancellation made obsolete is gone; the assigned card's wait is dropped by the next retry.
-    expect(storedKeys().sort()).toEqual(['work-start:AR:AR-5', 'work-start:AR:AR-6']);
+    // What the move and the cancellation made obsolete is gone; the assigned card's wait is dropped by the next
+    // retry, which may be the one the cancellation asked for (rounds run one after the other).
+    expect(storedKeys()).toContain('work-start:AR:AR-6');
+    expect(storedKeys()).not.toContain('work-start:AR:AR-3');
+    expect(storedKeys()).not.toContain('work-start:AR:AR-4');
 
     // A developer frees up: only the card still waiting starts; the assigned one is not touched.
     await h.domain.tasks.cancel('AR', busy[0]!, { reason: 'Fictional scope changed.' }, OWNER_ACTOR);

@@ -48,6 +48,8 @@ export interface DomainEventMap {
   task_assigned: { task: Task; previous: string | null; actor: Actor };
   /** A card's recommended developer was set or changed (PM-347), after the change committed. */
   task_level_changed: { task: Task; actor: Actor };
+  /** A card's priority was set or changed (PM-427), after the change committed: an urgent card is pulled into development. */
+  task_priority_changed: { task: Task; actor: Actor };
   /** A task was cancelled. */
   task_cancelled: Task & { cancelledBy?: Actor };
   /** A prerequisite relation of this task was removed (PM-204): its start may no longer have to wait. */

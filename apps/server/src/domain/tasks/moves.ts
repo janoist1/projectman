@@ -26,6 +26,7 @@ import type {
   InboxItem,
   ProjectConfig,
   Stage,
+  StagePull,
   StartBlock,
   Task,
   TaskHandOn,
@@ -98,6 +99,8 @@ export interface MoveOptions {
   branchMoved?: NonNullable<TimelineEventData['task_stage_changed']['branchMoved']>;
   /** The system sends the task back because the server's full test of the pinned commit failed (PM-217). */
   testsFailed?: NonNullable<TimelineEventData['task_stage_changed']['testsFailed']>;
+  /** The system pulls the card into the stage ahead of its turn (PM-427); recorded on the stage change. */
+  pulled?: StagePull;
   /** A person's move despite open prerequisites (PM-204); carried to the `task_stage_changed` event. */
   despitePrerequisites?: boolean;
   /**
@@ -205,7 +208,7 @@ export class TaskMoves {
     taskKey: string,
     stageId: string,
     actor: Actor,
-    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom'> = {},
+    opts: Pick<MoveOptions, 'branchMoved' | 'testsFailed' | 'expectedFrom' | 'pulled'> = {},
   ): Promise<MoveResult> {
     const config = await this.store.projects.config(projectKey);
     const prepared = await this.prepareMove(config, this.store.get(projectKey, taskKey), stageId);
@@ -349,12 +352,15 @@ export class TaskMoves {
     if (decision.kind === 'request')
       return this.requestHandOn(config, task, target, decision.mover, actorHandle(actor), effects);
     const head = opts.handover?.head;
-    const extra: Pick<TimelineEventData['task_stage_changed'], 'reviewPin' | 'branchMoved' | 'testsFailed'> =
-      {
-        ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
-        ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
-        ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
-      };
+    const extra: Pick<
+      TimelineEventData['task_stage_changed'],
+      'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled'
+    > = {
+      ...(head ? { reviewPin: { commit: head.commit, branch: head.branch } } : {}),
+      ...(opts.branchMoved ? { branchMoved: opts.branchMoved } : {}),
+      ...(opts.testsFailed ? { testsFailed: opts.testsFailed } : {}),
+      ...(opts.pulled ? { pulled: opts.pulled } : {}),
+    };
     const board: BoardPlace = { placement: opts.placement, reranked: [] };
     return {
       // Only a person can accept the warning: an AI actor's flag is ignored.
@@ -704,7 +710,7 @@ export class TaskMoves {
     actor: Actor,
     extra: Pick<
       TimelineEventData['task_stage_changed'],
-      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed'
+      'approvedBy' | 'inboxItemIds' | 'reviewPin' | 'branchMoved' | 'testsFailed' | 'pulled'
     >,
     effects: Effect[],
     pin?: SourceHead,

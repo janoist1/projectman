@@ -10,6 +10,7 @@ import {
   operatorOf,
   mergeReadiness,
   permissionDelegationOf,
+  pullSourceStage,
   routeFor,
   seniorWaitMinutesOf,
   stageOf,
@@ -52,6 +53,7 @@ import type { ProjectAccess } from './access';
 import {
   Admission,
   DeferredStarts,
+  FocusPull,
   MessageStarts,
   RefinementSteps,
   SeniorWaits,
@@ -745,6 +747,18 @@ export function createDomain(opts: DomainOptions) {
   // The start that waits for the labels an AI member sets runs as a work start, which needs the starts.
   taskStarts.useLabelWait(workStarts);
   taskStarts.useSeniorWait(workStarts);
+  // Free developers take urgent and focus cards ahead of their turn, at the end of every retry round (PM-427).
+  admission.usePull(
+    new FocusPull({
+      ctx,
+      projects,
+      tasks,
+      focus: projectFocus,
+      admission,
+      seniorWaits,
+      starts: workStarts,
+    }),
+  );
   const handOver = new StageHandOver({ projects, tasks, sessions, admission, delivery });
   // A card at its fix round limit holds back its assignee's messages and hand-over notice (PM-262); the
   // hold needs the classes it binds to, which are built first.
@@ -1425,6 +1439,16 @@ export function createDomain(opts: DomainOptions) {
   });
   events.on('task_cancelled', () => {
     retryDeferredStarts();
+  });
+  // Urgent and focus cards start first and are pulled into development (PM-427): a change of the focus, an
+  // urgent card, or a card that became ready for development starts a round at once.
+  projectFocus.onChange(() => retryDeferredStarts());
+  events.on('task_priority_changed', ({ task }) => {
+    if (task.priority === 'urgent') retryDeferredStarts();
+  });
+  events.on('task_stage_changed', (change) => {
+    const config = projects.cachedConfig(change.task.projectKey);
+    if (config && pullSourceStage(config)?.id === change.to) retryDeferredStarts();
   });
   // A card waiting for a prerequisite starts when the last one closes (above: done or withdrawn)
   // or its relation is removed (PM-204).

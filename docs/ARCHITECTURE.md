@@ -2121,13 +2121,34 @@ later parts of PM-427 (the order of deferred starts, the AI members' brief, the 
   `PATCH` and `DELETE .../focus/items/:taskKey`, and `GET .../focus/changes?limit=` (the project's `focus_changed`
   events, newest first). All are internal-only (`requireAccess(..., { internal: true })`).
 - **Timeline.** `focus_changed` (`added`/`removed` on the item's own card or theme, `moved` without a card, so it shows
-  only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`) is reserved for the pull into the
-  work stage (PM-427 2/4).
+  only in the project's changes). `task_stage_changed.data.pulled` (`StagePull`: `{ reason: 'urgent' }` or
+  `{ reason: 'focus', position, key, title }`) marks a card the system pulled into the work stage (below).
+- **Order of deferred starts (PM-436).** `Admission.retryDeferred` ranks the stored starts by `startClass` /
+  `compareStartClass` (shared): urgent (the card's priority is `urgent`), then focus by place, then the others; within
+  a class the `senior_busy` waits first, then the store order, so without focus or urgent cards the old order holds.
+  The places are read once per project and round. Rounds run one after the other: a start being retried is out of
+  the store, so an overlapping round would not see it; a round asked for while one runs makes the running one go once more.
+- **Pull (PM-436).** At the end of every `retryDeferred` round (so on every event that retries the deferred starts) the
+  `FocusPull` (`admission/focus-pull.ts`) gives a free developer a ready (Indulhat) card from the queue stage before
+  the work stage (`pullSourceStage`): `pullCandidates` takes the urgent cards (board order), then the focus cards by
+  place. A candidate is an active card, not a theme, with no assignee, no open prerequisite, no start block
+  (`startBlock`, so no `waiting-answer`) and nothing more asked by the gates on the way: a card that would need
+  `approvals` is left out, so a pull never requests one. The developer is picked as for any start (`pickDeveloper`: a
+  Senior card waits for a Senior, never goes to another developer) among the AI owners of the work stage who are not
+  temp workers, not on leave, have capacity and are not waited for by a stored deferral (that one goes first, a
+  `senior_busy` wait waits for its Seniors). One card per developer per round; nothing is pulled while AI work is off or
+  the project or the instance is paused, and no temp worker is hired. `WorkStarts.pull` takes the admission lock per
+  card and starts it like a deferred start (`startLocked` in the system's name, `automatic`, `StartTaskOptions.pulled`
+  into the stage change), so the Start button and a pull on the same card make one start; a failure after the
+  assignment falls back to the usual `work_start` retry. Refusals are logged at debug level and write no timeline.
+  A new round starts at once on a focus change (`ProjectFocusService.onChange`), on a priority set to `urgent` (the
+  internal `task_priority_changed` event) and on a card entering the queue stage, besides the freeing of a developer.
 - **Clients.** A client sees nothing of the focus: not the endpoints, not `project_focus_changed` (the default of
   `canSeeProjectEvent`), not `focus_changed` (it is not in `CLIENT_TASK_TIMELINE`), and `visibleTimelineEvent` takes
   `pulled` off a stage change.
 
-**Remote engine:** no machine-dependent part: server-side data and domain; the inventory below does not change.
+**Remote engine:** the pull and the order are server-side domain rules over stored data and the existing start path; no
+new machine-dependent part (the start itself is the inventory's existing work start), so the inventory does not change.
 
 ### The Operator (PM-447, PM-462, PM-463, PM-464)
 

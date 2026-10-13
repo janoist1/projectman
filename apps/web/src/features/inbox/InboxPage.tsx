@@ -8,6 +8,7 @@ import { useBoard, useConfig, useInbox, useResolveInbox, useRevokeBoundary } fro
 import { Button } from '../../components/Button';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Icon } from '../../components/Icon';
+import type { IconName } from '../../components/Icon';
 import { PageHeader } from '../../components/PageHeader';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState, ErrorState, LoadingState } from '../../components/States';
@@ -16,22 +17,29 @@ import { formatAgo, formatTime } from '../../i18n/format';
 import { t } from '../../i18n/t';
 import { useDocumentTitle, useIsMobile } from '../../lib/hooks';
 import {
+  answerDeliveryText,
+  askerStartToast,
+  closedBySomeoneElse,
   decisionLine,
   approvalHintOf,
   decisionSubject,
   decisionToast,
   boundaryOf,
   detailsHrefFor,
+  displayKindOf,
   handOnResolvedText,
   handOnToast,
   inboxItemDomId,
   isAssignedTo,
   isAutomaticDecision,
-  isPositiveResolution,
+  isRecentDecision,
   newestFirst,
+  resolutionMark,
   resolutionNote,
   resolverName,
 } from '../../lib/inbox';
+import type { DisplayKind, ResolutionMark } from '../../lib/inbox';
+import { isApiError } from '../../api/client';
 import { errorMessage } from '../../lib/errors';
 import { refusalFactsOf } from '../../lib/merge';
 import type { MemberIndex } from '../../lib/members';
@@ -41,11 +49,29 @@ import type { DrawerBase } from '../board/drawerBase';
 import { moveErrorText } from '../board/moveTask';
 import { isStaleError, operatorDecisionToast } from '../operator/OperatorApproval';
 import { InboxCard } from './InboxCard';
+import { OperatorTrail } from './OperatorTrail';
 import { FoldedCommand } from './PermissionParts';
 import { ReleaseSubject } from './ReleaseInbox';
 import styles from './InboxPage.module.css';
 
-type KindFilter = 'all' | InboxKind;
+type KindFilter = 'all' | DisplayKind;
+
+/** The kinds that get a pill, in order: a todo (PM-556) is a kind of its own, after the question. */
+const FILTER_KINDS: readonly DisplayKind[] = [...InboxKind.options, 'todo'];
+
+const MARK_STYLE: Record<ResolutionMark, string | undefined> = {
+  ok: styles.recentOk,
+  no: styles.recentNo,
+  moot: styles.recentMoot,
+  wait: styles.recentWait,
+};
+
+const MARK_ICON: Record<ResolutionMark, IconName> = {
+  ok: 'check',
+  no: 'close',
+  moot: 'minus',
+  wait: 'more',
+};
 
 /** How many decisions the system took by a rule are listed behind the folded row. */
 const AUTOMATIC_LIST_LIMIT = 20;
@@ -63,8 +89,9 @@ function RecentRow({
   pipeline?: PipelineIndex | null | undefined;
   onRevoke?: ((id: string) => void) | undefined;
 }) {
-  const positive = isPositiveResolution(item);
+  const mark = resolutionMark(item);
   const note = resolutionNote(item);
+  const delivery = answerDeliveryText(item, members, myHandle);
   const boundary = boundaryOf(item);
   const subject =
     item.kind === 'hand_on' && item.state === 'resolved'
@@ -72,11 +99,8 @@ function RecentRow({
       : decisionSubject(item);
   return (
     <li className={styles.recentItem}>
-      <span
-        className={clsx(styles.recentIcon, positive ? styles.recentOk : styles.recentNo)}
-        aria-hidden="true"
-      >
-        <Icon name={positive ? 'check' : 'close'} size={12} strokeWidth={3} />
+      <span className={clsx(styles.recentIcon, MARK_STYLE[mark])} aria-hidden="true">
+        <Icon name={MARK_ICON[mark]} size={12} strokeWidth={3} />
       </span>
       <span className={styles.recentText}>
         <span className={styles.recentLine}>{decisionLine(item, members, myHandle)}</span>
@@ -98,6 +122,7 @@ function RecentRow({
             : formatAgo(item.createdAt)}
         </span>
         {note ? <span className={styles.recentNote}>{note}</span> : null}
+        {delivery ? <span className={styles.recentNote}>{delivery}</span> : null}
         {boundary ? (
           <span className={styles.recentNote}>
             {boundary.consumedAt ? t('boundary.consumed') : t(`boundary.states.${boundary.state}`)}
@@ -193,7 +218,8 @@ export function InboxPage() {
   const { recent, automatic } = useMemo(() => {
     const decided = (items ?? [])
       .filter(
-        (item) => item.state !== 'open' && (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
+        (item) =>
+          isRecentDecision(item) && (item.resolution?.by === myHandle || isAssignedTo(item, myHandle)),
       )
       .sort((a, b) => (b.resolution?.at ?? b.createdAt).localeCompare(a.resolution?.at ?? a.createdAt));
     return {
@@ -205,6 +231,54 @@ export function InboxPage() {
     () => new Map((board.data?.tasks ?? []).map((task) => [task.key, task.title])),
     [board.data],
   );
+
+  // A question that closes while it is open (its card finished, the asker left it, someone else answered)
+  // stays in the list as a notice until the viewer dismisses it, so a half-typed answer is not lost (PM-556).
+  // `closed`: it closed by itself; `refused`: the viewer's own answer was refused because it had closed.
+  const [lingering, setLingering] = useState<ReadonlyMap<string, 'closed' | 'refused'>>(new Map());
+  const shownOpen = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const gone = (items ?? []).filter(
+      (item) =>
+        item.kind === 'question' && shownOpen.current.has(item.id) && closedBySomeoneElse(item, myHandle),
+    );
+    if (gone.length > 0)
+      setLingering((current) => {
+        const next = new Map(current);
+        for (const item of gone) if (!next.has(item.id)) next.set(item.id, 'closed');
+        return next.size === current.size ? current : next;
+      });
+    shownOpen.current = new Set(mine.map((item) => item.id));
+  }, [items, mine, myHandle]);
+  const dismissGone = (id: string) => {
+    // The focus goes on to the title of the next card (the previous one when it was the last), so it does not
+    // fall to the page. A notice that goes away on its own, with the focus elsewhere, leaves the focus alone.
+    const notice = document.getElementById(inboxItemDomId(id));
+    const titles = Array.from(document.querySelectorAll<HTMLElement>('[data-inbox-title]')).filter(
+      (title) => !notice?.contains(title),
+    );
+    const next = titles.find(
+      (title) => notice && notice.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    const previous = titles.findLast(
+      (title) => notice && notice.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_PRECEDING,
+    );
+    const hadFocus =
+      !document.activeElement ||
+      document.activeElement === document.body ||
+      notice?.contains(document.activeElement);
+    setLingering((current) => {
+      const nextMap = new Map(current);
+      nextMap.delete(id);
+      return nextMap;
+    });
+    // The cards may be built again when the groups go (the heading element is a new one): look it up by its card.
+    const targetId = (next ?? previous)?.closest('article')?.id;
+    if (hadFocus && targetId)
+      window.requestAnimationFrame(() =>
+        document.getElementById(targetId)?.querySelector<HTMLElement>('[data-inbox-title]')?.focus(),
+      );
+  };
 
   // A card's drawer opens over the page (the nested route) and closes back here (PM-501).
   const drawerBase = useMemo<DrawerBase>(
@@ -249,8 +323,105 @@ export function InboxPage() {
   if (inbox.isError)
     return withDrawer(<ErrorState error={inbox.error} onRetry={() => void inbox.refetch()} />);
 
-  const visible = filter === 'all' ? mine : mine.filter((item) => item.kind === filter);
+  const counts = new Map<DisplayKind, number>();
+  for (const item of mine) counts.set(displayKindOf(item), (counts.get(displayKindOf(item)) ?? 0) + 1);
+  // A pill per kind that has something waiting (and the one picked, so its empty text can say so).
+  const pillKinds = FILTER_KINDS.filter((kind) => (counts.get(kind) ?? 0) > 0 || kind === filter);
+  const filtered = filter === 'all' ? mine : mine.filter((item) => displayKindOf(item) === filter);
+  // A question that closed while open keeps its place as a notice, whatever the filter.
+  const gone = (items ?? []).filter(
+    (item) => lingering.has(item.id) && !filtered.some((f) => f.id === item.id),
+  );
+  const visible = gone.length > 0 ? newestFirst([...filtered, ...gone]) : filtered;
+  const todoCount = visible.filter((item) => displayKindOf(item) === 'todo').length;
+  const grouped = todoCount > 0 && todoCount < visible.length;
   const latest = mine[0];
+  const resolveFailedFor = (item: InboxItem) =>
+    resolve.isError && resolve.variables?.item.id === item.id ? resolve.error : null;
+
+  const renderCard = (item: InboxItem) => (
+    <InboxCard
+      key={item.id}
+      item={item}
+      members={members}
+      myHandle={myHandle}
+      pipeline={pipeline}
+      labels={board.data?.labels}
+      mobile={isMobile}
+      taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? null) : null}
+      taskHref={taskHrefOf(item)}
+      detailsHref={detailsHrefFor(item, key)}
+      approvalHint={approvalHintOf(item, {
+        task: board.data?.tasks.find((task) => task.key === item.taskKey),
+        items: items ?? [],
+        myHandle,
+      })}
+      cardHref={item.taskKey ? `/p/${key}/tasks/${item.taskKey}` : null}
+      pending={resolve.isPending && resolve.variables?.item.id === item.id}
+      closedWhileOpen={lingering.get(item.id) ?? null}
+      onDismissGone={() => dismissGone(item.id)}
+      error={
+        // A refused "Tovább" says why on its card (the gate), not in a toast.
+        item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
+          ? moveErrorText(
+              resolve.error,
+              board.data?.labels ?? [],
+              refusalFactsOf({
+                task: board.data?.tasks.find((task) => task.key === item.taskKey),
+                config,
+                members,
+                myHandle,
+                target: pipeline?.stageById.get(handOnRequestOf(item)?.toStageId ?? '')?.name ?? '',
+              }),
+            )
+          : // A refused release decision (the integrator's key is no approval) says why on its card.
+            item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
+            ? errorMessage(resolve.error)
+            : // A todo's "Nem tudom megcsinálni" without a reason is refused by the server too.
+              displayKindOf(item) === 'todo' && resolveFailedFor(item) && !lingering.has(item.id)
+              ? errorMessage(resolveFailedFor(item))
+              : null
+      }
+      stale={
+        // A stale Operator approval says so on its card, not in a toast.
+        operatorApprovalOf(item) !== null &&
+        resolve.isError &&
+        resolve.variables?.item.id === item.id &&
+        isStaleError(resolve.error)
+      }
+      onResolve={(target, body) =>
+        resolve.mutate(
+          { item: target, body },
+          {
+            onSuccess: () => {
+              const text =
+                operatorApprovalOf(target) !== null
+                  ? operatorDecisionToast(target, body.optionId)
+                  : target.kind === 'hand_on'
+                    ? handOnToast(target, pipeline)
+                    : ((target.askerStart ? askerStartToast(target, members, myHandle) : null) ??
+                      decisionToast(target, body.optionId, myHandle));
+              if (text) toast.show(text, 'ok');
+            },
+            onError: (error) => {
+              // The question closed under the answer: the card says so, a toast would repeat it.
+              if (target.kind === 'question' && isApiError(error) && error.code === 'inbox_item_closed') {
+                setLingering((current) => new Map(current).set(target.id, 'refused'));
+                return;
+              }
+              if (
+                target.kind !== 'hand_on' &&
+                target.kind !== 'release' &&
+                displayKindOf(target) !== 'todo' &&
+                !isStaleError(error)
+              )
+                toast.show(t('inbox.resolveFailed'), 'error');
+            },
+          },
+        )
+      }
+    />
+  );
 
   return withDrawer(
     <div className={styles.page} onClick={rememberOpener}>
@@ -276,99 +447,56 @@ export function InboxPage() {
             onChange={setFilter}
             options={[
               { value: 'all', label: t('inbox.filters.all'), count: mine.length },
-              ...InboxKind.options.map((kind) => ({
+              ...pillKinds.map((kind) => ({
                 value: kind,
                 label: t(`inbox.kinds.${kind}`),
-                count: mine.filter((item) => item.kind === kind).length,
+                count: counts.get(kind) ?? 0,
               })),
             ]}
           />
         )}
         <div className={styles.list}>
-          {visible.map((item) => (
-            <InboxCard
-              key={item.id}
-              item={item}
-              members={members}
-              myHandle={myHandle}
-              pipeline={pipeline}
-              labels={board.data?.labels}
-              mobile={isMobile}
-              taskTitle={item.taskKey ? (titles.get(item.taskKey) ?? null) : null}
-              taskHref={taskHrefOf(item)}
-              detailsHref={detailsHrefFor(item, key)}
-              approvalHint={approvalHintOf(item, {
-                task: board.data?.tasks.find((task) => task.key === item.taskKey),
-                items: items ?? [],
-                myHandle,
-              })}
-              cardHref={item.taskKey ? `/p/${key}/tasks/${item.taskKey}` : null}
-              pending={resolve.isPending && resolve.variables?.item.id === item.id}
-              error={
-                // A refused "Tovább" says why on its card (the gate), not in a toast.
-                item.kind === 'hand_on' && resolve.isError && resolve.variables?.item.id === item.id
-                  ? moveErrorText(
-                      resolve.error,
-                      board.data?.labels ?? [],
-                      refusalFactsOf({
-                        task: board.data?.tasks.find((task) => task.key === item.taskKey),
-                        config,
-                        members,
-                        myHandle,
-                        target: pipeline?.stageById.get(handOnRequestOf(item)?.toStageId ?? '')?.name ?? '',
-                      }),
-                    )
-                  : // A refused release decision (the integrator's key is no approval) says why on its card.
-                    item.kind === 'release' && resolve.isError && resolve.variables?.item.id === item.id
-                    ? errorMessage(resolve.error)
-                    : null
-              }
-              stale={
-                // A stale Operator approval says so on its card, not in a toast.
-                operatorApprovalOf(item) !== null &&
-                resolve.isError &&
-                resolve.variables?.item.id === item.id &&
-                isStaleError(resolve.error)
-              }
-              onResolve={(target, body) =>
-                resolve.mutate(
-                  { item: target, body },
-                  {
-                    onSuccess: () => {
-                      const text =
-                        operatorApprovalOf(target) !== null
-                          ? operatorDecisionToast(target, body.optionId)
-                          : target.kind === 'hand_on'
-                            ? handOnToast(target, pipeline)
-                            : decisionToast(target, body.optionId, myHandle);
-                      if (text) toast.show(text, 'ok');
-                    },
-                    onError: (error) => {
-                      if (target.kind !== 'hand_on' && target.kind !== 'release' && !isStaleError(error))
-                        toast.show(t('inbox.resolveFailed'), 'error');
-                    },
-                  },
-                )
-              }
-            />
-          ))}
+          {grouped ? (
+            <>
+              <h2 className={styles.groupHeading}>{t('inbox.groups.decisions')}</h2>
+              {visible.filter((item) => displayKindOf(item) !== 'todo').map(renderCard)}
+              <h2 className={styles.groupHeading}>
+                {t('inbox.groups.todo')}
+                <span className={styles.groupHint}>{t('inbox.groups.todoHint')}</span>
+              </h2>
+              {visible.filter((item) => displayKindOf(item) === 'todo').map(renderCard)}
+            </>
+          ) : (
+            visible.map(renderCard)
+          )}
           {visible.length === 0 ? (
             <EmptyState
               tone="ok"
               icon="check"
-              title={filter === 'all' ? t('inbox.allDoneEverywhere') : t('inbox.allDone')}
+              title={
+                filter === 'all'
+                  ? t('inbox.allDoneEverywhere')
+                  : filter === 'todo'
+                    ? t('inbox.todo.emptyFilter')
+                    : t('inbox.allDone')
+              }
             />
           ) : null}
         </div>
         {isMobile ? (
-          <RecentDecisions
-            items={recent.slice(0, 4)}
-            automatic={automatic}
-            members={members}
-            myHandle={myHandle}
-            pipeline={pipeline}
-            onRevoke={onRevoke}
-          />
+          <>
+            <RecentDecisions
+              items={recent.slice(0, 4)}
+              automatic={automatic}
+              members={members}
+              myHandle={myHandle}
+              pipeline={pipeline}
+              onRevoke={onRevoke}
+            />
+            {can.manageTeam ? (
+              <OperatorTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
+            ) : null}
+          </>
         ) : null}
       </div>
       {isMobile ? null : (
@@ -381,6 +509,9 @@ export function InboxPage() {
             pipeline={pipeline}
             onRevoke={onRevoke}
           />
+          {can.manageTeam ? (
+            <OperatorTrail projectKey={key} members={members} myHandle={myHandle} taskHrefOf={taskHrefOf} />
+          ) : null}
         </aside>
       )}
     </div>,

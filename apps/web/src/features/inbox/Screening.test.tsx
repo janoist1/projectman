@@ -1,5 +1,5 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TODO_CANNOT_OPTION, TODO_DONE_OPTION } from '@projectman/shared';
 import type { InboxItem, QuestionCloseRule, QuestionScreening } from '@projectman/shared';
 import { applyServerEvent } from '../../api/cache';
@@ -342,6 +342,14 @@ describe('a question that closes while it is open (PM-561)', () => {
 });
 
 describe('"Az Operátor intézte" (PM-561)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // Keep today's fixtures on the same local day in every time zone.
+    vi.setSystemTime(new Date(2026, 9, 14, 10, 0, 0));
+  });
+
+  afterEach(() => vi.useRealTimers());
+
   const settled = (
     id: string,
     screening: QuestionScreening,

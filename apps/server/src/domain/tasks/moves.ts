@@ -59,7 +59,7 @@ export interface MergeGate {
   reconcile(projectKey: string, taskKey: string): Promise<void>;
   /** Who merges the card (the approval request's `merge.merger`); null: nobody can. */
   mergerOf(config: ProjectConfig, task: Task): string | null;
-  /** Inside the unit of work that cancels the card: cancels its open merge; work after the commit goes to `effects`. */
+  /** Inside the unit of work that moves or cancels the card: cancels its open merge; work after the commit goes to `effects`. */
   cancel(projectKey: string, taskKey: string, effects: Effect[]): void;
 }
 

@@ -520,6 +520,15 @@ export interface FeedbackToolsHandler {
   closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
 }
 
+/** The tools of services/github (PM-604). */
+export interface GithubToolsHandler {
+  /** link_pull_request: attach a GitHub PR to the task. */
+  linkPullRequest(
+    ctx: ToolContext,
+    args: { taskKey: string; repo: string; number: number },
+  ): Promise<{ task: Task }>;
+}
+
 export interface ScreenshotToolsHandler {
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
@@ -552,6 +561,7 @@ export interface TeamToolsHandler
     AttachmentToolsHandler,
     MergeToolsHandler,
     FeedbackToolsHandler,
+    GithubToolsHandler,
     ScreenshotToolsHandler,
     BoundaryToolsHandler,
     ReleaseToolsHandler,
@@ -609,11 +619,6 @@ export interface TeamToolsHandler
     operator: boolean;
   }>;
 
-  /** link_pull_request: attach a GitHub PR to the task. */
-  linkPullRequest(
-    ctx: ToolContext,
-    args: { taskKey: string; repo: string; number: number },
-  ): Promise<{ task: Task }>;
   /**
    * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
    * The question is written for a non-specialist. Each option is a label, or a label with its

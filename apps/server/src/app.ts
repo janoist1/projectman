@@ -50,7 +50,7 @@ import {
 import { freeBytesOf } from './engine-host';
 import { readHeavyRunSessions } from './full-test';
 import type { Domain, ScheduleTimer, TemplateRegistry } from './domain';
-import { createGithubService } from './github';
+import { createGithubService } from './services/github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
 import { assertHomeMayStart } from './instance';
 import { createMcpModule } from './mcp';

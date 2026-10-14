@@ -13,12 +13,7 @@ import {
 } from '@projectman/shared';
 import { z } from 'zod';
 import { TeamToolError } from '../contracts';
-import {
-  formatCurrentWork,
-  formatLinkedPullRequest,
-  formatQuestionAsked,
-  formatSentMessage,
-} from './format';
+import { formatCurrentWork, formatQuestionAsked, formatSentMessage } from './format';
 
 import { defineTool, type TeamTool, type TeamToolGroup, MAX_PATH_CHARS, unique, taskKeyInput } from './kit';
 export {
@@ -37,6 +32,7 @@ import { ATTACHMENT_TOOL_GROUP } from './attachments';
 import { MERGE_TOOL_GROUP } from './merges';
 import { PROJECT_DOC_TOOL_GROUP } from './project-docs';
 import { FEEDBACK_TOOL_GROUP } from './feedback';
+import { GITHUB_TOOL_GROUP } from './github';
 import { SCREENSHOT_TOOL_GROUP } from './full-tests';
 import { BOUNDARY_TOOL_GROUP } from './boundary';
 import { RELEASE_TOOL_GROUP } from './releases';
@@ -73,6 +69,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   ATTACHMENT_TOOL_GROUP,
   MERGE_TOOL_GROUP,
   FEEDBACK_TOOL_GROUP,
+  GITHUB_TOOL_GROUP,
   SCREENSHOT_TOOL_GROUP,
   BOUNDARY_TOOL_GROUP,
   RELEASE_TOOL_GROUP,
@@ -226,30 +223,6 @@ const UNSORTED_TOOLS: readonly TeamTool[] = [
         ...(taskKey ? { taskKey } : {}),
       });
       return formatSentMessage({ ...result, requested: to, taskKey });
-    },
-  }),
-  defineTool({
-    name: 'link_pull_request',
-    title: 'Link a pull request',
-    readOnly: false,
-    description:
-      'Attach a GitHub pull request to a task, so its checks, reviews and merge are tracked on the task. ' +
-      'Call it right after opening the pull request.',
-    input: {
-      task_key: taskKeyInput,
-      repo: z
-        .string()
-        .regex(/^[\w.-]+\/[\w.-]+$/, 'expected "owner/name"')
-        .describe('GitHub repository as "owner/name".'),
-      number: z.number().int().positive().describe('Pull request number.'),
-    },
-    async run({ ctx, args, handler }) {
-      const { task } = await handler.linkPullRequest(ctx, {
-        taskKey: args.task_key,
-        repo: args.repo,
-        number: args.number,
-      });
-      return formatLinkedPullRequest(task, args.repo, args.number);
     },
   }),
   defineTool({

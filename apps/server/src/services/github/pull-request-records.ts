@@ -1,10 +1,10 @@
 import type { Task, TaskLink, TaskPullRequest } from '@projectman/shared';
-import type { PullRequestInfo } from '../contracts';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import type { ProjectService } from './projects';
-import type { TimelineService } from './timeline';
-import { SYSTEM_ACTOR } from './util';
+import type { PullRequestInfo } from '../../contracts';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import type { ProjectService } from '../../domain/projects';
+import type { TimelineService } from '../../domain/timeline';
+import { SYSTEM_ACTOR } from '../../domain/util';
 
 /**
  * What GitHub told us about linked pull requests: the latest snapshot of each (kept in memory,

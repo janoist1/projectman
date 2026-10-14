@@ -14,6 +14,7 @@ Only in a module that has been rewritten on purpose, behind a plain TypeScript f
 | the merge queue                  | `apps/server/src/services/merges/queue.ts`               | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)                      |
 | the full test queue              | `apps/server/src/services/full-tests/queue.ts`           | `FullTestRuns` (`services/full-tests/full-tests.ts`, exported by its `index.ts`)        |
 | screenshot execution and polling | `apps/server/src/services/full-tests/screenshot-core.ts` | `ScreenshotRuns` (`services/full-tests/screenshot-runs.ts`, exported by its `index.ts`) |
+| the GitHub pull request poller   | `apps/server/src/services/github/poll-loop.ts`           | `createPullRequestPoller` (`services/github/poller.ts`)                                 |
 | the schedule timer               | `apps/server/src/services/schedules/timer.ts`            | `MinuteTimer` (same file), used by `ScheduleService`, exported by its `index.ts`        |
 | the document write queue         | `apps/server/src/services/project-docs/write-queue.ts`   | `DocWrites` (`services/project-docs/doc-writes.ts`, exported by its `index.ts`)         |
 
@@ -122,6 +123,11 @@ Both facades close their scopes on shutdown and rebuild them for a later restart
 
 ## Timers and cleanup
 
+- In effect 4.0.4, `Effect.sleep(0)` is `yieldNow`. A wait after a step that replaced a zero-delay
+  Node timer must be at least 1 ms (the GitHub poller's first wait may still yield at 0 ms).
+- Interrupt with the kernel's `runFork` when cleanup is asynchronous. The poller's `halt` aborts
+  the round on the caller's stack and waits for its promise before scheduling again; `runSync`
+  cannot wait for that cleanup. Only replacing a sleeping fiber is synchronous.
 - **No `setTimeout`, `setInterval`, `clearTimeout`, `clearInterval`, `.unref()` or timer sets** in
   Effect code. A delay is `Effect.sleep` inside a fiber; a timer you may cancel or replace is a
   `FiberHandle` (one) or a `FiberMap` (one per key, e.g. per session id); background work is

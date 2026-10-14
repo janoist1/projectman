@@ -11,7 +11,8 @@ module tool definitions and handlers, and the text the model reads.
 A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements the module's handler contract, and `index.ts` exports both.
 The groups so far are `members`, `tasks`, `attachments`, `merges`
-(`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `full-tests`
+(`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `github`
+(`link_pull_request`; module `services/github`), `full-tests`
 (`take_screenshots`, `get_screenshot_run`; module `services/full-tests`), `boundary`, `releases` and `operator`, plus
 `project-docs` (`read_project_doc`, `write_project_docs`, `list_decision_candidates`,
 `mark_decision_candidates`; module `services/project-docs`). `tools.ts` collects their

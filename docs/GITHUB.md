@@ -7,7 +7,7 @@ approved merge commit to the default branch through the engine's git login (PM-4
 
 ```
 projectman server ── execFile (no shell) ──▶ gh CLI ──▶ GitHub API
-   src/github            owner's `gh auth login`         (read-only calls)
+   src/services/github            owner's `gh auth login`         (read-only calls)
       │
       └─ watch(): polls the PRs linked to tasks ─▶ domain updates task links and gates
 ```
@@ -113,7 +113,7 @@ stop watching PRs of finished tasks.
 
 ## Errors
 
-Every failure is a `GithubError` (exported from `apps/server/src/github`) with a `code`:
+Every failure is a `GithubError` (exported from `apps/server/src/services/github`) with a `code`:
 `invalid_argument`, `not_installed`, `not_authenticated`, `rate_limited`, `not_found`,
 `timeout`, `unreachable`, `server_error`, `invalid_response`, `aborted` or `failed`.
 Callers can turn `not_found` into a friendly "no such PR" message; the others mean
@@ -128,7 +128,7 @@ Callers can turn `not_found` into a friendly "no such PR" message; the others me
   home, environment and token).
 - `gh` runs non-interactively (`GH_PROMPT_DISABLED`), without update checks, and always
   prints plain JSON (colors and forced terminals are switched off).
-- Automated tests use a fake `gh` (`apps/server/src/github/test-fixtures/fake-gh.mjs`) and
+- Automated tests use a fake `gh` (`apps/server/src/services/github/test-fixtures/fake-gh.mjs`) and
   never contact GitHub.
 
 ## Recommended next steps

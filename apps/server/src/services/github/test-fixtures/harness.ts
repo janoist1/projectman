@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyBaseLogger } from 'fastify';
 import { vi } from 'vitest';
-import type { PullRequestInfo } from '../../contracts';
+import type { PullRequestInfo } from '../../../contracts';
 
 /** Test helpers for the github module. Nothing here talks to GitHub. */
 

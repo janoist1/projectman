@@ -1,5 +1,8 @@
+import { Effect, Exit, Scope } from 'effect';
+import { runFork, runPromise } from '../../kernel';
+import { makePollLoop } from './poll-loop';
 import type { FastifyBaseLogger } from 'fastify';
-import type { PullRequestInfo } from '../contracts';
+import type { PullRequestInfo } from '../../contracts';
 import { toGithubError, type GithubErrorCode } from './errors';
 import { pullRequestFingerprint } from './pull-request';
 import { isValidPullRequestNumber, isValidRepo } from './refs';
@@ -23,6 +26,7 @@ export interface PullRequestPollerOptions {
 }
 
 export interface PullRequestPoller {
+  close(): Promise<void>;
   /** Same semantics as GithubService.watch. */
   watch(targets: readonly PullRequestTarget[], onChange: (pr: PullRequestInfo) => void): () => void;
 }
@@ -73,10 +77,7 @@ export function createPullRequestPoller(opts: PullRequestPollerOptions): PullReq
   const { logger } = opts;
   const subscriptions = new Set<Subscription>();
   const targets = new Map<string, TargetState>();
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let timerDueAt = Number.POSITIVE_INFINITY;
-  /** Aborts the in-flight fetch when the last subscriber leaves; non-null while a round runs. */
-  let round: AbortController | null = null;
+  let closed = false;
   let globalFailures = 0;
   let pausedUntil = 0;
   const longestDelay = Math.max(opts.maxBackoffMs, opts.intervalMs);
@@ -115,7 +116,7 @@ export function createPullRequestPoller(opts: PullRequestPollerOptions): PullReq
     queueMicrotask(() => {
       for (const key of keys) notify(subscription, key);
     });
-    schedule();
+    Effect.runSync(core.schedule);
     return () => unsubscribe(subscription);
   }
 
@@ -125,10 +126,7 @@ export function createPullRequestPoller(opts: PullRequestPollerOptions): PullReq
       if (![...subscriptions].some((other) => other.keys.has(key))) targets.delete(key);
     }
     if (subscriptions.size === 0) {
-      if (timer !== null) clearTimeout(timer);
-      timer = null;
-      timerDueAt = Number.POSITIVE_INFINITY;
-      round?.abort();
+      runFork(core.halt);
     }
   }
 
@@ -144,33 +142,11 @@ export function createPullRequestPoller(opts: PullRequestPollerOptions): PullReq
     }
   }
 
-  /** Arms the timer for the earliest due PR, unless a round is running (it reschedules itself). */
-  function schedule(): void {
-    if (round !== null || subscriptions.size === 0) return;
+  function nextDueAt(): number {
+    if (closed || subscriptions.size === 0) return Number.POSITIVE_INFINITY;
     let dueAt = Number.POSITIVE_INFINITY;
     for (const state of targets.values()) dueAt = Math.min(dueAt, state.dueAt);
-    if (dueAt === Number.POSITIVE_INFINITY) return;
-    dueAt = Math.max(dueAt, pausedUntil);
-    if (timer !== null) {
-      if (timerDueAt <= dueAt) return;
-      clearTimeout(timer);
-    }
-    timerDueAt = dueAt;
-    timer = setTimeout(startRound, Math.max(0, dueAt - Date.now()));
-    timer.unref?.();
-  }
-
-  function startRound(): void {
-    timer = null;
-    timerDueAt = Number.POSITIVE_INFINITY;
-    const controller = new AbortController();
-    round = controller;
-    runRound(controller.signal)
-      .catch((err: unknown) => logger.error({ err }, 'github: pull request polling round failed'))
-      .finally(() => {
-        round = null;
-        schedule();
-      });
+    return Math.max(dueAt, pausedUntil);
   }
 
   async function runRound(signal: AbortSignal): Promise<void> {
@@ -225,5 +201,13 @@ export function createPullRequestPoller(opts: PullRequestPollerOptions): PullReq
     }
   }
 
-  return { watch };
+  const scope = Scope.makeUnsafe();
+  const core = Effect.runSync(Scope.provide(makePollLoop({ nextDueAt, round: runRound, logger }), scope));
+  return {
+    watch,
+    close() {
+      closed = true;
+      return runPromise(Scope.close(scope, Exit.void));
+    },
+  };
 }

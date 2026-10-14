@@ -17,7 +17,7 @@ import { ownerHandles } from '../../domain/access';
 import { conflict, DomainError, forbidden } from '../../domain/errors';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../domain/util';
 import { runFork, runPromise } from '../../kernel';
-import { MergeCardLock } from './card-lock';
+import { MergeCardLock } from '../../kernel';
 import type { MergeDeps } from './deps';
 import type { MergeSlotPeer } from './ports';
 import { makeMergeQueue } from './queue';

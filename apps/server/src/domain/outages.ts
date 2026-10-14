@@ -21,7 +21,7 @@ import type {
   WorkOutage,
 } from '@projectman/shared';
 import type { EngineDirectory, ProviderStatus, SessionRunner } from '../contracts';
-import { ENGINE_OFFLINE_AFTER_MS } from '../engine-link';
+import { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
 import type { ProjectAccess } from './access';
 import type { DeferredStarts } from './admission';
 import { isoNow } from './context';

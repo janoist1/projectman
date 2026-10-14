@@ -1200,7 +1200,7 @@ workers follow the machine's size.
   (`~/projectman-live`) to a release the owner approved: fetch, build, release test, configuration check,
   then pause, stop, database backup, atomic directory switch, verification, and on success tag and
   GitHub release; on a failure it puts back the previous build and the backup. The state is a journal in
-  `~/.projectman/release/` (denied to the sessions' sandboxes in `domain/session-policy.ts`); the watcher
+  `~/.projectman/release/` (denied to the sessions' sandboxes in `contracts/sandbox.ts`); the watcher
   talks to the server through the control socket (`release_next`, `release_claim`, `release_report`).
   **launchd teardown (PM-584):** `scripts/live/launchd.ts` polls `launchctl print` after `bootout`
   until the job is absent (up to 120 s), before cutover or rollback continues; `bootstrap` retries
@@ -1447,7 +1447,7 @@ workers follow the machine's size.
   `db/integrator-keys.ts`, `domain/session-policy.ts`, `runner/env.ts` (PM-251).
   The host owner creates a separately attributed bearer key; the server stores only its hash.
   Authentication accepts it only on a local connection or HTTPS, using the existing loopback
-  proxy protocol rules in `auth/local-request.ts`.
+  proxy protocol rules in `kernel/local-request.ts`.
   The integrator stores its copy in `~/.config/projectman/integrator-key` on its own machine.
   Member file tools and local CLI sandboxes deny `.config/projectman`; the runner strips
   `PROJECTMAN_INTEGRATOR_KEY` before launching members.
@@ -1569,6 +1569,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Remote engine (engine mode, PM-314: runs in the engine process):** run this probe beside the CLI on the engine and transport the exit event;
   a remote PID must never be checked against the server's process table.
   Since PM-311 the domain asks the workspace's engine (`EngineHost.processExists`, `contracts/engine.ts`).
+  The local probe runs on the engine in `engine-host/local-engine.ts` (PM-611).
   **Module:** `runner`
 
 - **Fake CLI pause test gates** — `runner/runner.integration.test.ts` and
@@ -1684,7 +1685,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and allocate the session's tmp there, and pass `CLAUDE_CODE_TMPDIR` to the CLI on the engine.
   Since PM-311 the registry is `EngineHost.sessionFolders` (`EngineSessionFolders`) and the roots are
   `EnginePaths.sessionFoldersRoot`, `sessionTmpRoot` and `claudeTmpRoots` (`contracts/engine.ts`);
-  `createLocalEngine` (`domain/engines.ts`) prepares them, with the same checks as before.
+  `createLocalEngine` (`engine-host/local-engine.ts`) prepares them, with the same checks as before.
   Since PM-312 the disk work is the engine's too: `make`, `remove`, `sweep` and `releaseTmpRoot`
   are asynchronous (the domain awaits a session's pending removal before it makes the new folder at
   a restart, `Sessions.folderRemovals`), and the member's sandbox directory (0700) with its git
@@ -1703,7 +1704,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   reached only through the protected REST routes and the team tool. A session never gets a path into
   that store: `read_message_attachment` returns the content itself (an image, a small text), and for
   what the content cannot show (PM-518) a copy in the caller's own session folder (below).
-  `domain/session-policy.ts` includes the entire store in `sensitivePaths` (PM-524), denying
+  `contracts/sandbox.ts` includes the entire store in `sensitivePaths` (PM-524), denying
   direct file-tool and sandboxed shell access on the machine that hosts a session; authorized
   copies in its session folder remain readable. Remote engines use the same policy for their
   local app home and receive authorized files through the existing transfer boundary below.
@@ -1817,7 +1818,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `runner`
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
   `domain/sessions.ts`, `runner/runner.ts`, `runner/hook-forwarder.ts`,
-  `http/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
+  `kernel/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
   forwarding/origin headers; merely changing the URL to a public server cannot work.
@@ -1996,7 +1997,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   This flow uses task worktree mode; member workspace mode refuses conflict-fix requests
   with `merge_fix_not_allowed`. Placement remains `task_worktree` with `mergeFix.branch`;
   `MemberWorkspaces` retains its existing work/review choices. The server's shared
-  `services/merges/card-lock.ts` lock serializes fix creation, session placement and cleanup;
+  `kernel/card-lock.ts` lock serializes fix creation, session placement and cleanup;
   cleanup rechecks open merge rows and live fix sessions immediately before the engine call.
   Orphaned fix branches and registered checkouts (including dirty or detached ones) are swept
   at startup and periodically. The engine revalidates the canonical fix path under its
@@ -2005,7 +2006,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
   `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
-  `engine-link/remote/host.ts`, `domain/engines.ts` (`repoPath`), `services/merges/`
+  `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on

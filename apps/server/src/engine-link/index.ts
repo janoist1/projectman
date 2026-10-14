@@ -1,9 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { EngineId } from '@projectman/shared';
 import { routes } from '@projectman/shared';
-import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../auth';
-import { DomainError } from '../domain';
-import type { EngineRegistry } from '../domain';
+import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../kernel';
+import { DomainError } from '../domain/errors';
 import { createEngineRpc, createRpcState } from './rpc';
 import type { EngineRpc, RpcState } from './rpc';
 import {
@@ -42,9 +41,17 @@ export interface EngineLinks {
   close(): void;
 }
 
+/** What the link needs from the engine registry; the assembly passes `EngineRegistry`. */
+export interface EngineLinkRegistry {
+  resolve(key: string): EngineId | null;
+  onRevoke(listener: (id: EngineId) => void): () => void;
+  seen(id: EngineId, ip: string, hello?: Hello): void;
+  setOnline(id: EngineId, online: boolean): void;
+}
+
 /** Authenticated outgoing engine sockets. Human cookies and integrator tokens grant no access. */
 export function createEngineLinks(options: {
-  registry: EngineRegistry;
+  registry: EngineLinkRegistry;
   clientIpHeader?: string;
   now?: () => number;
 }): EngineLinks {

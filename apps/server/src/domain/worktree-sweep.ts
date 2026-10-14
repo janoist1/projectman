@@ -14,7 +14,7 @@ import type { DiskGuard } from './disk-guard';
 import type { InboxService } from './inbox';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
-import { MergeCardLock } from '../services/merges';
+import { MergeCardLock } from '../kernel';
 
 /** A closed card's worktree stays this long: a done card may come back, and the developer may look again. */
 export const CLOSED_WORKTREE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;

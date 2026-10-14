@@ -120,7 +120,7 @@ import { ProviderQuotaHolds } from './provider-quota-hold';
 import type { PlanUsageCache } from './plan-usage';
 import type { InboxService } from './inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from './util';
-import { MergeCardLock } from '../services/merges';
+import { MergeCardLock } from '../kernel';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';

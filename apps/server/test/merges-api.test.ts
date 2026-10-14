@@ -12,8 +12,8 @@ const merger = vi.hoisted(() => ({
   releaseCheck: vi.fn(async () => {}),
   checkoutConflicts: vi.fn(async () => []),
 }));
-vi.mock('../src/engine-host', async (original) => ({
-  ...(await original<typeof import('../src/engine-host')>()),
+vi.mock('../src/engine-host/branch-merger', async (original) => ({
+  ...(await original<typeof import('../src/engine-host/branch-merger')>()),
   createLocalBranchMerger: () => merger,
 }));
 

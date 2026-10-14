@@ -8,6 +8,7 @@ import {
 } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, Task } from '@projectman/shared';
 import type {
+  ProcessProbe,
   MemberWorkspaceInfo,
   MemberWorkspaceKey,
   MemberWorkspaceManager,
@@ -17,27 +18,11 @@ import type {
   WorkspaceSource,
 } from '../contracts';
 import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } from '../db';
-import { taskBranchName } from '../worktree';
+import { taskBranchName } from '@projectman/shared';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { conflict, DomainError } from './errors';
 import { KeyedMutex, newId } from './util';
-
-/** Whether a process (or any process of its group) still exists. */
-export type ProcessProbe = (pid: number) => boolean;
-
-/** The real probe: signal 0 to the process group, then to the process; EPERM still means it exists. */
-export const processExists: ProcessProbe = (pid) => {
-  for (const target of [-pid, pid]) {
-    try {
-      process.kill(target, 0);
-      return true;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'EPERM') return true;
-    }
-  }
-  return false;
-};
 
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {
@@ -60,7 +45,7 @@ export interface MemberWorkspacesDeps {
   isRunning: (sessionId: string) => boolean;
   /** Stops a running session and records its end (it then releases what it held). */
   stop: (projectKey: string, sessionId: string) => Promise<unknown>;
-  processExists?: ProcessProbe;
+  processExists: ProcessProbe;
 }
 
 /**
@@ -90,7 +75,7 @@ export class MemberWorkspaces {
     this.ctx = deps.ctx;
     this.manager = deps.manager;
     this.deps = deps;
-    this.alive = deps.processExists ?? processExists;
+    this.alive = deps.processExists;
   }
 
   /**

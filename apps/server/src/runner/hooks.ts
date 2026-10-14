@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import { nonLocalReason } from '../http/local-guard';
+import { nonLocalReason } from '../kernel';
 import type { HookPayload } from './hook-payload';
 import type { AgentSession } from './session';
 

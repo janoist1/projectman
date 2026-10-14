@@ -16,7 +16,7 @@ export const ENGINE_PROTOCOL_VERSION = 1;
 export const ENGINE_MAX_FRAME_BYTES = 4 * 1024 * 1024;
 export const ENGINE_HEARTBEAT_MS = 20_000;
 export const ENGINE_DEAD_AFTER_MS = 45_000;
-export const ENGINE_OFFLINE_AFTER_MS = 120_000;
+export { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
 export const ENGINE_RELAY_WAIT_MS = 60_000;
 export const ENGINE_UPLOAD_MAX_BYTES = {
   file: MAX_ATTACHMENT_BYTES,

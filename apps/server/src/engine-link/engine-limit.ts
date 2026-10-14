@@ -8,7 +8,7 @@ import {
   READER_UNSANDBOXED_COMMANDS,
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
-} from '../domain/session-policy';
+} from '../contracts';
 import {
   isBranchName,
   isCommitFileSet,
@@ -16,8 +16,8 @@ import {
   isMergeId,
   isMergeMessage,
   isRepoFilePath,
-} from '../engine-host/merge-input';
-import { isWithin } from '../engine-host/within';
+} from '../engine-host';
+import { isWithin } from '../engine-host';
 import { BILLING_ENV_VARS } from '../runner';
 import { engineFiles } from './engine-config';
 import type { ResolvedEngineConfig } from './engine-config';

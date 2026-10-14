@@ -14,7 +14,7 @@ import type { MergeRecord } from '../../db';
 import { isoNow } from '../../domain/context';
 import { conflict } from '../../domain/errors';
 import { actorHandle, newId, SYSTEM_ACTOR } from '../../domain/util';
-import type { MergeCardLock } from './card-lock';
+import type { MergeCardLock } from '../../kernel';
 import type { MergeDeps, MergeRun } from './deps';
 import { notifyMerge } from './notify';
 

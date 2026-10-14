@@ -5,7 +5,8 @@ import {
   forwarderCommand,
   permissionHookTimeoutS,
 } from '../../hook-forwarder';
-import { claudeBuiltinTools, claudeToolRules, directoryRulePaths } from './policy';
+import { claudeBuiltinTools } from './policy';
+import { claudeToolRules, directoryRulePaths } from '../../../contracts';
 
 /**
  * Command line and inline settings for an interactive Claude Code session.

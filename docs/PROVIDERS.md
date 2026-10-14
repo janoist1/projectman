@@ -400,9 +400,9 @@ on its own only where the CLI does not cover a case or the owner asked for it.
   `~/.codex`, `~/.npmrc`, `~/.aws`, `~/.cloudflared`; not the whole `~/.claude`: the member's saved tool outputs under
   `projects/` and the plan mode's `plans/` live there) and of the sensitive parts of the app home (database,
   cookie secret, logs, customization repository, members' memory, publishing identity, spool), and
-  `WebFetch` of `localhost` and `127.0.0.1`. `domain/session-policy.ts` (`sensitivePaths`,
-  `HARD_DENIED_HOSTS`) lists them, `SessionPolicy.filesystem.deniedPaths` and
-  `network.deniedHosts` carry them, `runner/providers/claude/policy.ts` renders the rules. The
+  `WebFetch` of `localhost` and `127.0.0.1`. `contracts/sandbox.ts` (`sensitivePaths`) and `domain/session-policy.ts`
+  (`HARD_DENIED_HOSTS`) list them, `SessionPolicy.filesystem.deniedPaths` and
+  `network.deniedHosts` carry them, `contracts/claude-rules.ts` renders the rules. The
   whole app home is not denied: worktrees, workspaces and attachments live there, and deny wins
   over allow. Read rules also cover Grep and Glob (best effort, per the Claude Code docs).
 - **Codex members too:** `decide` is provider-neutral, so approver `none` refuses a Codex member's

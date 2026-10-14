@@ -322,3 +322,8 @@ export interface EngineDirectory {
   engineFor(projectKey: string, member: MemberHandle): EngineId | null;
   onChange(listener: (id: EngineId, online: boolean) => void): () => void;
 }
+
+/** Whether a process (or any process of its group) still exists. */
+export type ProcessProbe = (pid: number) => boolean;
+
+export const ENGINE_OFFLINE_AFTER_MS = 120_000;

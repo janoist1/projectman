@@ -203,7 +203,7 @@ export interface BuildAppOptions {
   /**
    * PROJECTMAN_CLIENT_IP_HEADER: the header the public entrance (e.g. `cf-connecting-ip` behind
    * Cloudflare) sets to the real client's address. Only the attempt limiters read it, and only
-   * from a loopback peer (auth/local-request `clientAddress`). Default: none, the connection's
+   * from a loopback peer (kernel/local-request `clientAddress`). Default: none, the connection's
    * address counts.
    */
   clientIpHeader?: string;

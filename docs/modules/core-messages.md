@@ -29,9 +29,8 @@ All files live under `apps/server/src/core/messages/` (PM-642): `index.ts`, `por
 The authoritative descriptor is
 [`core-messages.ts`](../../apps/server/test/architecture/modules/core-messages.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update their own descriptor and this document, removing their dependency exceptions
-from the central map without changing the architecture table.
+Its only path is `core/messages/`, with `sealed: true`; id, layer, target and pass
+remain unchanged. The central architecture was finalized in PM-645.
 
 ## Remote engine
 

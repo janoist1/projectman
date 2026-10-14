@@ -18,13 +18,13 @@ Final paths under `apps/server/src/core/timeline/`: `index.ts` (facade) and `tim
 The authoritative descriptor is
 [`core-timeline.ts`](../../apps/server/test/architecture/modules/core-timeline.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update only their own descriptor and this document. They do not edit the central map,
-architecture table or other modules' importers.
+Its only path is `core/timeline/`, with `sealed: true`; id, layer, target and pass
+remain unchanged. Existing timeline tests use the facade from `apps/server/test/`;
+there is no internal `tests/` folder or separate `ports.ts`.
 
 ## Remote engine
 
 Timeline storage stays in the server database. Engines contribute data through existing contracts; this module introduces no machine-dependent operation or remote payload.
 
-PM-631 only prepares file ownership for parallel refactor slices. It changes no
+PM-641 moves the implementation to its final folder. It changes no
 shared contract, database schema, configuration or timeline event.

@@ -44,7 +44,8 @@ should confirm still goes to them as a question.
   invariants, owner-only changes) belong in `packages/shared`, used by the server and by the
   web's test fake (`apps/web/src/mocks`); never re-implement one there or in a route handler.
 - Route handlers parse the request, check access and call a domain service; business logic
-  lives in `apps/server/src/domain`. Only `apps/server/src/index.ts` reads the environment.
+  lives behind the `apps/server/src/core`, `runtime` and `services` module facades.
+  `apps/server/src/domain/index.ts` composes them. Only `apps/server/src/index.ts` reads the environment.
 - Older configuration shapes, database rows and timeline events exist in real installations.
   Configuration migrations live in `apps/server/src/config/migrations.ts`, database
   migrations in `apps/server/src/db/migrations.ts`; timeline events are append-only, so old
@@ -68,15 +69,15 @@ These rules apply to every member, including Codex:
 
 ## Module ownership (parallel workstreams)
 
-| Workstream | Owns                                                                                                                                              |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                              |
-| mcp        | `apps/server/src/mcp/**`                                                                                                                          |
-| core       | `apps/server/src/{db,domain,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
-| web        | `apps/web/**`                                                                                                                                     |
-| github     | `apps/server/src/services/github/**`                                                                                                              |
-| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                       |
-| widget     | `apps/feedback-widget/**`                                                                                                                         |
+| Workstream | Owns                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| runner     | `apps/server/src/runner/**`, `apps/server/test/fixtures/fake-{claude,codex,tui}.mjs`                                                                          |
+| mcp        | `apps/server/src/mcp/**`                                                                                                                                      |
+| core       | `apps/server/src/{db,kernel,core,domain,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
+| web        | `apps/web/**`                                                                                                                                                 |
+| github     | `apps/server/src/services/github/**`                                                                                                                          |
+| context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                                   |
+| widget     | `apps/feedback-widget/**`                                                                                                                                     |
 
 `packages/shared` is everyone's contract: change it additively, and name the change in your
 report. Stay inside your paths otherwise. Each module exposes the factory declared in its

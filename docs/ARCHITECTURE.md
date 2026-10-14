@@ -509,6 +509,8 @@ claude | codex ── transcript JSONL ────────────▶ r
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
   `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.
+  Core implementations live in the eight sealed `core/<module>/` folders; common helpers
+  live behind `kernel/index.ts`. Only composition remains in `domain/` (PM-645).
 - Services tell each other what happened through typed domain events (`ctx.events`:
   configuration changes, resolved inbox items, stage moves, cancellations, label and mention
   notices, sessions starting and ending, messages waiting for a recipient); a failing listener
@@ -567,11 +569,12 @@ other: they communicate through the core. Connectors and runtime reach engine
 capabilities only through ports in `contracts/`. Workspace `@projectman/*`
 packages count as contracts and are accessible to every layer.
 
-The source is [module-map.ts](../apps/server/test/architecture/module-map.ts); only a phase's closing card edits this table (PM-627 in phase 4).
+The source is [module-map.ts](../apps/server/test/architecture/module-map.ts); only a phase's closing card edits this table (PM-627 in phase 4, PM-645 in phase 5).
 
-The eight core modules are sealed behind their named `index.ts` exports (PM-636).
-Their public names, types and factory dependency shapes are fixed before the parallel
-implementation moves: each slice changes only its own re-export source paths.
+The kernel and eight core modules are sealed at their final paths (PM-631, PM-637–644).
+The core descriptors live in `test/architecture/modules/core-<module>.ts`, assembled in
+the original `MODULES` order. Their public names, types and factory dependency shapes
+remain those frozen in PM-636; no old implementation files or forwarding shims remain.
 Assembly uses `createProjectService`, `createTaskService`, `createMemberService`,
 `createTimelineService`, `createMessaging` and `createInboxService` in the existing
 construction order; the factories return the existing classes without changing behavior.
@@ -583,15 +586,15 @@ construction order; the factories return the existing classes without changing b
 | `config`                                          | Project configuration loading, validation and migrations.                   |
 | `logging`                                         | Structured server and engine logging and file rotation.                     |
 | `instance`                                        | Installation identity and activation state.                                 |
-| `kernel`                                          | Common errors, utilities, background jobs and periodic sweeps.              |
+| `kernel`                                          | Common errors, utilities, background work, sweeps and merge locks.          |
 | `agent-text`                                      | Text formatting for agent-facing context.                                   |
-| [`core/base`](modules/core-base.md)               | Domain context, events and the event bus.                                   |
+| [`core/base`](modules/core-base.md)               | Domain context, units of work, domain events and the websocket event bus.   |
 | [`core/projects`](modules/core-projects.md)       | Projects, roles, stage reviewers and visibility.                            |
-| [`core/tasks`](modules/core-tasks.md)             | Tasks, board state, focus, involvement and card measures.                   |
+| [`core/tasks`](modules/core-tasks.md)             | Tasks, PR records, board state, focus, involvement and card measures.       |
 | [`core/members`](modules/core-members.md)         | Member access, invitations, presence and naming.                            |
 | [`core/timeline`](modules/core-timeline.md)       | Append-only task and project timeline access.                               |
 | [`core/messages`](modules/core-messages.md)       | Stored messages, routing and conversation rules.                            |
-| [`core/inbox`](modules/core-inbox.md)             | Human questions, approval inbox and question lifecycle.                     |
+| [`core/inbox`](modules/core-inbox.md)             | Human questions, approvals, permission decisions and question lifecycle.    |
 | [`core/attachments`](modules/core-attachments.md) | Task and message attachment storage and processing.                         |
 | `runtime/admission`                               | Admission, deferred starts, handovers and refinement.                       |
 | `runtime/sessions`                                | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
@@ -634,12 +637,21 @@ This initial baseline may only shrink: slice cards update their own paths and re
 their own exceptions. Once a slice seals its module, other modules must import its
 target `index.ts`, including when a layer exception still exists.
 
+No exception has a `core/*` source. The fifteen original pairs are accounted for in
+[the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
+PM-632–635 removed fourteen. The four remaining exceptions (`api/auth/ws → assembly`,
+`instance → entry`), context/MCP sealing and `domain/index.ts → assembly.ts` belong to
+PM-630. Compatibility exports in `domain/index.ts` still come from module facades.
+
 #### Core extension points
 
 When a core rule needs facts from a service or runtime module, the port type belongs
 to the core module. Its `register…` method names the core concept rather than the
-provider. Registration happens in assembly (`domain/index.ts`) until the provider's
-slice moves it into its own factory. A later registration replaces the earlier one.
+provider. Registration happens in assembly (`domain/index.ts`); constructor ports also
+receive the existing runtime/auth/service instances there. These interfaces live in
+`core/{projects,tasks,members,messages,inbox}/ports.ts` and are exported by their facades.
+Core imports neither runtime/services/auth nor Effect. A later registration replaces
+the earlier one.
 
 The first extension point is `TaskService.registerMergeGate(gate: MergeGate)` (PM-591).
 The merge service supplies the facts for “done only after merging”; the rule that
@@ -707,7 +719,7 @@ The programs, their files and facades, the pinned version and the rules are in
 - `kernel/` — shared helpers, Effect execution, periodic sweeps and merge locks.
 - `agent-text/` — AI-facing wording for context packs and team tools.
 - `core/` — the eight sealed core facades: base, projects, tasks, members, timeline,
-  messages, inbox and attachments. Their implementations temporarily remain in `domain/`.
+  messages, inbox and attachments, with implementations inside each module's own folder.
 - `domain/index.ts` (`createDomain`) — the composition and event wiring until PM-630.
 - `runtime/` — admission and handovers; session lifecycle, launch, rounds, compaction,
   provider limits, cleanup, policy, pause and workspaces; message delivery; command permission
@@ -1588,8 +1600,9 @@ Keep entries current under the rule in `CLAUDE.md`.
 
 Unless stated otherwise, server paths below are relative to `apps/server/src/`.
 
-Core attachment and permission entries use the stable module facade addresses (PM-636).
-This import refactor changes no filesystem operation, machine assumption or remote-engine RPC.
+Core attachment and permission entries name their final implementation locations behind the
+stable module facades (PM-645). This refactor changes no filesystem operation, machine
+assumption or remote-engine RPC.
 
 - **Session process liveness** — `runner/session.ts` (PM-376). Every 30 s the runner
   probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
@@ -1676,7 +1689,7 @@ This import refactor changes no filesystem operation, machine assumption or remo
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
   folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312).
-  `core/inbox` exposes the existing readable-root calculation through `InboxPermissionPolicy`
+  `core/inbox/ports.ts` exposes the existing readable-root calculation through `InboxPermissionPolicy`
   (PM-635); policy rendering and folder operations remain in runtime and on the engine. Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
@@ -1738,7 +1751,15 @@ This import refactor changes no filesystem operation, machine assumption or remo
   `sessionFolders.of` answers without a call; a `link_down` while releasing the temporary root at stop is
   ignored (the engine cleans up when it is back).
   **Module:** `engine-host`
-- **Message attachments (PM-516)** — `core/attachments`, `api/message-attachments.ts`, `mcp/attachments/tools.ts`
+- **Card attachments (PM-644)** — `core/attachments/attachments/{service,storage,thumbnail}.ts`
+  (through `core/attachments/index.ts`) and `contracts/attachments.ts`. Records and the private
+  `<PROJECTMAN_HOME>/attachments` store belong to the server; local storage uses 0700 directories,
+  0600 files and no-follow opens, and `sharp`/libvips generates thumbnails there.
+  **Remote engine:** keep storage and image processing beside the server. Engine callers use
+  the existing authenticated attachment/transfer boundary; their local paths are not server
+  storage paths. No new RPC or payload is introduced by moving these files.
+  **Module:** `core/attachments`
+- **Message attachments (PM-516, PM-644)** — `core/attachments/message-attachments/` (through `core/attachments/index.ts`), `api/message-attachments.ts`, `mcp/attachments/tools.ts`
   (`read_message_attachment`), `mcp/server.ts` (`runTool`). The files of team messages live under
   `<PROJECTMAN_HOME>/message-attachments/<projectKey>/<id>` (0700 directories, 0600 files, `.thumb`,
   `.part`), written and read by the server process on its own disk (`O_EXCL`, `O_NOFOLLOW`), and
@@ -1759,7 +1780,7 @@ This import refactor changes no filesystem operation, machine assumption or remo
   card attachments.
   **Module:** `core/attachments`
 - **Message file in the session folder (PM-518)** — `mcp/attachments/handler.ts` (`readMessageAttachment`,
-  `sessionFileTarget`), `core/attachments` (`source`, `locate`,
+  `sessionFileTarget`), `core/attachments/message-attachments/` (`source`, `locate`,
   `sessionFileName`), `engine-host/session-folders.ts` (`SessionFolders.materializeFile`),
   `engine-link/{methods,engine-handlers,engine-limit}.ts` (`files.materialize_into_session`),
   `engine-link/remote/host.ts`, `contracts/runner.ts` (`PROVIDER_MCP_IMAGE_RESULTS`). When the

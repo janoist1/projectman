@@ -181,8 +181,8 @@ function sessionLockKey(projectKey: string, handle: string, workItem: WorkItemRe
  * The lifecycle of AI sessions, one per (AI member x work item): starts, reuses and resumes
  * them through the runner, maps MCP tokens to tool contexts, and mirrors runner events into
  * the database, the event bus (clients) and the domain events (`session_started`,
- * `session_ended`). Admission (src/domain/admission) decides whether an automatic start may
- * happen; team messages (src/domain/messaging) are typed in through `typeInto`.
+ * `session_ended`). Admission (src/runtime/admission) decides whether an automatic start may
+ * happen; team messages (src/core/messages) are typed in through `typeInto`.
  */
 export class SessionOrchestrator {
   private readonly deps: SessionOrchestratorDeps;

@@ -1,11 +1,11 @@
 import { isOnLeave, isRefinementStage, memberOf, stageIndex, stageOf, stageOwners } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, Stage, Task } from '@projectman/shared';
-import { conflict } from '../errors';
-import type { MessageDelivery } from '../messaging';
-import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../../runtime/sessions';
-import type { StageChange, TaskService } from '../tasks';
-import { actorHandle } from '../util';
+import { conflict } from '../../domain/errors';
+import type { MessageDelivery } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import type { SessionOrchestrator } from '../sessions';
+import type { StageChange, TaskService } from '../../domain/tasks';
+import { actorHandle } from '../../domain/util';
 import type { Admission } from './admission';
 import type { AutomaticStart, StartSpec } from './deferred-starts';
 

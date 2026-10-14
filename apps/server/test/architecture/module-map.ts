@@ -180,8 +180,8 @@ export const MODULES: readonly ModuleEntry[] = [
     id: 'runtime/admission',
     layer: 'runtime',
     target: 'runtime/admission',
-    pass: 'split-tool',
-    paths: ['runtime/admission/', 'domain/admission/', 'domain/handoffs.ts'],
+    pass: 'split',
+    paths: ['runtime/admission/'],
     sealed: true,
   },
   {

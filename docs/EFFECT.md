@@ -58,7 +58,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-616 admission (if any)**
 
-  Planned.
+  No Effect program: the module has no timer or long-running part; its periodic sweeps (handoffs, deferred-start retry, senior waits) run in PM-613's kernel/sweeps.ts. PM-627 removes this item.
 
 - **PM-617 machine and outages**
 

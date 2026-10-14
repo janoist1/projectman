@@ -29,16 +29,16 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import type { EngineDirectory } from '../../contracts';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
-import type { DiskGuard } from '../../runtime/watchers';
-import { conflict } from '../errors';
-import { highestUsagePercent } from '../../runtime/usage';
-import type { PlanUsageCache } from '../../runtime/usage';
-import type { ProjectService } from '../projects';
-import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../../runtime/sessions';
-import type { TaskService } from '../tasks';
-import { KeyedMutex } from '../util';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import type { DiskGuard } from '../watchers';
+import { conflict } from '../../domain/errors';
+import { highestUsagePercent } from '../usage';
+import type { PlanUsageCache } from '../usage';
+import type { ProjectService } from '../../domain/projects';
+import type { EnsureSessionResult, SessionOrchestrator, SessionStartCause } from '../sessions';
+import type { TaskService } from '../../domain/tasks';
+import { KeyedMutex } from '../../domain/util';
 import type { AutomaticStart, DeferredStart, DeferredStarts, StartSpec } from './deferred-starts';
 import {
   assertAiEnabled,

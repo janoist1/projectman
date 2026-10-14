@@ -1,4 +1,4 @@
-import { KeyedMutex } from '../domain/util';
+import { KeyedMutex } from './util';
 
 /** Serializes merge decisions, fix placement and cleanup per card. Never re-enter. */
 export class MergeCardLock {

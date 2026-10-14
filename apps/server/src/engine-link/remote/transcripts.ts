@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { ChatItem } from '@projectman/shared';
 import type { EngineId } from '@projectman/shared';
 import type { PlanUsageProvider, TranscriptReader } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { AgentProvider, PlanUsage } from '@projectman/shared';
 import type { RemoteHub } from './hub';
 import type { FileTransfers } from './transfers';

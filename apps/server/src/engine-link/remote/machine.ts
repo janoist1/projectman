@@ -1,5 +1,5 @@
 import type { MachineProbe, MachineSnapshot } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import { EngineCallError } from '../rpc';
 import type { RemoteHub } from './hub';
 

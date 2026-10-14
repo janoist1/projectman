@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newId } from '../domain/util';
+import { newId } from '../kernel';
 import { isBranchName, isCommitId, isMergeId, isMergeMessage } from './merge-input';
 
 describe('input checks', () => {

@@ -33,14 +33,14 @@ import { ownerHandles } from '../../domain/access';
 import type { Admission, TaskStarts } from '../admission';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { conflict, forbidden } from '../../domain/errors';
+import { conflict, forbidden } from '../../kernel';
 import type { InboxService } from '../../domain/inbox';
 import type { MessageDelivery, Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../domain/util';
+import { KeyedMutex, SYSTEM_ACTOR, SYSTEM_AUTHOR, aiActor, humanActor } from '../../kernel';
 
 type FixLimitEvent = TimelineEventData['task_fix_limit'];
 type Phase = NonNullable<TaskFixLimitRecord['holdPhase']>;

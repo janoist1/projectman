@@ -1,6 +1,6 @@
 import type { InvolvementQuery, InvolvementsResponse } from '@projectman/shared';
 import type { DomainContext } from './context';
-import { invalid } from './errors';
+import { invalid } from '../kernel';
 import { visibleTimelineEvent } from './visibility';
 import type { Viewer } from './visibility';
 

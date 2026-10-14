@@ -45,12 +45,12 @@ import type {
 } from '../../db';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { DomainError, forbidden, invalid, notFound } from '../../domain/errors';
+import { DomainError, forbidden, invalid, notFound } from '../../kernel';
 import type { InboxService } from '../../domain/inbox';
 import type { ProjectService } from '../../domain/projects';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { KeyedMutex, newId } from '../../domain/util';
+import { KeyedMutex, newId } from '../../kernel';
 import { prepareScreenshot } from './screenshots';
 import type { FeedbackScreenshotStore } from './screenshots';
 import type { AttachmentService } from '../../domain/attachments';

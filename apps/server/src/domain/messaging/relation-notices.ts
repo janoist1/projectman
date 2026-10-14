@@ -19,7 +19,7 @@ import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { TaskService } from '../tasks';
-import { SYSTEM_ACTOR, unique } from '../util';
+import { SYSTEM_ACTOR, unique } from '../../kernel';
 import type { Messaging } from './messaging';
 
 /** How much of the other card's description a notice carries. */

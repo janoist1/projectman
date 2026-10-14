@@ -4,7 +4,7 @@ import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
 import type { ProjectService } from '../../domain/projects';
 import type { TimelineService } from '../../domain/timeline';
-import { SYSTEM_ACTOR } from '../../domain/util';
+import { SYSTEM_ACTOR } from '../../kernel';
 
 /**
  * What GitHub told us about linked pull requests: the latest snapshot of each (kept in memory,

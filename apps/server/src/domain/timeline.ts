@@ -2,7 +2,7 @@ import { isLoopWork } from '@projectman/shared';
 import type { Actor, TimelineEvent, TimelineEventData, TimelineEventType } from '@projectman/shared';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
-import { newId } from './util';
+import { newId } from '../kernel';
 
 /** An event to append; `data` has the shape its type documents in `TimelineEventData`. */
 export type AppendTimelineInput = {

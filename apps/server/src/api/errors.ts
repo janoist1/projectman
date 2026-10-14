@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import type { ApiError, ErrorCode } from '@projectman/shared';
-import { DomainError } from '../domain/errors';
+import { DomainError } from '../kernel';
 
 export function apiError(code: ErrorCode, message: string, details?: unknown): ApiError {
   return { error: { code, message, ...(details !== undefined ? { details } : {}) } };

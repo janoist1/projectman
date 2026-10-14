@@ -1,6 +1,6 @@
 import { themeCards, themeProgress, themeRefusal } from '@projectman/shared';
 import type { Actor, Task, ThemeCard, ThemeProgress, ThemeRefusal } from '@projectman/shared';
-import { invalid } from '../errors';
+import { invalid } from '../../kernel';
 import type { TaskStore } from './store';
 
 /** Why a card may not be given a theme: the message of each refusal of the shared rule. */

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { conflict } from '../src/domain/errors';
+import { conflict } from '../src/kernel';
 import type { MergeGate } from '../src/domain/tasks';
 import type { InboxDecider } from '../src/domain/inbox';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';

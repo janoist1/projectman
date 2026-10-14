@@ -20,7 +20,7 @@ import type { InboxService } from '../../domain/inbox';
 import type { ConfigChange, ProjectService } from '../../domain/projects';
 import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
-import { SYSTEM_ACTOR, newId } from '../../domain/util';
+import { SYSTEM_ACTOR, newId } from '../../kernel';
 
 const MINUTE_MS = 60_000;
 

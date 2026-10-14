@@ -10,7 +10,7 @@ import type {
 import type { OperatorRequestRecord, OperatorStepRecord } from '../../db';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { newId } from '../../domain/util';
+import { newId } from '../../kernel';
 
 /** An owner's request to the Operator stays open this long at most; the end of its turn closes it sooner. */
 export const OPERATOR_REQUEST_TTL_MS = 30 * 60_000;

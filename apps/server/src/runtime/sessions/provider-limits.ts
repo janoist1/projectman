@@ -2,7 +2,7 @@ import { ALERT_SEEN_OPTION } from '@projectman/shared';
 import type { AgentProvider, PlanUsage, Session } from '@projectman/shared';
 import type { RunnerEvent, SessionRunner } from '../../contracts';
 import { ownerHandles } from '../../domain/access';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { DomainContext } from '../../domain/context';
 import type { InboxService } from '../../domain/inbox';
 import type { ProjectService } from '../../domain/projects';

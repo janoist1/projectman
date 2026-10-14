@@ -1,5 +1,5 @@
 import type { z } from 'zod';
-import { invalid } from '../domain/errors';
+import { invalid } from '../kernel';
 
 /** Validates a request body (or query) with a shared zod schema; 400 invalid_request with the issues otherwise. */
 export function parseBody<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {

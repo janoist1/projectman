@@ -2,7 +2,7 @@ import type { PlanUsage } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EventBus } from '../../contracts';
-import { BackgroundTasks } from '../../domain/background';
+import { BackgroundTasks } from '../../kernel';
 import type { ProjectService } from '../../domain/projects';
 import { PlanUsageMonitor } from './plan-usage';
 

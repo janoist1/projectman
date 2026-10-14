@@ -3,7 +3,7 @@ import type { DiskLowAlert, EngineId, ProjectConfig } from '@projectman/shared';
 import type { EngineDirectory } from '../../contracts';
 import { ownerHandles } from '../../domain/access';
 import type { DomainContext } from '../../domain/context';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { InboxService } from '../../domain/inbox';
 import type { ProjectService } from '../../domain/projects';
 

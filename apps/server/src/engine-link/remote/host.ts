@@ -18,7 +18,7 @@ import type {
 } from '../../contracts';
 import { MERGE_ERROR_CODES, MergeError, WorkspaceFileRefusal } from '../../contracts';
 import type { MergeErrorCode } from '../../contracts';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import type { EngineMethod, MethodParams, MethodResult } from '../methods';
 import { EngineCallError } from '../rpc';
 import type { CallOptions } from '../rpc';

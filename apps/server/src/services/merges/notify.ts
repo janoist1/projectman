@@ -1,7 +1,7 @@
 import { mergeRequestOf, memberOf } from '@projectman/shared';
 import type { ProjectConfig } from '@projectman/shared';
 import type { MergeRecord } from '../../db';
-import { SYSTEM_ACTOR } from '../../domain/util';
+import { SYSTEM_ACTOR } from '../../kernel';
 import type { MergeDeps } from './deps';
 
 /** Tells the card's merger what the merge needs from them: an inbox request for a human, a message for an AI. */

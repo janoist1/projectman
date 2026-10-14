@@ -44,8 +44,8 @@ import type { DomainContext } from '../../domain/context';
 import { isoNow } from '../../domain/context';
 import type { ProjectService } from '../../domain/projects';
 import type { TaskWaits } from '../../domain/tasks';
-import { conflict, invalid } from '../../domain/errors';
-import { newId } from '../../domain/util';
+import { conflict, invalid } from '../../kernel';
+import { newId } from '../../kernel';
 
 type SignalInput = {
   projectKey: string;

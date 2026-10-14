@@ -18,7 +18,7 @@ import { runFork, runPromise } from '../../kernel';
 import type { ScreenshotSessions, OutputTailOf } from './ports';
 import { makeScreenshotCore } from './screenshot-core';
 import type { ScreenshotCoreEffects } from './screenshot-core';
-import { newId } from '../../domain/util';
+import { newId } from '../../kernel';
 
 /** How long `take_screenshots` and `get_screenshot_run` wait for the end of a run (under Codex's 60 s tool limit). */
 export const SCREENSHOT_POLL_MS = 40_000;

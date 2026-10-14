@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyDocEdits, docLines, isAppendOnly } from './doc-edits';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 
 function codeOf(run: () => unknown): string | undefined {
   try {

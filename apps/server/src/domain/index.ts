@@ -72,7 +72,7 @@ import {
 import type { StartSpec } from '../runtime/admission';
 import { AttachmentService } from './attachments';
 import { MessageAttachmentService } from './message-attachments';
-import { BackgroundTasks } from './background';
+import { BackgroundTasks } from '../kernel';
 import { BoardService } from './board';
 import { OperatorRequests, OperatorSteps } from '../services/operator';
 import { OperatorSignals } from '../services/operator';
@@ -122,7 +122,7 @@ import { MachineMonitor } from '../runtime/watchers';
 import { createMachineProbe } from '../machine';
 import { LocalEngineDirectory } from '../runtime/sessions';
 import { createLocalEngine } from '../engine-host';
-import { conflict } from './errors';
+import { conflict } from '../kernel';
 import { SessionCloser } from '../runtime/sessions';
 import { SessionOrchestrator } from '../runtime/sessions';
 import { AutoAdvance } from '../runtime/watchers';
@@ -149,12 +149,22 @@ import { DiskGuard } from '../runtime/watchers';
 import { WorkOutages } from '../runtime/watchers';
 import { WorktreeSweep } from '../runtime/watchers';
 import { CardMeasure } from './card-measure';
-import { SYSTEM_ACTOR } from './util';
+import { SYSTEM_ACTOR } from '../kernel';
 import { SYSTEM_SENDER } from '@projectman/shared';
 
 export * from './access';
 export * from './context';
-export * from './errors';
+export {
+  DomainError,
+  notFound,
+  forbidden,
+  ownerLoginRequired,
+  projectManagerMoveRefused,
+  invalid,
+  conflict,
+  themeRefused,
+  unavailable,
+} from '../kernel';
 export { createEventBus } from './event-bus';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents } from './events';
@@ -162,7 +172,7 @@ export { Admission, DeferredStarts } from '../runtime/admission';
 export type { AutomaticStart } from '../runtime/admission';
 export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
 export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
-export { BackgroundTasks } from './background';
+export { BackgroundTasks } from '../kernel';
 export { BoardService } from './board';
 export { BoundaryService } from '../services/boundary';
 export { CardQuestions, QUESTION_LIMIT } from './card-questions';
@@ -212,7 +222,7 @@ export { TimelineService } from './timeline';
 export { FeedbackService, FeedbackWidgetService } from '../services/feedback';
 export type { FeedbackWidgetSession } from '../services/feedback';
 export { ProjectFocusService } from './project-focus';
-export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
+export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from '../kernel';
 
 import { ProviderKeys } from '../runtime/usage';
 export type { NanogptKeyCheck } from '../runtime/usage';

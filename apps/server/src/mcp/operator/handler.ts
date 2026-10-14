@@ -3,14 +3,14 @@ import type { OperatorOperation, ScreeningOutcome, QuestionTodo, Task } from '@p
 import { TeamToolError } from '../../contracts';
 import type { OperatorToolsHandler, MemberStartResult, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { InboxService } from '../../domain/inbox';
 import type { Messaging } from '../../domain/messaging';
 import { recipientHasCardRole } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
 import type { TaskService } from '../../domain/tasks';
 import type { TaskStarts } from '../../runtime/admission';
-import { aiActor } from '../../domain/util';
+import { aiActor } from '../../kernel';
 import type { ProjectState, OperatorActions } from '../../services/operator';
 import { toToolError, toMessageToolError, type ToolCaller } from '../caller';
 

@@ -16,7 +16,7 @@ import type {
 import type { FastifyBaseLogger } from 'fastify';
 import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../../contracts';
 import { processShortName } from '@projectman/shared';
-import { conflict } from '../../domain/errors';
+import { conflict } from '../../kernel';
 import { MachineRounds, sleepFor } from './machine-rounds';
 
 /**

@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger, FastifyRequest } from 'fastify';
 import { vi } from 'vitest';
 import type { EngineId } from '@projectman/shared';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { EngineLink, EngineLinks } from '../index';
 import { decodeFrame } from '../protocol';
 import type { EngineEvent, Hello } from '../protocol';

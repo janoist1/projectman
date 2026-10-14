@@ -6,7 +6,7 @@ import { isoNow } from '../../domain/context';
 import type { DomainEventMap } from '../../domain/events';
 import type { Messaging } from '../../domain/messaging';
 import type { ProjectService } from '../../domain/projects';
-import { KeyedMutex, SYSTEM_ACTOR } from '../../domain/util';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../kernel';
 
 /**
  * Wakes the feedback processor (PM-512). A new mark, or a marker's comment on an open one, sends the

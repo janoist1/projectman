@@ -26,7 +26,7 @@ import type { ProjectAccess } from '../../domain/access';
 import type { DeferredStarts } from '../admission';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { conflict, forbidden } from '../../domain/errors';
+import { conflict, forbidden } from '../../kernel';
 import type { InboxService } from '../../domain/inbox';
 import type { MemberService } from '../../domain/members';
 import type { Messaging } from '../../domain/messaging';

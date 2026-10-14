@@ -1,7 +1,7 @@
 import type { Task } from '@projectman/shared';
 import type { EngineDirectory, GithubService } from '../../contracts';
 import type { MergeRecord } from '../../db';
-import type { BackgroundTasks } from '../../domain/background';
+import type { BackgroundTasks } from '../../kernel';
 import type { DomainContext } from '../../domain/context';
 import type { InboxService } from '../../domain/inbox';
 import type { Messaging } from '../../domain/messaging';

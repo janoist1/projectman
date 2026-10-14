@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { EngineId } from '@projectman/shared';
 import { routes } from '@projectman/shared';
 import { clientAddress, createAttemptLimiter, isLocalRequest, requestProtocol } from '../kernel';
-import { DomainError } from '../domain/errors';
+import { DomainError } from '../kernel';
 import { createEngineRpc, createRpcState } from './rpc';
 import type { EngineRpc, RpcState } from './rpc';
 import {

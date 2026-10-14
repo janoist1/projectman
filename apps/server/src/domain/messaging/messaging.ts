@@ -40,14 +40,14 @@ import type { EngineDirectory, SentMessageHold, SentMessageRecipient, WakeStart 
 import type { RefinementSteps } from '../../runtime/admission';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
-import { DomainError, forbidden, invalid, conflict } from '../errors';
+import { DomainError, forbidden, invalid, conflict } from '../../kernel';
 import type { MessageAttachmentService } from '../message-attachments';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
 import type { SessionOrchestrator, SessionStartCause } from '../../runtime/sessions';
 import type { TaskService } from '../tasks';
-import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
+import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
 import type { MessageDelivery } from '../../runtime/delivery';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';

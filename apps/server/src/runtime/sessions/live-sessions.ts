@@ -1,6 +1,6 @@
 import type { AgentProvider, Session, SessionStop } from '@projectman/shared';
 import type { ToolContext } from '../../contracts';
-import { newToken } from '../../domain/util';
+import { newToken } from '../../kernel';
 
 /**
  * What the server holds about each session's current process, in memory: it is gone with the

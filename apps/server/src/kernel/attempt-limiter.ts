@@ -1,4 +1,4 @@
-import { DomainError } from '../domain/errors';
+import { DomainError } from './errors';
 
 /**
  * Failed attempts all clients together may use up per window, next to each client's own budget.

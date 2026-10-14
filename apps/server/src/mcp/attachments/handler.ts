@@ -12,12 +12,12 @@ import type {
   ToolContext,
 } from '../../contracts';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import { sessionFileName } from '../../domain/message-attachments';
 import type { MessageAttachmentService } from '../../domain/message-attachments';
 import type { TaskService } from '../../domain/tasks';
 import { attachmentToolRules } from '../../runtime/sessions';
-import { aiActor, humanActor } from '../../domain/util';
+import { aiActor, humanActor } from '../../kernel';
 
 import { type ToolCaller, toFileToolError } from '../caller';
 import type { AttachmentToolsHandler } from '../../contracts';

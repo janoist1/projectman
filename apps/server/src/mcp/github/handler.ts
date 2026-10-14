@@ -3,7 +3,7 @@ import { TeamToolError } from '../../contracts';
 import type { GithubService, GithubToolsHandler, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../domain/context';
 import type { TaskService } from '../../domain/tasks';
-import { aiActor } from '../../domain/util';
+import { aiActor } from '../../kernel';
 import type { GithubSync } from '../../services/github';
 import type { ToolCaller } from '../caller';
 

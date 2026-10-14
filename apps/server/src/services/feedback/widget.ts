@@ -9,9 +9,9 @@ import type {
 } from '@projectman/shared';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { ConfigChange, ProjectService } from '../../domain/projects';
-import { humanActor, newId } from '../../domain/util';
+import { humanActor, newId } from '../../kernel';
 import type { FeedbackService } from './service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

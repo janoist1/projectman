@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { routes, TASK_CREATE_MIN_ACCESS } from '@projectman/shared';
 import type { Domain } from '../domain';
-import { forbidden } from '../domain/errors';
+import { forbidden } from '../kernel';
 import { requireAccess } from './context';
 
 type ProjectParams = { Params: { key: string } };

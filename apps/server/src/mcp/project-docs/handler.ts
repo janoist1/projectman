@@ -3,7 +3,7 @@ import type { ProjectDoc } from '@projectman/shared';
 import { TeamToolError } from '../../contracts';
 import type { ProjectDocToolsHandler, ProjectDocRead, ProjectDocWrite, ToolContext } from '../../contracts';
 import type { DomainContext } from '../../domain/context';
-import { DomainError } from '../../domain/errors';
+import { DomainError } from '../../kernel';
 import type { ProjectService } from '../../domain/projects';
 import type { OperatorSteps } from '../../services/operator';
 import { docLines, type DocWrites, type DecisionCandidates } from '../../services/project-docs';

@@ -21,8 +21,8 @@ import type { MemberWorkspaceRecord, TaskWorkspaceBinding, WorkspaceHolder } fro
 import { taskBranchName } from '@projectman/shared';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
-import { conflict, DomainError } from '../../domain/errors';
-import { KeyedMutex, newId } from '../../domain/util';
+import { conflict, DomainError } from '../../kernel';
+import { KeyedMutex, newId } from '../../kernel';
 
 /** Where a task session works in its member's workspace, as `SessionOrchestrator.start` uses it. */
 export interface WorkspacePlacement {

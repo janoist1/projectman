@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { BranchMerger } from '../contracts';
-import { newId } from '../domain/util';
+import { newId } from '../kernel';
 import { createLocalBranchMerger } from './branch-merger';
 import { DEPENDENCIES_NOT_INSTALLED, MERGE_CHECK_DIR } from './merge-check';
 

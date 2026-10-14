@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import type { FastifyBaseLogger as Logger } from 'fastify';
 import { z } from 'zod';
 import { ProviderKeyValue } from '@projectman/shared';
-import { invalid } from '../../domain/errors';
+import { invalid } from '../../kernel';
 
 export interface ProviderKeyStatus {
   set: boolean;

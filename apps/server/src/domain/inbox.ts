@@ -51,11 +51,11 @@ import { ownerHandles } from './access';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import { engineIdOf } from '../runtime/sessions';
-import { conflict, forbidden, invalid, notFound } from './errors';
+import { conflict, forbidden, invalid, notFound } from '../kernel';
 import type { ProjectService } from './projects';
 import type { TimelineService } from './timeline';
 import { commandVerdict, readableRootsFor } from '../runtime/sessions';
-import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from './util';
+import { SYSTEM_ACTOR, aiActor, excerpt, humanActor, newId, KeyedMutex } from '../kernel';
 
 /** How many screened questions the screened-questions list returns (PM-558). */
 const SCREENED_QUESTIONS_LIMIT = 20;

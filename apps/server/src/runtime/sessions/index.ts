@@ -1,10 +1,10 @@
-export { EngineRegistry, machineKeyHash, newMachineKey } from '../../domain/engine-registry';
-export type { EngineCounters, EngineHelloMetadata } from '../../domain/engine-registry';
-export { engineIdOf, engineOption, LocalEngineDirectory } from '../../domain/engines';
-export { PauseService } from '../../domain/pause';
-export type { PauseOptions, PauseRequester, PauseTarget } from '../../domain/pause';
-export { SessionCloser } from '../../domain/session-closer';
-export { HYBRID_ARCHIVE_DIR, HYBRID_STAGING_DIR } from '../../domain/session-policy';
+export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry';
+export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
+export { engineIdOf, engineOption, LocalEngineDirectory } from './engines';
+export { PauseService } from './pause';
+export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
+export { SessionCloser } from './session-closer';
+export { HYBRID_ARCHIVE_DIR, HYBRID_STAGING_DIR } from './session-policy';
 export {
   allowedToolsFor,
   attachmentToolRules,
@@ -31,7 +31,7 @@ export {
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
   withSessionFolders,
-} from '../../domain/session-policy';
+} from './session-policy';
 export {
   BUSY_SESSION_STATES,
   COMPACT_MIN_CONTEXT_TOKENS,
@@ -39,5 +39,5 @@ export {
   MAX_FIRST_INPUT_CHARS,
   MESSAGE_SEPARATOR,
   SessionOrchestrator,
-} from '../../domain/sessions';
-export type { EnsureSessionResult, SessionStartCause } from '../../domain/sessions';
+} from './sessions';
+export type { EnsureSessionResult, SessionStartCause } from './sessions';

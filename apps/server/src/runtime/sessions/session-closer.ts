@@ -13,14 +13,14 @@ import {
   stageIndex,
 } from '@projectman/shared';
 import type { EngineId, ProjectConfig, Session, SessionStop, Task } from '@projectman/shared';
-import type { EngineDirectory } from '../contracts';
+import type { EngineDirectory } from '../../contracts';
 import { engineIdOf } from './engines';
-import type { DomainContext } from './context';
-import type { MessageDelivery, Messaging } from './messaging';
-import type { ProjectService } from './projects';
-import type { RefinementSteps } from '../runtime/admission';
+import type { DomainContext } from '../../domain/context';
+import type { MessageDelivery, Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import type { RefinementSteps } from '../admission';
 import type { SessionOrchestrator } from './sessions';
-import type { StageChange, TaskService } from './tasks';
+import type { StageChange, TaskService } from '../../domain/tasks';
 
 const MINUTE_MS = 60_000;
 

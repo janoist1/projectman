@@ -42,21 +42,21 @@ import type {
   OperatorMemberChanges,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
-import type { MemberCapacity, MemberProfileSessions } from '../core/members/ports';
+import type { MemberCapacity, MemberProfileSessions } from './ports';
 import { findHumanByEmail, requireAiMember, requireHuman } from './access';
 import { ownerHandles } from '@projectman/shared';
 import type { ProjectAccess } from './access';
-import { isoNow } from '../core/base';
-import type { DomainContext } from '../core/base';
-import { conflict, DomainError, invalid, notFound } from '../kernel';
-import type { InboxService } from '../core/inbox';
+import { isoNow } from '../base';
+import type { DomainContext } from '../base';
+import { conflict, DomainError, invalid, notFound } from '../../kernel';
+import type { InboxService } from '../inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
-import type { Author, ConfigChange, ProjectService } from '../core/projects';
+import type { Author, ConfigChange, ProjectService } from '../projects';
 import { isOpenTask, isTheme } from '@projectman/shared';
-import type { TaskService } from '../core/tasks';
-import type { TimelineService } from '../core/timeline';
-import { unique } from '../kernel';
+import type { TaskService } from '../tasks';
+import type { TimelineService } from '../timeline';
+import { unique } from '../../kernel';
 import {
   canSeeTask,
   isClient,
@@ -64,8 +64,8 @@ import {
   visibleSession,
   visibleTimelineEvent,
   visibleTasks as visibleTasksOf,
-} from '../core/projects';
-import type { Viewer } from '../core/projects';
+} from '../projects';
+import type { Viewer } from '../projects';
 
 const ENDED_SESSION_STATES = new Set<SessionState>(['exited', 'failed']);
 

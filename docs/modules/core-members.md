@@ -6,11 +6,19 @@ Member access and configuration, invitations, presence, naming and temporary mem
 
 ## Facade
 
-`MemberService`, `MemberProfiles`, `InvitationService`, `PresenceService` and access/naming helpers currently live in `domain/`. The planned entry point is `core/members/index.ts`; this card leaves those implementations and exports in place.
+`apps/server/src/core/members/index.ts` is the sealed entry point. It exposes the existing services and helpers through named exports:
+
+- `MemberService`, `createMemberService` and `MemberProfiles`.
+- `InvitationService` and `PresenceService`.
+- `requireMemberAccess`, `requireHuman`, `requireAiMember`, `findHumanByEmail` and `projectAccessFor`; types `ProjectAccess` and `AccessRefusal`.
+- `defaultMemberHandle` and `defaultMemberName`.
+- Port types `InvitationUser`, `InvitationAccounts`, `MemberProfileSessions` and `MemberCapacity`.
+
+Implementations use direct imports inside the module and the other core modules' facades. The public names, signatures, constructors, factory and dependency keys are unchanged (PM-636, PM-640).
 
 ## Ports
 
-Services receive the domain context, projects, timeline and related core services.
+Services receive the domain context and related core services through their existing dependency objects.
 
 `core/members/ports.ts` defines the consumer-owned interfaces (PM-633):
 
@@ -20,16 +28,26 @@ Services receive the domain context, projects, timeline and related core service
 
 Assembly passes the existing authentication, session orchestrator and admission instances directly. This module has no auth or runtime imports; its three dependency exceptions are removed. Invitation acceptance keeps one lock and the existing password preparation → configuration commit → account/invitation unit-of-work order. Profile visibility filtering stays in the core.
 
-## Current and planned files
+The internal `InvitationRecord` type is derived from `DomainContext['repos']['invitations']['insert']` through the existing `core/base` facade. It uses the repository's parameter type without a direct import from the database implementation or a new public export.
 
-Current paths under `apps/server/src`: `core/members/ports.ts`, `domain/members.ts`, `domain/access.ts`, `domain/invitations.ts`, `domain/presence.ts`, `domain/naming.ts`.
-The planned folder is `apps/server/src/core/members/`.
+## Files
+
+All implementations live under `apps/server/src/core/members/` (PM-640):
+
+- `index.ts`: the named public facade.
+- `members.ts`: member configuration, roster, profiles and temporary retirement.
+- `access.ts`: membership and access checks.
+- `invitations.ts`: invitation creation, inspection, revocation and acceptance.
+- `presence.ts`: online presence from websocket connections.
+- `naming.ts`: member naming helpers from `@projectman/templates`.
+- `ports.ts`: consumer-owned account, session and capacity interfaces.
+
+No forwarding files remain at the former `domain/` implementation paths. Existing member, invitation, visibility and authentication tests consume the facade; this module has no relocated internal `tests/` files.
+
 The authoritative descriptor is
 [`core-members.ts`](../../apps/server/test/architecture/modules/core-members.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
-Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update their own descriptor and this document, removing their dependency exceptions
-from the central map without changing the architecture table.
+Its only path is `core/members/`, with `sealed: true`; id, layer, target and pass are unchanged. The preparation chain already removed this module's dependency exceptions.
 
 ## Remote engine
 
@@ -37,5 +55,4 @@ Member configuration, accounts, invitation rows and presence remain on the serve
 
 The invitation, session and capacity ports add no machine-dependent operation. The configuration storage inventory and server/engine boundary remain unchanged (PM-633).
 
-PM-631 only prepares file ownership for parallel refactor slices. It changes no
-shared contract, database schema, configuration or timeline event.
+PM-640 changes implementation locations and import paths only. Shared contracts, database schema, configuration, timeline events, access checks and invitation persistence order are unchanged.

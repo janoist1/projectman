@@ -9,18 +9,19 @@ import type {
   ProjectConfig,
   HumanMemberConfig,
 } from '@projectman/shared';
-import type { InvitationAccounts, InvitationUser } from '../core/members/ports';
-import type { InvitationRecord } from '../db/invitations';
+import type { InvitationAccounts, InvitationUser } from './ports';
 import { findHumanByEmail, requireMemberAccess } from './access';
 import { hasAccess } from '@projectman/shared';
-import type { DomainContext } from '../core/base';
-import { conflict, DomainError, forbidden, invalid, notFound } from '../kernel';
+import type { DomainContext } from '../base';
+import { conflict, DomainError, forbidden, invalid, notFound } from '../../kernel';
 import { assertRoleFor } from './members';
 import type { MemberService } from './members';
-import type { ProjectService } from '../core/projects';
-import { roleViews } from '../core/projects';
-import { KeyedMutex, newId } from '../kernel';
+import type { ProjectService } from '../projects';
+import { roleViews } from '../projects';
+import { KeyedMutex, newId } from '../../kernel';
 import { humanMemberHandle } from './naming';
+
+type InvitationRecord = Parameters<DomainContext['repos']['invitations']['insert']>[0];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');

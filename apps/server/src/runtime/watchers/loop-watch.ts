@@ -29,7 +29,7 @@ import type { Admission, AutomaticStart, StartSpec } from '../admission';
 import { isoNow } from '../../domain/context';
 import type { DomainContext } from '../../domain/context';
 import type { InboxService } from '../../domain/inbox';
-import type { MessageDelivery } from '../../domain/messaging';
+import type { MessageDelivery } from '../delivery';
 import type { ConfigChange, ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { TaskService } from '../../domain/tasks';

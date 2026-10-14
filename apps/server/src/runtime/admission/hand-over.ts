@@ -1,7 +1,7 @@
 import { isOnLeave, isRefinementStage, memberOf, stageIndex, stageOf, stageOwners } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, Stage, Task } from '@projectman/shared';
 import { conflict } from '../../kernel';
-import type { MessageDelivery } from '../../domain/messaging';
+import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../../domain/tasks';

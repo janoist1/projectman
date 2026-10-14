@@ -429,6 +429,8 @@ export class MergeSteps {
                 command: repo.reviewTest.command,
                 maxWorkers: repo.reviewTest.maxWorkers,
                 timeoutMs: repo.reviewTest.timeoutMinutes * 60_000,
+                // One heavy run at a time on the machine, whatever happens to the queue (PM-658).
+                requireHeavyLock: true,
                 sandbox: this.deps.checkSandbox({
                   checkout: checkout.path,
                   gitDir: checkout.gitDir,

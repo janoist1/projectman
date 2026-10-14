@@ -72,6 +72,7 @@ const fullSpec: z.ZodType<FullTestSpec> = z.strictObject({
   maxWorkers: int,
   timeoutMs: int,
   sandbox: z.strictObject({ denyRead: texts, allowRead: texts }),
+  requireHeavyLock: z.boolean().optional(),
 });
 const fullResult: z.ZodType<FullTestResult> = z.strictObject({
   outcome: z.enum(['passed', 'failed', 'error']),

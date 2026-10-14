@@ -17,6 +17,8 @@ export const FullTestErrorReason = z.enum([
   'killed',
   // The engine's link was lost while the run was on its way (hybrid mode, PM-315).
   'engine_offline',
+  // A run that requires the machine's heavy-run queue (PM-658) found it missing or unusable.
+  'heavy_lock_unavailable',
 ]);
 export type FullTestErrorReason = z.infer<typeof FullTestErrorReason>;
 

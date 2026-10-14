@@ -138,6 +138,74 @@ describe('the full test executor in the heavy-run queue', () => {
     await other.release();
   });
 
+  describe('when the run requires the queue (PM-658)', () => {
+    const required: FullTestSpec = { ...spec, requireHeavyLock: true };
+
+    it.each([
+      ['no folder', undefined],
+      // /tmp is not ours and not 0700.
+      ['an unusable folder', '/tmp/heavy'],
+    ])('ends as heavy_lock_unavailable with %s, and starts nothing', async (_name, heavyLockDir) => {
+      const onStarted = vi.fn();
+      const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir });
+      const result = await executor.run(required, new AbortController().signal, onStarted);
+      expect(result).toEqual({
+        outcome: 'error',
+        reason: 'heavy_lock_unavailable',
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: expect.stringContaining('heavy-run queue is unavailable'),
+      });
+      expect(onStarted).not.toHaveBeenCalled();
+      // The run directory is never even tried (it could not be made at NO_TMP: that would warn).
+      expect(warn).not.toHaveBeenCalledWith(expect.anything(), expect.stringContaining('run directory'));
+    });
+
+    it.each([undefined, false])('keeps the earlier behaviour when requireHeavyLock is %s', async (flag) => {
+      const onStarted = vi.fn();
+      const optional: FullTestSpec = flag === undefined ? spec : { ...spec, requireHeavyLock: flag };
+      for (const heavyLockDir of [undefined, '/tmp/heavy']) {
+        const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir }).run(
+          optional,
+          new AbortController().signal,
+          onStarted,
+        );
+        expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
+      }
+      expect(onStarted).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits for its turn, runs with the lock and gives it back', async () => {
+      const other = await hold('a member run');
+      setTimeout(() => void other.release(), 300);
+      const holders: (string | undefined)[] = [];
+      const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir });
+      const result = await executor.run(required, new AbortController().signal, () => {
+        void readHeavyQueue(dir).then((queue) => holders.push(queue.holder?.label));
+      });
+      expect(result).toMatchObject({ outcome: 'error', reason: 'sandbox_unavailable' });
+      await vi.waitFor(() => expect(holders).toEqual(['server full test PM-1-checkout']));
+      expect((await readHeavyQueue(dir)).holder).toBeNull();
+    });
+
+    it('is killed, not unavailable, when it is stopped while it waits', async () => {
+      const other = await hold('a member run');
+      const onStarted = vi.fn();
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 150);
+      const result = await createFullTestExecutor({ logger, tmpDir: NO_TMP, heavyLockDir: dir }).run(
+        required,
+        controller.signal,
+        onStarted,
+      );
+      expect(result).toMatchObject({ outcome: 'error', reason: 'killed' });
+      expect(onStarted).not.toHaveBeenCalled();
+      expect((await readHeavyQueue(dir)).waiting).toEqual([]);
+      await other.release();
+    });
+  });
+
   it('does not queue at all without a folder', async () => {
     const executor = createFullTestExecutor({ logger, tmpDir: NO_TMP });
     const result = await executor.run(spec, new AbortController().signal);

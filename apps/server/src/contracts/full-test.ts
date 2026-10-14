@@ -22,6 +22,12 @@ export interface FullTestSpec {
   timeoutMs: number;
   /** The executor adds its own run directory (the only place the command writes). */
   sandbox: FullTestSandbox;
+  /**
+   * The run must hold the machine's heavy-run queue lock (PM-658): without a usable queue it ends as
+   * `error` / `heavy_lock_unavailable` and nothing starts. Missing or false: a run whose queue is
+   * unavailable goes on without it.
+   */
+  requireHeavyLock?: boolean;
 }
 
 export interface FullTestResult {

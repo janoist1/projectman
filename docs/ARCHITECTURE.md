@@ -1181,7 +1181,10 @@ workers follow the machine's size.
 - **The server's full test** (`createFullTestExecutor({ heavyLockDir })`) takes the lock before it prepares the
   run directory; the wait is not part of `durationMs` and `timeoutMs`, and an abort while waiting ends as
   `killed`. `fullTestEnv` sets `PROJECTMAN_HEAVY_LOCK_HELD=1`, so the scripts inside do not queue again. With an
-  unusable folder it runs without the queue and logs a warning: the review must not stall on it.
+  unusable folder it runs without the queue and logs a warning: the review must not stall on it. The merge
+  check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
+  makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
+  sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
@@ -1862,8 +1865,13 @@ assumption or remote-engine RPC.
   heartbeats; worker limits use the executing host's CPU and memory. Same-host runs must
   use the same lock directory; different users are not automatically one queue. An unusable
   folder stops a member's heavy command (exit 78); the server's full test runs without the queue
-  and warns (PM-346).
+  and warns (PM-346), except a merge check (`FullTestSpec.requireHeavyLock`, PM-658), which ends as
+  `error` / `heavy_lock_unavailable` before anything starts.
   **Remote engine:** queue competing runs on each execution host and size workers there;
+  `requireHeavyLock` and the `heavy_lock_unavailable` result cross the `full_test.run` boundary and the
+  lock directory, PIDs and queue stay on the engine's machine. An older engine's strict spec schema
+  refuses the field before running anything; the cloud then blocks the merge check with an
+  "update the engine" message and does not repeat the request without the flag (PM-658).
   do not use the server's PID namespace, lock or hardware measurements for another engine. The
   engine supplies `SandboxPaths.heavyLockDir` from its own `defaultHeavyLockDir()` or setting,
   and with it the `StartSessionSpec.sandbox.portable` paths; its runner renders the Codex

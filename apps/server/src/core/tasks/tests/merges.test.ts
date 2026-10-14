@@ -665,6 +665,29 @@ describe('member initiated merge', () => {
     },
   );
 
+  it('requires the heavy-run queue for the check and blocks without trying another way when it is missing', async () => {
+    const executor = fakeExecutor({
+      ...passed,
+      outcome: 'error',
+      reason: 'heavy_lock_unavailable',
+      durationMs: 0,
+      outputTail: 'the queue is unavailable',
+    });
+    await setup({
+      executor,
+      adjust: (c) => {
+        c.project.repos[0]!.reviewTest = reviewTest;
+      },
+    });
+    await start();
+    await blocked('check_error');
+    expect(executor.run).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(executor.run).mock.calls[0]![0]).toMatchObject({ requireHeavyLock: true });
+    expect(row()?.block?.message).toContain('heavy_lock_unavailable');
+    expect(merger.push).not.toHaveBeenCalled();
+    expect(merger.advance).not.toHaveBeenCalled();
+  });
+
   it.each(['local_ahead', 'diverged'] as const)('blocks base %s', async (relation) => {
     await setup();
     merger.base.relation = relation;

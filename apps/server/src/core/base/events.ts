@@ -10,8 +10,8 @@ import type {
   TimelineEvent,
   WorkItemRef,
 } from '@projectman/shared';
-import type { ConfigChange } from '../core/projects';
-import type { StageChange } from '../core/tasks';
+import type { ConfigChange } from '../projects';
+import type { StageChange } from '../tasks';
 
 /** A relation a card got, as that card sees it (`kind`), pointing at the card `ref`. */
 export interface AddedRelation {

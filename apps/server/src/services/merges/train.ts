@@ -72,6 +72,19 @@ export class MergeTrains {
           'could not release an abandoned train checkout',
         ),
       );
+    // A blocked attempt is historical: its members may have cancelled or retried independently.
+    // Only a candidate already published authorizes restoring this group's requests.
+    if (train.state === 'blocked') {
+      try {
+        if (!(await this.published(train))) return;
+      } catch (err) {
+        this.deps.ctx.logger.warn(
+          { err, trainId: train.id },
+          'could not inspect a blocked train publication',
+        );
+        return;
+      }
+    }
     const leader = this.rows(train)[0]!;
     if (this.deps.ctx.repos.mergeTrains.get(train.id)?.state === 'merged' || leader.state === 'merged')
       return;
@@ -85,7 +98,8 @@ export class MergeTrains {
     run.recoveryOnly = train.state === 'blocked';
     this.deps.ctx.unitOfWork(() => {
       for (const row of this.rows(train))
-        if (row.state === 'queued') this.steps.save(row, { state: run.recoveryOnly ? 'blocked' : 'running' });
+        if (row.trainId === train.id && row.state === 'queued')
+          this.steps.save(row, { state: run.recoveryOnly ? 'blocked' : 'running' });
     });
     run.train = train;
     run.pushing = train.landed === 'remote';
@@ -363,7 +377,12 @@ export class MergeTrains {
     const config = await projects.config(train.projectKey);
     const githubRepo = config.project.repos.find((r) => r.name === train.repo)?.github;
     ctx.unitOfWork(() => {
-      this.save(train, { state: 'merged', step: 'finishing', landed: 'local', finishedAt: isoNow(ctx) });
+      this.save(train, {
+        state: 'merged',
+        step: 'finishing',
+        landed: train.landed === 'remote' ? 'remote' : 'local',
+        finishedAt: isoNow(ctx),
+      });
       for (const row of this.rows(train)) {
         if (row.state === 'merged') continue;
         this.steps.save(row, {
@@ -461,7 +480,10 @@ export class MergeTrains {
               if (!advanced.ok) return await this.terminal(run, 'local_checkout', advanced.message);
             }
             if (base.remote)
-              this.patchMembers(train, { landed: 'remote', pushed: { remote: base.remote.name } });
+              ctx.unitOfWork(() => {
+                this.save(train, { landed: 'remote' });
+                this.patchMembers(train, { landed: 'remote', pushed: { remote: base.remote!.name } });
+              });
             return await this.finish(train);
           }
         }

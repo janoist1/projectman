@@ -157,6 +157,8 @@ describe('merge train execution', () => {
         expect(events[0]?.actor).toEqual(aiActor(i % 2 ? 'dev-1' : 'dev-2'));
       }
       expect(runIds.size).toBe(1);
+      const firstMerge = h.repos.taskMerges.latestMerged('AR', 'AR-1')!;
+      expect(h.repos.mergeTrains.get(firstMerge.trainId!)?.landed).toBe('remote');
       expect(h.repos.mergeTrains.listRunning()).toEqual([]);
     },
   );
@@ -282,6 +284,40 @@ describe('merge train execution', () => {
     expect(new Set(specs).size).toBe(2);
   });
 
+  it.each(['cancel', 'retry', 'both', 'offline'] as const)(
+    'keeps current requests unchanged when an unpublished blocked train recovers after %s',
+    async (change) => {
+      await setup();
+      const leaderId = row('AR-1')!.id;
+      const followerId = row('AR-2')!.id;
+      const push = merger.push.getMockImplementation()!;
+      merger.push.mockResolvedValue({ ok: false, reason: 'non_fast_forward', message: 'Moved' });
+      pump();
+      await vi.waitFor(() => expect(row('AR-1')?.block?.reason).toBe('remote_moved'));
+      await settled();
+      peerBusy = true;
+      if (change !== 'retry') h.domain.merges.cancel('AR', 'AR-1');
+      if (change !== 'cancel') await h.domain.merges.start('AR', 'AR-2', aiActor('dev-2'));
+      const before = [h.repos.taskMerges.get(leaderId), h.repos.taskMerges.get(followerId)];
+      const manifest = h.repos.mergeTrains.get(before[0]!.trainId!);
+      await h.domain.merges.stop();
+      if (change === 'offline') merger.prepare.mockRejectedValueOnce(new Error('Engine offline'));
+      await h.domain.merges.init();
+      expect([h.repos.taskMerges.get(leaderId), h.repos.taskMerges.get(followerId)]).toEqual(before);
+      expect(h.repos.mergeTrains.get(manifest!.id)).toEqual(manifest);
+      merger.push.mockImplementation(push);
+      pump();
+      if (change !== 'cancel') {
+        await vi.waitFor(() => expect(h.domain.tasks.get('AR', 'AR-2').merged).toBeDefined());
+        expect(h.repos.taskMerges.latestMerged('AR', 'AR-2')?.trainId).toBeUndefined();
+      }
+      await settled();
+      expect(h.domain.tasks.get('AR', 'AR-1').merged).toBeUndefined();
+      if (change !== 'retry') expect(h.repos.taskMerges.get(leaderId)?.state).toBe('cancelled');
+      expect(executor.run).toHaveBeenCalledTimes(change === 'cancel' ? 2 : 3);
+    },
+  );
+
   it('stops before publication, releases the checkout and starts a new shared check on resume', async () => {
     await setup();
     vi.mocked(executor.run).mockImplementationOnce(async (_spec, signal) => {
@@ -406,6 +442,8 @@ describe('merge train execution', () => {
     expect(merger.push).not.toHaveBeenCalled();
     expect(merger.advance).toHaveBeenCalledTimes(1);
     expect(executor.run).toHaveBeenCalledTimes(1);
+    const merged = h.repos.taskMerges.latestMerged('AR', 'AR-1')!;
+    expect(h.repos.mergeTrains.get(merged.trainId!)?.landed).toBe('local');
   });
 
   it.each(['advance', 'transaction'] as const)(
@@ -436,6 +474,8 @@ describe('merge train execution', () => {
       await settled();
       expect(executor.run).toHaveBeenCalledTimes(1);
       expect(merger.push).toHaveBeenCalledTimes(1);
+      const merged = h.repos.taskMerges.latestMerged('AR', 'AR-1')!;
+      expect(h.repos.mergeTrains.get(merged.trainId!)?.landed).toBe('remote');
       for (const key of ['AR-1', 'AR-2']) {
         expect(h.domain.tasks.get('AR', key).merged).toBeDefined();
         expect(

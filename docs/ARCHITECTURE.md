@@ -1175,6 +1175,9 @@ Startup handles train manifests before individual rows: candidate ancestry detec
 or local advance completed before the DB transaction, and finishes without repeating the
 check, push or events. Unpublished candidates rebuild and recheck conservatively. The train
 worker is the sole owner of shared checkout release, including startup recovery.
+Blocked publication attempts are checked for candidate ancestry before their leader is
+queued for recovery. An unpublished blocked manifest never reopens cancelled requests or
+changes members that were retried individually; those requests keep their current state.
 The manifest and selection run on the server with remote engines too, grouped by `engineId`;
 they add no machine-dependent operation or RPC. Execution belongs to the existing
 "Member initiated merge" inventory entry when enabled.

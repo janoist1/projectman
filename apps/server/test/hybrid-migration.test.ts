@@ -9,6 +9,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { FastifyInstance } from 'fastify';
@@ -42,6 +43,11 @@ import type { SourceHome } from './helpers/migration-source';
 // Each test builds a real home, repositories and a package: slow when the whole suite runs in parallel.
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
+const MESSAGE_FILE = 'msg_0001';
+const MESSAGE_BYTES = Buffer.from(Array.from({ length: 4096 }, (_, i) => (i * 31 + 7) % 256));
+const sha256 = (file: string): string => createHash('sha256').update(readFileSync(file)).digest('hex');
+const MESSAGE_HASH = createHash('sha256').update(MESSAGE_BYTES).digest('hex');
+
 const CLOUD_URL = 'https://projectman.example.test';
 const AT = new Date('2026-10-09T10:00:00.000Z');
 
@@ -53,6 +59,9 @@ const apps: FastifyInstance[] = [];
 beforeEach(async () => {
   src = await createSourceHome();
   await src.stop();
+  // A file of a team message (PM-516): binary, so a byte-exact copy is told from a text one.
+  mkdirSync(join(src.home, 'message-attachments', 'AR'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(src.home, 'message-attachments', 'AR', MESSAGE_FILE), MESSAGE_BYTES, { mode: 0o600 });
   out = join(src.root, 'cloud-package');
   result = await createHybridPackage({
     home: src.home,
@@ -133,7 +142,15 @@ const writeEngineStatus = (pid: number) =>
 describe('the cloud package', () => {
   it('carries the closed list only, and says what stays on the Mac', async () => {
     const entries = readdirSync(join(out, 'home')).sort();
-    expect(entries).toEqual(['attachments', 'customization', 'db.sqlite', 'feedback', 'memory', 'secret']);
+    expect(entries).toEqual([
+      'attachments',
+      'customization',
+      'db.sqlite',
+      'feedback',
+      'memory',
+      'message-attachments',
+      'secret',
+    ]);
     expect(readdirSync(out).sort()).toEqual(['home', 'manifest.json']);
 
     const manifest = await readPackage(out);
@@ -150,6 +167,21 @@ describe('the cloud package', () => {
     expect(mode(join(out, 'home', 'db.sqlite'))).toBe(0o600);
     expect(mode(join(out, 'home', 'secret'))).toBe(0o600);
     expect(existsSync(join(out, 'home', 'db.sqlite-wal'))).toBe(false);
+  });
+
+  it('carries the files of team messages byte for byte, and the package passes the hybrid check', async () => {
+    const packaged = join(out, 'home', 'message-attachments', 'AR', MESSAGE_FILE);
+    expect(sha256(packaged)).toBe(MESSAGE_HASH);
+    expect(mode(packaged)).toBe(0o600);
+    const manifest = await readPackage(out);
+    expect(manifest.notCarried.map((e) => e.name)).not.toContain('message-attachments');
+    const plan = await buildHybridPlan({ home: src.home });
+    expect(plan.carried.map((e) => e.name)).toContain('message-attachments');
+    expect(plan.stays.map((e) => e.name)).not.toContain('message-attachments');
+    const verified = await verifyHome({ home: join(out, 'home'), checkPaths: false, hybridCloud: true });
+    expect(verified.findings.filter((f) => f.severity === 'blocker')).toEqual([]);
+    // The source is only read.
+    expect(sha256(join(src.home, 'message-attachments', 'AR', MESSAGE_FILE))).toBe(MESSAGE_HASH);
   });
 
   it('registers the engine as the default and moves every session to it', () => {
@@ -418,6 +450,75 @@ describe('the way back', () => {
     activateHome({ home: src.home, confirmSourceRetired: true });
     expect(instanceRole(src.home)).toBe('active');
   });
+
+  it('brings the message files back: the cloud’s are in place, the Mac’s old ones are in the archive', async () => {
+    const data = cloudData();
+    const cloudNew = Buffer.from('written in the cloud after the move');
+    writeFileSync(join(data, 'message-attachments', 'AR', 'msg_cloud'), cloudNew);
+    // A file only the Mac's old folder holds: it is not in the cloud's copy, so it ends up in the archive.
+    writeFileSync(join(src.home, 'message-attachments', 'AR', 'msg_local_only'), 'local only');
+    engineHome(src.home, 'hybrid', AT);
+
+    const report = await back(data);
+
+    const home = join(src.home, 'message-attachments', 'AR');
+    expect(sha256(join(home, MESSAGE_FILE))).toBe(MESSAGE_HASH);
+    expect(readFileSync(join(home, 'msg_cloud'))).toEqual(cloudNew);
+    expect(existsSync(join(home, 'msg_local_only'))).toBe(false);
+    const archived = join(report.archive, 'message-attachments', 'AR');
+    expect(sha256(join(archived, MESSAGE_FILE))).toBe(MESSAGE_HASH);
+    expect(readFileSync(join(archived, 'msg_local_only'), 'utf8')).toBe('local only');
+    expect(existsSync(join(archived, 'msg_cloud'))).toBe(false);
+  });
+
+  it('takes a package made before message files were carried: no folder in the cloud’s data', async () => {
+    const data = cloudData();
+    rmSync(join(data, 'message-attachments'), { recursive: true });
+    const strict = await verifyHome({ home: data, checkPaths: false, hybridCloud: true });
+    expect(strict.findings.filter((f) => f.severity === 'blocker')).toEqual([]);
+    engineHome(src.home, 'hybrid', AT);
+
+    const report = await back(data);
+
+    // The old folder is kept aside whole and the home has none until the server makes one.
+    expect(sha256(join(report.archive, 'message-attachments', 'AR', MESSAGE_FILE))).toBe(MESSAGE_HASH);
+    expect(existsSync(join(src.home, 'message-attachments'))).toBe(false);
+  });
+
+  it('works on a Mac home that has no message-attachments folder', async () => {
+    const data = cloudData();
+    rmSync(join(src.home, 'message-attachments'), { recursive: true });
+    engineHome(src.home, 'hybrid', AT);
+
+    const report = await back(data);
+
+    expect(sha256(join(src.home, 'message-attachments', 'AR', MESSAGE_FILE))).toBe(MESSAGE_HASH);
+    expect(existsSync(join(report.archive, 'message-attachments'))).toBe(false);
+  });
+
+  // A directory cannot be renamed without write access to it; as root there is no such refusal.
+  it.skipIf(process.getuid?.() === 0)(
+    'puts every entry back when the replacement fails midway, message files included',
+    async () => {
+      const data = cloudData();
+      engineHome(src.home, 'hybrid', AT);
+      const locked = join(src.home, 'message-attachments');
+      const before = readdirSync(src.home).sort();
+      const dbBefore = sha256(join(src.home, 'db.sqlite'));
+      // The entries before it in the replaced list are already aside when its move is refused.
+      chmodSync(locked, 0o500);
+      try {
+        await expect(back(data)).rejects.toThrow(/EACCES|EPERM/);
+      } finally {
+        chmodSync(locked, 0o700);
+      }
+      expect(readdirSync(src.home).sort()).toEqual(before);
+      expect(sha256(join(src.home, 'db.sqlite'))).toBe(dbBefore);
+      expect(sha256(join(locked, 'AR', MESSAGE_FILE))).toBe(MESSAGE_HASH);
+      expect(existsSync(join(src.home, 'engine.key'))).toBe(true);
+      expect(existsSync(join(src.home, 'pre-hybrid'))).toBe(false);
+    },
+  );
 
   it('is a round trip: the single-machine server starts on it with the same cards and sessions', async () => {
     const data = cloudData();

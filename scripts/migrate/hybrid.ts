@@ -171,7 +171,7 @@ export function renderHybridPlan(plan: HybridPlan): string {
   out.push(`# Hybrid move: ${inventory.home}`, '');
   out.push(
     'Read-only: nothing was changed. The cloud gets a copy of the database, the secrets, the customization',
-    'repository, the attachments and the memory; everything that is the Mac (repositories, worktrees,',
+    'repository, the attachments (of tasks and of messages) and the memory; everything that is the Mac (repositories, worktrees,',
     'CLI homes, logs) stays where it is, and the engine on the Mac works in it.',
     '',
   );
@@ -432,6 +432,7 @@ const REPLACED_ENTRIES = [
   'secrets',
   'customization',
   'attachments',
+  'message-attachments',
   'feedback',
   'memory',
   ENGINE_CONFIG_FILE,

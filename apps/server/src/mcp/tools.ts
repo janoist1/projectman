@@ -1,7 +1,6 @@
 import {
   AttachmentId,
   BoundaryId,
-  BoundaryReason,
   HANDOFF_NOTE_MAX,
   MAX_MESSAGE_ATTACHMENTS,
   MAX_QUESTION_ATTACHMENTS,
@@ -42,6 +41,7 @@ import { TASK_TOOL_GROUP } from './tasks';
 import { ATTACHMENT_TOOL_GROUP } from './attachments';
 import { MERGE_TOOL_GROUP } from './merges';
 import { FEEDBACK_TOOL_GROUP } from './feedback';
+import { BOUNDARY_TOOL_GROUP } from './boundary';
 import { RELEASE_TOOL_GROUP } from './releases';
 /**
  * Server-level instructions, sent once at initialization. Claude Code appends them to the
@@ -75,6 +75,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   ATTACHMENT_TOOL_GROUP,
   MERGE_TOOL_GROUP,
   FEEDBACK_TOOL_GROUP,
+  BOUNDARY_TOOL_GROUP,
   RELEASE_TOOL_GROUP,
 ];
 /** The tools not moved yet: each moves with its own module's pass (PM-577). */
@@ -317,50 +318,6 @@ const UNSORTED_TOOLS: readonly TeamTool[] = [
           text: args.text,
           ...(args.task_key !== undefined ? { taskKey: args.task_key } : {}),
           ...(args.signal_id !== undefined ? { signalId: args.signal_id } : {}),
-        }),
-      );
-    },
-  }),
-  defineTool({
-    name: 'submit_boundary_request',
-    title: 'Submit a boundary request',
-    readOnly: false,
-    description:
-      'Request one external operation registered by the protected operation adapter. Supply its opaque operation id and a stable retry key. The server derives the exact target, category, scope and expiry. This returns immediately; inspect later with get_boundary_request. Never include commands, credentials or secrets. This does not approve CLI permissions, gates or releases.',
-    input: { operation_id: BoundaryId, deduplication_key: BoundaryId },
-    async run({ ctx, args, handler }) {
-      return JSON.stringify(
-        await handler.submitBoundaryRequest(ctx, {
-          operationId: args.operation_id,
-          deduplicationKey: args.deduplication_key,
-        }),
-      );
-    },
-  }),
-  defineTool({
-    name: 'get_boundary_request',
-    title: 'Inspect a boundary request',
-    readOnly: true,
-    description:
-      'Inspect a boundary request you raised or may decide. Pending requests require a later retry; expiry or escalation never automatically permits execution.',
-    input: { request_id: BoundaryId },
-    async run({ ctx, args, handler }) {
-      return JSON.stringify(await handler.getBoundaryRequest(ctx, { requestId: args.request_id }));
-    },
-  }),
-  defineTool({
-    name: 'decide_boundary_request',
-    title: 'Decide a delegated boundary request',
-    readOnly: false,
-    description:
-      'Independent live holders of boundary_authorization may allow or deny a delegable request before its lead deadline. Inspect its exact target first. Cost, production/release/main publication, accounts/secrets and host expansion always require the owner. Late or self decisions are refused. Use a structured reason; never include credentials.',
-    input: { request_id: BoundaryId, decision: z.enum(['allow', 'deny']), reason: BoundaryReason },
-    async run({ ctx, args, handler }) {
-      return JSON.stringify(
-        await handler.decideBoundaryRequest(ctx, {
-          requestId: args.request_id,
-          decision: args.decision,
-          reason: args.reason,
         }),
       );
     },

@@ -60,6 +60,7 @@ describe('team tool registration', () => {
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
       ),
     ).toEqual({
+      'services/boundary': ['submit_boundary_request', 'get_boundary_request', 'decide_boundary_request'],
       'services/feedback': [
         'get_feedback',
         'reply_feedback',

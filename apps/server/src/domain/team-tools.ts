@@ -4,6 +4,7 @@ import type {
   AttachmentToolsHandler,
   MergeToolsHandler,
   FeedbackToolsHandler,
+  BoundaryToolsHandler,
   ReleaseToolsHandler,
 } from '../contracts';
 import {
@@ -75,7 +76,6 @@ import type {
   ToolContext,
 } from '../contracts';
 import type { DomainContext } from './context';
-import type { BoundaryService } from './boundary';
 import { DomainError } from './errors';
 import type { FixLimitDecision, FixLimitWatch } from './fix-limit';
 import type { HandoffService } from './handoffs';
@@ -151,6 +151,7 @@ export class TeamToolsService implements TeamToolsHandler {
     attachments: AttachmentToolsHandler;
     merges: MergeToolsHandler;
     feedback: FeedbackToolsHandler;
+    boundary: BoundaryToolsHandler;
     releases: ReleaseToolsHandler;
   };
   private readonly projectState: ProjectState;
@@ -174,37 +175,13 @@ export class TeamToolsService implements TeamToolsHandler {
     });
   }
   async submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest) {
-    try {
-      await this.caller(ctx, 'submit_boundary_request');
-      return await this.boundary.submit(
-        { projectKey: ctx.projectKey, member: ctx.member, sessionId: ctx.sessionId, taskKey: ctx.taskKey },
-        args,
-      );
-    } catch (err) {
-      throw toToolError(err);
-    }
+    return this.tools.boundary.submitBoundaryRequest(ctx, args);
   }
   async getBoundaryRequest(ctx: ToolContext, args: { requestId: string }) {
-    try {
-      await this.caller(ctx, 'get_boundary_request');
-      return await this.boundary.read(ctx.projectKey, args.requestId, ctx.member);
-    } catch (err) {
-      throw toToolError(err);
-    }
+    return this.tools.boundary.getBoundaryRequest(ctx, args);
   }
   async decideBoundaryRequest(ctx: ToolContext, args: DecideBoundaryRequest & { requestId: string }) {
-    try {
-      await this.caller(ctx, 'decide_boundary_request');
-      return await this.boundary.decide(
-        ctx.projectKey,
-        args.requestId,
-        ctx.member,
-        { decision: args.decision, reason: args.reason },
-        { delegatedOnly: true },
-      );
-    } catch (err) {
-      throw toToolError(err);
-    }
+    return this.tools.boundary.decideBoundaryRequest(ctx, args);
   }
   async decidePermissionRequest(
     ctx: ToolContext,
@@ -259,7 +236,6 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly operatorActions: OperatorActions;
   private readonly questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
   private readonly taskStarts: TaskStarts;
-  private readonly boundary: BoundaryService;
   private readonly ctx: DomainContext;
   private readonly sessions: Pick<SessionOrchestrator, 'setDoing'>;
   private readonly projects: ProjectService;
@@ -287,10 +263,10 @@ export class TeamToolsService implements TeamToolsHandler {
       attachments: AttachmentToolsHandler;
       merges: MergeToolsHandler;
       feedback: FeedbackToolsHandler;
+      boundary: BoundaryToolsHandler;
       releases: ReleaseToolsHandler;
     };
     projectState: ProjectState;
-    boundary: BoundaryService;
     ctx: DomainContext;
     /** The session service: set_current_work records the sentence on the caller's session. */
     sessions: Pick<SessionOrchestrator, 'setDoing'>;
@@ -335,7 +311,6 @@ export class TeamToolsService implements TeamToolsHandler {
     this.questionScreening = deps.questionScreening;
     this.taskStarts = deps.taskStarts;
     this.screenshots = deps.screenshots;
-    this.boundary = deps.boundary;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.projects = deps.projects;

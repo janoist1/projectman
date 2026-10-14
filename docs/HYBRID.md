@@ -134,11 +134,16 @@ image's default command.
 The image runs a **token-managed** tunnel (`cloudflared tunnel run` with `TUNNEL_TOKEN`): the
 ingress is set in the Cloudflare dashboard, not in a config file as in the PM-200 guide on the Mac.
 
-**On Lightsail (`docs/AWS.md`) none of the steps below is done by hand:** `npm run cloud -- edge`
+**On EC2 or Lightsail ([docs/AWS.md](AWS.md)) none of the steps below is done by hand:** `npm run cloud -- edge`
 makes the tunnel, its ingress (with the `/hooks` and `/mcp` 404 rules and the audience check), the
 Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `cloud.env`;
 `npm run cloud -- publish` makes the DNS record and `check` verifies the result. The list below is
-what those commands do, for a host that is not Lightsail (Fly.io) and for reading.
+what those commands do, for another host (Fly.io) and for reading. EC2 host operations use SSH
+through SSM with no inbound port; `cloud.env` and hybrid data travel only through encrypted SSH
+stdin/streams. The owner needs AWS CLI v2, session-manager-plugin and OpenSSH. The container,
+one-writer seed/pull guards and restore procedure are unchanged; see the EC2 live rehearsal in
+[AWS.md](AWS.md#ownerintegrator-live-rehearsal). This administration link is independent of the
+Mac engine's outbound connection.
 
 1. Zero Trust → Networks → Tunnels → create a tunnel, choose Docker, and copy the **token** only
    (it becomes `TUNNEL_TOKEN`).

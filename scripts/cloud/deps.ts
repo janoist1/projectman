@@ -35,6 +35,8 @@ export interface PipeEnd {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** Interrupts both processes, including SSH's SSM proxy descendants. */
+  signal?: AbortSignal;
 }
 
 export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
@@ -70,43 +72,55 @@ function keep(current: string, chunk: string): string {
   return next.length > OUTPUT_LIMIT ? next.slice(next.length - OUTPUT_LIMIT) : next;
 }
 
+/** Cloud tools run on a POSIX owner machine. Each child owns its proxy/plugin process group. */
+function stopGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  try {
+    if (child.pid !== undefined) process.kill(-child.pid, signal);
+  } catch {
+    child.kill(signal);
+  }
+}
+
 function run(command: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
+  if (options.signal?.aborted) return Promise.resolve({ code: 130, stdout: '', stderr: '' });
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
     let aborted = false;
     let settled = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const inherit = options.stdio === 'inherit';
     const finish = (result: RunResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(killTimer);
+      // Even inherited stdio must not leave an AWS CLI/plugin behind when SSH exits.
+      stopGroup(child, 'SIGKILL');
       options.signal?.removeEventListener('abort', abort);
       resolve(result);
     };
     const child = spawn(command, args, {
       env: { ...process.env, ...options.env },
-      stdio: inherit ? 'inherit' : [options.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-      detached: !inherit,
+      stdio: [
+        options.input !== undefined ? 'pipe' : inherit ? 'inherit' : 'ignore',
+        inherit ? 'inherit' : 'pipe',
+        inherit ? 'inherit' : 'pipe',
+      ],
+      detached: true,
     });
     const stop = (signal: NodeJS.Signals) => {
-      try {
-        if (child.pid !== undefined && !inherit) process.kill(-child.pid, signal);
-        else child.kill(signal);
-      } catch {
-        child.kill(signal);
-      }
+      stopGroup(child, signal);
+      if (!killTimer) killTimer = setTimeout(() => stopGroup(child, 'SIGKILL'), KILL_GRACE_MS);
     };
     const timer = setTimeout(() => {
       timedOut = true;
       stop('SIGTERM');
-      setTimeout(() => stop('SIGKILL'), KILL_GRACE_MS).unref();
     }, options.timeoutMs ?? 2_147_483_647);
     function abort() {
       aborted = true;
       stop('SIGTERM');
-      setTimeout(() => stop('SIGKILL'), KILL_GRACE_MS).unref();
     }
     if (options.signal?.aborted) abort();
     else options.signal?.addEventListener('abort', abort, { once: true });
@@ -123,6 +137,8 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
         stderr: `${stderr}${error.message}\n`,
       }),
     );
+    // A proxy can still hold stderr open after SSH exits, preventing `close` indefinitely.
+    child.on('exit', () => stopGroup(child, 'SIGKILL'));
     child.on('close', (code, signal) =>
       finish({
         code: aborted ? 130 : timedOut ? 124 : (code ?? (signal ? 128 : 1)),
@@ -134,22 +150,50 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
 }
 
 function pipe(from: PipeEnd, to: PipeEnd): Promise<RunResult> {
+  if (from.signal?.aborted || to.signal?.aborted)
+    return Promise.resolve({ code: 130, stdout: '', stderr: '' });
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     const results: { first: number | null; second: number | null } = { first: null, second: null };
+    const signals = [...new Set([from.signal, to.signal].filter((signal) => signal !== undefined))];
+    let aborted = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
     const finish = () => {
       if (results.first === null || results.second === null) return;
-      resolve({ code: results.first !== 0 ? results.first : results.second, stdout, stderr });
+      clearTimeout(killTimer);
+      for (const signal of signals) signal.removeEventListener('abort', abort);
+      stopGroup(first, 'SIGKILL');
+      stopGroup(second, 'SIGKILL');
+      resolve({ code: aborted ? 130 : results.first !== 0 ? results.first : results.second, stdout, stderr });
     };
     const first: ChildProcess = spawn(from.command, from.args, {
       env: { ...process.env, ...from.env },
       stdio: ['ignore', 'pipe', 'pipe'],
+      detached: true,
     });
     const second: ChildProcess = spawn(to.command, to.args, {
       env: { ...process.env, ...to.env },
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     });
+    const stop = () => {
+      stopGroup(first, 'SIGTERM');
+      stopGroup(second, 'SIGTERM');
+      if (!killTimer)
+        killTimer = setTimeout(() => {
+          stopGroup(first, 'SIGKILL');
+          stopGroup(second, 'SIGKILL');
+        }, KILL_GRACE_MS);
+    };
+    function abort() {
+      aborted = true;
+      stop();
+    }
+    for (const signal of signals) {
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    }
     first.stdout?.pipe(second.stdin!);
     second.stdin?.on('error', () => undefined);
     first.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr = keep(stderr, chunk)));
@@ -159,16 +203,21 @@ function pipe(from: PipeEnd, to: PipeEnd): Promise<RunResult> {
       stderr = `${stderr}${error.message}\n`;
       results[which] = error.code === 'ENOENT' ? 127 : 126;
       if (which === 'first') second.stdin?.end();
-      finish();
+      // Wait for both close events before a host session removes its credentials.
+      stop();
     };
     first.on('error', failed('first'));
     second.on('error', failed('second'));
+    first.on('exit', () => stopGroup(first, 'SIGKILL'));
+    second.on('exit', () => stopGroup(second, 'SIGKILL'));
     first.on('close', (code) => {
-      results.first = code ?? 1;
+      results.first = code ?? results.first ?? 1;
+      if (results.first !== 0) stop();
       finish();
     });
     second.on('close', (code) => {
-      results.second = code ?? 1;
+      results.second = code ?? results.second ?? 1;
+      if (results.second !== 0) stop();
       finish();
     });
   });

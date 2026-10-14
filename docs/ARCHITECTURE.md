@@ -1253,7 +1253,36 @@ workers follow the machine's size.
   with no automatic destructive repair. `--dry-run` writes nothing. **Remote engine:** provisioning
   remains on the owner's machine for the central server, never on an engine; the Mac engine gets
   no AWS credentials, and no new server/engine RPC or payload crosses the boundary. SSH over SSM
-  host operation follows in PM-677; the Lightsail host adapter below remains its compatibility path.
+  host operation is provided by PM-677 (next entry); the Lightsail adapter remains its compatibility path.
+
+- **EC2 host administration through SSM (PM-677, part of PM-664)** —
+  `scripts/cloud/{ec2-host,host,machine,commands,deps}.ts`, `apps/server/test/{cloud-ec2-host,cloud-deps}.test.ts`,
+  `apps/server/test/helpers/fake-ec2-host.ts`, `apps/server/test/fixtures/fake-cloud-process.mjs`,
+  `docs/AWS.md`, `docs/HYBRID.md`. **What runs where:** on the owner/integrator's POSIX machine,
+  AWS CLI v2 with the explicit central profile/region (`aroom`), session-manager-plugin, ssh,
+  ssh-keygen and tar; on EC2 Ubuntu 24.04, sshd/EIC/SSM and the existing sudo `host.sh`, Docker and
+  systemd. `withHost` dispatches by compute; the unchanged `HostSession` contract and stdin/stream
+  payloads use an instance id for EC2's address. Lookup requires a unique managed running instance
+  and exact Online SSM target. A fixed, instance-scoped `AWS-RunShellScript` reads only the ed25519
+  public host key (bounded 120-second poll, strict text/binary key validation, no raw failure output).
+  Temporary 700 directory/600 key and known_hosts pin that authenticated key with strict SSH checking.
+  EIC receives only the ephemeral public key for `ubuntu`/actual AZ immediately before each SSH
+  connection; ProxyCommand uses validated, quoted AWS `AWS-StartSSHSession`, port 22. Cloud env/tar
+  stay inside SSH encryption, never in SSM command/UserData/argv. There is no ingress mutation,
+  public-SSH fallback, TOFU or imported permanent key. **Machine assumptions:** the caller has
+  DescribeInstances, SSM lookup/RunCommand/start/describe/terminate-session and EIC caller rights;
+  EC2 agents/tunnel connect outbound. POSIX process groups close SSH/AWS/plugin descendants even
+  with inherited output, timeout or interrupt; pipe ends carry an additive AbortSignal. Cleanup
+  reads all active-session pages before termination and matches the exact instance plus a set of
+  random public reasons, unique per connection. It obtains at least three complete snapshots
+  2s apart and a fresh empty verification after termination, within a 30s total AWS-phase deadline
+  including the 5s process shutdown grace. It removes key files/handlers independently of AWS
+  failures. Failed verification reports the public target/reasons, preserves the operation error
+  and exits 1; the observation window is not an AWS consistency guarantee.
+  Existing host paths, container uid 10001, loopback networking and one-writer/restore guards stay
+  the same. **Remote engine:** this runs only on the owner's administration machine for the central
+  server; no AWS credentials or new RPC/payload crosses the server/engine boundary. It works
+  independently of the Mac engine link. Live execution/recovery remains an approved owner round.
 
 - **The Lightsail machine and its operation (PM-535)** — `scripts/cloud/{host,machine}.ts`,
   `deploy/aws/{host.sh,projectman-cloud.service}`, `apps/server/test/{cloud-host,cloud-machine,deploy-aws}.test.ts`,

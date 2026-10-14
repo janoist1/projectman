@@ -561,54 +561,54 @@ other: they communicate through the core. Connectors and runtime reach engine
 capabilities only through ports in `contracts/`. Workspace `@projectman/*`
 packages count as contracts and are accessible to every layer.
 
-| Module                  | Responsibility                                                                                     |
-| ----------------------- | -------------------------------------------------------------------------------------------------- |
-| `contracts`             | Shared server interfaces and engine ports.                                                         |
-| `db`                    | SQLite storage, repositories and migrations.                                                       |
-| `config`                | Project configuration loading, validation and migrations.                                          |
-| `logging`               | Structured server and engine logging and file rotation.                                            |
-| `instance`              | Installation identity and activation state.                                                        |
-| `kernel`                | Common errors, utilities, background work helpers and the shared Effect helper (`effect.ts`).      |
-| `agent-text`            | Text formatting for agent-facing context.                                                          |
-| `core/base`             | Domain context, events and the event bus.                                                          |
-| `core/projects`         | Projects, roles, stage reviewers and visibility.                                                   |
-| `core/tasks`            | Tasks, board state, focus, involvement and card measures.                                          |
-| `core/members`          | Member access, invitations, presence and naming.                                                   |
-| `core/timeline`         | Append-only task and project timeline access.                                                      |
-| `core/messages`         | Stored messages, routing and conversation rules.                                                   |
-| `core/inbox`            | Human questions, approval inbox and question lifecycle.                                            |
-| `core/attachments`      | Task and message attachment storage and processing.                                                |
-| `runtime/admission`     | Admission, deferred starts, handovers and refinement.                                              |
-| `runtime/sessions`      | Session orchestration, policy, pause and workspace selection.                                      |
-| `runtime/delivery`      | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)).     |
-| `runtime/permissions`   | Command parsing and execution permission rules.                                                    |
-| `runtime/watchers`      | Runtime health, review, disk and worktree watches.                                                 |
-| `runtime/usage`         | Provider quota, plan usage and managed provider keys.                                              |
-| `context`               | Agent context packs and prompts.                                                                   |
-| `services/merges`       | Card merge orchestration, the merge queue (Effect) and merge locks; sealed (`index.ts`).           |
-| `services/full-tests`   | Full-test and screenshot-run orchestration.                                                        |
-| `services/releases`     | Release proposals and release roadmap notices (`services/releases/`, sealed).                      |
-| `services/github`       | GitHub synchronization, pull requests and publishing.                                              |
-| `services/feedback`     | Feedback marks, screenshots and widget sessions.                                                   |
-| `services/project-docs` | Operator project-document writes and decision candidates.                                          |
-| `services/boundary`     | External operation authorization and boundary requests (`services/boundary/`, sealed).             |
-| `services/schedules`    | Scheduled member work; the minute timer is an Effect program (see EFFECT.md); sealed (`index.ts`). |
-| `services/operator`     | Operator actions, signals, requests and project management.                                        |
-| `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                                |
-| `worktree`              | Task and member worktree creation and dependency refresh.                                          |
-| `engine-host`           | Engine-local files, process operations and branch merging.                                         |
-| `full-test`             | Sandboxed test execution and the heavy-run queue.                                                  |
-| `machine`               | Machine probes and process parsing.                                                                |
-| `engine-link`           | Server/engine RPC, transport and remote adapters.                                                  |
-| `api`                   | HTTP API adapters.                                                                                 |
-| `mcp`                   | MCP transport and tool declarations.                                                               |
-| `team-tools`            | Domain adapter for team tool calls.                                                                |
-| `ws`                    | Websocket transport and broadcasts.                                                                |
-| `http`                  | HTTP transport guards and infrastructure.                                                          |
-| `control`               | Administrative control socket.                                                                     |
-| `auth`                  | Authentication and integrator credentials.                                                         |
-| `assembly`              | Domain service composition and wiring.                                                             |
-| `entry`                 | Application and engine startup, composition and shutdown.                                          |
+| Module                  | Responsibility                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------------- |
+| `contracts`             | Shared server interfaces and engine ports.                                                               |
+| `db`                    | SQLite storage, repositories and migrations.                                                             |
+| `config`                | Project configuration loading, validation and migrations.                                                |
+| `logging`               | Structured server and engine logging and file rotation.                                                  |
+| `instance`              | Installation identity and activation state.                                                              |
+| `kernel`                | Common errors, utilities, background work helpers and the shared Effect helper (`effect.ts`).            |
+| `agent-text`            | Text formatting for agent-facing context.                                                                |
+| `core/base`             | Domain context, events and the event bus.                                                                |
+| `core/projects`         | Projects, roles, stage reviewers and visibility.                                                         |
+| `core/tasks`            | Tasks, board state, focus, involvement and card measures.                                                |
+| `core/members`          | Member access, invitations, presence and naming.                                                         |
+| `core/timeline`         | Append-only task and project timeline access.                                                            |
+| `core/messages`         | Stored messages, routing and conversation rules.                                                         |
+| `core/inbox`            | Human questions, approval inbox and question lifecycle.                                                  |
+| `core/attachments`      | Task and message attachment storage and processing.                                                      |
+| `runtime/admission`     | Admission, deferred starts, handovers and refinement.                                                    |
+| `runtime/sessions`      | Session orchestration, policy, pause and workspace selection.                                            |
+| `runtime/delivery`      | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)).           |
+| `runtime/permissions`   | Command parsing and execution permission rules.                                                          |
+| `runtime/watchers`      | Runtime health, review, disk and worktree watches.                                                       |
+| `runtime/usage`         | Provider quota, plan usage and managed provider keys.                                                    |
+| `context`               | Agent context packs and prompts.                                                                         |
+| `services/merges`       | Card merge orchestration, the merge queue (Effect) and merge locks; sealed (`index.ts`).                 |
+| `services/full-tests`   | Full-test and screenshot-run orchestration.                                                              |
+| `services/releases`     | Release proposals and release roadmap notices (`services/releases/`, sealed).                            |
+| `services/github`       | GitHub synchronization, pull requests and publishing.                                                    |
+| `services/feedback`     | Feedback marks, screenshots and widget sessions.                                                         |
+| `services/project-docs` | Operator project-document writes, the write queue (Effect) and decision candidates; sealed (`index.ts`). |
+| `services/boundary`     | External operation authorization and boundary requests (`services/boundary/`, sealed).                   |
+| `services/schedules`    | Scheduled member work; the minute timer is an Effect program (see EFFECT.md); sealed (`index.ts`).       |
+| `services/operator`     | Operator actions, signals, requests and project management.                                              |
+| `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                                      |
+| `worktree`              | Task and member worktree creation and dependency refresh.                                                |
+| `engine-host`           | Engine-local files, process operations and branch merging.                                               |
+| `full-test`             | Sandboxed test execution and the heavy-run queue.                                                        |
+| `machine`               | Machine probes and process parsing.                                                                      |
+| `engine-link`           | Server/engine RPC, transport and remote adapters.                                                        |
+| `api`                   | HTTP API adapters.                                                                                       |
+| `mcp`                   | MCP transport and tool declarations.                                                                     |
+| `team-tools`            | Domain adapter for team tool calls.                                                                      |
+| `ws`                    | Websocket transport and broadcasts.                                                                      |
+| `http`                  | HTTP transport guards and infrastructure.                                                                |
+| `control`               | Administrative control socket.                                                                           |
+| `auth`                  | Authentication and integrator credentials.                                                               |
+| `assembly`              | Domain service composition and wiring.                                                                   |
+| `entry`                 | Application and engine startup, composition and shutdown.                                                |
 
 The single source of truth for file → module → layer assignments, targets and
 passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
@@ -1080,12 +1080,12 @@ without a regular root lockfile keeps the preferred-source copy behavior.
 the decision log and the roadmap are; absent, the feature is off, and `projectDocsOf` takes the first
 repository that has a path. `PATCH /config` sets it with `repoDocs` (`docs: null` clears it).
 
-**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`domain/doc-writes.ts`)
+**The slot is shared with the Operator's document writes (PM-495).** `DocWrites` (`services/project-docs/doc-writes.ts`)
 writes a row of `doc_writes` and runs it in the same repository slot as a merge: `Merges.pump` skips a
-repository while `DocWrites.busy` says a write runs there, and a merge's `finally` calls `docWrites.pump()`
+repository while `DocWrites.busy` says a write runs there, and a merge fiber's observer calls `docWrites.pump()`
 before its own `pump()`, so a waiting write goes first when the slot frees (`DocWrites.pump` skips a repository
 for which `Merges.busy`, and calls `merges.pump()` when it ends). `Merges.registerSlotPeer` ties the two (the peer
-is the `MergeSlotPeer` port: `busy` and `pump`). At most one write is open (`queued` or `running`) per project (unique index
+is the `MergeSlotPeer` port: `busy` and `pump`; the writes use `DocWriteSlotPeer`: `busy`, `holder` and `pump`). Neither module imports the other; domain assembly connects them. At most one write is open (`queued` or `running`) per project (unique index
 `doc_writes_open`). Its git work is the engine's (`prepare`, `readFile`, `commitFiles`, `checkoutConflicts`,
 `push`, `advance`), run in the order of the card's merge: a `non_fast_forward` push is built again once, on the
 new head. The built commit is saved (`commit_sha`) before the push; a `running` row from before a restart is
@@ -2323,14 +2323,14 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   `OperatorSignals.active`: delivered, unresolved, pending or open, oldest first, using the public schema.
   The tool uses the common Operator caller guard; guest conversations cannot read this internal report.
   It neither starts work nor contacts an engine.
-- **Operator documents (PM-495, PM-388).** `read_project_doc { doc, from_line?, line_count? }` is a read tool
+- **Operator documents (PM-495, PM-388).** Tools and their handler live in `mcp/project-docs/`. `read_project_doc { doc, from_line?, line_count? }` is a read tool
   (`OPERATOR_READ_TOOLS`, not a guest tool): the decision log or roadmap at the fresh head of the default branch,
   read through `BranchMerger.readFile` on the Operator's engine, with the commit it was read at.
   `write_project_docs { base_commit, message, edits }` writes: the Operator only (`operator_only`), in the owners'
   own conversation (`{ type: 'general' }` without `with`, from an owner's request; `operator_owner_only`
   otherwise) and with an open request (`operator_no_request`); `OPERATOR_TOOL_ACTIONS` maps it to `docs_write`.
   The edits are checked against the text at `base_commit` first (`applyDocEdits`, `isAppendOnly`, both pure, in
-  `domain/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
+  `services/project-docs/doc-edits.ts`; the decision log only takes new lines; 422 `docs_edit_not_found`, `docs_edit_ambiguous`,
   `docs_not_append_only`, `docs_unchanged`), then the write is queued (`doc_writes`, one open per project:
   409 `docs_write_pending`) with an Operator step in `queued` status, and runs in the repository's merge slot (see
   "Merge"). The call waits up to 60 seconds for a write that starts at once and answers `published`, `queued` or
@@ -2345,7 +2345,7 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   Operator; `MessageRepository.hasNote` looks for the release id in the Operator's earlier system messages). It wakes
   nobody and arrives with the owner's next message; the `operatorRule` line tells the Operator to offer the roadmap
   comparison then and to write (`write_project_docs`) only after the owner says yes. No machine-dependent part.
-- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`domain/decision-candidates.ts`) finds the
+- **Decision candidates (PM-496, PM-388).** `DecisionCandidates` (`services/project-docs/decision-candidates.ts`) finds the
   questions of the inbox that an owner answered (through the integrator too), that no rule closed, that someone but
   the Operator asked, answered after the project's `since`, and with no verdict yet (`InboxRepository.
 listAnsweredQuestions`). `list_decision_candidates { limit? }` (1..50, default 20) is a read tool

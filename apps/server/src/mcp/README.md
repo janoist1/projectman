@@ -13,7 +13,9 @@ A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 The groups so far are `members`, `tasks`, `attachments`, `merges`
 (`merge_task`, `prioritize_merge`; module `services/merges`), `feedback`, `github`
 (`link_pull_request`; module `services/github`), `full-tests`
-(`take_screenshots`, `get_screenshot_run`; module `services/full-tests`), `boundary`, `releases` and `operator`. `tools.ts` collects their
+(`take_screenshots`, `get_screenshot_run`; module `services/full-tests`), `boundary`, `releases` and `operator`, plus
+`project-docs` (`read_project_doc`, `write_project_docs`, `list_decision_candidates`,
+`mark_decision_candidates`; module `services/project-docs`). `tools.ts` collects their
 definitions in `TEAM_TOOL_GROUPS`; `TeamToolsService` in `domain/team-tools.ts`
 forwards to their handlers. New tools belong in the module's group and handler,
 never in either collector. The remaining tools move with their own module's

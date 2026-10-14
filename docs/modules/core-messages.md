@@ -6,7 +6,7 @@ Stored team messages, routing, recipient/card-role rules, stale-message checks a
 
 ## Facade
 
-`domain/messaging/index.ts` exports `MessageService`, `Messaging`, `RelationNotices`, the staleness helpers and the port types below. It no longer re-exports `MessageDelivery`: the real delivery is `runtime/delivery`, which `domain/index.ts` re-exports and runtime callers import directly. The planned entry point is `core/messages/index.ts`.
+`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`) and the port types below. It does not export `MessageDelivery`: the real delivery is `runtime/delivery`, which `domain/index.ts` re-exports and runtime callers import directly.
 
 ## Ports
 
@@ -21,10 +21,11 @@ Stored team messages, routing, recipient/card-role rules, stale-message checks a
 
 Assembly passes the existing session orchestrator, delivery, refinement steps and Operator requests instances; the registered waker, signals and card holds and their order are unchanged. `Messaging` also receives the domain context, core services, message attachment validation/binding and optional engine availability. No runtime or service module is imported by this module; its four dependency exceptions are removed.
 
-## Current and planned files
+## Files
 
-Current paths under `apps/server/src`: `core/messages/ports.ts`, `domain/messaging/`.
-The planned folder is `apps/server/src/core/messages/`.
+All files live under `apps/server/src/core/messages/` (PM-642): `index.ts`, `ports.ts`, `messages.ts`
+(stored messages), `messaging.ts` (routing, holds, notices), `relation-notices.ts`, `staleness.ts`
+(wake and stale rules) and `tests/`. The old `domain/messaging/` folder and its re-exporting index are gone.
 The authoritative descriptor is
 [`core-messages.ts`](../../apps/server/test/architecture/modules/core-messages.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).

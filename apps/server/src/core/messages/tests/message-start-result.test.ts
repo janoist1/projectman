@@ -3,7 +3,7 @@ import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../../../contracts';
 import type { MessageStateReport, ToolContext } from '../../../contracts';
 import { aiActor } from '../../../domain';
-import { WAKE_REPLY_WAIT_MS } from '../../../domain/messaging/messaging';
+import { WAKE_REPLY_WAIT_MS } from '../messaging';
 import { formatProjectState, formatSentMessage } from '../../../mcp/format';
 import { createDomainHarness, OWNER_ACTOR } from '../../../../test/helpers/domain-harness';
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';

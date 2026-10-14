@@ -6,13 +6,12 @@ import {
   questionPayloadOf,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import type { Admission, AutomaticStart, StartSpec } from '../runtime/admission';
+import type { ScreeningAdmission, ScreeningAttempt, ScreeningSessions } from '../core/inbox/ports';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
 import type { MessageDeliveryPort } from './messaging';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from '../runtime/sessions';
 
 /** The first lines of the notice the Operator gets for the questions it screens. */
 const SCREENING_NOTICE =
@@ -36,8 +35,8 @@ export class QuestionScreening {
   private readonly deps: {
     ctx: DomainContext;
     projects: ProjectService;
-    sessions: SessionOrchestrator;
-    admission: Admission;
+    sessions: ScreeningSessions;
+    admission: ScreeningAdmission;
     delivery: Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>;
     inbox: InboxService;
     /** False: no question is screened (tests that are not about screening). */
@@ -83,7 +82,7 @@ export class QuestionScreening {
     }
   }
 
-  rebuild(spec: Extract<StartSpec, { kind: 'question_screening' }>): AutomaticStart | null {
+  rebuild(spec: { kind: 'question_screening'; projectKey: string }): ScreeningAttempt | null {
     return this.undelivered(spec.projectKey).length ? this.start(spec.projectKey) : null;
   }
 
@@ -152,7 +151,7 @@ export class QuestionScreening {
     return this.cannotScreen(projectKey, await this.deps.projects.config(projectKey));
   }
 
-  private start(projectKey: string): AutomaticStart {
+  private start(projectKey: string): ScreeningAttempt {
     const { ctx, projects, sessions, admission, delivery } = this.deps;
     return {
       key: `question-screening:${projectKey}`,

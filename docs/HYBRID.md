@@ -44,7 +44,7 @@ not touched by anything here.
 `deploy/cloud/Dockerfile` builds from the repository root:
 
 ```sh
-docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev-parse --short HEAD) -t projectman-cloud .
+docker build -f deploy/cloud/Dockerfile --build-arg PROJECTMAN_VERSION=$(git rev-parse HEAD) -t projectman-cloud .
 ```
 
 - **In it:** the server and the web app (`npm run build`, production dependencies only), `git` (the

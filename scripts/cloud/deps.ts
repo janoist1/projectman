@@ -26,6 +26,15 @@ export interface RunOptions {
   timeoutMs?: number;
   /** `inherit` hands the terminal to the command (an interactive ssh); the result's output is then empty. */
   stdio?: 'pipe' | 'inherit';
+  /** Stops the command when it aborts (the result's code is then 130). */
+  signal?: AbortSignal;
+}
+
+/** One side of `pipe`: a command with its environment additions. */
+export interface PipeEnd {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
 }
 
 export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV' | 'CAA';
@@ -33,10 +42,7 @@ export type DnsRecordType = 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'NS' | 'SRV'
 export interface CloudDeps {
   run(command: string, args: string[], options?: RunOptions): Promise<RunResult>;
   /** `from | to`: the standard output of the first is the standard input of the second. */
-  pipe(
-    from: { command: string; args: string[] },
-    to: { command: string; args: string[] },
-  ): Promise<RunResult>;
+  pipe(from: PipeEnd, to: PipeEnd): Promise<RunResult>;
   fetch: typeof fetch;
   /** The records of a name (an empty list when there are none); `servers` are resolver IP addresses. */
   resolve(name: string, type: DnsRecordType, servers?: string[]): Promise<string[]>;
@@ -44,6 +50,11 @@ export interface CloudDeps {
   err(line: string): void;
   now(): Date;
   sleep(ms: number): Promise<void>;
+  /**
+   * Calls the handler on SIGINT, SIGTERM or SIGHUP (instead of the process dying at once, so a command can undo
+   * what it opened); the result removes the handler.
+   */
+  onInterrupt(handler: () => void): () => void;
   /** The user's home directory (the secrets store is under it). */
   homeDir: string;
   /** The checkout the command runs from. */
@@ -64,12 +75,14 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let aborted = false;
     let settled = false;
     const inherit = options.stdio === 'inherit';
     const finish = (result: RunResult) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abort);
       resolve(result);
     };
     const child = spawn(command, args, {
@@ -90,6 +103,13 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
       stop('SIGTERM');
       setTimeout(() => stop('SIGKILL'), KILL_GRACE_MS).unref();
     }, options.timeoutMs ?? 2_147_483_647);
+    function abort() {
+      aborted = true;
+      stop('SIGTERM');
+      setTimeout(() => stop('SIGKILL'), KILL_GRACE_MS).unref();
+    }
+    if (options.signal?.aborted) abort();
+    else options.signal?.addEventListener('abort', abort, { once: true });
     child.stdout?.setEncoding('utf8').on('data', (chunk: string) => (stdout = keep(stdout, chunk)));
     child.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr = keep(stderr, chunk)));
     if (options.input !== undefined && child.stdin) {
@@ -105,7 +125,7 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
     );
     child.on('close', (code, signal) =>
       finish({
-        code: timedOut ? 124 : (code ?? (signal ? 128 : 1)),
+        code: aborted ? 130 : timedOut ? 124 : (code ?? (signal ? 128 : 1)),
         stdout,
         stderr: timedOut ? `${stderr}\nthe command did not finish in time and was stopped\n` : stderr,
       }),
@@ -113,10 +133,7 @@ function run(command: string, args: string[], options: RunOptions = {}): Promise
   });
 }
 
-function pipe(
-  from: { command: string; args: string[] },
-  to: { command: string; args: string[] },
-): Promise<RunResult> {
+function pipe(from: PipeEnd, to: PipeEnd): Promise<RunResult> {
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
@@ -125,8 +142,14 @@ function pipe(
       if (results.first === null || results.second === null) return;
       resolve({ code: results.first !== 0 ? results.first : results.second, stdout, stderr });
     };
-    const first: ChildProcess = spawn(from.command, from.args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    const second: ChildProcess = spawn(to.command, to.args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const first: ChildProcess = spawn(from.command, from.args, {
+      env: { ...process.env, ...from.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const second: ChildProcess = spawn(to.command, to.args, {
+      env: { ...process.env, ...to.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
     first.stdout?.pipe(second.stdin!);
     second.stdin?.on('error', () => undefined);
     first.stderr?.setEncoding('utf8').on('data', (chunk: string) => (stderr = keep(stderr, chunk)));
@@ -198,6 +221,13 @@ export function realDeps(): CloudDeps {
     err: (line) => process.stderr.write(`${line}\n`),
     now: () => new Date(),
     sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    onInterrupt: (handler) => {
+      const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const;
+      for (const signal of signals) process.on(signal, handler);
+      return () => {
+        for (const signal of signals) process.off(signal, handler);
+      };
+    },
     homeDir: os.homedir(),
     repoRoot: path.resolve(fileURLToPath(new URL('../..', import.meta.url))),
   };

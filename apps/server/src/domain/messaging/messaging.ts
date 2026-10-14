@@ -30,6 +30,7 @@ import type {
   InboxItem,
   ProjectConfig,
   Session,
+  SessionStartCause,
   Task,
   TeamMessage,
   TeamMessageAnswer,
@@ -37,7 +38,7 @@ import type {
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageHold, SentMessageRecipient, WakeStart } from '../../contracts';
-import type { RefinementSteps } from '../../runtime/admission';
+import type { MessageDeliveryPort, MessageRefinement, MessageSessions } from '../../core/messages/ports';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { DomainError, forbidden, invalid, conflict } from '../../kernel';
@@ -45,10 +46,8 @@ import type { MessageAttachmentService } from '../message-attachments';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator, SessionStartCause } from '../../runtime/sessions';
 import type { TaskService } from '../tasks';
 import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../../kernel';
-import type { MessageDelivery } from '../../runtime/delivery';
 import type { MessageService } from './messages';
 import { recipientHasCardRole, staleReasonFor, wakeFactsFor, wakesFor } from './staleness';
 
@@ -151,10 +150,10 @@ export class Messaging {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
-  private readonly sessions: SessionOrchestrator;
+  private readonly sessions: MessageSessions;
   private readonly messages: MessageService;
-  private readonly delivery: MessageDelivery;
-  private readonly refinement: Pick<RefinementSteps, 'turnMember'>;
+  private readonly delivery: MessageDeliveryPort;
+  private readonly refinement: MessageRefinement;
   private readonly messageAttachments: Pick<MessageAttachmentService, 'assertSendable' | 'bindForSend'>;
   private readonly engines: Pick<EngineDirectory, 'engineFor' | 'get'> | undefined;
   private readonly cardHolds = new Map<CardHoldReason, CardHold>();
@@ -163,10 +162,10 @@ export class Messaging {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    sessions: SessionOrchestrator;
+    sessions: MessageSessions;
     messages: MessageService;
-    delivery: MessageDelivery;
-    refinement: Pick<RefinementSteps, 'turnMember'>;
+    delivery: MessageDeliveryPort;
+    refinement: MessageRefinement;
     /** The engines (PM-315): a message to a member whose engine is not connected waits for it. */
     engines?: Pick<EngineDirectory, 'engineFor' | 'get'>;
     /** The files a message carries (PM-516): checked before the message is sent, bound to it as it is recorded. */

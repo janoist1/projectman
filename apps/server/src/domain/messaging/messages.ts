@@ -21,7 +21,7 @@ import type {
 import { isoNow } from '../context';
 import { wakeFactsFor, wakesFor } from './staleness';
 import type { DomainContext } from '../context';
-import type { OperatorRequests } from '../../services/operator';
+import type { MessageRequests } from '../../core/messages/ports';
 import type { TimelineService } from '../timeline';
 import type { ProjectService } from '../projects';
 import { forbidden, notFound } from '../../kernel';
@@ -65,13 +65,13 @@ export class MessageService {
   private readonly timeline: TimelineService;
   private readonly projects: ProjectService;
 
-  private readonly operatorRequests: OperatorRequests;
+  private readonly operatorRequests: MessageRequests;
 
   constructor(deps: {
     ctx: DomainContext;
     timeline: TimelineService;
     projects: ProjectService;
-    operatorRequests: OperatorRequests;
+    operatorRequests: MessageRequests;
   }) {
     this.ctx = deps.ctx;
     this.timeline = deps.timeline;

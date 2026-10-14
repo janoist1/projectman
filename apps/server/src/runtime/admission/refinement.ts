@@ -25,7 +25,7 @@ import type {
 } from '@projectman/shared';
 import { ownerHandles } from '../../domain/access';
 import type { InboxService } from '../../domain/inbox';
-import type { MessageDelivery } from '../../domain/messaging';
+import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../domain/projects';
 import type { SessionOrchestrator } from '../sessions';
 import type { StageChange, TaskService } from '../../domain/tasks';

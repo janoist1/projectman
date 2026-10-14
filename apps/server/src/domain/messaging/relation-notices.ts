@@ -17,7 +17,7 @@ import type { DomainContext } from '../context';
 import type { DomainEventMap } from '../events';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../../runtime/sessions';
+import type { MessageSessions } from '../../core/messages/ports';
 import type { TaskService } from '../tasks';
 import { SYSTEM_ACTOR, unique } from '../../kernel';
 import type { Messaging } from './messaging';
@@ -40,7 +40,7 @@ export class RelationNotices {
   private readonly ctx: DomainContext;
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
-  private readonly sessions: SessionOrchestrator;
+  private readonly sessions: Pick<MessageSessions, 'list' | 'isRunning'>;
   private readonly messaging: Messaging;
   private readonly inbox: InboxService;
 
@@ -48,7 +48,7 @@ export class RelationNotices {
     ctx: DomainContext;
     projects: ProjectService;
     tasks: TaskService;
-    sessions: SessionOrchestrator;
+    sessions: Pick<MessageSessions, 'list' | 'isRunning'>;
     messaging: Messaging;
     inbox: InboxService;
   }) {

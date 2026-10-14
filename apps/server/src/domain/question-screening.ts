@@ -10,7 +10,7 @@ import type { Admission, AutomaticStart, StartSpec } from '../runtime/admission'
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
-import type { MessageDelivery } from './messaging';
+import type { MessageDeliveryPort } from './messaging';
 import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from '../runtime/sessions';
 
@@ -38,7 +38,7 @@ export class QuestionScreening {
     projects: ProjectService;
     sessions: SessionOrchestrator;
     admission: Admission;
-    delivery: MessageDelivery;
+    delivery: Pick<MessageDeliveryPort, 'notice' | 'startAndDeliver'>;
     inbox: InboxService;
     /** False: no question is screened (tests that are not about screening). */
     enabled: boolean;

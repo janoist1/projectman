@@ -5,6 +5,6 @@ export const coreMessages: ModuleEntry = {
   layer: 'core',
   target: 'core/messages',
   pass: 'split',
-  paths: ['domain/messaging/'],
+  paths: ['core/messages/ports.ts', 'domain/messaging/'],
   sealed: false,
 };

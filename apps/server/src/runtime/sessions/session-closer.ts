@@ -16,7 +16,8 @@ import type { EngineId, ProjectConfig, Session, SessionStop, Task } from '@proje
 import type { EngineDirectory } from '../../contracts';
 import { engineIdOf } from './engines';
 import type { DomainContext } from '../../domain/context';
-import type { MessageDelivery, Messaging } from '../../domain/messaging';
+import type { Messaging } from '../../domain/messaging';
+import type { MessageDelivery } from '../delivery';
 import type { ProjectService } from '../../domain/projects';
 import type { RefinementSteps } from '../admission';
 import type { SessionOrchestrator } from './sessions';

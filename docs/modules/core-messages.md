@@ -6,26 +6,34 @@ Stored team messages, routing, recipient/card-role rules, stale-message checks a
 
 ## Facade
 
-`domain/messaging/index.ts` currently exports `MessageService`, `Messaging`, `RelationNotices` and staleness helpers, and still re-exports `MessageDelivery` from runtime. The planned entry point is `core/messages/index.ts`; removing that runtime re-export belongs to the messages slice.
+`domain/messaging/index.ts` exports `MessageService`, `Messaging`, `RelationNotices`, the staleness helpers and the port types below. It no longer re-exports `MessageDelivery`: the real delivery is `runtime/delivery`, which `domain/index.ts` re-exports and runtime callers import directly. The planned entry point is `core/messages/index.ts`.
 
 ## Ports
 
-`Messaging` receives the domain context, core services, sessions, delivery and refinement. Existing `MessageWaker`, `MessageSignals` and `CardHold` interfaces connect starts, Operator signal recording and card holds. Message attachment validation/binding and optional engine availability are injected. Existing runtime/service dependency exceptions remain unchanged.
+`core/messages/ports.ts` defines the consumer-owned interfaces (PM-634):
+
+- `MessageSessions` reads and starts the sessions a message goes to: `get`, `find`, `list`, `isRunning`, `findRunning`, `isPaused`, `ensureSession`, `restartWithMessages`, `requestReviewRound`, `sourceHead`, `cardWorkers`, `waitingPermissionFor`, `reviewRoundDue`, `permissionRestartDue` and `assertProviderCooldown`. `RelationNotices` needs only `list` and `isRunning`.
+- `MessageDeliveryPort` types or holds a message: `deliver`, `deliverWithFirstInput`, `startAndDeliver`, `holdAsWritten`, `holdForPause`, `deliverWaiting`, `notice`, `noticeOrHold` and `holdUntilInput`. Question screening uses only `notice` and `startAndDeliver`.
+- `MessageRefinement.turnMember` names the member whose refinement turn it is.
+- `MessageRequests.open` opens the Operator request an owner's message or answer causes (PM-463); `MessageRequestInput` is its input.
+
+`EnsureSessionOptions` and `EnsureSessionResult` live in `contracts/sessions.ts`; `SourceHead` and `CardWorker` in `contracts/context.ts`. `SessionStartCause` comes from `@projectman/shared`.
+
+Assembly passes the existing session orchestrator, delivery, refinement steps and Operator requests instances; the registered waker, signals and card holds and their order are unchanged. `Messaging` also receives the domain context, core services, message attachment validation/binding and optional engine availability. No runtime or service module is imported by this module; its four dependency exceptions are removed.
 
 ## Current and planned files
 
-Current paths under `apps/server/src`: `domain/messaging/`.
+Current paths under `apps/server/src`: `core/messages/ports.ts`, `domain/messaging/`.
 The planned folder is `apps/server/src/core/messages/`.
 The authoritative descriptor is
 [`core-messages.ts`](../../apps/server/test/architecture/modules/core-messages.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).
 Its paths, pass, layer and sealed state are preserved by PM-631; later module slices
-update only their own descriptor and this document. They do not edit the central map,
-architecture table or other modules' importers.
+update their own descriptor and this document, removing their dependency exceptions
+from the central map without changing the architecture table.
 
 ## Remote engine
 
 Message records and routing rules stay on the server. Runtime delivery and engine availability use the existing transport to the recipient's engine. Session-folder message files remain covered by the machine-dependent inventory; no new delivery payload is introduced.
 
-PM-631 only prepares file ownership for parallel refactor slices. It changes no
-shared contract, database schema, configuration or timeline event.
+The ports are server-side interfaces over the existing instances and add no machine-dependent operation. CLI input still goes through the existing engine host and engine link; the 4 MiB frame limit, path handling and MCP replies are unchanged (PM-634).

@@ -1,13 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { PrioritizeMergeRequest, routes, StartMergeRequest } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { actorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type TaskParams = { Params: { key: string; taskKey: string } };
 
 /** The merge of a card (services/merges): starting it and moving it in its repository's queue. */
-export function registerMergeRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerMergeRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.post<TaskParams>(routes.taskMerge(':key', ':taskKey'), async (request) => {
     const { key, taskKey } = request.params;
     const access = await requireAccess(domain, request, key, { minimum: 'developer' });

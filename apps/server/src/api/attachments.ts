@@ -10,11 +10,11 @@ import type {
   UploadAttachmentResponse,
 } from '@projectman/shared';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { contentDisposition } from '../core/attachments';
-import { DomainError, invalid } from '../domain';
+import { DomainError, invalid } from '../kernel';
 import { actorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 /** What a multipart request may carry on top of the file: boundaries and part headers. */
 export const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
@@ -43,7 +43,7 @@ export const tooLarge = () =>
  */
 export function registerAttachmentRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService },
+  deps: { domain: ApiDomain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
 

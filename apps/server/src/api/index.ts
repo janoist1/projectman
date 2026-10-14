@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
-import type { EngineRegistry } from '../domain';
+import type { ApiDomain } from './ports';
+import type { EngineRegistry } from '../runtime/sessions';
 import { registerEngineRoutes } from './engines';
 import { registerAttachmentRoutes } from './attachments';
 import { registerMessageAttachmentRoutes } from './message-attachments';
@@ -25,13 +25,12 @@ import { registerSessionRoutes } from './sessions';
 import { registerTaskRoutes } from './tasks';
 import { registerMergeRoutes } from './merges';
 
-export { apiError, registerErrorHandling, toApiError } from './errors';
-export { parseBody } from './validation';
+export type { ApiDomain } from './ports';
 
 /** What the routes call: the domain services and the accounts. */
 export interface ApiServices {
   engineRegistry?: EngineRegistry;
-  domain: Domain;
+  domain: ApiDomain;
   auth: AuthService;
   /** The header that names the real client behind a trusted entrance (see clientAddress). */
   clientIpHeader?: string;

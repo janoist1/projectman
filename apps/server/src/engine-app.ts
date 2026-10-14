@@ -7,7 +7,7 @@ import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest, FastifyServerOptions } from 'fastify';
 import { AgentProvider, routes } from '@projectman/shared';
 import { APP_DEFAULTS, loopbackBaseUrl } from './app';
-import { serializeRequest } from './auth/request-logging';
+import { serializeRequest } from './http';
 import type {
   FullTestExecutor,
   GithubService,

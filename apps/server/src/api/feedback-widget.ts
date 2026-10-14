@@ -14,11 +14,12 @@ import type {
   FeedbackWidgetListResponse,
 } from '@projectman/shared';
 import { clientAddress, createAttemptLimiter } from '../auth';
-import type { Domain, FeedbackWidgetSession } from '../domain';
-import { DomainError } from '../domain';
+import type { ApiDomain } from './ports';
+import type { FeedbackWidgetSession } from '../services/feedback';
+import { DomainError } from '../kernel';
 import { markIdOf } from './feedback';
-import { apiError, toApiError } from './errors';
-import { parseBody } from './validation';
+import { apiError, toApiError } from '../http';
+import { parseBody } from '../http';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -64,7 +65,7 @@ const bearerOf = (request: FastifyRequest): string =>
  */
 export function registerFeedbackWidgetRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; clientIpHeader?: string; widgetFile: string | null },
+  deps: { domain: ApiDomain; clientIpHeader?: string; widgetFile: string | null },
 ): void {
   const { domain, clientIpHeader, widgetFile } = deps;
   const widget = domain.feedbackWidget;

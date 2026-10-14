@@ -1,9 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { CreateIntegratorKeyRequest, LoginRequest, routes, SetupRequest } from '@projectman/shared';
 import type { Me, SetupStatus } from '@projectman/shared';
-import { apiError } from '../api/errors';
-import { parseBody } from '../api/validation';
-import type { Domain } from '../domain';
+import { apiError, parseBody } from '../http';
 import { DomainError, forbidden } from '../kernel';
 import { createAttemptLimiter, MAX_FAILED_ATTEMPTS_ALL_CLIENTS } from '../kernel';
 import { AuthService } from './auth-service';
@@ -19,6 +17,12 @@ export { clientAddress, isLocalRequest, requestProtocol } from '../kernel';
 export { createSetupCode, generateSetupCode, MAX_SETUP_CODE_FAILURES } from './setup-code';
 export type { SetupCode } from './setup-code';
 export { loadOrCreateSecret } from './secret';
+
+export interface AuthDomain {
+  handlesFor(email: string): Promise<Record<string, string>>;
+  projectsFor(email: string): Promise<Me['projects']>;
+  instanceOwner(email: string): Promise<boolean>;
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -56,7 +60,7 @@ function needsLogin(request: FastifyRequest): boolean {
 }
 
 /** The user and their memberships, as every login answers and GET /api/auth/me returns. */
-export async function meOf(domain: Domain, user: AuthUser, auth?: AuthService): Promise<Me> {
+export async function meOf(domain: AuthDomain, user: AuthUser, auth?: AuthService): Promise<Me> {
   return {
     userId: user.id,
     name: user.name,
@@ -98,7 +102,7 @@ export function registerAuth(
   app: FastifyInstance,
   deps: {
     auth: AuthService;
-    domain: Domain;
+    domain: AuthDomain;
     clientIpHeader?: string;
     /** `cloud` mode: a non-local first setup is possible, with the setup code (PM-317). */
     cloud?: boolean;

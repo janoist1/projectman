@@ -1,12 +1,12 @@
 import { AgentProvider, canManageProviderKeys, routes, SetProviderKeyRequest } from '@projectman/shared';
 import type { ProvidersView } from '@projectman/shared';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { Domain } from '../domain';
-import { forbidden, invalid } from '../domain';
+import type { ApiDomain } from './ports';
+import { forbidden, invalid } from '../kernel';
 import { currentUser } from './context';
 
 /** The auth guard grants every logged-in member access to provider login status. */
-export function registerProviderRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerProviderRoutes(app: FastifyInstance, domain: ApiDomain): void {
   const accesses = (request: FastifyRequest) =>
     Promise.all(
       domain.projects.summaries().map((project) => domain.accessFor(project.key, currentUser(request).email)),

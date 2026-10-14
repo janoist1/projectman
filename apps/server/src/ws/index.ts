@@ -1,12 +1,30 @@
+import type { Me } from '@projectman/shared';
+import type { RunnerModule, EventBus } from '../contracts';
+import type { TaskService } from '../core/tasks';
+import type { SessionOrchestrator } from '../runtime/sessions';
+import type { MessageService } from '../core/messages';
+import type { MemberService, PresenceService, ProjectAccess } from '../core/members';
+
 import type { FastifyInstance } from 'fastify';
 import { canSeeOperatorSessions, ClientCommand, routes } from '@projectman/shared';
 import type { ErrorCode, HumanAccess, ServerEvent } from '@projectman/shared';
 import { sameOrigin } from '../kernel';
-import type { AuthService, AuthUser } from '../auth/auth-service';
-import type { Domain } from '../domain';
-import { DomainError, forbidden, notFound } from '../domain';
+import type { AuthService, AuthUser } from '../auth';
+import { DomainError, forbidden, notFound } from '../kernel';
 import { hasAccess } from '@projectman/shared';
 import { canSeeProjectEvent, visibleProjectEvent } from '../core/projects';
+
+export interface WsDomain {
+  readonly runnerModule: RunnerModule;
+  readonly bus: EventBus;
+  readonly tasks: TaskService;
+  readonly sessions: SessionOrchestrator;
+  readonly messages: MessageService;
+  readonly members: MemberService;
+  readonly presence: PresenceService;
+  projectsFor(email: string): Promise<Me['projects']>;
+  accessFor(projectKey: string, email: string): Promise<ProjectAccess | null>;
+}
 
 /** The part of the `ws` WebSocket API this module uses. */
 interface WsSocket {
@@ -51,7 +69,7 @@ function messageText(data: unknown): string {
  */
 export function registerWebsocket(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService; heartbeatMs?: number },
+  deps: { domain: WsDomain; auth: AuthService; heartbeatMs?: number },
 ): void {
   const { domain } = deps;
   const runner = domain.runnerModule.runner;

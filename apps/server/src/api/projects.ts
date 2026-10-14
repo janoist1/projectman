@@ -3,16 +3,16 @@ import { CreateProjectRequest, routes } from '@projectman/shared';
 import type { BoardView, ProjectPreview, ProjectSummary, TemplateSummary } from '@projectman/shared';
 import { summarizeTemplate } from '@projectman/templates';
 import type { AuthService } from '../auth';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { authorOf, currentUser, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 
 export function registerProjectRoutes(
   app: FastifyInstance,
-  deps: { domain: Domain; auth: AuthService },
+  deps: { domain: ApiDomain; auth: AuthService },
 ): void {
   const { domain, auth } = deps;
   app.get(routes.templates(), async (): Promise<TemplateSummary[]> =>

@@ -1,9 +1,11 @@
 import type { FastifyRequest } from 'fastify';
 import type { Actor, HumanAccess, IntegratorRefusal } from '@projectman/shared';
-import type { AuthUser } from '../auth/auth-service';
-import type { Domain, ProjectAccess } from '../domain';
-import { DomainError, forbidden, hasAccess, humanActor, notFound, ownerLoginRequired } from '../domain';
-import type { Author } from '../domain';
+import type { AuthUser } from '../auth';
+import type { ApiDomain } from './ports';
+import type { ProjectAccess } from '../core/members';
+import { DomainError, forbidden, humanActor, notFound, ownerLoginRequired } from '../kernel';
+import { hasAccess } from '@projectman/shared';
+import type { Author } from '../core/projects';
 
 export function currentUser(request: FastifyRequest): AuthUser {
   if (!request.user) throw new DomainError('unauthorized', 'login required', { status: 401 });
@@ -16,7 +18,7 @@ export function currentUser(request: FastifyRequest): AuthUser {
  * (talking to the team, which clients may do) rejects them.
  */
 export async function requireAccess(
-  domain: Domain,
+  domain: ApiDomain,
   request: FastifyRequest,
   projectKey: string,
   opts: { minimum?: HumanAccess; internal?: boolean; messaging?: boolean } = {},
@@ -50,7 +52,7 @@ export function requireOwnLogin(by: { via?: 'integrator' | null }, category: Int
  * The user who manages the instance as a whole (the owner of every project, as for the instance's
  * pause): the machine display and its command lines are for them alone.
  */
-export async function requireInstanceOwner(domain: Domain, request: FastifyRequest): Promise<AuthUser> {
+export async function requireInstanceOwner(domain: ApiDomain, request: FastifyRequest): Promise<AuthUser> {
   const user = currentUser(request);
   if (!(await domain.instanceOwner(user.email)))
     throw forbidden('insufficient_access', 'only an owner of every project may see the machine');

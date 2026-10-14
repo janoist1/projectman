@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { BoundaryId, DecideBoundaryRequest, routes } from '@projectman/shared';
-import type { Domain } from '../domain';
-import { forbidden } from '../domain';
+import type { ApiDomain } from './ports';
+import { forbidden } from '../kernel';
 import { requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type Params = { Params: { key: string; id: string } };
-export function registerBoundaryRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerBoundaryRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<Params>(routes.boundaryRequest(':key', ':id'), async (request) => {
     const { key, id } = request.params;
     const access = await requireAccess(domain, request, key, { internal: true });

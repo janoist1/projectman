@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { routes, TASK_CREATE_MIN_ACCESS } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { forbidden } from '../kernel';
 import { requireAccess } from './context';
 
 type ProjectParams = { Params: { key: string } };
 
-export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: Domain }): void {
+export function registerOperatorRoutes(app: FastifyInstance, deps: { domain: ApiDomain }): void {
   const { domain } = deps;
   app.post<{ Params: { key: string; signalId: string } }>(
     routes.dismissOperatorSignal(':key', ':signalId'),

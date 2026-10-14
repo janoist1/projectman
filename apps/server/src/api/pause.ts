@@ -1,17 +1,18 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { canManageInstancePause, PauseRequest, routes } from '@projectman/shared';
 import type { InstancePauseView, ProjectPauseView } from '@projectman/shared';
-import type { Domain, PauseRequester } from '../domain';
-import { forbidden } from '../domain';
+import type { ApiDomain } from './ports';
+import type { PauseRequester } from '../runtime/sessions';
+import { forbidden } from '../kernel';
 import { currentUser, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 /**
  * The team's pause (PM-219). A project's pause is for its admins and owners, whom every internal member
  * may look at; the instance's is for a person who is an owner in every project, whom any internal
  * member of some project may look at (`canManageInstancePause`).
  */
-export function registerPauseRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerPauseRoutes(app: FastifyInstance, domain: ApiDomain): void {
   type ProjectParams = { Params: { key: string } };
   const requester = (request: FastifyRequest): PauseRequester => ({
     userId: currentUser(request).id,

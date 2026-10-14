@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ProjectConfig, RevertConfigRequest, routes, PatchConfigRequest } from '@projectman/shared';
 import type { ConfigView } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { configInvalid } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 
@@ -38,7 +38,7 @@ function parseEdit<S extends z.ZodType>(schema: S, body: unknown): z.output<S> {
  * rules, removed stages still in use (409 stage_in_use), invariants (400 config_invalid) and
  * stale versions (409 config_conflict).
  */
-export function registerConfigRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerConfigRoutes(app: FastifyInstance, domain: ApiDomain): void {
   const view = async (key: string): Promise<ConfigView> => {
     const { config, version } = await domain.projects.load(key);
     return { config, version, history: await domain.projects.history(key, 50) };

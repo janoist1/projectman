@@ -291,7 +291,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'api',
     pass: 'none',
     paths: ['api/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'mcp',
@@ -307,7 +307,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'ws',
     pass: 'none',
     paths: ['ws/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'http',
@@ -315,7 +315,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'http',
     pass: 'none',
     paths: ['http/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'control',
@@ -331,7 +331,7 @@ export const MODULES: readonly ModuleEntry[] = [
     target: 'auth',
     pass: 'none',
     paths: ['auth/'],
-    sealed: false,
+    sealed: true,
   },
   {
     id: 'assembly',
@@ -352,21 +352,4 @@ export const MODULES: readonly ModuleEntry[] = [
 ];
 
 // Initial baseline only. Slice cards remove exceptions; never add new ones.
-export const EXCEPTIONS: readonly DependencyException[] = [
-  { from: 'api', to: 'assembly', removedBy: 'api' },
-  {
-    from: 'auth',
-    to: 'assembly',
-    removedBy: 'auth',
-  },
-  {
-    from: 'instance',
-    to: 'entry',
-    removedBy: 'instance',
-  },
-  {
-    from: 'ws',
-    to: 'assembly',
-    removedBy: 'ws',
-  },
-];
+export const EXCEPTIONS: readonly DependencyException[] = [];

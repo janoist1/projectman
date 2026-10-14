@@ -2,14 +2,7 @@ import clsx from 'clsx';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isUnreadBy, PROJECT_MANAGER_ROLE } from '@projectman/shared';
 import type { InboxItem, ResolveInboxRequest, RoleView, TeamMessage } from '@projectman/shared';
-import {
-  useBoard,
-  useConversation,
-  useInbox,
-  useReadTeamMessages,
-  useResolveInbox,
-  useSendTeamMessage,
-} from '../../api/queries';
+import { useBoard, useConversation, useInbox, useReadTeamMessages, useResolveInbox } from '../../api/queries';
 import { useProject, useProjectIndexes } from '../../app/contexts';
 import { Avatar } from '../../components/Avatar';
 import { Button, ButtonLink } from '../../components/Button';
@@ -40,6 +33,7 @@ import { TaskChip } from './TaskChip';
 import styles from './ConversationThread.module.css';
 import { MessageAttachments } from './MessageAttachments';
 import { useMessageAttachmentUploads } from './useMessageAttachmentUploads';
+import { useCardBusySend } from './useCardBusySend';
 import { useFileDrop } from '../board/useFileDrop';
 import attachmentStyles from './MessageAttachments.module.css';
 
@@ -83,7 +77,11 @@ export function ConversationThread({
   const conversation = useConversation(key, peer);
   const resolve = useResolveInbox(key, myHandle);
   const readMessages = useReadTeamMessages(key);
-  const send = useSendTeamMessage(key);
+  const {
+    mutation: send,
+    send: sendConfirmed,
+    dialog: cardBusyDialog,
+  } = useCardBusySend(key, () => composerBox.current?.querySelector('textarea') ?? null);
   const toast = useToast();
   const isMobile = useIsMobile();
   const uploads = useMessageAttachmentUploads(key);
@@ -427,22 +425,21 @@ export function ConversationThread({
             placeholder={t('messages.composer.placeholder')}
             disabled={send.isPending}
             onSend={(text) =>
-              send
-                .mutateAsync({
-                  to: [peer],
-                  text,
-                  ...(uploads.items.length
-                    ? {
-                        attachmentIds: uploads.items.flatMap((item) =>
-                          item.attachment ? [item.attachment.id] : [],
-                        ),
-                      }
-                    : {}),
-                  ...(task ? { taskKey: task } : {}),
-                })
-                .then(() => undefined)
+              sendConfirmed({
+                to: [peer],
+                text,
+                ...(uploads.items.length
+                  ? {
+                      attachmentIds: uploads.items.flatMap((item) =>
+                        item.attachment ? [item.attachment.id] : [],
+                      ),
+                    }
+                  : {}),
+                ...(task ? { taskKey: task } : {}),
+              }).then(() => undefined)
             }
           />
+          {cardBusyDialog}
         </div>
       ) : (
         <p className={styles.readOnly}>{t('messages.composer.readOnly')}</p>

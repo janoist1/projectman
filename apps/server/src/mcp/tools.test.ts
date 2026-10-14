@@ -54,12 +54,13 @@ describe('team tool registration', () => {
     }
   });
 
-  it('registers the eighteen moved tools with their owning modules', () => {
+  it('registers the twenty-three moved tools with their owning modules', () => {
     expect(
       Object.fromEntries(
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
       ),
     ).toEqual({
+      'services/operator': ['get_project_state', 'operate', 'screen_question', 'start_task', 'start_member'],
       'services/feedback': [
         'get_feedback',
         'reply_feedback',

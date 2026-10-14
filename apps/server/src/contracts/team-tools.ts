@@ -510,39 +510,8 @@ export interface TeamToolsHandler
     TaskToolsHandler,
     AttachmentToolsHandler,
     MergeToolsHandler,
-    FeedbackToolsHandler {
-  getProjectState(
-    ctx: ToolContext,
-    args: { taskKey?: string; messageId?: string },
-  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
-  operate(
-    ctx: ToolContext,
-    args: { title: string; operation: OperatorOperation },
-  ): Promise<{
-    status: 'done' | 'awaiting_approval' | 'refused';
-    step_id: string;
-    changes: ConfigChangeRow[];
-    config_version?: string | null;
-    inbox_item_id?: string;
-  }>;
-  startTask(
-    ctx: ToolContext,
-    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
-  ): Promise<{
-    task_key: string;
-    session_id: string | null;
-    hired: string | null;
-    /** The card's assignee after the start. */
-    assignee: string | null;
-    /** Gate labels and the members started to set them (PM-236). */
-    awaiting?: { labels: string[]; members: string[] };
-    /** Seniors the card waits for, without an assigned developer (PM-348). */
-    senior_wait?: { seniors: string[] };
-  }>;
-  startMember(
-    ctx: ToolContext,
-    args: { member: string; text: string; taskKey?: string; signalId?: string },
-  ): Promise<MemberStartResult>;
+    FeedbackToolsHandler,
+    OperatorToolsHandler {
   /**
    * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
    * Only the Operator; needs no open request.
@@ -689,23 +658,6 @@ export interface TeamToolsHandler
     screening?: true;
   }>;
   /**
-   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
-   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
-   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
-   * guest conversation; needs no open request.
-   */
-  screenQuestion(
-    ctx: ToolContext,
-    args: {
-      itemId: string;
-      outcome: ScreeningOutcome;
-      note: string;
-      answer?: string;
-      forwardTo?: MemberHandle;
-      todo?: QuestionTodo;
-    },
-  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
-  /**
    * withdraw_question (PM-559): the asking member closes its own pending question (open, or still with the
    * Operator for screening) because it became moot, with a short `reason`. Errors: `not_found` (no such
    * question in the project), `forbidden` `not_your_question` (the caller did not ask it), `invalid`
@@ -743,4 +695,57 @@ export interface McpModuleOptions {
 export interface McpModule {
   /** Registers the MCP endpoint at /mcp/:token (localhost only). */
   registerRoutes(app: FastifyInstance): void;
+}
+
+/** The tools of services/operator (PM-605). */
+export interface OperatorToolsHandler {
+  getProjectState(
+    ctx: ToolContext,
+    args: { taskKey?: string; messageId?: string },
+  ): Promise<TaskStateReport | ProjectStateReport | MessageStateReport>;
+  operate(
+    ctx: ToolContext,
+    args: { title: string; operation: OperatorOperation },
+  ): Promise<{
+    status: 'done' | 'awaiting_approval' | 'refused';
+    step_id: string;
+    changes: ConfigChangeRow[];
+    config_version?: string | null;
+    inbox_item_id?: string;
+  }>;
+  startTask(
+    ctx: ToolContext,
+    args: { taskKey: string; assignee?: string; despitePrerequisites?: boolean; signalId?: string },
+  ): Promise<{
+    task_key: string;
+    session_id: string | null;
+    hired: string | null;
+    /** The card's assignee after the start. */
+    assignee: string | null;
+    /** Gate labels and the members started to set them (PM-236). */
+    awaiting?: { labels: string[]; members: string[] };
+    /** Seniors the card waits for, without an assigned developer (PM-348). */
+    senior_wait?: { seniors: string[] };
+  }>;
+  startMember(
+    ctx: ToolContext,
+    args: { member: string; text: string; taskKey?: string; signalId?: string },
+  ): Promise<MemberStartResult>;
+  /**
+   * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:
+   * `answered` (with `answer`), `forwarded` (to a member, `forwardTo`), `moot`, or sent on to the people as a
+   * `decision` or a `todo` (with the todo's fields). `note` is always the reason. Only the Operator, not in a
+   * guest conversation; needs no open request.
+   */
+  screenQuestion(
+    ctx: ToolContext,
+    args: {
+      itemId: string;
+      outcome: ScreeningOutcome;
+      note: string;
+      answer?: string;
+      forwardTo?: MemberHandle;
+      todo?: QuestionTodo;
+    },
+  ): Promise<{ inboxItemId: string; outcome: ScreeningOutcome }>;
 }

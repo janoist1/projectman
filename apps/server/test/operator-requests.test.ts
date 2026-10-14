@@ -3,7 +3,7 @@ import { OperatorChannel, routes, splitTeamMessageBatch } from '@projectman/shar
 import type { ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { OPERATOR_REQUEST_TTL_MS } from '../src/domain/operator-requests';
+import { OPERATOR_REQUEST_TTL_MS } from '../src/services/operator';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';

@@ -324,6 +324,7 @@ describe("a theme's card", () => {
     await screen.findByText(t('theme.progress', { done: 1, total: 4 }));
     expect(screen.queryByRole('button', { name: t('theme.close') })).toBeNull();
     expect(screen.getByRole('button', { name: t('theme.filterBoard') })).toBeTruthy();
+    expect(document.querySelector('a[href*="/map/"]')).toBeNull();
   });
 
   it('filters the board from its card', async () => {

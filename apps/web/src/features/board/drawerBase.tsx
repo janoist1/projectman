@@ -3,7 +3,7 @@ import { useProject } from '../../app/contexts';
 
 /**
  * Where the open card's drawer leads (PM-407): the drawer sits over the board (`/p/AC`) or over the
- * map's zoomed group (`/p/AC/map/AC-12`). `close` is the path it closes to; `card` is the path of a
+ * structure map (`/p/AC/map`). `close` is the path it closes to; `card` is the path of a
  * card (or of one of its views, `sub`: "thread") in the same place.
  */
 export interface DrawerBase {

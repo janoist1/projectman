@@ -6,7 +6,7 @@ import { isOpenTask } from '@projectman/shared';
 import type { Task, ThemeCard, ThemeCardView } from '@projectman/shared';
 import { useCloseTheme, useReopenTask } from '../../api/queries';
 import { useProject } from '../../app/contexts';
-import { Button, ButtonLink } from '../../components/Button';
+import { Button } from '../../components/Button';
 import { Chip, StatusDot } from '../../components/Chip';
 import { Icon } from '../../components/Icon';
 import { useToast } from '../../components/toastContext';
@@ -106,9 +106,6 @@ export function ThemeSummary({ task, tasks }: { task: Task; tasks: readonly Task
         >
           {t('theme.filterBoard')}
         </Button>
-        <ButtonLink to={`/p/${key}/map/${task.key}`} variant="secondary">
-          {t('theme.openOnMap')}
-        </ButtonLink>
         {can.createTasks ? (
           <Button
             variant={open ? 'secondary' : 'primary'}

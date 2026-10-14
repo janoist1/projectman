@@ -434,6 +434,7 @@ export class MockBackend {
   refuseReleaseApproval = false;
   user = { ...fixtures.mockUser };
   config: ProjectConfig = fixtures.buildConfig();
+  structure = clone(fixtures.structureFixture);
   configVersion = fixtures.projectSummary.configVersion;
   history: ConfigVersionEntry[] = clone(fixtures.configHistory);
   tasks: Task[] = clone(fixtures.tasks).map((task) => withPrMergedLabel(task, this.config));
@@ -2046,6 +2047,10 @@ export class MockBackend {
     const scheduleMatch = /^\/members\/([\w-]+)\/schedule\/run$/.exec(rest);
     if (scheduleMatch && method === 'POST') return this.runSchedule(scheduleMatch[1]!);
     if (rest === '/board') return ok(this.board());
+    if (rest === '/structure' && method === 'GET') {
+      if (viewer.role === 'client') return error(403, 'insufficient_access', 'Internal access required');
+      return ok(clone(this.structure));
+    }
     if (rest === '/project-manager' && method === 'GET') return this.projectManagerChannel();
     if (rest === '/operator' && method === 'GET') return this.operatorChannel();
     const signalMatch = /^\/operator\/signals\/([\w-]+)\/dismiss$/.exec(rest);

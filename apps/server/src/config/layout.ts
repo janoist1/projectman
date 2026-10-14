@@ -29,6 +29,7 @@ export function splitProjectConfig(config: ProjectConfig): Record<ProjectFileNam
       cardMover: config.team.cardMover,
       merger: config.team.merger,
       operatorWatch: config.team.operatorWatch,
+      operatorApprovalWaiver: config.team.operatorApprovalWaiver,
       boundary: config.team.boundary,
     }),
     'pipeline.yaml': yaml({
@@ -75,6 +76,9 @@ export function mergeProjectFiles(files: Record<ProjectFileName, unknown>): unkn
       cardMover: team.cardMover,
       merger: team.merger,
       ...(team.operatorWatch !== undefined ? { operatorWatch: team.operatorWatch } : {}),
+      ...(team.operatorApprovalWaiver !== undefined
+        ? { operatorApprovalWaiver: team.operatorApprovalWaiver }
+        : {}),
       boundary: team.boundary,
       limits: asRecord(project.team).limits ?? {},
     },

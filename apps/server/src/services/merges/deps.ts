@@ -1,6 +1,6 @@
 import type { Task } from '@projectman/shared';
 import type { EngineDirectory, GithubService } from '../../contracts';
-import type { MergeRecord } from '../../db';
+import type { MergeRecord, MergeTrainRecord } from '../../db';
 import type { BackgroundTasks } from '../../kernel';
 import type { DomainContext } from '../../core/base';
 import type { InboxService } from '../../core/inbox';
@@ -28,4 +28,10 @@ export type MergeDeps = {
 };
 
 /** The merge a repository's slot runs. The queue creates it; `signal` is set when the run starts. */
-export type MergeRun = { readonly row: MergeRecord; pushing: boolean; signal?: AbortSignal };
+export type MergeRun = {
+  readonly row: MergeRecord;
+  train?: MergeTrainRecord;
+  recoveryOnly?: boolean;
+  pushing: boolean;
+  signal?: AbortSignal;
+};

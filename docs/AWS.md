@@ -1,5 +1,9 @@
 # The cloud board on AWS EC2 or Lightsail
 
+For the owner-approved Mac single → EC2 cloud + Mac engine execution order, approval
+points, checks and rollback, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
+It preserves existing Cloudflare DNS/mail and distinguishes the private move from public activation.
+
 ## EC2 central account and provisioning (PM-676, part of PM-664)
 
 PM-664 uses **EC2 in the `aroom` profile**, with the domain registrar and retained Route 53 zone

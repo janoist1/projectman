@@ -19,12 +19,22 @@ export function operatorWatchOf(config: Pick<ProjectConfig, 'team'>): OperatorWa
 export const OPERATOR_SIGNAL_STEPS: Record<OperatorWatch, number> = { report: 0, unblock: 1, drive: 3 };
 /** The least time between two own steps on one signal. */
 export const OPERATOR_SIGNAL_STEP_GAP_MINUTES = 30;
-/** The signal kinds the Operator may act on without an owner's request, per level. */
+/**
+ * The signal kinds the Operator may act on without an owner's request, per level. `answer_stalled`
+ * is in none of them: it only reports until the coordinator binding (PM-707) gives it a step.
+ */
 export const OPERATOR_SIGNAL_STEP_KINDS: Record<OperatorWatch, readonly OperatorSignalKind[]> = {
   report: [],
   unblock: ['idle', 'merge_waiting', 'merge_blocked'],
   drive: ['idle', 'merge_waiting', 'merge_blocked', 'unreleased', 'ready_waiting'],
 };
+/**
+ * The signal kinds whose wake-ups go on the project's fast line (PM-694): at most one wake-up per
+ * `OPERATOR_ANSWER_STALL_WAKE_MS`, apart from the general `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` limit.
+ */
+export const OPERATOR_FAST_SIGNAL_KINDS: readonly OperatorSignalKind[] = ['answer_stalled'];
+/** The least time between two own steps on cards of one member after an `answer_stalled` step. */
+export const OPERATOR_ANSWER_STALL_MUTE_MINUTES = OPERATOR_SIGNAL_STEP_GAP_MINUTES;
 /** The `from` of the request row that carries the Operator's own steps on signals; never a valid handle. */
 export const OPERATOR_SIGNAL_ROUND_FROM = '@signals';
 

@@ -46,6 +46,8 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
     const keyOf = (run: MergeRun) => `${run.row.projectKey}:${run.row.repo}`;
 
     const cleanup = async (run: MergeRun) => {
+      // The train owns its shared checkout, including startup recovery.
+      if (run.train) return;
       const { row } = run;
       try {
         const task = deps.tasks.find(row.projectKey, row.taskKey);
@@ -73,8 +75,17 @@ export const makeMergeQueue = (deps: MergeQueueDeps): Effect.Effect<MergeQueueEf
 
     const pump: Effect.Effect<void> = Effect.gen(function* () {
       if (deps.stopped()) return;
-      for (const row of deps.ctx.repos.taskMerges.list('queued')) {
+      const queued = deps.ctx.repos.taskMerges.list('queued');
+      // A startup leader must finish the old publication before a new candidate can use this repo.
+      const recovering = new Map<string, string>();
+      for (const row of queued)
+        if (row.trainId) {
+          const key = `${row.projectKey}:${row.repo}`;
+          if (!recovering.has(key)) recovering.set(key, row.id);
+        }
+      for (const row of queued) {
         const key = `${row.projectKey}:${row.repo}`;
+        if (recovering.has(key) && recovering.get(key) !== row.id) continue;
         if (active.has(key) || deps.peer()?.busy(row.projectKey, row.repo)) continue;
         const run: MergeRun = { row, pushing: row.landed === 'remote' };
         active.set(key, run);

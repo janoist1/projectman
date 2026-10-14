@@ -25,7 +25,10 @@ export async function notifyMerge(
       kind: 'merge_request',
       assignees: [row.merger],
       source: 'system',
-      title: `Merge ${row.taskKey} into ${row.base}`,
+      title:
+        row.trainId && row.failure?.reason === 'check_failed'
+          ? `Group check failed; individual cause unknown: ${row.taskKey}`
+          : `Merge ${row.taskKey} into ${row.base}`,
       payload: {
         mergeRequest: {
           taskKey: row.taskKey,
@@ -60,13 +63,15 @@ export async function notifyMerge(
   const text =
     row.state === 'merged'
       ? `Merge ${row.taskKey} into ${row.repo}/${row.base} completed at ${row.mergeCommit}.`
-      : row.state === 'failed' && row.failure!.reason === 'check_failed'
-        ? `The full check (\`${row.failure!.command ?? 'the full test'}\`) failed on the merge result of ${row.taskKey} onto ${row.base}; the default branch did not move.\n${failureDetail}\nIf the card caused it, send the card back to its work stage with update_task (a fix round) and name the failing tests; do not fix it yourself. If it is not the card's fault (it fails on the default branch too, a flaky test, the sandbox), retry once with merge_task; if it fails again, ask_human.`
-        : row.state === 'failed'
-          ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${failureDetail}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
-          : row.state === 'blocked'
-            ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}.${row.block!.reason === 'check_error' && row.block!.detail ? `\n${row.block!.detail}\n` : ''} Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
-            : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
+      : row.trainId && row.state === 'failed' && row.failure?.reason === 'check_failed'
+        ? `The group check failed for merge train ${row.trainId}; the individual cause has not yet been identified. The default branch did not move. Shared run: ${row.check?.runId}.\n${failureDetail}\nDo not attribute the failure to every member or retry the unchanged group automatically.`
+        : row.state === 'failed' && row.failure!.reason === 'check_failed'
+          ? `The full check (\`${row.failure!.command ?? 'the full test'}\`) failed on the merge result of ${row.taskKey} onto ${row.base}; the default branch did not move.\n${failureDetail}\nIf the card caused it, send the card back to its work stage with update_task (a fix round) and name the failing tests; do not fix it yourself. If it is not the card's fault (it fails on the default branch too, a flaky test, the sandbox), retry once with merge_task; if it fails again, ask_human.`
+          : row.state === 'failed'
+            ? `Merge ${row.taskKey} failed (${row.failure!.reason}).\n${failureDetail}\nFor a simple mechanical conflict, call merge_task with fix_conflict: true; otherwise send the card back with update_task and explain the failure. Submit the committed fix with merge_task and resolution. For other failures, retry with merge_task when ready.`
+            : row.state === 'blocked'
+              ? `Merge ${row.taskKey} blocked (${row.block!.reason}): ${row.block!.message}.${row.block!.reason === 'check_error' && row.block!.detail ? `\n${row.block!.detail}\n` : ''} Retry with merge_task after fixing the cause; use ask_human if you cannot resolve it.`
+              : `Merge ${row.taskKey}'s approved commit into ${row.repo}/${row.base} before entering ${row.toStageId}. Call merge_task; never merge or push manually.`;
   await deps.messaging.send(
     row.projectKey,
     'system',

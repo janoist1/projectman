@@ -20,7 +20,9 @@ import {
 } from './operator';
 import type { OperatorConfigVerdict } from './operator';
 import { actorMoveRefusal } from './project-manager';
-import { ProjectConfig } from './schema';
+import { AiMemberConfig, ProjectConfig } from './schema';
+import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
+import { cardMerger, mergerOf } from './merger';
 
 function config() {
   return ProjectConfig.parse({
@@ -107,6 +109,474 @@ const stage = (c: ProjectConfig, id: string) => {
   if (!found) throw new Error(`no stage ${id}`);
   return found;
 };
+
+describe('approval waiver eligibility (PM-691)', () => {
+  describe('indirect merger changes and gate order', () => {
+    const reviewed = () => {
+      const c = config();
+      ai(c, 'dev-1').role = 'code_review';
+      ai(c, 'writer').role = 'code_review';
+      stage(c, 'dev').owners = ['ann'];
+      stage(c, 'review').owners = ['dev-1'];
+      return c;
+    };
+    const expectClick = (previous: ProjectConfig, next: ProjectConfig) => {
+      // These changes do not touch the stored merger or a gate definition.
+      expect(previous.team.merger).toEqual(next.team.merger);
+      expect(ownerOnlyChanges(previous, next)).toEqual([]);
+      for (const [a, b] of [
+        [previous, next],
+        [next, previous],
+      ] as const)
+        expect(operatorConfigVerdict(a, b, { operator: 'operator' })).toMatchObject({
+          level: 'approval',
+          waiverEligible: false,
+        });
+    };
+    it('requires a click when a stage kind resolves a previously unresolved explicit merger', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      stage(previous, 'review').kind = 'queue';
+      const next = structuredClone(previous);
+      stage(next, 'review').kind = 'step';
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBeNull();
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('dev-1');
+      expectClick(previous, next);
+    });
+    it('requires a click when review owners change the resolved merger', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      const next = structuredClone(previous);
+      stage(next, 'review').owners = ['writer'];
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('writer');
+      expectClick(previous, next);
+    });
+    it('requires a click when review owners switch the implicit merger to the developer', () => {
+      const previous = reviewed();
+      const next = structuredClone(previous);
+      delete stage(next, 'review').owners;
+      expect(mergerOf(previous)).toEqual({ kind: 'code_reviewer' });
+      expect(mergerOf(next)).toEqual({ kind: 'developer' });
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('ann');
+      expectClick(previous, next);
+    });
+    it('protects every reviewer choice, even when the fallback merger stays the same', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      stage(previous, 'review').owners = ['dev-1', 'writer'];
+      const next = structuredClone(previous);
+      stage(next, 'review').owners = ['dev-1'];
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(previous, { assignee: 'ann' }, 'writer')).toBe('writer');
+      expect(cardMerger(next, { assignee: 'ann' }, 'writer')).toBe('dev-1');
+      expectClick(previous, next);
+    });
+    it('requires a click for a stage reorder that moves a gate before work', () => {
+      const previous = config();
+      const next = structuredClone(previous);
+      next.pipeline.stages = ['backlog', 'review', 'dev', 'done'].map((id) => stage(next, id));
+      expectClick(previous, next);
+    });
+    it('requires a click when an inserted review stage changes the selected merger', () => {
+      const previous = reviewed();
+      const next = structuredClone(previous);
+      next.pipeline.stages.splice(3, 0, {
+        id: 'second_review',
+        name: 'Second review',
+        kind: 'step',
+        columnId: 'all',
+        owners: ['writer'],
+      });
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('writer');
+      expectClick(previous, next);
+    });
+    it('requires a click when a new merge target changes where merging is required', () => {
+      const previous = config();
+      const next = structuredClone(previous);
+      next.pipeline.stages.splice(2, 0, {
+        id: 'early_done',
+        name: 'Early done',
+        kind: 'done',
+        columnId: 'all',
+      });
+      expectClick(previous, next);
+    });
+    it('protects resolved merger changes caused by member order and a mixed leave patch', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      stage(previous, 'review').duty = 'code_review';
+      delete stage(previous, 'review').owners;
+      const next = structuredClone(previous);
+      next.team.members.reverse();
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('writer');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('dev-1');
+      expectClick(previous, next);
+      const leave = structuredClone(previous);
+      leave.project.name = 'Changed';
+      ai(leave, 'writer').onLeave = true;
+      expect(cardMerger(leave, { assignee: 'ann' }, null)).toBe('dev-1');
+      expectClick(previous, leave);
+    });
+    it('keeps safe stage metadata and board column order eligible', () => {
+      const previous = reviewed();
+      previous.pipeline.columns.push({ id: 'extra', name: 'Extra' });
+      const next = structuredClone(previous);
+      stage(next, 'review').description = 'Review the work';
+      next.pipeline.columns.reverse();
+      expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+        level: 'approval',
+        waiverEligible: true,
+      });
+    });
+  });
+  const allowed: Array<[string, (next: ProjectConfig) => void]> = [
+    ['project name', (n) => (n.project.name = 'Renamed')],
+    ['language', (n) => (n.project.language = 'en')],
+    ['timezone', (n) => (n.project.timezone = 'Europe/Budapest')],
+    ['template', (n) => (n.project.templateId = 'custom')],
+    ['card mover', (n) => (n.team.cardMover = { kind: 'project_manager' })],
+    ['display name', (n) => (ai(n, 'writer').displayName = 'Author')],
+    ['specialty', (n) => (ai(n, 'writer').specialty = 'Documentation')],
+    ['provider', (n) => (ai(n, 'writer').provider = 'codex')],
+    ['model', (n) => (ai(n, 'writer').model = 'sonnet')],
+    ['effort', (n) => (ai(n, 'writer').effort = 'high')],
+    ['member compaction', (n) => (ai(n, 'writer').autoCompactWindowTokens = 300000)],
+    ['cheap subagent', (n) => (ai(n, 'writer').cheapSubagent = 'haiku')],
+    ['capacity', (n) => (ai(n, 'writer').capacity = 2)],
+    ['sponsor', (n) => (ai(n, 'writer').sponsor = 'ann')],
+    ['leave', (n) => (ai(n, 'writer').onLeave = true)],
+    ['schedule', (n) => (ai(n, 'writer').schedule = { cron: '0 9 * * *', prompt: 'Write.' })],
+    ['ordinary role', (n) => (ai(n, 'writer').role = 'developer')],
+    [
+      'ordinary duties',
+      (n) => (n.team.roleOverrides!.content = { duties: ['content', 'docs'], instructions: '' }),
+    ],
+    ['role text', (n) => (n.team.roles[0]!.summary = 'Implement changes.')],
+    ['role instructions', (n) => (n.team.roles[0]!.instructions = 'Be concise.')],
+    ['AI enablement', (n) => (n.team.limits.aiEnabled = false)],
+    ['concurrency', (n) => (n.team.limits.maxConcurrentAi = 4)],
+    ['usage threshold', (n) => (n.team.limits.pauseAbovePlanUsagePercent = 90)],
+    ['token warning', (n) => (n.team.limits.warnAboveSessionTokens = 50000)],
+    ['disk threshold', (n) => (n.team.limits.minFreeDiskGb = 20)],
+    ['project compaction', (n) => (n.team.limits.autoCompactWindowTokens = 300000)],
+    ['loop watch', (n) => (n.team.limits.loopWatch = { enabled: true, count: 5, minutes: 20 })],
+    ['fix rounds', (n) => (n.team.limits.maxFixRounds = 4)],
+    ['senior wait', (n) => (n.team.limits.seniorWaitMinutes = 30)],
+    [
+      'ordinary temp workers',
+      (n) => (n.team.limits.tempWorkers = { enabled: true, max: 2, role: 'developer' }),
+    ],
+    ['stage description', (n) => (stage(n, 'dev').description = 'Implementation')],
+    ['stage owners', (n) => (stage(n, 'dev').owners = ['dev-1'])],
+    ['ordinary stage duty', (n) => (stage(n, 'dev').duty = 'implementation')],
+    ['column hint', (n) => (n.pipeline.columns[0]!.hint = 'Work')],
+    [
+      'plain label rules',
+      (n) =>
+        Object.assign(n.pipeline.labels[1]!, { meaning: 'Interface', blocks: true, requiresComment: true }),
+    ],
+    ['plain label addition', (n) => n.pipeline.labels.push({ id: 'new-tag', name: 'Tag', setBy: 'anyone' })],
+    ['plain label removal', (n) => n.pipeline.labels.splice(1, 1)],
+    [
+      'stage addition',
+      (n) =>
+        n.pipeline.stages.splice(1, 0, { id: 'planning', name: 'Planning', kind: 'queue', columnId: 'all' }),
+    ],
+    [
+      'ordinary role addition',
+      (n) =>
+        n.team.roles.push({
+          id: 'helper',
+          name: 'Helper',
+          summary: 'Helps.',
+          holders: 'ai',
+          duties: ['implementation'],
+          instructions: '',
+          notTheirJob: '',
+        }),
+    ],
+  ];
+  it.each(allowed)('waives %s and its revert without changing the approval level', (_name, edit) => {
+    const previous = config();
+    const next = structuredClone(previous);
+    next.project.name = 'Changed'; // Include an approval field even when the tested field is already now.
+    edit(next);
+    for (const [a, b] of [
+      [previous, next],
+      [next, previous],
+    ] as const) {
+      expect(operatorConfigVerdict(a, b, { operator: 'operator' })).toMatchObject({
+        level: 'approval',
+        waiverEligible: true,
+      });
+    }
+  });
+
+  const protectedFields: Array<[string, (next: ProjectConfig) => void]> = [
+    ['permission mode', (n) => (ai(n, 'writer').permissionMode = 'acceptEdits')],
+    ['bypass', (n) => (ai(n, 'writer').permissionMode = 'bypassPermissions')],
+    ['AI approver', (n) => (ai(n, 'writer').approver = 'ai')],
+    ['no approver', (n) => (ai(n, 'writer').approver = 'none')],
+    ['network', (n) => (ai(n, 'writer').outboundNetwork = false)],
+    ['GitHub identity', (n) => (ai(n, 'writer').githubLogin = 'different-author')],
+    ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
+    ['temporary status', (n) => (ai(n, 'writer').temp = true)],
+    ['senior status', (n) => (ai(n, 'writer').senior = true)],
+    ['workspace', (n) => (n.project.workspacePath = '/elsewhere')],
+    ['repository', (n) => (n.project.repos[0]!.path = 'other')],
+    ['new repository', (n) => n.project.repos.push({ name: 'new', path: 'new', defaultBranch: 'main' })],
+    [
+      'review test',
+      (n) => (n.project.repos[0]!.reviewTest = { command: 'npm test', maxWorkers: 2, timeoutMinutes: 15 }),
+    ],
+    ['merger', (n) => (n.team.merger = { kind: 'developer' })],
+    ['boundary', (n) => (n.team.boundary = { enabled: true, leadTimeoutSeconds: 120 })],
+    ['operator watch', (n) => (n.team.operatorWatch = 'drive')],
+    ['waiver switch', (n) => (n.team.operatorApprovalWaiver = true)],
+    ['operator model', (n) => (ai(n, 'operator').model = 'sonnet')],
+    ['operator provider', (n) => (ai(n, 'operator').provider = 'codex')],
+    ['operator effort', (n) => (ai(n, 'operator').effort = 'high')],
+    ['gate removal', (n) => delete stage(n, 'review').gate],
+    [
+      'non-approval gate addition',
+      (n) => (stage(n, 'dev').gate = { conditions: [{ type: 'has_label', label: 'ui' }] }),
+    ],
+    [
+      'new stage containing a gate',
+      (n) =>
+        n.pipeline.stages.splice(1, 0, {
+          id: 'extra',
+          name: 'Extra',
+          kind: 'queue',
+          columnId: 'all',
+          gate: { conditions: [{ type: 'has_label', label: 'ui' }] },
+        }),
+    ],
+    ['label setter', (n) => (n.pipeline.labels[1]!.setBy = { members: ['writer'] })],
+    [
+      'new restricted label',
+      (n) => n.pipeline.labels.push({ id: 'restricted', name: 'Restricted', setBy: { members: ['owner'] } }),
+    ],
+    ['approval label text', (n) => (n.pipeline.labels[0]!.name = 'Approval')],
+    ['review duty removal without a gate', (n) => (n.team.roles[0]!.duties = ['implementation'])],
+    ['review role assignment', (n) => (ai(n, 'writer').role = 'code_review')],
+    ['security role assignment', (n) => (ai(n, 'writer').role = 'security_review')],
+    ['QA role assignment', (n) => (ai(n, 'writer').role = 'qa')],
+    ['UX role assignment', (n) => (ai(n, 'writer').role = 'designer')],
+    ['review stage duty', (n) => (stage(n, 'dev').duty = 'code_review')],
+    ['boundary role assignment', (n) => (ai(n, 'writer').role = 'lead_developer')],
+    [
+      'boundary role definition',
+      (n) =>
+        n.team.roles.push({
+          id: 'decider',
+          name: 'Decider',
+          summary: 'Decides.',
+          holders: 'ai',
+          duties: ['boundary_authorization'],
+          instructions: '',
+          notTheirJob: '',
+        }),
+    ],
+    [
+      'boundary override',
+      (n) => (n.team.roleOverrides!.developer = { duties: ['boundary_authorization'], instructions: '' }),
+    ],
+    ['release duty', (n) => (n.team.roles[0]!.duties = ['release_approval'])],
+    ['final decision duty', (n) => (n.team.roles[0]!.duties = ['final_decision'])],
+    [
+      'temp authorization',
+      (n) => (n.team.limits.tempWorkers = { enabled: true, max: 1, role: 'lead_developer' }),
+    ],
+    ['unknown root', (n) => Object.assign(n, { remoteAccess: true })],
+    ['unknown project', (n) => Object.assign(n.project, { clientSharing: true })],
+    ['unknown team', (n) => Object.assign(n.team, { integrator: true })],
+    ['unknown AI field', (n) => Object.assign(ai(n, 'writer'), { bypass: true })],
+    [
+      'unknown nested schedule',
+      (n) => Object.assign(ai(n, 'writer'), { schedule: { cron: '0 9 * * *', prompt: 'Hi', remote: true } }),
+    ],
+    ['unknown limit', (n) => Object.assign(n.team.limits, { guestSharing: true })],
+    ['unknown nested limit', (n) => Object.assign(n.team.limits.tempWorkers, { permissionMode: 'auto' })],
+    ['unknown stage', (n) => Object.assign(stage(n, 'dev'), { remoteAccess: true })],
+    ['unknown pipeline', (n) => Object.assign(n.pipeline, { clientSharing: true })],
+  ];
+  it.each(protectedFields)('requires a click for %s even in a mixed patch and revert', (_name, edit) => {
+    const previous = config();
+    const next = structuredClone(previous);
+    next.project.name = 'Changed';
+    edit(next);
+    for (const [a, b] of [
+      [previous, next],
+      [next, previous],
+    ] as const)
+      expect(operatorConfigVerdict(a, b, { operator: 'operator' }).waiverEligible).toBe(false);
+  });
+
+  const hire = (extra: object = {}) => {
+    const previous = config();
+    const next = structuredClone(previous);
+    next.team.members.push(
+      AiMemberConfig.parse({
+        kind: 'ai',
+        handle: 'new-ai',
+        displayName: 'New AI',
+        role: 'developer',
+        sponsor: 'owner',
+        permissionMode: DEFAULT_PERMISSION_MODE,
+        approver: DEFAULT_NEW_MEMBER_APPROVER,
+        ...extra,
+      }),
+    );
+    return { previous, next, result: operatorConfigVerdict(previous, next, { operator: 'operator' }) };
+  };
+  it('waives a new AI with exactly the template permissions', () => {
+    const { previous, next, result } = hire();
+    expect(result).toMatchObject({ level: 'approval', waiverEligible: true });
+    expect(result.changes).toEqual([
+      { area: 'member', target: 'new-ai', field: '*', before: null, after: 'developer', level: 'approval' },
+    ]);
+    expect(operatorConfigVerdict(next, previous, { operator: 'operator' }).waiverEligible).toBe(true);
+  });
+  it.each([
+    ['githubLogin', 'different-author'],
+    ['instructions', 'Use another workflow.'],
+    ['temp', true],
+    ['senior', true],
+  ])('requires a click when a presence change includes non-whitelisted %s', (field, value) => {
+    const { previous, next, result } = hire({ [String(field)]: value });
+    expect(result.waiverEligible).toBe(false);
+    expect(operatorConfigVerdict(next, previous, { operator: 'operator' }).waiverEligible).toBe(false);
+  });
+  it.each([
+    ['permissionMode', 'default', DEFAULT_PERMISSION_MODE],
+    ['permissionMode', 'bypassPermissions', DEFAULT_PERMISSION_MODE],
+    ['approver', 'human', DEFAULT_NEW_MEMBER_APPROVER],
+    ['approver', 'ai', DEFAULT_NEW_MEMBER_APPROVER],
+    ['approver', undefined, DEFAULT_NEW_MEMBER_APPROVER],
+    ['outboundNetwork', false, true],
+  ])('shows a separate new AI permission row for %s=%s', (field, value, baseline) => {
+    const { result } = hire({ [field as string]: value });
+    expect(result.waiverEligible).toBe(false);
+    expect(result.changes).toContainEqual({
+      area: 'member',
+      target: 'new-ai',
+      field,
+      before: String(baseline),
+      after: String(field === 'approver' && value === undefined ? 'human' : value),
+      level: 'approval',
+    });
+  });
+  it('checks authorization inside a new AI presence row', () => {
+    expect(hire({ role: 'lead_developer' }).result.waiverEligible).toBe(false);
+  });
+  it.each(['code_review', 'security_review', 'qa', 'designer'])(
+    'requires a click to hire a reviewer in role %s without a gate',
+    (role) => {
+      expect(hire({ role }).result.waiverEligible).toBe(false);
+    },
+  );
+  it.each(['code_review', 'security_review', 'qa', 'designer'])(
+    'requires a click for reviewer temp workers in role %s',
+    (role) => {
+      const previous = config();
+      const next = structuredClone(previous);
+      next.team.limits.tempWorkers = { enabled: true, max: 1, role };
+      expect(operatorConfigVerdict(previous, next, { operator: 'operator' }).waiverEligible).toBe(false);
+      expect(operatorConfigVerdict(next, previous, { operator: 'operator' }).waiverEligible).toBe(false);
+    },
+  );
+  it.each(['gate', 'notByAuthor'] as const)(
+    'protects AI approval labels recognized by %s in both end states',
+    (kind) => {
+      const previous = config();
+      const label = previous.pipeline.labels[1]!;
+      label.setBy = { duties: ['content'] };
+      if (kind === 'gate')
+        stage(previous, 'dev').gate = { conditions: [{ type: 'has_label', label: label.id }] };
+      else label.notByAuthor = true;
+      const next = structuredClone(previous);
+      next.pipeline.labels[1]!.name = 'Renamed';
+      for (const [a, b] of [
+        [previous, next],
+        [next, previous],
+      ] as const)
+        expect(operatorConfigVerdict(a, b, { operator: 'operator' }).waiverEligible).toBe(false);
+      const removed = structuredClone(previous);
+      delete removed.pipeline.labels[1]!.notByAuthor;
+      removed.pipeline.labels.splice(1, 1);
+      expect(operatorConfigVerdict(previous, removed, { operator: 'operator' }).waiverEligible).toBe(false);
+      if (kind === 'notByAuthor') {
+        const cleared = structuredClone(previous);
+        delete cleared.pipeline.labels[1]!.notByAuthor;
+        expect(operatorConfigVerdict(previous, cleared, { operator: 'operator' }).waiverEligible).toBe(false);
+      }
+      const reassigned = structuredClone(previous);
+      ai(reassigned, 'dev-1').role = 'content'; // Same label definition, different actual holders.
+      expect(operatorConfigVerdict(previous, reassigned, { operator: 'operator' }).waiverEligible).toBe(
+        false,
+      );
+    },
+  );
+  it('requires a click when an implementer hire gains an AI approval label', () => {
+    const { previous, next } = hire();
+    for (const config of [previous, next]) {
+      config.pipeline.labels[1]!.notByAuthor = true;
+      config.pipeline.labels[1]!.setBy = { duties: ['implementation'] };
+    }
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' }).waiverEligible).toBe(false);
+  });
+  it('does not make a now or never verdict eligible, with either waiver setting', () => {
+    for (const enabled of [false, true]) {
+      const previous = config();
+      previous.team.operatorApprovalWaiver = enabled;
+      const next = structuredClone(previous);
+      ai(next, 'writer').model = 'sonnet';
+      expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+        level: 'now',
+        waiverEligible: false,
+      });
+      member(next, 'ann').displayName = 'Changed';
+      expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+        level: 'never',
+        waiverEligible: false,
+      });
+    }
+  });
+  it('normalizes missing and explicit default permission settings', () => {
+    const previous = config();
+    const next = structuredClone(previous);
+    Object.assign(ai(next, 'writer'), { approver: 'human', outboundNetwork: true, provider: 'claude' });
+    next.team.operatorApprovalWaiver = false;
+    expect(ownerOnlyChanges(previous, next)).toEqual([]);
+    expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toEqual({
+      level: 'now',
+      changes: [],
+      waiverEligible: false,
+    });
+    const { result } = hire({ outboundNetwork: true });
+    expect(result.waiverEligible).toBe(true);
+  });
+  it('names the waiver switch as an owner-only change in both directions', () => {
+    const previous = config();
+    const next = structuredClone(previous);
+    next.team.operatorApprovalWaiver = true;
+    for (const [a, b] of [
+      [previous, next],
+      [next, previous],
+    ] as const) {
+      expect(ownerOnlyChanges(a, b)).toEqual(['operator_approval_waiver']);
+      expect(operatorConfigVerdict(a, b, { operator: 'operator' })).toMatchObject({
+        level: 'approval',
+        waiverEligible: false,
+      });
+    }
+  });
+});
 
 function verdict(edit: (next: ProjectConfig) => void, base: () => ProjectConfig = config) {
   const previous = base();
@@ -540,18 +1010,24 @@ describe('operatorConfigVerdict', () => {
     expect(ownerOnlyChanges(next, cleared)).toEqual(level === 'report' ? [] : ['operator_watch']);
   });
   it('no change is now, with no rows', () => {
-    expect(verdict(() => {}).result).toEqual({ level: 'now', changes: [] });
+    expect(verdict(() => {}).result).toEqual({ level: 'now', changes: [], waiverEligible: false });
   });
 
   it('restating a default is no change', () => {
     expect(verdict((n) => (ai(n, 'writer').outboundNetwork = true)).result).toEqual({
       level: 'now',
       changes: [],
+      waiverEligible: false,
     });
-    expect(verdict((n) => (ai(n, 'writer').onLeave = false)).result).toEqual({ level: 'now', changes: [] });
+    expect(verdict((n) => (ai(n, 'writer').onLeave = false)).result).toEqual({
+      level: 'now',
+      changes: [],
+      waiverEligible: false,
+    });
     expect(verdict((n) => (ai(n, 'writer').approver = 'human')).result).toEqual({
       level: 'now',
       changes: [],
+      waiverEligible: false,
     });
   });
 
@@ -590,6 +1066,7 @@ describe('operatorConfigVerdict', () => {
   it('names the change in one row with the old and the new value', () => {
     expect(verdict((n) => (ai(n, 'writer').model = 'sonnet')).result).toEqual({
       level: 'now',
+      waiverEligible: false,
       changes: [
         { area: 'member', target: 'writer', field: 'model', before: 'opus', after: 'sonnet', level: 'now' },
       ],
@@ -649,9 +1126,14 @@ describe('operatorConfigVerdict', () => {
         sponsor: 'owner',
       } as never),
     );
-    expect(hired.result.changes).toEqual([
-      { area: 'member', target: 'dev-2', field: '*', before: null, after: 'developer', level: 'approval' },
-    ]);
+    expect(hired.result.changes).toContainEqual({
+      area: 'member',
+      target: 'dev-2',
+      field: '*',
+      before: null,
+      after: 'developer',
+      level: 'approval',
+    });
     const retired = verdict((n) => (n.pipeline.labels = n.pipeline.labels.filter((l) => l.id !== 'ui')));
     expect(retired.result.changes).toEqual([
       { area: 'label', target: 'ui', field: '*', before: 'UI', after: null, level: 'approval' },
@@ -716,6 +1198,7 @@ describe('operatorConfigVerdict', () => {
       expect(operatorConfigVerdict(changed(), changed(), { operator: 'operator' })).toEqual({
         level: 'now',
         changes: [],
+        waiverEligible: false,
       });
     });
   });
@@ -870,7 +1353,7 @@ describe('the Operator member', () => {
 
   it('level names parse', () => {
     expect(OperatorLevel.options).toEqual(['now', 'approval', 'never']);
-    const verdictShape: OperatorConfigVerdict = { level: 'now', changes: [] };
+    const verdictShape: OperatorConfigVerdict = { level: 'now', changes: [], waiverEligible: false };
     expect(verdictShape.changes).toEqual([]);
   });
 });

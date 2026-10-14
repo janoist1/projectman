@@ -74,6 +74,79 @@ describe('the required Operator (PM-447)', () => {
 });
 
 describe('the Operator is fixed (PM-473)', () => {
+  it.each(['none', 'ai'] as const)(
+    'refuses the Operator approver %s through direct and member changes',
+    async (approver) => {
+      h = await createDomainHarness({
+        adjust: (config) => {
+          config.team.boundary = { enabled: true, leadTimeoutSeconds: 120 };
+          (member(config, 'dev-1') as AiMemberConfig).role = 'lead_developer';
+        },
+      });
+      const before = await h.domain.projects.load('AR');
+      await expect(
+        h.domain.projects.update('AR', by, (draft) => {
+          (member(draft, 'operator') as AiMemberConfig).approver = approver;
+          return 'Change approver';
+        }),
+      ).rejects.toMatchObject({
+        code: 'invalid_config',
+        details: { issues: [{ code: 'operator_approver_fixed', path: expect.any(String) }] },
+      });
+      await expect(h.domain.members.update('AR', 'operator', { approver }, by)).rejects.toMatchObject({
+        code: 'invalid_config',
+      });
+      expect((await h.domain.projects.load('AR')).version).toBe(before.version);
+    },
+  );
+
+  it('refuses a merger bypass through the config patch', async () => {
+    h = await createDomainHarness();
+    const before = await h.domain.projects.load('AR');
+    await expect(
+      h.domain.projects.patch(
+        'AR',
+        { baseVersion: before.version, merger: { kind: 'member', handle: 'operator' } },
+        by,
+      ),
+    ).rejects.toMatchObject({
+      code: 'config_invalid',
+      details: { issues: [{ code: 'operator_merger_forbidden', path: 'team.merger', detail: 'operator' }] },
+    });
+    expect((await h.domain.projects.load('AR')).version).toBe(before.version);
+  });
+
+  it('refuses boundary authorization through a role override', async () => {
+    h = await createDomainHarness();
+    await expect(
+      h.domain.projects.update('AR', by, (draft) => {
+        draft.team.roleOverrides = {
+          ai_operator: {
+            duties: ['project_operation', 'technical_direction', 'boundary_authorization'],
+            instructions: '',
+          },
+        };
+        return 'Change Operator duties';
+      }),
+    ).rejects.toMatchObject({
+      code: 'invalid_config',
+      details: {
+        issues: [{ code: 'operator_boundary_duty_forbidden', path: 'team.roleOverrides.ai_operator.duties' }],
+      },
+    });
+  });
+
+  it('refuses hiring another Operator with a default nonhuman approver', async () => {
+    h = await createDomainHarness();
+    await expect(
+      h.domain.members.hire(
+        'AR',
+        { role: 'ai_operator', handle: 'another-operator' },
+        { ...by, sponsor: 'owner' },
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_config' });
+    expect(await handles()).not.toContain('another-operator');
+  });
   const actors = [
     ['the owner', by],
     ['the integrator key', viaIntegrator],

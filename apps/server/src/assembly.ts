@@ -19,6 +19,7 @@ import {
   SessionTools,
 } from './mcp';
 import { createInboxService } from './core/inbox';
+import { createStructureService } from './services/structure';
 import { createMessaging } from './core/messages';
 import { createTimelineService } from './core/timeline';
 import { createMemberService } from './core/members';
@@ -60,14 +61,16 @@ import type {
   GithubService,
   MachineProbe,
   MemberMemoryStore,
+  OperatorKnowledgeStore,
   MemberWorkspaceManager,
   PermissionBroker,
   RunnerModule,
   WorktreeManager,
 } from './contracts';
 import type { Repositories } from './db';
-import type { ProcessProbe } from './contracts';
-import { projectAccessFor } from './core/members';
+import type { EmailCodeMailer, ProcessProbe } from './contracts';
+import { createEmailLoginService } from './services/email-login';
+import { createEmailLoginDirectory, projectAccessFor } from './core/members';
 import type { ProjectAccess } from './core/members';
 import {
   Admission,
@@ -177,6 +180,7 @@ export interface DomainOptions {
   github: GithubService;
   contextBuilder: ContextPackBuilder;
   memory: MemberMemoryStore;
+  operatorKnowledge: OperatorKnowledgeStore;
   worktrees: WorktreeManager;
   /**
    * The machines the sessions run on (PM-311). Absent: the one this server runs on, `local`, built from
@@ -195,6 +199,12 @@ export interface DomainOptions {
   messageAttachmentStorage: MessageAttachmentStorage;
   /** Creates the accounts of accepted invitations. */
   accounts: InvitationAccounts;
+  /**
+   * The e-mail login of invited clients (PM-670): with both set the domain has an `emailLogin` service;
+   * without either, the login is unavailable. `emailLoginKey` is the HMAC key of the stored hashes.
+   */
+  emailCodeMailer?: EmailCodeMailer;
+  emailLoginKey?: Buffer;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
   worktreesRootDir?: string;
   /**
@@ -1116,6 +1126,17 @@ export function createDomain(opts: DomainOptions) {
   const board = new BoardService({ projects, tasks, members, inbox, planUsage, pauses });
   const profiles = new MemberProfiles({ ctx, projects, members, tasks, inbox, sessions, admission });
   const invitations = new InvitationService({ ctx, projects, members, accounts: opts.accounts });
+  const emailLogin =
+    opts.emailCodeMailer && opts.emailLoginKey
+      ? createEmailLoginService({
+          repo: opts.repos.emailLogin,
+          directory: createEmailLoginDirectory({ ctx, projects, invitations, accounts: opts.accounts }),
+          mailer: opts.emailCodeMailer,
+          key: opts.emailLoginKey,
+          now,
+          logger: opts.logger.child({ module: 'email-login' }),
+        })
+      : null;
   const cardMeasure = new CardMeasure({
     ctx,
     projects,
@@ -1576,7 +1597,16 @@ export function createDomain(opts: DomainOptions) {
 
   return {
     engineCounters,
+    operatorKnowledge: opts.operatorKnowledge,
     projectState,
+    structure: createStructureService({
+      projects,
+      tasks,
+      engines,
+      sessions,
+      logger: opts.logger.child({ module: 'structure' }),
+      now: () => now().getTime(),
+    }),
     ctx,
     projectManagerChannels: new ProjectManagerChannels({
       ctx,
@@ -1643,6 +1673,7 @@ export function createDomain(opts: DomainOptions) {
     board,
     profiles,
     invitations,
+    emailLogin,
     cardMeasure,
 
     /** Startup: import projects from the repository, clean up state that did not survive a restart, watch PRs. */
@@ -1808,6 +1839,7 @@ export function createDomain(opts: DomainOptions) {
       await merges.stop();
       await screenshotRuns?.stop();
       await outages.stop();
+      await emailLogin?.stop();
       await Promise.all([sweepsStopped, background.stop()]);
       await delivery.close();
       pauses.dispose();

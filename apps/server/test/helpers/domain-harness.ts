@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProjectConfig } from '@projectman/shared';
 import { AuthService } from '../../src/auth';
-import { createConfigStore } from '../../src/config';
+import { createConfigStore, createOperatorKnowledgeStore } from '../../src/config';
 import { createRepositories, openDatabase } from '../../src/db';
 import type {
   AttachmentStorage,
@@ -221,6 +221,7 @@ export async function createDomainHarness(
     screenshotExecutor: opts.screenshotExecutor,
     contextBuilder,
     memory,
+    operatorKnowledge: createOperatorKnowledgeStore({ rootDir: join(dir, 'operator-data') }),
     worktrees,
     attachmentStorage,
     feedbackDir: join(dir, 'feedback'),

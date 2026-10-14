@@ -12,6 +12,7 @@ import { registerInvolvementRoutes } from './involvements';
 import { registerFeedbackRoutes } from './feedback';
 import { registerFeedbackWidgetRoutes } from './feedback-widget';
 import { registerProjectFocusRoutes } from './project-focus';
+import { registerStructureRoutes } from './structure';
 import { registerBoundaryRoutes } from './boundary';
 import { registerInvitationRoutes } from './invitations';
 import { registerMemberRoutes } from './members';
@@ -58,6 +59,7 @@ export function registerApiRoutes(app: FastifyInstance, services: ApiServices): 
   registerInboxRoutes(app, domain);
   registerInvolvementRoutes(app, domain);
   registerProjectFocusRoutes(app, domain);
+  registerStructureRoutes(app, domain);
   registerFeedbackRoutes(app, domain);
   registerFeedbackWidgetRoutes(app, {
     domain,

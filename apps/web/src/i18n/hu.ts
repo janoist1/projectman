@@ -841,6 +841,12 @@ export const hu = {
       login_required: 'Jelentkezz be a meghívott e-mail-címhez tartozó fiókkal.',
       invite_invalid: 'A meghívó már nem használható.',
       invite_used: 'A meghívót már elfogadták.',
+      email_login_unavailable: 'Az e-mailes belépés most nem érhető el.',
+      email_login_rate_limited: 'Túl sok próbálkozás. Kérjük, próbáld újra később.',
+      email_code_invalid: 'A kód hibás, lejárt vagy már felhasználták. Kérj új kódot.',
+      email_login_name_required: 'Add meg a nevedet az első belépéshez.',
+      email_login_no_access: 'Ezzel a címmel nem lehet belépni.',
+      invite_password_account_required: 'Ezt a meghívót csak jelszavas fiókkal lehet elfogadni.',
       gate_blocked: 'A kapu még nem enged tovább.',
       approval_requested: 'Jóváhagyást kértünk; a feladat a jóváhagyás után lép tovább.',
       not_a_member: 'Nem vagy tagja ennek a projektnek.',
@@ -894,6 +900,10 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      operator_knowledge_invalid: 'Az Operátor adattára érvénytelen. A meglévő adatok megmaradtak.',
+      operator_knowledge_unavailable: 'Az Operátor adattára most nem érhető el.',
+      operator_knowledge_stale: 'Az Operátor adatai időközben megváltoztak. Olvasd be őket újra.',
+      operator_knowledge_limit: 'Az Operátor jóváhagyási adattára megtelt.',
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_signal_not_dismissible: 'Ezt a jelzést az Operátor nem zárhatja le.',
       operator_signal_budget:
@@ -2833,6 +2843,7 @@ export const hu = {
         merge_blocked: '{key}: elakadt a beolvasztás',
         unreleased: 'Kiadásra váró munka',
         ready_waiting: 'Indítható kártyák várnak',
+        answer_stalled: '{key}: megérkezett a válasz, de a tag nem dolgozik tovább',
       },
       bodies: {
         outage: 'Egy szolgáltató vagy motor nem érhető el; a Rád vár-ban látod, mi a teendő.',
@@ -2846,6 +2857,8 @@ export const hu = {
         merge_blocked: 'A beolvasztás ütközés, elbukott ellenőrzés vagy hiba miatt áll.',
         unreleased: 'A fő ágon egy napnál régebben beolvasztott munka vár kiadásra.',
         ready_waiting: 'Indításra kész kártya vár, és van szabad fejlesztő.',
+        answer_stalled:
+          'A tagnak már kézbesítettek egy választ vagy üzenetet, de azóta nem tett munkalépést.',
       },
     },
   },
@@ -5274,6 +5287,9 @@ export const hu = {
       mover_not_member: 'A kártyákat továbbvivő ember már nem tagja a projektnek.',
       mover_cannot_move: 'A kártyákat továbbvivő nem mozgathat kártyát.',
       mover_on_leave: 'A kártyákat továbbvivő Projektmenedzser szabadságon van.',
+      operator_approver_fixed: 'Az Operátor engedélykérője csak ember lehet.',
+      operator_merger_forbidden: 'Az Operátor nem lehet beolvasztó.',
+      operator_boundary_duty_forbidden: 'Az Operátor nem kaphat határkéréseket eldöntő feladatkört.',
     },
     problems: {
       count: '{n} hiba van a mentett beállításokban.',

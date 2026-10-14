@@ -39,6 +39,23 @@ Documentation map:
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
    `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
+## Repository structure map (PM-683)
+
+`projectman.structure.yaml` at the repository root on its default branch describes areas,
+modules, directed links and ignored paths. The version 1 schema and longest-path placement
+rules live in `packages/shared/src/domain/structure-map.ts`. The internal-only
+`GET /api/projects/:key/structure` uses `services/structure` to read tracked files and the
+descriptor at the same commit through engine git reads (PM-682).
+Active cards use their review pin or latest branch link; completed cards use merge commits
+from the last 14 days. Reads group cards by engine in batches of 25, with at most 300 cards
+per repository, 20,000 tracked files and 1,000 changed files per card. Unmapped examples are
+limited to 10. Missing, invalid and unavailable repositories retain their own status;
+failed card batches omit only their cards. Project views are cached for 30 seconds and
+concurrent requests share a read; immutable merge paths have a 5,000-entry FIFO cache.
+Placement is recalculated from the current descriptor after each project cache expiry.
+This works on remote engines: git runs on the engine and only file names and descriptor
+text cross the boundary. No new machine-dependent operation is added beyond the engine git reads.
+
 ## Concepts
 
 - **Project** — a workspace directory with one or more git repos (`repos[]`, each optionally
@@ -617,6 +634,7 @@ construction order; the factories return the existing classes without changing b
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
 | `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
 | `services/releases`                               | Release proposals and release roadmap notices.                              |
+| `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
 | `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
@@ -797,7 +815,7 @@ changes) belong in `packages/shared`, so the server and the web's test fake use 
 
 ```
 db.sqlite                 runtime state
-secret                    cookie signing key
+secret                    cookie signing key; the e-mail login's HMAC key derives from it (PM-670)
 secrets/nanogpt.json       installation NanoGPT key (0700 directory, 0600 file; PM-328)
 customization/            git repo: projects/<KEY>/{project,team,pipeline}.yaml
 memory/<KEY>/<handle>.md  AI member memory (durable learnings)
@@ -899,6 +917,13 @@ header. A new approver applies to the next question. A new mode needs the CLI's 
 and are typed in after the restart, which gets no continue message. Grants "for this session" die with the process:
 `permissionGrantsLost` says so in the header. Each change is a `session_permission_changed`
 timeline event (the owner, `field`, `from`, `to`, `reset`, `restart`).
+
+The Operator's approver stays `human`, with source `member` (PM-691), even with a historical
+`none`/`ai` member setting or any session override. `SessionPermissionMember` preserves its identity
+for `isOperator`; ordinary and missing members retain their session settings. The shared
+`sessionApproverChangeRefusal` rejects Operator `none`/`ai` updates with 403 `operator_fixed` before
+any write, restart or event; `human`/`null` clears the override. Mixed mode/forbidden-approver patches
+are atomic. Starts, resumes, permission routing and the session header use the same effective rule.
 
 ## Session policy migration (PM-87 / PM-127)
 
@@ -1111,6 +1136,59 @@ pumps the queue. The mark is cleared when the merge starts running. A merge alre
 event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
 involved; no new machine-dependent part.
 
+**Durable train foundation (PM-659, part of PM-652).** `db/merge-trains.ts`, exposed as
+`Repositories.mergeTrains`, stores a Zod-validated manifest in `merge_trains` (migration 60).
+Its SQL identity, project, repository and state match the JSON record. A unique partial index
+allows one `running` train per project/repository. The manifest keeps 2–8 unique members in
+fixed order, their source commits/branches, starting members and timestamps, and the optional
+priority snapshots, check, candidate commits and parent train. It starts `running` at
+`merging`, landed `nowhere`; later `landed` may also be `remote` or `local`. The nullable
+`task_merges.train_id` maps to internal `MergeRecord.trainId`; older rows stay null and neither
+`TaskMergeState` nor `TaskMerged` exposes it. Train and member writes share the existing
+`unitOfWork` transaction, so a failed reservation rolls them all back.
+
+`services/merges/train-selection.ts` exports the pure `selectMergeTrain`: the caller supplies
+queued candidates in the existing `QUEUE_ORDER`, with readiness and solo facts already evaluated.
+It takes only the compatible prefix, at most eight, comparing project/repository/base/engine and
+the review command, worker count and timeout. An ineligible head selects nothing; a solo head
+or one without a review test selects only itself. An incompatible, ineligible or solo follower
+ends the prefix. Diagnostic candidates never mix with normal candidates or another parent;
+every selected diagnostic member's integer 1–8 limit bounds the group. A singleton uses the
+individual merge path. Selection neither sorts nor rewrites timestamps and reads no DB or engine.
+**Common train execution (PM-660).** `services/merges/train.ts` reserves the compatible
+queued prefix under card locks sorted by task key, rechecking sources, gates, merger rights,
+PR metadata, engine and the full review configuration. One transaction saves the manifest
+and moves every member to running. The existing Effect repository slot owns the train;
+the document writer retains its priority when that slot next frees. There is no collection
+delay and no card lock during heavy-queue waiting or testing. Cancelling any member interrupts
+the common worker and waits for checkout cleanup before the slot can be reused. Survivors
+return to queued with their original priority snapshots; the invalid manifest is retired.
+
+The engine builds an ordered source chain, then closes it with another `build` whose first
+parent is the original main. The unchanged first-parent merge-test diff therefore covers
+every source. One `_merge/<trainId>` checkout uses dependencies matching the merged lockfile;
+one full-test run with `requireHeavyLock: true` checks the candidate, without individual
+green-result reuse. Candidate and all member merge commits are saved before testing. Every
+member switches to checking on the common onStarted callback and receives the same result
+and run id. The final locked checkpoint rechecks every source and authorization before one
+non-force push and local compare-and-swap advance. Publication is cooperative and cannot be
+cancelled once started. One transaction records every merged row and each starter's own
+task_merged event, followed by each card's ordinary afterMerge/AutoAdvance.
+
+A failed group check marks the train and members failed, without publishing or attributing
+the failure to each member; smaller diagnostic groups belong to PM-661. Operational failures
+block with the original reason. Non-fast-forward rebuilds and rechecks once, then blocks.
+Startup handles train manifests before individual rows: candidate ancestry detects a push
+or local advance completed before the DB transaction, and finishes without repeating the
+check, push or events. Unpublished candidates rebuild and recheck conservatively. The train
+worker is the sole owner of shared checkout release, including startup recovery.
+Blocked publication attempts are checked for candidate ancestry before their leader is
+queued for recovery. An unpublished blocked manifest never reopens cancelled requests or
+changes members that were retried individually; those requests keep their current state.
+The manifest and selection run on the server with remote engines too, grouped by `engineId`;
+they add no machine-dependent operation or RPC. Execution belongs to the existing
+"Member initiated merge" inventory entry when enabled.
+
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
 releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
@@ -1185,6 +1263,8 @@ workers follow the machine's size.
   check is the exception (PM-658): `FullTestSpec.requireHeavyLock` (optional; the merge always sends `true`)
   makes a missing or unusable queue end the run as `error` / `heavy_lock_unavailable` (`durationMs` 0, no
   sandbox, no `onStarted`), so the merge blocks as `check_error` and never runs one without the queue.
+  A merge train (PM-660) submits one common candidate through that same executor and lock;
+  its repository slot and card locks do not permit parallel heavy runs or bypass the queue.
 - **The members' sandboxes** (`SandboxPaths.heavyLockDir`): `projectman-<uid>` is writable and
   `PROJECTMAN_HEAVY_LOCK_DIR` is set, together with `npm_config_prefer_offline` (install from the member's own
   npm cache when there is no clone). The same folder and variables go to a Codex member as
@@ -1214,8 +1294,29 @@ workers follow the machine's size.
 
 ## Machine-dependent parts (PM-341)
 
+- **Private Operator knowledge (PM-687)** — `apps/server/src/config/operator-knowledge-store.ts`,
+  injected by `app.ts` through `assembly.ts` as `OperatorKnowledgeStore`. Stores the approved
+  agreement (summary, involvement and extra-critical steps), up to 20 approved learned principles
+  (example, principle and effect), and each member's enumerated conversational preferences in
+  `<server home>/operator-data/<projectKey>/knowledge.json` and `preferences/<handle>.json`.
+  These records are outside the public repository and the customization git history; no HTTP or
+  MCP writer is exposed. Missing documents start at revision zero; invalid documents are refused
+  without overwriting. **Machine assumption:** one server process owns a private writable home,
+  with POSIX directory/file permissions (0700/0600), no-follow file opens and same-directory atomic
+  rename. Target-file CAS writes are serialized within that process, including multiple store
+  instances. A synced temporary file is renamed only after the full JSON is written.
+  The shared `contracts/sandbox.ts` `sensitivePaths` app-home list denies the entire `operator-data`
+  root to member file tools and the existing session-policy/provider consumers; no separate
+  provider rule or new permission is added.
+  **Remote engine:** storage stays on the server, with no file mount on an engine. Later context/MCP
+  services may send filtered prompt data across the existing boundary; this card adds no such API.
+
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
-  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
+  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
+  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
@@ -1368,13 +1469,30 @@ workers follow the machine's size.
   `packages/templates/src/locales`) through the SES v2 `SendEmail` operation with explicit keys and an
   endpoint pinned to the region; no `AWS_*` variable, profile or credential chain is read. It keeps no
   state and logs no address or code; a provider failure is a sanitized `EmailCodeDeliveryError`. The
-  login itself (PM-670) is the first consumer; until then `BuildAppOptions.emailCodeMailer` is unused.
+  login itself (PM-670, the next entry) is its consumer through `BuildAppOptions.emailCodeMailer`.
   **Machine assumptions:** the keys are lines of the owner's `cloud.env` (the secrets store of the entry
   "Cloud provisioning"), which `deploy` sends to the machine; inside the container the entrypoint gives
   `PROJECTMAN_*` to the server process only, the restore rehearsal switches the mailer off, and the runner's
   child environment drops every `PROJECTMAN_` name. **Does this work on a remote engine?** Yes: sending and
   the keys live only in the cloud board; the engine, its link and its protocol do not change, and a
   disconnected engine does not stop the mail.
+
+- **The e-mail login of invited clients (PM-670, part of PM-664)** —
+  `apps/server/src/auth/email-login-routes.ts` (`POST /api/auth/email/request` and `/verify`, public),
+  `apps/server/src/services/email-login/login-service.ts` (codes, limits, redemption),
+  `apps/server/src/core/members/client-standing.ts` (who is eligible; accepts the open client
+  invitations), `apps/server/src/db/email-login.ts` (tables `email_login_codes`, `email_login_events`,
+  migration 60), `auth/secret.ts` (`deriveEmailLoginKey`). **What it does:** a person who is a client and
+  nothing else (a client account or an open client invitation, not the host owner, no other access in any
+  project) gets a six-digit code by mail and redeems it for a session; a first redemption creates a
+  passwordless account and accepts every open client invitation of the address. Addresses, client IPs
+  and codes are stored only as HMAC-SHA-256 hashes; the key is derived (HKDF, own label) from the
+  `secret` file, so a copied database alone cannot be tested against guessed addresses. All limits count
+  durable rows, so a restart does not reset them. **Machine assumptions:** the client address comes from
+  `PROJECTMAN_CLIENT_IP_HEADER` (a trusted loopback proxy sets it; without it every client counts as
+  `127.0.0.1` and shares the IP limits), the `secret` file in the home, and the SQLite database. **Does this
+  work on a remote engine?** Yes: everything runs in the cloud board (hub); no engine request is made,
+  and no engine protocol or payload changes.
 
 - **Feedback widget public entrance and screenshot store (PM-506, PM-508)** —
   `apps/server/src/services/feedback/{service,screenshots,notices,widget}.ts`, `apps/server/src/api/feedback.ts`,
@@ -1665,6 +1783,11 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
+  requires a stopped-source seed into empty host/buckets, first successful file backup and
+  isolated recovery checks. Public activation waits for completed auth/edge code and independent
+  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  the single-Mac live watcher does not update either the cloud or the separate engine checkout.
   On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
@@ -2246,6 +2369,12 @@ assumption or remote-engine RPC.
   uses `EngineHost.realpath` to validate the tool's working directory and receives the runtime's
   policy functions through `InboxPermissionPolicy` (`core/inbox`); path validation still
   runs on the session's engine and requires no new RPC.
+  PM-691 fixes the Operator's effective approver to `human` on the server through
+  `packages/shared/src/config/permission-level.ts`, including historical session overrides.
+  `runtime/sessions/{sessions,launch}.ts` checks updates and carries the effective member into
+  the existing start/context path; `core/inbox` uses it for human routing. Local and remote
+  engines consume the same start intent. This changes no OS assumption or RPC and never
+  turns a CLI escalation into boundary authorization.
   Legacy Claude execution uses the CLI's native sandbox (macOS Seatbelt); allow/deny paths
   are local and canonicalised, including `/var` → `/private/var` and real temporary paths.
   The member's "Outbound network" setting (PM-355) becomes `SessionPolicy.network.outbound`; a
@@ -2366,6 +2495,9 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  Structure map reads (PM-682, PM-683) reuse this boundary: `services/structure/index.ts`
+  invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
+  on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
@@ -2381,7 +2513,15 @@ assumption or remote-engine RPC.
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
   repository is found from the engine's own binding (`engine.json` `repos[].path`, in single-machine mode the
   project's config), never from the call; branch, commit and merge ids are checked in `engine-limit.ts` and
-  again in the merger. **Does this work on a remote engine?** Yes, it is built for it: the git work, the
+  again in the merger. The pure commit/merge-id and branch syntax rules live in
+  `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
+  `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
+  syntax check. No git or process crosses into server-side DB validation.
+  For a train (PM-660), the server calls the same build operation for every approved source
+  and a final first-parent commit, then uses one `_merge/<trainId>` checkout and one strict
+  full_test.run. The manifest, ordered locks and attribution stay on the server; all members
+  must share an engine and no new RPC or command allowlist entry is required.
+  **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
@@ -2413,6 +2553,11 @@ assumption or remote-engine RPC.
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
+  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories, retires both Mac live agents before packaging,
+  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  seed dry-run checks buckets, while the live host check precedes upload. No second writer or
+  automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
   hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
@@ -2437,6 +2582,10 @@ assumption or remote-engine RPC.
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
+  installs the protected Access header file, verifies foreground startup before launchd,
+  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
   `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the
@@ -2686,6 +2835,21 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
   is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
   owner asked to go straight through.
+- **Approval waiver classification (PM-691).** The verdict additionally returns `waiverEligible`, true only for
+  an `approval` change whose full end-state diff is on the explicit shared allow lists. Protected rights,
+  authorization duties, gates and approval labels, locations, sharing and the Operator's own settings still
+  need approval; unknown fields are closed. New AI members expose non-default permission fields beside their
+  presence row. Approval labels use `isOwnerApprovalLabel` in both end states (human-only, author exclusion or
+  a gate requirement); their actual holders and resolved reviewer/authorization duties remain protected even
+  without a gate. `team.operatorApprovalWaiver` is optional (absent: false), owner-only and stored in `team.yaml`.
+  reordering existing stages is protected even with unchanged gate definitions. Stage/member changes that
+  alter `mergerOf`, the merge target or any `cardMerger` reviewer choice also need a click; roster reordering
+  has its own approval row because duty-derived owner order can change the selected merger.
+  Classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
+  without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
+  merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
+  configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.

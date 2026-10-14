@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  OPERATOR_SIGNAL_STEP_KINDS,
   operatorSignalBudget,
   operatorSignalStepRefusal,
 } from './operator-watch';
@@ -81,6 +82,24 @@ describe('operatorSignalStepRefusal', () => {
       reason: 'kind',
     });
     expect(operatorSignalStepRefusal({ ...unreleased, level: 'drive', target, allowed })).toBeNull();
+  });
+
+  it('gives answer_stalled no step at any level, with either tool, even with a target', () => {
+    for (const level of ['report', 'unblock', 'drive'] as const) {
+      expect(OPERATOR_SIGNAL_STEP_KINDS[level]).not.toContain('answer_stalled');
+      for (const tool of ['start_task', 'start_member'] as const) {
+        expect(
+          operatorSignalStepRefusal({
+            ...base,
+            level,
+            kind: 'answer_stalled',
+            tool,
+            target: { member: tool === 'start_member' ? 'dev-1' : null, taskKey: 'AR-1' },
+            allowed: { startTask: 'AR-1', members: ['dev-1'], taskKey: 'AR-1' },
+          }),
+        ).toEqual({ code: 'operator_no_request', reason: level === 'report' ? 'level' : 'kind' });
+      }
+    }
   });
 
   it('refuses a tool the signal gives no target for, and a wrong card or member', () => {

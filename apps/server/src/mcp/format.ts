@@ -248,6 +248,8 @@ function signalLine(signal: OperatorSignal): string {
     merge_blocked: 'The merge stopped on a conflict, a failed check or a block.',
     unreleased: 'Work merged on the default branch has waited a long time for a release.',
     ready_waiting: 'Startable cards (subject) wait while a developer has free capacity.',
+    answer_stalled:
+      'An answer or request reached the assignee (subject: the message), but no work followed; report only, it has no step.',
   };
   return `- signal_${signal.kind}: ${explanations[signal.kind]} ${signal.id}, ${signal.state}, task ${signal.taskKey ?? 'none'}, subject ${signal.subject ?? 'none'}, since ${signal.raisedAt}; actionable ${signal.actionable}.`;
 }

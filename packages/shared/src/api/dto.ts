@@ -147,6 +147,10 @@ export const OperatorRequestView = z.object({
 });
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
 export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
+/** An answer delivered to a member who has not worked since is a stall once it has stood this long (PM-694). */
+export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
+/** The least time between two wake-ups carrying `answer_stalled` signals in one project (PM-694). */
+export const OPERATOR_ANSWER_STALL_WAKE_MS = 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
 /** A card held by an AI member with no work running for this long is idle (PM-547). */
 export const OPERATOR_IDLE_MINUTES = 30;
@@ -167,8 +171,17 @@ export const OperatorSignalKind = z.enum([
   'merge_blocked',
   'unreleased',
   'ready_waiting',
+  'answer_stalled',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+/** The facts of an `answer_stalled` signal (PM-694): the evidence is a delivered answer or message, never its text. */
+export const AnswerStalledFacts = z.object({
+  evidenceId: z.string(),
+  evidenceAt: z.string().datetime(),
+  member: MemberHandle,
+  lastActionAt: z.string().datetime().nullable(),
+});
+export type AnswerStalledFacts = z.infer<typeof AnswerStalledFacts>;
 export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
 export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
 export const OperatorSignal = z.object({
@@ -256,6 +269,38 @@ export type SetupRequest = z.infer<typeof SetupRequest>;
 export const LoginRequest = z.object({ email: z.string().min(3), password: z.string().min(1) });
 export type LoginRequest = z.infer<typeof LoginRequest>;
 
+/* ---------- e-mail login of invited clients (PM-670) ---------- */
+
+const LoginEmail = z.string().trim().min(3).max(254);
+const InviteToken = z.string().min(1).max(200);
+const LoginCode = z.string().regex(/^\d{6}$/);
+const NewAccountName = z.string().trim().min(1).max(100);
+
+/** Asks for a code by the address, or by an invitation token (the code goes to the invited address). */
+export const EmailLoginCodeRequest = z.union([
+  z.object({ email: LoginEmail }).strict(),
+  z.object({ inviteToken: InviteToken }).strict(),
+]);
+export type EmailLoginCodeRequest = z.infer<typeof EmailLoginCodeRequest>;
+
+/** The answer of a code request: always 202 and always this body, whoever the address belongs to. */
+export const EmailLoginCodeRequested = z.object({
+  expiresInSeconds: z.literal(600),
+  resendAfterSeconds: z.literal(60),
+});
+export type EmailLoginCodeRequested = z.infer<typeof EmailLoginCodeRequested>;
+
+/** `name` is needed only for a new account whose invitation has no display name. */
+export const EmailLoginVerifyRequest = z.union([
+  z.object({ email: LoginEmail, code: LoginCode, name: NewAccountName.optional() }).strict(),
+  z.object({ inviteToken: InviteToken, code: LoginCode, name: NewAccountName.optional() }).strict(),
+]);
+export type EmailLoginVerifyRequest = z.infer<typeof EmailLoginVerifyRequest>;
+
+/** `details` of `email_login_rate_limited`. */
+export const EmailLoginRateLimitedDetails = z.object({ retryAfterSeconds: z.number().int().positive() });
+export type EmailLoginRateLimitedDetails = z.infer<typeof EmailLoginRateLimitedDetails>;
+
 export const Me = z.object({
   hostOwner: z.boolean().optional(),
   via: z.literal('integrator').optional(),
@@ -279,6 +324,8 @@ export const SetupStatus = z.object({
   needsSetup: z.boolean(),
   /** `cloud` mode with no user yet: the setup form asks for the code from the server log (PM-317). */
   needsSetupCode: z.boolean().optional(),
+  /** The server can send and redeem e-mail login codes (PM-670). Absent: false. */
+  emailLoginEnabled: z.boolean().optional(),
 });
 export type SetupStatus = z.infer<typeof SetupStatus>;
 
@@ -1049,6 +1096,8 @@ export const PublicInviteView = z.object({
   roleNames: z.array(z.string()),
   expiresAt: z.string(),
   requiresLogin: z.boolean(),
+  /** The invited address, masked (`j***@e***.uk`); only for a client invitation (PM-670). */
+  emailHint: z.string().optional(),
 });
 export type PublicInviteView = z.infer<typeof PublicInviteView>;
 

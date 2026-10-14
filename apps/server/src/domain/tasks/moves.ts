@@ -345,6 +345,13 @@ export class TaskMoves {
     if (task.status === 'cancelled') throw conflict('task_closed', `task ${task.key} is cancelled`);
     const target = requireStage(config, stageId);
     if (task.stageId === target.id) return { task, moved: false, pendingApproval: [] };
+    // A decision may have closed while this system move was preparing. Its human handler owns
+    // the approval labels and move; do not open a replacement request during that async work.
+    if (
+      actor.kind === 'system' &&
+      this.inbox.isResolvingGate(task.projectKey, task.key, task.stageId, target.id)
+    )
+      return { task, moved: false, pendingApproval: [] };
     // Every move path checks the project manager's configured stage-move rights.
     if (actorMoveRefusal(config, actor, task.stageId, target.id)) throw projectManagerMoveRefused();
     const evaluation = evaluateMove(task, config, task.stageId, target.id);

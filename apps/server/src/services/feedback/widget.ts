@@ -7,11 +7,11 @@ import type {
   FeedbackWidgetListResponse,
   ProjectConfig,
 } from '@projectman/shared';
-import { isoNow } from '../context';
-import type { DomainContext } from '../context';
-import { DomainError } from '../errors';
-import type { ConfigChange, ProjectService } from '../projects';
-import { humanActor, newId } from '../util';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { DomainError } from '../../domain/errors';
+import type { ConfigChange, ProjectService } from '../../domain/projects';
+import { humanActor, newId } from '../../domain/util';
 import type { FeedbackService } from './service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -23,6 +23,7 @@ export const routes = {
   involvements: (key: string) => `/api/projects/${key}/involvements`,
   /** GET the project's focus (`ProjectFocusView`, PM-427); internal members only. */
   projectFocus: (key: string) => `/api/projects/${key}/focus`,
+  projectStructure: (key: string) => `/api/projects/${key}/structure`,
   /** POST (`ProjectFocusAddRequest`): puts a theme or card into the focus. */
   projectFocusItems: (key: string) => `/api/projects/${key}/focus/items`,
   /** PATCH (`ProjectFocusMoveRequest`) moves an item; DELETE takes it out. */

@@ -1,4 +1,5 @@
 export * from './domain/member';
+export * from './domain/operator-knowledge';
 export * from './domain/pipeline';
 export * from './domain/label';
 export * from './domain/task';
@@ -27,6 +28,7 @@ export * from './domain/loop-watch';
 export * from './domain/fix-limit';
 export * from './domain/full-test';
 export * from './domain/merge';
+export * from './domain/merge-input';
 export * from './domain/release';
 export * from './domain/work-map';
 export * from './domain/boundary';
@@ -82,4 +84,5 @@ export * from './config/task-wait';
 
 export * from './domain/branch-name';
 export * from './domain/process-name';
+export * from './domain/structure-map';
 export * from './domain/github-refs';

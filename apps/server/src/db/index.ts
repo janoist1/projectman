@@ -41,6 +41,8 @@ import { createProjectFocusRepository } from './project-focus';
 import { createReleaseRepository } from './releases';
 import { createReviewPinRepository } from './review-pins';
 import { createTaskMergeRepository, createTaskHandoverRepository } from './task-merges';
+import { createMergeTrainRepository } from './merge-trains';
+export type { MergeTrainMember, MergeTrainRecord } from './merge-trains';
 export { mergeState, mergedState } from './task-merges';
 export type { MergeRecord } from './task-merges';
 import { createScheduleRepository } from './schedules';
@@ -97,6 +99,7 @@ export function createRepositories(db: Db) {
     tokenUsage: createTokenUsageRepository(db),
     reviewPins: createReviewPinRepository(db),
     taskMerges: createTaskMergeRepository(db),
+    mergeTrains: createMergeTrainRepository(db),
     releases: createReleaseRepository(db),
     taskHandovers: createTaskHandoverRepository(db),
     taskCovers: createTaskCoverRepository(db),

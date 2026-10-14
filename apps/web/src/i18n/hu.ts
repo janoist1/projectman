@@ -894,6 +894,10 @@ export const hu = {
       operator_never:
         'Ezt az eszközt az Operátor nem használhatja: más tagok döntései és az átadások nem az övéi.',
       operator_only: 'Ezt a műveletet csak az Operátor használhatja.',
+      operator_knowledge_invalid: 'Az Operátor adattára érvénytelen. A meglévő adatok megmaradtak.',
+      operator_knowledge_unavailable: 'Az Operátor adattára most nem érhető el.',
+      operator_knowledge_stale: 'Az Operátor adatai időközben megváltoztak. Olvasd be őket újra.',
+      operator_knowledge_limit: 'Az Operátor jóváhagyási adattára megtelt.',
       operator_signal_closed: 'Ez a jelzés már nem nyitott.',
       operator_signal_not_dismissible: 'Ezt a jelzést az Operátor nem zárhatja le.',
       operator_signal_budget:

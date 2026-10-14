@@ -1179,13 +1179,26 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 60,
+    name: 'durable merge trains',
+    sql: `CREATE TABLE merge_trains (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      state TEXT NOT NULL,
+      record_json TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX merge_trains_running ON merge_trains(project_key, repo) WHERE state = 'running';
+    ALTER TABLE task_merges ADD COLUMN train_id TEXT;`,
+  },
+  {
+    version: 61,
     name: 'session work metadata',
     // PM-694: what a session's chat proves about its work (last step, last tool, last error code), kept
     // without any chat text as JSON; NULL for every session from before it.
     sql: 'ALTER TABLE sessions ADD COLUMN work_metadata TEXT;',
   },
   {
-    version: 61,
+    version: 62,
     name: 'answer stalled signal kind',
     // PM-694: the kind CHECK grows by 'answer_stalled', so the table is rebuilt as in version 56, with
     // the columns added since (follow_up_at, decision_note).

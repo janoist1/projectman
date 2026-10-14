@@ -544,7 +544,7 @@ export function StructureView() {
                       {map.modules
                         .filter((m) => m.area === area.id)
                         .map((m) => {
-                          const size = moduleSize(countOf(m.id), maxSize),
+                          const size = m.kind === 'external' ? 3 : moduleSize(countOf(m.id), maxSize),
                             attached = relatedCards(m.id),
                             clash = clashes.includes(m.id);
                           return (
@@ -553,7 +553,7 @@ export function StructureView() {
                               data-size={size}
                               style={
                                 {
-                                  '--plot-width': `${m.kind === 'external' ? 132 : sizes[size]}px`,
+                                  '--plot-width': `${sizes[size]}px`,
                                 } as CSSProperties
                               }
                             >

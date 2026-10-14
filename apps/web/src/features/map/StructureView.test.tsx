@@ -75,6 +75,8 @@ describe('structure map', () => {
     expect(plot('orders').dataset.kind).toBe('core');
     expect(plot('database').dataset.kind).toBe('store');
     expect(plot('payment').dataset.kind).toBe('external');
+    expect(plot('payment').parentElement?.dataset.size).toBe('3');
+    expect(plot('payment').parentElement?.style.getPropertyValue('--plot-width')).toBe('190px');
     expect(plot('orders').dataset.clash).toBe('true');
     await waitFor(() => expect(document.querySelectorAll('[data-structure-roads] > path')).toHaveLength(4));
     expect(plot('shop').dataset.clash).toBe('false');

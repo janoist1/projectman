@@ -107,6 +107,15 @@ export default async ({ instance, open, shoot, step, log }) => {
     if (!(await plot.evaluate((el) => document.activeElement === el)))
       throw new Error('Escape did not restore the initiating plot focus');
     log('Keyboard Enter and Escape restore plot focus.');
+    const listRow = page.getByRole('complementary').locator(`[data-card-row="${taskKeys[0]}"]`);
+    await listRow.focus();
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(
+      () => document.activeElement?.tagName === 'H2' && document.activeElement.closest('aside'),
+    );
+    await page.keyboard.press('Escape');
+    await page.waitForFunction((key) => document.activeElement?.dataset.cardRow === key, taskKeys[0]);
+    log('Keyboard Enter from the card list and Escape restore the recreated card row focus.');
   });
   await step('Card, completed work and outside files', async () => {
     await show(`?card=${taskKeys[0]}`);

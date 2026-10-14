@@ -12,9 +12,7 @@ import {
   isMergeRunningFor,
   effectiveSessionPermissions,
   isOnLeave,
-  isOpenTask,
   isOperator,
-  isWorkingOnTask,
   isWorkPaused,
   memberOf,
   permissionDecidersNow,
@@ -45,7 +43,7 @@ import type {
   WorkDoing,
   WorkItemRef,
 } from '@projectman/shared';
-import { COMPACTING_PROVIDERS, openingTurnOrigin } from '../../contracts';
+import { openingTurnOrigin } from '../../contracts';
 import type {
   AttachmentOperations,
   CardWorker,
@@ -71,6 +69,7 @@ import { conflict, DomainError, notFound } from '../../domain/errors';
 import type { MemberService } from '../../domain/members';
 import type { ProjectFocusService } from '../../domain/project-focus';
 import type { ConfigChange, ProjectService } from '../../domain/projects';
+import { RoundCompaction } from './compaction';
 import { DoneCleanup } from './done-cleanup';
 import { DONE_TASK_CLEANUP_DELAY_MS, DONE_TASK_TURN_LIMIT_MS } from './session-policy';
 import type { TaskService } from '../../domain/tasks';
@@ -84,12 +83,7 @@ import { aiActor, KeyedMutex, newUuid } from '../../domain/util';
 import { MergeCardLock } from '../../kernel';
 import { CloseStates } from './close-states';
 import { SessionLifecycle } from './lifecycle';
-import {
-  COMPACT_MIN_CONTEXT_TOKENS,
-  MESSAGE_SEPARATOR,
-  providerNotLoggedIn,
-  SessionLauncher,
-} from './launch';
+import { MESSAGE_SEPARATOR, providerNotLoggedIn, SessionLauncher } from './launch';
 import { INPUT_STALL_MS, InputWaits } from './input-waits';
 import { LiveSessions } from './live-sessions';
 import { SessionTimers } from './session-timers';
@@ -102,7 +96,8 @@ export { LIVE_SESSION_STATES } from '@projectman/shared';
 export const BUSY_SESSION_STATES: SessionState[] = ['starting', 'working', 'waiting_permission'];
 const ENDED = new Set<SessionState>(['exited', 'failed']);
 
-export { COMPACT_MIN_CONTEXT_TOKENS, MESSAGE_SEPARATOR } from './launch';
+export { MESSAGE_SEPARATOR } from './launch';
+export { COMPACT_MIN_CONTEXT_TOKENS } from './compaction';
 export { INPUT_STALL_MS } from './input-waits';
 
 export type { EnsureSessionResult } from '../../contracts';
@@ -227,6 +222,8 @@ export class SessionOrchestrator {
   private readonly timers: SessionTimers;
   /** The sessions that wait for input at their terminal (PM-199, `input-waits.ts`). */
   private readonly inputWaits: InputWaits;
+  /** The compaction at the end of a round (PM-213, `compaction.ts`). */
+  private readonly compaction: RoundCompaction;
   /** The sessions that moved their task to done in the middle of a turn (PM-190, `turn-finish.ts`). */
   private readonly turns: TurnFinishes;
   /** The cleanup of done tasks (`done-cleanup.ts`). */
@@ -300,6 +297,22 @@ export class SessionOrchestrator {
       stallMs: deps.inputStallMs ?? INPUT_STALL_MS,
       isPaused: (session) => this.isPaused(session),
     });
+    this.compaction = new RoundCompaction({
+      ctx: this.ctx,
+      projects: deps.projects,
+      tasks: deps.tasks,
+      runner: deps.runner,
+      contextBuilder: deps.contextBuilder,
+      find: (sessionId) => this.find(sessionId),
+      isRunning: (sessionId) => this.isRunning(sessionId),
+      isPaused: (session) => this.isPaused(session),
+      closePending: (sessionId) => this.closeStates.markOf(sessionId) !== undefined,
+      messageWaiting: (session) => this.messageWaiting(session),
+      underLock: (session, work) =>
+        this.lifecycle.run(() =>
+          this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), work),
+        ),
+    });
     this.launcher = new SessionLauncher(deps, {
       live: this.live,
       mergeCards: this.mergeCards,
@@ -315,7 +328,7 @@ export class SessionOrchestrator {
       cardWorkersFor: (config, task, self) => this.cardWorkersFor(config, task, self),
       transcriptWritten: (session) => this.transcriptWritten(session),
       transcriptSummary: (session) => this.transcriptSummary(session),
-      compactInstruction: (provider) => this.compactInstruction(provider),
+      compactFirst: (existing, resume, provider) => this.compaction.firstOnResume(existing, resume, provider),
       assertProviderReady: (provider, member, engineId) =>
         this.assertProviderReady(provider, member, engineId),
       removeSessionFolderOf: (sessionId) => this.removeSessionFolderOf(sessionId),
@@ -905,7 +918,7 @@ export class SessionOrchestrator {
   cancelClose(sessionId: string): void {
     if (!this.closeStates.cancel(sessionId)) return;
     const session = this.find(sessionId);
-    if (session && this.ctx.repos.sessions.compaction(session.id).pending) this.compactWhenIdle(session);
+    if (session) this.compaction.whenIdle(session);
   }
 
   /**
@@ -979,7 +992,7 @@ export class SessionOrchestrator {
     if (current.state !== 'idle') return;
     this.restartForMergeFix(current);
     if (current.permissionRestartPending) this.restartWhenIdle(current);
-    if (this.ctx.repos.sessions.compaction(current.id).pending) this.compactWhenIdle(current);
+    this.compaction.whenIdle(current);
   }
 
   /** What a session that was cut at `point` is told when the pause ends (undefined: the builder has no text). */
@@ -1454,8 +1467,7 @@ export class SessionOrchestrator {
           if (updated.state === 'idle') this.turns.ended(updated.id);
           if (updated.state === 'idle') this.restartForMergeFix(updated);
           if (updated.state === 'idle' && updated.permissionRestartPending) this.restartWhenIdle(updated);
-          if (updated.state === 'idle' && this.ctx.repos.sessions.compaction(updated.id).pending)
-            this.compactWhenIdle(updated);
+          if (updated.state === 'idle') this.compaction.whenIdle(updated);
           return;
         }
         case 'transcript_path': {
@@ -1490,15 +1502,7 @@ export class SessionOrchestrator {
           return;
         }
         case 'compaction': {
-          // The compaction the server asked for is over, or given up: it is not owed any more (PM-213).
-          // What the conversation's context is, is measured again from its next step.
-          if (event.phase === 'finished') this.ctx.repos.sessions.setContextTokens(session.id, null);
-          if (event.requested && event.phase !== 'started')
-            this.ctx.repos.sessions.setCompactPending(session.id, false);
-          this.ctx.logger.info(
-            { sessionId: session.id, phase: event.phase, trigger: event.trigger, requested: event.requested },
-            'conversation compaction',
-          );
+          this.compaction.observe(session.id, event);
           return;
         }
         case 'usage': {
@@ -1746,95 +1750,12 @@ export class SessionOrchestrator {
       );
   }
 
-  // ---------------------------------------------------------------- end-of-round compaction (PM-213)
-
-  /** The text the compaction command takes, when sessions of this provider are compacted at all. */
-  private compactInstruction(provider: AgentProvider | undefined): string | null {
-    const instruction = this.deps.contextBuilder.compactInstruction;
-    if (!instruction || !this.deps.runner.compact) return null;
-    return COMPACTING_PROVIDERS.has(provider ?? DEFAULT_AGENT_PROVIDER) ? instruction : null;
-  }
-
   /**
-   * The card left a stage (`task_stage_changed`): the round of every member's session on it ends
-   * when the card is no longer in a stage that member works it in, so that conversation owes a
-   * compaction. A session in a turn is compacted once it idles, an idle one now; one that does not
-   * run is compacted when it resumes (`start`). A member who works the card in the next stage as
-   * well goes on in the same conversation, and a card that is done or cancelled needs nothing.
+   * The card left a stage (`task_stage_changed`): the round of every member's session on it ends,
+   * so that conversation owes a compaction (see `RoundCompaction.roundEnded`).
    */
-  async roundEnded(task: Task): Promise<void> {
-    if (!isOpenTask(task)) return;
-    const config = await this.deps.projects.config(task.projectKey);
-    for (const session of this.ctx.repos.sessions.list(task.projectKey, { taskKey: task.key })) {
-      if (!this.compactInstruction(session.provider)) continue;
-      if (isWorkingOnTask(config, task, session.member, 'idle')) continue;
-      this.ctx.repos.sessions.setCompactPending(session.id, true);
-    }
-  }
-
-  /**
-   * Compacts the session now if it is idle, else its next idle moment does (`handleRunnerEvent`). Not
-   * one marked to close (PM-288): its conversation is compacted when it resumes (`compactFirst`).
-   */
-  private compactWhenIdle(session: Session): void {
-    if (
-      session.state !== 'idle' ||
-      this.isPaused(session) ||
-      this.closeStates.markOf(session.id) !== undefined
-    )
-      return;
-    this.lifecycle
-      .run(() =>
-        this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
-          this.compactIdle(session.id),
-        ),
-      )
-      .catch((err: unknown) =>
-        this.ctx.logger.warn({ err, sessionId: session.id }, 'could not compact the session'),
-      );
-  }
-
-  /**
-   * Types the compaction command into an idle session whose round ended, unless something is on its
-   * way into it: a message goes first, and the compaction waits for the session's next idle moment.
-   * The caller holds the session's lock.
-   */
-  private async compactIdle(sessionId: string): Promise<void> {
-    const ready = (s: Session | null): s is Session =>
-      Boolean(
-        s &&
-        s.workItem.type === 'task' &&
-        s.state === 'idle' &&
-        this.isRunning(s.id) &&
-        this.ctx.repos.sessions.compaction(s.id).pending &&
-        !this.deps.runner.hasPendingInput?.(s.id) &&
-        !this.messageWaiting(s),
-      );
-    if (!ready(this.find(sessionId))) return;
-    const found = this.find(sessionId)!;
-    const config = await this.deps.projects.config(found.projectKey);
-    const session = this.find(sessionId);
-    if (!ready(session) || session.workItem.type !== 'task') return;
-    const instruction = this.compactInstruction(session.provider);
-    if (!instruction) return;
-    const task = this.deps.tasks.get(session.projectKey, session.workItem.taskKey);
-    if (isWorkingOnTask(config, task, session.member, 'idle')) {
-      // The card is back in a stage the member works it in: the conversation goes on with it.
-      this.ctx.repos.sessions.setCompactPending(session.id, false);
-      return;
-    }
-    if (!isOpenTask(task)) return;
-    // A small conversation is not worth a summary (a just compacted one is small): nothing is owed.
-    const { contextTokens } = this.ctx.repos.sessions.compaction(session.id);
-    if ((contextTokens ?? 0) <= COMPACT_MIN_CONTEXT_TOKENS) {
-      this.ctx.repos.sessions.setCompactPending(session.id, false);
-      return;
-    }
-    const asked = await this.deps.runner.compact!(session.id, instruction);
-    this.ctx.logger.info(
-      { sessionId: session.id, taskKey: task.key, asked },
-      asked ? 'compacting the conversation at the end of its round' : 'the compaction was not asked for',
-    );
+  roundEnded(task: Task): Promise<void> {
+    return this.compaction.roundEnded(task);
   }
 
   private publishSession(session: Session): void {

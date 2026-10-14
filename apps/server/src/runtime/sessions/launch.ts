@@ -74,15 +74,6 @@ import type { MemberWorkspaces, WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
 import type { SessionOrchestratorDeps } from './sessions';
 
-/**
- * A session that owes a compaction (PM-213), idle at the end of its round or stopped and resuming,
- * gets it only if its conversation is bigger than this: its last measured context (input, cache read
- * and cache write of the last step). A fresh session already starts at 52-56k (the PM-209
- * measurement), a fixed share a compaction does not shrink, so a smaller conversation, one that was
- * just compacted included, is not worth the summary. An unknown context counts as small.
- */
-export const COMPACT_MIN_CONTEXT_TOKENS = 100_000;
-
 /** Between the messages of a first input, and before the first one after a brief. */
 export const MESSAGE_SEPARATOR = '\n\n';
 
@@ -159,7 +150,12 @@ export interface LaunchHost {
   readonly cardWorkersFor: (config: ProjectConfig, task: Task, self: string) => CardWorker[];
   readonly transcriptWritten: (session: Session) => Promise<boolean>;
   readonly transcriptSummary: (session: Session) => Promise<HandoffSummary | null>;
-  readonly compactInstruction: (provider: AgentProvider | undefined) => string | null;
+  /** The compaction a resumed conversation owes, to type first (`RoundCompaction.firstOnResume`). */
+  readonly compactFirst: (
+    existing: Session | null,
+    resume: boolean,
+    provider: AgentProvider | undefined,
+  ) => string | undefined;
   readonly assertProviderReady: (
     provider: AgentProvider,
     member: string,
@@ -654,12 +650,7 @@ export class SessionLauncher {
     const at = isoNow(this.ctx);
     // A conversation whose round ended while its session did not run is compacted before anything
     // else is typed (PM-213), if it is big: the wake-up messages and the continue message follow it.
-    const owed = resume && existing ? this.ctx.repos.sessions.compaction(existing.id) : null;
-    const compactInstruction = this.host.compactInstruction(provider);
-    const compactFirst =
-      owed?.pending && compactInstruction && (owed.contextTokens ?? 0) > COMPACT_MIN_CONTEXT_TOKENS
-        ? compactInstruction
-        : undefined;
+    const compactFirst = this.host.compactFirst(existing, resume, provider);
     let session: Session;
     if (existing) {
       session = this.ctx.repos.sessions.update(existing.id, {

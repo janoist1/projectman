@@ -8,8 +8,12 @@ import { LAYER_RULES, MODULES } from './module-map';
 
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
 const SERVER_SRC = 'apps/server/src/';
+const FEATURES = 'apps/web/src/features/';
 
 const map = StructureMap.parse(parse(readFileSync(`${root}${STRUCTURE_MAP_PATH}`, 'utf8')));
+const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
+  .split('\0')
+  .filter(Boolean);
 
 describe('projectman.structure.yaml', () => {
   test('matches the server module map', () => {
@@ -47,17 +51,39 @@ describe('projectman.structure.yaml', () => {
   });
 
   test('places every tracked file', () => {
-    const files = execFileSync('git', ['ls-files', '-z'], {
-      cwd: root,
-      encoding: 'utf8',
-      maxBuffer: 64 << 20,
-    })
-      .split('\0')
-      .filter(Boolean);
     expect(files.length).toBeGreaterThan(0);
     const unmapped = files.filter((file) => placeOfPath(map, file).kind === 'unmapped');
     expect(unmapped.slice(0, 20), `${unmapped.length} tracked files are not on the structure map`).toEqual(
       [],
     );
+  });
+
+  test('has no module or ignore path that points at nothing', () => {
+    const paths = [...map.modules.flatMap((m) => m.paths), ...map.ignore];
+    const dead = paths.filter((path) =>
+      path.endsWith('/') ? !files.some((file) => file.startsWith(path)) : !files.includes(path),
+    );
+    expect(dead).toEqual([]);
+  });
+
+  test('has one web module per feature folder', () => {
+    const folders = new Set(
+      files
+        .filter((file) => file.startsWith(FEATURES))
+        .map((file) => file.slice(FEATURES.length).split('/'))
+        .filter((parts) => parts.length > 1)
+        .map(([folder]) => folder),
+    );
+    const problems: string[] = [];
+    for (const folder of folders) {
+      const module = map.modules.find((m) => m.id === `web/${folder}`);
+      if (!module) problems.push(`${FEATURES}${folder}/: no web/${folder} module`);
+      else if (module.paths.length !== 1 || module.paths[0] !== `${FEATURES}${folder}/`)
+        problems.push(`web/${folder}: paths are not ${FEATURES}${folder}/`);
+    }
+    for (const module of map.modules)
+      if (module.id.startsWith('web/') && module.id !== 'web/shell' && !folders.has(module.id.slice(4)))
+        problems.push(`${module.id}: no ${FEATURES}${module.id.slice(4)}/ folder`);
+    expect(problems).toEqual([]);
   });
 });

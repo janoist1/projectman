@@ -49,6 +49,7 @@ modules:
     summary: A szerver közös interfészei és a motor portjai.
     paths:
       - apps/server/src/contracts/
+      - apps/server/src/contracts/operator-knowledge.ts
 
   # Server: infra
   - id: db
@@ -58,12 +59,14 @@ modules:
     summary: SQLite tárolás, tárolók (repository-k) és migrációk.
     paths:
       - apps/server/src/db/
+      - apps/server/src/db/merge-trains.ts
   - id: config
     area: infra
     name: Beállítások
     summary: A projektbeállítások betöltése, ellenőrzése és migrálása.
     paths:
       - apps/server/src/config/
+      - apps/server/src/config/operator-knowledge-store.ts
   - id: logging
     area: infra
     name: Naplózás
@@ -198,6 +201,7 @@ modules:
     summary: A kártyák összefésülésének vezénylése, sora és zárai.
     paths:
       - apps/server/src/services/merges/
+      - apps/server/src/services/merges/train-selection.ts
   - id: services/full-tests
     area: service
     name: Teljes tesztek

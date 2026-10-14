@@ -78,7 +78,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-620 turn, input wait, compaction and cleanup**
 
-  Planned.
+  File: `apps/server/src/runtime/sessions/session-timers.ts`. Facade: `SessionTimers` (same file), used by `InputWaits`, `TurnFinishes` and `DoneCleanup`; the session manager closes it at shutdown. One `FiberMap` per group (`turn`, `input`, `cleanup`); a call runs from the fiber's `addObserver`, after its key left the map; delays are at least 1 ms. Its sleeps are ref'd (the old timers were unref'd): shutdown closes them.
 
 - **PM-621 runner session and CLI**
 

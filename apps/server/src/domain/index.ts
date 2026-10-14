@@ -75,7 +75,8 @@ import { ProjectManagerChannels } from '../services/operator';
 import { ProjectState } from '../services/operator';
 export { ProjectState } from '../services/operator';
 import { PmReplyRelay } from '../services/operator';
-import { BoundaryService } from './boundary';
+import { BoundaryService } from '../services/boundary';
+import { BoundaryTools } from '../mcp/boundary';
 import { CardQuestions } from './card-questions';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
@@ -165,7 +166,7 @@ export { AttachmentService, contentDisposition, createAttachmentStorage } from '
 export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
 export { BackgroundTasks } from './background';
 export { BoardService } from './board';
-export { BoundaryService } from './boundary';
+export { BoundaryService } from '../services/boundary';
 export { CardQuestions, QUESTION_LIMIT } from './card-questions';
 export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
@@ -1125,6 +1126,7 @@ export function createDomain(opts: DomainOptions) {
         sessionEngine,
       }),
       merges: new MergeTools({ calls: toolCaller, merges }),
+      boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
     docWrites,
     decisionCandidates,
@@ -1136,7 +1138,6 @@ export function createDomain(opts: DomainOptions) {
     openQuestionLabel,
     fixLimit,
     handoffs,
-    boundary,
     ctx,
     sessions,
     projects,

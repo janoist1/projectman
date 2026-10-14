@@ -19,13 +19,13 @@ import type {
   BoundaryGrant,
   ProjectConfig,
 } from '@projectman/shared';
-import type { BoundaryOperationAdapter, BoundaryRequester } from '../contracts';
-import type { DomainContext } from './context';
-import { conflict, forbidden, invalid, notFound } from './errors';
-import type { InboxService } from './inbox';
-import type { ProjectService, LoadedProject } from './projects';
-import type { TimelineService } from './timeline';
-import { newId, SYSTEM_ACTOR } from './util';
+import type { BoundaryOperationAdapter, BoundaryRequester } from '../../contracts';
+import type { DomainContext } from '../../domain/context';
+import { conflict, forbidden, invalid, notFound } from '../../domain/errors';
+import type { InboxService } from '../../domain/inbox';
+import type { ProjectService, LoadedProject } from '../../domain/projects';
+import type { TimelineService } from '../../domain/timeline';
+import { newId, SYSTEM_ACTOR } from '../../domain/util';
 
 const pending = (r: BoundaryRequest) => r.state === 'pending_lead' || r.state === 'pending_owner';
 const active = (r: BoundaryRequest) => pending(r) || (r.state === 'allowed' && !r.consumedAt);

@@ -100,7 +100,7 @@ export function OperatorThread({
   }, [channel.signals]);
   const trailingSignals = channel.signals.filter(
     (signal) =>
-      signal.state === 'open' &&
+      (signal.state === 'open' || signal.state === 'dismissed') &&
       (!signal.messageId || !messages.some((message) => message.id === signal.messageId)),
   );
   const pmHandle = [...members.values()].find(

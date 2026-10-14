@@ -52,8 +52,8 @@ export function closedText(signal: OperatorSignal): string | null {
 
 /**
  * A signal the Operator raised on its own (PM-447): an outage, a card nobody can carry, a session waiting for
- * input or one that went silent. "Igen, intézd" is a message to the Operator that names the signal; "Most ne" only
- * sets the signal aside.
+ * input or one that went silent. Open signals can be dismissed in an editable thread; actionable signals
+ * also offer acceptance, which sends the Operator a message naming the signal.
  */
 export function OperatorSignalCard({
   signal,
@@ -115,11 +115,13 @@ export function OperatorSignalCard({
           {t('operator.signal.details')} →
         </Link>
       ) : null}
-      {open && signal.actionable && !readOnly ? (
+      {open && !readOnly ? (
         <div className={styles.actions}>
-          <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
-            {t('operator.signal.accept')}
-          </Button>
+          {signal.actionable ? (
+            <Button variant="primary" size="md" loading={send.isPending} disabled={busy} onClick={accept}>
+              {t('operator.signal.accept')}
+            </Button>
+          ) : null}
           <Button
             variant="secondary"
             size="md"

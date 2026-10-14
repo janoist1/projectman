@@ -561,54 +561,54 @@ other: they communicate through the core. Connectors and runtime reach engine
 capabilities only through ports in `contracts/`. Workspace `@projectman/*`
 packages count as contracts and are accessible to every layer.
 
-| Module                  | Responsibility                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------- |
-| `contracts`             | Shared server interfaces and engine ports.                                                     |
-| `db`                    | SQLite storage, repositories and migrations.                                                   |
-| `config`                | Project configuration loading, validation and migrations.                                      |
-| `logging`               | Structured server and engine logging and file rotation.                                        |
-| `instance`              | Installation identity and activation state.                                                    |
-| `kernel`                | Common errors, utilities, background work helpers and the shared Effect helper (`effect.ts`).  |
-| `agent-text`            | Text formatting for agent-facing context.                                                      |
-| `core/base`             | Domain context, events and the event bus.                                                      |
-| `core/projects`         | Projects, roles, stage reviewers and visibility.                                               |
-| `core/tasks`            | Tasks, board state, focus, involvement and card measures.                                      |
-| `core/members`          | Member access, invitations, presence and naming.                                               |
-| `core/timeline`         | Append-only task and project timeline access.                                                  |
-| `core/messages`         | Stored messages, routing and conversation rules.                                               |
-| `core/inbox`            | Human questions, approval inbox and question lifecycle.                                        |
-| `core/attachments`      | Task and message attachment storage and processing.                                            |
-| `runtime/admission`     | Admission, deferred starts, handovers and refinement.                                          |
-| `runtime/sessions`      | Session orchestration, policy, pause and workspace selection.                                  |
-| `runtime/delivery`      | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)). |
-| `runtime/permissions`   | Command parsing and execution permission rules.                                                |
-| `runtime/watchers`      | Runtime health, review, disk and worktree watches.                                             |
-| `runtime/usage`         | Provider quota, plan usage and managed provider keys.                                          |
-| `context`               | Agent context packs and prompts.                                                               |
-| `services/merges`       | Card merge orchestration, the merge queue (Effect) and merge locks; sealed (`index.ts`).       |
-| `services/full-tests`   | Full-test and screenshot-run orchestration.                                                    |
-| `services/releases`     | Release proposals and release roadmap notices.                                                 |
-| `services/github`       | GitHub synchronization, pull requests and publishing.                                          |
-| `services/feedback`     | Feedback marks, screenshots and widget sessions.                                               |
-| `services/project-docs` | Operator project-document writes and decision candidates.                                      |
-| `services/boundary`     | External operation authorization and boundary requests.                                        |
+| Module                  | Responsibility                                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------------------------- |
+| `contracts`             | Shared server interfaces and engine ports.                                                         |
+| `db`                    | SQLite storage, repositories and migrations.                                                       |
+| `config`                | Project configuration loading, validation and migrations.                                          |
+| `logging`               | Structured server and engine logging and file rotation.                                            |
+| `instance`              | Installation identity and activation state.                                                        |
+| `kernel`                | Common errors, utilities, background work helpers and the shared Effect helper (`effect.ts`).      |
+| `agent-text`            | Text formatting for agent-facing context.                                                          |
+| `core/base`             | Domain context, events and the event bus.                                                          |
+| `core/projects`         | Projects, roles, stage reviewers and visibility.                                                   |
+| `core/tasks`            | Tasks, board state, focus, involvement and card measures.                                          |
+| `core/members`          | Member access, invitations, presence and naming.                                                   |
+| `core/timeline`         | Append-only task and project timeline access.                                                      |
+| `core/messages`         | Stored messages, routing and conversation rules.                                                   |
+| `core/inbox`            | Human questions, approval inbox and question lifecycle.                                            |
+| `core/attachments`      | Task and message attachment storage and processing.                                                |
+| `runtime/admission`     | Admission, deferred starts, handovers and refinement.                                              |
+| `runtime/sessions`      | Session orchestration, policy, pause and workspace selection.                                      |
+| `runtime/delivery`      | Message delivery (`runtime/delivery/`, sealed; an Effect program, see [EFFECT.md](EFFECT.md)).     |
+| `runtime/permissions`   | Command parsing and execution permission rules.                                                    |
+| `runtime/watchers`      | Runtime health, review, disk and worktree watches.                                                 |
+| `runtime/usage`         | Provider quota, plan usage and managed provider keys.                                              |
+| `context`               | Agent context packs and prompts.                                                                   |
+| `services/merges`       | Card merge orchestration, the merge queue (Effect) and merge locks; sealed (`index.ts`).           |
+| `services/full-tests`   | Full-test and screenshot-run orchestration.                                                        |
+| `services/releases`     | Release proposals and release roadmap notices.                                                     |
+| `services/github`       | GitHub synchronization, pull requests and publishing.                                              |
+| `services/feedback`     | Feedback marks, screenshots and widget sessions.                                                   |
+| `services/project-docs` | Operator project-document writes and decision candidates.                                          |
+| `services/boundary`     | External operation authorization and boundary requests (`services/boundary/`, sealed).             |
 | `services/schedules`    | Scheduled member work; the minute timer is an Effect program (see EFFECT.md); sealed (`index.ts`). |
-| `services/operator`     | Operator actions, signals, requests and project management.                                    |
-| `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                            |
-| `worktree`              | Task and member worktree creation and dependency refresh.                                      |
-| `engine-host`           | Engine-local files, process operations and branch merging.                                     |
-| `full-test`             | Sandboxed test execution and the heavy-run queue.                                              |
-| `machine`               | Machine probes and process parsing.                                                            |
-| `engine-link`           | Server/engine RPC, transport and remote adapters.                                              |
-| `api`                   | HTTP API adapters.                                                                             |
-| `mcp`                   | MCP transport and tool declarations.                                                           |
-| `team-tools`            | Domain adapter for team tool calls.                                                            |
-| `ws`                    | Websocket transport and broadcasts.                                                            |
-| `http`                  | HTTP transport guards and infrastructure.                                                      |
-| `control`               | Administrative control socket.                                                                 |
-| `auth`                  | Authentication and integrator credentials.                                                     |
-| `assembly`              | Domain service composition and wiring.                                                         |
-| `entry`                 | Application and engine startup, composition and shutdown.                                      |
+| `services/operator`     | Operator actions, signals, requests and project management.                                        |
+| `runner`                | Provider CLIs, PTYs, hooks and transcript handling.                                                |
+| `worktree`              | Task and member worktree creation and dependency refresh.                                          |
+| `engine-host`           | Engine-local files, process operations and branch merging.                                         |
+| `full-test`             | Sandboxed test execution and the heavy-run queue.                                                  |
+| `machine`               | Machine probes and process parsing.                                                                |
+| `engine-link`           | Server/engine RPC, transport and remote adapters.                                                  |
+| `api`                   | HTTP API adapters.                                                                                 |
+| `mcp`                   | MCP transport and tool declarations.                                                               |
+| `team-tools`            | Domain adapter for team tool calls.                                                                |
+| `ws`                    | Websocket transport and broadcasts.                                                                |
+| `http`                  | HTTP transport guards and infrastructure.                                                          |
+| `control`               | Administrative control socket.                                                                     |
+| `auth`                  | Authentication and integrator credentials.                                                         |
+| `assembly`              | Domain service composition and wiring.                                                             |
+| `entry`                 | Application and engine startup, composition and shutdown.                                          |
 
 The single source of truth for file → module → layer assignments, targets and
 passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
@@ -646,7 +646,7 @@ recipients get the message.
 
 A module's team tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements its handler contract, and `index.ts` exports both. The first
-groups are `members`, `tasks`, `attachments` and `feedback`. `mcp/tools.ts` collects the definitions
+groups are `members`, `tasks`, `attachments`, `feedback` and `boundary`. `mcp/tools.ts` collects the definitions
 in `TEAM_TOOL_GROUPS`; `domain/team-tools.ts` collects the handlers through
 `TeamToolsService` forwarding methods. New tools belong in their module's group and
 handler, never in either collector. The tools not moved yet move with their own
@@ -704,7 +704,8 @@ before touching or writing Effect code.
   file storage, content check, file names); inbox; invitations; the board; GitHub
   sync and pull request records; the team tools handler collector (unmoved handlers remain here); domain events.
 - `services/` — feedback marks (`feedback/`: the service, screenshot store, processor notices,
-  and widget service with the tool's sessions and limits; PM-506, PM-509, PM-608).
+  and widget service with the tool's sessions and limits; PM-506, PM-509, PM-608); boundary
+  requests (`boundary/`: `BoundaryService`; PM-607).
 - `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
 - `app.ts` builds the application; `index.ts` reads the environment and starts it.
 

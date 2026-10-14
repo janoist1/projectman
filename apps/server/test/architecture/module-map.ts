@@ -46,6 +46,14 @@ export const LAYER_RULES: Readonly<Record<Layer, readonly Layer[]>> = {
 
 export const MODULES: readonly ModuleEntry[] = [
   {
+    id: 'services/structure',
+    layer: 'service',
+    target: 'services/structure',
+    pass: 'none',
+    paths: ['services/structure/'],
+    sealed: true,
+  },
+  {
     id: 'contracts',
     layer: 'contracts',
     target: 'contracts',

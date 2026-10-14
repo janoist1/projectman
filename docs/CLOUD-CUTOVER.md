@@ -297,10 +297,13 @@ az EC2 shellben, új és üres `<RESTORE_STAMP>` könyvtárral:
 
 ```sh
 sudo mkdir -m 700 /var/lib/projectman/restore-<RESTORE_STAMP>
+sudo chown 10001:10001 /var/lib/projectman/restore-<RESTORE_STAMP>
 sudo docker run --rm --env-file /etc/projectman/cloud.env -e REHEARSAL_DIR=/restore -e REHEARSAL_PORT=4701 -v /var/lib/projectman/restore-<RESTORE_STAMP>:/restore projectman-cloud:<APPROVED_SHA> rehearse
 ```
 
-Check: a mount nem `/var/lib/projectman/data`, a kép a futó cloud SHA-ja, a könyvtár üres.
+Check: a mount nem `/var/lib/projectman/data`, a kép a futó cloud SHA-ja, a könyvtár üres,
+tulajdonosa `10001:10001`, módja `0700`. Az entrypoint a `/data` tulajdonosát állítja be,
+a külön `/restore` mountét nem; ezért a fenti chown kell az unprivileged rehearsal írásához.
 A restore fájljai a container kilépése után megmaradnak; az owner ezen a védett másolaton
 végezze a hash/reference vizsgálatot. Ne indítsa `serve` módban vagy production volume-on.
 
@@ -361,23 +364,20 @@ Az owner előre elfogadott rollback-útja és konkrét határideje szerint; ezen
 
    ```sh
    npm run live -- install --root <LIVE_ROOT> --home <SOURCE_HOME> --port 4800 --remote <APPROVED_REPOSITORY_URL>
+   npm run live -- status --home <SOURCE_HOME>
    ```
 
-npm run live -- status --home <SOURCE_HOME>
-
-```
-
-Az install mindkét agentet elindítja és resume-ot végez; ezért csak activate és a
-rollback-adatellenőrzés után fusson. A régi image vagy `cloud rollback` önmagában nem
-fordít vissza sémamigrációt. Ha régebbi build kell, az [AWS point-in-time recovery](AWS.md#restoring-the-database-to-a-point-in-time)
-útját előbb izolált másolaton igazold, és nevezd meg az elvesző DB/fájl időszakot,
-kártyákat/üzeneteket/uploads-ot az owner jóváhagyásában.
+   Az install mindkét agentet elindítja és resume-ot végez; ezért csak activate és a
+   rollback-adatellenőrzés után fusson. A régi image vagy `cloud rollback` önmagában nem
+   fordít vissza sémamigrációt. Ha régebbi build kell, az [AWS point-in-time recovery](AWS.md#restoring-the-database-to-a-point-in-time)
+   útját előbb izolált másolaton igazold, és nevezd meg az elvesző DB/fájl időszakot,
+   kártyákat/üzeneteket/uploads-ot az owner jóváhagyásában.
 
 5. Package és downloaded copy eltávolítása vagy offline titkosított archiválása az owner
-által. Új AI session előtt ne maradjon titkos csomag szabadon olvasható könyvtárban.
-A régi `pre-hybrid` archívumot csak ellenőrzött single működés után takarítsa az owner.
-EC2/EBS/IPv4/bucket/IAM erőforrások nem törlődnek a rollbacktől; költségük és későbbi
-megszüntetésük külön jóváhagyott művelet. DNS-delegáció visszaváltás nincs.
+   által. Új AI session előtt ne maradjon titkos csomag szabadon olvasható könyvtárban.
+   A régi `pre-hybrid` archívumot csak ellenőrzött single működés után takarítsa az owner.
+   EC2/EBS/IPv4/bucket/IAM erőforrások nem törlődnek a rollbacktől; költségük és későbbi
+   megszüntetésük külön jóváhagyott művelet. DNS-delegáció visszaváltás nincs.
 
 ## Későbbi verziófrissítés és távoli motor
 
@@ -392,4 +392,3 @@ engine service uninstall, cloud `deploy --ref <APPROVED_SHA> --dry-run`, jóváh
 függőségek ellenőrzése, foreground start/stop, service install/status, cloud check,
 végül owner resume. A public móddal egyező configot használd; ne hagyd ki az image/DB
 rollback-korlátot vagy a backup ellenőrzését. Az eltérő cloud/engine verzió nem elfogadott.
-```

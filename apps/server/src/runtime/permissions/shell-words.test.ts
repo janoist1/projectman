@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseShellCommand, SHELL_REDIRECTIONS } from '../src/domain/shell-words';
+import { parseShellCommand, SHELL_REDIRECTIONS } from './shell-words';
 
 /** A commit message of several lines, with the trailer every commit of an AI member ends in. */
 const MESSAGE = 'Subject line (PM-93)\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>';

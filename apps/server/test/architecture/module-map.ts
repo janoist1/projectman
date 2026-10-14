@@ -214,17 +214,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'runtime',
     target: 'runtime/permissions',
     pass: 'split',
-    paths: [
-      'runtime/permissions/',
-      'domain/read-only-commands.ts',
-      'domain/unattended-commands.ts',
-      'domain/command-options.ts',
-      'domain/command-paths.ts',
-      'domain/shell-words.ts',
-      'domain/xargs-feed.ts',
-      'domain/worktree-commands.ts',
-      'domain/in-place-edits.ts',
-    ],
+    paths: ['runtime/permissions/'],
     sealed: true,
   },
   {

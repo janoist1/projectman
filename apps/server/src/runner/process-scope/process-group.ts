@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { FastifyBaseLogger } from 'fastify';
-import { SCOPE_TERM_GRACE_MS, SCOPE_KILL_WAIT_MS } from '../../contracts';
+import { SCOPE_TERM_GRACE_MS, SCOPE_KILL_WAIT_MS, SCOPE_SINCE_MARGIN_MS } from '../../contracts';
 import type {
   ProcessRecord,
   ProcessScopeConfig,
@@ -69,7 +69,7 @@ export function createProcessScopeDriver(opts: {
     try {
       return (await opts.processes?.envValues(pids, MARKS)) ?? new Map<number, Record<string, string>>();
     } catch {
-      return new Map<number, Record<string, string>>();
+      return null;
     }
   };
   function open(sessionId: string, scopeId: string, openedAt: number): OpenScope {
@@ -98,15 +98,28 @@ export function createProcessScopeDriver(opts: {
               (leader?.pid === p.pid && leader.startedAt === p.startedAt) ||
               known.get(p.pid) === p.startedAt),
         );
+      const owned = (p: ProcessRecord) =>
+        marks.get(p.pid)?.PROJECTMAN_SCOPE_ID === scopeId ||
+        (leader?.pid === p.pid && leader.startedAt === p.startedAt) ||
+        known.get(p.pid) === p.startedAt ||
+        (verifiedGroup && p.pgid === leaderPid);
+      const unreadable = candidates.filter((p) => !marks.has(p.pid) && !owned(p));
+      if (unreadable.length) {
+        const fresh = await list(closeDeadline);
+        if (
+          !fresh ||
+          unreadable.some((p) =>
+            fresh.some((current) => current.pid === p.pid && current.startedAt === p.startedAt),
+          )
+        )
+          return null;
+      }
       return candidates.filter((p) => {
         const mark = marks.get(p.pid)?.PROJECTMAN_SCOPE_ID;
         // A reused pid or an explicitly different generation is never ours.
         if (mark !== undefined && mark !== scopeId) return false;
         if (known.has(p.pid) && known.get(p.pid) !== p.startedAt) return false;
-        const own =
-          mark === scopeId ||
-          (leader?.pid === p.pid && leader.startedAt === p.startedAt) ||
-          (verifiedGroup && p.pgid === leaderPid);
+        const own = owned(p);
         if (own) known.set(p.pid, p.startedAt);
         return own;
       });
@@ -122,7 +135,9 @@ export function createProcessScopeDriver(opts: {
         leaderPid !== null &&
         leaderPid > 1 &&
         members.length &&
-        members.every((p) => candidates.some((c) => c.pid === p.pid && c.startedAt === p.startedAt))
+        members.every((p) =>
+          candidates.some((c) => c.pid === p.pid && c.startedAt === p.startedAt && c.uid === p.uid),
+        )
       ) {
         try {
           signal(-leaderPid, sig);
@@ -131,9 +146,23 @@ export function createProcessScopeDriver(opts: {
         }
       }
       for (const candidate of candidates) {
-        const fresh = await targets();
+        const fresh = await list(closeDeadline);
         if (fresh === null) return false;
-        if (!fresh.some((p) => p.pid === candidate.pid && p.startedAt === candidate.startedAt)) continue;
+        const current = fresh.find(
+          (p) => p.pid === candidate.pid && p.startedAt === candidate.startedAt && p.uid === opts.uid,
+        );
+        if (!current) continue;
+        const marks = await bounded(() => env([current.pid]), closeDeadline);
+        if (marks === null) return false;
+        const mark = marks.get(current.pid)?.PROJECTMAN_SCOPE_ID;
+        if (mark !== undefined && mark !== scopeId) continue;
+        if (
+          mark !== scopeId &&
+          current.pid !== leader?.pid &&
+          current.pgid !== leaderPid &&
+          known.get(current.pid) !== current.startedAt
+        )
+          continue;
         try {
           signal(candidate.pid, sig);
         } catch {
@@ -159,11 +188,14 @@ export function createProcessScopeDriver(opts: {
       if (captured === null) return result('unverified');
       let remaining = await targets();
       if (remaining === null) {
+        // Environment failures do not justify an unverified group signal when a list is available.
+        if ((await list(closeDeadline)) !== null) return result('unverified');
         // Older/unsupported engines cannot verify the group. Never report this as clean.
         if (leaderPid !== null && leaderPid > 1 && clock.now() < closeDeadline) {
           try {
             signal(-leaderPid, force ? 'SIGKILL' : 'SIGTERM');
-          } catch {
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ESRCH') return result('unverified');
             /* best effort */
           }
           if (!force) {
@@ -237,6 +269,7 @@ export function createProcessScopeDriver(opts: {
       if (!records) return results;
       const candidates = records.filter((p) => p.uid === opts.uid && p.pid > 1);
       const marks = await env(candidates.map((p) => p.pid));
+      if (marks === null) return results;
       const scopes = new Map<string, { sessionId: string; at: number }>();
       for (const p of candidates) {
         const m = marks.get(p.pid);
@@ -266,7 +299,7 @@ export function createProcessScopeDriver(opts: {
     },
     async closeScopes(scopes) {
       return Promise.all(
-        scopes.map(async ({ sessionId, scopeId }) => {
+        scopes.map(async ({ sessionId, scopeId, sinceAgeMs }) => {
           const entry = retained.get(scopeId);
           if (entry?.sessionId === sessionId) return { sessionId, cleanup: await entry.retry() };
           const records = await list();
@@ -289,7 +322,14 @@ export function createProcessScopeDriver(opts: {
             return { sessionId, cleanup: unverified };
           const candidates = records.filter((p) => p.uid === opts.uid && p.pid > 1);
           const marks = await env(candidates.map((p) => p.pid));
-          const unreadable = candidates.filter((p) => !marks.has(p.pid));
+          if (marks === null) return { sessionId, cleanup: unverified };
+          // Compute the bound on the engine's clock; the server sends an age, not its wall time.
+          // Older servers supply no bound, so unreadable candidates remain unverified.
+          const lowerBound =
+            sinceAgeMs === undefined ? null : clock.now() - sinceAgeMs - SCOPE_SINCE_MARGIN_MS;
+          const unreadable = candidates.filter(
+            (p) => (lowerBound === null || p.startedAt >= lowerBound) && !marks.has(p.pid),
+          );
           if (unreadable.length) {
             const fresh = await list();
             if (

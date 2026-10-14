@@ -16,6 +16,6 @@ export interface ProcessScopeDriver {
   open(sessionId: string): Promise<OpenScope>;
   recover(): Promise<Array<{ sessionId: string; cleanup: SessionCleanup }>>;
   closeScopes(
-    scopes: Array<{ sessionId: string; scopeId: string }>,
+    scopes: Array<{ sessionId: string; scopeId: string; sinceAgeMs?: number }>,
   ): Promise<Array<{ sessionId: string; cleanup: SessionCleanup }>>;
 }

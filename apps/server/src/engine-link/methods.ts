@@ -438,7 +438,15 @@ export const methods = {
   'session.stop': method(session.extend({ force: z.boolean().optional() }), done),
   'session.close_scopes': method(
     z.strictObject({
-      scopes: z.array(z.strictObject({ sessionId: text, scopeId: text.regex(/^scp_[0-9a-f]{16}$/) })).max(50),
+      scopes: z
+        .array(
+          z.strictObject({
+            sessionId: text,
+            scopeId: text.regex(/^scp_[0-9a-f]{16}$/),
+            sinceAgeMs: z.number().int().nonnegative().optional(),
+          }),
+        )
+        .max(50),
     }),
     z.array(z.strictObject({ sessionId: text, cleanup: SessionCleanupWire })).max(50),
   ),

@@ -23,6 +23,7 @@ export const PROCESS_SCOPE_GUARANTEE: Readonly<Record<ProcessScopeKind, ProcessS
 export type ProcessScopeConfig = { kind: 'process_group' };
 export type ScopeCloseReason = 'stop' | 'kill' | 'exit' | 'shutdown' | 'start_failed' | 'recovery';
 export const SCOPE_TERM_GRACE_MS = 5_000;
+export const SCOPE_SINCE_MARGIN_MS = 60_000;
 export const SCOPE_KILL_WAIT_MS = 2_000;
 export interface SessionCleanup {
   scopeId: string;
@@ -330,7 +331,7 @@ export interface PauseOptions {
 
 export interface SessionRunner {
   closeScopes?(
-    scopes: Array<{ sessionId: string; scopeId: string }>,
+    scopes: Array<{ sessionId: string; scopeId: string; sinceAgeMs?: number }>,
   ): Promise<Array<{ sessionId: string; cleanup: SessionCleanup }>>;
   /**
    * Reads only, spawns nothing. Rejects with code `workspace_codex_config` when the session's

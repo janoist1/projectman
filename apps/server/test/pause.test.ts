@@ -90,6 +90,59 @@ describe('pause of the team', () => {
     expect(h.runner.messages.map((m) => m.text).join('\n')).toContain('Fictional follow-up');
     await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
   });
+  it.each(['idle', 'after_tool'] as const)(
+    'resumes a scope closed at %s in a new generation without losing held messages',
+    async (point) => {
+      h = await createDomainHarness();
+      const originalStart = h.runner.start.bind(h.runner);
+      vi.spyOn(h.runner, 'start').mockImplementation(async (spec) => {
+        const info = await originalStart(spec);
+        info.scopeId = `scp_${String(h.runner.started.length).padStart(16, '0')}`;
+        return info;
+      });
+      const { session } = await h.domain.sessions.ensureSession('AR', 'dev-1', general);
+      h.runner.emit({ type: 'transcript_path', sessionId: session.id, path: '/fictional/transcript.jsonl' });
+      const oldScopeId = h.runner.list()[0]!.scopeId!;
+      vi.spyOn(h.runner, 'pause').mockImplementation(async (sessionId) => {
+        const outcome = { point, tool: point === 'after_tool' ? 'Bash' : null };
+        h.runner.emit({ type: 'session_paused', sessionId, ...outcome });
+        h.runner.emit({ type: 'state', sessionId, state: 'exited', activity: null });
+        h.runner.emit({
+          type: 'exit',
+          sessionId,
+          exitCode: 0,
+          signal: null,
+          cleanup: {
+            scopeId: oldScopeId,
+            kind: 'process_group',
+            outcome: 'clean',
+            reason: 'stop',
+            killed: false,
+            survivors: 0,
+            durationMs: 0,
+          },
+        });
+        return outcome;
+      });
+      await h.domain.pauses.pause(PROJECT, BY);
+      await waitFor(() => h.domain.sessions.get('AR', session.id).pause?.point);
+      expect(h.runner.isRunning(session.id)).toBe(false);
+      const message = await h.domain.messaging.send('AR', 'owner', {
+        to: ['dev-1'],
+        text: 'Held across scope closure.',
+      });
+      expect(h.repos.messages.get(message.id)?.deliveredAt).toBeNull();
+      await h.domain.pauses.resume(PROJECT, BY);
+      await waitFor(() => h.runner.started.length === 2);
+      await waitFor(() => h.repos.messages.get(message.id)?.deliveredAt);
+      expect(h.runner.list()[0]?.scopeId).not.toBe(oldScopeId);
+      expect(h.runner.started[1]).toMatchObject({ sessionId: session.id, resume: true });
+      expect(h.runner.started[1]!.initialMessage).toContain('Held across scope closure.');
+      if (point === 'after_tool')
+        expect(h.runner.started[1]!.initialMessage).toMatch(/^Nudge after_tool restarted/);
+      expect(h.runner.releases).toEqual([]);
+    },
+  );
 
   it('releases the sessions on resume and closes their rows', async () => {
     h = await createDomainHarness();

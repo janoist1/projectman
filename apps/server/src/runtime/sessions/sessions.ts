@@ -345,13 +345,20 @@ export class SessionOrchestrator {
     if (this.scopeRetryRunning) return;
     this.scopeRetryRunning = true;
     try {
-      const groups = new Map<EngineId, Array<{ sessionId: string; scopeId: string }>>();
+      const groups = new Map<EngineId, Array<{ sessionId: string; scopeId: string; sinceAgeMs: number }>>();
       for (const record of this.cleanupFailures.pending()) {
         const session = this.find(record.sessionId);
         if (!session) continue;
         const engineId = engineIdOf(session);
         const scopes = groups.get(engineId) ?? [];
-        scopes.push({ sessionId: session.id, scopeId: record.scopeId });
+        scopes.push({
+          sessionId: session.id,
+          scopeId: record.scopeId,
+          sinceAgeMs: Math.max(
+            0,
+            this.ctx.now().getTime() - Math.min(Date.parse(session.startedAt), Date.parse(record.failedAt)),
+          ),
+        });
         groups.set(engineId, scopes);
       }
       await Promise.all(

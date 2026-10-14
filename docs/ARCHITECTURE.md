@@ -2125,8 +2125,16 @@ assumption or remote-engine RPC.
   marked scopes. `db/session-cleanups.ts` and `runtime/sessions/cleanup-failures.ts` retain every
   unresolved scope in `session_cleanups` (including chat, Operator and legacy worktree sessions),
   atomically with any member-workspace failure flag. The server retries at startup and every
-  minute through `session.close_scopes` on the owning engine. Dismissing an Operator notification
-  cannot clear this fact. Session folders and task worktrees stay while cleanup is unresolved.
+  minute through `session.close_scopes` on the owning engine.
+  The optional `sinceAgeMs` lower bound is an age derived from stored server-side start/failure
+  times. The engine computes `clock.now() - sinceAgeMs - SCOPE_SINCE_MARGIN_MS` on its own clock;
+  differing server/engine wall clocks therefore do not affect attribution. The 60 s margin covers
+  transport delay and process-list time precision. Older unrelated unreadable processes cannot hold
+  the workspace forever; newer unreadable candidates stay unverified. Without an age (an older
+  server), every unreadable recovery candidate remains unverified. Explicit marker matches are
+  checked regardless of age.
+  Dismissing an Operator notification cannot clear this fact. Session folders and task worktrees
+  stay while cleanup is unresolved.
   Resume is refused while cleanup failed; only a matching clean generation releases the holder.
   The `process_group` driver is `best_effort`: a child that escapes the group and clears its marker
   cannot be attributed. Without a process list cleanup is `unverified`, never `clean`; PM-701 adds

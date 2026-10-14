@@ -120,7 +120,7 @@ describe('durable cleanup facts for sessions without workspace holders', () => {
       expect(closeScopes).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
       expect(closeScopes).toHaveBeenCalledWith([
-        { sessionId: session.id, scopeId: cleanup('clean').scopeId },
+        { sessionId: session.id, scopeId: cleanup('clean').scopeId, sinceAgeMs: expect.any(Number) },
       ]);
       expect(h.repos.sessionCleanups.list()).toEqual([]);
     } finally {

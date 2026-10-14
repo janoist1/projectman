@@ -406,7 +406,7 @@ describe('member workspaces (PM-138)', { timeout: 60_000 }, () => {
     const closeScopes = vi.fn(async () => [{ sessionId, cleanup: scopeCleanup(scopeId, 'clean') }]);
     Object.assign(h.runner, { closeScopes });
     await h.domain.sessions.reconcileAfterRestart();
-    expect(closeScopes).toHaveBeenCalledWith([{ sessionId, scopeId }]);
+    expect(closeScopes).toHaveBeenCalledWith([{ sessionId, scopeId, sinceAgeMs: expect.any(Number) }]);
     expect(h.repos.memberWorkspaces.heldBy(sessionId)).toHaveLength(0);
     expect(
       h.repos.operatorSignals.list('AR').find((signal) => signal.kind === 'process_cleanup_failed')

@@ -314,7 +314,7 @@ export class SessionManager implements SessionRunner {
     this.finished.clear();
   }
 
-  closeScopes(scopes: Array<{ sessionId: string; scopeId: string }>) {
+  closeScopes(scopes: Array<{ sessionId: string; scopeId: string; sinceAgeMs?: number }>) {
     return this.scopes.closeScopes(scopes);
   }
 

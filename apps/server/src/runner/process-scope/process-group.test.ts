@@ -4,14 +4,17 @@ import { PROCESS_SCOPE_GUARANTEE } from '../../contracts';
 import { silentLogger } from '../test-helpers';
 import { createProcessScopeDriver } from './process-group';
 
-function harness() {
-  let now = 10_000;
+function harness(initialNow = 10_000) {
+  let now = initialNow;
   let records: ProcessRecord[] | null = [];
   const marks = new Map<number, Record<string, string>>();
   const signal = vi.fn((pid: number, sig: string) => {
     if (sig === 'SIGKILL')
       records = records?.filter((p) => (pid < 0 ? p.pgid !== -pid : p.pid !== pid)) ?? null;
   });
+  const envValues = vi.fn(
+    async (pids: number[]) => new Map([...marks].filter(([pid]) => pids.includes(pid))),
+  );
   const driver = createProcessScopeDriver({
     config: { kind: 'process_group' },
     uid: 501,
@@ -26,7 +29,7 @@ function harness() {
     },
     processes: {
       processes: async () => records,
-      envValues: async (pids) => new Map([...marks].filter(([pid]) => pids.includes(pid))),
+      envValues,
     },
   });
   const add = (pid: number, scopeId: string, over: Partial<ProcessRecord> = {}) => {
@@ -49,6 +52,7 @@ function harness() {
     });
   };
   return {
+    envValues,
     driver,
     signal,
     add,
@@ -61,6 +65,53 @@ function harness() {
 }
 
 describe('engine process groups', () => {
+  it.each(['throw', 'omit', 'transient'] as const)(
+    'never reports a detached live child clean when environment reads %s',
+    async (failure) => {
+      const h = harness();
+      const scope = await h.driver.open('ses_a');
+      h.add(21, scope.scopeId);
+      h.signal.mockImplementation(() => {});
+      if (failure === 'throw') h.envValues.mockRejectedValue(new Error('environment unavailable'));
+      else if (failure === 'omit') h.envValues.mockResolvedValue(new Map());
+      else {
+        let calls = 0;
+        h.envValues.mockImplementation(async (pids) => {
+          if (++calls === 5) throw new Error('temporary environment failure');
+          return new Map([...h.marks].filter(([pid]) => pids.includes(pid)));
+        });
+      }
+      expect(await scope.close('exit', { force: false })).toMatchObject({ outcome: 'unverified' });
+      expect(h.list()?.map((p) => p.pid)).toEqual([21]);
+    },
+  );
+  it('continues tracking a previously verified detached identity when its environment becomes unreadable', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.add(21, scope.scopeId);
+    h.signal.mockImplementation(() => {});
+    let calls = 0;
+    h.envValues.mockImplementation(async (pids) =>
+      ++calls === 1 ? new Map([...h.marks].filter(([pid]) => pids.includes(pid))) : new Map(),
+    );
+    expect(await scope.close('exit', { force: false })).toMatchObject({ outcome: 'failed', survivors: 1 });
+    expect(h.signal).toHaveBeenCalledWith(21, 'SIGKILL');
+  });
+  it('never sends a later unverified KILL when TERM found an empty process group', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.setList(null);
+    scope.attached(20);
+    h.signal.mockImplementation(() => {
+      throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+    });
+    expect(await scope.close('stop', { force: false })).toMatchObject({
+      outcome: 'unverified',
+      durationMs: 0,
+      killed: false,
+    });
+    expect(h.signal.mock.calls).toEqual([[-20, 'SIGTERM']]);
+  });
   it('reports best effort and an unpredictable generation per start', async () => {
     const h = harness();
     const a = await h.driver.open('ses_a');
@@ -245,14 +296,77 @@ describe('engine process groups', () => {
       { cleanup: { outcome: 'unverified' } },
     ]);
   });
-  it('never frees a persisted failed scope when a live candidate environment cannot be read', async () => {
-    const h = harness();
+  it('keeps an unknown scope unverified when a recent candidate environment cannot be read', async () => {
+    const h = harness(100_000);
     const scopeId = 'scp_0000000000000001';
     h.add(20, scopeId);
+    h.marks.delete(20);
+    expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
+      [{ cleanup: { outcome: 'unverified' } }],
+    );
+    expect(h.signal).not.toHaveBeenCalled();
+  });
+  it('ignores older unreadable processes when verifying an unknown scope after restart', async () => {
+    const h = harness(100_000);
+    const scopeId = 'scp_0000000000000001';
+    h.add(20, scopeId, { startedAt: 1000 });
+    h.marks.delete(20);
+    expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
+      [{ cleanup: { outcome: 'clean' } }],
+    );
+    expect(h.signal).not.toHaveBeenCalled();
+  });
+  it('keeps unreadable recovery candidates unverified when an older server sends no age', async () => {
+    const h = harness(100_000);
+    const scopeId = 'scp_0000000000000001';
+    h.add(20, scopeId, { startedAt: 1000 });
     h.marks.delete(20);
     expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId }])).toMatchObject([
       { cleanup: { outcome: 'unverified' } },
     ]);
     expect(h.signal).not.toHaveBeenCalled();
+  });
+  it.each([100_000, 1_000_000_000])('uses the age bound on engine clock %s', async (now) => {
+    const h = harness(now);
+    const scopeId = 'scp_0000000000000001';
+    h.add(20, scopeId, { startedAt: now - 10_000 - 60_000 - 1 });
+    h.marks.delete(20);
+    expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
+      [{ cleanup: { outcome: 'clean' } }],
+    );
+    h.setList([]);
+    h.add(21, scopeId);
+    h.marks.delete(21);
+    expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
+      [{ cleanup: { outcome: 'unverified' } }],
+    );
+  });
+  it('rechecks each individual pid before signalling without rereading every candidate environment', async () => {
+    const h = harness();
+    const scope = await h.driver.open('ses_a');
+    h.add(20, scope.scopeId);
+    h.add(21, scope.scopeId);
+    h.signal.mockImplementation((pid) => {
+      if (pid === 20)
+        h.setList(
+          h
+            .list()!
+            .filter((p) => p.pid === 21)
+            .map((p) => ({ ...p, startedAt: 11_000 })),
+        );
+    });
+    expect(await scope.close('stop', { force: false })).toMatchObject({ outcome: 'clean' });
+    expect(h.signal).toHaveBeenCalledWith(20, 'SIGTERM');
+    expect(h.signal).not.toHaveBeenCalledWith(21, expect.anything());
+    expect(h.list()?.[0]?.startedAt).toBe(11_000);
+  });
+  it('still closes a marked older generation even when the requested lower bound is newer', async () => {
+    const h = harness(100_000);
+    const scopeId = 'scp_0000000000000001';
+    h.add(20, scopeId, { startedAt: 1000 });
+    expect(await h.driver.closeScopes([{ sessionId: 'ses_old', scopeId, sinceAgeMs: 10_000 }])).toMatchObject(
+      [{ cleanup: { outcome: 'clean', killed: true } }],
+    );
+    expect(h.signal).toHaveBeenCalledWith(20, 'SIGKILL');
   });
 });

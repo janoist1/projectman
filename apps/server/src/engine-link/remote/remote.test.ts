@@ -193,12 +193,12 @@ describe('cloud mode remote parts', () => {
       engine.answer('session.close_scopes', (params) =>
         params.scopes.map((scope) => ({ sessionId: scope.sessionId, cleanup })),
       );
-      expect(await remote.runner.closeScopes!([{ sessionId: 's1', scopeId }])).toEqual([
+      expect(await remote.runner.closeScopes!([{ sessionId: 's1', scopeId, sinceAgeMs: 1000 }])).toEqual([
         { sessionId: 's1', cleanup },
       ]);
       expect(engine.requests.at(-1)).toMatchObject({
         method: 'session.close_scopes',
-        params: { scopes: [{ sessionId: 's1', scopeId }] },
+        params: { scopes: [{ sessionId: 's1', scopeId, sinceAgeMs: 1000 }] },
       });
     });
     it('reads heavy-run sessions and falls back for old or disconnected engines', async () => {

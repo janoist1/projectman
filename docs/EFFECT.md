@@ -86,7 +86,8 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-623 transcript tailer, plan usage and trust**
 
-  Planned.
+  Files: `apps/server/src/runner/transcript/poll-ticker.ts`, `apps/server/src/runner/providers/claude/plan-usage-probe.ts`, `apps/server/src/runner/providers/claude/trust-lock.ts`. Facades: `TranscriptTailer` (`apps/server/src/runner/transcript/tailer.ts`), `probeUsage` (`apps/server/src/runner/providers/claude/plan-usage.ts`), `ensureWorkspaceTrusted` (`apps/server/src/runner/providers/claude/trust.ts`).
+  Effect sleep timers keep the process alive, unlike the former unref'd polling interval, so the tailer must be stopped (PM-623); the detached probe reaper ends on process closure or after at most five seconds.
 
 - **PM-624 worktree dependency copy**
 

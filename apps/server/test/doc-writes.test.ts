@@ -72,6 +72,12 @@ function fakeDocsMerger(initial: Record<string, string> = { [DECISIONS]: LOG, [R
       trees.set(commit, files);
       return { commit, changed };
     }),
+    listPaths: vi.fn<BranchMerger['listPaths']>(async () => ({
+      commit: 'e'.repeat(40),
+      paths: [],
+      truncated: false,
+    })),
+    changedPaths: vi.fn<BranchMerger['changedPaths']>(async () => []),
   };
   return merger;
 }

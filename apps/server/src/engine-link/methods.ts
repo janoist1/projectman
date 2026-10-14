@@ -10,6 +10,7 @@ import {
   ProjectConfig,
   ProviderProblem,
 } from '@projectman/shared';
+import { MAX_CHANGED_ITEMS, MAX_CHANGED_PATHS, MAX_LISTED_PATHS } from '../contracts';
 import type {
   FullTestResult,
   FullTestSpec,
@@ -130,6 +131,33 @@ const mergeAdvanced = z.discriminatedUnion('ok', [
     paths: z.array(text).max(50),
   }),
 ]);
+const mergeListed = z.strictObject({
+  commit: mergeText,
+  paths: z.array(text).max(MAX_LISTED_PATHS),
+  truncated: z.boolean(),
+});
+const mergeChangedItem = z.strictObject({
+  id: text.min(1).max(40),
+  at: z.union([
+    z.strictObject({ branch: mergeText }),
+    z.strictObject({ commit: mergeText }),
+    z.strictObject({ merge: mergeText }),
+  ]),
+});
+const mergeChanged = z
+  .array(
+    z.discriminatedUnion('ok', [
+      z.strictObject({
+        id: text.max(40),
+        ok: z.literal(true),
+        commit: mergeText,
+        paths: z.array(text).max(MAX_CHANGED_PATHS),
+        truncated: z.boolean(),
+      }),
+      z.strictObject({ id: text.max(40), ok: z.literal(false), reason: z.literal('unknown') }),
+    ]),
+  )
+  .max(MAX_CHANGED_ITEMS);
 const snapshot: z.ZodType<MachineSnapshot> = z.strictObject({
   cpu: z.strictObject({ busyMs: z.number(), totalMs: z.number() }).nullable(),
   cores: int.nullable(),
@@ -201,6 +229,8 @@ type ContractResults = {
   'merge.advance': BranchMerger['advance'];
   'merge.read_file': BranchMerger['readFile'];
   'merge.commit_files': BranchMerger['commitFiles'];
+  'merge.list_paths': BranchMerger['listPaths'];
+  'merge.changed_paths': BranchMerger['changedPaths'];
 };
 /** Named wire parameters are projections of the engine contract's argument tuples. */
 type ContractParams = {
@@ -240,6 +270,8 @@ type ContractParams = {
   'merge.advance': { ref: MergeRepoRef } & Parameters<BranchMerger['advance']>[1];
   'merge.read_file': { ref: MergeRepoRef } & Parameters<BranchMerger['readFile']>[1];
   'merge.commit_files': { ref: MergeRepoRef } & Parameters<BranchMerger['commitFiles']>[1];
+  'merge.list_paths': { ref: MergeRepoRef } & Parameters<BranchMerger['listPaths']>[1];
+  'merge.changed_paths': { ref: MergeRepoRef } & Parameters<BranchMerger['changedPaths']>[1];
   // Streams and cleanup stay on the engine; only metadata and the upload receipt cross JSON.
   'files.export': {
     sessionId: string;
@@ -555,6 +587,11 @@ export const methods = {
       message: text.max(2000),
     }),
     z.strictObject({ commit: mergeText, changed: z.array(text).max(10) }),
+  ),
+  'merge.list_paths': method(mergeCall({ base: mergeText }), mergeListed),
+  'merge.changed_paths': method(
+    mergeCall({ base: mergeText, items: z.array(mergeChangedItem).max(MAX_CHANGED_ITEMS) }),
+    mergeChanged,
   ),
   'machine.snapshot': method(empty, snapshot),
   'machine.processes': method(empty, z.array(processRecord).nullable()),

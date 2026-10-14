@@ -1504,7 +1504,7 @@ workers follow the machine's size.
     CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
     `full_test_started` event when the run got its turn in the queue (PM-489).
-  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
+  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
     **Module:** `engine-link`
 
@@ -2333,6 +2333,14 @@ assumption or remote-engine RPC.
   registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
   without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
+  Two read-only calls serve the structure map (PM-595, PM-682): `merge.list_paths` (`ls-tree -r` of the
+  local base head: the tracked file names, sorted, at most 20 000) and `merge.changed_paths` (per item,
+  at most 25: a branch tip, a commit or a merge commit, its changed file names against the merge base
+  with the local base head, or against the merge's first parent, `diff-tree --no-renames`, at most 1 000
+  each; `{ ok: false, reason: 'unknown' }` for what is not known). They do not fetch and only file names
+  cross the link, so the largest reply stays near 2 MB, under the 4 MiB frame. The engine limit checks
+  the repository and the base like the other `merge.*` calls, each branch with `isBranchName`, and each
+  commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
   `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).

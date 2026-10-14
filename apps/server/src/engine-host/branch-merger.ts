@@ -12,6 +12,7 @@ import { classifyPush, nulPaths, overlappingPaths } from './git-output';
 import { createMergeChecks } from './merge-check';
 import { NETWORK_GIT_TIMEOUT_MS, outputTail, runGit } from './merge-git';
 import { invalidInput, isCommitId, isMergeMessage, mergeArgs } from './merge-input';
+import { createPathReads } from './path-reads';
 import {
   dirtyPaths,
   fetchUpstream,
@@ -42,6 +43,10 @@ export interface LocalBranchMergerOptions {
   copyTimeoutMs?: number;
   /** The time limit of a fetch or a push (default 120 s). */
   networkTimeoutMs?: number;
+  /** Test only: a smaller `listPaths` cap (default MAX_LISTED_PATHS). */
+  maxListedPaths?: number;
+  /** Test only: a smaller per item `changedPaths` cap (default MAX_CHANGED_PATHS). */
+  maxChangedPaths?: number;
 }
 
 const MAX_CHANGED = 1000;
@@ -276,5 +281,10 @@ export function createLocalBranchMerger(options: LocalBranchMergerOptions): Bran
       ...(options.copyTimeoutMs !== undefined ? { copyTimeoutMs: options.copyTimeoutMs } : {}),
     }),
     ...createDocFiles({ args, networkTimeoutMs: networkTimeout }),
+    ...createPathReads({
+      args,
+      ...(options.maxListedPaths !== undefined ? { maxListedPaths: options.maxListedPaths } : {}),
+      ...(options.maxChangedPaths !== undefined ? { maxChangedPaths: options.maxChangedPaths } : {}),
+    }),
   };
 }

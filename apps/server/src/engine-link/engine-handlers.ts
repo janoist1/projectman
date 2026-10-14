@@ -437,6 +437,12 @@ export function createEngineHandlers(deps: EngineHandlerDeps) {
     async 'merge.commit_files'({ ref, ...input }) {
       return merger().commitFiles(ref, input);
     },
+    async 'merge.list_paths'({ ref, ...input }) {
+      return merger().listPaths(ref, input);
+    },
+    async 'merge.changed_paths'({ ref, ...input }) {
+      return merger().changedPaths(ref, input);
+    },
     async 'machine.snapshot'() {
       return probe.machine();
     },

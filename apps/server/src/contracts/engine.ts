@@ -174,6 +174,28 @@ export type MergePushResult =
 export type MergeAdvanceResult =
   { ok: true } | { ok: false; reason: 'checkout_in_the_way' | 'moved'; message: string; paths: string[] };
 
+/** The most tracked files `BranchMerger.listPaths` returns (PM-595). */
+export const MAX_LISTED_PATHS = 20_000;
+/** The most changed files `BranchMerger.changedPaths` returns for one item (PM-595). */
+export const MAX_CHANGED_PATHS = 1_000;
+/** The most items one `BranchMerger.changedPaths` call takes (PM-595). */
+export const MAX_CHANGED_ITEMS = 25;
+
+/** One card's work to diff (`BranchMerger.changedPaths`, PM-595). */
+export interface ChangedPathsItem {
+  /** Echoed in the result (a task key); 1..40 characters. */
+  id: string;
+  /**
+   * branch: the tip of refs/heads/<branch>; commit: that commit. Both are diffed against their merge
+   * base with the local `base` head. merge: a merge commit, diffed against its first parent.
+   */
+  at: { branch: string } | { commit: string } | { merge: string };
+}
+
+export type ChangedPathsResult =
+  | { id: string; ok: true; commit: string; paths: string[]; truncated: boolean }
+  | { id: string; ok: false; reason: 'unknown' };
+
 export const MERGE_ERROR_CODES = [
   'invalid_input',
   'unknown_object',
@@ -244,6 +266,26 @@ export interface BranchMerger {
     ref: MergeRepoRef,
     input: { onto: string; files: { path: string; text: string }[]; message: string },
   ): Promise<{ commit: string; changed: string[] }>;
+  /**
+   * The tracked files at the local `base` head, without a fetch: sorted, at most MAX_LISTED_PATHS
+   * (truncated: there were more). Rejects with unknown_object when `base` has no commit. For the
+   * structure map (PM-595).
+   */
+  listPaths(
+    ref: MergeRepoRef,
+    input: { base: string },
+  ): Promise<{ commit: string; paths: string[]; truncated: boolean }>;
+  /**
+   * Each item's changed files, in input order, without a fetch: sorted, at most MAX_CHANGED_PATHS
+   * (truncated), a rename as a delete and an add. An unknown branch or commit, no merge base with
+   * `base`, or a `merge` without a parent: { ok: false, reason: 'unknown' }. More than
+   * MAX_CHANGED_ITEMS items: invalid_input. The result's commit is the resolved head (branch, commit)
+   * or the merge commit itself. For the structure map (PM-595).
+   */
+  changedPaths(
+    ref: MergeRepoRef,
+    input: { base: string; items: ChangedPathsItem[] },
+  ): Promise<ChangedPathsResult[]>;
 }
 
 export interface EngineHost {

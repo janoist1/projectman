@@ -39,6 +39,23 @@ Documentation map:
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
    `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
+## Repository structure map (PM-683)
+
+`projectman.structure.yaml` at the repository root on its default branch describes areas,
+modules, directed links and ignored paths. The version 1 schema and longest-path placement
+rules live in `packages/shared/src/domain/structure-map.ts`. The internal-only
+`GET /api/projects/:key/structure` uses `services/structure` to read tracked files and the
+descriptor at the same commit through engine git reads (PM-682).
+Active cards use their review pin or latest branch link; completed cards use merge commits
+from the last 14 days. Reads group cards by engine in batches of 25, with at most 300 cards
+per repository, 20,000 tracked files and 1,000 changed files per card. Unmapped examples are
+limited to 10. Missing, invalid and unavailable repositories retain their own status;
+failed card batches omit only their cards. Project views are cached for 30 seconds and
+concurrent requests share a read; immutable merge paths have a 5,000-entry FIFO cache.
+Placement is recalculated from the current descriptor after each project cache expiry.
+This works on remote engines: git runs on the engine and only file names and descriptor
+text cross the boundary. No new machine-dependent operation is added beyond the engine git reads.
+
 ## Concepts
 
 - **Project** — a workspace directory with one or more git repos (`repos[]`, each optionally
@@ -617,6 +634,7 @@ construction order; the factories return the existing classes without changing b
 | `services/merges`                                 | Card merge orchestration, queue and locks.                                  |
 | `services/full-tests`                             | Full-test and screenshot-run orchestration.                                 |
 | `services/releases`                               | Release proposals and release roadmap notices.                              |
+| `services/structure`                              | Repository structure descriptors, module sizes and card file placement.     |
 | `services/github`                                 | GitHub synchronization, pull requests and publishing.                       |
 | `services/feedback`                               | Feedback marks, screenshots and widget sessions.                            |
 | `services/project-docs`                           | Operator document writes and decision candidates.                           |
@@ -1111,6 +1129,30 @@ pumps the queue. The mark is cleared when the merge starts running. A merge alre
 event). The running merge is not interrupted. Remote engine: the queue is on the server and the engine is not
 involved; no new machine-dependent part.
 
+**Durable train foundation (PM-659, part of PM-652).** `db/merge-trains.ts`, exposed as
+`Repositories.mergeTrains`, stores a Zod-validated manifest in `merge_trains` (migration 60).
+Its SQL identity, project, repository and state match the JSON record. A unique partial index
+allows one `running` train per project/repository. The manifest keeps 2–8 unique members in
+fixed order, their source commits/branches, starting members and timestamps, and the optional
+priority snapshots, check, candidate commits and parent train. It starts `running` at
+`merging`, landed `nowhere`; later `landed` may also be `remote` or `local`. The nullable
+`task_merges.train_id` maps to internal `MergeRecord.trainId`; older rows stay null and neither
+`TaskMergeState` nor `TaskMerged` exposes it. Train and member writes share the existing
+`unitOfWork` transaction, so a failed reservation rolls them all back.
+
+`services/merges/train-selection.ts` exports the pure `selectMergeTrain`: the caller supplies
+queued candidates in the existing `QUEUE_ORDER`, with readiness and solo facts already evaluated.
+It takes only the compatible prefix, at most eight, comparing project/repository/base/engine and
+the review command, worker count and timeout. An ineligible head selects nothing; a solo head
+or one without a review test selects only itself. An incompatible, ineligible or solo follower
+ends the prefix. Diagnostic candidates never mix with normal candidates or another parent;
+every selected diagnostic member's integer 1–8 limit bounds the group. A singleton uses the
+individual merge path. Selection neither sorts nor rewrites timestamps and reads no DB or engine.
+This slice does not activate grouped git/check execution; that follows in PM-660.
+The manifest and selection run on the server with remote engines too, grouped by `engineId`;
+they add no machine-dependent operation or RPC. Execution belongs to the existing
+"Member initiated merge" inventory entry when enabled.
+
 Cancellation is allowed before push; a successful remote push is recorded as `landed: remote` so a
 retry only advances locally and finishes. Running rows resume from prepare on startup. Every attempt
 releases its check worktree in finally; startup also releases the known queued and blocked worktrees.
@@ -1215,7 +1257,11 @@ workers follow the machine's size.
 ## Machine-dependent parts (PM-341)
 
 - **Cloud provisioning from the owner's machine (PM-532)** — `scripts/cloud/*` (`npm run cloud`),
-  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`. A tool the owner runs on their Mac
+  `deploy/aws/`, `docs/AWS.md`, `apps/server/test/cloud-*.test.ts`.
+  PM-674's [owner cutover sheet](CLOUD-CUTOVER.md) coordinates explicit account/cost previews,
+  separate AWS/SES/edge approvals and retention of existing Cloudflare DNS/mail. It adds no
+  CLI/config contract; credentials stay on the administration machine, outside member sessions.
+  A tool the owner runs on their Mac
   that creates and maintains the cloud board on AWS EC2 or Lightsail: `preflight` and `aws` (PM-534: the machine,
   the firewall, the two S3 buckets, the two IAM users and their access keys), the machine part
   (PM-535, the next entry), Cloudflare (PM-536, the entry after it) and the DNS move (PM-537,
@@ -1330,6 +1376,33 @@ workers follow the machine's size.
   (by `deploy`), `guard-check` over the machine's SSH connection (it asks the container's own guard), and
   `engine-access-token.json`, which is the engine's `linkHeadersFile` content (HYBRID.md) and is put on an
   engine by the owner.
+
+- **SES identity/DKIM and sender provisioning (PM-678, part of PM-664)** —
+  `scripts/cloud/{ses,config,commands,cli,secrets,aws-cli,cloudflare-api}.ts`,
+  `deploy/aws/config.example.json`, `apps/server/test/cloud-ses.test.ts`,
+  `apps/server/test/helpers/fake-ses.ts`, `docs/AWS.md`, `docs/HYBRID.md`.
+  **What runs where:** the owner's approved provisioning CLI adds optional version-1
+  `ses:{region,domain,from}`. `ses plan` reads STS, SESv2 identity/account and Cloudflare DNS;
+  `ses configure [--dry-run]` additionally verifies managed IAM ownership/groups/policies/keys,
+  creates or retains the Easy DKIM domain, converges only three DNS-only CNAMEs from AWS tokens and
+  SigningHostedZone, restricts `<instanceName>-ses` to `ses:SendEmail` on the region/account/domain
+  identity with an exact `ses:FromAddress`, and writes the dedicated credential/env flags.
+  Unknown/inactive/extra keys, foreign user state or conflicting mail DNS are refused, with no
+  automatic rotation; partial operations are rediscovered, a lost key response needs owner repair.
+  `ses request-production [--dry-run]` is a separately approved transactional invited-customer OTP
+  request, not configure/up side effect; acceptance of the request is not production approval.
+  `ses check` reads verification/DKIM, production/sending, exact DNS/IAM and local sender config;
+  no command sends mail. Cloudflare list responses are shape-checked so malformed reads cannot
+  be mistaken for missing records. **Machine assumptions:** AWS CLI v2/profiles on the owner's
+  POSIX administration machine; every AWS call explicitly targets the central profile (`aroom`)
+  and SES region, never registrar profile `i`. Existing authoritative Cloudflare zone and protected
+  DNS token, no domain transfer or cross-account SES authorization. The cloud store is 0700 and
+  `cloud.env` 0600, with unsafe modes/symlinks refused and other env keys preserved; credentials
+  never enter argv or reports. Live configuration/request/deploy each needs owner approval;
+  sending cost appears in the preview. **Remote engine:** nothing runs on the Mac engine and it
+  gets no SES/AWS key. Only the existing approved deploy channel carries cloud.env to the central
+  backend (PM-669); no server/engine RPC or credential boundary change. AI sandbox protection of
+  `~/.aws` and the cloud store remains in force.
 
 - **The e-mail login code mailer on AWS SES (PM-669)** —
   `apps/server/src/services/email-login/{ses-mailer,config}.ts` (facade `index.ts`),
@@ -1524,7 +1597,7 @@ workers follow the machine's size.
     CLI login/plan usage: `provider.status`, `usage.plan`.
   - Full tests and their local heavy-run queue: `full_test.run`, `full_test.cancel`, and the engine's
     `full_test_started` event when the run got its turn in the queue (PM-489).
-  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents).
+  - Member initiated merges: `merge.*` (PM-451, see "Merge"), including `merge.read_file` and `merge.commit_files` (PM-494, the Operator's documents), and the read-only `merge.list_paths` and `merge.changed_paths` (PM-595, file names only).
   - Administrative control socket: cloud-owned control, with `session.pause/force_pause/release/stop` to engines.
     **Module:** `engine-link`
 
@@ -1652,6 +1725,11 @@ workers follow the machine's size.
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,
   `.dockerignore`, `auth/setup-code.ts`, `auth/index.ts` (the first setup), `apps/server/test/deploy-cloud.test.ts` (PM-317).
+  PM-674's [cutover runbook](CLOUD-CUTOVER.md) pins the accepted SHA for both cloud and engine,
+  requires a stopped-source seed into empty host/buckets, first successful file backup and
+  isolated recovery checks. Public activation waits for completed auth/edge code and independent
+  security results plus a separate owner decision. Deployment and backup remain on EC2;
+  the single-Mac live watcher does not update either the cloud or the separate engine checkout.
   On AWS Lightsail the same image runs under systemd on one Ubuntu machine, installed and operated by
   `npm run cloud` (the entry "The Lightsail machine and its operation (PM-535)").
   The cloud runs in a container with `git` and without the `claude`, `codex` and `gh` CLIs, as an
@@ -2329,6 +2407,9 @@ assumption or remote-engine RPC.
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.
+  Structure map reads (PM-682, PM-683) reuse this boundary: `services/structure/index.ts`
+  invokes `listPaths`, `readFile` and `changedPaths`. Git and repository registration stay
+  on the selected engine; remote engines return bounded file names and descriptor text.
   Merging a card's approved commit into the repository's default branch and sending it up is git work on
   the repository and uses this machine's git login (the owner's). It runs as eight calls — `merge.prepare`
   (fetch of the upstream and the state of the base), `merge.is_ancestor`, `merge.build` (a merge commit made
@@ -2344,7 +2425,11 @@ assumption or remote-engine RPC.
   off, no terminal prompt and the billing variables removed; the output is scrubbed of credentials. The
   repository is found from the engine's own binding (`engine.json` `repos[].path`, in single-machine mode the
   project's config), never from the call; branch, commit and merge ids are checked in `engine-limit.ts` and
-  again in the merger. **Does this work on a remote engine?** Yes, it is built for it: the git work, the
+  again in the merger. The pure commit/merge-id and branch syntax rules live in
+  `packages/shared/src/domain/merge-input.ts` (PM-659), also used by the server's train storage;
+  `engine-host/merge-input.ts` still runs `git check-ref-format --branch` after the shared branch
+  syntax check. No git or process crosses into server-side DB validation.
+  **Does this work on a remote engine?** Yes, it is built for it: the git work, the
   check checkouts and the push run on the engine beside the repository and the git login; only ids, paths
   of the changed files and short results cross the link, and a merge to a repo or branch not named by
   `mergeBranch` is refused there whatever the cloud asks. Machine assumptions: `git` on the `PATH`, the
@@ -2358,6 +2443,14 @@ assumption or remote-engine RPC.
   registered with a `mergeBranch`, a `base` must be that branch, 1–2 different paths, 1 MiB of text each
   without NUL, a message that `isMergeMessage` accepts); they run on the engine, so no new
   machine-dependent part is added. The temporary index is a directory under the engine's temp directory.
+  Two read-only calls serve the structure map (PM-595, PM-682): `merge.list_paths` (`ls-tree -r` of the
+  local base head: the tracked file names, sorted, at most 20 000) and `merge.changed_paths` (per item,
+  at most 25: a branch tip, a commit or a merge commit, its changed file names against the merge base
+  with the local base head, or against the merge's first parent, `diff-tree --no-renames`, at most 1 000
+  each; `{ ok: false, reason: 'unknown' }` for what is not known). They do not fetch and only file names
+  cross the link, so the largest reply stays near 2 MB, under the 4 MiB frame. The engine limit checks
+  the repository and the base like the other `merge.*` calls, each branch with `isBranchName`, and each
+  commit or merge id as a commit id. No new machine-dependent part is added (`engine-host/path-reads.ts`).
   **Module:** `services/merges`
 - **Disposable instances and migration tools** — `scripts/lib/{instance,ports,processes}.mjs`,
   `scripts/migrate/{inventory,paths,database,git,apply,instance}.ts` (PM-270, PM-143).
@@ -2368,6 +2461,11 @@ assumption or remote-engine RPC.
   process management on the target host, inventory engine state separately, and preserve
   explicit source retirement and rollback checks rather than inferring remote liveness.
   **Hybrid move (PM-318, `scripts/migrate/{hybrid,hybrid-entries}.ts`, [HYBRID.md](HYBRID.md)):**
+  PM-674's [execution and rollback sheet](CLOUD-CUTOVER.md) uses protected package/return
+  directories outside the source and repositories, retires both Mac live agents before packaging,
+  and brings final stopped-cloud data back before activation. Package/home is the seed input;
+  seed dry-run checks buckets, while the live host check precedes upload. No second writer or
+  automatic clearing of used targets is allowed; data transport is the owner's administration path.
   `hybrid plan|package|back` and `instance engine` move the Mac between the single-machine mode and the
   hybrid mode. The cloud package is made on the Mac from a stopped source and holds a closed list
   (`db.sqlite`, `secret`, `secrets`, `customization`, `attachments`, `message-attachments` (PM-666: the files of team messages, which the
@@ -2392,6 +2490,10 @@ assumption or remote-engine RPC.
   **Module:** `scripts`
 
 - **Engine service (launchd)** — `scripts/engine/{service,commands,cli}.ts`,
+  PM-674's [owner runbook](CLOUD-CUTOVER.md) checks the same accepted cloud/engine SHA,
+  installs the protected Access header file, verifies foreground startup before launchd,
+  and uninstalls KeepAlive before hybrid back. Updates are manual owner-approved steps in
+  the engine's own checkout; neither credentials nor launchd operations cross engine RPC.
   `deploy/mac/com.projectman.engine.plist` (PM-318). `npm run engine -- service install|uninstall|status`
   renders the plist template with this machine's absolute paths (node, the checkout, the home, the
   `PATH` of the installing shell, without the `node_modules/.bin` folders `npm run` puts in front) and loads it as a LaunchAgent in the user's `gui/<uid>` domain, so the

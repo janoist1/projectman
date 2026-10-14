@@ -1,5 +1,9 @@
 # The cloud board on AWS EC2 or Lightsail
 
+For the owner-approved Mac single → EC2 cloud + Mac engine execution order, approval
+points, checks and rollback, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674).
+It preserves existing Cloudflare DNS/mail and distinguishes the private move from public activation.
+
 ## EC2 central account and provisioning (PM-676, part of PM-664)
 
 PM-664 uses **EC2 in the `aroom` profile**, with the domain registrar and retained Route 53 zone
@@ -775,42 +779,65 @@ address or a code; a provider failure becomes an `EmailCodeDeliveryError` (`code
 `email_code_delivery_failed`) with a fixed message and a coarse `reason` (`rejected`, `throttled`,
 `credentials`, `unavailable`), and the caller decides the HTTP answer.
 
-**The owner's steps** (nothing here is done by an AI session, and no key goes into a card or a message;
-PM-678 scripts the identity and DKIM part):
+**Scripted SES provisioning (PM-678).** Add the optional version-1 configuration explicitly:
 
-1. In the SES region you chose, create the **domain identity** `istvan.io` and publish its three DKIM
-   records in the DNS (the zone is in Cloudflare after PM-537). Wait until the identity says
-   _Verified_ and DKIM _Successful_. Identities, DKIM and account state are **per region**.
-2. Ask for **production access** in that region ([request production
-   access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html)). Until it is granted
-   the account is in the SES **sandbox**: it sends only to verified addresses (and to the SES mailbox
-   simulator), so a customer's address gets nothing. Check the region's availability in the
-   [list of SES regions](https://docs.aws.amazon.com/ses/latest/dg/regions.html).
-3. Make a dedicated IAM user, for example `projectman-cloud-ses` (not the Litestream or restic user),
-   with no other right than this policy; `<sender>` is the exact `PROJECTMAN_SES_FROM` address:
+```json
+"ses": { "region": "eu-central-1", "domain": "istvan.io", "from": "login@istvan.io" }
+```
 
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Action": "ses:SendEmail",
-         "Resource": "arn:aws:ses:<region>:<account id>:identity/istvan.io",
-         "Condition": { "StringEquals": { "ses:FromAddress": "<sender>" } }
-       }
-     ]
-   }
-   ```
+Choose the region and sender before running; this is an example, not a default. The address must belong
+to exactly `ses.domain`, and that domain must be in the configured Cloudflare zone. Without `ses`, every
+SES command refuses (exit 2) and email login stays unchanged. Use `aws.profile: "aroom"` for identity and
+sender IAM and `route53.profile: "i"` for the registrar. The SES commands never use the registrar profile,
+move the domain or change delegation. A default/explicit `i` central profile is refused. Every AWS call
+uses explicit `--profile` and `--region` (the SES region may differ from the compute region). Cloudflare's
+existing active zone proves the identity; no cross-account sending authorization is needed.
 
-4. Create one access key for that user and write the six lines above into
-   `~/.config/projectman/cloud/cloud.env` yourself (mode 600, a path the AI sessions cannot read). The
-   `aws`, `edge` and `deploy` commands keep these lines when they rewrite the file; a test checks it.
-5. `npm run cloud -- deploy`: `cloud.env` goes to the machine on the standard input and the board restarts
-   with the mailer on. To rotate the key, make a new one, replace the two lines, deploy, then delete the old
-   key.
-6. Nothing sends a real mail in an automated test (a fake SES endpoint is used); try the first real
-   delivery by hand after PM-670 is released, to a verified address while the account is in the sandbox.
+**The owner's steps**, run outside AI member sessions, each live change approved separately:
+
+1. `npm run cloud -- ses plan`: read only STS, SES identity/account and Cloudflare zone/DNS. Prints identity,
+   DKIM, sandbox/production/sending status, local sender state, planned DNS/IAM and remaining owner steps.
+   It deliberately does not read IAM; use the next preview or `ses check` to verify actual IAM.
+2. `npm run cloud -- ses configure --dry-run`: additionally read IAM ownership, inline/managed policies,
+   groups and keys. Preview costs (sending can incur AWS charges), exact policy and env changes. It writes
+   nothing, including no local env file. If the identity is missing, actual DKIM names become known only
+   after creation. The caller needs STS identity, SESv2 identity/account read/create, IAM user/policy/group/key
+   read, managed user creation, inline policy write and access-key creation; deleting only a newly issued
+   key is attempted if its protected local persistence fails. The Cloudflare token needs Zone Read and
+   DNS Read/Edit for the existing zone, no Access/tunnel/registrar rights for these commands.
+3. After approving that preview, `npm run cloud -- ses configure`: keep an existing Easy DKIM identity or
+   create one, converge only the three AWS-token CNAMEs with `proxied=false`, and leave MX/SPF/DMARC/other
+   TXT untouched. AWS's `SigningHostedZone` supplies the CNAME target; older responses use the documented
+   [regional DKIM domain](https://docs.aws.amazon.com/general/latest/gr/ses.html#ses_dkim). Conflicting
+   records are refused rather than overwritten. Disabled/external DKIM or identity authorization policies
+   require an explicit owner repair; configure does not replace them.
+   The managed `<instanceName>-ses` user (tag `projectman=cloud`) has only inline `ses-send`:
+   `ses:SendEmail`, resource `arn:aws:ses:<ses.region>:<STS account>:identity/<ses.domain>`, condition
+   `StringEquals ses:FromAddress=<ses.from>`. Foreign users, extra policies/groups, unknown/inactive/extra
+   keys or incomplete/temporary credentials are refused. No automatic rotation or adoption.
+   A new key is immediately stored in mode-600 `cloud.env` under the mode-700 cloud store; other env lines
+   stay. The command sets `PROJECTMAN_SES_REGION/FROM/ACCESS_KEY_ID/SECRET_ACCESS_KEY` and
+   `PROJECTMAN_EMAIL_LOGIN_ENABLED=1` only as this explicit configure flow succeeds. It does not submit
+   a production request, deploy, or prove backend login availability.
+4. `npm run cloud -- ses request-production --dry-run`: review the separate request, then explicitly approve
+   `npm run cloud -- ses request-production`. It submits SESv2 `put-account-details` with production=true,
+   mail type `TRANSACTIONAL`, website `https://<cloudflare.hostname>`, English contact language, the fixed
+   invited-customer OTP description and all `access.emails` as contacts (AWS accepts at most four).
+   A pending request or production account is not resubmitted. Request submission is not AWS approval;
+   see [SES production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html).
+5. Wait for AWS verification/approval and `npm run cloud -- ses check` to pass: verified domain, DKIM SUCCESS
+   with signing enabled, production and sending enabled in the exact region, three DNS-only CNAMEs,
+   exact sender IAM scope, one protected active key and matching enabled env. A bad operational state exits
+   1, a missing precondition or unsafe ownership/key/DNS state exits 2. It never sends a test message.
+6. Approve `npm run cloud -- deploy` to transfer the protected env through SSH stdin and restart the board.
+   Actual login availability is reported by the backend. Approve the first real OTP trial separately after
+   the auth implementation is released. Provisioning tests use stateful AWS/Cloudflare fakes.
+
+`up`/`aws`/`edge` never configure SES or request production access. Repeating configure after success
+changes nothing. Partial identity/DNS/policy failure can be resumed after repair; if key creation loses
+its response, the next run refuses the unknown key and needs owner inspection. The one-time secret cannot
+be recovered from AWS. Scripts print no credentials and pass no secret in argv; never copy keys into a card,
+message or approval request. Read the protected store only on the owner's administration machine.
 
 **Does this work on a remote engine?** Yes. The sending and the keys exist only in the board
 (the cloud server); the engine, the engine link and the engine protocol do not change, and the board

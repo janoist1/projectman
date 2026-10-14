@@ -1,4 +1,5 @@
 import type { AuthDomain } from '../auth';
+import type { StructureService } from '../services/structure';
 import type { RunnerModule } from '../contracts';
 import type { TemplateRegistry } from '../core/base';
 import type { AttachmentService, MessageAttachmentService } from '../core/attachments';
@@ -25,6 +26,7 @@ import type { ScheduleService } from '../services/schedules';
 import type { OperatorSignals, ProjectManagerChannels } from '../services/operator';
 
 export interface ApiDomain extends AuthDomain {
+  readonly structure: StructureService;
   readonly attachments: AttachmentService;
   readonly board: BoardService;
   readonly boundary: BoundaryService;

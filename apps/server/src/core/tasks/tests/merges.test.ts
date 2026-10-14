@@ -50,6 +50,12 @@ function fakeMerger(remote = true) {
     advance: vi.fn<BranchMerger['advance']>(async () => ({ ok: true })),
     readFile: vi.fn<BranchMerger['readFile']>(async () => ({ commit: 'c'.repeat(40), text: null })),
     commitFiles: vi.fn<BranchMerger['commitFiles']>(async () => ({ commit: 'd'.repeat(40), changed: [] })),
+    listPaths: vi.fn<BranchMerger['listPaths']>(async () => ({
+      commit: 'e'.repeat(40),
+      paths: [],
+      truncated: false,
+    })),
+    changedPaths: vi.fn<BranchMerger['changedPaths']>(async () => []),
   };
 }
 const passed: FullTestResult = {

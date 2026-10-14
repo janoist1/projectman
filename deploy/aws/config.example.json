@@ -28,5 +28,10 @@
     "sessionDuration": "24h",
     "integratorServiceToken": false
   },
-  "route53": { "profile": "i" }
+  "route53": { "profile": "i" },
+  "ses": {
+    "region": "CHOOSE-SES-REGION",
+    "domain": "istvan.io",
+    "from": "CHOOSE-SENDER@istvan.io"
+  }
 }

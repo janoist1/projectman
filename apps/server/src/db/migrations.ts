@@ -1179,6 +1179,19 @@ ALTER TABLE team_messages ADD COLUMN subject TEXT;`,
   },
   {
     version: 60,
+    name: 'durable merge trains',
+    sql: `CREATE TABLE merge_trains (
+      id TEXT PRIMARY KEY,
+      project_key TEXT NOT NULL,
+      repo TEXT NOT NULL,
+      state TEXT NOT NULL,
+      record_json TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX merge_trains_running ON merge_trains(project_key, repo) WHERE state = 'running';
+    ALTER TABLE task_merges ADD COLUMN train_id TEXT;`,
+  },
+  {
+    version: 61,
     name: 'email login',
     // PM-670: the one-time e-mail login code of invited clients and the durable limits around it. Only
     // keyed hashes are stored (HMAC of the address, of the client IP and of the code): never an open

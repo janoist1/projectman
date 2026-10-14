@@ -135,6 +135,14 @@ image's default command.
 The image runs a **token-managed** tunnel (`cloudflared tunnel run` with `TUNNEL_TOKEN`): the
 ingress is set in the Cloudflare dashboard, not in a config file as in the PM-200 guide on the Mac.
 
+For SES email login, the owner runs `npm run cloud -- ses plan`, then `ses configure --dry-run`
+and a separately approved `ses configure`; `ses request-production --dry-run` and its approved live request
+are a separate step. Wait for `ses check` before approving deploy. These commands use central AWS profile
+`aroom` and the explicit `ses.region`, the existing Cloudflare DNS and a protected sending-only key in
+`cloud.env`; registrar profile `i` is unused. `up` does not run them. See [AWS.md](AWS.md) for config,
+previews, IAM scope and partial-failure recovery. The Mac engine receives no SES/AWS credentials, and no
+engine protocol change is needed. An AI sandbox never reads `~/.aws` or runs live provisioning.
+
 **On EC2 or Lightsail ([docs/AWS.md](AWS.md)) none of the steps below is done by hand:** `npm run cloud -- edge`
 makes the tunnel, its ingress (with the `/hooks` and `/mcp` 404 rules and the audience check), the
 Access applications, policies and service tokens, and writes `TUNNEL_TOKEN` to `cloud.env`;
@@ -356,6 +364,10 @@ anything here until the owner has said so for the concrete move.
 
 The tool is `npm run migrate -- …` ([MIGRATION.md](MIGRATION.md) has the general rules: the source is only
 read, a package is a secret, only one copy works). The engine's own commands are `npm run engine -- …`.
+
+For the EC2-specific owner execution sheet, exact CLI order, approval boundaries and
+rollback checks, use [CLOUD-CUTOVER.md](CLOUD-CUTOVER.md) (PM-674). Its public stage
+waits for the completed login and public-edge changes; a private publish does not enable them.
 
 ## What goes where
 

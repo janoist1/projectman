@@ -4,7 +4,8 @@ import type { ProjectConfig, ServerEvent, WorkItemRef } from '@projectman/shared
 import { createContextPackBuilder } from '../src/context';
 import { TeamToolError } from '../src/contracts';
 import type { ToolContext } from '../src/contracts';
-import { aiActor, LOCAL_ONLY_DENIED_TOOLS } from '../src/domain';
+import { aiActor } from '../src/kernel';
+import { LOCAL_ONLY_DENIED_TOOLS } from '../src/runtime/sessions';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';

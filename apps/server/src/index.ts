@@ -13,7 +13,7 @@ import { parseFeedbackPublicUrl } from './http';
 import { createFixtureProbe, parseMachineFixture } from './machine';
 import { createServerLogStream, serverLogFile } from './logging/server-log';
 import { createShutdown } from './shutdown';
-import { createNanogptKeyCheck } from './domain';
+import { createNanogptKeyCheck } from './runtime/usage';
 import { createAppTagReader, resolveAppVersion } from './engine-link';
 import { EngineConfigError } from './engine-link/engine-config';
 

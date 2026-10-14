@@ -3,7 +3,12 @@ import { join } from 'node:path';
 import { isOperator, routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it, vi } from 'vitest';
-import { HARD_DENIED_HOSTS, SANDBOX_DENIED_ENV_VARS, SANDBOX_PTY_ENV, sensitivePaths } from '../src/domain';
+import {
+  HARD_DENIED_HOSTS,
+  SANDBOX_DENIED_ENV_VARS,
+  SANDBOX_PTY_ENV,
+  sensitivePaths,
+} from '../src/runtime/sessions';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';

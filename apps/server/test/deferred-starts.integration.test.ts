@@ -1,7 +1,7 @@
 import { routes } from '@projectman/shared';
 import type { Task } from '@projectman/shared';
 import { afterEach, expect, it } from 'vitest';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { waitFor } from '../src/runner/test-helpers';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { CliAppHarness } from './helpers/app-harness';

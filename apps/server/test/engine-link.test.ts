@@ -5,7 +5,7 @@ import { createAppHarness, setupOwner, createProject, addHumanAndLogin, inject }
 import type { AppHarness } from './helpers/app-harness';
 import type { IncomingHttpHeaders } from 'node:http';
 import type { Socket as NetSocket } from 'node:net';
-import { machineKeyHash } from '../src/domain';
+import { machineKeyHash } from '../src/runtime/sessions';
 import { decodeFrame, encodeFrame, ENGINE_MAX_FRAME_BYTES } from '../src/engine-link';
 import type { EngineFrame, Hello } from '../src/engine-link';
 

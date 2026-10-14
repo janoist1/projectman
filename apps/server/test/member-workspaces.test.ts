@@ -5,7 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { ProjectConfig } from '@projectman/shared';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

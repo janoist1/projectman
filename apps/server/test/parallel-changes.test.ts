@@ -1,6 +1,6 @@
 import type { Session, WorkItemRef } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

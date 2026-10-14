@@ -15,12 +15,14 @@ import type {
   ScreenshotExecutor,
   MemberWorkspaceManager,
 } from '../../src/contracts';
-import { attachmentToolRules, createDomain, humanActor } from '../../src/domain';
+import { attachmentToolRules } from '../../src/runtime/sessions';
+import { createDomain } from '../../src/assembly';
+import { humanActor } from '../../src/kernel';
 import { createAttachmentStorage, createMessageAttachmentStorage } from '../../src/core/attachments';
 import { createTemplateRegistry } from '../../src/core/base';
 import type { ScheduleTimer } from '../../src/services/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
-import type { Domain } from '../../src/domain';
+import type { Domain } from '../../src/assembly';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';
 import { createLocalEngine } from '../../src/engine-host';
 import { LocalEngineDirectory } from '../../src/runtime/sessions';

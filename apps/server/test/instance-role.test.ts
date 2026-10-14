@@ -13,7 +13,7 @@ import {
   readInstanceMarker,
   writeInstanceMarker,
 } from '../src/instance';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';

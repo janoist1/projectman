@@ -12,7 +12,7 @@ import type {
   FeedbackWidgetListResponse as WidgetList,
   ProjectConfig,
 } from '@projectman/shared';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 

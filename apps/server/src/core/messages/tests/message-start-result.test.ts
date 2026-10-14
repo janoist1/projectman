@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AiMemberConfig, ProjectConfig } from '@projectman/shared';
 import { TeamToolError } from '../../../contracts';
 import type { MessageStateReport, ToolContext } from '../../../contracts';
-import { aiActor } from '../../../domain';
+import { aiActor } from '../../../kernel';
 import { WAKE_REPLY_WAIT_MS } from '../messaging';
 import { formatProjectState, formatSentMessage } from '../../../mcp/format';
 import { createDomainHarness, OWNER_ACTOR } from '../../../../test/helpers/domain-harness';

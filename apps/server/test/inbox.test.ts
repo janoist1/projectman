@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
 import type { PermissionDecision } from '../src/contracts';
-import { DomainError } from '../src/domain';
+import { DomainError } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

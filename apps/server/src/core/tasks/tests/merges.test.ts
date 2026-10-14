@@ -13,7 +13,7 @@ import {
 import type { DomainHarness } from '../../../../test/helpers/domain-harness';
 import { pullRequest } from '../../../../test/helpers/fakes';
 import { makeLocalOnly } from '../../../../test/helpers/test-template';
-import { aiActor, humanActor } from '../../../domain';
+import { aiActor, humanActor } from '../../../kernel';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

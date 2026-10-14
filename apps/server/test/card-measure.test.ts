@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ClosedCardsMeasure, TaskDetail, routes } from '@projectman/shared';
 import type { TokenUsage } from '@projectman/shared';
-import { aiActor, humanActor, SYSTEM_ACTOR } from '../src/domain';
+import { aiActor, humanActor, SYSTEM_ACTOR } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 

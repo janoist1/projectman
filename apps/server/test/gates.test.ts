@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ServerEvent } from '@projectman/shared';
 import { gateRequestOf } from '@projectman/shared';
-import { aiActor, SYSTEM_ACTOR } from '../src/domain';
+import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import { rejection } from './helpers/errors';
 import type { DomainHarness } from './helpers/domain-harness';

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { createDomainHarness, restartDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 

@@ -22,8 +22,9 @@ core descriptors assemble in the original public `MODULES` order and shape.
 | `core/inbox/`         | core  | split | PM-643                   |
 | `core/attachments/`   | core  | move  | PM-644                   |
 
-`domain/` contains only `index.ts`: composition plus public compatibility exports
-from module facades. There are no former core/kernel implementations or forwarding
+At the phase 5 handoff, composition and compatibility exports remained in a single
+collector; PM-648 moved composition to `assembly.ts` and removed the exports.
+There are no former core/kernel implementations or forwarding
 shims. Internal attachment subfolder indexes are implementation entry points, not
 old-location shims. `TaskMoves`, `MessageImageRenderer` and `WAKE_REPLY_WAIT_MS` remain
 private; their consumers are the three relocated internal test files.
@@ -96,11 +97,10 @@ slices; PTY integration coverage belongs to the merger's full check.
 
 ## Handoff to PM-630
 
-Keep `domain/index.ts` composition and its compatibility exports until its planned
-move to `assembly.ts`. Context still consumes that assembly surface; narrowing and
-sealing context, sealing MCP and removing connector exceptions belong to phase 6.
-The four remaining pairs are `api → assembly`, `auth → assembly`, `ws → assembly`
-and `instance → entry`; PM-646 begins their connector work. Do not restore any core
+PM-646 removed the four connector pairs (`api → assembly`, `auth → assembly`,
+`ws → assembly`, `instance → entry`). PM-648 moved composition to `assembly.ts`
+and removed compatibility exports; callers now import their owning modules.
+Narrowing and sealing context and sealing MCP remain for PM-649. Do not restore any core
 exception or make private implementation exports public to accommodate that work.
 
 Core remains server-side. Kernel helpers run in their consumer process. Permission

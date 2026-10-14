@@ -12,9 +12,11 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import { createRepositories, openDatabase } from '../src/db';
-import { Admission, conflict, DeferredStarts, DomainError } from '../src/domain';
+import { Admission, DeferredStarts } from '../src/runtime/admission';
+import { conflict, DomainError } from '../src/kernel';
 import { isDeferrable } from '../src/runtime/admission';
-import type { AutomaticStart, SessionOrchestrator } from '../src/domain';
+import type { AutomaticStart } from '../src/runtime/admission';
+import type { SessionOrchestrator } from '../src/runtime/sessions';
 import type { DomainContext } from '../src/core/base';
 import type { TaskService } from '../src/core/tasks';
 import { capturingLogger, planUsage } from './helpers/fakes';

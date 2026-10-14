@@ -10,8 +10,8 @@ import { buildApp } from '../../src/app';
 import type { AppModules, BuildAppOptions } from '../../src/app';
 import type { BoundaryOperationAdapter } from '../../src/contracts';
 import { createTemplateRegistry } from '../../src/core/base';
-import { humanActor } from '../../src/domain';
-import type { ScheduleTimer } from '../../src/domain';
+import { humanActor } from '../../src/kernel';
+import type { ScheduleTimer } from '../../src/services/schedules';
 import { createRunnerModule } from '../../src/runner';
 import { FAKE_CLAUDE, FAKE_CODEX, FAKE_GEMINI, freePort } from '../../src/runner/test-helpers';
 import {

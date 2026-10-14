@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ServerEvent } from '@projectman/shared';
 import type { ProjectConfig, Task } from '@projectman/shared';
-import { conflict } from '../src/domain';
+import { conflict } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

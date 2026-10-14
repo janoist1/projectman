@@ -10,13 +10,13 @@ import type { ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
 import {
   allowedToolsFor,
-  DomainError,
   HARD_DENIED_HOSTS,
   LOCAL_ONLY_DENIED_TOOLS,
   SANDBOX_DENIED_ENV_VARS,
   SANDBOX_PTY_ENV,
   sensitivePaths,
-} from '../src/domain';
+} from '../src/runtime/sessions';
+import { DomainError } from '../src/kernel';
 import { SANDBOX_GIT_CONFIG, SANDBOX_GIT_CONFIG_FILE } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

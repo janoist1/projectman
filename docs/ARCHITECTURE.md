@@ -507,10 +507,10 @@ claude | codex ── transcript JSONL ────────────▶ r
   it reviewed last (`sessions.reviewed_commit`, set when a session starts on a pinned commit) and asks
   for only the change since and the fixes of its earlier findings.
 - The server's composition root is `apps/server/src/app.ts` (`buildApp`); the domain's is
-  `apps/server/src/domain/index.ts` (`createDomain`), which builds the services (the board,
+  `apps/server/src/assembly.ts` (`createDomain`), which builds the services (the board,
   member profiles and invitations included) and wires their reactions to the domain events.
   Core implementations live in the eight sealed `core/<module>/` folders; common helpers
-  live behind `kernel/index.ts`. Only composition remains in `domain/` (PM-645).
+  live behind `kernel/index.ts`. Composition lives in `assembly.ts` (PM-648).
 - Services tell each other what happened through typed domain events (`ctx.events`:
   configuration changes, resolved inbox items, stage moves, cancellations, label and mention
   notices, sessions starting and ending, messages waiting for a recipient); a failing listener
@@ -624,7 +624,7 @@ construction order; the factories return the existing classes without changing b
 | `http`                                            | HTTP transport guards and infrastructure.                                   |
 | `control`                                         | Administrative control socket.                                              |
 | `auth`                                            | Authentication and integrator credentials.                                  |
-| `assembly`                                        | Domain service composition and wiring.                                      |
+| `assembly` (`assembly.ts`)                        | Domain service composition and wiring.                                      |
 | `entry`                                           | Application and engine startup, composition and shutdown.                   |
 
 The single source of truth for file → module → layer assignments, targets and
@@ -639,15 +639,16 @@ target `index.ts`, including when a layer exception still exists.
 
 No exception has a `core/*` source. The fifteen original pairs are accounted for in
 [the phase 5 closure inventory](refactor-core-closure.md): PM-612 removed one, and
-PM-632–635 removed fourteen. The four remaining exceptions (`api/auth/ws → assembly`,
-`instance → entry`), context/MCP sealing and `domain/index.ts → assembly.ts` belong to
-PM-630. Compatibility exports in `domain/index.ts` still come from module facades.
+PM-632–635 removed fourteen. PM-646 removed the four connector exceptions
+(`api/auth/ws → assembly`, `instance → entry`). PM-648 moved composition to
+`assembly.ts` and removed compatibility exports; callers import the owning module.
+Context/MCP sealing and the final closure belong to PM-649.
 
 #### Core extension points
 
 When a core rule needs facts from a service or runtime module, the port type belongs
 to the core module. Its `register…` method names the core concept rather than the
-provider. Registration happens in assembly (`domain/index.ts`); constructor ports also
+provider. Registration happens in assembly (`assembly.ts`); constructor ports also
 receive the existing runtime/auth/service instances there. These interfaces live in
 `core/{projects,tasks,members,messages,inbox}/ports.ts` and are exported by their facades.
 Core imports neither runtime/services/auth nor Effect. A later registration replaces
@@ -691,7 +692,7 @@ structural ports for sessions, admission, delivery, pauses and releases. Its fiv
 `mcp/operator/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
 This module needs no Effect program: retries belong to admission, reply relay uses
 `background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
-(`domain/index.ts`) declares the sweep list.
+(`assembly.ts`) declares the sweep list.
 
 **Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
 behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
@@ -720,7 +721,7 @@ The programs, their files and facades, the pinned version and the rules are in
 - `agent-text/` — AI-facing wording for context packs and team tools.
 - `core/` — the eight sealed core facades: base, projects, tasks, members, timeline,
   messages, inbox and attachments, with implementations inside each module's own folder.
-- `domain/index.ts` (`createDomain`) — the composition and event wiring until PM-630.
+- `assembly.ts` (`createDomain`) — the composition and event wiring (PM-648).
 - `runtime/` — admission and handovers; session lifecycle, launch, rounds, compaction,
   provider limits, cleanup, policy, pause and workspaces; message delivery; command permission
   rules; health, machine and outage watchers; provider usage, quota and managed keys.

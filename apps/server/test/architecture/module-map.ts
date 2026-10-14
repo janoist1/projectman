@@ -338,7 +338,7 @@ export const MODULES: readonly ModuleEntry[] = [
     layer: 'assembly',
     target: 'assembly.ts',
     pass: 'move',
-    paths: ['domain/index.ts'],
+    paths: ['assembly.ts'],
     sealed: false,
   },
   {

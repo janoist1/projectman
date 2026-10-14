@@ -269,6 +269,23 @@ beforeEach(() => {
   vi.useFakeTimers();
 });
 describe('process liveness', () => {
+  it('drops pause deadlines and the stop fallback when the process exits', async () => {
+    const s = await ready();
+    await s.hook({ hook_event_name: 'UserPromptSubmit' });
+    const paused = s.session.pause({ forceAfterMs: 100 });
+    const stopped = s.session.stop();
+    expect(s.pty.signals).toEqual(['SIGTERM']);
+    s.pty.exit();
+    await stopped;
+    expect(await paused).toEqual({ point: 'exited', tool: null });
+    const pausingCount = s.events.filter((e) => e.type === 'session_pausing').length;
+    await vi.advanceTimersByTimeAsync(Math.max(100, CLAUDE_TIMING.stopTimeoutMs) + 30_001);
+    expect(s.pty.signals).toEqual(['SIGTERM']);
+    expect(s.events.filter((e) => e.type === 'session_pausing')).toHaveLength(pausingCount);
+    s.session.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('closes a working session when its process disappears without an exit event', async () => {
     const s = await ready();
     await s.hook({ hook_event_name: 'UserPromptSubmit' });

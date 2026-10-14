@@ -1565,6 +1565,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   probes the attached CLI PID with signal 0, recovering a missing PTY exit event through
   the normal failed-session cleanup. Only `ESRCH` proves disappearance; permission errors
   leave the session running. An unreaped zombie also passes the probe.
+  Since PM-621, `runner/session-clock.ts` schedules the probe with a ref'd Effect sleep: a running session keeps the process alive until shutdown stops it.
   The PID belongs to this host.
   **Remote engine (engine mode, PM-314: runs in the engine process):** run this probe beside the CLI on the engine and transport the exit event;
   a remote PID must never be checked against the server's process table.

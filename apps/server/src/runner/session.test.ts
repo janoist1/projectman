@@ -1322,7 +1322,7 @@ describe('pausing (PM-218)', () => {
 
       await expect(post(s, 't1')).resolves.toBeNull();
       expect(escapes(s.pty)).toBe(0); // only after the response went out
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(escapes(s.pty)).toBe(1);
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'after_tool', tool: 'Bash' });
@@ -1333,7 +1333,7 @@ describe('pausing (PM-218)', () => {
       const s = await readyCodex();
       await submit(s);
       const paused = s.session.pause();
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(escapes(s.pty)).toBe(1);
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'before_tool', tool: null });
@@ -1343,7 +1343,7 @@ describe('pausing (PM-218)', () => {
       const s = await readyCodex();
       await submit(s);
       const paused = s.session.pause();
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       await pre(s, 't1');
       await s.hook({ hook_event_name: 'Interrupt' });
       await expect(paused).resolves.toEqual({ point: 'interrupted', tool: 'Bash' });
@@ -1364,7 +1364,7 @@ describe('pausing (PM-218)', () => {
       await expect(first).resolves.toEqual({ point: 'waiting_permission', tool: 'Bash' });
 
       // The denial lets the agent carry on, and there is no tool left to wait for: the Esc goes out.
-      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1);
       expect(escapes(s.pty)).toBe(1);
       await s.hook({ hook_event_name: 'Interrupt' });
       expect(log(s.events).at(-1)).toBe('paused(before_tool,null)');

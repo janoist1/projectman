@@ -54,6 +54,11 @@ export interface CloudEngineWorld {
   /** Everything the cloud's own worktree manager was asked: the cloud must not touch a repository. */
   cloudWorktreeCalls: string[];
   cookie: string;
+  /**
+   * The random number the engine's reconnect delay is taken from, 0 to 1: 0 reconnects in half the backoff
+   * base (fast), 1 in the full base (a window of about a second in which the link is observably down).
+   */
+  reconnectJitter: number;
   startCloud(): Promise<FastifyInstance>;
   stopCloud(): Promise<void>;
   startEngine(over?: Partial<EngineAppOptions>): Promise<EngineApp>;
@@ -120,6 +125,7 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
     fake: null,
     cloudWorktreeCalls: world.cloudWorktreeCalls,
     cookie: '',
+    reconnectJitter: 0,
     async startCloud() {
       if (state.cloud) throw new Error('the cloud is running');
       const app = await buildApp({
@@ -167,6 +173,8 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
         version,
         installDir: src.root,
         tmpdir,
+        // The session folders the engine process keeps below the system temp directory, as `index.ts` names them.
+        sessionFoldersDir: join(tmpdir, 'projectman-sessions', 'engine'),
         agentEnv: {},
         heavyLockDir: join(src.root, 'heavy'),
         permissionTimeoutMs: 2000,
@@ -194,7 +202,7 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
             signal: async () => 'gone',
           }),
           statusDelayMs: 5,
-          random: () => 0,
+          random: () => state.reconnectJitter,
         },
         ...over,
       });
@@ -210,8 +218,9 @@ export async function createCloudEngineWorld(options: CloudEngineOptions = {}): 
     },
     engineOnline() {
       return (
-        state.cloud?.projectman.engineRegistry?.status().some((item) => item.id === packaged.engine.id && item.online) ??
-        false
+        state.cloud?.projectman.engineRegistry
+          ?.status()
+          .some((item) => item.id === packaged.engine.id && item.online) ?? false
       );
     },
     async cleanup() {
@@ -285,7 +294,10 @@ export async function connectRawEngine(
   let closed: number | undefined;
   const ws = (await cloud.injectWS(
     routes.engineLink(),
-    { socket: { remoteAddress: '127.0.0.1' } as NetSocket, headers: { host: 'localhost', authorization: `Bearer ${key}` } },
+    {
+      socket: { remoteAddress: '127.0.0.1' } as NetSocket,
+      headers: { host: 'localhost', authorization: `Bearer ${key}` },
+    },
     {
       onInit: (raw) => {
         const socket = raw as unknown as RawSocket;
@@ -311,6 +323,37 @@ export async function connectRawEngine(
     closed: () => closed,
     close: () => ws.terminate(),
   };
+}
+
+/** Ends every link the cloud holds from the cloud's side, without revoking anything (a network drop). */
+export function dropLinks(cloud: FastifyInstance): void {
+  for (const client of cloud.websocketServer.clients) client.terminate();
+}
+
+/** Says a hello on the link and returns the code the cloud closes it with (the hello is not welcomed). */
+export async function closeCodeOfHello(
+  cloud: FastifyInstance,
+  key: string,
+  greeting: Hello,
+): Promise<number> {
+  let closed: number | undefined;
+  const ws = (await cloud.injectWS(
+    routes.engineLink(),
+    {
+      socket: { remoteAddress: '127.0.0.1' } as NetSocket,
+      headers: { host: 'localhost', authorization: `Bearer ${key}` },
+    },
+    {
+      onInit: (raw) => {
+        (raw as unknown as RawSocket).on('close', (code) => {
+          closed = code;
+        });
+      },
+    },
+  )) as unknown as RawSocket;
+  ws.send(encodeFrame(greeting));
+  await vi.waitFor(() => expect(closed).toBeDefined());
+  return closed!;
 }
 
 /** The file names below a directory, sorted (the empty list when it does not exist). */

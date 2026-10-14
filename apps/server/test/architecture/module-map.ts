@@ -309,9 +309,9 @@ export const MODULES: readonly ModuleEntry[] = [
     id: 'services/project-docs',
     layer: 'service',
     target: 'services/project-docs',
-    pass: 'split',
-    paths: ['domain/doc-writes.ts', 'domain/doc-edits.ts', 'domain/decision-candidates.ts'],
-    sealed: false,
+    pass: 'split-tool',
+    paths: ['services/project-docs/'],
+    sealed: true,
   },
   {
     id: 'services/boundary',
@@ -488,11 +488,6 @@ export const EXCEPTIONS: readonly DependencyException[] = [
     from: 'core/tasks',
     to: 'runtime/usage',
     removedBy: 'core/tasks',
-  },
-  {
-    from: 'services/project-docs',
-    to: 'services/merges',
-    removedBy: 'services/project-docs',
   },
   {
     from: 'runtime/sessions',

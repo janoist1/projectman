@@ -510,7 +510,8 @@ export interface TeamToolsHandler
     TaskToolsHandler,
     AttachmentToolsHandler,
     MergeToolsHandler,
-    FeedbackToolsHandler {
+    FeedbackToolsHandler,
+    ProjectDocToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -543,36 +544,6 @@ export interface TeamToolsHandler
     ctx: ToolContext,
     args: { member: string; text: string; taskKey?: string; signalId?: string },
   ): Promise<MemberStartResult>;
-  /**
-   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
-   * Only the Operator; needs no open request.
-   */
-  readProjectDoc(
-    ctx: ToolContext,
-    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
-  ): Promise<ProjectDocRead>;
-  /**
-   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
-   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
-   */
-  writeProjectDocs(
-    ctx: ToolContext,
-    args: {
-      baseCommit: string;
-      message: string;
-      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
-    },
-  ): Promise<ProjectDocWrite>;
-  /**
-   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
-   * Operator, not in guest conversations; needs no open request. Counts as a look.
-   */
-  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
-  /**
-   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
-   * Operator, in the owner's own conversation, during an open owner request.
-   */
-  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
   /**
    * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
    * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
@@ -743,4 +714,38 @@ export interface McpModuleOptions {
 export interface McpModule {
   /** Registers the MCP endpoint at /mcp/:token (localhost only). */
   registerRoutes(app: FastifyInstance): void;
+}
+
+/** The tools of services/project-docs (PM-495, PM-496). */
+export interface ProjectDocToolsHandler {
+  /**
+   * read_project_doc (PM-495): the decision log or the roadmap on the head of the default branch, in lines.
+   * Only the Operator; needs no open request.
+   */
+  readProjectDoc(
+    ctx: ToolContext,
+    args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
+  ): Promise<ProjectDocRead>;
+  /**
+   * write_project_docs (PM-495): text replacements in the project documents as one commit on the default
+   * branch. Only the Operator, in the owner's own conversation, during an open owner request.
+   */
+  writeProjectDocs(
+    ctx: ToolContext,
+    args: {
+      baseCommit: string;
+      message: string;
+      edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
+    },
+  ): Promise<ProjectDocWrite>;
+  /**
+   * list_decision_candidates (PM-496): the owners' answers on cards that may be decisions. Only the
+   * Operator, not in guest conversations; needs no open request. Counts as a look.
+   */
+  listDecisionCandidates(ctx: ToolContext, args: { limit?: number }): Promise<DecisionCandidatesList>;
+  /**
+   * mark_decision_candidates (PM-496): the owner's verdict on offered candidates, all or nothing. Only the
+   * Operator, in the owner's own conversation, during an open owner request.
+   */
+  markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
 }

@@ -84,8 +84,8 @@ import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
 import { FullTestRuns } from './full-tests';
-import { DecisionCandidates } from './decision-candidates';
-import { DocWrites } from './doc-writes';
+import { DecisionCandidates, DocWrites } from '../services/project-docs';
+import { ProjectDocTools } from '../mcp/project-docs';
 import { MergeCardLock, Merges } from '../services/merges';
 import { fullTestSandbox } from './session-policy';
 import { ReleaseRoadmapNotices } from './release-roadmap-notices';
@@ -1088,6 +1088,14 @@ export function createDomain(opts: DomainOptions) {
   const teamTools = new TeamToolsService({
     calls: toolCaller,
     tools: {
+      projectDocs: new ProjectDocTools({
+        calls: toolCaller,
+        ctx,
+        projects,
+        operatorSteps,
+        docWrites,
+        decisionCandidates,
+      }),
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
       members: new MemberTools({ calls: toolCaller, members }),
       tasks: new TaskTools({
@@ -1115,8 +1123,6 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
     },
     projectState,
-    docWrites,
-    decisionCandidates,
     releases,
     operatorRequests,
     operatorSteps,

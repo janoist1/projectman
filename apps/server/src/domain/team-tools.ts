@@ -4,6 +4,7 @@ import type {
   AttachmentToolsHandler,
   MergeToolsHandler,
   FeedbackToolsHandler,
+  ProjectDocToolsHandler,
 } from '../contracts';
 import {
   type ToolCaller,
@@ -18,7 +19,6 @@ import {
 } from '../mcp/caller';
 import {
   canReadAttachments,
-  ERROR_CODES,
   ownerHandles,
   isOperator,
   memberOf,
@@ -91,9 +91,6 @@ import type { QuestionScreening } from './question-screening';
 import type { TaskStarts } from './admission';
 import type { OperatorOperation, ProjectDoc } from '@projectman/shared';
 import type { ProjectDocRead, ProjectDocWrite } from '../contracts';
-import { docLines } from './doc-edits';
-import type { DecisionCandidates } from './decision-candidates';
-import type { DocWrites } from './doc-writes';
 import type { ProjectService } from './projects';
 import type { ProjectState } from './project-state';
 import type { ScreenshotRuns } from './screenshot-runs';
@@ -121,20 +118,6 @@ function toMessageToolError(err: unknown): unknown {
   return err;
 }
 
-/** The most lines read_project_doc returns in one call. */
-const MAX_DOC_LINES = 2000;
-
-/** A refusal of the document tools in words the agent reads: the error code first (`code: message`). */
-function docToolError(err: unknown): unknown {
-  if (err instanceof TeamToolError) return err;
-  if (err instanceof DomainError)
-    return new TeamToolError(
-      err.status === 403 ? 'forbidden' : 'invalid',
-      (ERROR_CODES as readonly string[]).includes(err.code) ? `${err.code}: ${err.message}` : err.message,
-    );
-  return err;
-}
-
 /**
  * The team tools behind the MCP server (mcp__team__*): they check the arguments, call the
  * domain services and put their refusals in words the agent reads. Every action is attributed
@@ -150,10 +133,9 @@ export class TeamToolsService implements TeamToolsHandler {
     attachments: AttachmentToolsHandler;
     merges: MergeToolsHandler;
     feedback: FeedbackToolsHandler;
+    projectDocs: ProjectDocToolsHandler;
   };
   private readonly projectState: ProjectState;
-  private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
-  private readonly decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
 
   async getProjectState(ctx: ToolContext, args: { taskKey?: string; messageId?: string }) {
     return this.guard(async () => {
@@ -286,6 +268,7 @@ export class TeamToolsService implements TeamToolsHandler {
       attachments: AttachmentToolsHandler;
       merges: MergeToolsHandler;
       feedback: FeedbackToolsHandler;
+      projectDocs: ProjectDocToolsHandler;
     };
     projectState: ProjectState;
     boundary: BoundaryService;
@@ -319,16 +302,10 @@ export class TeamToolsService implements TeamToolsHandler {
     /** The Operator's screening of AI members' questions (PM-558): `ask_human` hands a new question to it. */
     questionScreening: Pick<QuestionScreening, 'enqueue' | 'enabled' | 'cannotScreen'>;
     taskStarts: TaskStarts;
-    /** The Operator's project documents (PM-495): `read_project_doc` and `write_project_docs`. */
-    docWrites: Pick<DocWrites, 'read' | 'request'>;
-    /** The owners' answers that may be decisions (PM-496). */
-    decisionCandidates: Pick<DecisionCandidates, 'list' | 'mark'>;
   }) {
     this.calls = deps.calls;
     this.tools = deps.tools;
     this.projectState = deps.projectState;
-    this.docWrites = deps.docWrites;
-    this.decisionCandidates = deps.decisionCandidates;
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
     this.operatorActions = deps.operatorActions;
@@ -1216,30 +1193,7 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
     args: { doc: ProjectDoc; fromLine?: number; lineCount?: number },
   ): Promise<ProjectDocRead> {
-    const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError(
-        'forbidden',
-        'operator_only: only the Operator may read the project documents.',
-      );
-    await this.callerWithRequest(ctx, 'read_project_doc');
-    try {
-      const read = await this.docWrites.read(ctx.projectKey, ctx.member, args.doc);
-      const lines = docLines(read.text ?? '');
-      const from = args.fromLine ?? 1;
-      return {
-        doc: args.doc,
-        repo: read.repo.name,
-        path: read.path,
-        commit: read.commit,
-        exists: read.text !== null,
-        total_lines: lines.length,
-        from_line: from,
-        text: lines.slice(from - 1, from - 1 + (args.lineCount ?? MAX_DOC_LINES)).join('\n'),
-      };
-    } catch (err) {
-      throw docToolError(err);
-    }
+    return this.tools.projectDocs.readProjectDoc(ctx, args);
   }
 
   async writeProjectDocs(
@@ -1250,122 +1204,18 @@ export class TeamToolsService implements TeamToolsHandler {
       edits: { doc: ProjectDoc; old_text: string; new_text: string }[];
     },
   ): Promise<ProjectDocWrite> {
-    const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError(
-        'forbidden',
-        'operator_only: only the Operator may write the project documents.',
-      );
-    const caller = await this.callerWithRequest(ctx, 'write_project_docs');
-    const request = this.inOwnerConversation(ctx, caller, 'write_project_docs');
-    let outcome: Awaited<ReturnType<DocWrites['request']>>;
-    try {
-      outcome = await this.docWrites.request({
-        projectKey: ctx.projectKey,
-        author: ctx.member,
-        requestedBy: request.fromHandle,
-        requestId: request.id,
-        baseCommit: args.baseCommit,
-        message: args.message,
-        edits: args.edits,
-      });
-    } catch (err) {
-      // A write that was never queued has no step of its own: the refusal is the step.
-      this.operatorSteps.record({
-        requestId: request.id,
-        action: 'docs_write',
-        taskKey: null,
-        member: null,
-        status: 'refused',
-        refusal: refusalOf(err),
-      });
-      throw docToolError(err);
-    }
-    switch (outcome.state) {
-      case 'published':
-        return {
-          write_id: outcome.id,
-          state: 'published',
-          commit: outcome.commit,
-          paths: outcome.paths,
-          ...(outcome.warning
-            ? {
-                warning:
-                  'The default branch is up, but the local checkout could not follow it; tell the owner.',
-              }
-            : {}),
-        };
-      case 'queued':
-        return { write_id: outcome.id, state: 'queued', waiting_for: outcome.waitingFor };
-      case 'running':
-        return { write_id: outcome.id, state: 'running' };
-      case 'stale':
-        throw new TeamToolError(
-          'invalid',
-          'docs_stale: a file changed since the commit you read. Read it again with read_project_doc and show the owner the new text.',
-        );
-      case 'failed':
-        throw new TeamToolError('invalid', `docs_write_failed: ${outcome.failure}: ${outcome.message}`);
-    }
-  }
-
-  /**
-   * The documents are the owners' business: the request the call runs for, when it is in the owner's own
-   * conversation (no `with`, no card); otherwise the call is refused and logged as a refused step.
-   */
-  private inOwnerConversation(
-    ctx: ToolContext,
-    caller: CallerWithRequest,
-    tool: string,
-  ): NonNullable<CallerWithRequest['request']> {
-    const request = caller.request!;
-    const workItem = this.ctx.repos.sessions.get(ctx.sessionId)?.workItem;
-    if (
-      workItem?.type !== 'general' ||
-      workItem.with !== undefined ||
-      !isOwner(caller.config, request.fromHandle)
-    ) {
-      this.recordRefusedWrite(caller, tool);
-      throw new TeamToolError(
-        'forbidden',
-        `${OWNER_ONLY}: ${tool} is for the owner's own conversation with you.`,
-      );
-    }
-    return request;
+    return this.tools.projectDocs.writeProjectDocs(ctx, args);
   }
 
   async listDecisionCandidates(ctx: ToolContext, args: { limit?: number }) {
-    const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError(
-        'forbidden',
-        'operator_only: only the Operator may list the decision candidates.',
-      );
-    await this.callerWithRequest(ctx, 'list_decision_candidates');
-    try {
-      return this.decisionCandidates.list(ctx.projectKey, config, args.limit);
-    } catch (err) {
-      throw docToolError(err);
-    }
+    return this.tools.projectDocs.listDecisionCandidates(ctx, args);
   }
 
   async markDecisionCandidates(
     ctx: ToolContext,
     args: { items: { item_id: string; verdict: 'recorded' | 'declined' | 'skipped'; decision?: string }[] },
   ) {
-    const config = await this.projects.config(ctx.projectKey);
-    if (!isOperator(memberOf(config, ctx.member)))
-      throw new TeamToolError(
-        'forbidden',
-        'operator_only: only the Operator may mark the decision candidates.',
-      );
-    const caller = await this.callerWithRequest(ctx, 'mark_decision_candidates');
-    const request = this.inOwnerConversation(ctx, caller, 'mark_decision_candidates');
-    return this.recorded<{ marked: number }>(caller, { action: 'decision_offer' }, async () => ({
-      marked: this.decisionCandidates.mark(ctx.projectKey, config, request.id, args.items),
-    })).catch((err: unknown) => {
-      throw toToolError(err);
-    });
+    return this.tools.projectDocs.markDecisionCandidates(ctx, args);
   }
 
   async startTask(

@@ -7,11 +7,12 @@ trial are on the card PM-590 (and the later cards of the refactor, "Refaktor 2")
 
 Only in a module that has been rewritten on purpose, behind a plain TypeScript facade. Today:
 
-| Program                  | File                                           | Facade                                                                 |
-| ------------------------ | ---------------------------------------------- | ---------------------------------------------------------------------- |
-| the runner's input queue | `apps/server/src/runner/input-queue.ts`        | `InputQueue` (same file)                                               |
-| the message delivery     | `apps/server/src/runtime/delivery/delivery.ts` | `MessageDelivery` (same file, exported by `runtime/delivery/index.ts`) |
-| the merge queue          | `apps/server/src/services/merges/queue.ts`     | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)     |
+| Program                  | File                                                   | Facade                                                                          |
+| ------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| the runner's input queue | `apps/server/src/runner/input-queue.ts`                | `InputQueue` (same file)                                                        |
+| the message delivery     | `apps/server/src/runtime/delivery/delivery.ts`         | `MessageDelivery` (same file, exported by `runtime/delivery/index.ts`)          |
+| the merge queue          | `apps/server/src/services/merges/queue.ts`             | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)              |
+| the document write queue | `apps/server/src/services/project-docs/write-queue.ts` | `DocWrites` (`services/project-docs/doc-writes.ts`, exported by its `index.ts`) |
 
 Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
 handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses
@@ -88,7 +89,7 @@ and `MixedScheduler('sync')` alone was not enough for `runFork`/`runPromise`, ti
 from 1 to 2.
 
 The inline scheduler, `runFork` and `runPromise` live once in `apps/server/src/kernel/effect.ts` (PM-600;
-the input queue, the delivery and the merge queue import them from `kernel/`). Do not write a private copy.
+the input queue, the delivery, the document write queue and the merge queue import them from `kernel/`). Do not write a private copy.
 
 ### Running an async function that must be stopped cooperatively (`abortable`)
 
@@ -96,7 +97,7 @@ the input queue, the delivery and the merge queue import them from `kernel/`). D
 becomes the typed failure `onError(cause)`. Interrupting the Effect aborts the signal and then **waits
 until the promise has settled**, so whatever follows (`Effect.ensuring`, a freed `FiberMap` slot) happens
 after the function stopped at its own checkpoint, never beside it; the function may even finish a step that
-must not be cut (the merge's push). The value of an interrupted run is dropped. The merge queue uses it
+must not be cut (the merge's push). The document write queue ignores the abort signal, so `stop()` waits for the running write to finish. The value of an interrupted run is dropped. The merge queue uses it
 for the merge program (`Merges.cancel` and `stop()` interrupt the slot's fiber). Do not wrap such a
 function in a bare `Effect.tryPromise({ signal })`: that stops waiting at once and leaves the function
 running beside the next step.

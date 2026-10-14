@@ -6,16 +6,15 @@ Append-only task and project timeline recording and access.
 
 ## Facade
 
-`TimelineService` currently lives in `domain/timeline.ts`. The planned entry point is `core/timeline/index.ts`; stored event types and rendering compatibility remain unchanged.
+The sealed entry point is `core/timeline/index.ts`. It exports `TimelineService`, `createTimelineService` and the `AppendTimelineInput` type; the implementation is `core/timeline/timeline.ts`. Stored event types and rendering compatibility remain unchanged.
 
 ## Ports
 
 The service receives `DomainContext` and uses its repositories, clock and event bus. Shared timeline schemas remain in `@projectman/shared`. Other modules record events through this service.
 
-## Current and planned files
+## Files
 
-Current paths under `apps/server/src`: `domain/timeline.ts`.
-The planned folder is `apps/server/src/core/timeline/`.
+Final paths under `apps/server/src/core/timeline/`: `index.ts` (facade) and `timeline.ts` (implementation).
 The authoritative descriptor is
 [`core-timeline.ts`](../../apps/server/test/architecture/modules/core-timeline.ts),
 imported by the single [module map](../../apps/server/test/architecture/module-map.ts).

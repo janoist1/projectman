@@ -6,9 +6,9 @@ export function createTimelineService(
 
 import { isLoopWork } from '@projectman/shared';
 import type { Actor, TimelineEvent, TimelineEventData, TimelineEventType } from '@projectman/shared';
-import { isoNow } from '../core/base';
-import type { DomainContext } from '../core/base';
-import { newId } from '../kernel';
+import { isoNow } from '../base';
+import type { DomainContext } from '../base';
+import { newId } from '../../kernel';
 
 /** An event to append; `data` has the shape its type documents in `TimelineEventData`. */
 export type AppendTimelineInput = {

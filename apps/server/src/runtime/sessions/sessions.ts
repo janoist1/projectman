@@ -121,6 +121,7 @@ import type { PlanUsageCache } from '../usage';
 import type { InboxService } from '../../domain/inbox';
 import { aiActor, KeyedMutex, newId, newToken, newUuid, SYSTEM_ACTOR } from '../../domain/util';
 import { MergeCardLock } from '../../kernel';
+import { CloseStates } from './close-states';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
 import { engineIdOf, engineOption } from './engines';
@@ -343,12 +344,10 @@ export class SessionOrchestrator {
   /** The session's grants "for this session" when its current process started (`sessionGrants`). */
   private readonly processGrants = new Map<string, number>();
   /**
-   * Sessions marked to close at their next idle moment (PM-288), with the reason. In memory only: the
-   * next sweep finds a session that is still due.
+   * Where each session stands on closing (PM-288): marked, waiting for a fix, held by a heavy run,
+   * closing. Only the `runtime/sessions` module uses it (`SessionCloser` reaches it through here).
    */
-  private readonly closePending = new Map<string, SessionStop>();
-  /** Sessions `close` is stopping now: nothing is typed into them (`typeInto`). */
-  private readonly closing = new Set<string>();
+  readonly closeStates = new CloseStates();
   /**
    * The reason of a stop in progress, for `markEnded` to record when the runner's own exit event
    * reaches it first.
@@ -604,8 +603,7 @@ export class SessionOrchestrator {
     for (const workspaces of this.allWorkspaces()) workspaces.requestReviewRound(projectKey, taskKey, member);
     // A reviewer that gave the work back has a new round now (PM-570).
     for (const s of this.list(projectKey, { taskKey }))
-      if ((!member || s.member === member) && this.closePending.get(s.id)?.kind === 'awaiting_fix')
-        this.cancelClose(s.id);
+      if ((!member || s.member === member) && this.closeStates.isAwaitingFix(s.id)) this.cancelClose(s.id);
   }
 
   /**
@@ -962,7 +960,7 @@ export class SessionOrchestrator {
   typeInto(session: Session, text: string): Promise<void> {
     this.assertProviderCooldown(session.provider ?? DEFAULT_AGENT_PROVIDER);
     // The session is being closed (PM-288): the message stays waiting, and its wake-up resumes the session.
-    if (this.closing.has(session.id)) throw new Error(`session ${session.id} is closing`);
+    if (this.closeStates.isClosing(session.id)) throw new Error(`session ${session.id} is closing`);
     return this.deps.runner.sendUserMessage(session.id, text);
   }
 
@@ -988,12 +986,12 @@ export class SessionOrchestrator {
    * moved the card finishes its round first.
    */
   closeWhenIdle(session: Session, stop: SessionStop): void {
-    this.closePending.set(session.id, stop);
+    this.closeStates.mark(session.id, stop);
   }
 
   /** Why the session is marked to close; undefined: it is not. */
   pendingClose(sessionId: string): SessionStop | undefined {
-    return this.closePending.get(sessionId);
+    return this.closeStates.markOf(sessionId);
   }
 
   /**
@@ -1002,7 +1000,7 @@ export class SessionOrchestrator {
    * back in a stage its member works it in.
    */
   cancelClose(sessionId: string): void {
-    if (!this.closePending.delete(sessionId)) return;
+    if (!this.closeStates.cancel(sessionId)) return;
     const session = this.find(sessionId);
     if (session && this.ctx.repos.sessions.compaction(session.id).pending) this.compactWhenIdle(session);
   }
@@ -1026,7 +1024,7 @@ export class SessionOrchestrator {
         this.hasPendingInput(session.id)
       )
         return null;
-      this.closing.add(session.id);
+      this.closeStates.beginClose(session.id);
       this.stopReasons.set(session.id, stop);
       try {
         await this.deps.runner.stop(session.id);
@@ -2514,8 +2512,7 @@ export class SessionOrchestrator {
     this.resumingProcesses.delete(sessionId);
     this.lostLogins.delete(sessionId);
     this.stopReasons.delete(sessionId);
-    this.closePending.delete(sessionId);
-    this.closing.delete(sessionId);
+    this.closeStates.ended(sessionId);
     this.settleFirstInput(sessionId, false);
     this.awaitingFirstTurn.delete(sessionId);
     this.revokeToken(sessionId);
@@ -2939,7 +2936,12 @@ export class SessionOrchestrator {
    * one marked to close (PM-288): its conversation is compacted when it resumes (`compactFirst`).
    */
   private compactWhenIdle(session: Session): void {
-    if (session.state !== 'idle' || this.isPaused(session) || this.closePending.has(session.id)) return;
+    if (
+      session.state !== 'idle' ||
+      this.isPaused(session) ||
+      this.closeStates.markOf(session.id) !== undefined
+    )
+      return;
     this.locks
       .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
         this.compactIdle(session.id),

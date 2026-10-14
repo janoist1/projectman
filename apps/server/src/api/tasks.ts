@@ -22,12 +22,12 @@ import type {
   TaskHandoffRecord,
   UpdateTaskResponse,
 } from '@projectman/shared';
-import type { Domain } from '../domain';
-import { notFound } from '../domain';
+import type { ApiDomain } from './ports';
+import { notFound } from '../kernel';
 import type { ProjectAccess } from '../core/members';
 import { canSeeTask, isClient, visibleTaskDetail, visibleTasks } from '../core/projects';
 import { actorOf, authorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type TaskParams = { Params: { key: string; taskKey: string } };
@@ -36,7 +36,7 @@ const ClosedCardsQuery = z.object({
   days: z.coerce.number().int().min(1).max(MAX_CLOSED_CARDS_DAYS).optional(),
 });
 
-export function registerTaskRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerTaskRoutes(app: FastifyInstance, domain: ApiDomain): void {
   /** The detail the viewer sees, with why the card stands still (PM-460); a client gets no `wait`. */
   const detailFor = async (access: ProjectAccess, key: string, taskKey: string): Promise<TaskDetail> => {
     const detail = visibleTaskDetail(

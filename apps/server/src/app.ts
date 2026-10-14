@@ -7,7 +7,8 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import Fastify from 'fastify';
 import type { FastifyBaseLogger, FastifyInstance, FastifyServerOptions } from 'fastify';
-import { registerApiRoutes, registerErrorHandling } from './api';
+import { registerApiRoutes } from './api';
+import { registerErrorHandling } from './http';
 import {
   AuthService,
   createSetupCode,
@@ -15,7 +16,7 @@ import {
   MAX_SETUP_CODE_FAILURES,
   registerAuth,
 } from './auth';
-import { serializeRequest } from './auth/request-logging';
+import { serializeRequest } from './http';
 import { createConfigStore } from './config';
 import type { GitConfigStore } from './config';
 import { startControlSocket } from './control';
@@ -49,8 +50,9 @@ import { readHeavyRunSessions } from './full-test';
 import type { Domain, ScheduleTimer } from './domain';
 import type { TemplateRegistry } from './core/base';
 import { createGithubService } from './services/github';
-import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http/feedback-host-guard';
-import { assertHomeMayStart } from './instance';
+import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http';
+import { assertHomeMayStart, RUN_MODES } from './instance';
+import type { RunMode } from './instance';
 import { createMcpModule } from './mcp';
 import { createRunnerModule } from './runner';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
@@ -104,9 +106,6 @@ export function parseTerminalMode(value: string | undefined, guard: TerminalMode
 export function loopbackBaseUrl(host: LoopbackHost, port: number): string {
   return `http://${host === '::1' ? '[::1]' : '127.0.0.1'}:${port}`;
 }
-
-export const RUN_MODES = ['single', 'cloud', 'engine'] as const;
-export type RunMode = (typeof RUN_MODES)[number];
 
 /** `PROJECTMAN_MODE`: single (default), cloud (engine registry, PM-313) or engine (the engine process, PM-314). */
 export function parseMode(value: string | undefined): RunMode {

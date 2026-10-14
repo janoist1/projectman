@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import Fastify from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { serializeRequest } from '../auth/request-logging';
+import { serializeRequest } from '../http';
 import { createServerLogStream, serverLogFile } from './server-log';
 
 describe('server log file (PM-444)', () => {

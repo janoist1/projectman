@@ -19,10 +19,10 @@ import type {
   FeedbackSettingsView,
   FeedbackSummary,
 } from '@projectman/shared';
-import type { Domain } from '../domain';
-import { DomainError, invalid } from '../domain';
+import type { ApiDomain } from './ports';
+import { DomainError, invalid } from '../kernel';
 import { actorOf, requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type MarkParams = { Params: { key: string; markId: string } };
 type ProjectParams = { Params: { key: string } };
@@ -46,7 +46,7 @@ export function markIdOf(raw: string): string {
  * viewer access. The service decides what each member may do and see; a client never learns the key
  * or the title of an internal card from any of these.
  */
-export function registerFeedbackRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerFeedbackRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.get<ProjectParams>(routes.feedback(':key'), async (request): Promise<FeedbackInboxResponse> => {
     const key = request.params.key;
     const access = await requireAccess(domain, request, key, { minimum: 'viewer' });

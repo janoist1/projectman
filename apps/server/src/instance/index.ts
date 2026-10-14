@@ -2,7 +2,8 @@ import { chmodSync, existsSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { join } from 'node:path';
 import { INSTANCE_MARKER_FILE, InstanceMarker, instanceRoleOf } from '@projectman/shared';
 import type { InstanceRole } from '@projectman/shared';
-import type { RunMode } from '../app';
+export const RUN_MODES = ['single', 'cloud', 'engine'] as const;
+export type RunMode = (typeof RUN_MODES)[number];
 
 /**
  * The role marker of a home directory (PM-143): whether this copy of an installation may work. The

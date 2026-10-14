@@ -2,10 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { InboxKind, InboxState, ResolveInboxRequest, routes } from '@projectman/shared';
 import type { InboxItem, InboxView, ScreenedQuestionsResponse } from '@projectman/shared';
-import type { Domain } from '../domain';
+import type { ApiDomain } from './ports';
 import { canSeeInboxItem } from '../core/projects';
 import { requireAccess } from './context';
-import { parseBody } from './validation';
+import { parseBody } from '../http';
 
 type ProjectParams = { Params: { key: string } };
 type ItemParams = { Params: { key: string; itemId: string } };
@@ -23,7 +23,7 @@ const ScreenedQuery = z.object({
   since: z.string().datetime({ offset: true }),
 });
 
-export function registerInboxRoutes(app: FastifyInstance, domain: Domain): void {
+export function registerInboxRoutes(app: FastifyInstance, domain: ApiDomain): void {
   app.post<ItemParams>(routes.checkOutage(':key', ':itemId'), async (request) => {
     const { key, itemId } = request.params;
     const access = await requireAccess(domain, request, key, { internal: true });

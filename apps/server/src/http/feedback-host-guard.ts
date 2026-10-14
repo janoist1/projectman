@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { apiError } from '../api/errors';
+import { apiError } from './errors';
 import { isLoopbackHostname } from '../kernel';
 
 /**
@@ -72,7 +72,7 @@ export function registerFeedbackHostGuard(app: FastifyInstance, address: Feedbac
   app.addHook('onRequest', async (request, reply) => {
     if (hostOf(request.headers.host) !== address.host) return;
     if (isPublicFeedbackPath(request.raw.url ?? '')) return;
-    // The same answer the not-found handler gives an unknown server route (api/errors).
+    // The same answer the not-found handler gives an unknown server route (http/errors).
     reply.header('cache-control', 'no-store');
     reply.header('x-content-type-options', 'nosniff');
     // An upgrade request (a websocket) leaves its socket open after any answer; the websocket plugin

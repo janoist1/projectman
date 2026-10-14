@@ -357,6 +357,8 @@ export interface MemberStartResult {
 export interface MemberToolsHandler {
   /** list_members: roster with handles, roles and status. */
   listMembers(ctx: ToolContext): Promise<MemberView[]>;
+  /** save_memory: append a durable learning to this member's memory. */
+  saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
 }
 
 /** The tools of core/tasks (PM-592). */
@@ -566,7 +568,14 @@ export interface TeamToolsHandler
     BoundaryToolsHandler,
     ReleaseToolsHandler,
     OperatorToolsHandler,
-    ProjectDocToolsHandler {
+    ProjectDocToolsHandler,
+    InboxToolsHandler,
+    MessageToolsHandler,
+    AdmissionToolsHandler,
+    WatcherToolsHandler,
+    SessionToolsHandler {}
+
+export interface InboxToolsHandler {
   /**
    * decide_permission_request: the AI decider answers a member's tool question delegated to it
    * (PM-169), or hands it to a person (`escalate`). The reason is required.
@@ -575,50 +584,6 @@ export interface TeamToolsHandler
     ctx: ToolContext,
     args: { requestId: string; decision: 'allow' | 'deny' | 'escalate'; reason: string },
   ): Promise<{ requestId: string; decision: 'allow' | 'deny' | 'escalate'; outcome: string }>;
-  /**
-   * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
-   * card that reached its fix round limit goes on. The reason is required.
-   */
-  decideFixLimit(
-    ctx: ToolContext,
-    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
-  ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
-  /**
-   * hand_off (PM-342): the member a card is being handed over from writes the note for its successor; its
-   * session closes when it is idle. Refused with `handoff_not_open` when nothing is being handed over from
-   * the caller on that card (any more).
-   */
-  handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
-
-  /** send_message: deliver a message to team members (AI sessions or human inboxes). */
-  sendMessage(
-    ctx: ToolContext,
-    args: {
-      to: MemberHandle[];
-      text: string;
-      taskKey?: string;
-      kind: MessageKind;
-      signalId?: string;
-      signalActionable?: boolean;
-      signalIds?: string[];
-      actionableSignalIds?: string[];
-      /**
-       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
-       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
-       */
-      attachments?: string[];
-    },
-  ): Promise<{
-    messageId: string;
-    deliveredTo: MemberHandle[];
-    /** What happens to the message for each recipient, in the order of `to` (PM-144). */
-    recipients: SentMessageRecipient[];
-    /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
-    routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
-    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
-    operator: boolean;
-  }>;
-
   /**
    * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
    * The question is written for a non-specialist. Each option is a label, or a label with its
@@ -656,6 +621,60 @@ export interface TeamToolsHandler
    * `question_closed` (it is not pending any more).
    */
   withdrawQuestion(ctx: ToolContext, args: { itemId: string; reason: string }): Promise<{ itemId: string }>;
+}
+
+export interface MessageToolsHandler {
+  /** send_message: deliver a message to team members (AI sessions or human inboxes). */
+  sendMessage(
+    ctx: ToolContext,
+    args: {
+      to: MemberHandle[];
+      text: string;
+      taskKey?: string;
+      kind: MessageKind;
+      signalId?: string;
+      signalActionable?: boolean;
+      signalIds?: string[];
+      actionableSignalIds?: string[];
+      /**
+       * Files to send with the message (PM-520): paths in the caller's session folder or relative to its
+       * working directory, read as `attach_file` reads them. All or nothing; a bad file names itself.
+       */
+      attachments?: string[];
+    },
+  ): Promise<{
+    messageId: string;
+    deliveredTo: MemberHandle[];
+    /** What happens to the message for each recipient, in the order of `to` (PM-144). */
+    recipients: SentMessageRecipient[];
+    /** Only the recipients that get the message somewhere else than on its own card (PM-182). */
+    routed?: { handle: MemberHandle; workItem: WorkItemRef }[];
+    /** The sender is the Operator (PM-543): the text then never sends it to a person. */
+    operator: boolean;
+  }>;
+}
+
+export interface AdmissionToolsHandler {
+  /**
+   * hand_off (PM-342): the member a card is being handed over from writes the note for its successor; its
+   * session closes when it is idle. Refused with `handoff_not_open` when nothing is being handed over from
+   * the caller on that card (any more).
+   */
+  handOff(ctx: ToolContext, args: { taskKey: string; note: string }): Promise<{ recorded: true }>;
+}
+
+export interface WatcherToolsHandler {
+  /**
+   * decide_fix_limit (PM-262): the AI member who decides (the lead, or the planner it asked) decides how a
+   * card that reached its fix round limit goes on. The reason is required.
+   */
+  decideFixLimit(
+    ctx: ToolContext,
+    args: { taskKey: string; decision: 'continue' | 'replan' | 'to_owner'; reason: string },
+  ): Promise<{ phase: 'released' | 'replan' | 'owner' }>;
+}
+
+export interface SessionToolsHandler {
   /**
    * set_current_work (PM-238): what the calling session's member does on its own card now. It has no
    * task argument: it always concerns the caller's session, which must be a task session in a round.
@@ -663,8 +682,6 @@ export interface TeamToolsHandler
    * was not in a round, so nothing was written.
    */
   setCurrentWork(ctx: ToolContext, args: WorkDoing): Promise<{ recorded: boolean }>;
-  /** save_memory: append a durable learning to this member's memory. */
-  saveMemory(ctx: ToolContext, args: { note: string }): Promise<{ ok: true }>;
 }
 
 /** Errors thrown by the handler; the MCP layer turns them into tool errors. */

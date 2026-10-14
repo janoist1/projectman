@@ -71,7 +71,12 @@ describe('team tool registration', () => {
         'forward_feedback',
         'close_feedback',
       ],
-      'core/members': ['list_members'],
+      'core/inbox': ['ask_human', 'withdraw_question', 'decide_permission_request'],
+      'core/messages': ['send_message'],
+      'runtime/admission': ['hand_off'],
+      'runtime/watchers': ['decide_fix_limit'],
+      'runtime/sessions': ['set_current_work'],
+      'core/members': ['list_members', 'save_memory'],
       'services/releases': ['propose_release', 'check_release'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [

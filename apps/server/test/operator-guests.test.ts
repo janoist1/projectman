@@ -234,8 +234,7 @@ describe('the Operator only reads and answers in a guest’s conversation (PM-47
   it('keeps the project state closed to a guest until it has a viewer filter', async () => {
     await setup();
     await say('cleo', 'Why is the card stuck?');
-    const guard = h.domain.teamTools['callerWithRequest'].bind(h.domain.teamTools);
-    expect(await refusal(guard(toolOf(conversationWith('cleo')), 'get_project_state'))).toMatch(
+    expect(await refusal(h.domain.teamTools.getProjectState(toolOf(conversationWith('cleo')), {}))).toMatch(
       /^operator_owner_only:/,
     );
     expect(OPERATOR_GUEST_TOOLS.has('get_project_state')).toBe(false);

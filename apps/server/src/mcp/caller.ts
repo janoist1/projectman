@@ -320,6 +320,12 @@ export class ToolCaller {
     }
   }
 
+  /** The explicit task key, else the session's task, else null. */
+  taskKeyFor(ctx: ToolContext, taskKey: string | undefined): string | null {
+    const key = taskKey ?? ctx.taskKey;
+    return key ? this.validTaskKey(ctx, key) : null;
+  }
+
   /** A task key of the caller's project. */
   validTaskKey(ctx: ToolContext, taskKey: string): string {
     if (!TaskKey.safeParse(taskKey).success)

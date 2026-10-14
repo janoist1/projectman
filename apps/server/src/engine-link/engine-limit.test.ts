@@ -246,6 +246,26 @@ describe('engine local limit', () => {
         ).resolves.toBeDefined();
       });
 
+      it('lets a task session read its card’s attachments cache, and only that cache (PM-667)', async () => {
+        const limit = make();
+        const cache = path.join(home, 'attachments-cache', 'PM', 'PM-1');
+        await expect(
+          limit.check(
+            'session.start',
+            start({
+              policy: policy({ placement: taskWorktree(), filesystem: { readOnlyPaths: [cache] } }),
+            }) as never,
+          ),
+        ).resolves.toBeDefined();
+        // The cache is read, never a place to work in: it is not a working directory root.
+        await refused(
+          limit,
+          'session.start',
+          start({ cwd: cache, policy: policy({ placement: taskWorktree() }) }),
+          'path_outside_roots',
+        );
+      });
+
       it.each([
         ['a readable root', () => ({ filesystem: { readableRoots: [repo, userHome] } })],
         ['a read-only path', () => ({ filesystem: { readOnlyPaths: [path.join(userHome, '.ssh')] } })],

@@ -1523,7 +1523,9 @@ workers follow the machine's size.
   file (0600; `authorization` is never taken from it), `engine-status.json` (what `status` shows: no
   secret), `logs/engine-audit.jsonl` (one line per request: method, session id, outcome and refusal
   code, never a prompt, message, terminal input, file content, token or key; rotated at 10 MB, five
-  files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256).
+  files kept) and `attachments-cache/` (downloaded attachments, checked against size and sha256; a task
+  session may read its card's folder there, which `engine-limit.ts` allows as a read-only sandbox root
+  and never as a working directory, PM-667).
   The engine listens on `127.0.0.1:4801` only (`PROJECTMAN_ENGINE_PORT`): the CLIs' permission and
   other hooks, and `POST /mcp/<token>`, which it forwards to the cloud as `mcp.relay` and answers 503
   while the link is down. Every request is checked against a local limit (`engine-limit.ts`) before
@@ -1609,6 +1611,23 @@ workers follow the machine's size.
   (`isDirectory` answers `engine_offline`, HTTP 409), a full test is refused with `engine_offline`, and
   the machine view is `engine_offline`. Moving the cloud onto a host with no CLIs is the goal; the
   `hello` paths are the engine's own and are never opened by the cloud.
+  **Boundary proof (PM-667):** `test/cloud-engine.test.ts` (fixture `test/helpers/cloud-engine.ts`) joins
+  the real cloud `buildApp({ engineMode: 'cloud' })` and the real `buildEngineApp` over the machine-key
+  link on one machine, with disposable homes, a disposable repository, a fake runner and no CLI, `gh` or
+  account. It shows: login, cards, clients and attachments work with no engine; a start and a message
+  held offline each run exactly once when the engine connects; the checkout, the worktrees and the
+  machine view are the engine's and the cloud's home gains none; the team-tools relay refuses a token of
+  another session; a card's attachments reach the engine's `attachments-cache/` and a message's
+  attachments its session folder, byte for byte; a drop, an engine restart, a cloud restart, a revoked
+  key, a hello of another protocol (close 4409) and an engine of another version (flagged, accepted) end as
+  described above; a `session.start` the link dropped in the middle of is not repeated (the cloud marks the
+  session failed, the engine finishes the start, the cloud then stops that session, and nothing runs
+  unseen). **Cloud restart:** the runner's shutdown cannot reach the engine, because the websocket plugin
+  closes the links before `app.ts`'s close hook runs; the session the engine keeps running is ended by
+  the reconciliation when the engine reconnects (its team-tools token is gone with the cloud's memory),
+  and the next message resumes the conversation from its transcript. No session survives a cloud restart
+  seamlessly. A session may read its card's `attachments-cache/<project>/<task>` folder on the engine
+  (a read-only sandbox root; never a working directory).
   **Module:** `engine-link`
 
 - **Cloud deployment and backup** — `deploy/cloud/{Dockerfile,entrypoint.sh,backup.sh,litestream.yml,fly.toml,smoke.sh}`,

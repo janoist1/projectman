@@ -136,12 +136,16 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
   /**
    * What a session's sandbox may also name: the heavy-run queue's folder and the browsers. Not the CLIs'
    * shared temp roots (`/tmp/claude-<uid>`): they are off limits to a session (PM-353) and the cloud never asks.
+   * The attachments cache is here, not among the roots: a task session reads its card's attachments there
+   * (the cloud names `<cache>/<project>/<task>` among its read-only paths), but never works in it (PM-667).
    */
   const sandboxRoots = (): string[] => [
     ...roots(),
-    ...present([paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null, paths.browsersDir]).map(
-      resolveReal,
-    ),
+    ...present([
+      paths.heavyLockDir ? path.dirname(paths.heavyLockDir) : null,
+      paths.browsersDir,
+      attachmentsCache,
+    ]).map(resolveReal),
   ];
   const within = (candidates: readonly string[], target: string): boolean => {
     if (!path.isAbsolute(target) || target.includes('\0')) return false;

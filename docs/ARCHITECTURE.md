@@ -266,6 +266,16 @@ Documentation map:
   when a card gets its assignee the waiting messages of the new assignee wake them. People, the
   integrator and `system` messages start anyone; a message about no card or a theme is not
   limited.
+  PM-662: REST team-message sends, MCP `send_message` and Operator `start_member` check for
+  same-role workers before review rounds, repinning or recording anything. Only an action that
+  is not held, is placed on this open non-theme card and reaches a running session or would wake
+  its recipient counts as joining. Project managers, Operators and existing card workers do not
+  join; the sender and the handoff's outgoing member are excluded from the other workers.
+  Shared `cardBusyGroups` reports a collision with another worker or another joining recipient of
+  the same role as 409 `card_busy` with `CardBusyDetails`. Sending again with `despiteWorkers: true`
+  (MCP `despite_workers`) confirms intentional parallel work. Other internal sends keep their
+  existing behavior. The web temporarily confirms every send until PM-663 adds its confirmation
+  dialog. All facts and checks stay on the server; no remote-engine boundary changes.
   AI messages wait in storage while the recipient works or waits for permission. At idle they
   reach it in one input, prefixed with the current card state, within the first-input size limit.
   The transcript and web chat split the batch into existing system-note and team-message items.

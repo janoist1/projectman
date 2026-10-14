@@ -3,6 +3,28 @@ import { TEAM_TOOLS, toolOutputText } from './tools';
 import { createFakeTeamToolsHandler, devContext } from './testing';
 
 describe('Operator MCP tools', () => {
+  it.each(['send_message', 'start_member'])(
+    '%s describes and forwards the parallel-work confirmation',
+    async (name) => {
+      const tool = TEAM_TOOLS.find((t) => t.name === name)!;
+      expect(tool.description).toContain(
+        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended.',
+      );
+      const handler = createFakeTeamToolsHandler();
+      const input =
+        name === 'send_message'
+          ? { to: ['cr'], kind: 'action', text: 'Review' }
+          : { member: 'cr', text: 'Review' };
+      await tool.run({
+        ctx: devContext,
+        args: tool.inputSchema.parse({ ...input, despite_workers: true }),
+        handler,
+      });
+      expect(handler.calls[0]).toMatchObject({ args: { despiteWorkers: true } });
+      expect(tool.inputSchema.safeParse(input).success).toBe(true);
+      expect(tool.inputSchema.safeParse({ ...input, despite_workers: 'yes' }).success).toBe(false);
+    },
+  );
   it('forwards multiple signals and validates list bounds', async () => {
     const tool = TEAM_TOOLS.find((t) => t.name === 'send_message')!;
     const handler = createFakeTeamToolsHandler();

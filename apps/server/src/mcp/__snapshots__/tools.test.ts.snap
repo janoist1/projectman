@@ -2656,7 +2656,7 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Send a team message",
     },
-    "description": "Send a message to teammates (humans or AI members). AI members receive it in their session for the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team message. The Operator starts work with start_task or start_member and uses this for information and replies. Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
+    "description": "Send a message to teammates (humans or AI members). AI members receive it in their session for the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team message. The Operator starts work with start_task or start_member and uses this for information and replies. If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
@@ -2680,6 +2680,9 @@ exports[`team tool definitions > preserves the public tool definitions across mo
           "maxItems": 10,
           "minItems": 1,
           "type": "array",
+        },
+        "despite_workers": {
+          "type": "boolean",
         },
         "kind": {
           "description": "action: an AI member has something to do (refused when a human is a recipient: use ask_human); info: status, acknowledgement or result; starts nothing.",
@@ -2779,11 +2782,14 @@ exports[`team tool definitions > preserves the public tool definitions across mo
       "readOnlyHint": false,
       "title": "Start a member on work without a card",
     },
-    "description": "Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names.",
+    "description": "If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names.",
     "inputSchema": {
       "$schema": "http://json-schema.org/draft-07/schema#",
       "additionalProperties": false,
       "properties": {
+        "despite_workers": {
+          "type": "boolean",
+        },
         "member": {
           "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
           "type": "string",

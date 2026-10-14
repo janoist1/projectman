@@ -1001,7 +1001,7 @@ export function useRemoveHuman(key: string) {
 export function useSendTeamMessage(key: string) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (body: SendTeamMessageRequest) => api.sendTeamMessage(key, body),
+    mutationFn: (body: SendTeamMessageRequest) => api.sendTeamMessage(key, { ...body, despiteWorkers: true }),
     onSuccess: () => client.invalidateQueries({ queryKey: queryKeys.messages(key) }),
   });
 }

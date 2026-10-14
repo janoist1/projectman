@@ -23,7 +23,7 @@ import {
   createTemplateRegistry,
   humanActor,
 } from '../../src/domain';
-import type { ScheduleTimer } from '../../src/domain/schedules';
+import type { ScheduleTimer } from '../../src/services/schedules';
 import { createMemberWorkspaceManager } from '../../src/worktree';
 import type { Domain } from '../../src/domain';
 import { sharedClaudeTmpRoots } from '../../src/engine-host';

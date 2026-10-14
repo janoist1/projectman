@@ -14,6 +14,7 @@ Only in a module that has been rewritten on purpose, behind a plain TypeScript f
 | the merge queue                  | `apps/server/src/services/merges/queue.ts`               | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)                      |
 | the full test queue              | `apps/server/src/services/full-tests/queue.ts`           | `FullTestRuns` (`services/full-tests/full-tests.ts`, exported by its `index.ts`)        |
 | screenshot execution and polling | `apps/server/src/services/full-tests/screenshot-core.ts` | `ScreenshotRuns` (`services/full-tests/screenshot-runs.ts`, exported by its `index.ts`) |
+| the schedule timer               | `apps/server/src/services/schedules/timer.ts`            | `MinuteTimer` (same file), used by `ScheduleService`, exported by its `index.ts`        |
 
 Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
 handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses
@@ -106,6 +107,8 @@ running beside the next step.
 If the slot's cleanup must run after the key left the `FiberMap`, hang it on the fiber's `addObserver`
 (the map's own observer is added first), not on `Effect.ensuring`: inside `ensuring` the key is still
 there, so `FiberMap.run(..., { onlyIfMissing: true })` from the cleanup would skip the next program.
+Likewise, when a timer callback arms the next timer, run it from the fiber's `addObserver`, after
+the `FiberHandle` releases the fiber, rather than from inside the fiber itself.
 
 The full test queue (PM-601) owns one drain in a `FiberHandle` and a `FiberMap` of steps.
 It awaits each `abortable` step before reading the next durable row; removing a step aborts

@@ -83,7 +83,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-624 worktree dependency copy**
 
-  Planned.
+  File: `apps/server/src/worktree/copy-budget.ts`. Facade: `copyWithinBudget` (same file), used by `cloneDependencies` (`worktree/dependencies.ts`).
 
 - **PM-625 engine host (if any)**
 

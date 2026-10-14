@@ -2678,8 +2678,11 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   need approval; unknown fields are closed. New AI members expose non-default permission fields beside their
   presence row. Approval labels use `isOwnerApprovalLabel` in both end states (human-only, author exclusion or
   a gate requirement); their actual holders and resolved reviewer/authorization duties remain protected even
-  without a gate. `team.operatorApprovalWaiver` is optional (absent: false), owner-only and stored in `team.yaml`;
-  classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  without a gate. `team.operatorApprovalWaiver` is optional (absent: false), owner-only and stored in `team.yaml`.
+  reordering existing stages is protected even with unchanged gate definitions. Stage/member changes that
+  alter `mergerOf`, the merge target or any `cardMerger` reviewer choice also need a click; roster reordering
+  has its own approval row because duty-derived owner order can change the selected merger.
+  Classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
   The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
   without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
   merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a

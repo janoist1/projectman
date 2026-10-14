@@ -304,6 +304,27 @@ relative file/key names to the server.
 
 ## Operator actions and approvals (PM-464)
 
+PM-691 fixes the Operator's approver to `human`, including historical `none`/`ai` configuration
+and all session overrides. The template and idempotent load/revert migration set the member's
+approver; the shared effective rule forces `human` with source `member` on launch, resume,
+permission routing and the session header. A session update requesting `none`/`ai` fails with
+403 `operator_fixed` before any write, restart or event, including a mixed mode patch;
+`human`/`null` canonically clears the override. The Operator cannot be the merger or hold
+`boundary_authorization`. Fixed invariant violations are not tolerated in configuration writes;
+a stored Operator merger fails closed on load.
+
+`operatorConfigVerdict.waiverEligible` only classifies whether an approval click can be waived;
+it grants no execution, changes no verdict level and never opens a `never` operation. Execution
+still needs the owner's provenance (PM-692). Every changed field must be explicitly allowed,
+including complete added/removed entities. AI permission/network/approver changes, approval
+labels and their setters/holders, reviewer and authorization duties, gates, effective merger
+and merge target, stage order, workspace/repository/test/integrator/remote access, sharing,
+and the Operator's own settings/watch/waiver remain approval-bound. `githubLogin`, member
+`instructions`, `temp`, `senior` and unknown fields are outside the waiver whitelist. Template
+permission, `none` approver, default network, empty instructions and `temp: false` on a new
+implementer grant no extra authority. Approval and permission/boundary decision tools remain
+forbidden to the Operator; this classification opens no boundary-request exception.
+
 System signals (PM-476) permit one narrow write without an open owner request: the
 Operator may use `send_message` with `signal_id`, addressed only to the owners, to
 present this project's delivered, not yet presented `pending` or `open` signal once.

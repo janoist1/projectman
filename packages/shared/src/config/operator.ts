@@ -14,6 +14,7 @@ import { canonical } from './canonical';
 import { integratorConfigRefusal } from './integrator';
 import { operatorConfigIssues } from './invariants';
 import { memberOf } from './lookup';
+import { cardMerger, mergeTargetOf, mergerOf } from './merger';
 import { OPERATOR_ROLE, isOperator } from './operator-member';
 import { ownerOnlyChanges } from './owner-only';
 import type { OwnerOnlyChange } from './owner-only';
@@ -483,6 +484,18 @@ function memberRows(previous: ProjectConfig, next: ProjectConfig, operator: Memb
           : 'approval';
     rows.push(...fieldRows('member', handle, normalizedMember(old), normalizedMember(member), levelOfField));
   }
+  // Duty-derived stage owners preserve roster order, so a reorder can change the selected merger.
+  const orderBefore = [...before.keys()].filter((handle) => after.has(handle)).join(',');
+  const orderAfter = [...after.keys()].filter((handle) => before.has(handle)).join(',');
+  if (orderBefore !== orderAfter)
+    rows.push({
+      area: 'member',
+      target: null,
+      field: 'order',
+      before: orderBefore,
+      after: orderAfter,
+      level: 'approval',
+    });
   return rows;
 }
 
@@ -578,7 +591,6 @@ const WAIVER_MEMBER: WaiverFields = {
   kind: true,
   handle: true,
   displayName: true,
-  githubLogin: true,
   role: true,
   specialty: true,
   provider: true,
@@ -587,10 +599,7 @@ const WAIVER_MEMBER: WaiverFields = {
   autoCompactWindowTokens: true,
   cheapSubagent: true,
   capacity: true,
-  instructions: true,
   sponsor: true,
-  temp: true,
-  senior: true,
   onLeave: true,
   schedule: { cron: true, prompt: true },
 };
@@ -681,6 +690,14 @@ function approvalWaivable(
   ownerChanges: readonly OwnerOnlyChange[],
 ): boolean {
   if (ownerChanges.length) return false;
+  // Moving an existing stage can put work after its gate without changing the gate's fields.
+  const beforeStages = new Set(previous.pipeline.stages.map((stage) => stage.id));
+  const afterStages = new Set(next.pipeline.stages.map((stage) => stage.id));
+  const commonStages = (config: ProjectConfig, other: ReadonlySet<string>) =>
+    config.pipeline.stages.filter((stage) => other.has(stage.id)).map((stage) => stage.id);
+  if (canonical(commonStages(previous, afterStages)) !== canonical(commonStages(next, beforeStages)))
+    return false;
+  if (mergerPolicyChanged(previous, next)) return false;
   // Resolve rights, including AI review duties: a missing gate never opens a duty assignment.
   const decisionSignature = (config: ProjectConfig) =>
     canonical({
@@ -731,13 +748,18 @@ function approvalWaivable(
       return fieldsWaivable(normalizedMember(before), normalizedMember(after), WAIVER_MEMBER);
     const member = after ?? before;
     if (member?.kind !== 'ai') return false;
-    if (after && newMemberPermissionRows(after as AiMemberConfig).length) return false;
-    return fieldsWaivable(undefined, member, {
-      ...WAIVER_MEMBER,
-      permissionMode: true,
-      approver: true,
-      outboundNetwork: true,
-    });
+    // Presence defaults are not grants. Any non-whitelisted field that differs from them needs a click.
+    return fieldsWaivable(
+      {
+        permissionMode: DEFAULT_PERMISSION_MODE,
+        approver: DEFAULT_NEW_MEMBER_APPROVER,
+        outboundNetwork: DEFAULT_OUTBOUND_NETWORK,
+        instructions: '',
+        temp: false,
+      },
+      normalizedMember(member),
+      WAIVER_MEMBER,
+    );
   };
   const overrides = (config: ProjectConfig) =>
     Object.entries(config.team.roleOverrides ?? {}).map(([id, bundle]) => ({ id, ...bundle }));
@@ -800,6 +822,25 @@ function approvalWaivable(
         fieldsWaivable(a ?? { setBy: 'anyone' }, b ?? { setBy: 'anyone' }, WAIVER_LABEL),
     )
   );
+}
+
+/** Pipeline and membership changes must not change an effective merger behind a fixed team.merger. */
+function mergerPolicyChanged(previous: ProjectConfig, next: ProjectConfig): boolean {
+  // A code reviewer can override the fallback only if the shared merger rule selects them.
+  // Use the same candidate list on both sides, including additions/removals and the fallback.
+  const reviewers = [
+    null,
+    ...new Set([...previous.team.members, ...next.team.members].map((member) => member.handle)),
+  ];
+  const signature = (config: ProjectConfig) => {
+    const target = mergeTargetOf(config);
+    return canonical({
+      merger: mergerOf(config),
+      target: target ? { id: target.id, kind: target.kind } : null,
+      choices: reviewers.map((reviewer) => cardMerger(config, { assignee: null }, reviewer)),
+    });
+  };
+  return signature(previous) !== signature(next);
 }
 
 /** Stages (only the name goes through), gates, board columns and labels. */

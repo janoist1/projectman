@@ -22,6 +22,7 @@ import type { OperatorConfigVerdict } from './operator';
 import { actorMoveRefusal } from './project-manager';
 import { AiMemberConfig, ProjectConfig } from './schema';
 import { DEFAULT_NEW_MEMBER_APPROVER, DEFAULT_PERMISSION_MODE } from '../domain/member';
+import { cardMerger, mergerOf } from './merger';
 
 function config() {
   return ProjectConfig.parse({
@@ -110,6 +111,128 @@ const stage = (c: ProjectConfig, id: string) => {
 };
 
 describe('approval waiver eligibility (PM-691)', () => {
+  describe('indirect merger changes and gate order', () => {
+    const reviewed = () => {
+      const c = config();
+      ai(c, 'dev-1').role = 'code_review';
+      ai(c, 'writer').role = 'code_review';
+      stage(c, 'dev').owners = ['ann'];
+      stage(c, 'review').owners = ['dev-1'];
+      return c;
+    };
+    const expectClick = (previous: ProjectConfig, next: ProjectConfig) => {
+      // These changes do not touch the stored merger or a gate definition.
+      expect(previous.team.merger).toEqual(next.team.merger);
+      expect(ownerOnlyChanges(previous, next)).toEqual([]);
+      for (const [a, b] of [
+        [previous, next],
+        [next, previous],
+      ] as const)
+        expect(operatorConfigVerdict(a, b, { operator: 'operator' })).toMatchObject({
+          level: 'approval',
+          waiverEligible: false,
+        });
+    };
+    it('requires a click when a stage kind resolves a previously unresolved explicit merger', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      stage(previous, 'review').kind = 'queue';
+      const next = structuredClone(previous);
+      stage(next, 'review').kind = 'step';
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBeNull();
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('dev-1');
+      expectClick(previous, next);
+    });
+    it('requires a click when review owners change the resolved merger', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      const next = structuredClone(previous);
+      stage(next, 'review').owners = ['writer'];
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('writer');
+      expectClick(previous, next);
+    });
+    it('requires a click when review owners switch the implicit merger to the developer', () => {
+      const previous = reviewed();
+      const next = structuredClone(previous);
+      delete stage(next, 'review').owners;
+      expect(mergerOf(previous)).toEqual({ kind: 'code_reviewer' });
+      expect(mergerOf(next)).toEqual({ kind: 'developer' });
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('ann');
+      expectClick(previous, next);
+    });
+    it('protects every reviewer choice, even when the fallback merger stays the same', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      stage(previous, 'review').owners = ['dev-1', 'writer'];
+      const next = structuredClone(previous);
+      stage(next, 'review').owners = ['dev-1'];
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(previous, { assignee: 'ann' }, 'writer')).toBe('writer');
+      expect(cardMerger(next, { assignee: 'ann' }, 'writer')).toBe('dev-1');
+      expectClick(previous, next);
+    });
+    it('requires a click for a stage reorder that moves a gate before work', () => {
+      const previous = config();
+      const next = structuredClone(previous);
+      next.pipeline.stages = ['backlog', 'review', 'dev', 'done'].map((id) => stage(next, id));
+      expectClick(previous, next);
+    });
+    it('requires a click when an inserted review stage changes the selected merger', () => {
+      const previous = reviewed();
+      const next = structuredClone(previous);
+      next.pipeline.stages.splice(3, 0, {
+        id: 'second_review',
+        name: 'Second review',
+        kind: 'step',
+        columnId: 'all',
+        owners: ['writer'],
+      });
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('dev-1');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('writer');
+      expectClick(previous, next);
+    });
+    it('requires a click when a new merge target changes where merging is required', () => {
+      const previous = config();
+      const next = structuredClone(previous);
+      next.pipeline.stages.splice(2, 0, {
+        id: 'early_done',
+        name: 'Early done',
+        kind: 'done',
+        columnId: 'all',
+      });
+      expectClick(previous, next);
+    });
+    it('protects resolved merger changes caused by member order and a mixed leave patch', () => {
+      const previous = reviewed();
+      previous.team.merger = { kind: 'code_reviewer' };
+      stage(previous, 'review').duty = 'code_review';
+      delete stage(previous, 'review').owners;
+      const next = structuredClone(previous);
+      next.team.members.reverse();
+      expect(cardMerger(previous, { assignee: 'ann' }, null)).toBe('writer');
+      expect(cardMerger(next, { assignee: 'ann' }, null)).toBe('dev-1');
+      expectClick(previous, next);
+      const leave = structuredClone(previous);
+      leave.project.name = 'Changed';
+      ai(leave, 'writer').onLeave = true;
+      expect(cardMerger(leave, { assignee: 'ann' }, null)).toBe('dev-1');
+      expectClick(previous, leave);
+    });
+    it('keeps safe stage metadata and board column order eligible', () => {
+      const previous = reviewed();
+      previous.pipeline.columns.push({ id: 'extra', name: 'Extra' });
+      const next = structuredClone(previous);
+      stage(next, 'review').description = 'Review the work';
+      next.pipeline.columns.reverse();
+      expect(operatorConfigVerdict(previous, next, { operator: 'operator' })).toMatchObject({
+        level: 'approval',
+        waiverEligible: true,
+      });
+    });
+  });
   const allowed: Array<[string, (next: ProjectConfig) => void]> = [
     ['project name', (n) => (n.project.name = 'Renamed')],
     ['language', (n) => (n.project.language = 'en')],
@@ -199,6 +322,10 @@ describe('approval waiver eligibility (PM-691)', () => {
     ['AI approver', (n) => (ai(n, 'writer').approver = 'ai')],
     ['no approver', (n) => (ai(n, 'writer').approver = 'none')],
     ['network', (n) => (ai(n, 'writer').outboundNetwork = false)],
+    ['GitHub identity', (n) => (ai(n, 'writer').githubLogin = 'different-author')],
+    ['member instructions', (n) => (ai(n, 'writer').instructions = 'Use another workflow.')],
+    ['temporary status', (n) => (ai(n, 'writer').temp = true)],
+    ['senior status', (n) => (ai(n, 'writer').senior = true)],
     ['workspace', (n) => (n.project.workspacePath = '/elsewhere')],
     ['repository', (n) => (n.project.repos[0]!.path = 'other')],
     ['new repository', (n) => n.project.repos.push({ name: 'new', path: 'new', defaultBranch: 'main' })],
@@ -314,6 +441,16 @@ describe('approval waiver eligibility (PM-691)', () => {
       { area: 'member', target: 'new-ai', field: '*', before: null, after: 'developer', level: 'approval' },
     ]);
     expect(operatorConfigVerdict(next, previous, { operator: 'operator' }).waiverEligible).toBe(true);
+  });
+  it.each([
+    ['githubLogin', 'different-author'],
+    ['instructions', 'Use another workflow.'],
+    ['temp', true],
+    ['senior', true],
+  ])('requires a click when a presence change includes non-whitelisted %s', (field, value) => {
+    const { previous, next, result } = hire({ [String(field)]: value });
+    expect(result.waiverEligible).toBe(false);
+    expect(operatorConfigVerdict(next, previous, { operator: 'operator' }).waiverEligible).toBe(false);
   });
   it.each([
     ['permissionMode', 'default', DEFAULT_PERMISSION_MODE],

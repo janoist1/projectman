@@ -287,6 +287,9 @@ export function createRemoteEngineDirectory(options: RemoteDirectoryOptions): Re
       // A read of a base fetches its upstream first.
       readFile: (ref, input) => merge('merge.read_file', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
       commitFiles: (ref, input) => merge('merge.commit_files', { ref, ...input }, MERGE_WAIT_MS),
+      // Local reads of the base and of the cards' branches: no fetch, but a big repository takes a while.
+      listPaths: (ref, input) => merge('merge.list_paths', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
+      changedPaths: (ref, input) => merge('merge.changed_paths', { ref, ...input }, MERGE_NETWORK_WAIT_MS),
     };
 
     return {

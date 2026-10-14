@@ -659,6 +659,177 @@ describe('advance', () => {
   });
 });
 
+describe('listPaths', () => {
+  it('lists the tracked files of the local base head, sorted, without the untracked ones', async () => {
+    const f = fixture({ withRemote: false });
+    write(f.repo, 'z/deep/last.ts', 'z\n');
+    write(f.repo, 'dir/first.ts', 'f\n');
+    const head = commit(f.repo, 'more files');
+    write(f.repo, 'untracked.txt', 'u\n');
+    expect(await f.merger.listPaths(REF, { base: 'main' })).toEqual({
+      commit: head,
+      paths: ['a.txt', 'b.txt', 'dir/first.ts', 'z/deep/last.ts'],
+      truncated: false,
+    });
+  });
+
+  it('cuts the list at the cap and says so', async () => {
+    const f = fixture({ withRemote: false });
+    const merger = createLocalBranchMerger({
+      repoPath: () => f.repo,
+      worktreesRoot: null,
+      maxListedPaths: 1,
+    });
+    expect(await merger.listPaths(REF, { base: 'main' })).toMatchObject({
+      paths: ['a.txt'],
+      truncated: true,
+    });
+    const exact = createLocalBranchMerger({ repoPath: () => f.repo, worktreesRoot: null, maxListedPaths: 2 });
+    expect(await exact.listPaths(REF, { base: 'main' })).toMatchObject({ truncated: false });
+  });
+
+  it('rejects an unknown base and a bad one', async () => {
+    const f = fixture({ withRemote: false });
+    await expect(f.merger.listPaths(REF, { base: 'nope' })).rejects.toMatchObject({
+      code: 'unknown_object',
+    });
+    await expect(f.merger.listPaths(REF, { base: '--x' })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+  });
+});
+
+describe('changedPaths', () => {
+  it('diffs a branch against its merge base, leaving out what the base did meanwhile', async () => {
+    const f = fixture({ withRemote: false });
+    const head = feature(f.repo, 'dir/new.ts', 'n\n', 'PM-1-card');
+    write(f.repo, 'later.txt', 'l\n');
+    commit(f.repo, 'base moved on');
+    expect(
+      await f.merger.changedPaths(REF, {
+        base: 'main',
+        items: [{ id: 'PM-1', at: { branch: 'PM-1-card' } }],
+      }),
+    ).toEqual([{ id: 'PM-1', ok: true, commit: head, paths: ['dir/new.ts'], truncated: false }]);
+  });
+
+  it('diffs a commit against its merge base, in input order, sorted', async () => {
+    const f = fixture({ withRemote: false });
+    git(f.repo, 'checkout', '-q', '-b', 'side');
+    write(f.repo, 'b.txt', 'changed\n');
+    write(f.repo, 'a/z.ts', 'z\n');
+    const first = commit(f.repo, 'side');
+    git(f.repo, 'checkout', '-q', 'main');
+    const other = feature(f.repo, 'other.ts', 'o\n', 'other');
+    expect(
+      await f.merger.changedPaths(REF, {
+        base: 'main',
+        items: [
+          { id: 'two', at: { commit: other } },
+          { id: 'one', at: { commit: first.toUpperCase() } },
+        ],
+      }),
+    ).toEqual([
+      { id: 'two', ok: true, commit: other, paths: ['other.ts'], truncated: false },
+      { id: 'one', ok: true, commit: first, paths: ['a/z.ts', 'b.txt'], truncated: false },
+    ]);
+  });
+
+  it('diffs a merge commit against its first parent, after build and advance', async () => {
+    const f = fixture({ withRemote: false });
+    const head = feature(f.repo, 'f.txt', 'x\n', 'card');
+    const from = git(f.repo, 'rev-parse', 'main');
+    const built = await f.merger.build(REF, { onto: from, commit: head, message: 'Merge' });
+    if (!built.ok) throw new Error('expected a clean merge');
+    expect(await f.merger.advance(REF, { base: 'main', from, to: built.mergeCommit })).toEqual({ ok: true });
+    expect(
+      await f.merger.changedPaths(REF, {
+        base: 'main',
+        items: [{ id: 'PM-1', at: { merge: built.mergeCommit } }],
+      }),
+    ).toEqual([{ id: 'PM-1', ok: true, commit: built.mergeCommit, paths: ['f.txt'], truncated: false }]);
+    // A branch already merged into the base has nothing left to show.
+    expect(
+      await f.merger.changedPaths(REF, { base: 'main', items: [{ id: 'PM-1', at: { branch: 'card' } }] }),
+    ).toEqual([{ id: 'PM-1', ok: true, commit: head, paths: [], truncated: false }]);
+  });
+
+  it('shows a rename as a delete and an add', async () => {
+    const f = fixture({ withRemote: false });
+    git(f.repo, 'checkout', '-q', '-b', 'mover');
+    git(f.repo, 'mv', 'a.txt', 'moved.txt');
+    const head = commit(f.repo, 'rename');
+    git(f.repo, 'checkout', '-q', 'main');
+    expect(
+      await f.merger.changedPaths(REF, { base: 'main', items: [{ id: 'PM-1', at: { branch: 'mover' } }] }),
+    ).toEqual([{ id: 'PM-1', ok: true, commit: head, paths: ['a.txt', 'moved.txt'], truncated: false }]);
+  });
+
+  it('cuts one item at the cap and says so', async () => {
+    const f = fixture({ withRemote: false });
+    git(f.repo, 'checkout', '-q', '-b', 'many');
+    write(f.repo, 'one.ts', '1\n');
+    write(f.repo, 'two.ts', '2\n');
+    write(f.repo, 'three.ts', '3\n');
+    commit(f.repo, 'three files');
+    git(f.repo, 'checkout', '-q', 'main');
+    const merger = createLocalBranchMerger({
+      repoPath: () => f.repo,
+      worktreesRoot: null,
+      maxChangedPaths: 2,
+    });
+    expect(
+      await merger.changedPaths(REF, { base: 'main', items: [{ id: 'PM-1', at: { branch: 'many' } }] }),
+    ).toMatchObject([{ ok: true, paths: ['one.ts', 'three.ts'], truncated: true }]);
+  });
+
+  it('answers unknown for an unknown branch or commit, a branch without a merge base and a merge without a parent', async () => {
+    const f = fixture({ withRemote: false });
+    git(f.repo, 'checkout', '-q', '--orphan', 'unrelated');
+    git(f.repo, 'rm', '-rfq', '.');
+    write(f.repo, 'x.txt', 'x\n');
+    commit(f.repo, 'root');
+    git(f.repo, 'checkout', '-q', 'main');
+    const root = git(f.repo, 'rev-list', '--max-parents=0', 'main');
+    const result = await f.merger.changedPaths(REF, {
+      base: 'main',
+      items: [
+        { id: 'a', at: { branch: 'nope' } },
+        { id: 'b', at: { commit: '1'.repeat(40) } },
+        { id: 'c', at: { branch: 'unrelated' } },
+        { id: 'd', at: { merge: root } },
+        { id: 'e', at: { merge: '2'.repeat(40) } },
+      ],
+    });
+    expect(result).toEqual(['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, ok: false, reason: 'unknown' })));
+  });
+
+  it('rejects more than 25 items, a bad base, a bad branch name and a bad commit id', async () => {
+    const f = fixture({ withRemote: false });
+    const item = (n: number) => ({ id: `PM-${n}`, at: { commit: '1'.repeat(40) } });
+    const items = Array.from({ length: 26 }, (_, n) => item(n));
+    await expect(f.merger.changedPaths(REF, { base: 'main', items })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    await expect(
+      f.merger.changedPaths(REF, { base: 'main', items: items.slice(0, 25) }),
+    ).resolves.toHaveLength(25);
+    await expect(f.merger.changedPaths(REF, { base: 'nope', items: [item(1)] })).rejects.toMatchObject({
+      code: 'unknown_object',
+    });
+    await expect(f.merger.changedPaths(REF, { base: '--x', items: [item(1)] })).rejects.toMatchObject({
+      code: 'invalid_input',
+    });
+    for (const at of [{ branch: '--x' }, { commit: 'main' }, { merge: 'HEAD^1' }])
+      await expect(
+        f.merger.changedPaths(REF, { base: 'main', items: [{ id: 'PM-1', at }] }),
+      ).rejects.toMatchObject({ code: 'invalid_input' });
+    await expect(
+      f.merger.changedPaths(REF, { base: 'main', items: [{ id: '', at: { commit: '1'.repeat(40) } }] }),
+    ).rejects.toMatchObject({ code: 'invalid_input' });
+  });
+});
+
 describe('readFile', () => {
   it('reads a file at a commit, and null for a file that is not there', async () => {
     const { merger, repo } = fixture({ withRemote: false });

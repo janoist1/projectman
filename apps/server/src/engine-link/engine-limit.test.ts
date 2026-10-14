@@ -854,6 +854,19 @@ describe('engine local limit', () => {
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
         ['merge.read_file', { ref, at: { commit: sha }, path: 'docs/decisions.md' }],
         ['merge.read_file', { ref, at: { base: 'main' }, path: 'ROADMAP.md' }],
+        ['merge.list_paths', { ref, base: 'main' }],
+        [
+          'merge.changed_paths',
+          {
+            ref,
+            base: 'main',
+            items: [
+              { id: 'PM-1', at: { branch: 'PM-1-card' } },
+              { id: 'PM-2', at: { commit: sha } },
+              { id: 'PM-3', at: { merge: other } },
+            ],
+          },
+        ],
         [
           'merge.commit_files',
           { ref, onto: sha, files: [{ path: 'docs/a.md', text: 'x' }], message: 'Docs' },
@@ -919,6 +932,29 @@ describe('engine local limit', () => {
       );
     });
 
+    it('refuses a path read with a bad base, branch name or commit id', async () => {
+      const limit = merging();
+      await refused(limit, 'merge.list_paths', { ref, base: '--x' }, 'invalid_params');
+      await refused(limit, 'merge.list_paths', { ref, base: 'develop' }, 'merge_not_allowed');
+      const changed = (base: string, at: Record<string, string>) =>
+        refused(limit, 'merge.changed_paths', { ref, base, items: [{ id: 'PM-1', at }] }, 'invalid_params');
+      await changed('--x', { branch: 'a' });
+      for (const branch of ['--x', 'HEAD', 'a..b', '@{-1}', 'a b', '']) await changed('main', { branch });
+      await changed('main', { commit: 'main' });
+      await changed('main', { merge: 'main' });
+      await changed('main', { merge: 'HEAD^1' });
+      await refused(
+        limit,
+        'merge.changed_paths',
+        {
+          ref,
+          base: 'develop',
+          items: [{ id: 'PM-1', at: { commit: sha } }],
+        },
+        'merge_not_allowed',
+      );
+    });
+
     it('refuses the document calls for a repo without a mergeBranch', async () => {
       const limit = make();
       await refused(
@@ -947,6 +983,8 @@ describe('engine local limit', () => {
         ['merge.push', { ref, base: 'main', mergeCommit: sha }],
         ['merge.advance', { ref, base: 'main', from: sha, to: other }],
         ['merge.read_file', { ref, at: { base: 'main' }, path: 'a.md' }],
+        ['merge.list_paths', { ref, base: 'main' }],
+        ['merge.changed_paths', { ref, base: 'main', items: [] }],
       ];
       for (const [method, params] of calls) await refused(limit, method, params, 'merge_not_allowed');
     });

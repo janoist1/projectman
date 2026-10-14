@@ -709,6 +709,41 @@ describe('cloud mode remote parts', () => {
       expect(refused).toMatchObject({ code: 'invalid_input' });
     });
 
+    it('sends the path reads with the repository named, and returns their results', async () => {
+      const engine = await online();
+      const ref = { projectKey: 'AR', repo: 'ar' };
+      const sha = 'a'.repeat(40);
+      engine.answer('merge.list_paths', () => ({ commit: sha, paths: ['a.ts', 'b/c.ts'], truncated: false }));
+      const changed = [
+        { id: 'AR-1', ok: true as const, commit: sha, paths: ['a.ts'], truncated: false },
+        { id: 'AR-2', ok: false as const, reason: 'unknown' as const },
+      ];
+      engine.answer('merge.changed_paths', () => changed);
+      const merger = remote.directory.get('eng_a' as never)!.merger!;
+      expect(await merger.listPaths(ref, { base: 'main' })).toEqual({
+        commit: sha,
+        paths: ['a.ts', 'b/c.ts'],
+        truncated: false,
+      });
+      expect(engine.requests.at(-1)).toEqual({ method: 'merge.list_paths', params: { ref, base: 'main' } });
+      const items = [
+        { id: 'AR-1', at: { branch: 'AR-1-card' } },
+        { id: 'AR-2', at: { commit: sha } },
+      ];
+      expect(await merger.changedPaths(ref, { base: 'main', items })).toEqual(changed);
+      expect(engine.requests.at(-1)).toEqual({
+        method: 'merge.changed_paths',
+        params: { ref, base: 'main', items },
+      });
+      // The engine's MergeError comes out as a MergeError.
+      engine.answer('merge.list_paths', () => {
+        throw Object.assign(new Error('The base is not known'), { code: 'unknown_object' });
+      });
+      const refused = await merger.listPaths(ref, { base: 'main' }).catch((e) => e);
+      expect(refused).toBeInstanceOf(MergeError);
+      expect(refused).toMatchObject({ code: 'unknown_object' });
+    });
+
     it('ends a screenshot run with engine_offline when the link drops, and a full test too', async () => {
       const engine = await online();
       engine.answer('screenshots.run', () => new Promise(() => {}));

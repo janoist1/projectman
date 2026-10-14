@@ -588,6 +588,19 @@ export function createEngineLimit(options: EngineLimitOptions): EngineLimit {
         refuse('invalid_params', 'Not a commit message');
       return params;
     },
+    'merge.list_paths': async (params) => {
+      await mergeBase(params.ref, params.base);
+      return params;
+    },
+    'merge.changed_paths': async (params) => {
+      await mergeBase(params.ref, params.base);
+      for (const item of params.items) {
+        if ('branch' in item.at) {
+          if (!(await isBranchName(item.at.branch))) refuse('invalid_params', 'Not a branch name');
+        } else commitIds('commit' in item.at ? item.at.commit : item.at.merge);
+      }
+      return params;
+    },
     'files.export': (params) => {
       const allowed = limit.exportRoots(params.sessionId);
       if (!path.isAbsolute(params.root) || !allowed.includes(resolveReal(params.root)))

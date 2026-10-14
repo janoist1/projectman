@@ -12,6 +12,7 @@ import {
   isTheme,
   memberOf,
   operatorFixedChange,
+  operatorConfigIssues,
   isOperatorActor,
   operatorConfigVerdict,
   operatorApprovalOf,
@@ -43,6 +44,9 @@ import { humanActor, KeyedMutex } from '../../kernel';
 
 /** The Operator is fixed (PM-473): nobody, whoever they are, changes it beyond its model, provider and effort. */
 function assertOperatorFixed(previous: ProjectConfig | null, next: ProjectConfig): void {
+  const issues = operatorConfigIssues(next);
+  if (issues.length)
+    throw invalid('invalid_config', 'configuration violates the Operator limits', { issues });
   const fixed = operatorFixedChange(previous, next);
   if (fixed) {
     throw conflict(
@@ -113,6 +117,7 @@ const OWNER_ONLY_MESSAGES: Record<OwnerOnlyChange, string> = {
   permissions: 'only an owner may change the permission mode or the approver of an AI member',
   review_test: 'only an owner may change the full test of a repository',
   operator_watch: 'only an owner may change how much the Operator does on its own on a signal',
+  operator_approval_waiver: 'only an owner may change the Operator approval waiver',
 };
 
 /** The card mover a create request names; absent means the worker. */

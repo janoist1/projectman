@@ -18,6 +18,7 @@ import {
   labelDefinition,
   labelHolders,
   operatorWatchOf,
+  operatorOf,
   releaseGateAccepts,
   validateProjectConfig,
 } from '@projectman/shared';
@@ -46,6 +47,60 @@ describe('ConfigStore (customization repository)', () => {
     store = createConfigStore({ rootDir: join(dir, 'customization') });
   });
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it.each([false, true])('round-trips the waiver %s in YAML, history and revert', async (enabled) => {
+    const config = testConfig();
+    config.team.operatorApprovalWaiver = enabled;
+    const original = await store.save('AR', config, { author, message: 'Set waiver' });
+    expect(readFileSync(join(store.rootDir, 'projects/AR/team.yaml'), 'utf8')).toContain(
+      `operatorApprovalWaiver: ${enabled}`,
+    );
+    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
+    expect((await store.loadVersion('AR', original.version)).team.operatorApprovalWaiver).toBe(enabled);
+    delete config.team.operatorApprovalWaiver;
+    await store.save('AR', config, { author, message: 'Clear waiver' });
+    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBeUndefined();
+    await store.revertTo('AR', original.version, { author });
+    expect((await store.load('AR')).config.team.operatorApprovalWaiver).toBe(enabled);
+  });
+
+  it.each(['none', 'ai'] as const)(
+    'load and revert fix the legacy Operator approver %s',
+    async (approver) => {
+      await store.save('AR', testConfig(), { author, message: 'Create' });
+      const config = (await store.load('AR')).config;
+      Object.assign(operatorOf(config)!, { approver, permissionMode: 'plan', outboundNetwork: false });
+      const teamYaml = join(store.rootDir, 'projects/AR/team.yaml');
+      const { limits: _limits, ...team } = config.team;
+      writeFileSync(teamYaml, stringify(team));
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', ...args], {
+          cwd: store.rootDir,
+          encoding: 'utf8',
+        });
+      git('commit', '-q', '--no-verify', '-am', 'Legacy Operator approver');
+      const legacy = git('rev-parse', 'HEAD').trim();
+      const expected = { approver: 'human', permissionMode: 'plan', outboundNetwork: false };
+      expect(operatorOf((await store.load('AR')).config)).toMatchObject(expected);
+      expect(operatorOf((await store.load('AR')).config)).toMatchObject(expected);
+      expect(operatorOf(await store.loadVersion('AR', legacy))).toMatchObject(expected);
+      await store.save('AR', testConfig(), { author, message: 'Current values' });
+      await store.revertTo('AR', legacy, { author });
+      expect(operatorOf((await store.load('AR')).config)).toMatchObject(expected);
+    },
+  );
+
+  it('never tolerates an Operator merger on load, even without required merging', async () => {
+    const config = testConfig();
+    await store.save('AR', config, { author, message: 'Create' });
+    config.team.merger = { kind: 'member', handle: 'operator' };
+    const { limits: _limits, ...team } = config.team;
+    writeFileSync(join(store.rootDir, 'projects/AR/team.yaml'), stringify(team));
+    const err = await expectConfigError(store.load('AR'), 'invalid_config');
+    expect(err.details).toMatchObject({
+      issues: expect.arrayContaining([expect.objectContaining({ code: 'operator_merger_forbidden' })]),
+    });
+  });
 
   it.each(['report', 'unblock', 'drive'] as const)(
     'commits and reloads the watch level %s and its removal',

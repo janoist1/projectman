@@ -66,6 +66,27 @@ describe('mock merger setting', () => {
 });
 
 describe('mock configuration error tolerance', () => {
+  it('never preserves dangerous historical Operator permissions in an unrelated patch', () => {
+    const backend = new MockBackend();
+    const operator = backend.config.team.members.find(
+      (member) => member.kind === 'ai' && member.role === 'ai_operator',
+    );
+    if (operator?.kind !== 'ai') throw new Error('missing Operator');
+    operator.approver = 'ai';
+    const refused = backend.handle('PATCH', `${base}/config`, {
+      baseVersion: backend.configVersion,
+      limits: { maxConcurrentAi: 2 },
+    });
+    expect(refused).toMatchObject({
+      status: 400,
+      body: {
+        error: {
+          code: 'config_invalid',
+          details: { issues: [{ code: 'operator_approver_fixed', path: expect.any(String) }] },
+        },
+      },
+    });
+  });
   it('saves unrelated edits with existing errors and reports only additional errors', () => {
     const backend = new MockBackend();
     const column = backend.config.pipeline.columns[0]!;

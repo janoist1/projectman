@@ -2659,6 +2659,18 @@ retired, `operator_required` 409; it cannot go on leave), `isOperatorActor` (an 
   new configuration field is closed until a rule opens it. What `integratorConfigRefusal` or `ownerOnlyChanges` names
   is at least `approval`; the exception is the four member fields above, which the integrator rule would cover but the
   owner asked to go straight through.
+- **Approval waiver classification (PM-691).** The verdict additionally returns `waiverEligible`, true only for
+  an `approval` change whose full end-state diff is on the explicit shared allow lists. Protected rights,
+  authorization duties, gates and approval labels, locations, sharing and the Operator's own settings still
+  need approval; unknown fields are closed. New AI members expose non-default permission fields beside their
+  presence row. Approval labels use `isOwnerApprovalLabel` in both end states (human-only, author exclusion or
+  a gate requirement); their actual holders and resolved reviewer/authorization duties remain protected even
+  without a gate. `team.operatorApprovalWaiver` is optional (absent: false), owner-only and stored in `team.yaml`;
+  classification never changes a verdict's level or authorizes execution. The execution switch follows in PM-692.
+  The Operator template uses `approver: human`; load and revert migrate legacy `none`/`ai` values to `human`
+  without relaxing mode or network. Shared fixed invariants reject a nonhuman Operator approver, an Operator
+  merger and boundary authorization in its role. These errors are never tolerated on load or preserved by a
+  configuration write. The rules run on the server for remote engines too; no new machine-dependent part.
 - **Moves and priority.** The Operator is bound by no stage-move limit (`actorMoveRefusal` binds the project manager
   only), so it may also move a card out of the first stage, through the gates; `priorityRefusal` lets it set the
   priority. `labelRefusal` is unchanged: no AI member sets a label only a person may set.

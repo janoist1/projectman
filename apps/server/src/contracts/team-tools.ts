@@ -504,13 +504,25 @@ export interface FeedbackToolsHandler {
   closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
 }
 
+export interface ScreenshotToolsHandler {
+  /**
+   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
+   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
+   * with `getScreenshotRun`.
+   */
+  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
+  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
+  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
+}
+
 export interface TeamToolsHandler
   extends
     MemberToolsHandler,
     TaskToolsHandler,
     AttachmentToolsHandler,
     MergeToolsHandler,
-    FeedbackToolsHandler {
+    FeedbackToolsHandler,
+    ScreenshotToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -573,14 +585,6 @@ export interface TeamToolsHandler
    * Operator, in the owner's own conversation, during an open owner request.
    */
   markDecisionCandidates(ctx: ToolContext, args: { items: DecisionMark[] }): Promise<{ marked: number }>;
-  /**
-   * take_screenshots (PM-351): starts `npm run shots` for the calling session in the server's sandbox, and
-   * waits up to 40 seconds for its end. The answer is the run; a run that is not over yet is asked again
-   * with `getScreenshotRun`.
-   */
-  takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun>;
-  /** get_screenshot_run (PM-351): a run of the calling session; waits up to 40 seconds if it is not over. */
-  getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun>;
   submitBoundaryRequest(ctx: ToolContext, args: SubmitBoundaryRequest): Promise<BoundaryRequest>;
   getBoundaryRequest(
     ctx: ToolContext,

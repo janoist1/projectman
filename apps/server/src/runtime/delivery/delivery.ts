@@ -14,8 +14,8 @@ import { runPromise } from '../../kernel';
 import type { MessageService } from '../../domain/messaging/messages';
 import { senderResultLabelFor, staleReasonFor } from '../../domain/messaging/staleness';
 import type { ProjectService } from '../../domain/projects';
-import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../../domain/sessions';
-import type { EnsureSessionResult, SessionOrchestrator } from '../../domain/sessions';
+import { MAX_FIRST_INPUT_CHARS, MESSAGE_SEPARATOR } from '../sessions';
+import type { EnsureSessionResult, SessionOrchestrator } from '../sessions';
 
 /**
  * Types waiting AI messages into running sessions as one batch at idle.

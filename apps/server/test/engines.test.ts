@@ -26,8 +26,8 @@ import type {
 } from '../src/contracts';
 import { DomainError } from '../src/domain/errors';
 import { createLocalEngine } from '../src/engine-host';
-import { engineIdOf, engineOption, LocalEngineDirectory } from '../src/domain/engines';
-import { memberSandboxDir } from '../src/domain/session-policy';
+import { engineIdOf, engineOption, LocalEngineDirectory } from '../src/runtime/sessions';
+import { memberSandboxDir } from '../src/runtime/sessions';
 import { waitFor } from '../src/runner/test-helpers';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

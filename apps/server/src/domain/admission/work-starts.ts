@@ -2,7 +2,7 @@ import { evaluateStart, stageOf } from '@projectman/shared';
 import type { StagePull, Task } from '@projectman/shared';
 import { DomainError } from '../errors';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../sessions';
+import type { SessionOrchestrator } from '../../runtime/sessions';
 import type { StageChange, TaskService } from '../tasks';
 import { SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../util';
 import type { Admission } from './admission';

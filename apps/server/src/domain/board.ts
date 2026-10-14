@@ -2,8 +2,8 @@ import { DEFAULT_AGENT_PROVIDER, hasPlanUsage, labelHolders, resolvedStages } fr
 import type { BoardView } from '@projectman/shared';
 import type { InboxService } from './inbox';
 import type { MemberService } from './members';
-import type { PauseService } from './pause';
-import type { PlanUsageCache } from './plan-usage';
+import type { PauseService } from '../runtime/sessions';
+import type { PlanUsageCache } from '../runtime/usage';
 import type { ProjectService } from './projects';
 import type { TaskService } from './tasks';
 import { isClient, visibleTasks } from './visibility';

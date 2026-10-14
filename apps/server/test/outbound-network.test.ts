@@ -6,8 +6,8 @@ import {
   SANDBOX_DENIED_ENV_VARS,
   sensitivePaths,
   sessionSandbox,
-} from '../src/domain/session-policy';
-import { describeSandbox } from '../src/domain/unattended-commands';
+} from '../src/runtime/sessions';
+import { describeSandbox } from '../src/runtime/permissions';
 import { buildSettings } from '../src/runner/providers/claude/args';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';

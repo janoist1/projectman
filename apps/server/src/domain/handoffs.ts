@@ -32,7 +32,7 @@ import type { DomainContext } from './context';
 import { conflict, DomainError, notFound } from './errors';
 import type { MessageService, Messaging } from './messaging';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
+import type { SessionOrchestrator } from '../runtime/sessions';
 import type { HandoffTrigger, TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { aiActor, newId, SYSTEM_ACTOR } from './util';

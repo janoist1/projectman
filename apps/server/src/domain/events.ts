@@ -10,7 +10,7 @@ import type {
   WorkItemRef,
 } from '@projectman/shared';
 import type { ConfigChange } from './projects';
-import type { SessionStartCause } from './sessions';
+import type { SessionStartCause } from '../runtime/sessions';
 import type { StageChange } from './tasks';
 
 /** A relation a card got, as that card sees it (`kind`), pointing at the card `ref`. */

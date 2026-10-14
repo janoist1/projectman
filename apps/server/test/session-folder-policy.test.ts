@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionPolicy } from '../src/contracts';
-import { sensitivePaths, sessionSandbox, withSessionFolders } from '../src/domain/session-policy';
+import { sensitivePaths, sessionSandbox, withSessionFolders } from '../src/runtime/sessions';
 import { buildSessionPolicy } from './helpers/session-policy';
 import { testConfig } from './helpers/test-template';
 

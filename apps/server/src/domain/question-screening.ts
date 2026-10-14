@@ -6,13 +6,13 @@ import {
   questionPayloadOf,
 } from '@projectman/shared';
 import type { InboxItem, ProjectConfig } from '@projectman/shared';
-import type { Admission, AutomaticStart, StartSpec } from './admission';
+import type { Admission, AutomaticStart, StartSpec } from '../runtime/admission';
 import { isoNow } from './context';
 import type { DomainContext } from './context';
 import type { InboxService } from './inbox';
 import type { MessageDelivery } from './messaging';
 import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from './sessions';
+import type { SessionOrchestrator } from '../runtime/sessions';
 
 /** The first lines of the notice the Operator gets for the questions it screens. */
 const SCREENING_NOTICE =

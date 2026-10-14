@@ -37,7 +37,7 @@ import type {
 } from '@projectman/shared';
 import { roleLabel, truncate } from '../../agent-text';
 import type { EngineDirectory, SentMessageHold, SentMessageRecipient, WakeStart } from '../../contracts';
-import type { RefinementSteps } from '../admission';
+import type { RefinementSteps } from '../../runtime/admission';
 import { isoNow } from '../context';
 import type { DomainContext } from '../context';
 import { DomainError, forbidden, invalid, conflict } from '../errors';
@@ -45,7 +45,7 @@ import type { MessageAttachmentService } from '../message-attachments';
 import type { DomainEventMap } from '../events';
 import { answerText } from '../inbox';
 import type { ProjectService } from '../projects';
-import type { SessionOrchestrator, SessionStartCause } from '../sessions';
+import type { SessionOrchestrator, SessionStartCause } from '../../runtime/sessions';
 import type { TaskService } from '../tasks';
 import { actorHandle, aiActor, humanActor, newId, SYSTEM_ACTOR, unique } from '../util';
 import type { MessageDelivery } from '../../runtime/delivery';

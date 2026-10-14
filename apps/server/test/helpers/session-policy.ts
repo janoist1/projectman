@@ -1,4 +1,4 @@
-import { buildSessionPolicy as build } from '../../src/domain/session-policy';
+import { buildSessionPolicy as build } from '../../src/runtime/sessions';
 
 type PolicyInput = Parameters<typeof build>[0];
 

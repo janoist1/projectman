@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { roleBundle } from '@projectman/shared';
 import { createDomainHarness, OWNER, OWNER_ACTOR, type DomainHarness } from './helpers/domain-harness';
-import { allowedToolsFor, sessionPolicyFor } from '../src/domain/session-policy';
+import { allowedToolsFor, sessionPolicyFor } from '../src/runtime/sessions';
 
 let h: DomainHarness;
 afterEach(() => h?.cleanup());

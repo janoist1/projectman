@@ -23,13 +23,19 @@ import {
   seniorWaitMinutesOf,
   stageOf,
 } from '@projectman/shared';
-export { EngineRegistry, machineKeyHash, newMachineKey } from './engine-registry';
-export type { EngineCounters, EngineHelloMetadata } from './engine-registry';
+export {
+  EngineRegistry,
+  machineKeyHash,
+  newMachineKey,
+  HYBRID_ARCHIVE_DIR,
+  HYBRID_STAGING_DIR,
+} from '../runtime/sessions';
+export type { EngineCounters, EngineHelloMetadata } from '../runtime/sessions';
 import path from 'node:path';
 import type { EngineId, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { AuthService } from '../auth';
-import type { EngineCounters } from './engine-registry';
+import type { EngineCounters } from '../runtime/sessions';
 import type {
   AttachmentStorage,
   BoundaryOperationAdapter,
@@ -63,8 +69,8 @@ import {
   StageHandOver,
   TaskStarts,
   WorkStarts,
-} from './admission';
-import type { StartSpec } from './admission';
+} from '../runtime/admission';
+import type { StartSpec } from '../runtime/admission';
 import { AttachmentService } from './attachments';
 import { MessageAttachmentService } from './message-attachments';
 import { BackgroundTasks } from './background';
@@ -86,7 +92,7 @@ import { GithubSync } from '../services/github';
 import { GithubTools } from '../mcp/github';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from '../services/operator';
-import { FixLimitWatch } from './fix-limit';
+import { FixLimitWatch } from '../runtime/watchers';
 import { FullTestRuns, ScreenshotRuns } from '../services/full-tests';
 import { outputTail } from '../full-test';
 import { ScreenshotTools } from '../mcp/full-tests';
@@ -94,33 +100,34 @@ import { DecisionCandidates, DocWrites } from '../services/project-docs';
 import { ProjectDocTools } from '../mcp/project-docs';
 import { Merges } from '../services/merges';
 import { MergeCardLock } from '../kernel';
-import { fullTestSandbox } from './session-policy';
+import { fullTestSandbox } from '../runtime/sessions';
 import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
 import type { ReleaseTarget } from '../services/releases';
-import { LoopWatch } from './loop-watch';
+import { LoopWatch } from '../runtime/watchers';
 import { OpenQuestionLabel } from './open-question-label';
 import { ApprovalQuestions } from './approval-questions';
 import { QuestionClosing } from './question-closing';
 import { InvitationService } from './invitations';
 import { MemberProfiles, MemberService } from './members';
 import { MessageDelivery, MessageService, Messaging, RelationNotices } from './messaging';
-import { PlanUsageMonitor } from './plan-usage';
+import { PlanUsageMonitor } from '../runtime/usage';
 import { PresenceService } from './presence';
 import { OWNER_HANDLE, ProjectService } from './projects';
-import { ReviewWatch } from './review-watch';
+import { ReviewWatch } from '../runtime/watchers';
 import { RoleService } from './roles';
 import { ScheduleService } from '../services/schedules';
 import type { ScheduleTimer } from '../services/schedules';
-import { HandoffService } from './handoffs';
-import { PauseService } from './pause';
-import { MachineMonitor } from './machine';
+import { HandoffService } from '../runtime/admission';
+import { PauseService } from '../runtime/sessions';
+import { MachineMonitor } from '../runtime/watchers';
 import { createMachineProbe } from '../machine';
-import { LocalEngineDirectory } from './engines';
+import { LocalEngineDirectory } from '../runtime/sessions';
 import { createLocalEngine } from '../engine-host';
 import { conflict } from './errors';
-import { SessionCloser } from './session-closer';
-import { SessionOrchestrator } from './sessions';
-import { AutoAdvance, LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
+import { SessionCloser } from '../runtime/sessions';
+import { SessionOrchestrator } from '../runtime/sessions';
+import { AutoAdvance } from '../runtime/watchers';
+import { LeftParts, PrerequisiteClosures, TaskService, TaskWaits } from './tasks';
 import { TeamToolsService } from '../mcp/team-tools';
 import { InboxTools } from '../mcp/inbox';
 import { MessageTools } from '../mcp/messages';
@@ -137,11 +144,11 @@ import {
 } from '../services/feedback';
 import { ProjectFocusService } from './project-focus';
 import { AgentQuestions } from './agent-question';
-import { InputStallAlerts } from './input-stall-alert';
-import { UsageAlerts } from './usage-alerts';
-import { DiskGuard } from './disk-guard';
-import { WorkOutages } from './outages';
-import { WorktreeSweep } from './worktree-sweep';
+import { InputStallAlerts } from '../runtime/watchers';
+import { UsageAlerts } from '../runtime/usage';
+import { DiskGuard } from '../runtime/watchers';
+import { WorkOutages } from '../runtime/watchers';
+import { WorktreeSweep } from '../runtime/watchers';
 import { CardMeasure } from './card-measure';
 import { SYSTEM_ACTOR } from './util';
 import { SYSTEM_SENDER } from '@projectman/shared';
@@ -161,7 +168,7 @@ export {
   StageHandOver,
   TaskStarts,
   WorkStarts,
-} from './admission';
+} from '../runtime/admission';
 export type {
   AdmissionRequest,
   AutomaticStart,
@@ -170,7 +177,7 @@ export type {
   StartSpec,
   StartTaskOptions,
   StartTaskResult,
-} from './admission';
+} from '../runtime/admission';
 export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
 export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
 export { BackgroundTasks } from './background';
@@ -179,26 +186,52 @@ export { BoundaryService } from '../services/boundary';
 export { CardQuestions, QUESTION_LIMIT } from './card-questions';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
-export { FixLimitWatch } from './fix-limit';
+export { FixLimitWatch } from '../runtime/watchers';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
-export { HandoffService } from './handoffs';
-export { PauseService } from './pause';
-export { MachineMonitor } from './machine';
-export type { PauseOptions, PauseRequester, PauseTarget } from './pause';
-export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from './plan-usage';
+export { HandoffService } from '../runtime/admission';
+export { PauseService } from '../runtime/sessions';
+export { MachineMonitor } from '../runtime/watchers';
+export type { PauseOptions, PauseRequester, PauseTarget } from '../runtime/sessions';
+export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from '../runtime/usage';
 export { PresenceService } from './presence';
 export { ProjectService, OWNER_HANDLE } from './projects';
 export type { Author, LoadedProject, ConfigChange } from './projects';
-export { DiskGuard } from './disk-guard';
-export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from './worktree-sweep';
-export type { WorktreeSweepReport } from './worktree-sweep';
+export { DiskGuard } from '../runtime/watchers';
+export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from '../runtime/watchers';
+export type { WorktreeSweepReport } from '../runtime/watchers';
 export { ScheduleService } from '../services/schedules';
 export type { ScheduleTimer } from '../services/schedules';
-export * from './session-policy';
+export {
+  allowedToolsFor,
+  attachmentToolRules,
+  buildSessionPolicy,
+  commandVerdict,
+  deniedToolsFor,
+  DEVELOPMENT_TOOLS,
+  fullTestSandbox,
+  GIT_SETTINGS_VARIABLE,
+  HARD_DENIED_HOSTS,
+  HEAVY_LOCK_DIR_VARIABLE,
+  LOCAL_ONLY_DENIED_TOOLS,
+  memberSandboxDir,
+  PREFER_OFFLINE_VARIABLE,
+  PTY_SKIP_VARIABLE,
+  READ_ONLY_REVIEW_TOOLS,
+  readableRootsFor,
+  SANDBOX_ALLOWED_DOMAINS,
+  SANDBOX_DENIED_ENV_VARS,
+  SANDBOX_PTY_ENV,
+  sensitivePaths,
+  sessionPolicyFor,
+  sessionSandbox,
+  TEAM_TOOLS_ALLOWED,
+  usesWorktree,
+  withSessionFolders,
+} from '../runtime/sessions';
 export {
   describeSandbox,
   describeSessionFolder,
@@ -206,14 +239,14 @@ export {
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
-} from './unattended-commands';
-export type { UnattendedCommandsInput } from './unattended-commands';
+} from '../runtime/permissions';
+export type { UnattendedCommandsInput } from '../runtime/permissions';
 export {
   SessionOrchestrator,
   BUSY_SESSION_STATES,
   LIVE_SESSION_STATES,
   MAX_FIRST_INPUT_CHARS,
-} from './sessions';
+} from '../runtime/sessions';
 export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TimelineService } from './timeline';
@@ -222,15 +255,15 @@ export type { FeedbackWidgetSession } from '../services/feedback';
 export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
-import { ProviderKeys } from './provider-keys';
-export { ProviderKeys } from './provider-keys';
-export type { NanogptKeyCheck } from './provider-keys';
-export { createNanogptKeyCheck } from './nanogpt-key-check';
+import { ProviderKeys } from '../runtime/usage';
+export { ProviderKeys } from '../runtime/usage';
+export type { NanogptKeyCheck } from '../runtime/usage';
+export { createNanogptKeyCheck } from '../runtime/usage';
 
 export type { ReleaseTarget } from '../services/releases';
 
 export interface DomainOptions {
-  nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
+  nanogptKeyCheck?: import('../runtime/usage').NanogptKeyCheck;
   /**
    * The project and repository that are this instance itself (PM-491): its releases are proposed,
    * approved and deployed. Absent: releases are off (`release_not_configured`).

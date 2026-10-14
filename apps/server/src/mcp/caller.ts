@@ -13,7 +13,7 @@ import {
 import type { ErrorCode, OperatorAction, ProjectConfig, Session } from '@projectman/shared';
 import { TeamToolError, WorkspaceFileRefusal } from '../contracts';
 import type { EngineHost, WorkspaceFile, ToolContext } from '../contracts';
-import { isWithin } from '../domain/command-paths';
+import { isWithin } from '../runtime/permissions';
 import type { DomainContext } from '../domain/context';
 import { isoNow } from '../domain/context';
 import { DomainError } from '../domain/errors';

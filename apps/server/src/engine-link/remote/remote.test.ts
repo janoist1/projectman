@@ -580,6 +580,60 @@ describe('cloud mode remote parts', () => {
       expect(onStarted).toHaveBeenCalledTimes(1);
     });
 
+    it('sends requireHeavyLock to the engine and relays its result (PM-658)', async () => {
+      const engine = await online();
+      engine.answer('full_test.run', () => ({
+        outcome: 'error' as const,
+        reason: 'heavy_lock_unavailable' as const,
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: 'no queue',
+      }));
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const result = await executor.run(
+        { ...fullTestSpec('f1'), requireHeavyLock: true },
+        new AbortController().signal,
+      );
+      expect(result).toMatchObject({ outcome: 'error', reason: 'heavy_lock_unavailable' });
+      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toEqual([
+        { method: 'full_test.run', params: { spec: expect.objectContaining({ requireHeavyLock: true }) } },
+      ]);
+    });
+
+    it('blocks the run on an older engine that refuses requireHeavyLock, without repeating it without the flag', async () => {
+      const engine = await online();
+      let ran = false;
+      // An older engine's strict schema: the unknown field makes the request invalid before it runs.
+      const oldSpecKeys = ['runId', 'cwd', 'command', 'maxWorkers', 'timeoutMs', 'sandbox'];
+      engine.answer('full_test.run', (params) => {
+        if (Object.keys(params.spec).some((key) => !oldSpecKeys.includes(key)))
+          throw Object.assign(new Error('Invalid method parameters'), { code: 'invalid_params' });
+        ran = true;
+        return { outcome: 'passed' as const, exitCode: 0, durationMs: 1, failedFiles: [], outputTail: '' };
+      });
+      const executor = remote.directory.get('eng_a' as never)!.fullTestExecutor!;
+      const onStarted = vi.fn();
+      const result = await executor.run(
+        { ...fullTestSpec('f1'), requireHeavyLock: true },
+        new AbortController().signal,
+        onStarted,
+      );
+      expect(result).toMatchObject({
+        outcome: 'error',
+        reason: 'heavy_lock_unavailable',
+        outputTail: expect.stringContaining('Update the engine'),
+      });
+      expect(ran).toBe(false);
+      expect(onStarted).not.toHaveBeenCalled();
+      expect(engine.requests.filter((item) => item.method === 'full_test.run')).toHaveLength(1);
+      // A request without the flag still runs there.
+      await expect(executor.run(fullTestSpec('f2'), new AbortController().signal)).resolves.toMatchObject({
+        outcome: 'passed',
+      });
+      expect(ran).toBe(true);
+    });
+
     it('sends the merge calls with the repository named and not a path, and keeps the error codes', async () => {
       const engine = await online();
       const ref = { projectKey: 'AR', repo: 'ar' };

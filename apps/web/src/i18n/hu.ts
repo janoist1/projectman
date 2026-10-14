@@ -4157,6 +4157,7 @@ export const hu = {
         spawn_failed: 'a parancs nem indult el',
         killed: 'leállították',
         engine_offline: 'a futtató gép nem volt elérhető',
+        heavy_lock_unavailable: 'a gép nehézfutási sora nem érhető el',
       },
       review_repinned: 'Új átnézési kör: az átadott commit {previous} helyett {commit}',
       task_assigned: 'Kiosztva: {assignee}',

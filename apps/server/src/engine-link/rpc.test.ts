@@ -101,6 +101,23 @@ describe('engine RPC', () => {
     rpc.close();
   });
 
+  it('takes requireHeavyLock in the strict full_test.run spec as an optional boolean only (PM-658)', () => {
+    const spec = {
+      runId: 'f1',
+      cwd: '/fictional/work',
+      command: 'npm test',
+      maxWorkers: 1,
+      timeoutMs: 1000,
+      sandbox: { denyRead: [], allowRead: [] },
+    };
+    const params = methods['full_test.run'].params;
+    expect(params.safeParse({ spec }).success).toBe(true);
+    expect(params.safeParse({ spec: { ...spec, requireHeavyLock: true } }).success).toBe(true);
+    expect(params.safeParse({ spec: { ...spec, requireHeavyLock: false } }).success).toBe(true);
+    expect(params.safeParse({ spec: { ...spec, requireHeavyLock: 'yes' } }).success).toBe(false);
+    expect(params.safeParse({ spec: { ...spec, other: 1 } }).success).toBe(false);
+  });
+
   it('does not acknowledge failed handlers or closing connections', async () => {
     const state = createRpcState();
     const send = vi.fn();

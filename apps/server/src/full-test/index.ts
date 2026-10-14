@@ -113,7 +113,20 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
       // Behind the machine's other heavy runs (PM-332): the wait is not part of the run, so `started`
       // (the duration and the timeout) begins when the lock is held.
       let lock: HeavyLock | undefined;
-      if (options.heavyLockDir) {
+      // A run that requires the queue (the merge check, PM-658) never goes on without it.
+      const unavailable = (cause?: unknown): FullTestResult => ({
+        outcome: 'error',
+        reason: 'heavy_lock_unavailable',
+        exitCode: null,
+        durationMs: 0,
+        failedFiles: [],
+        outputTail: failureReport(
+          `the machine's heavy-run queue is unavailable${cause instanceof Error ? `: ${cause.message}` : ''}`,
+        ),
+      });
+      if (!options.heavyLockDir) {
+        if (spec.requireHeavyLock) return signal.aborted ? failure('killed', Date.now()) : unavailable();
+      } else {
         try {
           lock = await acquireHeavyLock({
             dir: options.heavyLockDir,
@@ -122,6 +135,10 @@ export function createFullTestExecutor(options: FullTestExecutorOptions): FullTe
           });
         } catch (err) {
           if (signal.aborted) return failure('killed', Date.now());
+          if (spec.requireHeavyLock) {
+            logger.warn({ err, runId: spec.runId }, 'the heavy-run queue is required but unavailable');
+            return unavailable(err);
+          }
           // Nothing is held back because of the lock: without it the run goes on.
           if (err instanceof HeavyLockError && err.code === 'heavy_lock_unavailable')
             logger.warn({ err, runId: spec.runId }, 'the heavy-run queue is unavailable; running without it');

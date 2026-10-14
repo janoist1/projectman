@@ -30,7 +30,6 @@ export {
   HYBRID_ARCHIVE_DIR,
   HYBRID_STAGING_DIR,
 } from '../runtime/sessions';
-export type { EngineCounters, EngineHelloMetadata } from '../runtime/sessions';
 import path from 'node:path';
 import type { EngineId, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
@@ -159,25 +158,8 @@ export * from './errors';
 export { createEventBus } from './event-bus';
 export { createDomainEvents } from './events';
 export type { DomainEventMap, DomainEvents } from './events';
-export {
-  Admission,
-  DeferredStarts,
-  MessageStarts,
-  RefinementSteps,
-  SeniorWaits,
-  StageHandOver,
-  TaskStarts,
-  WorkStarts,
-} from '../runtime/admission';
-export type {
-  AdmissionRequest,
-  AutomaticStart,
-  DeferredStart,
-  DeferredStartStore,
-  StartSpec,
-  StartTaskOptions,
-  StartTaskResult,
-} from '../runtime/admission';
+export { Admission, DeferredStarts } from '../runtime/admission';
+export type { AutomaticStart } from '../runtime/admission';
 export { AttachmentService, contentDisposition, createAttachmentStorage } from './attachments';
 export { MessageAttachmentService, createMessageAttachmentStorage } from './message-attachments';
 export { BackgroundTasks } from './background';
@@ -186,23 +168,16 @@ export { BoundaryService } from '../services/boundary';
 export { CardQuestions, QUESTION_LIMIT } from './card-questions';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
-export { FixLimitWatch } from '../runtime/watchers';
 export { InvitationService } from './invitations';
 export { MemberProfiles, MemberService } from './members';
 export { MessageDelivery, MessageService, Messaging } from './messaging';
 export { RoleService, roleUsage, roleViews } from './roles';
 export { defaultMemberHandle, defaultMemberName } from './naming';
-export { HandoffService } from '../runtime/admission';
-export { PauseService } from '../runtime/sessions';
 export { MachineMonitor } from '../runtime/watchers';
-export type { PauseOptions, PauseRequester, PauseTarget } from '../runtime/sessions';
-export { PlanUsageCache, PlanUsageMonitor, highestUsagePercent } from '../runtime/usage';
+export type { PauseRequester } from '../runtime/sessions';
 export { PresenceService } from './presence';
 export { ProjectService, OWNER_HANDLE } from './projects';
 export type { Author, LoadedProject, ConfigChange } from './projects';
-export { DiskGuard } from '../runtime/watchers';
-export { CLOSED_WORKTREE_KEEP_MS, WorktreeSweep } from '../runtime/watchers';
-export type { WorktreeSweepReport } from '../runtime/watchers';
 export { ScheduleService } from '../services/schedules';
 export type { ScheduleTimer } from '../services/schedules';
 export {
@@ -213,40 +188,24 @@ export {
   deniedToolsFor,
   DEVELOPMENT_TOOLS,
   fullTestSandbox,
-  GIT_SETTINGS_VARIABLE,
   HARD_DENIED_HOSTS,
-  HEAVY_LOCK_DIR_VARIABLE,
   LOCAL_ONLY_DENIED_TOOLS,
-  memberSandboxDir,
-  PREFER_OFFLINE_VARIABLE,
-  PTY_SKIP_VARIABLE,
   READ_ONLY_REVIEW_TOOLS,
   readableRootsFor,
-  SANDBOX_ALLOWED_DOMAINS,
   SANDBOX_DENIED_ENV_VARS,
   SANDBOX_PTY_ENV,
   sensitivePaths,
   sessionPolicyFor,
-  sessionSandbox,
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
-  withSessionFolders,
 } from '../runtime/sessions';
 export {
   describeSandbox,
-  describeSessionFolder,
-  describeSessionTmpDir,
   describeUnattendedCommands,
   preApprovedPrefixes,
   PROJECT_CHECK_COMMANDS,
 } from '../runtime/permissions';
-export type { UnattendedCommandsInput } from '../runtime/permissions';
-export {
-  SessionOrchestrator,
-  BUSY_SESSION_STATES,
-  LIVE_SESSION_STATES,
-  MAX_FIRST_INPUT_CHARS,
-} from '../runtime/sessions';
+export { SessionOrchestrator, LIVE_SESSION_STATES, MAX_FIRST_INPUT_CHARS } from '../runtime/sessions';
 export { TaskService, isOpenTask } from './tasks';
 export type { MoveResult, StageChange, TaskUpdate } from './tasks';
 export { TimelineService } from './timeline';
@@ -256,7 +215,6 @@ export { ProjectFocusService } from './project-focus';
 export { SYSTEM_ACTOR, SYSTEM_AUTHOR, humanActor, aiActor } from './util';
 
 import { ProviderKeys } from '../runtime/usage';
-export { ProviderKeys } from '../runtime/usage';
 export type { NanogptKeyCheck } from '../runtime/usage';
 export { createNanogptKeyCheck } from '../runtime/usage';
 

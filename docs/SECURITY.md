@@ -436,7 +436,7 @@ allows it, it runs the project's own scripts outside the sandbox. Even a read-on
 runs the programs the repository's configuration names (`core.fsmonitor`, diff and text
 conversion drivers). The historical shared-git root grant allowed config writes; removing
 that grant does not make host execution a sandboxed operation. The allowed
-forms are narrow, and a command the strict parser (`domain/shell-words.ts`) does not fully
+forms are narrow, and a command the strict parser in `runtime/permissions` (`shell-words`) does not fully
 understand always goes to a human. The read-only rule reads the command's text only: it cannot
 see where a symbolic link in a worktree points. `xargs` takes names only from a lister
 (`git ls-files`, `git diff --name-only`, `grep -l`, `find`, `ls`) through whole-line filters, and
@@ -461,7 +461,7 @@ What the server adds, in every mode and on the legacy (Mac) profile:
   secret, logs, customization repository, members' memory, publishing identity, spool, `secrets`,
   `providers`); `WebFetch` may not reach
   `localhost` or `127.0.0.1`. The lists are `sensitivePaths` in `contracts/sandbox.ts` and `HARD_DENIED_HOSTS` in
-  `domain/session-policy.ts`.
+  `runtime/sessions` (`session-policy`).
 - **A question the CLI still asks** goes through `commandVerdict`, then to the member's approver.
   Approver `none` (the default of a new member) refuses it without an inbox item and tells the agent
   the refusal is final; the refusal is on the timeline (`permission_refused`). So does a refusal of

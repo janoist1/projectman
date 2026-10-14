@@ -324,7 +324,7 @@ export const MODULES: readonly ModuleEntry[] = [
     id: 'engine-host',
     layer: 'engine',
     target: 'engine-host',
-    pass: 'split-tool',
+    pass: 'split',
     paths: ['engine-host/'],
     sealed: true,
   },

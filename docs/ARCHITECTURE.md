@@ -241,7 +241,7 @@ Documentation map:
   (read by the CLI from the working directory), the member's identity, duty fragments and
   instructions, the team roster, the project's labels, how to use the team tools, the rules
   of the current stage, for tasks the shell commands the server runs without asking (generated
-  from the command rules in `domain/`, `unattended-commands.ts`, so that a member writes them in
+  from `runtime/permissions` (`unattended-commands`), so that a member writes them in
   a form that passes), the member's memory, and for tasks a kick-off brief (title,
   description, links, relations to other cards, attachments, recent timeline) sent as the first message.
 - **Team tools** — an MCP server (`/mcp/:token`) through which AI members message teammates,
@@ -452,13 +452,13 @@ included, is refused until they are fixed (`isToleratedOnLoad`).
 
 ```
 browser (React) ── REST /api, websocket /ws ──▶ server (Fastify, Node, 127.0.0.1:4700)
-                                                 ├─ domain services ─▶ SQLite (runtime state)
+                                                 ├─ core and services ─▶ SQLite (runtime state)
                                                  ├─ config store ────▶ customization git repo (YAML)
                                                  ├─ github ──────────▶ gh CLI (owner's login, read-only)
                                                  └─ runner ──▶ node-pty ──▶ claude | codex (interactive TUI)
-claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission broker)
+claude ── HTTP hooks  POST /hooks/:token ─────▶ runner (state machine, permission gate)
 codex ─── command hooks ─▶ forwarder ─▶ POST /hooks/:token ─▶ runner
-claude | codex ── MCP (http)  /mcp/:token ────▶ team tools ─▶ domain
+claude | codex ── MCP (http)  /mcp/:token ────▶ team tools ─▶ module facades
 claude | codex ── transcript JSONL ────────────▶ runner transcript tailer ─▶ chat events
 ```
 
@@ -484,7 +484,7 @@ claude | codex ── transcript JSONL ────────────▶ r
 - **End-of-round compaction (PM-213, part of PM-209).** A member's round on a card ends when the
   card leaves the stage the member worked it in (`isWorkingOnTask` false after a
   `task_stage_changed`; a card that is done or cancelled needs nothing). The conversation then owes
-  a compaction (`sessions.compact_pending`): `SessionOrchestrator.roundEnded` marks every session of
+  a compaction (`sessions.compact_pending`): `SessionOrchestrator.roundEnded` delegates to `RoundCompaction` (`runtime/sessions/compaction.ts`), which marks every session of
   the card and, at the session's idle moment, types `/compact <instruction>` through the runner
   (`SessionRunner.compact`; the text is `COMPACT_INSTRUCTION` of the context module, which names what
   to keep). Nothing is typed while a message is on its way in (`hasPendingInput`): it goes first, and
@@ -513,8 +513,14 @@ claude | codex ── transcript JSONL ────────────▶ r
   configuration changes, resolved inbox items, stage moves, cancellations, label and mention
   notices, sessions starting and ending, messages waiting for a recipient); a failing listener
   is logged and never stops the others. The event bus carries only what goes to clients (the
-  websocket). Background work (hand-overs, message wake-ups, plan usage probes) is drained
-  when the server stops.
+  websocket). Shutdown stops the kernel sweep tickers and module programs, then waits for
+  running sweep rounds and background work (hand-overs, message wake-ups, plan usage probes).
+  It next awaits `MessageDelivery.close()`, calls `pauses.dispose()` and `sessions.dispose()`,
+  and awaits `sessions.settleFolderRemovals()` (including the session lifecycle Scope closing).
+  The Scope ends the runner subscription and job tracking, refuses new jobs and closes session
+  timers; it neither cuts nor waits for existing session jobs. Folder removals are awaited
+  separately before temporary roots are released.
+  Finally the machine monitor and the scheduled work finish.
 - Only `apps/server/src/index.ts` reads configuration from the environment; it passes it to
   the modules as options. The git and gh commands the server runs inherit its environment.
 - Writes that belong together run as one unit of work (`ctx.unitOfWork`): one SQLite
@@ -563,53 +569,53 @@ packages count as contracts and are accessible to every layer.
 
 The source is [module-map.ts](../apps/server/test/architecture/module-map.ts); only a phase's closing card edits this table (PM-627 in phase 4).
 
-| Module                  | Responsibility                                                |
-| ----------------------- | ------------------------------------------------------------- |
-| `contracts`             | Shared server interfaces and engine ports.                    |
-| `db`                    | SQLite storage, repositories and migrations.                  |
-| `config`                | Project configuration loading, validation and migrations.     |
-| `logging`               | Structured server and engine logging and file rotation.       |
-| `instance`              | Installation identity and activation state.                   |
-| `kernel`                | Common errors, utilities and background work helpers.         |
-| `agent-text`            | Text formatting for agent-facing context.                     |
-| `core/base`             | Domain context, events and the event bus.                     |
-| `core/projects`         | Projects, roles, stage reviewers and visibility.              |
-| `core/tasks`            | Tasks, board state, focus, involvement and card measures.     |
-| `core/members`          | Member access, invitations, presence and naming.              |
-| `core/timeline`         | Append-only task and project timeline access.                 |
-| `core/messages`         | Stored messages, routing and conversation rules.              |
-| `core/inbox`            | Human questions, approval inbox and question lifecycle.       |
-| `core/attachments`      | Task and message attachment storage and processing.           |
-| `runtime/admission`     | Admission, deferred starts, handovers and refinement.         |
-| `runtime/sessions`      | Session orchestration, policy, pause and workspace selection. |
-| `runtime/delivery`      | Message delivery to member sessions.                          |
-| `runtime/permissions`   | Command parsing and execution permission rules.               |
-| `runtime/watchers`      | Runtime health, review, disk and worktree watches.            |
-| `runtime/usage`         | Provider quota, plan usage and managed provider keys.         |
-| `context`               | Agent context packs and prompts.                              |
-| `services/merges`       | Card merge orchestration, queue and locks.                    |
-| `services/full-tests`   | Full-test and screenshot-run orchestration.                   |
-| `services/releases`     | Release proposals and release roadmap notices.                |
-| `services/github`       | GitHub synchronization, pull requests and publishing.         |
-| `services/feedback`     | Feedback marks, screenshots and widget sessions.              |
-| `services/project-docs` | Operator document writes and decision candidates.             |
-| `services/boundary`     | External operation authorization and boundary requests.       |
-| `services/schedules`    | Scheduled member work.                                        |
-| `services/operator`     | Operator actions, signals, requests and project management.   |
-| `runner`                | Provider CLIs, PTYs, hooks and transcript handling.           |
-| `worktree`              | Task and member worktree creation and dependency refresh.     |
-| `engine-host`           | Engine-local files, process operations and branch merging.    |
-| `full-test`             | Sandboxed test execution and the heavy-run queue.             |
-| `machine`               | Machine probes and process parsing.                           |
-| `engine-link`           | Server/engine RPC, transport and remote adapters.             |
-| `api`                   | HTTP API adapters.                                            |
-| `mcp`                   | MCP transport, tool declarations and handlers.                |
-| `ws`                    | Websocket transport and broadcasts.                           |
-| `http`                  | HTTP transport guards and infrastructure.                     |
-| `control`               | Administrative control socket.                                |
-| `auth`                  | Authentication and integrator credentials.                    |
-| `assembly`              | Domain service composition and wiring.                        |
-| `entry`                 | Application and engine startup, composition and shutdown.     |
+| Module                  | Responsibility                                                              |
+| ----------------------- | --------------------------------------------------------------------------- |
+| `contracts`             | Shared server interfaces and engine ports.                                  |
+| `db`                    | SQLite storage, repositories and migrations.                                |
+| `config`                | Project configuration loading, validation and migrations.                   |
+| `logging`               | Structured server and engine logging and file rotation.                     |
+| `instance`              | Installation identity and activation state.                                 |
+| `kernel`                | Common errors, utilities, background jobs and periodic sweeps.              |
+| `agent-text`            | Text formatting for agent-facing context.                                   |
+| `core/base`             | Domain context, events and the event bus.                                   |
+| `core/projects`         | Projects, roles, stage reviewers and visibility.                            |
+| `core/tasks`            | Tasks, board state, focus, involvement and card measures.                   |
+| `core/members`          | Member access, invitations, presence and naming.                            |
+| `core/timeline`         | Append-only task and project timeline access.                               |
+| `core/messages`         | Stored messages, routing and conversation rules.                            |
+| `core/inbox`            | Human questions, approval inbox and question lifecycle.                     |
+| `core/attachments`      | Task and message attachment storage and processing.                         |
+| `runtime/admission`     | Admission, deferred starts, handovers and refinement.                       |
+| `runtime/sessions`      | Session lifecycle, rounds, compaction, policy, pause and workspaces.        |
+| `runtime/delivery`      | Message delivery to member sessions.                                        |
+| `runtime/permissions`   | Command parsing and execution permission rules.                             |
+| `runtime/watchers`      | Runtime health, machine sampling, outage, review and cleanup watches.       |
+| `runtime/usage`         | Provider quota, plan usage and managed provider keys.                       |
+| `context`               | Agent context packs and prompts.                                            |
+| `services/merges`       | Card merge orchestration, queue and locks.                                  |
+| `services/full-tests`   | Full-test and screenshot-run orchestration.                                 |
+| `services/releases`     | Release proposals and release roadmap notices.                              |
+| `services/github`       | GitHub synchronization, pull requests and publishing.                       |
+| `services/feedback`     | Feedback marks, screenshots and widget sessions.                            |
+| `services/project-docs` | Operator document writes and decision candidates.                           |
+| `services/boundary`     | External operation authorization and boundary requests.                     |
+| `services/schedules`    | Scheduled member work.                                                      |
+| `services/operator`     | Operator actions, signals, requests and project management.                 |
+| `runner`                | Provider CLIs, PTYs, permission waits, transcripts, usage probes and trust. |
+| `worktree`              | Task and member worktree creation and dependency refresh.                   |
+| `engine-host`           | Engine-local files, session roots, host operations and branch merging.      |
+| `full-test`             | Sandboxed test execution and the heavy-run queue.                           |
+| `machine`               | Machine probes and process parsing.                                         |
+| `engine-link`           | Server/engine RPC, transport and remote adapters.                           |
+| `api`                   | HTTP API adapters.                                                          |
+| `mcp`                   | MCP transport, tool declarations and handlers.                              |
+| `ws`                    | Websocket transport and broadcasts.                                         |
+| `http`                  | HTTP transport guards and infrastructure.                                   |
+| `control`               | Administrative control socket.                                              |
+| `auth`                  | Authentication and integrator credentials.                                  |
+| `assembly`              | Domain service composition and wiring.                                      |
+| `entry`                 | Application and engine startup, composition and shutdown.                   |
 
 The single source of truth for file → module → layer assignments, targets and
 passes is [module-map.ts](../apps/server/test/architecture/module-map.ts).
@@ -665,16 +671,16 @@ structural ports for sessions, admission, delivery, pauses and releases. Its fiv
 (`get_project_state`, `operate`, `screen_question`, `start_task`, `start_member`) live in
 `mcp/operator/`; signal decisions and manager/Operator channels register in `api/operator.ts`.
 This module needs no Effect program: retries belong to admission, reply relay uses
-`background.run`, and the 60-second signal sweep stays in domain assembly.
+`background.run`, and the 60-second signal sweep runs in `kernel/sweeps.ts`; assembly
+(`domain/index.ts`) declares the sweep list.
 
-**Effect (PM-590, a trial on a branch):** two programs are written with the `effect` package, each
-behind a plain TypeScript facade, so nothing outside them sees an Effect type: the runner's input
-queue (`runner/input-queue.ts`, a timer-heavy state machine) and the message delivery
-(`runtime/delivery/`, formerly `domain/messaging/delivery.ts`, which `domain/messaging` still
-re-exports as `MessageDelivery`). Their timers and background work are fibers in the module's
-`Scope`; `MessageDelivery.close()` ends it at the server's shutdown (before `pauses.dispose()`).
-Where Effect may be used, the pinned version and the rules are in [EFFECT.md](EFFECT.md); read it
-before touching or writing Effect code.
+**Effect:** long-running parts (timers, queues, retries and shutdown) are Effect programs, each
+behind a plain TypeScript facade, so nothing outside a module sees an Effect type. Modules with
+an Effect program: `kernel`, `runtime/sessions`, `runtime/delivery`, `runtime/watchers`,
+`runtime/usage`, `services/merges`, `services/full-tests`, `services/github`,
+`services/project-docs`, `services/schedules`, `runner`, `worktree`, `full-test`.
+The programs, their files and facades, the pinned version and the rules are in
+[EFFECT.md](EFFECT.md); read it before touching or writing Effect code.
 
 **Packages** (TypeScript source, used directly by both apps):
 
@@ -686,34 +692,39 @@ before touching or writing Effect code.
 
 **Server** (`apps/server/src`):
 
-- `contracts/` — interfaces between server modules (runner, team tools, GitHub, context,
-  config store, event bus).
-- `runner/` — PTY sessions (input queue, permission gate), provider adapters
-  (`providers/claude`, `providers/codex`), hooks and the hook forwarder, transcripts, plan
-  usage, login checks.
-- `mcp/` — the team tools MCP server (`/mcp/:token`): module tool definitions and handlers, their static collector, the shared
-  `ToolCaller`, and the text the model reads.
-- `context/` — the context pack: system prompt, kick-off brief, work-item rules, member memory.
-- `agent-text/` — AI-facing wording shared by the context pack and the team tools: timeline
-  events, links, the repository of a task, one-line text.
-- `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
-  safe branch switches, pinned review checkouts; PM-138).
-- `services/github/` — `gh`-based pull request lookups, polling, synchronization and PR snapshots (the owner's read login).
-- `http/` — request guards shared by the internal endpoints (local-only checks).
-- `config/` — the customization repository: YAML load and save, git history, revert,
-  configuration migrations.
+- `contracts/` — interfaces between modules and server/engine ports.
 - `db/` — SQLite schema, migrations and repositories.
-- `domain/` — domain services: projects and roles; tasks (`tasks/`: CRUD, labels, stage moves
-  and approvals); members and profiles; sessions; admission (`admission/`: checks, deferred
-  starts, task starts with temp workers, stage hand-overs, message wake-ups); schedules;
-  messaging (`messaging/`: send, delivery, receipts); attachments (`attachments/`: the service,
-  file storage, content check, file names); inbox; invitations; the board; GitHub
-  sync and pull request records; domain events.
-- `services/` — feedback marks (`feedback/`: the service, screenshot store, processor notices,
-  and widget service with the tool's sessions and limits; PM-506, PM-509, PM-608); boundary
-  requests (`boundary/`: `BoundaryService`; PM-607).
-- `api/`, `auth/`, `ws/` — REST routes, login and invitations, the websocket hub.
-- `app.ts` builds the application; `index.ts` reads the environment and starts it.
+- `config/` — customization YAML, validation, migrations and git history.
+- `logging/` — structured logs and rotating server and engine log files.
+- `instance/` — installation identity and activation state.
+- `kernel/` — shared helpers, Effect execution, periodic sweeps and merge locks.
+- `agent-text/` — AI-facing wording for context packs and team tools.
+- `domain/` — the remaining core: projects, tasks, members, messages, inbox, attachments,
+  timeline, context and events; common errors, utilities and background jobs; and
+  `index.ts` (`createDomain`), the composition and event wiring.
+- `runtime/` — admission and handovers; session lifecycle, launch, rounds, compaction,
+  provider limits, cleanup, policy, pause and workspaces; message delivery; command permission
+  rules; health, machine and outage watchers; provider usage, quota and managed keys.
+- `context/` — context packs, prompts, kick-off briefs and member memory.
+- `services/` — merges, full tests and screenshots, releases, GitHub synchronization and
+  publishing, feedback and widget sessions, project documents, boundary requests, schedules
+  and Operator actions (the nine service modules).
+- `runner/` — provider CLIs and PTYs, the input queue, session clocks, permission gate,
+  hooks and their forwarder, transcripts, provider usage probes, trust and login checks.
+- `worktree/` — task worktrees and branches, member workspaces and dependency refresh.
+- `engine-host/` — local engine composition, session folders and roots, sandbox directories,
+  files, screenshots, host operations and branch merging.
+- `full-test/` — sandboxed test execution, screenshots and the heavy-run lock.
+- `machine/` — OS machine probes and process parsing.
+- `engine-link/` — server/engine RPC, transport, transfers and remote adapters.
+- `api/` — REST routes.
+- `mcp/` — team tool transport, definitions, module handlers, collector and shared `ToolCaller`.
+- `ws/` — websocket transport and broadcasts.
+- `http/` — HTTP request guards and infrastructure.
+- `control/` — the administrative control socket.
+- `auth/` — login, invitations and integrator credentials.
+- `app.ts` builds the server; `engine-app.ts` builds the engine; `index.ts` reads the environment;
+  `shutdown.ts` coordinates stopping.
 
 **Web** (`apps/web/src`): React UI (board, task drawer, team and profiles, session chat and
 terminal, inbox, messages, settings) with `api/` (typed client, queries, websocket cache),
@@ -813,7 +824,7 @@ immediate refusal with no inbox item, a `permission_refused` event `by: 'approve
 AI decider of PM-169, below). The auto mode's own refusals arrive as the
 `PermissionDenied` hook, through `PermissionBroker.refused`, as `permission_refused` `by:
 'classifier'`. The hard denials (credentials, the live instance's data, `WebFetch` of localhost,
-publishing) are deny rules computed in `runtime/sessions` (session policy) and rendered in `--settings` by
+publishing) are deny rules computed in `runtime/sessions` (`session policy`) and rendered in `--settings` by
 the Claude adapter; see `PROVIDERS.md` for the server-side decisions and their reasons.
 
 **The AI decider on the host (PM-169).** With approver `ai` (and the owner's `team.boundary.enabled`) a
@@ -1096,8 +1107,9 @@ Three full test suites at once (2026-10-04) took the load to 81–89 and the swa
 starts a worker per core, about 150 MB each. So **one heavy run goes at a time on the machine**, and a run's
 workers follow the machine's size.
 
-- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, node built-ins only, because the CLI imports it
-  directly and `full-test/index.ts` loads the sandbox runtime). macOS has no `flock` or `lockf`, so it is a
+- **The lock** (`apps/server/src/full-test/heavy-lock.ts`, with an Effect core in
+  `full-test/heavy-lock-core.ts`). The CLI imports the facade directly; `full-test/index.ts` also
+  loads the sandbox runtime. macOS has no `flock` or `lockf`, so the lock is a
   directory in `/tmp/projectman-<uid>/heavy` (`defaultHeavyLockDir()`, `PROJECTMAN_HEAVY_LOCK_DIR`): its parent
   must be 0700 and ours, or the queue is `heavy_lock_unavailable`. `holder/` is the lock itself (`mkdir` is
   atomic; `owner.json` inside names the process, its label, checkout and session); `queue/<ticket>.json` is one
@@ -1591,7 +1603,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   via `runner/session.ts`, `RunnerModuleOptions.refreshDependencies`; staleness uses the
   local lockfile and hidden npm lockfile modification times.
   The merge check uses the same reference-selection rule via `findDependencyReference` on the engine
-  (`engine-host/branch-merger.ts`, PM-580), selecting against the merged lockfile and blocking with
+  (`engine-host/merge-check.ts`, PM-580), selecting against the merged lockfile and blocking with
   `check_error` before running checks when no installed source matches.
   Per-worktree serialization and directory backups protect replacements; a server-start lifetime registry
   restricts targets, failed lookups retry in 60 seconds and copying is bounded to 90 seconds. Provider hooks allow
@@ -1647,7 +1659,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `engine-host/sandbox-dirs.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
-  folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, session policy) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
+  folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `session policy`) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex sessions. A Codex session also gets its
@@ -1746,7 +1758,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   own, checks size and checksum, and `SessionFolders.materializeFile` puts it in. The engine's limit
   allows the call only for a session whose folder `folders.make` created on it, with a plain name and a
   valid token. An engine without the method answers `unknown_method`, which counts as a failure above.
-  **Module:** `team-tools`
+  **Module:** `mcp`
 - **Browser installation and screenshots** — `index.ts`, `runtime/sessions` (`session policy`),
   `engine-host/screenshots.ts` (`resolveScenario`, `listImages`),
   `scripts/{browsers,shots}.mjs`, `scripts/lib/browser.mjs` (PM-268, PM-270, PM-312).
@@ -2013,7 +2025,8 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   **Module:** `services/merges`
 
 - **Member initiated merge (`merge.*`)** — `contracts/engine.ts` (`BranchMerger`, `EngineHost.merger`),
-  `engine-host/{branch-merger,merge-git,merge-input}.ts`, `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
+  `engine-host/{branch-merger,merge-check,doc-files,merge-repo,git-output,merge-git,merge-input}.ts`,
+  `engine-link/{methods,engine-handlers,engine-limit,engine-config}.ts`,
   `engine-link/remote/host.ts`, `engine-host/local-engine.ts` (`repoPath`), `services/merges/`
   (PM-451 and PM-452, parts 1/5 and 3/5 of PM-448). The gate queries the card's engine too;
   the server keeps the queue and member authorization, and never receives git credentials.

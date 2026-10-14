@@ -54,11 +54,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-615 plan usage (runtime/usage)**
 
-  File: apps/server/src/runtime/usage/refresh-loop.ts. Facade: RefreshLoop (same file), used by PlanUsageMonitor (runtime/usage/plan-usage.ts, exported by runtime/usage/index.ts). Its sleep keeps the process alive between start() and stop(); the old interval was unref'd.
-
-- **PM-616 admission (if any)**
-
-  No Effect program: the module has no timer or long-running part; its periodic sweeps (handoffs, deferred-start retry, senior waits) run in PM-613's kernel/sweeps.ts. PM-627 removes this item.
+  File: `apps/server/src/runtime/usage/refresh-loop.ts`. Facade: `RefreshLoop` (same file), used by `PlanUsageMonitor` (`runtime/usage/plan-usage.ts`, exported by `runtime/usage/index.ts`). Its sleep keeps the process alive between `start()` and `stop()`; the old interval was unref'd.
 
 - **PM-617 machine and outages**
 
@@ -96,10 +92,6 @@ Each card edits only its own item; the bold first line never changes.
 - **PM-624 worktree dependency copy**
 
   File: `apps/server/src/worktree/copy-budget.ts`. Facade: `copyWithinBudget` (same file), used by `cloneDependencies` (`worktree/dependencies.ts`).
-
-- **PM-625 engine host (if any)**
-
-  Planned.
 
 - **PM-626 heavy-run lock and sandboxed run**
 
@@ -184,7 +176,7 @@ and `MixedScheduler('sync')` alone was not enough for `runFork`/`runPromise`, ti
 from 1 to 2.
 
 The inline scheduler, `runFork` and `runPromise` live once in `apps/server/src/kernel/effect.ts` (PM-600;
-the input queue, the delivery, the document write queue and the merge queue import them from `kernel/`). Do not write a private copy.
+the programs and facades listed above import them through `kernel/index.ts`). Do not write a private copy.
 
 ### Running an async function that must be stopped cooperatively (`abortable`)
 

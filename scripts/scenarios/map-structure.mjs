@@ -91,8 +91,11 @@ export default async ({ instance, open, shoot, step, log }) => {
   await step('Landscape and keyboard focus', async () => {
     await show();
     await page.locator('[data-module="orders"]').waitFor();
-    await page.locator('[data-structure-roads] > path').first().waitFor();
+    // A vertical SVG path has zero bounding-box width, so Playwright calls it hidden.
+    await page.locator('[data-structure-roads] > path').first().waitFor({ state: 'attached' });
     await shoot(page, '01-landscape', { widths: [1512, 390] });
+    await page.getByRole('complementary').scrollIntoViewIfNeeded();
+    await shoot(page, '01-phone-list', { widths: [390] });
     await page.setViewportSize({ width: 1512, height: 982 });
     const plot = page.locator('[data-module="orders"]');
     await plot.focus();
@@ -100,6 +103,7 @@ export default async ({ instance, open, shoot, step, log }) => {
     await page.getByRole('complementary').getByRole('heading', { name: 'Rendelések', exact: true }).waitFor();
     await shoot(page, '03-module', { widths: [1512] });
     await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.activeElement?.dataset.module === 'orders');
     if (!(await plot.evaluate((el) => document.activeElement === el)))
       throw new Error('Escape did not restore the initiating plot focus');
     log('Keyboard Enter and Escape restore plot focus.');

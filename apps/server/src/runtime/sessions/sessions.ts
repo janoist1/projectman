@@ -122,6 +122,7 @@ import type { InboxService } from '../../domain/inbox';
 import { aiActor, KeyedMutex, newId, newUuid, SYSTEM_ACTOR } from '../../domain/util';
 import { MergeCardLock } from '../../kernel';
 import { CloseStates } from './close-states';
+import { SessionLifecycle } from './lifecycle';
 import { LiveSessions } from './live-sessions';
 import { MemberWorkspaces } from './workspaces';
 import type { WorkspacePlacement } from './workspaces';
@@ -338,7 +339,8 @@ export class SessionOrchestrator {
   private readonly folderListeners = new Set<(sessionId: string) => void>();
   /** The removals of session folders that are going on, by session (see `removeSessionFolderOf`). */
   private readonly folderRemovals = new Map<string, Promise<void>>();
-  private readonly unsubscribe: () => void;
+  /** The runner subscription, the background jobs and the shutdown of this manager (`lifecycle.ts`). */
+  private readonly lifecycle: SessionLifecycle;
   private readonly providerHolds = new ProviderQuotaHolds();
   private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
   private quotaResume:
@@ -356,7 +358,17 @@ export class SessionOrchestrator {
     this.mergeCards = deps.mergeCards ?? new MergeCardLock();
     this.deps = deps;
     this.ctx = deps.ctx;
-    this.unsubscribe = deps.runner.onEvent((event) => this.handleRunnerEvent(event));
+    this.lifecycle = new SessionLifecycle({
+      subscribe: () => deps.runner.onEvent((event) => this.handleRunnerEvent(event)),
+      onClose: () => {
+        for (const timer of this.cleanupTimers) clearTimeout(timer);
+        this.cleanupTimers.clear();
+        for (const { timer } of this.finishingTurns.values()) clearTimeout(timer);
+        this.finishingTurns.clear();
+        for (const { timer } of this.inputWaits.values()) clearTimeout(timer);
+        this.inputWaits.clear();
+      },
+    });
   }
 
   /** The member workspaces of the engine (PM-138); null: the engine has none, or is not connected. */
@@ -466,13 +478,7 @@ export class SessionOrchestrator {
   }
 
   dispose(): void {
-    this.unsubscribe();
-    for (const timer of this.cleanupTimers) clearTimeout(timer);
-    this.cleanupTimers.clear();
-    for (const { timer } of this.finishingTurns.values()) clearTimeout(timer);
-    this.finishingTurns.clear();
-    for (const { timer } of this.inputWaits.values()) clearTimeout(timer);
-    this.inputWaits.clear();
+    this.lifecycle.close();
   }
 
   /**
@@ -1225,9 +1231,9 @@ export class SessionOrchestrator {
   }
 
   private runDoneCleanup(projectKey: string, taskKey: string, mover: string | null = null): void {
-    this.cleanupDoneTask(projectKey, taskKey, { mover }).catch((err: unknown) =>
-      this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'),
-    );
+    this.lifecycle
+      .run(() => this.cleanupDoneTask(projectKey, taskKey, { mover }))
+      .catch((err: unknown) => this.ctx.logger.warn({ err, taskKey }, 'cleanup of a done task failed'));
   }
 
   /**
@@ -2384,6 +2390,7 @@ export class SessionOrchestrator {
 
   /** Resolves when every removal of a session folder that was started has finished (the server's stop, tests). */
   async settleFolderRemovals(): Promise<void> {
+    await this.lifecycle.settled();
     await Promise.all([...this.folderRemovals.values()]);
   }
 
@@ -2526,9 +2533,11 @@ export class SessionOrchestrator {
             const lostLogin = this.lostLogins.get(session.id);
             const ended = this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
             if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
-              void this.resumeAfterLoginLost(ended, lostLogin).catch((err: unknown) =>
-                this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
-              );
+              void this.lifecycle
+                .run(() => this.resumeAfterLoginLost(ended, lostLogin))
+                .catch((err: unknown) =>
+                  this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
+                );
             return;
           }
           // A late event from a process that already ended must not revive the session.
@@ -2653,13 +2662,18 @@ export class SessionOrchestrator {
               : undefined;
           // Persist the continuation while the usage request is still pending: a restart
           // during its timeout must not lose the affected task's wake-up.
-          if (stageId)
-            void this.quotaResume?.(session, stageId, 'quota').catch((err: unknown) =>
-              this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
+          const resume = this.quotaResume;
+          if (stageId && resume)
+            void this.lifecycle
+              .run(() => resume(session, stageId, 'quota'))
+              .catch((err: unknown) =>
+                this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
+              );
+          void this.lifecycle
+            .run(() => this.finishQuotaFailure(session, event.message, started, stageId))
+            .catch((err: unknown) =>
+              this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota recovery failed'),
             );
-          void this.finishQuotaFailure(session, event.message, started, stageId).catch((err: unknown) =>
-            this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota recovery failed'),
-          );
           return;
         }
       }
@@ -2772,9 +2786,11 @@ export class SessionOrchestrator {
   /** A session that waits for a new permission mode finished its turn: it restarts into it now. */
   private restartWhenIdle(session: Session): void {
     if (this.isPaused(session)) return;
-    this.locks
-      .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
-        this.restartForPermissions(session.projectKey, session.id),
+    this.lifecycle
+      .run(() =>
+        this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
+          this.restartForPermissions(session.projectKey, session.id),
+        ),
       )
       .catch((err: unknown) =>
         this.ctx.logger.warn(
@@ -2787,52 +2803,53 @@ export class SessionOrchestrator {
   /** A conflict-fix request changes placement only after the tool's turn has ended. */
   private restartForMergeFix(session: Session): void {
     if (session.workItem.type !== 'task' || this.isPaused(session)) return;
-    void this.locks
-      .run(sessionLockKey(session.projectKey, session.member, session.workItem), async () => {
-        const current = this.find(session.id);
-        if (
-          !current ||
-          current.workItem.type !== 'task' ||
-          current.state !== 'idle' ||
-          !this.isRunning(current.id) ||
-          this.isPaused(current)
-        )
-          return;
-        const task = this.deps.tasks.find(current.projectKey, current.workItem.taskKey);
-        if (!task) return;
-        const placement = this.live.mergeFixes.get(current.id);
-        if (!isMergeFixer(task.merge, current.member)) {
-          if (placement) {
-            // The resolution is in and the server runs the merge now: the same reason the closer gives (PM-552).
-            const stop: SessionStop | undefined = isMergeRunningFor(task.merge, current.member)
-              ? { kind: 'merge_running', taskKey: task.key }
-              : undefined;
-            await this.stop(current.projectKey, current.id, stop);
-          }
-          return;
+    const work = async () => {
+      const current = this.find(session.id);
+      if (
+        !current ||
+        current.workItem.type !== 'task' ||
+        current.state !== 'idle' ||
+        !this.isRunning(current.id) ||
+        this.isPaused(current)
+      )
+        return;
+      const task = this.deps.tasks.find(current.projectKey, current.workItem.taskKey);
+      if (!task) return;
+      const placement = this.live.mergeFixes.get(current.id);
+      if (!isMergeFixer(task.merge, current.member)) {
+        if (placement) {
+          // The resolution is in and the server runs the merge now: the same reason the closer gives (PM-552).
+          const stop: SessionStop | undefined = isMergeRunningFor(task.merge, current.member)
+            ? { kind: 'merge_running', taskKey: task.key }
+            : undefined;
+          await this.stop(current.projectKey, current.id, stop);
         }
-        if (placement?.branch === task.merge!.fix!.branch && placement.cwd === current.cwd) return;
-        const config = await this.deps.projects.config(current.projectKey);
-        const member = memberOf(config, current.member);
-        if (!this.mayWorkNow(config, member)) return;
-        this.live.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
-        await this.deps.runner.stop(current.id);
-        this.markEnded(current.id, null);
-        await this.start(
-          config,
-          member,
-          current.workItem,
-          task,
-          this.find(current.id),
-          messagesForFirstInput([
-            `Continue in the dedicated merge-fix worktree. Run git merge ${task.merge!.fix!.base}, resolve only mechanical conflicts, commit and call merge_task with resolution. Send behavioral conflicts back with update_task and a reason.`,
-          ]),
-          false,
-          null,
-          null,
-          null,
-        );
-      })
+        return;
+      }
+      if (placement?.branch === task.merge!.fix!.branch && placement.cwd === current.cwd) return;
+      const config = await this.deps.projects.config(current.projectKey);
+      const member = memberOf(config, current.member);
+      if (!this.mayWorkNow(config, member)) return;
+      this.live.stopReasons.set(current.id, { kind: 'restart', restartFor: 'description' });
+      await this.deps.runner.stop(current.id);
+      this.markEnded(current.id, null);
+      await this.start(
+        config,
+        member,
+        current.workItem,
+        task,
+        this.find(current.id),
+        messagesForFirstInput([
+          `Continue in the dedicated merge-fix worktree. Run git merge ${task.merge!.fix!.base}, resolve only mechanical conflicts, commit and call merge_task with resolution. Send behavioral conflicts back with update_task and a reason.`,
+        ]),
+        false,
+        null,
+        null,
+        null,
+      );
+    };
+    void this.lifecycle
+      .run(() => this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), work))
       .catch((err: unknown) =>
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not update merge-fix placement'),
       );
@@ -2875,9 +2892,11 @@ export class SessionOrchestrator {
       this.closeStates.markOf(session.id) !== undefined
     )
       return;
-    this.locks
-      .run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
-        this.compactIdle(session.id),
+    this.lifecycle
+      .run(() =>
+        this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), () =>
+          this.compactIdle(session.id),
+        ),
       )
       .catch((err: unknown) =>
         this.ctx.logger.warn({ err, sessionId: session.id }, 'could not compact the session'),

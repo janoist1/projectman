@@ -8,7 +8,7 @@ import { MAX_ATTACHMENT_BYTES, MAX_UNSENT_MESSAGE_ATTACHMENTS } from '@projectma
 import type { Actor, ServerEvent } from '@projectman/shared';
 import { MESSAGE_IMAGE_MAX_BYTES, TeamToolError } from '../../../contracts';
 import type { ToolContext } from '../../../contracts';
-import { aiActor } from '../../../domain';
+import { aiActor } from '../../../kernel';
 import { MessageImageRenderer } from '../message-attachments/image';
 import { pdfBytes, pngBytes } from '../../../../test/helpers/attachments';
 import {

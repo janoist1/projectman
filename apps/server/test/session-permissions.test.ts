@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { AiMemberConfig, ProjectConfig, Session, TaskDetail } from '@projectman/shared';
 import { APPROVER_NONE_REFUSAL } from '../src/contracts';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { addHumanAndLogin, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';

@@ -12,7 +12,7 @@ import {
 import os from 'node:os';
 import { basename, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { fullTestSandbox } from '../src/domain';
+import { fullTestSandbox } from '../src/runtime/sessions';
 import { createFullTestExecutor, runDirOf, runPaths } from '../src/full-test';
 import { silentLogger } from '../src/runner/test-helpers';
 

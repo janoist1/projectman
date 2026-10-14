@@ -4,7 +4,7 @@ import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush, settle } from './helpers/fakes';
-import { aiActor, SYSTEM_ACTOR } from '../src/domain';
+import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 
 const WAITING = 'waiting-answer';
 

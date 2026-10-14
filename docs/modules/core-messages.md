@@ -6,7 +6,7 @@ Stored team messages, routing, recipient/card-role rules, stale-message checks a
 
 ## Facade
 
-`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`) and the port types below. It does not export `MessageDelivery`: the real delivery is `runtime/delivery`, which `domain/index.ts` re-exports and runtime callers import directly.
+`core/messages/index.ts` is the only entry point. It exports `MessageService`, `Messaging` with its factory `createMessaging`, `RelationNotices`, the staleness helpers (`wakesFor`, `wakeFactsFor`, `recipientHasCardRole`, `staleReasonFor`, `senderResultLabelFor`) and the port types below. It does not export `MessageDelivery`: the real delivery is `runtime/delivery`, which assembly and runtime callers import through its facade.
 
 ## Ports
 

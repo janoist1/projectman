@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { routes } from '@projectman/shared';
 import type { InboxItem, InboxView, TaskDetail } from '@projectman/shared';
 import { TEAM_TOOLS, toolOutputText } from '../src/mcp';
-import { humanActor } from '../src/domain';
+import { humanActor } from '../src/kernel';
 import { createAppHarness, createProject, inject, OWNER_LOGIN, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { flush } from './helpers/fakes';

@@ -26,7 +26,7 @@ import { MigrationRefused, readPackage } from '../../../scripts/migrate/package'
 import { verifyHome } from '../../../scripts/migrate/verify';
 import { buildApp } from '../src/app';
 import { createRepositories } from '../src/db';
-import { machineKeyHash, sensitivePaths } from '../src/domain';
+import { machineKeyHash, sensitivePaths } from '../src/runtime/sessions';
 import { loadEngineConfig } from '../src/engine-link/engine-config';
 import { instanceRole } from '../src/instance';
 import { createFakeMcp, createFakeRunnerModule, FakeGithub } from './helpers/fakes';

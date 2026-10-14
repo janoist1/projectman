@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { fullTestSandbox } from '../domain';
+import { fullTestSandbox } from '../runtime/sessions';
 import {
   failedFiles,
   failureReport,

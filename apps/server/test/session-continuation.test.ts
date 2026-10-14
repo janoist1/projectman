@@ -1,6 +1,6 @@
 import type { AgentProvider, ProjectConfig, Session } from '@projectman/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MAX_FIRST_INPUT_CHARS } from '../src/domain';
+import { MAX_FIRST_INPUT_CHARS } from '../src/runtime/sessions';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

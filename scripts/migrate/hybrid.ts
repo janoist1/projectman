@@ -19,7 +19,7 @@ import {
   HYBRID_STAGING_DIR,
   LIVE_SESSION_STATES,
   newMachineKey,
-} from '../../apps/server/src/domain';
+} from '../../apps/server/src/runtime/sessions';
 import {
   cloudOrigin,
   ENGINE_CONFIG_FILE,

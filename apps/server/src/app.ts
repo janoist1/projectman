@@ -43,11 +43,12 @@ import type {
 import { createRepositories, openDatabase } from './db';
 import type { Repositories } from './db';
 import { createAttachmentStorage, createMessageAttachmentStorage } from './core/attachments';
-import { createDomain } from './domain';
+import { createDomain } from './assembly';
 import { createEventBus } from './core/base';
 import { freeBytesOf } from './engine-host';
 import { readHeavyRunSessions } from './full-test';
-import type { Domain, ScheduleTimer } from './domain';
+import type { Domain } from './assembly';
+import type { ScheduleTimer } from './services/schedules';
 import type { TemplateRegistry } from './core/base';
 import { createGithubService } from './services/github';
 import { parseFeedbackPublicUrl, registerFeedbackHostGuard } from './http';
@@ -59,7 +60,7 @@ import { createMemberWorkspaceManager, createWorktreeManager } from './worktree'
 import { registerWebsocket } from './ws';
 import { createCloudRemote, createEngineLinks, ENGINE_MAX_FRAME_BYTES } from './engine-link';
 import type { EngineLinks } from './engine-link';
-import { EngineRegistry } from './domain';
+import { EngineRegistry } from './runtime/sessions';
 
 /** Loopback addresses the server may listen on; remote access goes through `tailscale serve`. */
 export const LOOPBACK_HOSTS = ['127.0.0.1', '::1', 'localhost'] as const;
@@ -116,7 +117,7 @@ export function parseMode(value: string | undefined): RunMode {
 
 /** Module factories and instances; each can be replaced (tests inject fakes). */
 export interface AppModules {
-  nanogptKeyCheck?: import('./domain').NanogptKeyCheck;
+  nanogptKeyCheck?: import('./runtime/usage').NanogptKeyCheck;
   boundaryAdapter?: BoundaryOperationAdapter;
   createRunnerModule?: (opts: RunnerModuleOptions) => RunnerModule;
   createMcpModule?: (opts: McpModuleOptions) => McpModule;

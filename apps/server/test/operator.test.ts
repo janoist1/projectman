@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { isOperator, operatorOf } from '@projectman/shared';
 import type { AiMemberConfig, HumanMemberConfig, ProjectConfig } from '@projectman/shared';
-import { aiActor, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../src/domain';
+import { aiActor, SYSTEM_ACTOR, SYSTEM_AUTHOR } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

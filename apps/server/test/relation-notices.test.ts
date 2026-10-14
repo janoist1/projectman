@@ -1,7 +1,7 @@
 import { AiMemberConfig } from '@projectman/shared';
 import type { Session, TeamMessage } from '@projectman/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { aiActor, humanActor } from '../src/domain';
+import { aiActor, humanActor } from '../src/kernel';
 import { createDomainHarness, OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';

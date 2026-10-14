@@ -3,7 +3,7 @@ import { routes } from '@projectman/shared';
 import type { InboxItem } from '@projectman/shared';
 import { createAppHarness, createProject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
-import type { Domain } from '../src/domain';
+import type { Domain } from '../src/assembly';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
 
 describe('inbox asker admission preview', () => {

@@ -3,7 +3,7 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type Database from 'better-sqlite3';
 import { LATEST_SCHEMA_VERSION } from '../../apps/server/src/db';
-import { LIVE_SESSION_STATES } from '../../apps/server/src/domain';
+import { LIVE_SESSION_STATES } from '../../apps/server/src/runtime/sessions';
 import { databaseFiles, databaseInUse, snapshotDatabase } from './database';
 import { git, isGitRepository, redactRemoteUrl } from './git';
 import { pathGroup } from './paths';

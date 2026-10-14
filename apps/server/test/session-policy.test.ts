@@ -14,7 +14,7 @@ import {
   sessionPolicyFor,
   TEAM_TOOLS_ALLOWED,
   usesWorktree,
-} from '../src/domain';
+} from '../src/runtime/sessions';
 
 describe('role session policy', () => {
   it('allows only the pinned base merge and routine commits in a nominated merge-fix session', () => {

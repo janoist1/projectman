@@ -1284,7 +1284,8 @@ runs it after the change is live. Record its result here.
 
 `autoAllowBashIfSandboxed` does not cover every command. The PM-142 developer asked at 12:44 on
 2026-10-01 (inbox `inb_mupj09dy200e8fe2a4`) for
-`cd apps/server/src/domain && cat > /dev/null <<'EOF'` + an empty body + `EOF` + `grep -n …`; it was
+`cd <working-directory> && cat > /dev/null <<'EOF'` + an empty body + `EOF` + `grep -n …`
+(the historical directory is shown as a placeholder); it was
 the only one of its 84 shell commands that asked (transcript: one `PermissionRequest` hook
 decision). In Claude Code 2.1.284 (read from its bundled source): the bash parser gives up on a
 here-document whose body it did not see (an empty one: "Heredoc body was not scanned by the

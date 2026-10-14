@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@projectman/shared';
 import type { FullTestExecutor, FullTestResult, FullTestSpec } from '../src/contracts';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { repoGitDir } from '../src/services/full-tests';
 import { resolveGitDir } from '../src/engine-host/disk';
 import { createDomainHarness, OWNER, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';

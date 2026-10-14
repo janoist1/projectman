@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gateRequestOf } from '@projectman/shared';
-import { aiActor, SYSTEM_ACTOR } from '../src/domain';
+import { aiActor, SYSTEM_ACTOR } from '../src/kernel';
 import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { settle } from './helpers/fakes';

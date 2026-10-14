@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MAX_ATTACHMENT_BYTES } from '@projectman/shared';
 import type { Attachment, ServerEvent } from '@projectman/shared';
 import type { AttachmentStorage } from '../src/contracts';
-import { aiActor } from '../src/domain';
+import { aiActor } from '../src/kernel';
 import { pngBytes } from './helpers/attachments';
 import { createDomainHarness, OWNER_ACTOR, restartDomainHarness } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

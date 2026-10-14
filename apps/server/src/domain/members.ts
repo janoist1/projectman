@@ -38,6 +38,7 @@ import type {
   OperatorMemberChanges,
 } from '@projectman/shared';
 import { aiMemberDefaults } from '@projectman/templates';
+import type { MemberCapacity, MemberProfileSessions } from '../core/members/ports';
 import { findHumanByEmail, ownerHandles, requireAiMember, requireHuman } from './access';
 import type { ProjectAccess } from './access';
 import { isoNow } from './context';
@@ -46,9 +47,7 @@ import { conflict, DomainError, invalid, notFound } from '../kernel';
 import type { InboxService } from './inbox';
 import { defaultMemberHandle, defaultMemberName, humanMemberHandle } from './naming';
 import type { PresenceService } from './presence';
-import type { Admission } from '../runtime/admission';
 import type { Author, ConfigChange, ProjectService } from './projects';
-import type { SessionOrchestrator } from '../runtime/sessions';
 import { isOpenTask, isTheme } from './tasks';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -685,8 +684,8 @@ export class MemberProfiles {
   private readonly members: MemberService;
   private readonly tasks: TaskService;
   private readonly inbox: InboxService;
-  private readonly sessions: Pick<SessionOrchestrator, 'list'>;
-  private readonly admission: Pick<Admission, 'holders'>;
+  private readonly sessions: MemberProfileSessions;
+  private readonly admission: MemberCapacity;
 
   constructor(deps: {
     ctx: DomainContext;
@@ -694,8 +693,8 @@ export class MemberProfiles {
     members: MemberService;
     tasks: TaskService;
     inbox: InboxService;
-    sessions: Pick<SessionOrchestrator, 'list'>;
-    admission: Pick<Admission, 'holders'>;
+    sessions: MemberProfileSessions;
+    admission: MemberCapacity;
   }) {
     this.ctx = deps.ctx;
     this.projects = deps.projects;

@@ -33,7 +33,7 @@ export {
 import path from 'node:path';
 import type { EngineId, Me, Session, Task } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
-import type { AuthService } from '../auth';
+import type { InvitationAccounts } from '../core/members/ports';
 import type { EngineCounters } from '../runtime/sessions';
 import type {
   AttachmentStorage,
@@ -269,7 +269,7 @@ export interface DomainOptions {
   /** Where the files of team message attachments live (PROJECTMAN_HOME/message-attachments, PM-516). */
   messageAttachmentStorage: MessageAttachmentStorage;
   /** Creates the accounts of accepted invitations. */
-  accounts: Pick<AuthService, 'prepareUser'>;
+  accounts: InvitationAccounts;
   /** Root used to constrain automatic lockfile installs; unset means no install auto-approval. */
   worktreesRootDir?: string;
   /**

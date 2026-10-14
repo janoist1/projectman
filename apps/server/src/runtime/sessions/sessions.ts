@@ -3,7 +3,6 @@ import { LIVE_SESSION_STATES } from '@projectman/shared';
 import type { EnsureSessionResult } from '../../contracts';
 import {
   approverBlocker,
-  ALERT_SEEN_OPTION,
   cardWorkerSessions,
   DEFAULT_AGENT_PROVIDER,
   LOCAL_ENGINE_ID,
@@ -60,7 +59,7 @@ import type {
 } from '../../contracts';
 import { encodeWorkItem } from '../../db';
 import { roleLabel } from '../../agent-text';
-import { ownerHandles, requireAiMember } from '../../domain/access';
+import { requireAiMember } from '../../domain/access';
 import { assertNotPaused } from '../admission';
 import type { CardQuestions } from '../../domain/card-questions';
 import { isoNow } from '../../domain/context';
@@ -76,7 +75,6 @@ import type { TaskService } from '../../domain/tasks';
 import type { TimelineService } from '../../domain/timeline';
 import type { InputStallAlerts } from '../watchers';
 import type { UsageAlerts } from '../usage';
-import { ProviderQuotaHolds } from '../usage';
 import type { PlanUsageCache } from '../usage';
 import type { InboxService } from '../../domain/inbox';
 import { aiActor, KeyedMutex, newUuid } from '../../domain/util';
@@ -86,6 +84,7 @@ import { SessionLifecycle } from './lifecycle';
 import { MESSAGE_SEPARATOR, providerNotLoggedIn, SessionLauncher } from './launch';
 import { INPUT_STALL_MS, InputWaits } from './input-waits';
 import { LiveSessions } from './live-sessions';
+import { ProviderLimits } from './provider-limits';
 import { SessionTimers } from './session-timers';
 import { TurnFinishes } from './turn-finish';
 import { MemberWorkspaces } from './workspaces';
@@ -243,13 +242,8 @@ export class SessionOrchestrator {
   private readonly lifecycle: SessionLifecycle;
   /** Starts the sessions' processes (`launch.ts`). */
   private readonly launcher: SessionLauncher;
-  private readonly providerHolds = new ProviderQuotaHolds();
-  private quotaUsage: Pick<PlanUsageCache, 'get' | 'invalidate'> | undefined;
-  private quotaResume:
-    ((session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>) | undefined;
-  /** Sessions whose CLI reported a lost login, and of which provider, until they end (PM-467). */
-  private readonly lostLogins = new Map<string, AgentProvider>();
-  private quotaProbe: Promise<PlanUsage | null> | null = null;
+  /** What the provider limits: token usage, the request quota and a lost login (`provider-limits.ts`). */
+  private readonly limits: ProviderLimits;
   /** The member workspaces (PM-138) of each engine that has them, made when first used. */
   private readonly workspaceSets = new Map<
     EngineId,
@@ -312,6 +306,16 @@ export class SessionOrchestrator {
         this.lifecycle.run(() =>
           this.locks.run(sessionLockKey(session.projectKey, session.member, session.workItem), work),
         ),
+    });
+    this.limits = new ProviderLimits({
+      ctx: this.ctx,
+      projects: deps.projects,
+      runner: deps.runner,
+      ...(deps.usageAlerts ? { usageAlerts: deps.usageAlerts } : {}),
+      ...(deps.inbox ? { inbox: deps.inbox } : {}),
+      ...(deps.onAuthError ? { onAuthError: deps.onAuthError } : {}),
+      publish: (session) => this.publishSession(session),
+      background: (job) => this.lifecycle.run(job),
     });
     this.launcher = new SessionLauncher(deps, {
       live: this.live,
@@ -421,25 +425,21 @@ export class SessionOrchestrator {
     usage: Pick<PlanUsageCache, 'get' | 'invalidate'>,
     resume: (session: Session, stageId: string, after: 'quota' | 'login') => Promise<void>,
   ): void {
-    this.quotaUsage = usage;
-    this.quotaResume = resume;
+    this.limits.useQuotaRecovery(usage, resume);
   }
 
   observeProviderUsage(provider: AgentProvider, usage: PlanUsage | null): void {
-    if (provider === 'nanogpt' && !this.quotaProbe)
-      this.providerHolds.observed(provider, usage, this.ctx.now());
+    this.limits.observeProviderUsage(provider, usage);
   }
 
   /** Persisted quota deferrals must check usage again before any restart-time inference. */
   restoreProviderQuota(): void {
-    if (this.providerHolds.start('nanogpt', this.ctx.now())) this.quotaUsage?.invalidate();
+    this.limits.restoreProviderQuota();
   }
 
   /** Unknown quota holds retry only the read-only usage probe, never inference. */
-  async refreshProviderQuota(): Promise<void> {
-    if (this.providerHolds.check('nanogpt', this.ctx.now())?.kind !== 'unknown' || this.quotaProbe) return;
-    const usage = (await this.quotaUsage?.get('nanogpt')) ?? null;
-    this.providerHolds.observed('nanogpt', usage, this.ctx.now());
+  refreshProviderQuota(): Promise<void> {
+    return this.limits.refreshProviderQuota();
   }
 
   dispose(): void {
@@ -1331,13 +1331,7 @@ export class SessionOrchestrator {
   }
 
   assertProviderCooldown(provider: AgentProvider): void {
-    const hold = this.providerHolds.check(provider, this.ctx.now());
-    if (hold)
-      throw conflict('provider_rate_limited', 'Provider request limit reached', {
-        provider,
-        until: hold.until?.toISOString() ?? null,
-        kind: hold.kind,
-      });
+    this.limits.assertProviderCooldown(provider);
   }
 
   /**
@@ -1363,7 +1357,7 @@ export class SessionOrchestrator {
     // A resumed conversation whose CLI failed before it was ready cannot be resumed (PM-340): the next
     // start begins a new conversation, so it does not fail again and again with the same resume.
     const resumeFailed = failed && session?.state === 'starting' && resuming && !stop;
-    this.lostLogins.delete(sessionId);
+    this.limits.ended(sessionId);
     this.closeStates.ended(sessionId);
     this.removeSessionFolderOf(sessionId);
     this.turns.ended(sessionId);
@@ -1434,11 +1428,11 @@ export class SessionOrchestrator {
         }
         case 'state': {
           if (ENDED.has(event.state)) {
-            const lostLogin = this.lostLogins.get(session.id);
+            const lostLogin = this.limits.lostLogin(session.id);
             const ended = this.markEnded(session.id, event.state === 'failed' ? 1 : null, event.activity);
             if (ended && lostLogin && ended.lastStop?.kind === 'login_lost')
               void this.lifecycle
-                .run(() => this.resumeAfterLoginLost(ended, lostLogin))
+                .run(() => this.limits.resumeAfterLoginLost(ended, lostLogin))
                 .catch((err: unknown) =>
                   this.ctx.logger.error({ err, sessionId: session.id }, 'provider login deferral failed'),
                 );
@@ -1506,69 +1500,15 @@ export class SessionOrchestrator {
           return;
         }
         case 'usage': {
-          if (event.contextTokens !== undefined)
-            this.ctx.repos.sessions.setContextTokens(session.id, event.contextTokens);
-          if (event.entries.length === 0) return;
-          // Counted at once (PM-178). During a turn the session's state changes carry the new sum to
-          // the screens; once the turn is over (its last lines may come after the Stop), this does.
-          this.ctx.repos.tokenUsage.add(
-            {
-              sessionId: session.id,
-              projectKey: session.projectKey,
-              member: session.member,
-              taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-            },
-            this.ctx.now(),
-            event.entries,
-          );
-          // The warning limit (PM-187) only marks the session and tells the owners: it keeps running.
-          let alerted = false;
-          try {
-            alerted = this.deps.usageAlerts?.check(session.id) != null;
-          } catch (err) {
-            this.ctx.logger.warn({ err, sessionId: session.id }, 'usage alert check failed');
-          }
-          if (session.state !== 'working' || alerted)
-            this.publishSession(this.ctx.repos.sessions.get(session.id)!);
+          this.limits.usage(session, event);
           return;
         }
         case 'auth_error': {
-          this.lostLogins.set(session.id, event.provider);
-          this.deps.onAuthError?.(session.projectKey, session.member, event.provider, engineIdOf(session));
-          // The runner stops the session; its final state carries the message.
-          this.ctx.logger.warn(
-            { sessionId: session.id, provider: event.provider, message: event.message },
-            'agent CLI lost its login',
-          );
+          this.limits.authError(session, event);
           return;
         }
         case 'rate_limited': {
-          if (event.provider !== 'nanogpt') return;
-          const started = this.providerHolds.start(event.provider, this.ctx.now());
-          if (started) {
-            this.quotaUsage?.invalidate();
-            this.quotaProbe = Promise.resolve()
-              .then(() => this.quotaUsage?.get('nanogpt') ?? null)
-              .catch(() => null);
-          }
-          const stageId =
-            session.workItem.type === 'task'
-              ? this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId
-              : undefined;
-          // Persist the continuation while the usage request is still pending: a restart
-          // during its timeout must not lose the affected task's wake-up.
-          const resume = this.quotaResume;
-          if (stageId && resume)
-            void this.lifecycle
-              .run(() => resume(session, stageId, 'quota'))
-              .catch((err: unknown) =>
-                this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota deferral failed'),
-              );
-          void this.lifecycle
-            .run(() => this.finishQuotaFailure(session, event.message, started, stageId))
-            .catch((err: unknown) =>
-              this.ctx.logger.error({ err, sessionId: session.id }, 'provider quota recovery failed'),
-            );
+          this.limits.rateLimited(session, event);
           return;
         }
       }
@@ -1578,72 +1518,6 @@ export class SessionOrchestrator {
         'runner event handling failed',
       );
     }
-  }
-
-  private async finishQuotaFailure(
-    session: Session,
-    message: string,
-    started: boolean,
-    stageId?: string,
-  ): Promise<void> {
-    const usage = await this.quotaProbe;
-    if (started) {
-      this.providerHolds.settle('nanogpt', usage, this.ctx.now());
-      this.quotaProbe = null;
-      const hold = this.providerHolds.check('nanogpt', this.ctx.now());
-      const config = this.deps.projects.cachedConfig(session.projectKey);
-      const owners = config ? ownerHandles(config) : [];
-      if (owners.length > 0)
-        this.deps.inbox?.create({
-          projectKey: session.projectKey,
-          kind: 'alert',
-          assignees: owners,
-          source: session.member,
-          sessionId: session.id,
-          taskKey: session.workItem.type === 'task' ? session.workItem.taskKey : null,
-          title: 'NanoGPT request limit reached',
-          payload: {
-            alert: 'provider_rate_limited',
-            provider: 'nanogpt',
-            until: hold?.until?.toISOString() ?? null,
-            weeklyPercent: usage?.weeklyPercent ?? null,
-            message,
-            workItem: session.workItem,
-          },
-          options: [ALERT_SEEN_OPTION],
-        });
-    }
-    if (session.workItem.type === 'task' && stageId) await this.quotaResume?.(session, stageId, 'quota');
-  }
-
-  /**
-   * A task's session ended because its CLI lost the provider login (PM-467). The login is checked
-   * afresh: only a confirmed logout parks the task until the login is back (then admission resumes
-   * it). A login the check still finds, or cannot judge, is not a reason to start again: the
-   * server may refuse a login the CLI believes in, and every restart would fail the same way.
-   */
-  private async resumeAfterLoginLost(session: Session, provider: AgentProvider): Promise<void> {
-    if (session.workItem.type !== 'task') return;
-    const stageId = this.ctx.repos.tasks.get(session.workItem.taskKey)?.stageId;
-    if (!stageId) return;
-    let status;
-    try {
-      status = await this.deps.runner.providerStatus?.(provider, {
-        member: session.member,
-        refresh: true,
-        ...engineOption(engineIdOf(session)),
-      });
-    } catch (err) {
-      this.ctx.logger.warn({ err, sessionId: session.id, provider }, 'could not check the provider login');
-    }
-    if (status?.loggedIn !== false) {
-      this.ctx.logger.warn(
-        { sessionId: session.id, provider, loggedIn: status?.loggedIn ?? null },
-        'the session lost its login but the provider is not confirmed logged out: no automatic resume',
-      );
-      return;
-    }
-    await this.quotaResume?.(session, stageId, 'login');
   }
 
   /**

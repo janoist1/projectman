@@ -79,7 +79,8 @@ import { CardQuestions } from './card-questions';
 import { createDomainContext, defaultTemplateRegistry, isoNow } from './context';
 import type { DomainContext, TemplateRegistry } from './context';
 import { createEventBus } from './event-bus';
-import { GithubSync } from './github-sync';
+import { GithubSync } from '../services/github';
+import { GithubTools } from '../mcp/github';
 import { InboxService, delegatedPermissionPrompt } from './inbox';
 import { OperatorActions, OperatorApprovals } from './operator-actions';
 import { FixLimitWatch } from './fix-limit';
@@ -166,7 +167,6 @@ export { BackgroundTasks } from './background';
 export { BoardService } from './board';
 export { BoundaryService } from './boundary';
 export { CardQuestions, QUESTION_LIMIT } from './card-questions';
-export { GithubSync } from './github-sync';
 export { InboxService, PERMISSION_OPTIONS, DECISION_OPTIONS, ANSWER_OPTION } from './inbox';
 export { CardMeasure } from './card-measure';
 export { FixLimitWatch } from './fix-limit';
@@ -1089,6 +1089,7 @@ export function createDomain(opts: DomainOptions) {
     calls: toolCaller,
     tools: {
       feedback: new FeedbackTools({ calls: toolCaller, ctx, projects, feedback }),
+      github: new GithubTools({ calls: toolCaller, ctx, github: opts.github, tasks, sync: githubSync }),
       members: new MemberTools({ calls: toolCaller, members }),
       tasks: new TaskTools({
         calls: toolCaller,
@@ -1136,8 +1137,6 @@ export function createDomain(opts: DomainOptions) {
     inbox,
     timeline,
     memory: opts.memory,
-    github: opts.github,
-    githubSync,
     messageAttachments,
   });
   const agentQuestions = new AgentQuestions({

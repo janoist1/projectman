@@ -504,13 +504,23 @@ export interface FeedbackToolsHandler {
   closeFeedback(ctx: ToolContext, args: { markId: string; reply?: string }): Promise<FeedbackToolResult>;
 }
 
+/** The tools of services/github (PM-604). */
+export interface GithubToolsHandler {
+  /** link_pull_request: attach a GitHub PR to the task. */
+  linkPullRequest(
+    ctx: ToolContext,
+    args: { taskKey: string; repo: string; number: number },
+  ): Promise<{ task: Task }>;
+}
+
 export interface TeamToolsHandler
   extends
     MemberToolsHandler,
     TaskToolsHandler,
     AttachmentToolsHandler,
     MergeToolsHandler,
-    FeedbackToolsHandler {
+    FeedbackToolsHandler,
+    GithubToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -653,11 +663,6 @@ export interface TeamToolsHandler
   /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
   checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
 
-  /** link_pull_request: attach a GitHub PR to the task. */
-  linkPullRequest(
-    ctx: ToolContext,
-    args: { taskKey: string; repo: string; number: number },
-  ): Promise<{ task: Task }>;
   /**
    * ask_human: create a question in a human's inbox; the answer arrives later as a team message.
    * The question is written for a non-specialist. Each option is a label, or a label with its

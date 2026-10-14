@@ -1,5 +1,5 @@
 import { TaskKey, type TaskLink } from '@projectman/shared';
-import type { PullRequestInfo } from '../contracts';
+import type { PullRequestInfo } from '../../contracts';
 
 /** "owner/name": the same rule as `RepoConfig.github` in the project configuration. */
 const REPO_PATTERN = /^[\w.-]+\/[\w.-]+$/;

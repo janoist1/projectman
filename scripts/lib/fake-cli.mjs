@@ -8,7 +8,7 @@ const repo = fileURLToPath(new URL('../../', import.meta.url));
 export const FAKE_CLIS = {
   claude: join(repo, 'apps/server/test/fixtures/fake-claude.mjs'),
   codex: join(repo, 'apps/server/test/fixtures/fake-codex.mjs'),
-  gh: join(repo, 'apps/server/src/github/test-fixtures/fake-gh.mjs'),
+  gh: join(repo, 'apps/server/src/services/github/test-fixtures/fake-gh.mjs'),
 };
 
 /**

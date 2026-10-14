@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PullRequestInfo } from '../contracts';
+import type { PullRequestInfo } from '../../contracts';
 import { GithubError, type GithubErrorCode } from './errors';
 import { createPullRequestPoller, type PullRequestPollerOptions, type PullRequestTarget } from './poller';
 import { createTestLogger, pullRequestInfo } from './test-fixtures/harness';
@@ -98,6 +98,42 @@ afterEach(() => {
 });
 
 describe('pull request poller', () => {
+  it('collects synchronous watches before fetching on a later turn', async () => {
+    const { poller, fake } = setup({
+      [keyOf(A)]: [pullRequestInfo()],
+      [keyOf(B)]: [pullRequestInfo({ number: B.number })],
+    });
+    poller.watch([A], vi.fn());
+    poller.watch([B], vi.fn());
+    expect(fake.calls).toEqual([]);
+    await advance(0);
+    expect(fake.calls.map(({ key }) => key)).toEqual([keyOf(A), keyOf(B)]);
+    await poller.close();
+    await advance(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('leaves no timers after close during a round', async () => {
+    const { poller, fake } = setup({ [keyOf(A)]: [{ delayMs: 1500, result: pullRequestInfo() }] });
+    poller.watch([A], vi.fn());
+    await advance(0);
+    await poller.close();
+    await advance(0);
+    expect(fake.stats.active).toBe(0);
+    expect(fake.stats.aborted).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('leaves no timers after the last subscriber leaves', async () => {
+    const { poller } = setup({ [keyOf(A)]: [pullRequestInfo()] });
+    const unsubscribe = poller.watch([A], vi.fn());
+    await advance(0);
+    unsubscribe();
+    await advance(0);
+    expect(vi.getTimerCount()).toBe(0);
+    await poller.close();
+  });
+
   it('reports the first state, then only real changes', async () => {
     const open = pullRequestInfo({ checks: 'pending' });
     const commented = pullRequestInfo({ checks: 'pending', updatedAt: '2026-09-29T11:00:00Z' });

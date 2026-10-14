@@ -37,7 +37,7 @@ Documentation map:
    people and agents (task titles, notes, messages, label names) is in the project's language.
 3. **No real agent or `gh` CLI in automated tests.** Tests use fakes that speak the same
    protocol: `apps/server/test/fixtures/fake-claude.mjs`, `fake-codex.mjs`, and
-   `apps/server/src/github/test-fixtures/fake-gh.mjs`.
+   `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
 ## Concepts
 
@@ -692,7 +692,7 @@ before touching or writing Effect code.
   events, links, the repository of a task, one-line text.
 - `worktree/` — git worktrees and branches for tasks; member workspaces (independent clones,
   safe branch switches, pinned review checkouts; PM-138).
-- `github/` — `gh`-based pull request lookups and polling (the owner's read login).
+- `services/github/` — `gh`-based pull request lookups, polling, synchronization and PR snapshots (the owner's read login).
 - `http/` — request guards shared by the internal endpoints (local-only checks).
 - `config/` — the customization repository: YAML load and save, git history, revert,
   configuration migrations.

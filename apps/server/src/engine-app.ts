@@ -48,7 +48,7 @@ import { nonLocalReason } from './http/local-guard';
 import { assertHomeMayStart } from './instance';
 import { createMachineProbe } from './machine';
 import { createRunnerModule } from './runner';
-import { createGithubService } from './github';
+import { createGithubService } from './services/github';
 import { createMemberWorkspaceManager, createWorktreeManager } from './worktree';
 
 /**

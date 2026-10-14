@@ -51,7 +51,7 @@ import { conflict, forbidden, invalid, projectManagerMoveRefused, themeRefused }
 import type { AddedRelation } from '../events';
 import type { InboxService } from '../inbox';
 import type { ProjectService } from '../projects';
-import { PullRequestRecords } from '../pull-requests';
+import { PullRequestRecords } from '../../services/github';
 import { LIVE_SESSION_STATES } from '../sessions';
 import type { TimelineService } from '../timeline';
 import { actorHandle, newId, unique } from '../util';

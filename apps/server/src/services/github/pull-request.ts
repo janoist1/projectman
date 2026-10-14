@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { PullRequestInfo } from '../contracts';
+import type { PullRequestInfo } from '../../contracts';
 import { GithubError } from './errors';
 
 /** Fields requested from `gh pr view --json` and `gh pr list --json`. */

@@ -4,6 +4,7 @@ import type {
   AttachmentToolsHandler,
   MergeToolsHandler,
   FeedbackToolsHandler,
+  GithubToolsHandler,
 } from '../contracts';
 import {
   type ToolCaller,
@@ -56,7 +57,6 @@ import type {
 import { TeamToolError } from '../contracts';
 import type {
   AttachmentPage,
-  GithubService,
   ListTasksInput,
   LocatedAttachmentForTool,
   MessageAttachmentReading,
@@ -78,7 +78,6 @@ import type { BoundaryService } from './boundary';
 import { DomainError } from './errors';
 import type { FixLimitDecision, FixLimitWatch } from './fix-limit';
 import type { HandoffService } from './handoffs';
-import type { GithubSync } from './github-sync';
 import { ANSWER_OPTION, sponsorOrOwners } from './inbox';
 import type { InboxService } from './inbox';
 import type { Messaging } from './messaging';
@@ -102,8 +101,6 @@ import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
 import { RELAY_WINDOW_MS } from './pm-reply-relay';
 import { aiActor, unique } from './util';
-
-const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
 /** The send_message refusals of the messaging module, in the words the agent reads. */
 function toMessageToolError(err: unknown): unknown {
@@ -150,6 +147,7 @@ export class TeamToolsService implements TeamToolsHandler {
     attachments: AttachmentToolsHandler;
     merges: MergeToolsHandler;
     feedback: FeedbackToolsHandler;
+    github: GithubToolsHandler;
   };
   private readonly projectState: ProjectState;
   private readonly docWrites: Pick<DocWrites, 'read' | 'request'>;
@@ -270,8 +268,6 @@ export class TeamToolsService implements TeamToolsHandler {
   private readonly handoffs: Pick<HandoffService, 'recordNote'>;
   private readonly timeline: TimelineService;
   private readonly memory: MemberMemoryStore;
-  private readonly github: GithubService;
-  private readonly githubSync: GithubSync;
   private readonly messageAttachments: Pick<
     MessageAttachmentService,
     'assertCanUpload' | 'upload' | 'delete'
@@ -286,6 +282,7 @@ export class TeamToolsService implements TeamToolsHandler {
       attachments: AttachmentToolsHandler;
       merges: MergeToolsHandler;
       feedback: FeedbackToolsHandler;
+      github: GithubToolsHandler;
     };
     projectState: ProjectState;
     boundary: BoundaryService;
@@ -305,8 +302,6 @@ export class TeamToolsService implements TeamToolsHandler {
     handoffs: Pick<HandoffService, 'recordNote'>;
     timeline: TimelineService;
     memory: MemberMemoryStore;
-    github: GithubService;
-    githubSync: GithubSync;
     /** The files sent with team messages (PM-516, PM-520). */
     messageAttachments: Pick<MessageAttachmentService, 'assertCanUpload' | 'upload' | 'delete'>;
     /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
@@ -348,8 +343,6 @@ export class TeamToolsService implements TeamToolsHandler {
     this.handoffs = deps.handoffs;
     this.timeline = deps.timeline;
     this.memory = deps.memory;
-    this.github = deps.github;
-    this.githubSync = deps.githubSync;
     this.messageAttachments = deps.messageAttachments;
   }
 
@@ -749,38 +742,7 @@ export class TeamToolsService implements TeamToolsHandler {
     ctx: ToolContext,
     args: { taskKey: string; repo: string; number: number },
   ): Promise<{ task: Task }> {
-    return this.guard(async () => {
-      const who = await this.callerWithRequest(ctx, 'link_pull_request');
-      return this.recorded(who, { action: 'task_update', taskKey: args.taskKey }, async () => {
-        const taskKey = this.validTaskKey(ctx, args.taskKey);
-        if (!REPO_RE.test(args.repo))
-          throw new TeamToolError('invalid', 'repo must look like "owner/name" (the GitHub repository).');
-        if (!Number.isInteger(args.number) || args.number <= 0)
-          throw new TeamToolError('invalid', 'number must be the positive number of the pull request.');
-        let title: string | undefined;
-        let state: string | undefined;
-        try {
-          const pr = await this.github.getPullRequest(args.repo, args.number);
-          this.tasks.recordPullRequest(pr);
-          title = pr.title;
-          state = pr.state;
-        } catch (err) {
-          this.ctx.logger.warn(
-            { err, repo: args.repo, number: args.number },
-            'could not fetch the pull request',
-          );
-        }
-        const task = this.tasks.addLink(
-          ctx.projectKey,
-          taskKey,
-          { kind: 'pull_request', ref: String(args.number), repo: args.repo, title, state },
-          aiActor(ctx.member),
-          ctx.sessionId,
-        );
-        if (state !== 'merged' && state !== 'closed') this.githubSync.watch(args.repo, args.number);
-        return { task };
-      });
-    });
+    return this.tools.github.linkPullRequest(ctx, args);
   }
 
   async askHuman(

@@ -1,7 +1,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { GithubService, PullRequestInfo } from '../../contracts';
-import { GithubError, parsePullRequestUrl } from '../../github';
-import type { GithubErrorCode } from '../../github';
+import { GithubError, parsePullRequestUrl } from '../../services/github';
+import type { GithubErrorCode } from '../../services/github';
 import { EngineCallError } from '../rpc';
 import type { RemoteHub } from './hub';
 

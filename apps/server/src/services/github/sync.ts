@@ -1,10 +1,10 @@
-import type { GithubService, PullRequestInfo } from '../contracts';
-import type { DomainContext } from './context';
-import { isoNow } from './context';
-import { DomainError } from './errors';
-import type { ProjectService } from './projects';
-import type { TaskService } from './tasks';
-import { SYSTEM_ACTOR } from './util';
+import type { GithubService, PullRequestInfo } from '../../contracts';
+import type { DomainContext } from '../../domain/context';
+import { isoNow } from '../../domain/context';
+import { DomainError } from '../../domain/errors';
+import type { ProjectService } from '../../domain/projects';
+import type { TaskService } from '../../domain/tasks';
+import { SYSTEM_ACTOR } from '../../domain/util';
 import {
   isOpenTask,
   isTheme,

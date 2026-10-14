@@ -293,9 +293,9 @@ export const MODULES: readonly ModuleEntry[] = [
     id: 'services/github',
     layer: 'service',
     target: 'services/github',
-    pass: 'split',
-    paths: ['domain/github-sync.ts', 'domain/pull-requests.ts', 'github/'],
-    sealed: false,
+    pass: 'split-tool',
+    paths: ['services/github/'],
+    sealed: true,
   },
   {
     id: 'services/feedback',

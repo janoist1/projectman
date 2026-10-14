@@ -18,7 +18,6 @@ import { z } from 'zod';
 import { TeamToolError } from '../contracts';
 import {
   formatCurrentWork,
-  formatLinkedPullRequest,
   formatMemberStart,
   formatProjectState,
   formatReleaseCheck,
@@ -43,6 +42,7 @@ import { TASK_TOOL_GROUP } from './tasks';
 import { ATTACHMENT_TOOL_GROUP } from './attachments';
 import { MERGE_TOOL_GROUP } from './merges';
 import { FEEDBACK_TOOL_GROUP } from './feedback';
+import { GITHUB_TOOL_GROUP } from './github';
 /**
  * Server-level instructions, sent once at initialization. Claude Code appends them to the
  * system prompt; Codex (0.159.1) shows them to the model as the description of the server's
@@ -75,6 +75,7 @@ export const TEAM_TOOL_GROUPS: readonly TeamToolGroup[] = [
   ATTACHMENT_TOOL_GROUP,
   MERGE_TOOL_GROUP,
   FEEDBACK_TOOL_GROUP,
+  GITHUB_TOOL_GROUP,
 ];
 /** The tools not moved yet: each moves with its own module's pass (PM-577). */
 const UNSORTED_TOOLS: readonly TeamTool[] = [
@@ -575,30 +576,6 @@ const UNSORTED_TOOLS: readonly TeamTool[] = [
     },
     async run({ ctx, args, handler }) {
       return formatReleaseCheck(await handler.checkRelease(ctx, args.commit ? { commit: args.commit } : {}));
-    },
-  }),
-  defineTool({
-    name: 'link_pull_request',
-    title: 'Link a pull request',
-    readOnly: false,
-    description:
-      'Attach a GitHub pull request to a task, so its checks, reviews and merge are tracked on the task. ' +
-      'Call it right after opening the pull request.',
-    input: {
-      task_key: taskKeyInput,
-      repo: z
-        .string()
-        .regex(/^[\w.-]+\/[\w.-]+$/, 'expected "owner/name"')
-        .describe('GitHub repository as "owner/name".'),
-      number: z.number().int().positive().describe('Pull request number.'),
-    },
-    async run({ ctx, args, handler }) {
-      const { task } = await handler.linkPullRequest(ctx, {
-        taskKey: args.task_key,
-        repo: args.repo,
-        number: args.number,
-      });
-      return formatLinkedPullRequest(task, args.repo, args.number);
     },
   }),
   defineTool({

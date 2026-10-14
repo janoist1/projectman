@@ -32,7 +32,7 @@ should confirm still goes to them as a question.
   `CODEX_REFRESH_TOKEN_URL_OVERRIDE` and `CODEX_REVOKE_TOKEN_URL_OVERRIDE`.
 - Never run the real `claude`, `codex` or `gh` CLI in automated tests. Use the fakes in
   `apps/server/test/fixtures/` (`fake-claude.mjs`, `fake-codex.mjs`, sharing
-  `fake-tui.mjs`) and `apps/server/src/github/test-fixtures/fake-gh.mjs`.
+  `fake-tui.mjs`) and `apps/server/src/services/github/test-fixtures/fake-gh.mjs`.
 
 ## Contracts
 
@@ -74,7 +74,7 @@ These rules apply to every member, including Codex:
 | mcp        | `apps/server/src/mcp/**`                                                                                                                          |
 | core       | `apps/server/src/{db,domain,runtime,api,auth,config,ws,http,full-test}/**`, `apps/server/src/{app,index}.ts`, `apps/server/test/**`, `scripts/**` |
 | web        | `apps/web/**`                                                                                                                                     |
-| github     | `apps/server/src/github/**`                                                                                                                       |
+| github     | `apps/server/src/services/github/**`                                                                                                              |
 | context    | `packages/templates/**`, `apps/server/src/{context,worktree,agent-text}/**`                                                                       |
 | widget     | `apps/feedback-widget/**`                                                                                                                         |
 

@@ -1,4 +1,4 @@
-import type { GithubModuleOptions, GithubService, PullRequestInfo } from '../contracts';
+import type { GithubModuleOptions, GithubService, PullRequestInfo } from '../../contracts';
 import { GithubError, toGithubError } from './errors';
 import { createGhRunner } from './gh';
 import { createPullRequestPoller } from './poller';

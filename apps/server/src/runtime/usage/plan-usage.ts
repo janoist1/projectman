@@ -1,8 +1,10 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { DEFAULT_AGENT_PROVIDER, type AgentProvider, type PlanUsage } from '@projectman/shared';
-import type { EventBus, PlanUsageProvider } from '../contracts';
-import type { BackgroundTasks } from './background';
-import type { ProjectService } from './projects';
+import type { EventBus, PlanUsageProvider } from '../../contracts';
+import type { BackgroundTasks } from '../../domain/background';
+import type { ProjectService } from '../../domain/projects';
+
+import { RefreshLoop } from './refresh-loop';
 
 interface Entry {
   value: PlanUsage | null;
@@ -102,7 +104,7 @@ export class PlanUsageMonitor {
   private readonly background: BackgroundTasks;
   private readonly intervalMs: number;
   private refreshing = false;
-  private timer: ReturnType<typeof setInterval> | undefined;
+  private readonly loop: RefreshLoop;
 
   constructor(opts: {
     provider: PlanUsageProvider;
@@ -121,6 +123,11 @@ export class PlanUsageMonitor {
     this.logger = opts.logger;
     this.background = opts.background;
     this.intervalMs = opts.ttlMs && opts.ttlMs > 0 ? opts.ttlMs : 60_000;
+    this.loop = new RefreshLoop({
+      intervalMs: this.intervalMs,
+      tick: () => this.refresh(),
+      logger: opts.logger,
+    });
     this.cache = new PlanUsageCache({
       provider: opts.provider,
       providerFor: opts.providerFor,
@@ -137,13 +144,11 @@ export class PlanUsageMonitor {
   /** Probes now and then every interval. */
   start(): void {
     this.refresh();
-    this.timer = setInterval(() => this.refresh(), this.intervalMs);
-    this.timer.unref();
+    this.loop.start();
   }
 
   stop(): void {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = undefined;
+    this.loop.stop();
   }
 
   /** Probes every provider the AI members run on, in the background; one round at a time. */

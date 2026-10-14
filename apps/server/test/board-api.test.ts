@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BoardView, Me, MemberView, ServerEvent } from '@projectman/shared';
 import type { AgentProvider } from '@projectman/shared';
+import { PlanUsageMonitor } from '../src/runtime/usage';
 import { cookieOf, createAppHarness, createProject, inject, setupOwner } from './helpers/app-harness';
 import type { AppHarness } from './helpers/app-harness';
 import { OWNER, OWNER_ACTOR } from './helpers/domain-harness';
@@ -11,9 +12,10 @@ describe('board API', () => {
   let cookie: string;
   let refreshUsage: () => void;
   beforeEach(async () => {
-    const intervals = vi.spyOn(globalThis, 'setInterval');
-    h = await createAppHarness();
-    refreshUsage = intervals.mock.calls.find((call) => call[1] === 60_000)![0] as () => void;
+    const starts = vi.spyOn(PlanUsageMonitor.prototype, 'start');
+    h = await createAppHarness({ app: { claudeTmpRoots: [] } });
+    const monitor = starts.mock.contexts[0] as PlanUsageMonitor;
+    refreshUsage = () => monitor.refresh();
     cookie = await setupOwner(h.app);
     await createProject(h, cookie);
   });

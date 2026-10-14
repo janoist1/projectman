@@ -54,7 +54,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-615 plan usage (runtime/usage)**
 
-  Planned.
+  File: apps/server/src/runtime/usage/refresh-loop.ts. Facade: RefreshLoop (same file), used by PlanUsageMonitor (runtime/usage/plan-usage.ts, exported by runtime/usage/index.ts). Its sleep keeps the process alive between start() and stop(); the old interval was unref'd.
 
 - **PM-616 admission (if any)**
 

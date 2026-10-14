@@ -354,6 +354,7 @@ export class SessionOrchestrator {
         scopes.push({
           sessionId: session.id,
           scopeId: record.scopeId,
+          // Resumes preserve startedAt from the first generation, so this bound precedes every failed scope.
           sinceAgeMs: Math.max(
             0,
             this.ctx.now().getTime() - Math.min(Date.parse(session.startedAt), Date.parse(record.failedAt)),

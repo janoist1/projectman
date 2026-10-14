@@ -666,7 +666,7 @@ function signalRules(level: OperatorWatch, report: { done: string; decision: str
       dismiss,
       message,
     ];
-  const step = `On an idle, merge_waiting or merge_blocked signal you may take ${level === 'unblock' ? 'one step' : 'a step'} yourself: the tool named in its step field (start_task or start_member), for the task and members it names, with the signal's signal_id. Weigh it first: the focus, the priorities, and the check before a start. When you do not step, say why.`;
+  const step = `On an idle, merge_waiting, merge_blocked or answer_stalled signal you may take ${level === 'unblock' ? 'one step' : 'a step'} yourself: the tool named in its step field (start_task or start_member), for the task and members it names, with the signal's signal_id. Weigh it first: the focus, the priorities, and the check before a start. On answer_stalled read the card (get_task) and the state (get_project_state) first, then start_member (never start_task) with a text that names the answer or message already delivered to the member and the next step, and check afterwards that it was delivered. When you do not step, say why.`;
   const followUp =
     'A signal that comes back with follow_up true was acted on (steps lists what): tell the owners what you did and what became of it.';
   return level === 'unblock'

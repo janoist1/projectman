@@ -1341,9 +1341,11 @@ describe('system prompt', () => {
       it('lets the unblock level take one step on an idle or merge signal, with no general ban', () => {
         const unblock = promptAt('unblock');
         expect(unblock).toContain(
-          'On an idle, merge_waiting or merge_blocked signal you may take one step yourself',
+          'On an idle, merge_waiting, merge_blocked or answer_stalled signal you may take one step yourself',
         );
         expect(unblock).toContain(step);
+        expect(unblock).toContain('On answer_stalled read the card (get_task)');
+        expect(unblock).toContain('start_member (never start_task)');
         expect(unblock).toContain("with the signal's signal_id");
         expect(unblock).toContain('Weigh it first: the focus, the priorities, and the check before a start.');
         expect(unblock).toContain('When you do not step, say why.');

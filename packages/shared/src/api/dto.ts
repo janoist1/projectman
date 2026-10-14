@@ -147,6 +147,10 @@ export const OperatorRequestView = z.object({
 });
 export type OperatorRequestView = z.infer<typeof OperatorRequestView>;
 export const OPERATOR_SIGNAL_WAKE_INTERVAL_MS = 15 * 60_000;
+/** An answer delivered to a member who has not worked since is a stall once it has stood this long (PM-694). */
+export const OPERATOR_ANSWER_STALL_GRACE_MS = 120_000;
+/** The least time between two wake-ups carrying `answer_stalled` signals in one project (PM-694). */
+export const OPERATOR_ANSWER_STALL_WAKE_MS = 60_000;
 export const OPERATOR_SILENT_WORK_MINUTES = 30;
 /** A card held by an AI member with no work running for this long is idle (PM-547). */
 export const OPERATOR_IDLE_MINUTES = 30;
@@ -166,8 +170,17 @@ export const OperatorSignalKind = z.enum([
   'merge_blocked',
   'unreleased',
   'ready_waiting',
+  'answer_stalled',
 ]);
 export type OperatorSignalKind = z.infer<typeof OperatorSignalKind>;
+/** The facts of an `answer_stalled` signal (PM-694): the evidence is a delivered answer or message, never its text. */
+export const AnswerStalledFacts = z.object({
+  evidenceId: z.string(),
+  evidenceAt: z.string().datetime(),
+  member: MemberHandle,
+  lastActionAt: z.string().datetime().nullable(),
+});
+export type AnswerStalledFacts = z.infer<typeof AnswerStalledFacts>;
 export const OperatorSignalState = z.enum(['pending', 'open', 'accepted', 'dismissed', 'resolved']);
 export type OperatorSignalState = z.infer<typeof OperatorSignalState>;
 export const OperatorSignal = z.object({

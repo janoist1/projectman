@@ -7,6 +7,7 @@ import {
   SelectablePermissionMode,
   SessionStop,
   SessionStartCause,
+  SessionWorkMetadata,
 } from '@projectman/shared';
 import type {
   AgentProvider,
@@ -52,6 +53,7 @@ interface SessionRow {
   doing_summary: string | null;
   doing_detail: string | null;
   last_stop: string | null;
+  work_metadata: string | null;
   start_cause: string | null;
   engine_id: string;
 }
@@ -61,6 +63,17 @@ function lastStopOf(raw: string | null): SessionStop | undefined {
   if (!raw) return undefined;
   try {
     const parsed = SessionStop.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The stored work metadata (JSON); an empty or broken value is none (PM-694). */
+function workMetadataOf(raw: string | null): SessionWorkMetadata | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = SessionWorkMetadata.safeParse(JSON.parse(raw));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
@@ -153,6 +166,7 @@ const baseSession = (r: SessionRow): Session => ({
     ? { doing: { summary: r.doing_summary, ...(r.doing_detail ? { detail: r.doing_detail } : {}) } }
     : {}),
   ...(lastStopOf(r.last_stop) ? { lastStop: lastStopOf(r.last_stop) } : {}),
+  ...(workMetadataOf(r.work_metadata) ? { workMetadata: workMetadataOf(r.work_metadata) } : {}),
   ...(startCauseOf(r.start_cause) ? { startCause: startCauseOf(r.start_cause) } : {}),
   // The column has a default, so a row from before engines is the local one; a session without an
   // `engineId` is local, so a local session reads as it always did.
@@ -202,10 +216,15 @@ export type SessionPatch = Partial<
   /** Why the session stopped (PM-288); null clears it. */
   lastStop?: SessionStop | null;
   startCause?: SessionStartCause | null;
+  /** What the chat proves about the session's work (PM-694); null clears it. */
+  workMetadata?: SessionWorkMetadata | null;
 };
 
 /** The patch with `doing` spread over its two columns; the other keys are columns of their own. */
-const COLUMNS: Record<Exclude<keyof SessionPatch, 'doing' | 'lastStop' | 'startCause'>, string> = {
+const COLUMNS: Record<
+  Exclude<keyof SessionPatch, 'doing' | 'lastStop' | 'startCause' | 'workMetadata'>,
+  string
+> = {
   usageSince: 'usage_since',
   permissionModeOverride: 'permission_mode',
   approverOverride: 'approver',
@@ -383,7 +402,7 @@ export function createSessionRepository(db: Db) {
       return row.n;
     },
     update(id: string, patch: SessionPatch): Session | null {
-      const { doing, lastStop, startCause, ...columns } = patch;
+      const { doing, lastStop, startCause, workMetadata, ...columns } = patch;
       const entries = Object.entries(columns).filter(([, v]) => v !== undefined) as Array<
         [keyof typeof COLUMNS, unknown]
       >;
@@ -392,6 +411,8 @@ export function createSessionRepository(db: Db) {
         named.push(['doing_summary', doing?.summary ?? null], ['doing_detail', doing?.detail ?? null]);
       }
       if (lastStop !== undefined) named.push(['last_stop', lastStop ? JSON.stringify(lastStop) : null]);
+      if (workMetadata !== undefined)
+        named.push(['work_metadata', workMetadata ? JSON.stringify(workMetadata) : null]);
       if (startCause !== undefined)
         named.push(['start_cause', startCause ? JSON.stringify(startCause) : null]);
       if (named.length > 0) {

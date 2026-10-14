@@ -6,7 +6,15 @@ import type {
   OperatorWakeStart,
 } from './ports';
 import {
+  answerStallEvidence,
   dutyMembers,
+  isOpenTask,
+  isTheme,
+  OPERATOR_ANSWER_STALL_MUTE_MINUTES,
+  OPERATOR_ANSWER_STALL_WAKE_MS,
+  OPERATOR_FAST_SIGNAL_KINDS,
+  PENDING_INBOX_STATES,
+  WAITING_ANSWER_LABEL,
   startableCards,
   OPERATOR_DISMISSIBLE_SIGNAL_KINDS,
   formatInjectedTeamMessage,
@@ -15,6 +23,7 @@ import {
   projectManagersOf,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
   OPERATOR_SIGNAL_STEP_KINDS,
+  OPERATOR_SIGNAL_STEPS,
   operatorSignalBudget,
   operatorWatchOf,
   OperatorSignal,
@@ -32,6 +41,8 @@ import {
   OPERATOR_UNRELEASED_HOURS,
 } from '@projectman/shared';
 import type {
+  AnswerEvidence,
+  AnswerStalledFacts,
   OperatorSignalKind,
   OperatorSignalStepTargets,
   OperatorWatch,
@@ -39,10 +50,12 @@ import type {
   Stage,
   Task,
   TaskWait,
+  TimelineEvent,
 } from '@projectman/shared';
 import type { OperatorSignalRecord } from '../../db';
 import type { DomainContext } from '../../core/base';
 import { isoNow } from '../../core/base';
+import { answerEvidenceOf } from '../../core/messages';
 import type { ProjectService } from '../../core/projects';
 import type { TaskWaits } from '../../core/tasks';
 import { conflict, invalid } from '../../kernel';
@@ -64,7 +77,22 @@ const BOARD_KINDS: ReadonlySet<OperatorSignalKind> = new Set([
   'merge_blocked',
   'unreleased',
   'ready_waiting',
+  'answer_stalled',
 ]);
+
+/** The card events of a member that prove a step of work (PM-694); an incoming message, a transition and a question do not. */
+const MEMBER_WORK_EVENTS: ReadonlySet<TimelineEvent['type']> = new Set([
+  'task_note',
+  'attachment_added',
+  'task_updated',
+  'task_stage_changed',
+  'task_labels_changed',
+  'task_check_changed',
+  'task_link_added',
+  'task_merge_requested',
+  'team_message',
+]);
+const CARD_EVENTS_READ = 300;
 
 const WAKE_NEVER =
   'On a signal never merge, release, approve, move a card, or set a label or a setting; stalled, silent, outage and nobody signals always go to the owners.';
@@ -82,6 +110,11 @@ const WAKE_HEADERS: Record<OperatorWatch, string> = {
   unblock: `${WAKE_CHECK} ${WAKE_STEP} ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
   drive: `${WAKE_CHECK} ${WAKE_STEP} When steps_left is 0, bring the signal to the owners. ${WAKE_NEVER} ${WAKE_DISMISS} ${WAKE_ONE_MESSAGE}`,
 };
+
+/** The member of an `answer_stalled` case key: `answer_stalled:<taskKey>:<member>:<evidenceId>`. */
+function answerStalledMember(caseKey: string): string | null {
+  return caseKey.split(':')[2] ?? null;
+}
 
 /** One notice per system problem episode; notices never authorize a write. */
 export class OperatorSignals {
@@ -256,6 +289,11 @@ export class OperatorSignals {
       const merger = ctx.repos.taskMerges.open(projectKey, task.key)?.merger;
       allowed.members = merger ? startable([merger]) : [];
       allowed.taskKey = task.key;
+    } else if (signal.kind === 'answer_stalled' && task) {
+      // Only the card's current assignee, on the same card; never start_task (PM-694).
+      const member = answerStalledMember(signal.caseKey);
+      allowed.members = member && task.assignee === member ? startable([member]) : [];
+      allowed.taskKey = task.key;
     } else if (signal.kind === 'unreleased') {
       allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
     } else if (signal.kind === 'ready_waiting') {
@@ -373,7 +411,7 @@ export class OperatorSignals {
   }
 
   async deliver(projectKey: string): Promise<void> {
-    if (this.waking.has(projectKey) || !this.pending(projectKey).length || !this.due(projectKey)) return;
+    if (this.waking.has(projectKey) || !this.wakeable(projectKey).length) return;
     this.waking.add(projectKey);
     try {
       await this.deps.admission.attempt(this.start(projectKey));
@@ -503,6 +541,23 @@ export class OperatorSignals {
           subject: row.merger,
         });
       }
+      for (const task of cards) {
+        const stage = stageOf(config, task.stageId);
+        const member = task.assignee ? aiMember(task.assignee) : null;
+        if (
+          !member ||
+          isOnLeave(member) ||
+          !isOpenTask(task) ||
+          isTheme(task) ||
+          (stage?.kind !== 'work' && stage?.kind !== 'step')
+        )
+          continue;
+        const stall = this.answerStall(projectKey, task, member.handle);
+        if (!stall.evidence) continue;
+        const caseKey = `answer_stalled:${task.key}:${member.handle}:${stall.evidence.id}`;
+        if (this.mutedAnswerStall(projectKey, task.key, member.handle, caseKey)) continue;
+        add({ kind: 'answer_stalled', caseKey, taskKey: task.key, subject: stall.evidence.id });
+      }
     }
 
     for (const state of ['failed', 'blocked'] as const)
@@ -564,6 +619,107 @@ export class OperatorSignals {
     return found;
   }
 
+  /**
+   * Whether something reached the assignee after their last proven step and they have not worked since
+   * (PM-694), read from receipts, sessions and the card's own timeline only; never from the chat text.
+   */
+  private answerStall(
+    projectKey: string,
+    task: Task,
+    member: string,
+  ): { evidence: AnswerEvidence | null; all: AnswerEvidence[]; lastStepAt: number | null } {
+    const { ctx } = this.deps;
+    const sessions = ctx.repos.sessions.list(projectKey, { member, taskKey: task.key });
+    let lastStepAt: number | null = null;
+    const step = (at: number) => {
+      if (!Number.isNaN(at) && (lastStepAt === null || at > lastStepAt)) lastStepAt = at;
+    };
+    for (const session of sessions)
+      if (session.workMetadata?.lastWorkAt) step(Date.parse(session.workMetadata.lastWorkAt));
+    // The card's own timeline is the sure fallback; the member's questions and a label put on by the
+    // system are no work, and neither is anything that reached them.
+    for (const event of ctx.repos.timeline.list(projectKey, { taskKey: task.key, limit: CARD_EVENTS_READ })) {
+      if (event.actor.kind !== 'ai' || event.actor.handle !== member || !MEMBER_WORK_EVENTS.has(event.type))
+        continue;
+      if (event.type === 'task_labels_changed') {
+        const added = (event.data.added as string[] | undefined) ?? [];
+        const removed = (event.data.removed as string[] | undefined) ?? [];
+        if (removed.length === 0 && added.every((label) => label === WAITING_ANSWER_LABEL)) continue;
+      }
+      step(Date.parse(event.createdAt));
+    }
+    const busy = (state: string) => sessions.some((s) => s.state === state);
+    const idleSince = sessions
+      .filter((s) => !['working', 'starting', 'waiting_input'].includes(s.state))
+      .reduce((max, s) => Math.max(max, Date.parse(s.endedAt ?? s.stateSince ?? s.lastActivityAt) || 0), 0);
+    // What reached the member before the card entered its stage belongs to the stage it left.
+    const enteredAt = task.stageEnteredAt ? Date.parse(task.stageEnteredAt) : 0;
+    const all = answerEvidenceOf(ctx, projectKey, task.key, member).filter(
+      (e) => !(enteredAt > Date.parse(e.at)),
+    );
+    const openQuestion =
+      ctx.repos.inbox
+        .list(projectKey, { state: PENDING_INBOX_STATES, kind: 'question', taskKey: task.key })
+        .filter((item) => item.source === member).length > 0;
+    return {
+      all,
+      lastStepAt,
+      evidence: answerStallEvidence({
+        now: ctx.now().getTime(),
+        labelled: task.labels.includes(WAITING_ANSWER_LABEL),
+        openQuestion,
+        permissionWaiting: busy('waiting_permission'),
+        working: busy('working') || busy('starting'),
+        waitingInput: busy('waiting_input'),
+        idleSince,
+        lastStepAt,
+        evidence: all,
+      }),
+    };
+  }
+
+  /**
+   * A card and member stay quiet for half an hour after the Operator's own step on any earlier signal of
+   * theirs (PM-694), so new evidence is no unlimited authority. The open signal of the case itself is never
+   * muted (its follow-up stays), but a case that came back after its signal closed counts its steps all
+   * together: once they used up the largest step budget it stays quiet.
+   */
+  private mutedAnswerStall(projectKey: string, taskKey: string, member: string, caseKey: string): boolean {
+    const { ctx } = this.deps;
+    const since = ctx.now().getTime() - OPERATOR_ANSWER_STALL_MUTE_MINUTES * 60_000;
+    const earlier = ctx.repos.operatorSignals
+      .list(projectKey)
+      .filter(
+        (s) =>
+          s.kind === 'answer_stalled' && s.taskKey === taskKey && answerStalledMember(s.caseKey) === member,
+      );
+    if (earlier.some((s) => s.caseKey === caseKey && !s.resolvedAt)) return false;
+    let sameCaseSteps = 0;
+    for (const s of earlier) {
+      const steps = ctx.repos.operatorRequests
+        .stepsOfSignal(s.id)
+        .filter((step) => step.status !== 'refused');
+      if (s.caseKey === caseKey) sameCaseSteps += steps.length;
+      if (steps.some((step) => Date.parse(step.at) > since)) return true;
+    }
+    return sameCaseSteps >= OPERATOR_SIGNAL_STEPS.drive;
+  }
+
+  private answerStalledFacts(signal: OperatorSignalRecord): AnswerStalledFacts | null {
+    const member = answerStalledMember(signal.caseKey);
+    const task = signal.taskKey ? this.deps.ctx.repos.tasks.get(signal.taskKey) : null;
+    if (!member || !task) return null;
+    const stall = this.answerStall(signal.projectKey, task, member);
+    const evidence = stall.all.find((e) => e.id === signal.subject);
+    if (!evidence) return null;
+    return {
+      evidenceId: evidence.id,
+      evidenceAt: evidence.at,
+      member,
+      lastActionAt: stall.lastStepAt === null ? null : new Date(stall.lastStepAt).toISOString(),
+    };
+  }
+
   /** The latest dismissal covers cards that have not re-entered their stage since it. */
   private acknowledged(task: Task, ack: OperatorSignalRecord | null): boolean {
     return (
@@ -605,12 +761,34 @@ export class OperatorSignals {
     if (wait.next.length > 0) return available(wait.next.map((entry) => entry.handle));
     return stage.kind === 'step' ? available(stageOwners(config, stage)) : [];
   }
-  private due(projectKey: string): boolean {
-    const last = this.deps.ctx.repos.operatorSignals
-      .list(projectKey)
-      .flatMap((s) => (s.deliveredAt ? [Date.parse(s.deliveredAt)] : []))
-      .sort((a, b) => b - a)[0];
-    return last === undefined || this.deps.ctx.now().getTime() - last >= OPERATOR_SIGNAL_WAKE_INTERVAL_MS;
+  /**
+   * The pending signals whose line may wake the Operator now (PM-694): the general line waits
+   * `OPERATOR_SIGNAL_WAKE_INTERVAL_MS` after its last delivery, the fast line (`answer_stalled`) only
+   * `OPERATOR_ANSWER_STALL_WAKE_MS` after its own. Each line counts the deliveries of its own kinds.
+   */
+  private wakeable(projectKey: string): OperatorSignalRecord[] {
+    const now = this.deps.ctx.now().getTime();
+    const delivered = (fast: boolean) =>
+      this.deps.ctx.repos.operatorSignals
+        .list(projectKey)
+        .flatMap((s) =>
+          s.deliveredAt && OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) === fast
+            ? [Date.parse(s.deliveredAt)]
+            : [],
+        )
+        .sort((a, b) => b - a)[0];
+    const due = (fast: boolean) => {
+      const last = delivered(fast);
+      return (
+        last === undefined ||
+        now - last >= (fast ? OPERATOR_ANSWER_STALL_WAKE_MS : OPERATOR_SIGNAL_WAKE_INTERVAL_MS)
+      );
+    };
+    const signals = this.pending(projectKey);
+    if (!signals.length) return signals;
+    const dueFast = due(true);
+    const dueGeneral = due(false);
+    return signals.filter((s) => (OPERATOR_FAST_SIGNAL_KINDS.includes(s.kind) ? dueFast : dueGeneral));
   }
   private save(signal: OperatorSignalRecord, publish = true): void {
     this.deps.ctx.repos.operatorSignals.save(signal);
@@ -637,13 +815,13 @@ export class OperatorSignals {
         fields: () => ({ projectKey }),
       },
       run: async () => {
-        if (!this.due(projectKey)) return;
+        if (!this.wakeable(projectKey).length) return;
         const config = await projects.config(projectKey);
         const member = operatorOf(config);
         if (!member) return;
         if (isWorkPaused(ctx.repos.pauses.open(), projectKey))
           throw conflict('team_paused', 'the team is paused');
-        const signals = this.pending(projectKey);
+        const signals = this.wakeable(projectKey);
         if (!signals.length) return;
         const level = operatorWatchOf(config);
         const now = isoNow(ctx);
@@ -662,11 +840,13 @@ export class OperatorSignals {
                 facts:
                   s.kind === 'ready_waiting'
                     ? this.readyFacts(s)
-                    : s.inboxItemId
-                      ? ctx.repos.inbox.get(s.inboxItemId)?.payload
-                      : s.subject
-                        ? ctx.repos.sessions.get(s.subject)?.activity
-                        : null,
+                    : s.kind === 'answer_stalled'
+                      ? this.answerStalledFacts(s)
+                      : s.inboxItemId
+                        ? ctx.repos.inbox.get(s.inboxItemId)?.payload
+                        : s.subject
+                          ? ctx.repos.sessions.get(s.subject)?.activity
+                          : null,
                 step: this.stepOf(level, config, s),
                 steps_left: budget.left,
                 next_step_at: budget.nextAt,

@@ -1,4 +1,88 @@
-# The cloud board on AWS Lightsail (PM-532)
+# The cloud board on AWS EC2 or Lightsail
+
+## EC2 central account and provisioning (PM-676, part of PM-664)
+
+PM-664 uses **EC2 in the `aroom` profile**, with the domain registrar and retained Route 53 zone
+in **`i`**. Authoritative DNS is already Cloudflare. `aws.profile` targets compute, S3 and IAM;
+`route53.profile` targets registrar/source-zone calls (absent: `aws.profile`). Every call passes
+an explicit profile and region; Route 53 Domains always uses `us-east-1`. `aws` and `preflight`
+never import records or switch delegation. Cloudflare remains the DNS writer.
+
+These are owner provisioning commands, outside AI sessions. No AWS login, secret or operation is
+required for reviewing this change; the tests use a stateful fake. The Mac engine connects outward
+to the board and receives no AWS profile credentials. Provisioning does not change engine RPC.
+
+1. On the owner's Mac, install AWS CLI v2 and sign in to `aroom` and `i` with MFA. Confirm each
+   account with `aws --profile aroom --region <region> sts get-caller-identity` and
+   `aws --profile i --region us-east-1 sts get-caller-identity`. Save the expected account ids in
+   the execution package, and compare them with each script's printed identity before approval.
+2. Copy `deploy/aws/config.example.json` to the protected secrets store described below. Replace
+   **all** choice markers, including the region: the example region is illustrative, not an owner
+   choice. Use unique bucket names. `aws.compute=ec2` requires an explicit `aws.ec2` object:
+   `instanceType`, `amiId`, `vpcId`, `subnetId` and integer `volumeGiB` (20–1024). No EC2 type,
+   image or disk-size default is chosen. Retain `aws.profile=aroom`, `route53.profile=i`.
+   To discover candidates before the config is complete, the owner can read the catalogue with
+   `aws --profile aroom --region <region> ec2 describe-images --owners 099720109477 --filters
+'Name=name,Values=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*'` and
+   `aws --profile aroom --region <region> ec2 describe-subnets`. No resource is created by these reads.
+   EC2 refuses a missing/empty compute profile and the registrar profile `i` before any AWS call.
+   Other explicit central profiles are accepted; the name check supplements STS/owner checks.
+3. Run `npm run cloud -- preflight`. It prints the STS account, available Canonical Ubuntu 24.04
+   amd64 server AMIs and subnet choices. It checks the chosen AMI owner, OS, architecture, HVM/EBS
+   root and minimum disk size; enabled region; VPC/subnet ownership, free IPv4 and DNS support;
+   subnet's effective default route directly to an attached internet gateway; IPv4 network ACL;
+   and encrypted-EBS/x86_64 support plus availability of the type in the subnet's zone. This proves
+   the configured network prerequisites; installed SSM and application connectivity are verified
+   by the later host adapter. The conservative ACL check accepts an initial allow-all IPv4 rule
+   in each direction and refuses custom ACLs it cannot prove. The security group still blocks all
+   new inbound connections. No VPC, subnet, NAT, load balancer or extra machine is created.
+4. Run `npm run cloud -- aws --dry-run`. Review the proposed instance, root volume and public IPv4
+   separately. The script prints **cost components**, not a regional price quote: Linux On-Demand
+   running hours (730/month for an always-on estimate); encrypted gp3 storage at the selected GiB
+   even while stopped; one auto-assigned public IPv4 while allocated; transfer and S3 usage.
+   Baseline gp3 performance is explicit (3000 IOPS, 125 MiB/s); burstable instances use standard
+   CPU credits. Record current regional rates from [EC2](https://aws.amazon.com/ec2/pricing/on-demand/),
+   [EBS](https://aws.amazon.com/ebs/pricing/) and [IPv4](https://aws.amazon.com/vpc/pricing/) in the
+   execution package before the owner approves creation. Dry-run performs only reads and does not
+   write `cloud.env`, IAM keys, tags or any AWS resource.
+5. After the exact creation step is approved, run `npm run cloud -- aws`. Its cost preview precedes
+   `RunInstances`. It creates `<instanceName>-host` with EC2-only trust, the managed policy
+   `AmazonSSMManagedInstanceCore` and a same-name instance profile, plus a dedicated
+   `<instanceName>-cloud` security group with **empty inbound** and IPv4 outbound internet access.
+   One instance uses the existing selected public subnet, an automatically assigned public IPv4,
+   encrypted gp3 root EBS, IMDSv2 required/hop-limit 1, termination protection and shutdown=stop.
+   The two private encrypted S3 buckets and separate Litestream/restic users use the common
+   provisioning steps documented below. The host role has SSM rights only; backup keys remain
+   bucket-scoped in the protected `cloud.env`. Save the new `RESTIC_PASSWORD` separately.
+6. If a command fails, read its failed step and rerun the same config after resolving the cause.
+   IAM profile propagation retries the identical request/token. A lost launch response is recovered
+   by rediscovering the instance; no local state file is used. Every resource has ownership tags;
+   instances are searched by Name alone to detect unmanaged namesakes. A unique instance must have
+   `Name=<instanceName>` and `ProjectmanManaged=true`. Multiple instances/groups, foreign tags,
+   changed VPC/image/type/disk/role/profile/IMDS, extra NICs or any inbound rule refuse the operation.
+   The script never repairs those states destructively or launches a replacement. A stopped instance
+   remains stopped. A terminated namesake refuses creation while visible: an intentional replacement
+   needs a separately reviewed name/config. The deterministic `ClientToken` hashes the namespace,
+   account, region and complete public launch request; AWS also enforces one instance per retry.
+
+The only UserData is `deploy/aws/ec2-bootstrap.sh`: it installs/enables sshd, EC2 Instance Connect
+and the SSM agent. Credentials, `cloud.env`, board data and engine keys are absent. Ubuntu's snap
+agent setup follows the [AWS Ubuntu SSM guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/agent-install-ubuntu-64-snap.html);
+image ownership/name checks follow the [Canonical image catalogue](https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/).
+Host operation over SSH through SSM is the next slice, **PM-677**; `up` and the legacy Lightsail
+host commands refuse an EC2 configuration until that adapter is installed. The container keeps bridge
+networking, with no public port, host network or Docker socket.
+
+The provisioning login needs the EC2 describe operations above and `DescribeInstances`,
+`DescribeSecurityGroups`, `DescribeVolumes`, `DescribeInstanceAttribute`, `CreateSecurityGroup`,
+tag-on-create `CreateTags`, `RunInstances`; IAM `GetRole`, `CreateRole`, `ListRolePolicies`,
+`ListAttachedRolePolicies`, `AttachRolePolicy`, `GetInstanceProfile`, `CreateInstanceProfile`,
+`AddRoleToInstanceProfile`, tag-on-create `TagRole`/`TagInstanceProfile`, and `PassRole` restricted to
+the host role and EC2 service. S3 and backup-user permissions are listed in the legacy/common
+resource guide below. The `i` login needs only the registrar/Route 53 rights for the requested
+DNS reads; it receives no EC2, S3, host IAM or SES provisioning call.
+
+## Lightsail compatibility and common backup/Cloudflare guide (PM-532)
 
 This guide sets up the board in the cloud so that it is reachable when your Mac is off: one AWS
 Lightsail machine that runs the container of [HYBRID.md](HYBRID.md) (`deploy/cloud/Dockerfile`), two
@@ -88,7 +172,9 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 
 | Field                                    | Default                                      | Meaning                                                                                             |
 | ---------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `aws.compute`                            | `lightsail`                                  | `ec2` selects PM-676 provisioning; existing version-1 files keep Lightsail                          |
 | `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                 |
+| `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)        |
 | `aws.region`                             | required                                     | for example `eu-west-1`                                                                             |
 | `aws.availabilityZone`                   | `<region>a`                                  |                                                                                                     |
 | `aws.instanceName`                       | `projectman-cloud`                           | also the prefix of the IAM users                                                                    |
@@ -105,6 +191,7 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 | `access.sessionDuration`                 | `24h`                                        | the Access session (`30m`, `24h`)                                                                   |
 | `access.integratorServiceToken`          | `false`                                      | make a second service token for the integrator's smoke test                                         |
 | `route53.hostedZoneId`                   | looked up by name                            | used from PM-537                                                                                    |
+| `route53.profile`                        | `aws.profile`                                | independent registrar and retained Route 53 source account; PM-664 uses `i`                         |
 
 `cloud.env` is a docker env-file: `NAME=value`, one per line, no quotes. `npm run cloud` sets only
 the names it owns and keeps every other line and comment: `aws` writes the S3 names and keys,

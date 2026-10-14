@@ -32,7 +32,10 @@ const withoutComments = (source: string) =>
 
 describe('deploy/aws/host.sh', () => {
   it('parses', () => {
-    const result = spawnSync('bash', ['-n', join(root, 'deploy/aws/host.sh')], { encoding: 'utf8' });
+    const result = spawnSync('bash', ['-n', join(root, 'deploy/aws/host.sh')], {
+      encoding: 'utf8',
+      env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
+    });
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
   });

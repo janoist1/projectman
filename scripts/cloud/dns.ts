@@ -128,7 +128,10 @@ export function mapRecords(sources: Source[], zone: string, reserved: string[]):
 }
 
 async function sourceZone(context: CloudContext) {
-  const aws = new AwsCli(context.deps, context.config.aws);
+  const aws = new AwsCli(context.deps, {
+    profile: context.config.route53.profile,
+    region: context.config.aws.region,
+  });
   let id = context.config.route53.hostedZoneId;
   if (!id) {
     const answer = await aws.callAs(
@@ -420,7 +423,7 @@ const domainSchema = z.object({
   DnssecKeys: z.array(z.unknown()).optional(),
 });
 function domainsCli(context: CloudContext) {
-  return new AwsCli(context.deps, { profile: context.config.aws.profile, region: 'us-east-1' });
+  return new AwsCli(context.deps, { profile: context.config.route53.profile, region: 'us-east-1' });
 }
 function domainDetail(context: CloudContext) {
   return domainsCli(context).callAs(

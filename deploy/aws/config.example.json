@@ -1,12 +1,17 @@
 {
   "version": 1,
   "aws": {
-    "profile": "i",
+    "compute": "ec2",
+    "profile": "aroom",
     "region": "eu-west-1",
-    "availabilityZone": "eu-west-1a",
     "instanceName": "projectman-cloud",
-    "bundleId": "small_3_0",
-    "blueprintId": "ubuntu_24_04",
+    "ec2": {
+      "instanceType": "CHOOSE-INSTANCE-TYPE",
+      "amiId": "CHOOSE-UBUNTU-24.04-AMD64-AMI",
+      "vpcId": "CHOOSE-EXISTING-VPC",
+      "subnetId": "CHOOSE-PUBLIC-SUBNET",
+      "volumeGiB": "CHOOSE-20-TO-1024-GIB-AS-A-NUMBER"
+    },
     "databaseBucket": "CHANGE-ME-projectman-db",
     "backupBucket": "CHANGE-ME-projectman-backup"
   },
@@ -14,14 +19,14 @@
     "url": "https://github.com/janoist1/projectman.git"
   },
   "cloudflare": {
-    "zone": "example.com",
-    "hostname": "board.example.com",
-    "feedbackHostname": "feedback.example.com"
+    "zone": "istvan.io",
+    "hostname": "chopper.istvan.io",
+    "feedbackHostname": "feedback.istvan.io"
   },
   "access": {
     "emails": ["owner@example.com"],
     "sessionDuration": "24h",
     "integratorServiceToken": false
   },
-  "route53": {}
+  "route53": { "profile": "i" }
 }

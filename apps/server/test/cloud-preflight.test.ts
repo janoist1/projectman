@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { ACCOUNT } from './helpers/fake-aws';
 import { CloudflareWorld } from './helpers/fake-cloudflare';
+import { EC2_CONFIG } from './helpers/fake-ec2';
 
 /** `npm run cloud -- preflight`: the AWS part (PM-534) and the Cloudflare part (PM-536). */
 
@@ -27,6 +28,32 @@ const AWS_LINES = (secretsDir: string) => [
 ];
 
 describe('preflight', () => {
+  it('lists Ubuntu 24.04 images, subnet choices and costs with no EC2 or DNS writes', async () => {
+    world.aws.accounts.set('aroom', ACCOUNT);
+    world.writeConfig({
+      aws: {
+        compute: 'ec2',
+        profile: 'aroom',
+        region: 'eu-west-1',
+        ec2: EC2_CONFIG,
+        databaseBucket: 'acme-projectman-db',
+        backupBucket: 'acme-projectman-backup',
+      },
+      route53: { profile: 'i' },
+    });
+    expect(await preflight()).toBe(0);
+    expect(world.output).toContain(`available Ubuntu 24.04 amd64: ${EC2_CONFIG.amiId}`);
+    expect(world.output).toContain(`available subnet: ${EC2_CONFIG.subnetId} eu-west-1b`);
+    expect(world.output).toContain('cost instance: t3.small');
+    expect(world.output).toContain('cost EBS: encrypted gp3 40 GiB');
+    expect(world.output).toContain('cost IPv4: one');
+    expect(world.aws.mutations()).toEqual([]);
+    expect(world.cf.mutations()).toEqual([]);
+    expect(
+      world.aws.calls.some((call) => call.args[0] === 'lightsail' || call.args[0] === 'route53domains'),
+    ).toBe(false);
+  });
+
   it('passes, prints the account and changes nothing', async () => {
     expect(await preflight()).toBe(0);
     expect(world.lines).toEqual([

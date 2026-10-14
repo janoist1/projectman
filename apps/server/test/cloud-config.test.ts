@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runCloud } from '../../../scripts/cloud/commands';
 import { defaultConfigPath, loadConfig, parseConfig } from '../../../scripts/cloud/config';
 import { baseConfig, CloudWorld } from './helpers/fake-aws';
+import { EC2_CONFIG } from './helpers/fake-ec2';
 
 /** The configuration file of the cloud commands (PM-534). */
 
@@ -31,6 +32,7 @@ describe('the defaults', () => {
     expect(parsed).toEqual({
       version: 1,
       aws: {
+        compute: 'lightsail',
         profile: 'i',
         region: 'eu-west-1',
         availabilityZone: 'eu-west-1a',
@@ -48,7 +50,7 @@ describe('the defaults', () => {
         tunnelName: 'projectman-cloud',
       },
       access: { emails: ['owner@example.com'], sessionDuration: '24h', integratorServiceToken: false },
-      route53: {},
+      route53: { profile: 'i' },
     });
   });
 
@@ -70,6 +72,91 @@ describe('the defaults', () => {
 });
 
 describe('the validation', () => {
+  it.each([undefined, 'i', ''])('refuses EC2 profile %s before any AWS call', async (profile) => {
+    const world = new CloudWorld();
+    try {
+      world.writeConfig({
+        aws: { ...(baseConfig().aws as object), compute: 'ec2', profile, ec2: EC2_CONFIG },
+      });
+      expect(await runCloud(['aws'], world.deps())).toBe(2);
+      expect(world.output).toContain('aws.profile');
+      expect(world.aws.calls).toEqual([]);
+    } finally {
+      world.cleanup();
+    }
+  });
+
+  it('accepts explicit EC2 settings and independent registrar credentials', () => {
+    const parsed = parseConfig(
+      config((value) => {
+        value.aws = { ...value.aws, compute: 'ec2', profile: 'aroom', ec2: EC2_CONFIG };
+        value.route53 = { profile: 'i' };
+      }),
+      HOME,
+    );
+    expect(parsed.aws.ec2).toEqual(EC2_CONFIG);
+    expect(parsed.route53.profile).toBe('i');
+    expect(
+      parseConfig(
+        config((value) => {
+          value.aws = { ...value.aws, compute: 'ec2', profile: 'central-test', ec2: EC2_CONFIG };
+        }),
+        HOME,
+      ).aws.profile,
+    ).toBe('central-test');
+    expect(
+      parseConfig(
+        config((value) => {
+          value.aws.profile = 'another';
+        }),
+        HOME,
+      ).route53.profile,
+    ).toBe('another');
+  });
+
+  it('requires the entire EC2 choice with no implicit size, AMI, network or disk defaults', () => {
+    expect(
+      refusal(
+        config((value) => {
+          value.aws.compute = 'ec2';
+          value.aws.profile = 'aroom';
+        }),
+      ),
+    ).toContain('aws.ec2');
+    for (const field of Object.keys(EC2_CONFIG)) {
+      const message = refusal(
+        config((value) => {
+          value.aws.compute = 'ec2';
+          value.aws.profile = 'aroom';
+          value.aws.ec2 = { ...EC2_CONFIG };
+          delete value.aws.ec2[field];
+        }),
+      );
+      expect(message).toContain(`aws.ec2.${field}`);
+    }
+  });
+
+  it.each([
+    ['instanceType', 't3.small --debug'],
+    ['instanceType', 'a'.repeat(65)],
+    ['amiId', 'ami-NOTHEX123'],
+    ['vpcId', 'vpc-123'],
+    ['subnetId', 'subnet-123456789'],
+    ['volumeGiB', 19],
+    ['volumeGiB', 1025],
+    ['volumeGiB', 40.5],
+  ])('refuses malformed EC2 %s: %s', (field, value) => {
+    expect(
+      refusal(
+        config((raw) => {
+          raw.aws.compute = 'ec2';
+          raw.aws.profile = 'aroom';
+          raw.aws.ec2 = { ...EC2_CONFIG, [field]: value };
+        }),
+      ),
+    ).toContain(`aws.ec2.${field}`);
+  });
+
   it('names the path of every wrong field', () => {
     const message = refusal(
       config((value) => {

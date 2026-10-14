@@ -632,6 +632,7 @@ export interface MessageToolsHandler {
       text: string;
       taskKey?: string;
       kind: MessageKind;
+      despiteWorkers?: boolean;
       signalId?: string;
       signalActionable?: boolean;
       signalIds?: string[];
@@ -772,7 +773,7 @@ export interface OperatorToolsHandler {
   }>;
   startMember(
     ctx: ToolContext,
-    args: { member: string; text: string; taskKey?: string; signalId?: string },
+    args: { member: string; text: string; taskKey?: string; signalId?: string; despiteWorkers?: boolean },
   ): Promise<MemberStartResult>;
   /**
    * screen_question (PM-558): the Operator settles a question of an AI member that waits for its screening:

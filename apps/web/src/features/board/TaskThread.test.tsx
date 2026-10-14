@@ -287,7 +287,7 @@ describe('the recipients of the card conversation (PM-273)', () => {
       expect(project.requests).toContainEqual({
         method: 'POST',
         path: '/api/projects/AC/messages',
-        body: { to: ['pm'], text: 'Anyone?', taskKey: 'AC-24' },
+        body: { to: ['pm'], text: 'Anyone?', taskKey: 'AC-24', despiteWorkers: true },
       }),
     );
   });
@@ -336,7 +336,7 @@ describe('the recipients of the card conversation (PM-273)', () => {
       expect(project.requests).toContainEqual({
         method: 'POST',
         path: '/api/projects/AC/messages',
-        body: { to: ['fe-1'], text: 'Ping from the card', taskKey: 'AC-21' },
+        body: { to: ['fe-1'], text: 'Ping from the card', taskKey: 'AC-21', despiteWorkers: true },
       }),
     );
     await within(await thread()).findByText('Ping from the card');
@@ -375,7 +375,12 @@ describe('the recipients of the card conversation (PM-273)', () => {
       expect(project.requests).toContainEqual({
         method: 'POST',
         path: '/api/projects/AC/messages',
-        body: { to: expect.not.arrayContaining(['devops']), text: 'Meant for AC-25', taskKey: 'AC-25' },
+        body: {
+          to: expect.not.arrayContaining(['devops']),
+          text: 'Meant for AC-25',
+          taskKey: 'AC-25',
+          despiteWorkers: true,
+        },
       }),
     );
     expect(

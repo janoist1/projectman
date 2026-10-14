@@ -17,8 +17,10 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
         'the task: an idle session at once, one in the middle of a turn when that turn ends; the result says, ' +
         'per recipient, what happens to it. Humans see it in the app. Use it to hand over work, report findings or reply to a team ' +
         'message. The Operator starts work with start_task or start_member and uses this for information and replies. ' +
+        'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. ' +
         "Specify action for a request, review or retest request, or question to an AI member; info for status, acknowledgement or a result (review and QA results live in labels). A plain acknowledgement needs no message; an out-of-date or fulfilled request needs no reply. Before acting, compare the message time and version with the current card; do not carry out a request its sender has superseded or closed with a result label. Never reset or force-rewrite an approved branch without asking its approving reviewer first. A human's decision or action is asked with ask_human, never with send_message: a message to a human carries information only (kind info), and an action message that has a human among its recipients is refused as a whole.",
       input: {
+        despite_workers: z.boolean().optional(),
         to: z
           .array(MemberHandle)
           .min(1)
@@ -87,6 +89,7 @@ export const MESSAGE_TOOL_GROUP: TeamToolGroup = {
         const result = await handler.sendMessage(ctx, {
           to,
           kind: args.kind,
+          despiteWorkers: args.despite_workers,
           text: args.text,
           signalId: args.signal_id,
           signalActionable: args.signal_actionable,

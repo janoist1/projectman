@@ -104,6 +104,7 @@ export function registerSessionRoutes(app: FastifyInstance, domain: ApiDomain): 
       throw notFound('task', body.taskKey);
     return reply.code(202).send(
       await domain.messaging.send(key, access.handle, body, {
+        workerCheck: !body.despiteWorkers,
         actor: actorOf(access),
         operatorSignal: body.operatorSignal,
       }),

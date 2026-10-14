@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { routes, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
+import { routes, CardBusyDetails, MemberProfile, TeamMessage, TeamMessagesView } from '@projectman/shared';
 import type { HumanAccess, ServerEvent } from '@projectman/shared';
 import {
   addHumanAndLogin,
@@ -80,6 +80,24 @@ describe('human team messages and member profiles', () => {
     release();
     await h.app.projectman.domain.stop();
     expect(h.runner.started).toHaveLength(1);
+  });
+
+  it('returns card_busy details with 409 and sends only after despiteWorkers confirms parallel work', async () => {
+    const domain = h.app.projectman.domain;
+    await domain.tasks.create(key, { title: 'Checkout' }, actor);
+    const before = h.app.projectman.repos.messages.list(key);
+    const response = await send(['dev-1', 'dev-2'], owner, { taskKey: 'AR-1' });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error.code).toBe('card_busy');
+    expect(CardBusyDetails.parse(response.json().error.details)).toEqual({
+      taskKey: 'AR-1',
+      groups: [{ role: 'developer', working: [], joining: ['dev-1', 'dev-2'] }],
+    });
+    expect(h.app.projectman.repos.messages.list(key)).toEqual(before);
+    expect(h.runner.started).toEqual([]);
+    const confirmed = await send(['dev-1', 'dev-2'], owner, { taskKey: 'AR-1', despiteWorkers: true });
+    expect(confirmed.statusCode).toBe(202);
+    expect(TeamMessage.parse(confirmed.json()).to).toEqual(['dev-1', 'dev-2']);
   });
 
   it('delivers to a live task session with the team prefix and retries failed delivery on resume', async () => {

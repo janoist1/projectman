@@ -1,6 +1,9 @@
+import { Cause, Effect, Exit, FiberSet, Scope } from 'effect';
 import type { FastifyBaseLogger } from 'fastify';
 import type { PermissionBroker, PermissionDecision } from '../contracts';
+import { runFork } from '../kernel';
 import { sessionAllowScope, type HookPayload } from './hook-payload';
+import { awaitPermission, type PermissionWaitOutcome } from './permission-wait';
 
 /**
  * Permission requests of one session (the CLI's PermissionRequest hook), waiting for the
@@ -13,8 +16,6 @@ import { sessionAllowScope, type HookPayload } from './hook-payload';
 const DENY_TIMEOUT =
   'No human answered this permission request in time, so it was denied. Continue without it, or ask a human for help.';
 const DENY_FAILED = 'The permission request could not be processed, so it was denied.';
-
-type PermissionEnd = 'timeout' | 'withdrawn' | 'session_exit';
 
 export interface PermissionGateOptions {
   sessionId: string;
@@ -48,7 +49,9 @@ function sessionAllowKey(payload: HookPayload): string | null {
 
 export class PermissionGate {
   private readonly opts: PermissionGateOptions;
-  private readonly waiting = new Map<AbortController, { end: PermissionEnd | null }>();
+  private readonly scope = Scope.makeUnsafe();
+  private readonly fibers = Effect.runSync(Scope.provide(FiberSet.make<PermissionWaitOutcome>(), this.scope));
+  private readonly waiting = new Set<object>();
   /** Runner-side "allow for this session" answers (see sessionAllowKey). */
   private readonly sessionAllows = new Set<string>();
   private closed = false;
@@ -81,50 +84,47 @@ export class PermissionGate {
       return opts.answer({ behavior: 'allow' }, payload);
     }
 
-    const controller = new AbortController();
-    const entry: { end: PermissionEnd | null } = { end: null };
-    this.waiting.set(controller, entry);
-    const end = (reason: PermissionEnd) => {
-      if (entry.end) return;
-      entry.end = reason;
-      controller.abort(new Error(`permission request ended: ${reason}`));
-    };
-    const timeout = setTimeout(() => end('timeout'), opts.timeoutMs);
-    const onWithdrawn = () => end('withdrawn');
-    if (withdrawn.aborted) onWithdrawn();
-    else withdrawn.addEventListener('abort', onWithdrawn, { once: true });
+    const entry = {};
+    this.waiting.add(entry);
     if (tracking.trackState !== false) opts.onWaiting(activity);
-
+    const fiber = runFork(
+      awaitPermission({
+        broker: opts.broker,
+        request: { sessionId: opts.sessionId, toolName, toolInput: payload.tool_input ?? null, raw: payload },
+        timeoutMs: opts.timeoutMs,
+        withdrawn,
+      }),
+    );
+    FiberSet.addUnsafe(this.fibers, fiber);
+    const exit = await new Promise<Exit.Exit<PermissionWaitOutcome>>((resolve) => fiber.addObserver(resolve));
     try {
-      const decision = await new Promise<PermissionDecision>((resolve, reject) => {
-        controller.signal.addEventListener('abort', () => reject(controller.signal.reason), { once: true });
-        opts.broker
-          .decide(
-            { sessionId: opts.sessionId, toolName, toolInput: payload.tool_input ?? null, raw: payload },
-            controller.signal,
-          )
-          .then(resolve, reject);
-      });
-      if (controller.signal.aborted || this.closed) return null;
+      if (Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)) return null;
+      const outcome: PermissionWaitOutcome = Exit.isFailure(exit)
+        ? { kind: 'failed', cause: Cause.squash(exit.cause) }
+        : exit.value;
+      if (outcome.kind === 'withdrawn') return null; // nobody is waiting for the answer any more
+      if (outcome.kind === 'timeout') {
+        opts.onDenied?.(payload);
+        return opts.deny(DENY_TIMEOUT);
+      }
+      if (outcome.kind === 'failed') {
+        opts.logger.error(
+          { err: outcome.cause, sessionId: opts.sessionId, toolName },
+          'permission broker failed',
+        );
+        opts.onDenied?.(payload);
+        return opts.deny(DENY_FAILED);
+      }
+      if (this.closed) return null;
+      const { decision } = outcome;
       if (allowKey && decision.behavior === 'allow' && decision.rememberForSession) {
         this.sessionAllows.add(allowKey);
       }
       if (decision.behavior === 'deny') opts.onDenied?.(payload);
       else tracking.onAllowed?.();
       return opts.answer(decision, payload);
-    } catch (err) {
-      if (entry.end === 'timeout') {
-        opts.onDenied?.(payload);
-        return opts.deny(DENY_TIMEOUT);
-      }
-      if (entry.end) return null; // nobody is waiting for the answer any more
-      opts.logger.error({ err, sessionId: opts.sessionId, toolName }, 'permission broker failed');
-      opts.onDenied?.(payload);
-      return opts.deny(DENY_FAILED);
     } finally {
-      clearTimeout(timeout);
-      withdrawn.removeEventListener('abort', onWithdrawn);
-      this.waiting.delete(controller);
+      this.waiting.delete(entry);
       if (tracking.trackState !== false) opts.onSettled(this.waiting.size);
     }
   }
@@ -132,11 +132,6 @@ export class PermissionGate {
   /** The session exited: every waiting request ends without an answer. */
   close(): void {
     this.closed = true;
-    for (const [controller, entry] of this.waiting) {
-      if (!entry.end) {
-        entry.end = 'session_exit';
-        controller.abort(new Error('session exited'));
-      }
-    }
+    runFork(Scope.close(this.scope, Exit.void));
   }
 }

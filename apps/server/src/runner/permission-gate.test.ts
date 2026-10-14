@@ -61,6 +61,73 @@ afterEach(() => {
 });
 
 describe('PermissionGate', () => {
+  it.each(['decision', 'timeout', 'withdrawn', 'close'] as const)(
+    'cleans up all timers after %s',
+    async (end) => {
+      const { gate, requests, events } = setup();
+      const withdrawn = new AbortController();
+      const answer = gate.request(bash('a'), 'a', withdrawn.signal);
+      // The inline scheduler starts the broker in the request's call stack.
+      expect(requests).toHaveLength(1);
+      expect(events).toEqual(['waiting a']);
+      if (end === 'decision') requests[0]!.resolve({ behavior: 'allow' });
+      if (end === 'timeout') await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+      if (end === 'withdrawn') withdrawn.abort();
+      if (end === 'close') {
+        gate.close();
+        expect(requests[0]!.signal.aborted).toBe(true);
+      }
+      await answer;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(gate.pending).toBe(0);
+    },
+  );
+
+  it.each(['timeout', 'withdrawn', 'close'] as const)(
+    'settles after %s when the broker ignores abort',
+    async (end) => {
+      let signal!: AbortSignal;
+      const { gate } = setup({
+        broker: {
+          decide: (_info, brokerSignal) => {
+            signal = brokerSignal;
+            return new Promise(() => {});
+          },
+        },
+      });
+      const withdrawn = new AbortController();
+      const answer = gate.request(bash('a'), 'a', withdrawn.signal);
+      if (end === 'timeout') await vi.advanceTimersByTimeAsync(TIMEOUT_MS);
+      if (end === 'withdrawn') withdrawn.abort();
+      if (end === 'close') gate.close();
+      if (end === 'timeout')
+        await expect(answer).resolves.toEqual({ deny: expect.stringContaining('No human answered') });
+      else await expect(answer).resolves.toBeNull();
+      expect(signal.aborted).toBe(true);
+      expect(gate.pending).toBe(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('ignores a late decision after close without reporting allow or deny', async () => {
+    const onAllowed = vi.fn();
+    const onDenied = vi.fn();
+    const answerHook = vi.fn();
+    const { gate, requests, events } = setup({ onDenied, answer: answerHook });
+    const answer = gate.request(bash('a'), 'a', new AbortController().signal, { onAllowed });
+    gate.close();
+    requests[0]!.resolve({ behavior: 'allow', rememberForSession: true });
+    await expect(answer).resolves.toBeNull();
+    expect(onAllowed).not.toHaveBeenCalled();
+    expect(onDenied).not.toHaveBeenCalled();
+    expect(answerHook).not.toHaveBeenCalled();
+    expect(events).toEqual(['waiting a', 'settled 0']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('answers with the decision of the broker', async () => {
     const { gate, requests, events } = setup();
     const answer = gate.request(bash('git push'), 'Bash: git push', new AbortController().signal);

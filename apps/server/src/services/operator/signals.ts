@@ -289,11 +289,6 @@ export class OperatorSignals {
       const merger = ctx.repos.taskMerges.open(projectKey, task.key)?.merger;
       allowed.members = merger ? startable([merger]) : [];
       allowed.taskKey = task.key;
-    } else if (signal.kind === 'answer_stalled' && task) {
-      // Only the card's current assignee, on the same card; never start_task (PM-694).
-      const member = answerStalledMember(signal.caseKey);
-      allowed.members = member && task.assignee === member ? startable([member]) : [];
-      allowed.taskKey = task.key;
     } else if (signal.kind === 'unreleased') {
       allowed.members = startable(dutyMembers(config, 'deployment').map((m) => m.handle));
     } else if (signal.kind === 'ready_waiting') {
@@ -830,8 +825,9 @@ export class OperatorSignals {
           signals
             .map((s) => {
               const steps = ctx.repos.operatorRequests.stepsOfSignal(s.id);
+              // answer_stalled has no step at any level yet (PM-707), so it shows no budget either.
               const budget = operatorSignalBudget(
-                level,
+                s.kind === 'answer_stalled' ? 'report' : level,
                 steps.filter((step) => step.status !== 'refused').map((step) => step.at),
                 now,
               );

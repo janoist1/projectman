@@ -122,7 +122,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       title: 'Start work on a task',
       readOnly: false,
       description:
-        "Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the Operator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then. It is refused for an answer_stalled signal: that one is pushed with start_member.",
+        "Only the Operator, during an open owner request. Use the same start as the Start button, choosing an optional assignee and starting gate setters. Also starts a stalled task already in its work stage without a running session. Gates and prerequisites still apply. A refused start waits for nothing; the error names why (for example member_on_leave, member_at_capacity, team_paused). With signal_id (an idle card the system signalled) and no owner request, and only when the project lets the Operator act on signals, it starts the card's own assignee; it takes no assignee or despite_prerequisites then.",
       input: {
         task_key: TaskKey,
         assignee: MemberHandle.optional(),
@@ -147,7 +147,7 @@ export const OPERATOR_TOOL_GROUP: TeamToolGroup = {
       readOnly: false,
       description:
         'If the message would put a member to work on a card where a member of the same role already works, nothing is sent and the result names them; send again with despite_workers: true only if the parallel work is intended. ' +
-        "Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names. For an answer_stalled signal (an answer or request reached the card's assignee, but no work followed) only the card's current assignee and the signal's card are allowed: name the existing answer and the next step in the text, after get_task, and check the delivery afterwards.",
+        "Only the Operator, during an open owner request. Starts an AI member on work that has no card: the text is their task, given to their general conversation (a running one gets it when its turn ends). It waits up to 5 seconds and says what became of the start: started, already running, starting, waiting with the reason, held, or failed. For work on a card use start_task. With task_key the text is about that card and the member needs a role on it (a card's merger or the owner of its step). With signal_id (and no owner request) and only when the project lets the Operator act on signals, it starts the member the signal names.",
       input: {
         member: MemberHandle,
         despite_workers: z.boolean().optional(),

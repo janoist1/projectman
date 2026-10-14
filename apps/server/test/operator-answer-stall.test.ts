@@ -3,7 +3,9 @@ import {
   OPERATOR_ANSWER_STALL_GRACE_MS,
   OPERATOR_ANSWER_STALL_WAKE_MS,
   OPERATOR_IDLE_MINUTES,
+  OPERATOR_SIGNAL_ROUND_FROM,
   OPERATOR_SIGNAL_STEP_GAP_MINUTES,
+  OPERATOR_SIGNAL_STEPS,
   OPERATOR_SIGNAL_WAKE_INTERVAL_MS,
   WAITING_ANSWER_LABEL,
 } from '@projectman/shared';
@@ -13,7 +15,7 @@ import { createDomainHarness, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';
 import { flush } from './helpers/fakes';
 
-/** PM-694: the answer that reached the assignee and was followed by no work, raised by the sweep and pushed by the Operator. */
+/** PM-694: the answer that reached the assignee and was followed by no work, raised by the sweep and only reported (no step). */
 let h: DomainHarness;
 let now: Date;
 let messageCount = 0;
@@ -169,7 +171,7 @@ describe('detection', () => {
       {
         kind: 'answer_stalled',
         facts: { evidenceId: id, evidenceAt: iso(-GRACE), member: 'dev-1', lastActionAt: null },
-        step: { tool: 'start_member', task_key: card.key, members: ['dev-1'] },
+        step: null,
       },
     ]);
   });
@@ -400,95 +402,80 @@ describe('the Operator’s steps', () => {
     return { card, id, signal: open()[0]! };
   }
 
-  it('level report only reports: it gives no step and refuses a push', async () => {
-    const { card, signal } = await stalled('report');
-    expect(wakeRows()).toMatchObject([{ kind: 'answer_stalled', step: null, steps_left: 0 }]);
-    await expect(push(card, signal)).rejects.toMatchObject({
-      code: 'forbidden',
-      message: expect.stringContaining('operator_no_request'),
+  /** An earlier own step on a signal, as the old rows hold it: the new signal itself never creates one. */
+  function oldStep(signal: { id: string; taskKey: string | null }, at: number) {
+    const requestId = `req_old_${++messageCount}`;
+    h.repos.operatorRequests.insert({
+      id: requestId,
+      projectKey: 'AR',
+      sessionId: operator().sessionId!,
+      source: 'signal',
+      messageId: null,
+      inboxItemId: null,
+      fromHandle: OPERATOR_SIGNAL_ROUND_FROM,
+      quote: '',
+      openedAt: iso(at),
     });
-    expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toEqual([]);
-  });
-
-  /** The pushed member takes a turn and ends it without any step, so the case stands again after a while. */
-  async function memberIdles(afterMinutes: number) {
-    const started = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
-    h.runner.setState(started.id, 'working');
-    h.runner.setState(started.id, 'idle');
-    await flush();
-    minutes(afterMinutes);
+    h.repos.operatorRequests.insertStep({
+      id: `ops_old_${messageCount}`,
+      requestId,
+      at: iso(at),
+      action: 'task_start',
+      status: 'done',
+      taskKey: signal.taskKey,
+      member: 'dev-1',
+      changes: [],
+      configVersion: null,
+      inboxItemId: null,
+      signalId: signal.id,
+      refusal: null,
+    });
   }
 
-  it('level unblock takes one step with start_member and no more', async () => {
-    const { card, signal } = await stalled('unblock');
-    expect(wakeRows()).toMatchObject([{ step: { tool: 'start_member' }, steps_left: 1 }]);
-    await push(card, signal);
-    expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toHaveLength(1);
-    await memberIdles(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    await expect(push(card, signal)).rejects.toMatchObject({
-      message: expect.stringContaining('operator_signal_budget'),
-    });
-  });
+  it.each(['report', 'unblock', 'drive'] as const)(
+    'level %s only reports: no step, no budget, and no start from the signal',
+    async (level) => {
+      const { card, signal } = await stalled(level);
+      expect(wakeRows()).toMatchObject([
+        { kind: 'answer_stalled', step: null, steps_left: 0, next_step_at: null },
+      ]);
+      await expect(push(card, signal)).rejects.toMatchObject({
+        code: 'forbidden',
+        message: expect.stringContaining('operator_no_request'),
+      });
+      await expect(
+        h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: signal.id }),
+      ).rejects.toMatchObject({ message: expect.stringContaining('operator_no_request') });
+      // Neither another member nor another card changes that.
+      const other = await develop('dev-2');
+      await expect(push(card, signal, 'dev-2')).rejects.toMatchObject({
+        message: expect.stringContaining('operator_no_request'),
+      });
+      await expect(push(other, signal)).rejects.toMatchObject({
+        message: expect.stringContaining('operator_no_request'),
+      });
+      expect(h.domain.sessions.list('AR', { member: 'dev-1' })).toEqual([]);
+      expect(h.domain.sessions.list('AR', { member: 'dev-2' })).toEqual([]);
+      expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
+      expect(h.repos.tasks.get(card.key)).toMatchObject({ stageId: 'development', assignee: 'dev-1' });
+    },
+  );
 
-  it('level drive takes three steps, thirty minutes apart, and no fourth', async () => {
-    const { card, signal } = await stalled('drive');
-    await push(card, signal);
-    await memberIdles(3);
-    await expect(push(card, signal)).rejects.toMatchObject({
-      message: expect.stringContaining('operator_signal_budget'),
-    });
-    await memberIdles(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    await push(card, signal);
-    await memberIdles(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    await push(card, signal);
-    await memberIdles(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-    await expect(push(card, signal)).rejects.toMatchObject({
-      message: expect.stringContaining('operator_signal_budget'),
-    });
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toHaveLength(3);
-  });
-
-  it('closes the signal when the pushed member does real work', async () => {
-    const { card, signal } = await stalled('drive');
-    await push(card, signal);
-    const started = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
+  it('closes the signal when the member does real work', async () => {
+    const { card } = await stalled('drive');
+    const started = await session(card, 'idle');
     h.repos.sessions.update(started.id, {
       workMetadata: { lastWorkAt: iso(5), lastTool: { name: 'update_task', at: iso(5) }, lastError: null },
     });
-    h.runner.setState(started.id, 'idle');
     seconds(GRACE * 2);
     await sweep();
     expect(open()).toEqual([]);
   });
 
-  it('refuses start_task, another member and another card on this signal', async () => {
+  it('keeps the new evidence quiet for half an hour after an old step, and not longer', async () => {
     const { card, signal } = await stalled('drive');
-    const other = await develop('dev-2');
-    await expect(
-      h.domain.teamTools.startTask(operator(), { taskKey: card.key, signalId: signal.id }),
-    ).rejects.toMatchObject({ message: expect.stringContaining('operator_no_request') });
-    await expect(push(card, signal, 'dev-2')).rejects.toMatchObject({
-      message: expect.stringContaining('operator_no_request'),
-    });
-    await expect(push(other, signal)).rejects.toMatchObject({
-      message: expect.stringContaining('operator_no_request'),
-    });
-    expect(h.repos.operatorRequests.stepsOfSignal(signal.id)).toEqual([]);
-  });
-
-  it('refuses a push once the assignee has changed', async () => {
-    const { card, signal } = await stalled('drive');
-    h.repos.tasks.update(card.id, { assignee: 'dev-2' });
-    await expect(push(card, signal)).rejects.toMatchObject({
-      message: expect.stringContaining('operator_signal_closed'),
-    });
-  });
-
-  it('keeps the new evidence quiet for half an hour after a step, and not longer', async () => {
-    const { card, signal } = await stalled('drive');
-    await push(card, signal);
-    await memberIdles(0);
-    // The pushed member does nothing; another answer reaches them.
+    oldStep(signal, 0);
+    // The member does nothing; another answer reaches them.
     const again = message(card, { deliveredAt: 0 });
     seconds(GRACE);
     await sweep();
@@ -498,31 +485,43 @@ describe('the Operator’s steps', () => {
     expect(open()).toMatchObject([{ subject: again }]);
   });
 
-  it('keeps the same case quiet for half an hour after a step when it comes back, and stops after the budget', async () => {
-    const { card, id } = await stalled('drive');
-    const caseKey = `answer_stalled:${card.key}:dev-1:${id}`;
-    for (const round of [1, 2, 3]) {
-      const signal = open()[0]!;
-      expect(signal.caseKey).toBe(caseKey);
-      await push(card, signal);
+  it.each([
+    [1, 1],
+    [OPERATOR_SIGNAL_STEPS.drive, 0],
+  ])(
+    'keeps the same case quiet for half an hour when it comes back, and for good after %i old steps',
+    async (steps, openAgain) => {
+      const { card, id, signal } = await stalled('drive');
+      // The old steps are long gone, so only the case's own count can keep it quiet.
+      for (let i = 0; i < steps; i++) oldStep(signal, -3 * 3600 + i);
       // The member works, so the signal closes; then the turn ends with no step.
-      const started = h.domain.sessions.list('AR', { member: 'dev-1' })[0]!;
-      h.runner.setState(started.id, 'working');
+      const started = await session(card, 'working');
       await sweep();
       expect(open()).toEqual([]);
       h.runner.setState(started.id, 'idle');
       await flush();
       seconds(GRACE);
       await sweep();
-      expect(open()).toEqual([]);
-      minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
-      await sweep();
-      // Each signal is a new one with its own budget, but the case has three steps in all.
-      expect(open().map((s) => s.id)).toHaveLength(round < 3 ? 1 : 0);
-    }
-    expect(
-      h.repos.operatorRequests.latest('AR', 10).flatMap((r) => h.repos.operatorRequests.steps(r.id)),
-    ).toHaveLength(3);
+      expect(open().map((s) => s.caseKey)).toEqual(
+        openAgain ? [`answer_stalled:${card.key}:dev-1:${id}`] : [],
+      );
+    },
+  );
+
+  it('keeps the same case quiet for half an hour after a recent old step', async () => {
+    const { card, signal } = await stalled('drive');
+    oldStep(signal, 0);
+    const started = await session(card, 'working');
+    await sweep();
+    expect(open()).toEqual([]);
+    h.runner.setState(started.id, 'idle');
+    await flush();
+    seconds(GRACE);
+    await sweep();
+    expect(open()).toEqual([]);
+    minutes(OPERATOR_SIGNAL_STEP_GAP_MINUTES);
+    await sweep();
+    expect(open()).toHaveLength(1);
   });
 });
 

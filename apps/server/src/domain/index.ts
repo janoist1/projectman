@@ -4,6 +4,7 @@ import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
 import { MergeTools } from '../mcp/merges';
+import { ReleaseTools } from '../mcp/releases';
 import { ToolCaller } from '../mcp/caller';
 import {
   canManageInstancePause,
@@ -90,9 +91,8 @@ import { DecisionCandidates, DocWrites } from '../services/project-docs';
 import { ProjectDocTools } from '../mcp/project-docs';
 import { MergeCardLock, Merges } from '../services/merges';
 import { fullTestSandbox } from './session-policy';
-import { ReleaseRoadmapNotices } from './release-roadmap-notices';
-import { ReleaseService } from './releases';
-import type { ReleaseTarget } from './releases';
+import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
+import type { ReleaseTarget } from '../services/releases';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
 import { ApprovalQuestions } from './approval-questions';
@@ -221,7 +221,7 @@ export { ProviderKeys } from './provider-keys';
 export type { NanogptKeyCheck } from './provider-keys';
 export { createNanogptKeyCheck } from './nanogpt-key-check';
 
-export type { ReleaseTarget } from './releases';
+export type { ReleaseTarget } from '../services/releases';
 
 export interface DomainOptions {
   nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
@@ -1111,6 +1111,7 @@ export function createDomain(opts: DomainOptions) {
         taskStarts,
       }),
       members: new MemberTools({ calls: toolCaller, members }),
+      releases: new ReleaseTools({ calls: toolCaller, releases }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -1136,7 +1137,6 @@ export function createDomain(opts: DomainOptions) {
       merges: new MergeTools({ calls: toolCaller, merges }),
       boundary: new BoundaryTools({ calls: toolCaller, boundary }),
     },
-    releases,
     operatorRequests,
     operatorSteps,
     questionScreening,

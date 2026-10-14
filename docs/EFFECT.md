@@ -7,13 +7,15 @@ trial are on the card PM-590 (and the later cards of the refactor, "Refaktor 2")
 
 Only in a module that has been rewritten on purpose, behind a plain TypeScript facade. Today:
 
-| Program                        | File                                           | Facade                                                                           |
-| ------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------- |
-| the runner's input queue       | `apps/server/src/runner/input-queue.ts`        | `InputQueue` (same file)                                                         |
-| the message delivery           | `apps/server/src/runtime/delivery/delivery.ts` | `MessageDelivery` (same file, exported by `runtime/delivery/index.ts`)           |
-| the merge queue                | `apps/server/src/services/merges/queue.ts`     | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)               |
-| the GitHub pull request poller | `apps/server/src/services/github/poll-loop.ts` | `createPullRequestPoller` (`services/github/poller.ts`)                          |
-| the schedule timer             | `apps/server/src/services/schedules/timer.ts`  | `MinuteTimer` (same file), used by `ScheduleService`, exported by its `index.ts` |
+| Program                          | File                                                     | Facade                                                                                  |
+| -------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| the runner's input queue         | `apps/server/src/runner/input-queue.ts`                  | `InputQueue` (same file)                                                                |
+| the message delivery             | `apps/server/src/runtime/delivery/delivery.ts`           | `MessageDelivery` (same file, exported by `runtime/delivery/index.ts`)                  |
+| the merge queue                  | `apps/server/src/services/merges/queue.ts`               | `Merges` (`services/merges/merges.ts`, exported by its `index.ts`)                      |
+| the full test queue              | `apps/server/src/services/full-tests/queue.ts`           | `FullTestRuns` (`services/full-tests/full-tests.ts`, exported by its `index.ts`)        |
+| screenshot execution and polling | `apps/server/src/services/full-tests/screenshot-core.ts` | `ScreenshotRuns` (`services/full-tests/screenshot-runs.ts`, exported by its `index.ts`) |
+| the GitHub pull request poller   | `apps/server/src/services/github/poll-loop.ts`           | `createPullRequestPoller` (`services/github/poller.ts`)                                 |
+| the schedule timer               | `apps/server/src/services/schedules/timer.ts`            | `MinuteTimer` (same file), used by `ScheduleService`, exported by its `index.ts`        |
 
 Everything else stays plain TypeScript. Do not start using Effect in another module, in a route
 handler, in `packages/shared` or in the web app without a card that says so. **No Effect type crosses
@@ -108,6 +110,15 @@ If the slot's cleanup must run after the key left the `FiberMap`, hang it on the
 there, so `FiberMap.run(..., { onlyIfMissing: true })` from the cleanup would skip the next program.
 Likewise, when a timer callback arms the next timer, run it from the fiber's `addObserver`, after
 the `FiberHandle` releases the fiber, rather than from inside the fiber itself.
+
+The full test queue (PM-601) owns one drain in a `FiberHandle` and a `FiberMap` of steps.
+It awaits each `abortable` step before reading the next durable row; removing a step aborts
+its signal and waits for its promise. A step that cancels itself starts the removal with
+the kernel's `runFork`, because awaiting its own removal would deadlock. The screenshot core
+uses the same scoped `FiberMap` pattern for executor calls. Its polling wait is
+`Effect.promise(() => over).pipe(Effect.timeoutOption(Duration.millis(pollMs)), Effect.asVoid)`:
+completion interrupts the polling sleep, and the deadline interrupts the promise wait.
+Both facades close their scopes on shutdown and rebuild them for a later restart.
 
 ## Timers and cleanup
 

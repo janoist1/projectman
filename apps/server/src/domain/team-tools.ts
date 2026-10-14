@@ -2,6 +2,7 @@ import type {
   MemberToolsHandler,
   TaskToolsHandler,
   AttachmentToolsHandler,
+  ScreenshotToolsHandler,
   MergeToolsHandler,
   FeedbackToolsHandler,
   GithubToolsHandler,
@@ -94,7 +95,6 @@ import { docLines } from './doc-edits';
 import type { DecisionCandidates } from './decision-candidates';
 import type { DocWrites } from './doc-writes';
 import type { ProjectService } from './projects';
-import type { ScreenshotRuns } from './screenshot-runs';
 import type { SessionOrchestrator } from './sessions';
 import type { TaskService } from './tasks';
 import type { TimelineService } from './timeline';
@@ -131,6 +131,7 @@ export class TeamToolsService implements TeamToolsHandler {
     merges: MergeToolsHandler;
     feedback: FeedbackToolsHandler;
     github: GithubToolsHandler;
+    screenshots: ScreenshotToolsHandler;
     boundary: BoundaryToolsHandler;
     releases: ReleaseToolsHandler;
     operator: OperatorToolsHandler;
@@ -216,7 +217,6 @@ export class TeamToolsService implements TeamToolsHandler {
     MessageAttachmentService,
     'assertCanUpload' | 'upload' | 'delete'
   >;
-  private readonly screenshots: Pick<ScreenshotRuns, 'take' | 'get'> | undefined;
 
   constructor(deps: {
     calls: ToolCaller;
@@ -227,6 +227,7 @@ export class TeamToolsService implements TeamToolsHandler {
       merges: MergeToolsHandler;
       feedback: FeedbackToolsHandler;
       github: GithubToolsHandler;
+      screenshots: ScreenshotToolsHandler;
       boundary: BoundaryToolsHandler;
       releases: ReleaseToolsHandler;
       operator: OperatorToolsHandler;
@@ -247,8 +248,6 @@ export class TeamToolsService implements TeamToolsHandler {
     memory: MemberMemoryStore;
     /** The files sent with team messages (PM-516, PM-520). */
     messageAttachments: Pick<MessageAttachmentService, 'assertCanUpload' | 'upload' | 'delete'>;
-    /** The server's screenshot runs (PM-351); absent, `take_screenshots` is refused. */
-    screenshots?: Pick<ScreenshotRuns, 'take' | 'get'>;
     /** The owner's requests to the Operator (PM-463): its writes need an open one. */
     operatorRequests: Pick<OperatorRequests, 'openFor' | 'roundFor' | 'openRound'>;
     /** The Operator's step log (PM-463). */
@@ -267,7 +266,6 @@ export class TeamToolsService implements TeamToolsHandler {
     this.operatorRequests = deps.operatorRequests;
     this.operatorSteps = deps.operatorSteps;
     this.questionScreening = deps.questionScreening;
-    this.screenshots = deps.screenshots;
     this.ctx = deps.ctx;
     this.sessions = deps.sessions;
     this.projects = deps.projects;
@@ -552,23 +550,11 @@ export class TeamToolsService implements TeamToolsHandler {
   }
 
   async takeScreenshots(ctx: ToolContext, input: TakeScreenshotsInput): Promise<ScreenshotRun> {
-    return this.guard(async () => {
-      await this.caller(ctx, 'take_screenshots');
-      return this.screenshotRuns().take(ctx, input);
-    });
+    return this.tools.screenshots.takeScreenshots(ctx, input);
   }
 
   async getScreenshotRun(ctx: ToolContext, runId: string): Promise<ScreenshotRun> {
-    return this.guard(async () => {
-      await this.caller(ctx, 'get_screenshot_run');
-      return this.screenshotRuns().get(ctx, runId);
-    });
-  }
-
-  private screenshotRuns(): Pick<ScreenshotRuns, 'take' | 'get'> {
-    if (!this.screenshots)
-      throw new TeamToolError('forbidden', 'This server makes no screenshots for members (no sandbox here).');
-    return this.screenshots;
+    return this.tools.screenshots.getScreenshotRun(ctx, runId);
   }
 
   async deleteAttachment(

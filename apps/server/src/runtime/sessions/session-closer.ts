@@ -37,7 +37,6 @@ const MINUTE_MS = 60_000;
 export class SessionCloser {
   private readonly ctx: DomainContext;
   private readonly engines: Pick<EngineDirectory, 'get'>;
-  private readonly heavySeenAt = new Map<string, number>();
   private readonly projects: ProjectService;
   private readonly tasks: TaskService;
   private readonly sessions: SessionOrchestrator;
@@ -185,9 +184,7 @@ export class SessionCloser {
         .filter((session) => this.sessions.isRunning(session.id))
         .map((session) => session.id),
     );
-    for (const id of this.heavySeenAt.keys()) {
-      if (!idle.has(id)) this.heavySeenAt.delete(id);
-    }
+    this.sessions.closeStates.pruneHeavyRuns(idle);
   }
 
   /** Heavy runs extend only idle closure, including a full idle interval after the last sighting. */
@@ -208,17 +205,16 @@ export class SessionCloser {
         );
       runs.set(engineId, running);
     }
+    const states = this.sessions.closeStates;
     if ((await running).has(session.id)) {
-      if (!this.heavySeenAt.has(session.id))
+      if (states.heavyRunSeen(session.id, now))
         this.ctx.logger.info(
           { sessionId: session.id, member: session.member },
           'an idle session stays open while its heavy run is queued or running',
         );
-      this.heavySeenAt.set(session.id, now);
       return true;
     }
-    const seen = this.heavySeenAt.get(session.id);
-    return seen !== undefined && now - seen < limit * MINUTE_MS;
+    return states.heavyRunHolds(session.id, now, limit * MINUTE_MS);
   }
 
   /** The running task sessions of a card (a meeting's session is not one). */

@@ -74,7 +74,7 @@ Each card edits only its own item; the bold first line never changes.
 
 - **PM-619 session lifecycle**
 
-  Planned.
+  File: `apps/server/src/runtime/sessions/lifecycle.ts`. Facade: `SessionLifecycle` (same file), owned by `SessionOrchestrator`. One `Scope` per session manager: the runner subscription (`acquireRelease`, released first), a `FiberSet` that tracks the sessions' background jobs (a job starts on the caller's stack; closing stops the tracking, never the job, and refuses new jobs), and the synchronous `onClose` (the timers) last. `dispose()` closes it with the kernel `runPromise`; `settleFolderRemovals()` awaits it.
 
 - **PM-620 turn, input wait, compaction and cleanup**
 

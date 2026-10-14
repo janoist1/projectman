@@ -1465,7 +1465,7 @@ workers follow the machine's size.
 
 - **Codex project layer check** — `runner/ambient-config.ts` (`inspectProjectCodex`,
   `assertCodexMemberWorkspace`), `runner/runner.ts` (`assertWorkspaceConfig`),
-  `runner/providers/codex/index.ts` (`launch`), `runtime/sessions` (`SessionOrchestrator`) (PM-357).
+  `runner/providers/codex/index.ts` (`launch`), `runtime/sessions` (`SessionLauncher` in `launch.ts`) (PM-357).
   The server reads the CLI's canonical working directory and each `.codex` layer from the
   nearest ancestor with a `.git` entry. Member starts and resumes allow only `config.toml`
   with model and project-document roots; confined reads reject links and nonregular files.
@@ -1647,7 +1647,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   `engine-host/sandbox-dirs.ts` (`prepareMemberSandboxDir`, `preparePortablePaths`),
   `engine-host/session-roots.ts` (`defaultSessionTmpRoot`, `sharedClaudeTmpRoots`, the roots'
   preparation), `engine-host/local-host.ts` (opening the folders, the overlap check with the queue's
-  folder), `runtime/sessions` (`SessionOrchestrator`, session policy) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
+  folder), `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, session policy) (PM-268, PM-333, PM-339, PM-312). Legacy Claude
   sessions, and Codex sessions whose sandbox writes (`workspace-write`), receive a per-process
   writable folder below the server's real `tmpdir`; the server makes, sweeps and removes it. These
   folders are not supplied to read-only Codex sessions. A Codex session also gets its
@@ -1737,7 +1737,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   and Codex render an MCP `image` result), gemini and nanogpt false (the Gemini CLI has no place for
   one yet; NanoGPT is Codex over a custom provider, so it depends on the model): the first reading of
   an image gives them the file. **Gemini and NanoGPT sessions have no session folder today**
-  (`ownFolders` in `runtime/sessions` (`SessionOrchestrator`): Claude, and Codex with a writing sandbox), so they get the
+  (`ownFolders` in `runtime/sessions` (`SessionLauncher`, `launch.ts`): Claude, and Codex with a writing sandbox), so they get the
   entry, and the image only where the CLI shows it.
   **Remote engine:** the local engine copies from the server's disk (`O_NOFOLLOW`, a regular file,
   size and SHA-256 checked, staged in the folders root and linked into place). A remote engine gets
@@ -1801,7 +1801,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   is not evidence that a remote session has stopped.
   **Module:** `runner`
 - **Conversation transcripts and resume** — `runner/transcript/{reader,tailer,confined}.ts`,
-  `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`), `runner/providers/{claude,codex}/transcript.ts`
+  `runner/session.ts`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runner/providers/{claude,codex}/transcript.ts`
   (PM-340). NanoGPT uses the separate home in **NanoGPT Codex home and key delivery** (PM-329).
   The reader selects the shared Codex transcript format with `usesCodexCli` from
   `packages/shared/src/domain/provider-model.ts` (PM-330); this changes no path or engine assumption.
@@ -1825,7 +1825,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   engine (`transcript.has_content/read/summary`); the transcript text crosses as a single-use transfer.
   **Module:** `runner`
 - **Hooks and team MCP over loopback** — `index.ts` (`loopbackBaseUrl`),
-  `runtime/sessions` (`SessionOrchestrator`), `runner/runner.ts`, `runner/hook-forwarder.ts`,
+  `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`, `LiveSessions`), `runner/runner.ts`, `runner/hook-forwarder.ts`,
   `kernel/local-guard.ts`, `runner/providers/{claude,codex}/args.ts` (PM-341; PM-286, PM-310,
   PM-311). CLI hooks and MCP target the server's loopback URL (`127.0.0.1:4800` for the live
   instance; the port is configurable). The internal guard also checks the peer, Host and
@@ -1986,7 +1986,7 @@ Unless stated otherwise, server paths below are relative to `apps/server/src/`.
   available only while the engine is; without it a run is refused with `engine_offline`
   (`FullTestErrorReason`), never a passing verdict. `index.ts` builds no local executor in cloud mode.
   **Module:** `services/full-tests`
-- **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`), `runtime/watchers` (`WorktreeSweep`),
+- **Merge conflict fix worktrees** — `services/merges/`, `runtime/sessions` (`SessionOrchestrator`, `SessionLauncher` in `launch.ts`), `runtime/watchers` (`WorktreeSweep`),
   `worktree/worktree-manager.ts`, `runtime/sessions` (`session policy`), `engine-link` (PM-471).
   The nominated merger receives a separate writable `merge-fix/<KEY>` checkout, even without
   a file-changing duty, only while the card is `fixing`. Placement changes when its session

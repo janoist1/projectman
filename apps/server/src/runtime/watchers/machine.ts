@@ -14,9 +14,10 @@ import type {
   StopOrphansRequest,
 } from '@projectman/shared';
 import type { FastifyBaseLogger } from 'fastify';
-import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../contracts';
+import type { MachineProbe, MachineSnapshot, ProcessRecord, RunningSessionInfo } from '../../contracts';
 import { processShortName } from '@projectman/shared';
-import { conflict } from './errors';
+import { conflict } from '../../domain/errors';
+import { MachineRounds, sleepFor } from './machine-rounds';
 
 /**
  * The machine display's server side (PM-320): measures the machine and the processes now and then,
@@ -107,14 +108,6 @@ export interface MachineMonitorOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-function realTimer(run: () => void, ms: number): () => void {
-  const timer = setTimeout(run, ms);
-  timer.unref();
-  return () => clearTimeout(timer);
-}
-
-const realSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
 interface Sample {
   at: number;
   view: Omit<MachineView, 'intervalMs'>;
@@ -127,7 +120,7 @@ const sum = (values: Array<number | null>): number =>
 export class MachineMonitor {
   private readonly o: MachineMonitorOptions;
   private readonly now: () => Date;
-  private readonly setTimer: (run: () => void, ms: number) => () => void;
+  private readonly rounds: MachineRounds;
   private readonly sleep: (ms: number) => Promise<void>;
   private get serverPid(): number {
     const identity = this.o.identity;
@@ -148,9 +141,6 @@ export class MachineMonitor {
   private lastPanelAt: number | null = null;
   private lastAnyAt: number | null = null;
   private sample: Sample | null = null;
-  private inflight: Promise<void> | null = null;
-  private cancelTimer: (() => void) | null = null;
-  private stopped = false;
 
   private lastCpu: { busyMs: number; totalMs: number; at: number } | null = null;
   private lastCpuSeconds = new Map<string, number>();
@@ -164,8 +154,18 @@ export class MachineMonitor {
   constructor(options: MachineMonitorOptions) {
     this.o = options;
     this.now = options.now ?? (() => new Date());
-    this.setTimer = options.setTimer ?? realTimer;
-    this.sleep = options.sleep ?? realSleep;
+    this.sleep = options.sleep ?? sleepFor;
+    this.rounds = new MachineRounds({
+      measure: () => this.measure(),
+      nextDelay: () => {
+        const at = this.now().getTime();
+        const interval = this.demandInterval(at);
+        return interval === null ? null : Math.max(0, (this.sample?.at ?? at) + interval - at);
+      },
+      wanted: () => this.demandInterval(this.now().getTime()) !== null,
+      logger: options.logger,
+      after: options.setTimer,
+    });
   }
 
   /* ---------- demand and rounds ---------- */
@@ -187,67 +187,16 @@ export class MachineMonitor {
     if (request.panel) this.lastPanelAt = at;
     const interval = this.demandInterval(at) ?? MACHINE_IDLE_INTERVAL_MS;
     if (!this.sample || at - this.sample.at > STALE_INTERVALS * interval) {
-      await this.waitFor(this.round(), VIEW_WAIT_MS);
+      await this.rounds.roundWithin(VIEW_WAIT_MS);
     } else {
-      this.schedule();
+      this.rounds.schedule();
     }
     return this.current(interval);
   }
 
   /** Stops measuring (server shutdown): waits for a round that is running. */
   async stop(): Promise<void> {
-    this.stopped = true;
-    this.cancelTimer?.();
-    this.cancelTimer = null;
-    await this.inflight?.catch(() => undefined);
-  }
-
-  private waitFor(work: Promise<void>, ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(resolve, ms);
-      timer.unref();
-      void work.then(
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-        () => {
-          clearTimeout(timer);
-          resolve();
-        },
-      );
-    });
-  }
-
-  /** One round at a time: a request that comes while one runs shares it. */
-  private round(): Promise<void> {
-    if (this.inflight) return this.inflight;
-    this.cancelTimer?.();
-    this.cancelTimer = null;
-    const run = this.measure()
-      .catch((err: unknown) => this.o.logger.warn({ err }, 'the machine measurement failed'))
-      .finally(() => {
-        this.inflight = null;
-        this.schedule();
-      });
-    this.inflight = run;
-    return run;
-  }
-
-  /** Arranges the next round from the last sample and the present demand. */
-  private schedule(): void {
-    if (this.stopped || this.inflight) return;
-    const at = this.now().getTime();
-    const interval = this.demandInterval(at);
-    this.cancelTimer?.();
-    this.cancelTimer = null;
-    if (interval === null) return;
-    const delay = Math.max(0, (this.sample?.at ?? at) + interval - at);
-    this.cancelTimer = this.setTimer(() => {
-      this.cancelTimer = null;
-      if (this.demandInterval(this.now().getTime()) === null) return;
-      void this.round();
-    }, delay);
+    await this.rounds.stop();
   }
 
   /* ---------- measuring ---------- */

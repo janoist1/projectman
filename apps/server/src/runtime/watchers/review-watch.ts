@@ -1,11 +1,11 @@
 import { isOpenTask, isTheme, reviewReturnedWork, stageOf } from '@projectman/shared';
-import type { Messaging } from './messaging';
-import type { DomainContext } from './context';
-import type { ProjectService } from './projects';
-import type { SessionOrchestrator } from '../runtime/sessions';
-import { stopStageReviewers, workStageBefore } from './stage-reviewers';
-import type { TaskService } from './tasks';
-import { KeyedMutex, SYSTEM_ACTOR } from './util';
+import type { Messaging } from '../../domain/messaging';
+import type { DomainContext } from '../../domain/context';
+import type { ProjectService } from '../../domain/projects';
+import type { SessionOrchestrator } from '../sessions';
+import { stopStageReviewers, workStageBefore } from '../../domain/stage-reviewers';
+import type { TaskService } from '../../domain/tasks';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../domain/util';
 
 /**
  * Reviews and tests work on the commit that was handed over (PM-183): the task's review pin. This

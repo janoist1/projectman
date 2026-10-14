@@ -20,18 +20,19 @@ import type {
   Task,
   WorkOutage,
 } from '@projectman/shared';
-import type { EngineDirectory, ProviderStatus, SessionRunner } from '../contracts';
-import { ENGINE_OFFLINE_AFTER_MS } from '../contracts';
-import type { ProjectAccess } from './access';
-import type { DeferredStarts } from '../runtime/admission';
-import { isoNow } from './context';
-import type { DomainContext } from './context';
-import { conflict, forbidden } from './errors';
-import type { InboxService } from './inbox';
-import type { MemberService } from './members';
-import type { Messaging } from './messaging';
-import type { ProjectService } from './projects';
-import type { TaskService } from './tasks';
+import type { EngineDirectory, ProviderStatus, SessionRunner } from '../../contracts';
+import { ENGINE_OFFLINE_AFTER_MS } from '../../contracts';
+import type { ProjectAccess } from '../../domain/access';
+import type { DeferredStarts } from '../admission';
+import { isoNow } from '../../domain/context';
+import type { DomainContext } from '../../domain/context';
+import { conflict, forbidden } from '../../domain/errors';
+import type { InboxService } from '../../domain/inbox';
+import type { MemberService } from '../../domain/members';
+import type { Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import type { TaskService } from '../../domain/tasks';
+import { waitForStatus } from './provider-status-wait';
 
 type Target =
   | { kind: 'engine'; engineId: EngineId | null }
@@ -375,24 +376,16 @@ export class WorkOutages {
   }
 
   private async status(entry: MemberTarget): Promise<ProviderStatus | null> {
-    if (entry.target.kind !== 'provider') return null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        this.deps.runner.providerStatus?.(entry.target.provider, {
+    const target = entry.target;
+    if (target.kind !== 'provider') return null;
+    return waitForStatus(
+      () =>
+        this.deps.runner.providerStatus?.(target.provider, {
           refresh: true,
           member: entry.member.handle,
           ...(entry.target.engineId ? { engineId: entry.target.engineId } : {}),
         }) ?? Promise.resolve(null),
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), 20_000);
-        }),
-      ]);
-    } catch {
-      return null;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    );
   }
 
   private hasSetupWait(entry: MemberTarget): boolean {

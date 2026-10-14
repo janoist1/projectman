@@ -1,11 +1,11 @@
 import { gateRequestOf, isOpenTask, isSessionAtWork, isTheme, stageAdvance } from '@projectman/shared';
 import type { InboxItem, Task } from '@projectman/shared';
-import type { DomainContext } from '../context';
-import { DomainError } from '../errors';
-import type { ProjectService } from '../projects';
-import type { SessionOrchestrator } from '../../runtime/sessions';
-import { KeyedMutex, SYSTEM_ACTOR } from '../util';
-import type { TaskService } from './service';
+import type { DomainContext } from '../../domain/context';
+import { DomainError } from '../../domain/errors';
+import type { ProjectService } from '../../domain/projects';
+import type { SessionOrchestrator } from '../sessions';
+import { KeyedMutex, SYSTEM_ACTOR } from '../../domain/util';
+import type { TaskService } from '../../domain/tasks';
 
 type AdvanceSessions = Pick<
   SessionOrchestrator,

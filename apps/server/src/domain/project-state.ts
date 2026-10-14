@@ -19,7 +19,7 @@ import type { ProjectService } from './projects';
 import type { TaskService, TaskWaits } from './tasks';
 import type { OperatorSignals } from './operator-signals';
 import type { PauseService } from './pause';
-import type { ReleaseService } from './releases';
+import type { ReleaseService } from '../services/releases';
 import { LIVE_SESSION_STATES } from './sessions';
 import type { DeferredStarts, MessageStarts } from './admission';
 import { invalid, notFound } from './errors';

@@ -454,7 +454,22 @@ export interface AttachmentToolsHandler {
   ): Promise<{ attachmentId: string; fileName: string | null }>;
 }
 
-export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler {
+/** The tools of services/releases (PM-606). */
+export interface ReleaseToolsHandler {
+  /**
+   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
+   * branch's head (or `commit`); `preview` only lists what the release would contain.
+   */
+  proposeRelease(
+    ctx: ToolContext,
+    args: { title: string; summary: string; commit?: string; preview?: boolean },
+  ): Promise<ProposedRelease>;
+  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
+  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
+}
+
+export interface TeamToolsHandler
+  extends MemberToolsHandler, TaskToolsHandler, AttachmentToolsHandler, ReleaseToolsHandler {
   getProjectState(
     ctx: ToolContext,
     args: { taskKey?: string; messageId?: string },
@@ -598,17 +613,6 @@ export interface TeamToolsHandler extends MemberToolsHandler, TaskToolsHandler, 
     ctx: ToolContext,
     args: { taskKey: string; reason: string },
   ): Promise<{ task: Task; moved: boolean }>;
-  /**
-   * propose_release (PM-491): the member with the deployment duty proposes releasing the default
-   * branch's head (or `commit`); `preview` only lists what the release would contain.
-   */
-  proposeRelease(
-    ctx: ToolContext,
-    args: { title: string; summary: string; commit?: string; preview?: boolean },
-  ): Promise<ProposedRelease>;
-  /** check_release (PM-542): only the Operator; the same checks as propose_release, nothing recorded. */
-  checkRelease(ctx: ToolContext, args: { commit?: string }): Promise<ReleaseCheckResult>;
-
   /** link_pull_request: attach a GitHub PR to the task. */
   linkPullRequest(
     ctx: ToolContext,

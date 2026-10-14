@@ -1,9 +1,9 @@
 import { operatorOf, projectDocsOf, SYSTEM_SENDER } from '@projectman/shared';
-import type { DomainContext } from './context';
-import type { DomainEventMap } from './events';
-import type { Messaging } from './messaging';
-import type { ProjectService } from './projects';
-import { SYSTEM_ACTOR } from './util';
+import type { DomainContext } from '../../domain/context';
+import type { DomainEventMap } from '../../domain/events';
+import type { Messaging } from '../../domain/messaging';
+import type { ProjectService } from '../../domain/projects';
+import { SYSTEM_ACTOR } from '../../domain/util';
 
 /**
  * A proposed release is a moment to compare the roadmap with the board (PM-497). The Operator is told with

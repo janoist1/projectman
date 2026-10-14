@@ -10,7 +10,7 @@ module tool definitions and handlers, and the text the model reads.
 
 A module's tools live in `mcp/<module>/`: `tools.ts` exports a `TeamToolGroup`,
 `handler.ts` implements the module's handler contract, and `index.ts` exports both.
-The first groups are `members`, `tasks` and `attachments`. `tools.ts` collects their
+The first groups are `members`, `tasks`, `attachments` and `releases`. `tools.ts` collects their
 definitions in `TEAM_TOOL_GROUPS`; `TeamToolsService` in `domain/team-tools.ts`
 forwards to their handlers. New tools belong in the module's group and handler,
 never in either collector. The remaining tools move with their own module's

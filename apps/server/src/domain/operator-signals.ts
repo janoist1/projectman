@@ -40,7 +40,7 @@ import type { ProjectService } from './projects';
 import type { SessionOrchestrator } from './sessions';
 import type { MessageDelivery } from './messaging';
 import type { TaskWaits } from './tasks';
-import type { ReleaseService } from './releases';
+import type { ReleaseService } from '../services/releases';
 import { conflict, invalid } from './errors';
 import { newId } from './util';
 

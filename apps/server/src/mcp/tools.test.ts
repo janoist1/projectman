@@ -54,13 +54,14 @@ describe('team tool registration', () => {
     }
   });
 
-  it('registers the ten moved tools with their owning modules', () => {
+  it('registers the moved tools with their owning modules', () => {
     expect(
       Object.fromEntries(
         TEAM_TOOL_GROUPS.map((group) => [group.module, group.tools.map((tool) => tool.name)]),
       ),
     ).toEqual({
       'core/members': ['list_members'],
+      'services/releases': ['propose_release', 'check_release'],
       'core/tasks': ['list_tasks', 'get_task', 'update_task', 'create_task'],
       'core/attachments': [
         'list_attachments',

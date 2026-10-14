@@ -10,7 +10,7 @@ import { conflict } from '../src/domain/errors';
 import type { Resolver } from '../src/domain/inbox';
 import type { Messaging } from '../src/domain/messaging';
 import type { ProjectService } from '../src/domain/projects';
-import { ReleaseRoadmapNotices } from '../src/domain/release-roadmap-notices';
+import { ReleaseRoadmapNotices } from '../src/services/releases';
 import type { ToolContext } from '../src/contracts';
 import { createDomainHarness, OWNER as OWNER_AUTHOR, OWNER_ACTOR } from './helpers/domain-harness';
 import type { DomainHarness } from './helpers/domain-harness';

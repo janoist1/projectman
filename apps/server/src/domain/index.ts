@@ -1,6 +1,7 @@
 import { MemberTools } from '../mcp/members';
 import { TaskTools } from '../mcp/tasks';
 import { AttachmentTools } from '../mcp/attachments';
+import { ReleaseTools } from '../mcp/releases';
 import { ToolCaller } from '../mcp/caller';
 import {
   canManageInstancePause,
@@ -85,9 +86,8 @@ import { FullTestRuns } from './full-tests';
 import { DecisionCandidates } from './decision-candidates';
 import { DocWrites } from './doc-writes';
 import { Merges } from './merges';
-import { ReleaseRoadmapNotices } from './release-roadmap-notices';
-import { ReleaseService } from './releases';
-import type { ReleaseTarget } from './releases';
+import { ReleaseRoadmapNotices, ReleaseService } from '../services/releases';
+import type { ReleaseTarget } from '../services/releases';
 import { MergeCardLock } from './merge-card-lock';
 import { LoopWatch } from './loop-watch';
 import { OpenQuestionLabel } from './open-question-label';
@@ -212,7 +212,7 @@ export { ProviderKeys } from './provider-keys';
 export type { NanogptKeyCheck } from './provider-keys';
 export { createNanogptKeyCheck } from './nanogpt-key-check';
 
-export type { ReleaseTarget } from './releases';
+export type { ReleaseTarget } from '../services/releases';
 
 export interface DomainOptions {
   nanogptKeyCheck?: import('./provider-keys').NanogptKeyCheck;
@@ -1081,6 +1081,7 @@ export function createDomain(opts: DomainOptions) {
     calls: toolCaller,
     tools: {
       members: new MemberTools({ calls: toolCaller, members }),
+      releases: new ReleaseTools({ calls: toolCaller, releases }),
       tasks: new TaskTools({
         calls: toolCaller,
         ctx,
@@ -1108,7 +1109,6 @@ export function createDomain(opts: DomainOptions) {
     docWrites,
     decisionCandidates,
     merges,
-    releases,
     operatorRequests,
     operatorSteps,
     operatorActions,

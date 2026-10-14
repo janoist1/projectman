@@ -10,6 +10,7 @@ import type { PipeEnd, RunResult } from './deps';
 import { CloudError, refused } from './errors';
 import { expandHome } from './config';
 import { writeSecret } from './secrets';
+import { withEc2Host } from './ec2-host';
 
 /**
  * The ssh side of the machine commands (PM-535). A session does, in this order: finds the machine and the
@@ -157,7 +158,7 @@ export interface HostRunOptions {
 }
 
 export interface HostSession {
-  /** The public address of the machine. */
+  /** Lightsail public address, or the EC2 instance id (no public SSH endpoint). */
   readonly address: string;
   /** Aborts when the user interrupts the command. */
   readonly signal: AbortSignal;
@@ -179,13 +180,54 @@ interface Credentials {
   user: string;
 }
 
+/** Both transports send the same script and payload, and interpret the same host.sh responses. */
+export function createHostSession(
+  context: CloudContext,
+  address: string,
+  signal: AbortSignal,
+  sshArgs: () => Promise<string[]>,
+): HostSession {
+  const remoteCommand = (subcommand: HostSubcommand, args: string[]): string => {
+    const script = readRepoFile(hostScriptPath(context.deps.repoRoot));
+    if (Buffer.byteLength(script) > SCRIPT_LIMIT_BYTES)
+      throw new Error('deploy/aws/host.sh is too large to send');
+    return ['sudo', 'bash', '-c', script, 'host.sh', subcommand, ...args].map(shellQuote).join(' ');
+  };
+  const host: HostSession = {
+    address,
+    signal,
+    async run(subcommand, args = [], options = {}) {
+      const argv = await sshArgs();
+      return context.deps.run('ssh', [...argv, remoteCommand(subcommand, args)], { ...options, signal });
+    },
+    async call(subcommand, args = [], options = {}) {
+      const result = await host.run(subcommand, args, options);
+      if (signal.aborted) throw new CloudError('interrupted', 1);
+      if (result.code !== 0) {
+        const detail = lastLines(result.stderr || result.stdout, 3) || `exit status ${result.code}`;
+        if (result.code === 3) throw refused(detail.replace(/^host\.sh: refused: /, ''));
+        throw new CloudError(`${subcommand} failed on the machine (status ${result.code}): ${detail}`);
+      }
+      return result.stdout;
+    },
+    async command(subcommand, args = []) {
+      const argv = await sshArgs();
+      return { command: 'ssh', args: [...argv, remoteCommand(subcommand, args)], signal };
+    },
+    async shell() {
+      return context.deps.run('ssh', await sshArgs(), { stdio: 'inherit', signal });
+    },
+  };
+  return host;
+}
+
 /** Runs `body` with an ssh session on the machine; see the file comment for what is opened and closed. */
 export async function withHost<T>(
   context: CloudContext,
   body: (host: HostSession) => Promise<T>,
 ): Promise<T> {
   const { deps, config, report } = context;
-  if (config.aws.compute === 'ec2') throw refused('EC2 host sessions require the SSH/SSM adapter (PM-677)');
+  if (config.aws.compute === 'ec2') return withEc2Host(context, body);
   const cli = new AwsCli(deps, config.aws);
   const controller = new AbortController();
   let reject: (error: Error) => void = () => undefined;
@@ -261,44 +303,12 @@ export async function withHost<T>(
       return fresh;
     };
 
-    const remoteCommand = (subcommand: HostSubcommand, args: string[]): string => {
-      const script = readRepoFile(hostScriptPath(deps.repoRoot));
-      if (Buffer.byteLength(script) > SCRIPT_LIMIT_BYTES)
-        throw new Error('deploy/aws/host.sh is too large to send');
-      return ['sudo', 'bash', '-c', script, 'host.sh', subcommand, ...args].map(shellQuote).join(' ');
-    };
-
-    const host: HostSession = {
+    const host = createHostSession(
+      context,
       address,
-      signal: controller.signal,
-      async run(subcommand, args = [], options = {}) {
-        const credential = await refresh();
-        return deps.run('ssh', [...credential.sshArgs, remoteCommand(subcommand, args)], {
-          ...(options.input === undefined ? {} : { input: options.input }),
-          ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-          ...(options.stdio === undefined ? {} : { stdio: options.stdio }),
-          signal: controller.signal,
-        });
-      },
-      async call(subcommand, args = [], options = {}) {
-        const result = await host.run(subcommand, args, options);
-        if (controller.signal.aborted) throw new CloudError('interrupted', 1);
-        if (result.code !== 0) {
-          const detail = lastLines(result.stderr || result.stdout, 3) || `exit status ${result.code}`;
-          if (result.code === 3) throw refused(detail.replace(/^host\.sh: refused: /, ''));
-          throw new CloudError(`${subcommand} failed on the machine (status ${result.code}): ${detail}`);
-        }
-        return result.stdout;
-      },
-      async command(subcommand, args = []) {
-        const credential = await refresh();
-        return { command: 'ssh', args: [...credential.sshArgs, remoteCommand(subcommand, args)] };
-      },
-      async shell() {
-        const credential = await refresh();
-        return deps.run('ssh', credential.sshArgs, { stdio: 'inherit', signal: controller.signal });
-      },
-    };
+      controller.signal,
+      async () => (await refresh()).sshArgs,
+    );
     return body(host);
   })();
   // `work` may fail after the race below is decided; its error is then of no interest.

@@ -21,14 +21,6 @@ afterEach(() => world.cleanup());
 const run = (...args: string[]) => runCloud(['aws', ...args], world.deps());
 
 describe('EC2 provisioning and the account boundary', () => {
-  it.each(['up', 'status', 'ssh', 'deploy'])(
-    'refuses the legacy %s host path before any AWS call',
-    async (command) => {
-      expect(await runCloud([command], world.deps())).toBe(2);
-      expect(world.output).toContain('PM-677');
-      expect(world.aws.calls).toEqual([]);
-    },
-  );
   it('creates one protected EC2 instance in the central profile with a private backup scope', async () => {
     expect(await run()).toBe(0);
     expect(world.output).toContain(`profile aroom, account ${ACCOUNT}`);

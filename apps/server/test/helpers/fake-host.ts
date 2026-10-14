@@ -366,7 +366,7 @@ export class HostWorld extends CloudWorld {
 
   private async ssh(args: string[], options: RunOptions): Promise<RunResult> {
     const last = args[args.length - 1]!;
-    const interactive = /^[a-z_][a-z0-9_-]*@[0-9.]+$/.test(last);
+    const interactive = /^[a-z_][a-z0-9_-]*@(?:[0-9.]+|i-[0-9a-f]+)$/.test(last);
     const sshArgs = interactive ? args : args.slice(0, -1);
     if (interactive) {
       this.shells.push(args);
@@ -381,9 +381,12 @@ export class HostWorld extends CloudWorld {
     const certificate = sshArgs
       .find((arg) => arg.startsWith('CertificateFile='))
       ?.slice('CertificateFile='.length);
-    const knownHostsFile = sshArgs
+    const knownHostsOption = sshArgs
       .find((arg) => arg.startsWith('UserKnownHostsFile='))
       ?.slice('UserKnownHostsFile='.length);
+    const knownHostsFile = knownHostsOption?.startsWith('"')
+      ? (JSON.parse(knownHostsOption) as string)
+      : knownHostsOption;
     const inspect = (file: string | undefined) =>
       file && existsSync(file)
         ? { exists: true, mode: statSync(file).mode & 0o777, content: readFileSync(file, 'utf8') }
@@ -419,11 +422,14 @@ export class HostWorld extends CloudWorld {
     this.pipes.push({ from, to });
     if (this.pipeCode !== 0) return { code: this.pipeCode, stdout: '', stderr: 'tar: broken\n' };
     if (from.command === 'tar' && to.command === 'ssh') {
-      const result = await this.ssh(to.args, { input: `tar ${from.args.join(' ')}` });
+      const result = await this.ssh(to.args, {
+        input: `tar ${from.args.join(' ')}`,
+        ...(to.signal ? { signal: to.signal } : {}),
+      });
       return result;
     }
     if (from.command === 'ssh' && to.command === 'tar') {
-      const result = await this.ssh(from.args, {});
+      const result = await this.ssh(from.args, from.signal ? { signal: from.signal } : {});
       if (result.code !== 0) return result;
       const directory = optionValue(to.args, '-C');
       if (directory && this.pullWritesFiles) writeFileSync(path.join(directory, 'db.sqlite'), 'sqlite');

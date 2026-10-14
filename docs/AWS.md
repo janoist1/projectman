@@ -76,9 +76,9 @@ The only UserData is `deploy/aws/ec2-bootstrap.sh`: it installs/enables sshd, EC
 and the SSM agent. Credentials, `cloud.env`, board data and engine keys are absent. Ubuntu's snap
 agent setup follows the [AWS Ubuntu SSM guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/agent-install-ubuntu-64-snap.html);
 image ownership/name checks follow the [Canonical image catalogue](https://ubuntu.com/aws/docs/aws-how-to/instances/find-ubuntu-images/).
-Host operation over SSH through SSM is the next slice, **PM-677**; `up` and the legacy Lightsail
-host commands refuse an EC2 configuration until that adapter is installed. The container keeps bridge
-networking, with no public port, host network or Docker socket.
+Host operation uses **SSH through SSM (PM-677)** for `compute=ec2`; the same cloud commands
+select the legacy transport only for `compute=lightsail`. The container keeps bridge networking,
+with no public port, host network or Docker socket.
 
 The provisioning login needs the EC2 describe operations above and `DescribeInstances`,
 `DescribeSecurityGroups`, `DescribeVolumes`, `DescribeInstanceAttribute`, `CreateSecurityGroup`,
@@ -88,6 +88,96 @@ tag-on-create `CreateTags`, `RunInstances`; IAM `GetRole`, `CreateRole`, `ListRo
 the host role and EC2 service. S3 and backup-user permissions are listed in the legacy/common
 resource guide below. The `i` login needs only the registrar/Route 53 rights for the requested
 DNS reads; it receives no EC2, S3, host IAM or SES provisioning call.
+
+## EC2 host operation through SSM (PM-677)
+
+All host commands (`deploy`, `rollback`, `status`, `logs`, `stop`, `start`, `rehearse`, `seed`,
+`pull-data`, `ssh`, and the host step of `up`) use the same `deploy/aws/host.sh`, systemd unit,
+JSON responses, full-SHA image tags and data paths as Lightsail. There is **no inbound SSH rule**,
+public-IP connection, long-lived key import or public-SSH fallback. `aws.sshIdentityFile` applies
+only to Lightsail; EC2 always generates an ephemeral key. The address exposed by the adapter is
+the EC2 instance id, never its public IPv4 address.
+
+On the owner/integrator's POSIX machine, install **AWS CLI v2**, **session-manager-plugin**,
+**OpenSSH** (`ssh` and `ssh-keygen`), git and tar. Log in to the explicit central profile
+(`aroom` for PM-664). Along with the provisioning rights, the caller needs `ec2:DescribeInstances`,
+`ec2-instance-connect:SendSSHPublicKey` for the selected instance and OS user `ubuntu`, and SSM
+`DescribeInstanceInformation`, `SendCommand` (the instance and `AWS-RunShellScript` document),
+`GetCommandInvocation`, `StartSession` (the instance and `AWS-StartSSHSession` document),
+`DescribeSessions` and `TerminateSession` for its own sessions. These are caller rights; do not
+add them to the instance's SSM-agent role or give the registrar profile `i` compute access.
+
+The connection sequence is:
+
+1. Describe instances by the configured `Name`; require exactly one nonterminated instance,
+   with matching `Name` and `ProjectmanManaged=true` tags, a valid instance id/AZ, and state `running`.
+   Require that exact instance to report `Online` in SSM. Missing, ambiguous, offline or timed-out
+   answers refuse operation; `status` can report a stopped machine without SSH.
+2. SSM `AWS-RunShellScript` runs only the fixed public command
+   `cat /etc/ssh/ssh_host_ed25519_key.pub`, targeting only that instance id. Poll its invocation
+   for at most 120 seconds. Validate the single-line ed25519 key, including its binary format,
+   and omit raw AWS/RunCommand output on failure. No secrets, tar, script installation or application
+   command enter RunCommand or UserData.
+3. Create a temporary directory (700), private key (600) and `known_hosts` (600). Pin the
+   SSM-authenticated host key with `StrictHostKeyChecking=yes`, `IdentitiesOnly=yes`, no password,
+   no user SSH config and no global host-key fallback. There is no TOFU or disabled checking.
+4. Immediately before **each** SSH connection, send only the temporary **public** key through
+   EC2 Instance Connect for the instance's actual AZ and `ubuntu`. The key is valid for 60 seconds;
+   long builds do not consume the next connection's window. The private key stays on the owner machine.
+5. SSH connects to `ubuntu@i-…` with a validated, quoted ProxyCommand:
+   `aws --profile aroom --region <configured-region> ssm start-session --target <instance-id> --document-name AWS-StartSSHSession --parameters portNumber=22`.
+   The actual command also disables CLI prompts/pagers and carries a random public `--reason`
+   correlation id unique to each connection. `cloud.env` uses SSH stdin and tar uses an SSH stream. AWS sees only the
+   tunnel's encrypted SSH traffic, not the payload. See
+   [AWS's SSH transport guide](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-enable-ssh-connections.html),
+   [SSH session logging boundary](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-logging.html)
+   and [EIC key lifetime](https://docs.aws.amazon.com/cli/latest/reference/ec2-instance-connect/send-ssh-public-key.html).
+6. On success, failure, timeout or Ctrl-C, stop the local SSH/AWS/plugin process group, wait for
+   the stream peers, then reconcile active SSM sessions by target and the exact set of random
+   reasons issued by this invocation. Read all pages before terminating any matching session.
+   The cleanup AWS phase has a 30-second total budget, including the process runner's 5-second
+   shutdown grace, with at least three complete snapshots 2 seconds apart. After termination,
+   a fresh complete snapshot must show no own active session. Delayed visibility and transient
+   failures retry within that budget. Temporary files and signal handlers are removed in a separate
+   finally even if AWS fails. A failed cleanup exits 1, retains the original operation error and
+   prints the public instance id/reasons for manual inspection. Other operators' sessions are untouched.
+   This observation window does not guarantee AWS consistency; failed verification needs the manual
+   inspection below.
+
+### Owner/integrator live rehearsal
+
+No live AWS operation runs as part of the card's fake tests. Run the following only in the
+approved live execution round (PM-675), with the explicit EC2/aroom configuration from PM-676.
+Use `--config <file>` on every command if it is outside the default store.
+
+1. Confirm the provisioned instance is running, bootstrap has finished, its SSM agent is `Online`,
+   and its security group still has empty inbound rules. Check CLI/plugin versions locally and
+   the caller permissions above. Failure here is a dependency to fix, never a reason to open port 22.
+2. `npm run cloud -- deploy --dry-run --ref <approved-sha>` prints the SSM path without connecting.
+   `npm run cloud -- status` then proves Online lookup, authenticated host key, EIC and SSH while
+   reporting the existing unit/container state. Follow with `logs --lines 25` and `ssh`; exit the shell.
+   Verify that no temporary key directory or correlated active SSM session remains.
+3. For a fresh empty host and empty database/backup buckets, stop the local writer, make the
+   approved hybrid package, then `seed --from <package-dir> --ref <approved-sha>`. Existing host
+   data, a running board, nonempty buckets or provider credentials in the package must refuse the seed.
+   `deploy --ref <approved-sha>` updates an already-seeded installation without relaxing these guards.
+4. Verify `status`, `logs` and `rehearse` (requires `REHEARSAL PASSED`). In the approved downtime
+   window, `stop`, `pull-data --to <new-directory>` and `start` verify one-writer behavior and the
+   return stream. Keep the copy outside a git worktree; never copy a running database.
+5. Exercise Ctrl-C during a disposable build or transfer. Confirm local SSH/plugin descendants
+   ended, key files disappeared, and active SSM sessions for the printed correlation id closed.
+   A partial pull directory is removed. Recheck empty inbound rules. Rollback keeps the existing
+   migration refusal and point-in-time restore procedure; an older image is not a database downgrade.
+
+If cleanup fails, use `aws --profile aroom --region <region> ssm describe-sessions --state Active
+--filters key=Target,value=<instance-id>` in the owner round. Match **both** the target and exact
+`Reason` printed by the failed command; terminate each matching `SessionId` with
+`aws --profile aroom --region <region> ssm terminate-session --session-id <session-id>`.
+Do not broadly terminate sessions or use public SSH to recover an offline SSM agent. Repair its
+outbound connectivity/agent through the approved EC2 recovery procedure instead.
+
+This is the owner's central-server administration connection, independent of the Mac engine link.
+The engine receives no AWS login, new RPC, host private key or cloud-admin payload.
 
 ## Lightsail compatibility and common backup/Cloudflare guide (PM-532)
 
@@ -179,7 +269,7 @@ and names the field's path. `deploy/aws/config.example.json` has every field you
 
 | Field                                    | Default                                      | Meaning                                                                                             |
 | ---------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `aws.compute`                            | `lightsail`                                  | `ec2` selects PM-676 provisioning; existing version-1 files keep Lightsail                          |
+| `aws.compute`                            | `lightsail`                                  | `ec2` selects EC2 provisioning and SSH over SSM; existing version-1 files keep Lightsail            |
 | `aws.profile`                            | `i`                                          | the AWS CLI profile                                                                                 |
 | `aws.ec2`                                | none                                         | required for EC2: explicit type, AMI, existing VPC/subnet, integer root volume GiB (20–1024)        |
 | `aws.region`                             | required                                     | for example `eu-west-1`                                                                             |
@@ -277,7 +367,7 @@ the systemd unit `projectman-cloud.service`.
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `deploy [--ref <tag\|sha>] [--dry-run]`   | installs the machine (idempotent), sends `cloud.env`, builds the image of the ref there, starts it, waits up to 180 s for health, goes back to the old image if none |
 | `rollback [--dry-run]`                    | starts the previous image (the one before the current), waits for health                                                                                             |
-| `status`                                  | the state of the machine (Lightsail), the unit, the container and its health, the deploy history, disk and memory                                                    |
+| `status`                                  | the state of the EC2 or Lightsail machine, the unit, the container and its health, the deploy history, disk and memory                                               |
 | `logs [--lines <n>]`                      | the last `n` lines (default 200, at most 10000) of the unit's log (`journalctl`)                                                                                     |
 | `ssh`                                     | a shell on the machine, with the same safe connection                                                                                                                |
 | `stop [--dry-run]`, `start [--dry-run]`   | stop the board (data stays, the unit is disabled); start the current image again and wait for health                                                                 |
@@ -324,7 +414,7 @@ go back, and every `rollback`, prints when the board last stopped before the upd
 | `/var/lib/projectman/deploy.json`              | the deploy history and the time the board last stopped                                       |
 | `/opt/projectman/src`                          | the checkout the image is built from                                                         |
 
-### How the SSH connection is made
+### How the Lightsail SSH connection is made
 
 Port 22 is open only for Lightsail's browser client (`lightsail-connect`). Every command that needs
 the machine therefore does this, in this order, and always undoes it:

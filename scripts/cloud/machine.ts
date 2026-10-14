@@ -10,6 +10,7 @@ import type { HostSession, HostStatus } from './host';
 import { readHostStatus, readUnitFile, withHost } from './host';
 import type { StepResult } from './report';
 import { readSecret } from './secrets';
+import { readEc2HostInstance } from './ec2-host';
 
 /**
  * The commands that manage the machine (PM-535): `deploy`, `rollback`, `status`, `logs`, `ssh`, `stop`,
@@ -297,7 +298,7 @@ export async function runDeploy(context: CloudContext, options: DeployOptions): 
     report.step(
       'skipped',
       'deploy',
-      `dry-run: would open the SSH port for your address, bootstrap ${config.aws.instanceName}, send cloud.env, build ${target.sha} there, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
+      `dry-run: would ${config.aws.compute === 'ec2' ? 'connect by SSH through SSM' : 'open the SSH port for your address'}, bootstrap ${config.aws.instanceName}, send cloud.env, build ${target.sha} there, start it and wait up to ${HEALTH_SECONDS} s for health (back to the earlier image if it never comes)`,
     );
     return;
   }
@@ -388,6 +389,15 @@ export async function runStatus(context: CloudContext): Promise<void> {
   const { config, report, deps } = context;
   const cli = new AwsCli(deps, config.aws);
   const state = await report.guard('machine', async () => {
+    if (config.aws.compute === 'ec2') {
+      const instance = await readEc2HostInstance(context);
+      report.step(
+        'ok',
+        'machine',
+        `${config.aws.instanceName} (${instance.InstanceId}): ${instance.State.Name}`,
+      );
+      return instance.State.Name;
+    }
     const answer = await cli.callAsOrNull(
       ['lightsail', 'get-instance-state', '--instance-name', config.aws.instanceName],
       ['NotFoundException'],
